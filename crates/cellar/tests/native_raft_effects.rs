@@ -1,6 +1,8 @@
 //! Native business-feature qualification. Blob cases use one explicit
 //! development voter; these do not qualify alarm/outbox scheduling or failover.
 #![allow(clippy::disallowed_methods)]
+#[path = "support/raft_alarm_native.rs"]
+mod alarms;
 #[path = "support/raft_catalog_fault.rs"]
 #[allow(dead_code)]
 mod faults;
@@ -19,6 +21,31 @@ use std::{
     },
     time::Duration,
 };
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 6)]
+async fn alarm_no_traffic_recovery() -> Result<()> {
+    alarms::no_traffic_recovery().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 6)]
+async fn native_alarm_private_intent_is_not_scheduled() -> Result<()> {
+    alarms::private_intent().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 6)]
+async fn native_alarm_rearm_cancel_and_public_system_refusal() -> Result<()> {
+    alarms::rearm_cancel_and_system_refusal().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn native_alarm_requires_scheduler_before_catalog_activation() -> Result<()> {
+    alarms::disabled_scheduler_preflight().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 6)]
+async fn native_alarm_node_shutdown_joins_owned_timer() -> Result<()> {
+    alarms::node_shutdown_joins_timer().await
+}
 
 struct Definition {
     application: Arc<dyn Application>,

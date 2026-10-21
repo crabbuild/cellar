@@ -460,14 +460,38 @@ impl PrivateExecutor {
         input: &[u8],
         allow_new: bool,
     ) -> Result<StageOutcome, ExecutionError> {
+        self.stage_registered_kind(attempt, class, input, allow_new, false)
+    }
+
+    pub(crate) fn stage_system_admitted(
+        &mut self,
+        attempt: CommandAttempt,
+        class: &RaftClass,
+        input: &[u8],
+        allow_new: bool,
+    ) -> Result<StageOutcome, ExecutionError> {
+        self.stage_registered_kind(attempt, class, input, allow_new, true)
+    }
+
+    fn stage_registered_kind(
+        &mut self,
+        attempt: CommandAttempt,
+        class: &RaftClass,
+        input: &[u8],
+        allow_new: bool,
+        system: bool,
+    ) -> Result<StageOutcome, ExecutionError> {
         let contract = OperationContract {
             operation: attempt.request.operation.clone(),
             kind: OperationKind::Command,
             digest: attempt.request.contract_digest,
         };
-        class
-            .validate_operation(&contract)
-            .map_err(ExecutionError::Registration)?;
+        if system {
+            class.validate_system_operation(&contract)
+        } else {
+            class.validate_operation(&contract)
+        }
+        .map_err(ExecutionError::Registration)?;
         if class.schema_digest() != self.options.application_digest {
             return Err(ExecutionError::Registration(
                 RegistrationError::ContractMismatch,
@@ -481,13 +505,25 @@ impl PrivateExecutor {
         }
         let scope = self.authority.replica.scope.clone();
         let command = attempt.request.id;
+        let durability = attempt.request.durability;
         self.stage(attempt, |transaction| {
             // Receipt lookup precedes this closure. A retry may recover its
             // stored result while backlog admission refuses new business work.
             if !allow_new {
                 return Err(anyhow::Error::new(CommandFailure::Overloaded));
             }
-            class.invoke_command(&contract, &scope, command, transaction, input)
+            if system {
+                class.invoke_system_command(
+                    &contract,
+                    &scope,
+                    command,
+                    durability,
+                    transaction,
+                    input,
+                )
+            } else {
+                class.invoke_command(&contract, &scope, command, durability, transaction, input)
+            }
         })
     }
 

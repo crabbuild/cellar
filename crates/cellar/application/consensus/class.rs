@@ -1,10 +1,14 @@
 //! Compiled, synchronous Raft operations with no ordinary mutable cell factory.
 
-use super::{CommandId, CommittedVersion, GroupScope};
+use super::{CommandId, CommittedVersion, Durability, GroupScope};
 use crate::storage::{CommandInputs, CommandTransaction, ImmutableQuery};
 use cellar_logic::NamespaceMode;
 use sha2::{Digest, Sha256};
-use std::{collections::BTreeMap, fmt, sync::Arc};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fmt,
+    sync::Arc,
+};
 
 thread_local! { static CALLBACK_ACTIVE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) }; }
 
@@ -76,13 +80,17 @@ impl fmt::Display for RegistrationError {
 impl std::error::Error for RegistrationError {}
 
 /// Borrowed for one synchronous command transaction. This context has no
-/// outbound network, cell-call, task-spawn, alarm or general storage capability.
+/// outbound network, cell-call, task-spawn or general storage capability.
+/// Explicitly declared alarms persist intents through the command transaction.
 /// Native code is trusted; this contract is not an operating-system sandbox.
 pub struct CommandContext<'a> {
     scope: &'a GroupScope,
     command: CommandId,
     transaction: &'a CommandTransaction<'a>,
     blobs: Option<super::RaftBlobLimits>,
+    alarm_limits: Option<super::RaftAlarmLimits>,
+    alarm_names: &'a BTreeSet<String>,
+    durability: Durability,
 }
 
 impl<'a> CommandContext<'a> {
@@ -122,6 +130,39 @@ impl<'a> CommandContext<'a> {
                 .ok_or(super::CommandFailure::UnsupportedCapability)?,
             reference,
         )
+    }
+}
+
+impl CommandContext<'_> {
+    /// Arm a declared alarm in this transaction. Only its committed generation
+    /// can fire; setting it again replaces the previously selected generation.
+    pub fn set_alarm(
+        &self,
+        name: &str,
+        due_unix_millis: u64,
+        payload: &[u8],
+    ) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            self.alarm_names.contains(name),
+            super::CommandFailure::UnsupportedCapability
+        );
+        crate::raft::effects::alarm::arm(
+            self,
+            self.durability,
+            name,
+            due_unix_millis,
+            payload,
+            self.alarm_limits
+                .ok_or(super::CommandFailure::UnsupportedCapability)?,
+        )
+    }
+
+    pub fn cancel_alarm(&self, name: &str) -> anyhow::Result<bool> {
+        anyhow::ensure!(
+            self.alarm_names.contains(name),
+            super::CommandFailure::UnsupportedCapability
+        );
+        crate::raft::effects::alarm::cancel(self.transaction.framework(), name)
     }
 }
 
@@ -172,6 +213,11 @@ struct Command {
     callback: Arc<CommandCallback>,
 }
 
+enum RegisteredCommand<'a> {
+    Application(&'a OperationContract),
+    System(&'a OperationContract),
+}
+
 struct Query {
     digest: [u8; 32],
     callback: Arc<QueryCallback>,
@@ -186,8 +232,11 @@ pub struct RaftClass {
     base_schema_digest: [u8; 32],
     schema_digest: [u8; 32],
     commands: BTreeMap<String, Command>,
+    system_commands: BTreeMap<String, Command>,
     queries: BTreeMap<String, Query>,
     blobs: Option<super::RaftBlobLimits>,
+    alarm_limits: Option<super::RaftAlarmLimits>,
+    alarm_names: BTreeSet<String>,
 }
 
 impl RaftClass {
@@ -220,8 +269,11 @@ impl RaftClass {
             base_schema_digest: schema_digest,
             schema_digest,
             commands: BTreeMap::new(),
+            system_commands: BTreeMap::new(),
             queries: BTreeMap::new(),
             blobs: None,
+            alarm_limits: None,
+            alarm_names: BTreeSet::new(),
         };
         class.bind_command_manifest();
         Ok(class)
@@ -264,10 +316,69 @@ impl RaftClass {
         self.blobs
     }
 
+    pub fn alarms(mut self, limits: super::RaftAlarmLimits) -> Result<Self, RegistrationError> {
+        limits
+            .validate()
+            .map_err(|_| RegistrationError::Invalid("alarm limits"))?;
+        if self.alarm_limits.is_some() {
+            return Err(RegistrationError::Invalid("duplicate alarm capability"));
+        }
+        self.alarm_limits = Some(limits);
+        self.bind_command_manifest();
+        Ok(self)
+    }
+
+    /// The owned scheduler invokes this synchronous transaction callback through
+    /// a private replicated command after selecting its committed generation.
+    pub fn alarm(
+        mut self,
+        name: impl Into<String>,
+        digest: [u8; 32],
+        callback: impl for<'a> Fn(&CommandContext<'a>, &[u8]) -> anyhow::Result<()>
+            + Send
+            + Sync
+            + 'static,
+    ) -> Result<Self, RegistrationError> {
+        let name = name.into();
+        self.validate_new(&name, digest)?;
+        let limits = self.alarm_limits.unwrap_or_default();
+        if name.len() > 64 || self.alarm_names.len() >= limits.max_alarms {
+            return Err(RegistrationError::Limit);
+        }
+        self.alarm_limits = Some(limits);
+        self.alarm_names.insert(name.clone());
+        let operation = crate::raft::effects::alarm::operation(&name);
+        let mut hash = Sha256::new();
+        hash.update(b"cellar-raft-alarm-callback-1");
+        hash.update(digest);
+        self.register_system_command(operation, hash.finalize().into(), move |context, input| {
+            crate::raft::effects::alarm::fire(context, &name, limits, input, &callback)
+        })?;
+        Ok(self)
+    }
+
+    pub(crate) fn alarm_limits(&self) -> Option<super::RaftAlarmLimits> {
+        self.alarm_limits
+    }
+
     pub(crate) fn validate_host(
         &self,
         host: &crate::raft::host::RaftHostOptions,
     ) -> anyhow::Result<()> {
+        if let Some(limits) = self.alarm_limits {
+            anyhow::ensure!(
+                host.alarms.is_some()
+                    && host.max_input_bytes >= 1024
+                    && host.execution.max_client_identities >= 2
+                    && host.execution.max_retained_receipts >= 2
+                    && limits
+                        .max_payload_bytes
+                        .checked_mul(limits.max_alarms)
+                        .and_then(|n| n.checked_add(128 * 1024))
+                        .is_some_and(|n| n as u64 <= host.execution.max_image_bytes),
+                "alarm capability requires an enabled scheduler, internal command capacity and image capacity"
+            );
+        }
         if let Some(limits) = self.blobs {
             let archive = host.archive.limits;
             anyhow::ensure!(
@@ -363,21 +474,121 @@ impl RaftClass {
         Ok(())
     }
 
+    /// System operations are absent from public discovery and normal command
+    /// validation. Only the node's owned business-feature adapters use them.
+    pub(crate) fn system_contract(&self, operation: &str) -> Option<OperationContract> {
+        let command = self.system_commands.get(operation)?;
+        Some(OperationContract {
+            operation: operation.into(),
+            kind: OperationKind::Command,
+            digest: command.digest,
+        })
+    }
+
+    pub(crate) fn has_system_commands(&self) -> bool {
+        !self.system_commands.is_empty()
+    }
+
+    pub(crate) fn validate_system_operation(
+        &self,
+        contract: &OperationContract,
+    ) -> Result<(), RegistrationError> {
+        if self.system_contract(&contract.operation).as_ref() != Some(contract) {
+            return Err(RegistrationError::ContractMismatch);
+        }
+        Ok(())
+    }
+
+    pub(crate) fn register_system_command(
+        &mut self,
+        operation: String,
+        digest: [u8; 32],
+        callback: impl for<'a> Fn(&CommandContext<'a>, &[u8]) -> anyhow::Result<Vec<u8>>
+            + Send
+            + Sync
+            + 'static,
+    ) -> Result<(), RegistrationError> {
+        validate_name(&operation)?;
+        if !operation.starts_with("__sys_raft_")
+            || digest == [0; 32]
+            || self.system_commands.contains_key(&operation)
+            || self.system_commands.len() >= 64
+        {
+            return Err(RegistrationError::Invalid("system command"));
+        }
+        self.system_commands.insert(
+            operation,
+            Command {
+                digest,
+                callback: Arc::new(callback),
+            },
+        );
+        self.bind_command_manifest();
+        Ok(())
+    }
+
     pub(crate) fn invoke_command(
         &self,
         contract: &OperationContract,
         scope: &GroupScope,
         command: CommandId,
+        durability: Durability,
         transaction: &CommandTransaction<'_>,
         input: &[u8],
     ) -> anyhow::Result<Vec<u8>> {
-        self.validate_operation(contract)?;
+        self.invoke_registered_command(
+            RegisteredCommand::Application(contract),
+            scope,
+            command,
+            durability,
+            transaction,
+            input,
+        )
+    }
+
+    pub(crate) fn invoke_system_command(
+        &self,
+        contract: &OperationContract,
+        scope: &GroupScope,
+        command: CommandId,
+        durability: Durability,
+        transaction: &CommandTransaction<'_>,
+        input: &[u8],
+    ) -> anyhow::Result<Vec<u8>> {
+        self.invoke_registered_command(
+            RegisteredCommand::System(contract),
+            scope,
+            command,
+            durability,
+            transaction,
+            input,
+        )
+    }
+
+    fn invoke_registered_command(
+        &self,
+        registration: RegisteredCommand<'_>,
+        scope: &GroupScope,
+        command: CommandId,
+        durability: Durability,
+        transaction: &CommandTransaction<'_>,
+        input: &[u8],
+    ) -> anyhow::Result<Vec<u8>> {
+        let (contract, commands) = match registration {
+            RegisteredCommand::Application(contract) => {
+                self.validate_operation(contract)?;
+                (contract, &self.commands)
+            }
+            RegisteredCommand::System(contract) => {
+                self.validate_system_operation(contract)?;
+                (contract, &self.system_commands)
+            }
+        };
         anyhow::ensure!(
             contract.kind == OperationKind::Command,
             RegistrationError::KindMismatch
         );
-        let callback = &self
-            .commands
+        let callback = &commands
             .get(&contract.operation)
             .ok_or(RegistrationError::KindMismatch)?
             .callback;
@@ -388,6 +599,9 @@ impl RaftClass {
                 command,
                 transaction,
                 blobs: self.blobs,
+                alarm_limits: self.alarm_limits,
+                alarm_names: &self.alarm_names,
+                durability,
             },
             input,
         )
@@ -438,6 +652,11 @@ impl RaftClass {
                 hash.update((size as u64).to_be_bytes());
             }
         }
+        if let Some(limits) = self.alarm_limits {
+            hash.update(b"alarms-1");
+            hash.update((limits.max_alarms as u64).to_be_bytes());
+            hash.update((limits.max_payload_bytes as u64).to_be_bytes());
+        }
         hash.update((self.commands.len() as u16).to_be_bytes());
         // BTree order makes declaration order irrelevant. A voter cannot omit
         // or alter required commands while claiming the same application root.
@@ -446,15 +665,30 @@ impl RaftClass {
             hash.update(name.as_bytes());
             hash.update(command.digest);
         }
+        if !self.system_commands.is_empty() {
+            hash.update(b"system-commands-1");
+            hash.update((self.system_commands.len() as u16).to_be_bytes());
+            for (name, command) in &self.system_commands {
+                hash.update((name.len() as u16).to_be_bytes());
+                hash.update(name.as_bytes());
+                hash.update(command.digest);
+            }
+        }
         self.schema_digest = hash.finalize().into();
     }
 
     fn validate_new(&self, operation: &str, digest: [u8; 32]) -> Result<(), RegistrationError> {
         validate_name(operation)?;
+        if operation.starts_with("__sys_raft_") {
+            return Err(RegistrationError::Invalid("reserved system command"));
+        }
         if digest == [0; 32] {
             return Err(RegistrationError::Invalid("operation digest"));
         }
-        if self.commands.contains_key(operation) || self.queries.contains_key(operation) {
+        if self.commands.contains_key(operation)
+            || self.queries.contains_key(operation)
+            || self.alarm_names.contains(operation)
+        {
             return Err(RegistrationError::Duplicate(operation.into()));
         }
         if self.commands.len() + self.queries.len() >= 256 {

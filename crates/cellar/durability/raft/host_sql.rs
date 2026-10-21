@@ -74,6 +74,7 @@ pub(crate) enum Action {
         attempt: CommandAttempt,
         input: Vec<u8>,
         allow_new: bool,
+        system: bool,
     },
     Submit {
         identity: CommandIdentity,
@@ -94,6 +95,10 @@ pub(crate) enum Action {
     },
     CaptureArchive {
         limits: ArchiveLimits,
+    },
+    ScanAlarms {
+        now: u64,
+        reservation: Permit,
     },
     CaptureCheckpoint {
         limits: SnapshotLimits,
@@ -129,6 +134,7 @@ pub(crate) enum Value {
     Retired(cellar_logic::consensus::LogPosition),
     Prepared(ApplyCompletion),
     ArchiveCut(Option<Box<CommittedArchiveCut>>),
+    AlarmScan(Option<Box<super::effects::alarm::AlarmScan>>),
     Checkpoint(Box<SnapshotCheckpoint>),
     SnapshotSource {
         package: Box<SnapshotPackage>,
@@ -557,6 +563,7 @@ impl Cell {
                 attempt,
                 input,
                 allow_new,
+                system,
             } => {
                 if self.active.is_some()
                     || identity.authority.replica != *self.group.identity()
@@ -579,11 +586,15 @@ impl Cell {
                         )?)
                     }
                 }
-                let result = self
+                let executor = self
                     .private
                     .as_mut()
-                    .ok_or(ExecutionError::RebuildRequired)?
-                    .stage_registered_admitted(attempt, &self.class, &input, allow_new);
+                    .ok_or(ExecutionError::RebuildRequired)?;
+                let result = if system {
+                    executor.stage_system_admitted(attempt, &self.class, &input, allow_new)
+                } else {
+                    executor.stage_registered_admitted(attempt, &self.class, &input, allow_new)
+                };
                 match result {
                     Ok(outcome) => {
                         if matches!(&outcome, StageOutcome::Prepared(_)) {
@@ -704,6 +715,24 @@ impl Cell {
                     })
                     .transpose()?;
                 Ok(Value::ArchiveCut(cut.map(Box::new)))
+            }
+            Action::ScanAlarms { now, reservation } => {
+                let scan = self
+                    .applier
+                    .queryable()
+                    .map_err(super::execution::storage)?
+                    .map(|image| {
+                        super::effects::alarm::scan(
+                            image,
+                            &self.class,
+                            self.options.query_services.clone(),
+                            now,
+                            reservation,
+                        )
+                    })
+                    .transpose()
+                    .map_err(super::execution::storage)?;
+                Ok(Value::AlarmScan(scan.map(Box::new)))
             }
             Action::CaptureSeed {
                 limits,

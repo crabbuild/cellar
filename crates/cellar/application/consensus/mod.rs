@@ -9,7 +9,9 @@ pub(crate) mod protocol;
 
 pub use crate::raft::archive::ArchiveLimits;
 pub use crate::raft::completion::{LeadershipTransfer, MemberProgress, ReplicationStatus};
-pub use crate::raft::effects::{RaftBlobLimits, RaftBlobReference};
+pub use crate::raft::effects::{
+    RaftAlarmLimits, RaftAlarmOptions, RaftBlobLimits, RaftBlobReference,
+};
 
 pub use crate::raft::catalog::{
     BirthProposal, CatalogOptions, InitialMember, NamespaceConfig, VoterPolicy,

@@ -6,7 +6,8 @@ command output, query publication and archive proof belong to the actor and
 Native command/query serving, committed archives and replica recovery are
 implemented. An opt-in controller repairs committed membership and balances
 eligible leaders. Immutable Blob bytes have an explicit bounded adapter;
-alarm/outbox scheduling and later operating/release work remain under implementation.
+committed alarms use an owned timer. Outbox delivery and later operating/release
+work remain under implementation.
 The [technical design](../../../../plans/multi-raft/technical-design.md) defines
 the complete contract.
 
@@ -20,6 +21,19 @@ alone proves no content or durability. Defaults retain at most 128 values,
 duplicates content in the SQL image and dependency objects. The
 [business-feature contract](../../../../plans/multi-raft/effects-design.md)
 records this boundary and the remaining alarm/outbox work.
+
+`RaftClass::alarm(name, digest, callback)` declares a synchronous callback and
+`RaftHostOptions::alarms` enables its owned scheduler. Commands set/cancel declared
+names through `CommandContext`. The generation, due time, payload and required
+durability share the command transaction. Firing reads a committed image, checks
+current leader readiness and uses a private replicated command that rechecks and
+consumes the selected generation atomically with its callback. Public command
+discovery and validation exclude these system operations and their client IDs.
+Follower/learner roles cannot run these callbacks. One node timer bounds discovery
+and retained metadata; physical SQL work stays joined and can delay that timer.
+Existing receipt limits apply, with no automatic pruning in this component.
+The [alarm contract](../../../../plans/multi-raft/effects-design.md#committed-alarms)
+states the resource, clock, retry and shutdown boundaries.
 
 `ReplicaLog` owns one blocking execution-domain task and one Raft Engine.
 Its bounded `GroupLog` caches become visible after sync. Storage lookups on the

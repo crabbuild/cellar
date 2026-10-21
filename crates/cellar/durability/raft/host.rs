@@ -33,6 +33,8 @@ use tokio::sync::{mpsc, Notify};
 #[path = "host_startup_tests.rs"]
 mod startup_tests;
 
+#[path = "host_alarms.rs"]
+mod alarms;
 #[path = "host_controller.rs"]
 mod controller;
 pub use controller::{RaftControllerOptions, RaftControllerStatus};
@@ -55,6 +57,9 @@ mod standby;
 
 #[derive(Clone, Debug)]
 pub struct RaftHostOptions {
+    /// Explicit committed-alarm scheduling. Definitions refuse activation when
+    /// this capability is absent; ordinary classes do not start a scheduler.
+    pub alarms: Option<super::effects::RaftAlarmOptions>,
     /// Opt in to bounded automatic repair and optional leadership balancing.
     pub controller: Option<RaftControllerOptions>,
     /// Bounded complete node-wide status scans when inspection is enabled.
@@ -94,6 +99,7 @@ impl Default for RaftHostOptions {
             ..Default::default()
         };
         Self {
+            alarms: None,
             controller: None,
             inspection_scan: RaftInspectionScanOptions::default(),
             inspection_origins: Vec::new(),
@@ -135,6 +141,9 @@ impl RaftHostOptions {
         self.inspection_scan.validate()?;
         if let Some(controller) = &self.controller {
             controller.validate(self)?;
+        }
+        if let Some(alarms) = self.alarms {
+            alarms.validate(self)?;
         }
         self.archive.validate()?;
         self.execution.validate()?;
@@ -795,6 +804,15 @@ async fn initialize(
         let mut read_nonce = [0; 16];
         rng.fill_bytes(&mut read_nonce);
         let mut driver = Driver {
+            alarms: options
+                .alarms
+                .filter(|_| {
+                    local
+                        .bindings
+                        .values()
+                        .any(|b| b.class.alarm_limits().is_some())
+                })
+                .map(alarms::Scheduler::new),
             controller: options
                 .controller
                 .as_ref()
@@ -923,6 +941,7 @@ enum Phase {
 
 struct Pending {
     allow_new: bool,
+    system: bool,
     proof: Option<(LogPosition, [u8; 32])>,
     request: Request,
     options: client::CommandOptions,
@@ -974,6 +993,7 @@ enum StatusPurpose {
 }
 
 enum SqlPurpose {
+    AlarmScan(u64),
     Seed(ReadId),
     Checkpoint,
     SnapshotSource(Box<::raft::prelude::Message>),
@@ -990,6 +1010,7 @@ enum SqlPurpose {
 }
 
 enum Job {
+    Alarm(Box<alarms::Completed>),
     Controller(Box<controller::Completed>),
     LeaderLoad(Box<load::Completed>),
     Inspection(Box<inspection::Completed>),
@@ -1077,6 +1098,7 @@ enum Job {
 }
 
 struct Driver {
+    alarms: Option<alarms::Scheduler>,
     controller: Option<controller::Controller>,
     leader_load: Option<load::Scanner>,
     directory: Option<directory::Directory>,
@@ -1668,7 +1690,11 @@ impl Driver {
             }
             return;
         }
-        let allow_new = matches!(&request.kind, Kind::Command { .. }) && self.archive_admission();
+        let system = matches!(&request.kind, Kind::SystemCommand { .. });
+        let allow_new = matches!(
+            &request.kind,
+            Kind::Command { .. } | Kind::SystemCommand { .. }
+        ) && self.archive_admission();
         if self.closing.load(Ordering::Acquire)
             || self
                 .cells
@@ -1738,7 +1764,12 @@ impl Driver {
             reply(&mut request, Err(CommandFailure::Unavailable));
             return;
         }
-        if cell.incoming.is_some() && matches!(&request.kind, Kind::Command { .. }) {
+        if cell.incoming.is_some()
+            && matches!(
+                &request.kind,
+                Kind::Command { .. } | Kind::SystemCommand { .. }
+            )
+        {
             reply(&mut request, Err(CommandFailure::Unavailable));
             return;
         }
@@ -1858,6 +1889,11 @@ impl Driver {
                 contract,
                 input,
                 options,
+            }
+            | Kind::SystemCommand {
+                contract,
+                input,
+                options,
             } => {
                 if cell.pending.is_some() || cell.sql_busy {
                     reply(&mut request, Err(CommandFailure::Overloaded));
@@ -1865,6 +1901,7 @@ impl Driver {
                 }
                 cell.pending = Some(Pending {
                     allow_new,
+                    system,
                     proof: None,
                     request,
                     options,
@@ -2048,6 +2085,7 @@ impl Driver {
                 };
                 pending.phase = Phase::Staging;
                 let allow_new = pending.allow_new;
+                let system = pending.system;
                 self.sql(
                     &scope,
                     SqlPurpose::Stage,
@@ -2057,6 +2095,7 @@ impl Driver {
                         attempt,
                         input,
                         allow_new,
+                        system,
                     },
                 );
             }
@@ -2206,6 +2245,10 @@ impl Driver {
         purpose: SqlPurpose,
         result: Result<sql::Output, ExecutionError>,
     ) {
+        if let SqlPurpose::AlarmScan(sequence) = purpose {
+            self.finish_alarm_scan(scope, sequence, result);
+            return;
+        }
         if let SqlPurpose::Seed(id) = purpose {
             self.seed_sql(scope, id, result);
             return;
@@ -2659,6 +2702,7 @@ impl Driver {
         self.pump_reads();
         self.pump_leader_load();
         self.pump_controller();
+        self.pump_alarms();
     }
 
     fn archive_admission(&self) -> bool {
@@ -2749,6 +2793,7 @@ impl Driver {
     fn on_job(&mut self, job: Job) {
         match job {
             Job::Controller(completed) => self.finish_controller(*completed),
+            Job::Alarm(completed) => self.finish_alarm(*completed),
             Job::LeaderLoad(completed) => self.finish_leader_load(*completed),
             Job::Inspection(completed) => self.finish_inspection(*completed),
             Job::PeerInspection(completed) => self.finish_peer_inspection(*completed),

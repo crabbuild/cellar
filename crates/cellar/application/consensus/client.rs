@@ -589,6 +589,31 @@ impl RaftCellHandle {
         }
     }
 
+    pub(crate) fn system_command(
+        &self,
+        contract: OperationContract,
+        input: Vec<u8>,
+        mut options: CommandOptions,
+    ) -> impl Future<Output = Result<CommandReceipt, CommandFailure>> + Send + 'static {
+        options.durability = options.durability.max(self.binding.minimum);
+        let timeout = options.timeout;
+        let id = options.id;
+        let call = self.call(
+            Kind::SystemCommand {
+                contract,
+                input,
+                options,
+            },
+            timeout,
+        );
+        async move {
+            match call.await? {
+                Response::Command(receipt) if receipt.id == id => Ok(receipt),
+                _ => Err(CommandFailure::CorruptState),
+            }
+        }
+    }
+
     /// Queue a read immediately; the returned version names its pinned image.
     /// Dropping the returned future cancels the waiter.
     pub fn query(
@@ -668,12 +693,40 @@ impl RaftCellHandle {
                     }
                 }
                 Kind::Command {
-                    contract, input, ..
+                    contract,
+                    input,
+                    options,
                 } => {
                     if self.binding.member().is_none() {
                         return Err(CommandFailure::UnsupportedCapability);
                     }
                     self.validate(contract, OperationKind::Command, input)?;
+                    if self.binding.class.has_system_commands()
+                        && options.id.client
+                            == crate::raft::effects::system_client(&self.binding.scope)?
+                    {
+                        return Err(CommandFailure::UnsupportedCapability);
+                    }
+                }
+                Kind::SystemCommand {
+                    contract,
+                    input,
+                    options,
+                } => {
+                    if self.binding.member().is_none()
+                        || self
+                            .binding
+                            .class
+                            .validate_system_operation(contract)
+                            .is_err()
+                        || options.id.client
+                            != crate::raft::effects::system_client(&self.binding.scope)?
+                    {
+                        return Err(CommandFailure::UnsupportedCapability);
+                    }
+                    if input.len() > self.handle.max_input_bytes {
+                        return Err(CommandFailure::Overloaded);
+                    }
                 }
                 Kind::Query {
                     contract,
@@ -866,6 +919,11 @@ pub(crate) enum Kind {
         input: Vec<u8>,
         options: CommandOptions,
     },
+    SystemCommand {
+        contract: OperationContract,
+        input: Vec<u8>,
+        options: CommandOptions,
+    },
     Query {
         contract: OperationContract,
         input: Vec<u8>,
@@ -881,7 +939,9 @@ impl Kind {
 
     fn bytes(&self) -> usize {
         4096 + match self {
-            Self::Command { input, .. } | Self::Query { input, .. } => input.len(),
+            Self::Command { input, .. }
+            | Self::SystemCommand { input, .. }
+            | Self::Query { input, .. } => input.len(),
             Self::ControllerStatus
             | Self::SetControllerEnabled(_)
             | Self::Inspect
@@ -900,7 +960,9 @@ impl Kind {
 
     fn failure(&self) -> CancelFailure {
         match self {
-            Self::Command { options, .. } => CancelFailure::Command(options.id),
+            Self::Command { options, .. } | Self::SystemCommand { options, .. } => {
+                CancelFailure::Command(options.id)
+            }
             Self::Query { .. } | Self::Seed { .. } => CancelFailure::Query,
             Self::ControllerStatus
             | Self::SetControllerEnabled(_)
