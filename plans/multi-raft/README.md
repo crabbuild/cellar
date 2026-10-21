@@ -1,80 +1,47 @@
 # Cellar multi-Raft delivery package
 
-Status: MR-01 through MR-11 are complete with source-pinned local evidence.
-MR-12 through MR-17 remain open. The complete delivery goal is not achieved.
+Status: MR-01 through MR-11 are complete at their recorded native boundaries.
+MR-12 is IN_PROGRESS with Blob closure and committed alarms implemented, two of
+its six required feature gates. MR-13 through MR-17 remain open. The complete
+delivery goal is not achieved.
 
-The [immutable Blob component evidence](evidence/MR-12-blob-progress.json)
-pins source `8cfc4bdfe3c8e518b37d2418598b0fb4718bbb3a`: all 354 unique Rust
-cases across 16 binaries and all 31 checks pass. Five new cases cover native
-S3 dependency refusal/retry/restore, private rollback, capability/capacity
-preflight and corruption/size bounds. The matrix includes all 88 public Node,
-42 snapshot, 29 archive, 27 host, 25 membership, 18 read, 16 directory, 50 Raft
-library, seven pure leadership and 14 Fleet storage/replication/log-protocol
-cases. Clippy, both LTX modes, format (682 Rust files), layout, dependencies,
-docs, 17 planning tests and the 71-anchor preflight pass.
+Leaders execute private commands; serving replicas apply committed SQLite/LTX
+history and expose explicit follower queries. S3 stores verified committed images,
+tails and dependencies. A node can lead some groups and follow others. S3 restores
+cell state, not old votes, process identity, leadership or quorum. An opt-in owned
+controller repairs redundancy and balances eligible caught-up voters. Declared
+alarms run through private replicated commands and an owned leader-only timer.
 
-Blob bytes share the command transaction and LTX state. Exact-image capture
-reserves memory before enumerating the complete dependency closure; S3 success
-requires durable objects and verified recovery. A native case restores after
-removing every node-owned file, then refuses a deleted selected dependency.
-This bounded initial adapter retains all values, duplicates bytes in SQL and
-dependency objects, and exposes no GC or external-reference-only capability.
-Blob cases use one explicit development voter and conditional in-memory object
-storage; they do not qualify physical S3 or failure-zone resilience.
+| Boundary | Qualification |
+| --- | --- |
+| [MR-11 automatic repair](evidence/MR-11.json) | Source `cc93ccf`: 248 Rust cases, 12 binaries, 26 checks; six-node repair and eight-group balancing |
+| [MR-12 immutable Blobs](evidence/MR-12-blob-progress.json) | Source `8cfc4bd`: 354 cases, 16 binaries, 31 checks; includes all 88 public Node cases |
+| [MR-12 committed alarms](evidence/MR-12-alarm-progress.json) | Source `5a6b606`: 322 cases, 19 binaries, 31 checks; five new native alarm cases and all 42 snapshot cases |
 
-Only one of the six original MR-12 requirements is implemented. Committed
-alarm/outbox dispatch, receiver receipts, no-traffic alarm recovery, leadership
-races, the full unsupported mutable-binding gate and examples remain required.
-MR-12 stays IN_PROGRESS; MR-13 through MR-17 remain open.
+Each record retains its full source pin, executable/output hashes, failed initial
+diagnostics and original scope. Counts from different sources are not added.
+The [business-feature contract](effects-design.md) describes Blob, alarm and
+private-system boundaries. Outbox dispatch, durable receiver receipts, failover
+races, progress replication, full unsupported-binding validation and examples
+remain MR-12 work. Existing receipt bounds still apply without automatic pruning.
 
-The [MR-11 completion evidence](evidence/MR-11.json) pins source
-`cc93ccf96bda3c48caf57d1f59d7d3bcd1a4a355`: all 248 unique Rust cases across
-12 binaries and all 26 commands pass. This includes all seven original MR-11
-requirements, 25 membership cases, seven pure leadership cases, 48 Raft library,
-42 snapshot, 29 archive, 27 host, 16 directory and the affected public Node
-lifecycle case. Five ignored child entry points execute through owning parents
-and are excluded. Clippy, both LTX modes, format (678 Rust files), layout,
-dependency policy, docs, 17 planning tests and 71-anchor preflight pass.
+Public Node shutdown joins domain cancellation. Its existing Fleet report does
+not supply a graceful Raft close receipt or permission to discard unarchived
+disks; MR-13 retains unified drain, readiness, resource and archive-obligation
+work. MR-14 adds batching/workloads, MR-15 release qualification including the
+24-hour soak, MR-16 measured density/physical tiers and MR-17 federation.
 
-An opt-in owned controller inventories committed plans, probes bounded rotating
-candidate sets and repairs without incoming business traffic. A six-Node fixture
-covers failed-member replacement, canonical empty-state repair before the first
-command, pause/resume, minority refusal with reachable object storage, and loss
-of controller/leader while resuming the exact Seeding plan. Eight groups exercise
-automatic leadership movement to caught-up voters while a control-reachable,
-data-lagging voter remains ineligible; node-wide attempt limits bound movement.
-Fresh-quorum seed grants, actual matched/published progress and explicit joint
-consensus retain the existing authority boundaries. Declared domains/capacities
-are placement inputs, not measured infrastructure qualification.
+Local/in-memory stores, declared zones and small native fixtures do not qualify
+physical S3, power loss, failure zones, production performance/capacity, larger
+physical tiers or federation. Hundreds/thousands of physical nodes and millions
+of cells require measured qualification. Millions of physical nodes are not a
+single-cluster promise. All original packages remain in scope.
 
-Public Node shutdown joins the controller's domain and closes retained Raft
-handles. Its existing Fleet stop report does not yet supply a graceful Raft
-close receipt or report Raft archive obligations; MR-13 retains that semantic
-drain work. Existing explicit `RaftCells.close()` tests retain their separate
-receipt/join contract. No physical S3, power-loss, real-zone resilience,
-production capacity, larger tiers, federation or complete release is claimed.
-MR-12 through MR-17 remain open.
-
-Shared durable logs, multi-group consensus, authenticated transport, private
-leader commands, explicit follower queries, committed S3 archives, snapshots,
-authorized replica recovery and automatic redundancy repair are implemented.
-A node can lead some groups and follow others. S3 restores cell images and
-committed history; it grants no votes, process identity, leadership or quorum.
-
-The next priority is MR-12 durable business features, followed by MR-13 node
-operations, MR-14 batching/workloads, MR-15 release qualification, MR-16 measured
-density/physical tiers and MR-17 independent-cluster federation. The first
-release remains MR-01 through MR-15, including the required 24-hour soak.
-Hundreds/thousands of physical nodes and millions of cells require measured
-qualification. Millions of physical nodes are not a single-cluster promise.
-
-The current internal identity is
+The internal namespace identity is
 `cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1/nodes-1`; numeric markers remain 1.
-Use fresh namespace identities, storage prefix and local state. Earlier
-[archive evidence](evidence/MR-09.json), [recovery evidence](evidence/MR-10.json),
-[process regressions](evidence/MR-11-process-regression-progress.json) and
-[component records](evidence/MR-11.json) retain their original qualification.
-The process record includes all 88 public Node cases at its separate source.
+Class capability/system contracts also enter the immutable application digest.
+Use fresh compatible experimental namespaces/prefixes for hard cutovers; there
+is no compatibility reader or state migration.
 
 ## Deliverables
 

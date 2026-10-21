@@ -11,7 +11,8 @@ explicit same-consistency leader fallback. MR-09 connects S3 output gates,
 stronger receipt retries and archive image restoration, qualified in the
 [archive audit](archive-audit.md). MR-10 qualifies native snapshot/member recovery;
 MR-11 qualifies automatic repair and leadership balancing. MR-12 is in progress:
-its bounded immutable Blob adapter is implemented; alarm/outbox work remains.
+its bounded immutable Blob adapter is qualified. The committed alarm adapter is
+qualified at its native boundary; outbox work remains.
 
 ## Commands and queries
 
@@ -150,11 +151,15 @@ consistency requirement. Cross-cell workflows remain application coordination.
 
 ## Effects and built-in services
 
-MR-12 requires committed alarms and an outbox adapter; these are not yet
-implemented. The required alarm record and its
-next occurrence are replicated; the current leader rebuilds scheduling on startup
-and after election without waiting for user traffic. Each firing uses a stable
-operation ID and writes its progress through the same command path.
+MR-12's alarm adapter declares synchronous callbacks through `RaftClass::alarm`
+and requires explicit host scheduling options. Commands set/cancel named
+generations in their transaction. The current leader discovers committed rows
+without user traffic and fires through private system commands. Firing consumes
+the exact generation together with its callback's SQL changes; failure rolls back.
+Normal callers cannot invoke these commands or consume the reserved system client.
+The [alarm contract](effects-design.md#committed-alarms) describes bounds, clocks,
+retention and the separate Node semantic-drain limitation. Outbox delivery below
+is still required and unimplemented.
 
 Outbox payload and stable delivery ID commit with business state. The leader
 dispatches only after that intent is committed and its required durability is

@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "baseline_revision": "8cfc4bdfe3c8e518b37d2418598b0fb4718bbb3a",
+  "baseline_revision": "5a6b606c21b2ec8848d6f88ce76f783676d61f70",
   "status_values": [
     "TODO",
     "IN_PROGRESS",
@@ -1844,14 +1844,19 @@
         "crates/cellar/node/embedded.rs",
         "crates/cellar/storage/sqlite/command.rs",
         "crates/cellar/tests/support/raft_catalog_fault.rs",
-        "crates/cellar/durability/raft/README.md"
+        "crates/cellar/durability/raft/README.md",
+        "crates/cellar/application/consensus/client.rs",
+        "crates/cellar/durability/raft/execution.rs"
       ],
       "creates": [
         "crates/cellar/durability/raft/effects.rs",
         "crates/cellar/tests/native_raft_effects.rs",
         "crates/cellar/durability/raft/effect_blob.rs",
         "crates/cellar/durability/raft/effect_blob_tests.rs",
-        "plans/multi-raft/effects-design.md"
+        "plans/multi-raft/effects-design.md",
+        "crates/cellar/durability/raft/effect_alarm.rs",
+        "crates/cellar/durability/raft/host_alarms.rs",
+        "crates/cellar/tests/support/raft_alarm_native.rs"
       ],
       "steps": [
         "Add explicit Raft-compatible alarm and outbox adapters using committed intents and command-based progress.",
@@ -1941,7 +1946,8 @@
         ]
       ],
       "evidence": [
-        "evidence/MR-12-blob-progress.json"
+        "evidence/MR-12-blob-progress.json",
+        "evidence/MR-12-alarm-progress.json"
       ]
     },
     {

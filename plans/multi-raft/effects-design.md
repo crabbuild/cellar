@@ -1,9 +1,11 @@
 # Committed business features
 
 Status: MR-12 is IN_PROGRESS. The immutable Blob adapter is
-[qualified at its native boundary](evidence/MR-12-blob-progress.json). Alarm/outbox scheduling, durable destination receipts,
-leadership races and the full unsupported-binding gate are still required.
-No effect callback or timer is enabled by this Blob component.
+[qualified at its native boundary](evidence/MR-12-blob-progress.json).
+The alarm implementation is
+[qualified at its native boundary](evidence/MR-12-alarm-progress.json). Outbox dispatch, durable
+destination receipts, leadership races and the full unsupported-binding gate
+are still required. Enabling Blobs alone starts no business timer.
 
 ## Immutable Blob adapter
 
@@ -49,11 +51,57 @@ a newer head. This initial adapter duplicates the Blob bytes in the SQL image
 and its dependency object; eliminating that duplication requires a separately
 proved external-reference retention protocol.
 
+## Committed alarms
+
+`RaftClass::alarm(name, digest, callback)` declares a synchronous transaction
+callback; optional `alarms(RaftAlarmLimits)` sets its explicit bounds first.
+Defaults permit 16 named alarms and 64 KiB per payload. `CommandContext::set_alarm`
+and `cancel_alarm` accept only declared names. Setting an alarm records its due
+time, payload, durability and a generation bound to the full history, setting
+command ID and name. A rearm replaces that generation; cancellation removes it.
+These changes share the business transaction and receipt.
+
+The host requires explicit `RaftHostOptions::alarms`. Before catalog creation,
+it checks capability and image capacity. Its one owned timer examines at most
+four registered groups per discovery turn, reserves metadata before observation,
+checks actual current-term leader readiness and reads only a published image
+through the existing SQL owner. Follower and learner roles cannot invoke an
+alarm callback. S3 intents wait for archive proof covering the selected cut;
+Quorum intents retain ordinary backlog admission. Defaults use a 100 ms interval,
+5-second status/firing deadlines, a 60-second receipt retry window and a 64 KiB
+metadata reservation. These are configured bounds, not a deployment latency SLO.
+Owned physical SQL work can delay this single scheduler; it is joined on closure.
+
+Alarm firing uses a private system-command registry. Public contract discovery,
+normal command validation and HTTP commands cannot invoke those operations or
+consume their reserved per-history command client. The private path retains the
+ordinary term/process/configuration checks, private execution, LTX proposal,
+commit, publication and durability output gates. The next internal sequence comes
+from the selected committed image after the host has no older producer and the
+runtime has current-term readiness. An unresolved submitted producer remains
+owned by the host; a late waiter result cannot rebind its command identity.
+
+Firing rechecks the exact generation and captured wall-clock due time, deletes
+that row, and invokes the callback in the same transaction. Failure rolls back
+the deletion. A successful callback may arm the next occurrence atomically.
+Replaced/cancelled generations cannot invoke the callback. Callbacks have the
+same private/speculative execution contract as other commands; this supplies no
+external exactly-once guarantee. Use committed outbox delivery for external work.
+Operation deadlines use the execution-domain monotonic clock; wall-clock changes
+can delay due-time scheduling and grant no consensus authority.
+
+One stable internal client per history bounds client identities. Existing receipt
+retention limits still apply; this component adds no automatic pruning. Admission
+can refuse further work at those configured limits. Operational retention and
+the complete drain/reporting contract remain later work. Public Node closure
+joins the timer's domain; its existing Fleet report does not supply a graceful
+Raft close receipt or permission to discard unarchived disks.
+
 ## Remaining MR-12 integration
 
-1. Persist bounded alarm/outbox intent identity, destination binding, payload,
+1. Persist bounded outbox intent identity, destination binding, payload,
    sequence, retry deadline and generation in the replicated transaction.
-2. Add a bounded owned scheduler that rotates registered histories, verifies
+2. Extend the bounded owned scheduler to delivery: rotate registered histories, verify
    current-term leader readiness and reads only published images. Followers
    never run business timer or delivery callbacks.
 3. Commit attempts before sending. Recheck authority, cancel obsolete waiters,
