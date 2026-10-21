@@ -22,6 +22,11 @@ mod cluster;
 #[allow(dead_code)]
 mod public_node;
 
+#[path = "support/raft_seed_crash.rs"]
+mod seed_crashes;
+#[path = "support/raft_seed_fault.rs"]
+mod seed_fault;
+
 use anyhow::{ensure, Context as _, Result};
 use cellar::application::consensus::verification::*;
 use cellar::application::consensus::{CellUpdate, EnvelopeLimits, LtxImage, LtxUpdate};
@@ -3937,4 +3942,14 @@ async fn snapshot_process_fixture() -> Result<()> {
     loop {
         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
     }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn native_peer_seed_crash_matrix() -> Result<()> {
+    seed_crashes::crash_matrix(false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn native_s3_seed_crash_matrix() -> Result<()> {
+    seed_crashes::crash_matrix(true).await
 }

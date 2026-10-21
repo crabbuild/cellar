@@ -1439,3 +1439,41 @@ async fn identical_facet_roots_keep_loaded_children_and_exported_classes_in_thei
     assert_eq!(second_probe.retired.load(Ordering::SeqCst), 1);
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn filesystem_provider_is_owned_across_async_and_blocking_work() -> Result<()> {
+    let filesystem: Arc<dyn cellar_ltx::FileSystem> = Arc::new(cellar_ltx::DirectFileSystem);
+    let domain = ExecutionDomain::with_filesystem(
+        tokio::runtime::Handle::current(),
+        filesystem.clone(),
+        Some(Arc::new(|| 42)),
+    );
+    let other = ExecutionDomain::new(tokio::runtime::Handle::current());
+    domain
+        .run(async {
+            assert!(Arc::ptr_eq(&filesystem, &asyncrt::fs()));
+            assert_eq!(asyncrt::wall_ms(), 42);
+        })
+        .await?;
+    let inherited = filesystem.clone();
+    domain
+        .spawn(async move {
+            assert!(Arc::ptr_eq(&inherited, &asyncrt::fs()));
+            let expected = inherited.clone();
+            asyncrt::blocking(move || {
+                assert!(Arc::ptr_eq(&expected, &asyncrt::fs()));
+                assert_eq!(asyncrt::wall_ms(), 42);
+            })
+            .await
+            .unwrap();
+        })?
+        .await?;
+    other
+        .run(async {
+            assert!(!Arc::ptr_eq(&filesystem, &asyncrt::fs()));
+        })
+        .await?;
+    domain.shutdown().await;
+    other.shutdown().await;
+    Ok(())
+}

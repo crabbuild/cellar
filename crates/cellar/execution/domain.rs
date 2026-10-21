@@ -65,13 +65,27 @@ impl ProductionDomain {
         services: Arc<HostServices>,
         wall_clock: Option<Arc<WallClock>>,
     ) -> Arc<Self> {
+        Self::with_filesystem(
+            handle,
+            services,
+            wall_clock,
+            Arc::new(cellar_ltx::DirectFileSystem),
+        )
+    }
+
+    fn with_filesystem(
+        handle: tokio::runtime::Handle,
+        services: Arc<HostServices>,
+        wall_clock: Option<Arc<WallClock>>,
+        filesystem: Arc<dyn cellar_ltx::FileSystem>,
+    ) -> Arc<Self> {
         let owner = Arc::new(ProductionDomainOwner::new(handle));
         let token = DomainToken::new(&owner);
         services.bind_domain(token.clone());
         let domain = Arc::new(Self {
             owner,
             services,
-            filesystem: Arc::new(cellar_ltx::DirectFileSystem),
+            filesystem,
             next_core_request: AtomicU64::new(1),
             next_async_op: AtomicU64::new(1),
             process_tag: u64::from(std::process::id()),
@@ -402,6 +416,25 @@ impl ExecutionDomain {
                 handle,
                 Arc::new(HostServices::production()),
                 Some(clock),
+            ),
+        }
+    }
+
+    /// Capture caller-owned durability I/O before any work starts. Tasks,
+    /// blocking operations and cancellation cleanup retain the same provider.
+    /// The filesystem must preserve exclusive creation, locking, atomic rename
+    /// and file/directory sync contracts; unsupported operations fail closed.
+    pub fn with_filesystem(
+        handle: tokio::runtime::Handle,
+        filesystem: Arc<dyn cellar_ltx::FileSystem>,
+        wall_clock: Option<Arc<WallClock>>,
+    ) -> Self {
+        Self {
+            inner: ProductionDomain::with_filesystem(
+                handle,
+                Arc::new(HostServices::production()),
+                wall_clock,
+                filesystem,
             ),
         }
     }

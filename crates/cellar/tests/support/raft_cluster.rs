@@ -219,12 +219,13 @@ type JoinedResumeCheck =
 enum ExtraNode<'a> {
     None,
     QueryRouter(&'a [(ClusterId, NamespaceId)]),
-    Standby,
+    Standby(Option<Arc<dyn cellar_ltx::FileSystem>>),
     Resume {
         roots: Vec<tempfile::TempDir>,
         placements: Vec<RaftCellPlacement>,
         check: JoinedResumeCheck,
         generation: u8,
+        target_first: bool,
     },
 }
 
@@ -325,7 +326,7 @@ impl Cluster {
             registrations,
             20,
             RaftHostOptions::default(),
-            ExtraNode::Standby,
+            ExtraNode::Standby(None),
             TransportOptions {
                 snapshot_chunk_bytes: 64,
                 ..Default::default()
@@ -347,11 +348,61 @@ impl Cluster {
             registrations,
             20,
             host,
-            ExtraNode::Standby,
+            ExtraNode::Standby(None),
             TransportOptions {
                 snapshot_chunk_bytes: 64,
                 ..Default::default()
             },
+            Some(store),
+        )
+        .await
+    }
+
+    pub async fn start_seed_crash_fixture(
+        definitions: &[public_node::Counter],
+        registrations: Vec<RaftCellRegistration>,
+        store: Arc<dyn object_store::ObjectStore>,
+        filesystem: Arc<dyn cellar_ltx::FileSystem>,
+    ) -> Result<Self> {
+        Self::start_layout(
+            definitions,
+            registrations,
+            20,
+            RaftHostOptions::default(),
+            ExtraNode::Standby(Some(filesystem)),
+            TransportOptions::default(),
+            Some(store),
+        )
+        .await
+    }
+
+    pub async fn resume_seed_crash_fixture(
+        definitions: &[public_node::Counter],
+        registrations: Vec<RaftCellRegistration>,
+        store: Arc<dyn object_store::ObjectStore>,
+        paths: &[std::path::PathBuf],
+        placements: Vec<RaftCellPlacement>,
+        target_first: bool,
+    ) -> Result<Self> {
+        let mut roots = Vec::new();
+        for path in paths {
+            let root = tempfile::tempdir()?;
+            copy_fixture_directory(path, root.path())?;
+            roots.push(root);
+        }
+        Self::start_layout(
+            definitions,
+            registrations,
+            20,
+            RaftHostOptions::default(),
+            ExtraNode::Resume {
+                roots,
+                placements,
+                check: Box::new(|_| Box::pin(async { Ok(()) })),
+                generation: 60,
+                target_first,
+            },
+            TransportOptions::default(),
             Some(store),
         )
         .await
@@ -386,6 +437,7 @@ impl Cluster {
                 placements,
                 check,
                 generation,
+                target_first: true,
             },
             TransportOptions {
                 snapshot_chunk_bytes: 64,
@@ -434,18 +486,27 @@ impl Cluster {
         transport: TransportOptions,
         store: Option<Arc<dyn object_store::ObjectStore>>,
     ) -> Result<Self> {
-        let (namespaces, standby_node, resume) = match extra {
-            ExtraNode::None => (None, false, None),
-            ExtraNode::QueryRouter(namespaces) => (Some(namespaces), false, None),
-            ExtraNode::Standby => (None, true, None),
+        let (namespaces, standby_node, resume, filesystem) = match extra {
+            ExtraNode::None => (None, false, None, None),
+            ExtraNode::QueryRouter(namespaces) => (Some(namespaces), false, None, None),
+            ExtraNode::Standby(filesystem) => (None, true, None, filesystem),
             ExtraNode::Resume {
                 roots,
                 placements,
                 check,
                 generation,
-            } => (None, false, Some((roots, placements, check, generation))),
+                target_first,
+            } => (
+                None,
+                false,
+                Some((roots, placements, check, generation, target_first)),
+                None,
+            ),
         };
         let resuming = resume.is_some();
+        let target_first = resume
+            .as_ref()
+            .is_some_and(|(_, _, _, _, target_first)| *target_first);
         let count = if namespaces.is_some() || standby_node || resuming {
             4
         } else {
@@ -453,7 +514,7 @@ impl Cluster {
         };
         ensure!(definitions.len() == count, "incorrect fixture node count");
         let (roots, placements, mut resume_check, generation) =
-            if let Some((roots, placements, check, generation)) = resume {
+            if let Some((roots, placements, check, generation, _)) = resume {
                 ensure!(
                     roots.len() == count && placements.len() == count,
                     "incorrect restart roots/placements"
@@ -475,10 +536,18 @@ impl Cluster {
         for i in 0..count {
             let label = format!("raft-cluster-{}", i + 1);
             nodes.push(
-                public_node::node_named(
+                public_node::node_declared_with_filesystem(
                     roots[i].path(),
                     definitions[i].application.clone(),
                     &label,
+                    vec![],
+                    if i == 3 {
+                        filesystem
+                            .clone()
+                            .unwrap_or_else(|| Arc::new(cellar_ltx::DirectFileSystem))
+                    } else {
+                        Arc::new(cellar_ltx::DirectFileSystem)
+                    },
                 )
                 .await?,
             );
@@ -525,7 +594,7 @@ impl Cluster {
         let mut services = vec![None; count];
         let mut standby = None;
         let mut listeners = listeners.into_iter().map(Some).collect::<Vec<_>>();
-        let order = if resuming {
+        let order = if target_first {
             vec![3, 0, 1, 2]
         } else {
             (0..count).collect()
@@ -790,4 +859,29 @@ impl Cluster {
         }
         Ok(())
     }
+}
+
+fn copy_fixture_directory(from: &std::path::Path, to: &std::path::Path) -> Result<()> {
+    let mut pending = vec![(from.to_path_buf(), to.to_path_buf())];
+    let mut count = 0;
+    while let Some((from, to)) = pending.pop() {
+        std::fs::create_dir_all(&to)?;
+        for entry in std::fs::read_dir(from)? {
+            count += 1;
+            ensure!(count <= 4096, "crash fixture inventory limit");
+            let entry = entry?;
+            let kind = entry.file_type()?;
+            let target = to.join(entry.file_name());
+            if kind.is_dir() {
+                pending.push((entry.path(), target));
+            } else {
+                ensure!(
+                    kind.is_file() && entry.metadata()?.len() <= 64 * 1024 * 1024,
+                    "unexpected crash fixture file"
+                );
+                std::fs::copy(entry.path(), target)?;
+            }
+        }
+    }
+    Ok(())
 }

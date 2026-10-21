@@ -28,6 +28,23 @@ pub async fn node_declared(
     label: &str,
     classes: Vec<String>,
 ) -> Result<Node> {
+    node_declared_with_filesystem(
+        directory,
+        application,
+        label,
+        classes,
+        Arc::new(cellar_ltx::DirectFileSystem),
+    )
+    .await
+}
+
+pub async fn node_declared_with_filesystem(
+    directory: &Path,
+    application: Arc<dyn Application>,
+    label: &str,
+    classes: Vec<String>,
+    filesystem: Arc<dyn cellar_ltx::FileSystem>,
+) -> Result<Node> {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     let internal_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     let probe_signer = Arc::new(PeerProbeSigner::generate());
@@ -78,7 +95,14 @@ pub async fn node_declared(
     };
     let compiled =
         CompiledApplications::default().register(label, "test", move || Ok(application.clone()))?;
-    Node::start(config, services, graph::graph(label, "", classes), compiled).await
+    Node::start_with_filesystem(
+        config,
+        services,
+        graph::graph(label, "", classes),
+        compiled,
+        filesystem,
+    )
+    .await
 }
 
 pub fn tls() -> Result<RaftTls> {

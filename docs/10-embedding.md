@@ -95,6 +95,15 @@ Choose separate directories to isolate hosts. File reads are bounded to 64 KiB
 chunks and retain the serving host when another runtime polls the body. Closing
 that host rejects later reads and joins file operations already running.
 
+`Node::start_with_filesystem` captures a caller-owned durability filesystem in
+its execution domain before startup. Async tasks, blocking I/O and cancellation
+cleanup retain that exact provider. `ExecutionDomain::with_filesystem` provides
+the same contract for lower-level hosts and accepts an optional wall clock.
+Providers must implement atomic exclusive creation, locking, rename and file/
+directory sync against the same host paths used by SQLite and node directory
+locks. Unsupported operations fail closed. Ordinary `Node::start` and external
+Node startup continue to use `DirectFileSystem`.
+
 ## Fleet services and startup safety
 
 `NodeFleet` takes ordinary and lease buckets, `ReplicaStorage`,

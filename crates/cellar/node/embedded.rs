@@ -305,6 +305,7 @@ pub struct ExternalNodeServices {
 }
 
 struct StartupServices {
+    filesystem: Arc<dyn cellar_ltx::FileSystem>,
     wall_clock: Option<Arc<crate::asyncrt::WallClock>>,
     http_client: Option<crate::http_policy::HttpClientFactory>,
     host_executor: tokio::runtime::Handle,
@@ -324,6 +325,7 @@ struct StartupServices {
 impl StartupServices {
     fn native(services: NodeServices) -> anyhow::Result<Self> {
         Ok(Self {
+            filesystem: Arc::new(cellar_ltx::DirectFileSystem),
             wall_clock: services.wall_clock,
             http_client: services.http_client,
             public_address: services.listener.local_addr()?,
@@ -346,6 +348,7 @@ impl StartupServices {
         receiver: mpsc::UnboundedReceiver<super::ingress::IngressCall>,
     ) -> Self {
         Self {
+            filesystem: Arc::new(cellar_ltx::DirectFileSystem),
             wall_clock: services.wall_clock,
             http_client: services.http_client,
             public_address: services.public_address,
@@ -489,6 +492,22 @@ impl Node {
         .await
     }
 
+    /// Start with caller-owned durability I/O captured by this node's execution
+    /// domain. File/rename/directory sync semantics must match `FileSystem`.
+    /// Directory ownership locks and application SQLite execution continue to
+    /// use host OS paths; the provider must address those same local files.
+    pub async fn start_with_filesystem(
+        config: NodeConfig,
+        services: NodeServices,
+        graph: DeploymentGraph,
+        applications: CompiledApplications,
+        filesystem: Arc<dyn cellar_ltx::FileSystem>,
+    ) -> anyhow::Result<Self> {
+        let mut services = StartupServices::native(services)?;
+        services.filesystem = filesystem;
+        Self::start_with_services(config, services, graph, applications).await
+    }
+
     /// Start the same production engine without a Cellar-owned public listener.
     /// The returned ingress handle is ready only after recovery and startup.
     /// Keep the caller's executors and public transport alive until node shutdown
@@ -533,10 +552,11 @@ impl Node {
         let (directory, data_dir) = NodeDirectory::acquire(&config.data_dir)?;
         config.data_dir = data_dir;
         let generation_max_age = config.generation_max_age;
-        let domain = Arc::new(match services.wall_clock.clone() {
-            Some(clock) => ExecutionDomain::with_wall_clock(services.host_executor.clone(), clock),
-            None => ExecutionDomain::new(services.host_executor.clone()),
-        });
+        let domain = Arc::new(ExecutionDomain::with_filesystem(
+            services.host_executor.clone(),
+            services.filesystem.clone(),
+            services.wall_clock.clone(),
+        ));
         let mut startup_guard = CloseOnDrop(Some(domain.clone()));
         config.actor.resume_generation = domain
             .run(async {
