@@ -601,7 +601,6 @@ impl Node {
             let _directory = directory;
             let boot = std::panic::AssertUnwindSafe(owner.run(async {
                 let startup_timeout = config.startup.bootstrap_timeout;
-                let shutdown_budget = config.shutdown.total_ms;
                 let (prepared, info) = tokio::time::timeout(
                     startup_timeout,
                     prepare(&owner, config, services, graph, applications),
@@ -619,20 +618,10 @@ impl Node {
                 if ready.send((app, info)).is_err() {
                     return Ok(NodeOutcome::Cancelled);
                 }
-                let mut result = driver::run(prepared, async {
-                    let mode = commands.recv().await.unwrap_or(ShutdownMode::Handoff);
-                    owner
-                        .services()
-                        .raft_lifecycle()
-                        .quiesce(Some(shutdown_budget));
-                    mode
+                driver::run(prepared, async {
+                    commands.recv().await.unwrap_or(ShutdownMode::Handoff)
                 })
-                .await;
-                let raft = owner.services().raft_lifecycle().close().await;
-                if let Ok(NodeOutcome::Stopped(report)) = &mut result {
-                    report.raft = raft.map(Box::new);
-                }
-                result
+                .await
             }))
             .catch_unwind()
             .await;

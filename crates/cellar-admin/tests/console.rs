@@ -502,6 +502,7 @@ async fn stop_receipt_reconciles_only_its_actor_target_and_joined_proof() {
         domain_joined: false,
         error: None,
         proof: Some(StopProof {
+            raft: cellar::management::RaftStopProof::NotRegistered,
             mode: StopMode::Handoff,
             ingress_drained: true,
             application_work_drained: true,

@@ -16,6 +16,8 @@ mod image_fault;
 #[path = "support/raft_storage_fault.rs"]
 #[allow(dead_code)]
 mod log_fault;
+#[path = "support/raft_management_native.rs"]
+mod management;
 #[path = "support/raft_node.rs"]
 #[allow(dead_code)]
 mod public_node;
@@ -31,6 +33,41 @@ use std::{
     },
     time::Duration,
 };
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn management_stop_seals_raft_before_joined_receipt() -> Result<()> {
+    management::run(management::Scenario::PendingSql).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn management_stop_reports_raft_archive_lag() -> Result<()> {
+    management::run(management::Scenario::ArchiveLag).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn management_stop_keeps_raft_ambiguity_incomplete() -> Result<()> {
+    management::run(management::Scenario::Ambiguous).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn management_stop_raft_cancel_has_no_graceful_proof() -> Result<()> {
+    management::run(management::Scenario::Cancelled).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn management_stop_raft_close_error_is_incomplete() -> Result<()> {
+    management::run(management::Scenario::CloseError).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn management_stop_raft_physical_join_preserves_deadline() -> Result<()> {
+    management::run(management::Scenario::JoinDeadline).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn management_stop_raft_cancelled_start_is_incomplete() -> Result<()> {
+    management::cancelled_start().await
+}
 
 async fn wait_status(
     cell: &RaftCellHandle,

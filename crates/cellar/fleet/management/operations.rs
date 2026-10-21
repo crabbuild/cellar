@@ -20,6 +20,9 @@ impl From<StopMode> for crate::actor::ShutdownMode {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct StopProof {
+    /// Explicitly absent host or its actual joined observations. Required in
+    /// format 1: old/missing evidence cannot imply a completed Raft stop.
+    pub raft: super::RaftStopProof,
     pub mode: StopMode,
     pub ingress_drained: bool,
     pub application_work_drained: bool,
@@ -36,6 +39,10 @@ pub struct StopProof {
 impl From<&crate::node_lifecycle::ShutdownReport> for StopProof {
     fn from(report: &crate::node_lifecycle::ShutdownReport) -> Self {
         Self {
+            raft: report
+                .raft
+                .as_deref()
+                .map_or(super::RaftStopProof::NotRegistered, Into::into),
             mode: match report.mode {
                 crate::actor::ShutdownMode::Handoff => StopMode::Handoff,
                 crate::actor::ShutdownMode::Preserve => StopMode::Preserve,
@@ -67,6 +74,7 @@ impl StopProof {
             && (self.mode != StopMode::Preserve || self.clean_reload_prepared)
             && !self.drain_timed_out
             && !self.deadline_elapsed
+            && self.raft.complete()
     }
 }
 
@@ -119,6 +127,9 @@ impl FleetClient {
             "node operation receipt exceeds 64 KiB"
         );
         let receipt: StopReceipt = serde_json::from_slice(&body)?;
+        if let Some(proof) = &receipt.proof {
+            proof.raft.validate()?;
+        }
         ensure!(
             receipt.version == 1
                 && receipt.node == node

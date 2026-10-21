@@ -295,6 +295,10 @@ impl FileSystem for FaultFileSystem {
         DirectFileSystem.remove_dir_all(path)
     }
 
+    fn remove_dir_batch(&self, path: &Path, limit: usize) -> io::Result<bool> {
+        DirectFileSystem.remove_dir_batch(path, limit)
+    }
+
     fn create_dir_all(&self, path: &Path) -> io::Result<()> {
         DirectFileSystem.create_dir_all(path)
     }

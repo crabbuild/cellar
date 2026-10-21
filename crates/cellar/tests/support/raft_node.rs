@@ -52,6 +52,7 @@ pub async fn node_declared_with_filesystem(
         classes,
         filesystem,
         ShutdownPolicy::default(),
+        None,
     )
     .await
 }
@@ -70,6 +71,28 @@ pub async fn node_with_shutdown(
         vec![],
         Arc::new(cellar_ltx::DirectFileSystem),
         shutdown,
+        None,
+    )
+    .await
+}
+
+// This shared fixture also serves targets without management operations.
+#[allow(dead_code)]
+pub async fn node_with_fleet(
+    directory: &Path,
+    application: Arc<dyn Application>,
+    shutdown: ShutdownPolicy,
+    bucket: cellar::bucket::Bucket,
+    filesystem: Arc<dyn cellar_ltx::FileSystem>,
+) -> Result<Node> {
+    node_configured(
+        directory,
+        application,
+        "raft-host",
+        vec![],
+        filesystem,
+        shutdown,
+        Some(bucket),
     )
     .await
 }
@@ -81,6 +104,7 @@ async fn node_configured(
     classes: Vec<String>,
     filesystem: Arc<dyn cellar_ltx::FileSystem>,
     shutdown: ShutdownPolicy,
+    bucket: Option<cellar::bucket::Bucket>,
 ) -> Result<Node> {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     let internal_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
@@ -117,6 +141,35 @@ async fn node_configured(
         directory.into(),
     );
     config.shutdown = shutdown;
+    let peer_http = reqwest::Client::builder().no_proxy().build()?;
+    let peer_auth = Arc::new(PeerAuth::new([11; 32], label)?);
+    let fleet = bucket
+        .map(|bucket| -> Result<NodeFleet> {
+            Ok(NodeFleet {
+                replica_storage: ReplicaStorage::new(
+                    bucket.store.clone(),
+                    ReplicaStorageOptions {
+                        prefix: bucket.prefix.clone(),
+                        ..Default::default()
+                    },
+                )?,
+                lease_bucket: bucket.clone(),
+                bucket,
+                replication: ReplicationOptions {
+                    flush_interval: Duration::ZERO,
+                    compaction: None,
+                    ..Default::default()
+                },
+                log_transport: Arc::new(SignedPeerTransport::from_clients(
+                    peer_http.clone(),
+                    peer_http.clone(),
+                    peer_auth.clone(),
+                )),
+                log: LogOptions::default(),
+                fleet_durability: true,
+            })
+        })
+        .transpose()?;
     let services = NodeServices {
         wall_clock: None,
         http_client: None,
@@ -124,10 +177,10 @@ async fn node_configured(
         core_executor: tokio::runtime::Handle::current(),
         listener,
         internal_listener,
-        peer_http: reqwest::Client::builder().no_proxy().build()?,
-        peer_auth: Arc::new(PeerAuth::new([11; 32], label)?),
+        peer_http,
+        peer_auth,
         probe_signer,
-        fleet: None,
+        fleet,
         containers: None,
         metrics: None,
     };

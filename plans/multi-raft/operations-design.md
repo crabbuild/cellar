@@ -15,7 +15,7 @@ releasing the startup slot. Cancellation poisons the slot until Node restart.
 The hidden raw infrastructure interface remains caller managed and supplies no
 cell-host semantic stop receipt.
 
-When requested shutdown begins, the supervisor seals Raft admission before the
+When requested shutdown begins, the shared Node/CLI driver seals Raft admission before the
 ordinary application-work drain. New user commands, queries, administration,
 alarms, outbox discovery and controller actions stop. Already admitted work keeps
 its producer and physical SQL ownership. Private outbox settlement may finish
@@ -75,6 +75,13 @@ deadline. Successful return records the actual node, disk, process and engine
 instance, final synced local commit/apply positions, observed archive coverage,
 retired/failed flags and submitted commands still ambiguous at close.
 
+The shared stop report keeps its original absolute deadline through Raft closure.
+If physical fsync/join work finishes after that deadline, `deadline_elapsed`
+remains true and the final stop receipt is incomplete. A timeout never detaches
+the storage worker. Cancelled startup likewise retains the opening worker and
+reports incomplete startup, rather than interpreting a missing installed host
+as `not_registered`.
+
 Group detail is bounded by `RaftCloseReportLimits`; omitted detail has an explicit
 count. The total includes every durable history in the engine. Known archive lag
 includes omitted attached histories; parked histories without a registration
@@ -85,12 +92,35 @@ Detailed scopes are available in the returned typed report, not metric labels.
 Parked histories supply no invented per-history archive observation and cannot
 become voters or serve queries merely because their durable files exist. Zero
 known lag with unknown histories cannot certify full-engine S3 coverage.
-Durable management stop receipts still contain Fleet phases. Propagating the
-final Raft result into those records remains an MR-13 integration requirement;
-a complete Fleet stop receipt supplies no Raft archive or disk-deletion proof.
-The Node outcome formatter includes Raft results. Production CLI configuration,
-startup and management surfaces still require their separate end-to-end Raft
-integration; a formatter unit test is not that operating qualification.
+The shared driver closes the registered Raft host before publishing its
+`joining_domain` phase. The surrounding host publishes the final durable receipt
+only after joining the whole Node domain. Authenticated management stops and
+caller/signal stops use this same path. Forced cancellation publishes `failed`
+without graceful proof, after physical joining.
+
+`StopProof.raft` is required, including for Fleet-only nodes. `not_registered`
+means no production cell host was registered; the hidden raw infrastructure API
+does not acquire semantic cell-host proof. `failed` records unavailable close
+proof and whether startup was incomplete. `closed` binds the actual node, disk,
+process and engine identity and complete aggregate counts, including ambiguous
+commands, archive lag and unknown parked histories. It contains no per-cell
+payload. Handoff counts preserve missing/failed observations and distinguish
+accepted requests from old-leader release.
+
+A complete local stop requires successful Raft closure, completed startup, no
+submitted unfinished commands and an observed handoff turn without an elapsed
+deadline, in addition to the existing Fleet drain phases. Best-effort lack of a
+handoff candidate does not invalidate joined local closure. Known archive lag
+and unknown parked coverage remain visible obligations; neither a complete stop
+nor the receipt grants S3 recovery, deployment fencing or disk deletion.
+Malformed engine identities, inconsistent aggregate counts and missing Raft
+evidence are refused by the receipt reader. The internal receipt marker stays
+1 with a hard cutover; no old receipt reader or migration is provided.
+
+The Node outcome formatter includes Raft results. Production CLI configuration
+and startup still require separate end-to-end Raft integration; the shared drain
+and formatter do not qualify that missing bootstrap path. Role/query readiness,
+resource inspection and other management surfaces remain MR-13 work.
 
 After a stop:
 
