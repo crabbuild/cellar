@@ -291,11 +291,37 @@ parents; seven snapshot install process-kill cuts remain covered. Owning Clippy,
 cellar-ltx feature builds/Clippy, format/layout, dependency policy, docs, 17 plan
 tests and reviewed preflight pass.
 
-This remains component progress. Native snapshot RPC/source scheduling,
-publication/readiness and generation admission, authorized fresh-member S3/peer
-recovery and quorum-loss normal-activation refusal remain unfinished. The
+At that earlier source this remained component progress: native scheduling,
+publication/admission and fresh-member recovery were unfinished. Current native
+peer-seed qualification is recorded below. The
 [feature milestone order](implementation-plan.md#feature-priorities-and-delivery-milestones)
 keeps recovery through public Node first, followed by automatic repair, durable
 business features, operations, release qualification and larger scale/federation.
 MR-10 and the overall 17-package goal remain open. No physical S3, power-loss,
 zones, production capacity or release qualification is established by this record.
+
+
+## MR-10 native peer-seed progress
+
+The [native peer-seed qualification](evidence/MR-10-seed-progress.json) pins source
+`fcaa793854a1ee17236b8276a5efd35e505eaa37`: 201 Rust cases across 12 binaries and all 21 commands pass.
+This includes 33 snapshot cases, 27 archive, 18 read, six protocol contract,
+22 library cases, owning Raft regressions and the affected public Node lifecycle.
+Clippy, both cellar-ltx backend modes, format (637 Rust files), layout, dependency
+policy, docs, 17 plan tests, all 23 required snapshot names and 68-anchor preflight
+pass. Seven ignored child entry points run through owning parents and are excluded.
+
+Explicit native learner admission now obtains a fresh safe ReadIndex grant,
+transfers from a follower, seals and atomically installs its state, reconciles a
+permanent claim and serves reads plus later replication. A partial-body timeout
+retries with a fresh grant under the original deadline. The engine/image reopen
+drill preserves the binding and vote zero; a claimed blank replacement and a
+blank seed without quorum are refused. The reopen drill is not a full public
+joined-node restart qualification.
+
+The internal identity is `cellar-raft-ltx-1/members-1/seeds-1`, with format markers
+still 1. Earlier checksum-valid roots are refused; use a fresh experimental
+namespace/prefix and local state. Native S3 seed selection/install and the remaining
+native restart/crash matrix still precede MR-10 completion. MR-11 through MR-17
+remain open; these checks establish no physical S3, power-loss, production-scale
+or federation qualification.

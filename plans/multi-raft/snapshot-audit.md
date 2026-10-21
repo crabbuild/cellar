@@ -2,6 +2,29 @@
 
 MR-10 is in progress.
 
+The [native peer-seed qualification](evidence/MR-10-seed-progress.json) pins source
+`fcaa793854a1ee17236b8276a5efd35e505eaa37`: 201 Rust cases across 12 binaries and all 21 commands pass.
+This includes 33 snapshot cases, 27 archive, 18 read, six protocol contract,
+22 library cases, owning Raft regressions and the affected public Node lifecycle.
+Clippy, both cellar-ltx backend modes, format (637 Rust files), layout, dependency
+policy, docs, 17 plan tests, all 23 required snapshot names and 68-anchor preflight
+pass. Seven ignored child entry points run through owning parents and are excluded.
+
+Explicit native learner admission now obtains a fresh safe ReadIndex grant,
+transfers from a follower, seals and atomically installs its state, reconciles a
+permanent claim and serves reads plus later replication. A partial-body timeout
+retries with a fresh grant under the original deadline. The engine/image reopen
+drill preserves the binding and vote zero; a claimed blank replacement and a
+blank seed without quorum are refused. The reopen drill is not a full public
+joined-node restart qualification.
+
+The internal identity is `cellar-raft-ltx-1/members-1/seeds-1`, with format markers
+still 1. Earlier checksum-valid roots are refused; use a fresh experimental
+namespace/prefix and local state. Native S3 seed selection/install and the remaining
+native restart/crash matrix still precede MR-10 completion. MR-11 through MR-17
+remain open; these checks establish no physical S3, power-loss, production-scale
+or federation qualification.
+
 The [member-binding progress](evidence/MR-10-bindings-progress.json) pins source
 `88b05883acaba7881fcf30fc0d06e0dc2474725c`: 198 Rust cases and all 21 commands pass,
 including 30 snapshot, 27 archive, 18 read, six protocol contract and 22 library
@@ -13,12 +36,12 @@ high-water now survive journal sync, snapshot transfer, compaction and restart;
 archives verify their immutable birth IDs. Stale/unbound/rebound proposals, direct
 fresh voters, empty-learner promotion and mixed member/snapshot markers are refused.
 
-This changes the internal namespace protocol identity to
+That earlier cut changed the internal namespace protocol identity to
 `cellar-raft-ltx-1/members-1` while keeping format markers at 1. Earlier namespace
 roots are refused; use a fresh experimental namespace/prefix and local Raft state.
 There is no compatibility reader or migration. Binding observations do not grant
-fresh-member admission. Native live-quorum authorization, peer/S3 seeding, permanent
-claim reconciliation and the remaining native crash matrix are the next MR-10 work.
+fresh-member admission. At that cut, native live-quorum authorization, peer/S3
+seeding, claim reconciliation and the native crash matrix were still outstanding.
 MR-11 through MR-17 remain open.
 
 The earlier [native progress evidence](evidence/MR-10-native-progress.json)
@@ -295,3 +318,41 @@ disaster restore. Blob/effect capabilities remain unsupported; their external
 dependency closure must join snapshot installation before those capabilities can
 be enabled. Local TLS and in-memory object-store fixtures do not qualify physical
 S3, power loss, zones, production throughput or larger cluster capacity.
+
+
+## Native fresh-learner peer seeding
+
+Explicit admission commits an exact fresh member/node/disk binding against a
+membership revision. Endpoints come from bounded trusted peer configuration;
+retries reuse the same identity and revision to reconcile an ambiguous result.
+Routes follow committed membership. Admission receipts and snapshots remain data,
+not live-quorum authorization.
+
+A purpose-separated TLS seed RPC obtains a fresh safe ReadIndex through the
+native host. The source must publish a cut covering that barrier and still
+recognize the target as that exact learner. The response binds the request
+nonce/tag, physical route, snapshot digest and lease. The opaque target capability
+also binds the local engine owner, process and original deadline. Missing quorum
+refuses a blank seed even when an acknowledged S3 archive is available.
+
+The target verifies the descriptor before body allocation, validates ordered
+bounded chunks, seals its image on the SQL owner and creates all initial engine
+records in one synced batch. Original birth configuration remains distinct from
+the current included configuration. HardState has vote zero and imports no source
+leadership or process state. Prospective references survive uncertain sync. The
+permanent claim is conditionally created/read back only after local sync; an
+existing claim without stable group state refuses blank initialization. Only the
+matching engine owner may attach the member afterward.
+
+Native drills seed from a follower, serve a linearizable query, replicate a later
+command, reopen and recover the physical image and binding with vote zero, and
+refuse a claimed blank replacement. An interrupted partial body retries with a
+fresh grant under the original deadline. New requests cancel an older source
+lease to that same learner; old active streams retain their pins through bounded
+exit. The missing-quorum drill verifies both absent local group and absent new
+member claim.
+
+This changes the internal identity to `cellar-raft-ltx-1/members-1/seeds-1`, with
+format markers still 1 and no compatibility reader. These peer-seed features do
+not complete MR-10: native S3 seed selection/install and the full native recovery
+crash matrix remain. MR-11 through MR-17 also remain open.

@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "baseline_revision": "88b05883acaba7881fcf30fc0d06e0dc2474725c",
+  "baseline_revision": "fcaa793854a1ee17236b8276a5efd35e505eaa37",
   "status_values": [
     "TODO",
     "IN_PROGRESS",
@@ -1264,7 +1264,8 @@
         "crates/cellar/durability/raft/query_transport.rs",
         "crates/cellar/durability/raft/catalog_wire.rs",
         "crates/cellar/application/consensus/protocol.rs",
-        "crates/cellar/tests/native_raft_storage.rs"
+        "crates/cellar/tests/native_raft_storage.rs",
+        "crates/cellar/durability/raft/catalog.rs"
       ],
       "creates": [
         "crates/cellar/durability/raft/snapshot.rs",
@@ -1274,7 +1275,11 @@
         "crates/cellar/durability/raft/snapshot_transport.rs",
         "crates/cellar/durability/raft/host_snapshot.rs",
         "crates/cellar/durability/raft/member_state.rs",
-        "crates/cellar/durability/raft/member_state_tests.rs"
+        "crates/cellar/durability/raft/member_state_tests.rs",
+        "crates/cellar/durability/raft/host_membership.rs",
+        "crates/cellar/durability/raft/host_seed.rs",
+        "crates/cellar/durability/raft/seed_transport.rs",
+        "crates/cellar/durability/raft/snapshot_seed.rs"
       ],
       "steps": [
         "Implement bounded snapshot build/download with image, index/term, ConfState and incarnation metadata.",
@@ -1464,6 +1469,35 @@
             "I06",
             "I11"
           ]
+        },
+        {
+          "name": "native_fresh_learner_seed_requires_committed_binding_and_resumes_reads",
+          "oracle": "A committed exact learner binding obtains a fresh follower ReadIndex grant, seals and atomically installs its image, reconciles a permanent claim, resumes reads and later replication, preserves vote zero on restart, and refuses a claimed blank replacement",
+          "invariants": [
+            "I04",
+            "I05",
+            "I06",
+            "I11"
+          ]
+        },
+        {
+          "name": "native_fresh_learner_seed_refuses_missing_quorum",
+          "oracle": "Available S3 data and a committed learner binding cannot seed a blank node without a fresh quorum barrier; refusal leaves no group or permanent claim",
+          "invariants": [
+            "I04",
+            "I05",
+            "I11"
+          ]
+        },
+        {
+          "name": "native_fresh_learner_seed_retries_partial_body_with_fresh_grant",
+          "oracle": "A held partial learner body expires its stream and retries with a fresh authenticated quorum grant under the original deadline, then resumes reads and subsequent replication without invoking seed-time business callbacks",
+          "invariants": [
+            "I04",
+            "I05",
+            "I11",
+            "I13"
+          ]
         }
       ],
       "verification": [
@@ -1491,6 +1525,7 @@
         ]
       ],
       "evidence": [
+        "evidence/MR-10-seed-progress.json",
         "evidence/MR-10-bindings-progress.json",
         "evidence/MR-10-native-progress.json",
         "evidence/MR-10-quorum-progress.json"

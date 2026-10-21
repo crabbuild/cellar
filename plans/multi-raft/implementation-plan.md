@@ -67,9 +67,10 @@ after its public Node path and failure cases pass together.
 | 5 | Qualify the initial release | Complete workload batching, benchmarks, checked operation histories, fault/recovery drills and soak tests. Publish the supported topology and measured limits with reproducible evidence. | MR-14, MR-15 |
 | 6 | Expand the supported scale | Qualify measured group density and larger cluster tiers, then independent-cluster federation. Millions of cells and millions of physical nodes are separate qualification targets. | MR-16, MR-17 |
 
-Priority 1 now includes safe exact-ticket abort and native checkpoint/source
-scheduling, peer transfer and host publication for existing replicas. Next are
-authorized fresh-member/S3 recovery and the complete recovery fault matrix.
+Priority 1 includes exact-ticket abort, native checkpoint/source scheduling,
+existing-replica catch-up and explicit fresh-learner peer seeding with live quorum
+and permanent claims. Next are S3 seed installation and the remaining native
+restart/crash matrix.
 Keep each later package's dependency and acceptance gates intact.
 
 ## Package dependency order
@@ -419,6 +420,29 @@ shown by `plan.py show MR-09`; the manifest is authoritative for arguments.
 
 Dependencies: MR-09, MR-05, MR-03, MR-08. Phase: v1. Status: IN_PROGRESS.
 
+The [native peer-seed qualification](evidence/MR-10-seed-progress.json) pins source
+`fcaa793854a1ee17236b8276a5efd35e505eaa37`: 201 Rust cases across 12 binaries and all 21 commands pass.
+This includes 33 snapshot cases, 27 archive, 18 read, six protocol contract,
+22 library cases, owning Raft regressions and the affected public Node lifecycle.
+Clippy, both cellar-ltx backend modes, format (637 Rust files), layout, dependency
+policy, docs, 17 plan tests, all 23 required snapshot names and 68-anchor preflight
+pass. Seven ignored child entry points run through owning parents and are excluded.
+
+Explicit native learner admission now obtains a fresh safe ReadIndex grant,
+transfers from a follower, seals and atomically installs its state, reconciles a
+permanent claim and serves reads plus later replication. A partial-body timeout
+retries with a fresh grant under the original deadline. The engine/image reopen
+drill preserves the binding and vote zero; a claimed blank replacement and a
+blank seed without quorum are refused. The reopen drill is not a full public
+joined-node restart qualification.
+
+The internal identity is `cellar-raft-ltx-1/members-1/seeds-1`, with format markers
+still 1. Earlier checksum-valid roots are refused; use a fresh experimental
+namespace/prefix and local state. Native S3 seed selection/install and the remaining
+native restart/crash matrix still precede MR-10 completion. MR-11 through MR-17
+remain open; these checks establish no physical S3, power-loss, production-scale
+or federation qualification.
+
 The physical snapshot component captures exact committed cuts, binds canonical
 history/schema/configuration metadata to full LTX bytes, assembles bounded ordered
 chunks and seals destination generations before an exact runtime completion.
@@ -467,24 +491,28 @@ high-water now survive journal sync, snapshot transfer, compaction and restart;
 archives verify their immutable birth IDs. Stale/unbound/rebound proposals, direct
 fresh voters, empty-learner promotion and mixed member/snapshot markers are refused.
 
-This changes the internal namespace protocol identity to
+That earlier cut changed the internal namespace protocol identity to
 `cellar-raft-ltx-1/members-1` while keeping format markers at 1. Earlier namespace
 roots are refused; use a fresh experimental namespace/prefix and local Raft state.
 There is no compatibility reader or migration. Binding observations do not grant
-fresh-member admission. Native live-quorum authorization, peer/S3 seeding, permanent
-claim reconciliation and the remaining native crash matrix are the next MR-10 work.
+fresh-member admission. At that cut, native live-quorum authorization, peer/S3
+seeding, claim reconciliation and the native crash matrix were still outstanding.
 MR-11 through MR-17 remain open.
 
 Configuration-owned member/node/disk bindings now accompany the durable applied
 configuration, peer snapshots and S3 manifests. Canonical revision-bound intent,
 learner-first admission, caught-up promotion and a retained ID high-water preserve
 identity across joint transitions, compaction and restart. This does not authorize
-seeding by itself. The next feature is live-quorum fresh-member authorization and
-peer/S3 seed installation with permanent claim reconciliation.
+seeding by itself. Explicit native learner admission, a fresh safe ReadIndex seed
+grant, bounded peer transfer, atomic local initialization and permanent claim
+reconciliation are now implemented. Native tests cover reads and later replication,
+partial-body retry, restart with vote zero, claimed-state loss and missing quorum.
+S3 seeding and the remaining native recovery crash matrix still precede MR-10
+completion; automatic repair remains MR-11.
 
-Modify: `crates/cellar/durability/raft/storage.rs`, `crates/cellar/durability/raft/apply.rs`, `crates/cellar/durability/raft/transport.rs`, `crates/cellar/node/embedded.rs`.
+Modify: `crates/cellar/durability/raft/storage.rs`, `crates/cellar/durability/raft/apply.rs`, `crates/cellar/durability/raft/transport.rs`, `crates/cellar/node/embedded.rs`, `crates/cellar/durability/raft/catalog.rs`.
 
-Create: `crates/cellar/durability/raft/snapshot.rs`, `crates/cellar/durability/raft/recovery.rs`, `crates/cellar/durability/raft/member_state.rs`, `crates/cellar/durability/raft/member_state_tests.rs`, `crates/cellar/tests/native_raft_snapshot.rs`.
+Create: `crates/cellar/durability/raft/snapshot.rs`, `crates/cellar/durability/raft/recovery.rs`, `crates/cellar/durability/raft/member_state.rs`, `crates/cellar/durability/raft/member_state_tests.rs`, `crates/cellar/tests/native_raft_snapshot.rs`, `crates/cellar/durability/raft/host_membership.rs`, `crates/cellar/durability/raft/host_seed.rs`, `crates/cellar/durability/raft/seed_transport.rs`, `crates/cellar/durability/raft/snapshot_seed.rs`.
 
 1. Implement bounded snapshot build/download with image, index/term, ConfState and incarnation metadata.
 2. Atomically publish engine install markers only after the image is durable; retain old reader pins.
@@ -517,6 +545,9 @@ Stop conditions: Stop if restart repairs applied/commit mismatch by inventing pr
 | `snapshot_member_binding_and_retirement_survive_restart` | Joined member/node/disk bindings and retired-ID high-water survive compaction, transfer and restart |
 | `snapshot_refuses_rebound_binding_and_lost_id_watermark` | Canonical higher snapshots cannot rebind an existing member or regress its retired-ID watermark |
 | `snapshot_same_cut_requires_member_binding_marker` | Recovery refuses a snapshot whose same-cut member marker was not atomically installed |
+| `native_fresh_learner_seed_requires_committed_binding_and_resumes_reads` | A committed exact learner binding obtains a fresh follower ReadIndex grant, seals and atomically installs its image, reconciles a permanent claim, resumes reads and later replication, preserves vote zero on restart, and refuses a claimed blank replacement |
+| `native_fresh_learner_seed_refuses_missing_quorum` | Available S3 data and a committed learner binding cannot seed a blank node without a fresh quorum barrier; refusal leaves no group or permanent claim |
+| `native_fresh_learner_seed_retries_partial_body_with_fresh_grant` | A held partial learner body expires its stream and retries with a fresh authenticated quorum grant under the original deadline, then resumes reads and subsequent replication without invoking seed-time business callbacks |
 
 Verification target: `native_raft_snapshot`. Run the exact list/test commands
 shown by `plan.py show MR-10`; the manifest is authoritative for arguments.

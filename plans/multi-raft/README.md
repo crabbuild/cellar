@@ -47,6 +47,29 @@ define the remaining delivery order: recovery, automatic repair, durable busines
 features, node operations, release qualification, then larger scale/federation.
 Recovery through the public Node path is the current priority.
 
+The [native peer-seed qualification](evidence/MR-10-seed-progress.json) pins source
+`fcaa793854a1ee17236b8276a5efd35e505eaa37`: 201 Rust cases across 12 binaries and all 21 commands pass.
+This includes 33 snapshot cases, 27 archive, 18 read, six protocol contract,
+22 library cases, owning Raft regressions and the affected public Node lifecycle.
+Clippy, both cellar-ltx backend modes, format (637 Rust files), layout, dependency
+policy, docs, 17 plan tests, all 23 required snapshot names and 68-anchor preflight
+pass. Seven ignored child entry points run through owning parents and are excluded.
+
+Explicit native learner admission now obtains a fresh safe ReadIndex grant,
+transfers from a follower, seals and atomically installs its state, reconciles a
+permanent claim and serves reads plus later replication. A partial-body timeout
+retries with a fresh grant under the original deadline. The engine/image reopen
+drill preserves the binding and vote zero; a claimed blank replacement and a
+blank seed without quorum are refused. The reopen drill is not a full public
+joined-node restart qualification.
+
+The internal identity is `cellar-raft-ltx-1/members-1/seeds-1`, with format markers
+still 1. Earlier checksum-valid roots are refused; use a fresh experimental
+namespace/prefix and local state. Native S3 seed selection/install and the remaining
+native restart/crash matrix still precede MR-10 completion. MR-11 through MR-17
+remain open; these checks establish no physical S3, power-loss, production-scale
+or federation qualification.
+
 The [member-binding progress](evidence/MR-10-bindings-progress.json) pins source
 `88b05883acaba7881fcf30fc0d06e0dc2474725c`: 198 Rust cases and all 21 commands pass,
 including 30 snapshot, 27 archive, 18 read, six protocol contract and 22 library
@@ -58,12 +81,12 @@ high-water now survive journal sync, snapshot transfer, compaction and restart;
 archives verify their immutable birth IDs. Stale/unbound/rebound proposals, direct
 fresh voters, empty-learner promotion and mixed member/snapshot markers are refused.
 
-This changes the internal namespace protocol identity to
+That earlier cut changed the internal namespace protocol identity to
 `cellar-raft-ltx-1/members-1` while keeping format markers at 1. Earlier namespace
 roots are refused; use a fresh experimental namespace/prefix and local Raft state.
 There is no compatibility reader or migration. Binding observations do not grant
-fresh-member admission. Native live-quorum authorization, peer/S3 seeding, permanent
-claim reconciliation and the remaining native crash matrix are the next MR-10 work.
+fresh-member admission. At that cut, native live-quorum authorization, peer/S3
+seeding, claim reconciliation and the native crash matrix were still outstanding.
 MR-11 through MR-17 remain open.
 
 The earlier [native recovery progress](evidence/MR-10-native-progress.json) pins source
@@ -89,7 +112,7 @@ a different disk and an unassigned node; every failed attempt leaves no local
 group/voting state. Explicit disconnected historical reads remain coherent.
 
 The [snapshot audit](snapshot-audit.md) records the implemented native path and
-remaining authorized fresh-member/S3 admission and native crash qualification. MR-10 remains IN_PROGRESS. The earlier
+remaining S3 seed installation and native restart/crash qualification. MR-10 remains IN_PROGRESS. The earlier
 [cancellation record](evidence/MR-10-abort-progress.json) pins its 160-case scope at
 `c6aaca08153d039717a07195d05a8b0248ac6fe5`; the
 [peer-admission record](evidence/MR-10-inbound-progress.json) pins 157 cases at
@@ -98,7 +121,8 @@ remaining authorized fresh-member/S3 admission and native crash qualification. M
 `a5619f3d522fd942372c520f02a52945fd0ec7b5`. The
 [earlier physical record](evidence/MR-10-physical-progress.json) retains its
 separate 218-case qualification at `24410fb754b055078255ccf5d595c0893f0d1b0e`.
-The current record includes the complete 88-case Node target.
+The earlier 304-case record includes all 88 Node cases; current peer-seed
+qualification reruns the affected Node Raft lifecycle case.
 
 The [earlier storage progress evidence](evidence/MR-09-storage-progress.json)
 retains its narrower 91-case qualification at source
