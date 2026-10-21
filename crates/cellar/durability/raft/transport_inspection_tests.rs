@@ -261,6 +261,8 @@ async fn inspection_revocation_and_process_refresh_cancel_an_admitted_inbound_ca
                 changed: Notify::new(),
             }),
             budget: Budget::new(4096, 1),
+            archive_capture_budget: Budget::new(4096, 1),
+            query_pins: Budget::new(0, 1),
             max_input_bytes: 4096,
             bindings: BTreeMap::from([(
                 (scope.namespace, scope.cell.clone()),
