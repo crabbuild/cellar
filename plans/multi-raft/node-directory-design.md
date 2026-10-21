@@ -10,7 +10,9 @@ bounded host control admission are [qualified at their component boundary](evide
 Local registered-history capture is [qualified](evidence/MR-11-inspection-progress.json).
 Authenticated peer collection is [qualified](evidence/MR-11-peer-progress.json),
 including separate namespace permissions, conservative ages, physical routes
-and joined cancellation. Automatic controller integration remains unimplemented.
+and joined cancellation. Complete bounded node-wide load collection is
+[qualified](evidence/MR-11-load-progress.json). Automatic controller integration
+remains unimplemented.
 The [membership contract](membership-design.md) remains authoritative for
 learner initialization and configuration changes. A directory observation never
 changes voters, initializes storage or supplies a quorum proof.

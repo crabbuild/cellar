@@ -14,8 +14,10 @@ Process distribution, atomic routing refresh and independently bounded host
 control admission are [qualified at their component boundary](evidence/MR-11-control-progress.json).
 Local occupancy/capacity capture is [qualified](evidence/MR-11-inspection-progress.json),
 including dormant standbys and publication during a private callback.
-Peer inspection does not supply quorum or activation authority; aggregate
-leader load and automatic reconciliation remain unimplemented.
+Peer inspection does not supply quorum or activation authority. Complete bounded
+leader-load scans are [qualified](evidence/MR-11-load-progress.json); failed or
+partial scans cannot refresh the previous sample. Automatic reconciliation and
+balancing remain unimplemented.
 MR-10 qualification remains separate.
 These component results establish no additional capacity or release qualification.
 

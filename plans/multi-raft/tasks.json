@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "baseline_revision": "ec21635f9ae91b151e3b258a73f830804471f6a1",
+  "baseline_revision": "6dd95193b30c3020d6f4b2543c7ae454a2c5f4e0",
   "status_values": [
     "TODO",
     "IN_PROGRESS",
@@ -1714,7 +1714,9 @@
         "crates/cellar/durability/raft/inspection_wire.rs",
         "crates/cellar/durability/raft/inspection_wire_tests.rs",
         "crates/cellar/durability/raft/transport_inspection_tests.rs",
-        "crates/cellar/tests/support/raft_peer_inspection_native.rs"
+        "crates/cellar/tests/support/raft_peer_inspection_native.rs",
+        "crates/cellar/durability/raft/host_leader_load.rs",
+        "crates/cellar/durability/raft/host_leader_load_tests.rs"
       ],
       "steps": [
         "Implement domain-aware desired placement and versioned idempotent controller plans.",
@@ -1818,7 +1820,8 @@
         "evidence/MR-11-process-regression-progress.json",
         "evidence/MR-11-control-progress.json",
         "evidence/MR-11-inspection-progress.json",
-        "evidence/MR-11-peer-progress.json"
+        "evidence/MR-11-peer-progress.json",
+        "evidence/MR-11-load-progress.json"
       ]
     },
     {

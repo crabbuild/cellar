@@ -72,10 +72,23 @@ consumer seam after actual TLS/authentication and SDK admission. Profile
 capacity remains declared; aggregate leader load and automatic reconciliation
 remain open. Initial fixture/schema and Clippy failures are retained separately.
 
+The [complete load-scan qualification](evidence/MR-11-load-progress.json)
+pins `6dd95193b30c3020d6f4b2543c7ae454a2c5f4e0`: 91 Rust cases across three
+binaries and all 13 focused checks pass. Three aggregation/failure cases refuse
+partial, stale-sequence, wrong-owner, changed-population and late completions.
+A four-node native case samples one group per batch and verifies each node's
+aggregate across two histories, including the dormant node. Its two commands
+execute exactly two callbacks. Counts appear after a complete bounded scan;
+failures retain the prior complete sample at its original age. All 48 library,
+27 host and 16 directory cases pass. Format checks 673 Rust files; Clippy,
+layout, dependency policy, docs, 17 planning tests and 71-anchor preflight pass.
+The earlier 231-case record retains its full snapshot/membership scope and
+source pin. Automatic reconciliation and balancing remain unimplemented.
+
 MR-11 remains IN_PROGRESS. The partial inventory reports five of seven required
 names; `automatic_no_traffic_repair` and `leader_balance_with_lag` remain absent.
-Automatic scheduling, complete node-wide leader-load collection and the six-node
-repair gate remain required. Trusted process-view distribution and reserved host
+Automatic scheduling and the six-node repair gate remain required. Complete
+node-wide load collection is qualified above. Trusted process-view distribution and reserved host
 control admission are implemented. The full inventory
 checker is unchanged. This is explicit administrative repair, without automatic
 redundancy repair or complete milestone qualification.
