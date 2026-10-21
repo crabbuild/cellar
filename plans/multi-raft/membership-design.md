@@ -7,7 +7,8 @@ repair APIs, guarded transfer and peer/S3 activation in an already-running host.
 Automatic scheduling, authenticated inspection, durable node/process views and
 the six-node no-business-traffic gate remain open. The
 [node-directory contract](node-directory-design.md) specifies that next boundary;
-it is not implemented or qualified yet. MR-10 qualification remains separate.
+its local identity/fence foundation is [qualified](evidence/MR-11-node-storage-progress.json),
+while S3 pins/views and inspection remain unimplemented. MR-10 qualification remains separate.
 These component results establish no additional capacity or release qualification.
 
 ## Authority and durable intent

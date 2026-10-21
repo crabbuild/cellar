@@ -1,6 +1,9 @@
 # Trusted node registration and process views
 
-Status: MR-11 implementation contract; not yet implemented or qualified.
+Status: MR-11 implementation contract. The [local storage foundation](evidence/MR-11-node-storage-progress.json)
+qualifies stable engine identity, root-fence allocation and physical close
+ownership. S3 pins, process publication/distribution, inspection and controller
+integration are not yet implemented or qualified.
 The [membership contract](membership-design.md) remains authoritative for
 learner initialization and configuration changes. A directory observation never
 changes voters, initializes storage or supplies a quorum proof.

@@ -1,0 +1,6 @@
+Source revision: c127b13f772b68992d061167c6bbf8873ab9a95e
+Command: ["cargo", "clippy", "-p", "cellar-ltx", "--all-features", "--locked", "--", "-D", "warnings"]
+
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Finished `dev` profile [unoptimized] target(s) in 0.17s
