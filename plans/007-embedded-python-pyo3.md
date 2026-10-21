@@ -18,9 +18,11 @@ recovery. The packaged smoke additionally covers Pydantic/native-extension impor
 KV, SQL, queue delivery and cron. These are implementation checks, not broad
 production certification. The design below records the intended full contract.
 
-Remaining qualification: external native-library/OS attestation, measured operating
-defaults, diagnosis of preserved native test failures
-and final-source Linux CI. Interrupted cron delivery, admission/retirement races and
+Remaining qualification: the complete Linux installed-host matrix for external
+native-library/OS attestation, diagnosis of preserved lifecycle test failures and
+final-source regression evidence in both threading ABIs. Operating defaults have
+repeated local measurements and Linux CI workload evidence within their stated
+development scope. Interrupted cron delivery, admission/retirement races and
 native-versus-Python development measurements now have direct evidence in the audit.
 Independent KV, shared-SQL
 and queue matrices now cover cancellation, failed proof, explicit reconciliation,
@@ -533,21 +535,22 @@ published source and remaining qualification:
 | Phase | Current assessment | Gate still open |
 | --- | --- | --- |
 | M0 | Bootstrap, invocation pump, authority and cancellation implemented; direct evidence in both threading ABIs | Final-source platform matrix |
-| M1 | HTTP, pinned native packages, bounds and error handling implemented; bootstrap correction passes all four Linux adapter jobs at 9143fef | Complete current-source installed-package/platform qualification |
+| M1 | HTTP, pinned native packages, bounds and sanitized failures implemented; all four 3e56924 Linux adapter jobs pass | Complete current-source installed-package/platform qualification |
 | M2 | All S01–S09 storage/alarm requirements have direct evidence within their stated scopes | Final-source regression qualification |
-| M3 | Fencing, retirement, takeover and supervised noncooperative shutdown implemented | Linux conventional delivery test reports a host deadline failure; identify its stage and diagnose preserved native failures |
-| M4 | Verified packaging, external prerequisite attestation, offline restoration and process replacement implemented and qualified locally in both ABIs | Qualify the new prerequisite schema on Linux and publish the remaining implementation |
-| M5 | KV, shared SQL, queues and cron implemented with independent local failure matrices; shipping-default mixed workloads and saturation pass repeated optimized runs in both ABIs | Linux execution of the new default-limit workload and final-source qualification; optional ASGI/streaming remain deferred |
+| M3 | Fencing, retirement, takeover and supervised noncooperative shutdown implemented; local native lease correction passes its controlled regression, native 88/88 and strict Clippy | Both local Python ABI suites and strict Clippy pass; qualify the correction on Linux and diagnose preserved delivery, initial consumer admission and clock/replay failures |
+| M4 | Verified packaging, external prerequisites, offline restoration and process replacement implemented with local evidence in both ABIs | All four 3e56924 Linux jobs fail package inventory capture; qualify the local GNU dynamic-token correction through the full Linux installed-host matrix |
+| M5 | KV, shared SQL, queues and cron implemented with independent local failure matrices; repeated optimized defaults pass locally and CI defaults pass in all four 3e56924 jobs | Final-source qualification; optional ASGI/streaming remain deferred |
 
-At previous e9b8d15, both Linux workflows failed: the push conventional job in
-`--runtime-delivery` with `host_failed=true` and a deadline error; the PR
-conventional job and both free-threaded jobs in the `private-init-failure`
-bootstrap privacy check. The correction at 9143fef passes all four subsequent
-Linux adapter jobs; their complete workflows are still running. External
-prerequisite guards, cold archive restoration, changed-source TERM/INT handoff
-and forced-restart supervision now pass locally in both ABIs. That implementation
-still needs Linux qualification. Earlier green workflows do not qualify later
-source, and the preserved delivery deadline is not explained by passing retries.
+The current published source is 3e56924. Both Linux workflows
+39531929061/39531931874 are terminal failures: all four jobs pass the adapter,
+default-load, actual loaded-library ABI guards and native test/lint stages, then
+fail package inventory capture. A local GNU dynamic-token correction now passes
+real ELF regressions and captures/verifies the complete free-threaded runtime
+and pinned package inventory on native Linux ARM64. This is not complete Cellar
+installation/recovery/replacement qualification; the full Linux matrix remains
+open. A separate native lease correction has direct local before/after evidence,
+but does not explain every historical lifecycle failure. Earlier green workflows
+do not qualify later source, and a passing retry does not close diagnosis.
 
 Prioritize the audit's [current work](007-embedded-python-audit.md#current-work)
 before adding more surfaces. A gate closes only with its stated evidence on

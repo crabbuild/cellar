@@ -1,0 +1,79 @@
+{
+  "format": 1,
+  "source_parent": "7cb55f32c6515446a510ee0af2e1bcd8d7eaafe1",
+  "scope": "Local macOS ARM64 adapter/bootstrap, doctests and strict Clippy in both CPython ABIs after the native lease correction, run serially with terminal zero exit status. GNU-specific tests/capture have separate real Linux evidence. This does not establish complete final-source Linux installed-host qualification or explain preserved intermittent failures.",
+  "rust_toolchain": "1.98.1",
+  "runtimes": {
+    "conventional": {
+      "version": "3.14.5 (main, Jun  2 2026, 22:28:56) [Clang 22.1.3 ]",
+      "soabi": "cpython-314-darwin",
+      "gil_disabled": 0,
+      "gil_enabled": true
+    },
+    "free_threaded": {
+      "version": "3.14.5 free-threading build (main, Jun  2 2026, 22:38:58) [Clang 22.1.3 ]",
+      "soabi": "cpython-314t-darwin",
+      "gil_disabled": 1,
+      "gil_enabled": false
+    }
+  },
+  "source_sha256": {
+    "crates/cellar/actor/effects.rs": "94b9cb6471870f8afc78e2ebea3ff41fd31c203c0b52ea5c616b5652313ac6a4",
+    "crates/cellar/tests/support/lease_renewal.rs": "c65f88914f0107bdcffa30ca8f339669c29ff0333ad4f446d257f884def6fda7",
+    "crates/cellar-python/tests/bridge.rs": "73cf03e786206907bc9827131a143e37915b7d9466b4d4f16103124bb10c8028",
+    "crates/cellar-python/tests/startup.rs": "441ab14c24950752bb4bf38689b041609ed6e2f2a6d9820debedcdd52b2ed1eb",
+    "tools/python/native_prerequisites.py": "4c93703bfe97befe43161cec1e2034852437c083eb28a085207f17dc280a4b9c",
+    "tools/python/test_native_prerequisites.py": "bdeee2482ffc00cbe53487edb77ee8c648217a35c4eef82ccc1bae729df46de8",
+    "Cargo.lock": "3bbd2dac13fd1b8a4db56912783f736ad628816a66a8463010413c264754a1e5"
+  },
+  "commands": [
+    "cargo test -p cellar-python --features embed --locked -- --test-threads=1",
+    "cargo clippy -p cellar-python --all-targets --all-features --locked -- -D warnings",
+    "cargo format --check",
+    "cargo check-layout",
+    "python3 tools/python/test_qualification_guards.py",
+    "python3 tools/python/test_native_prerequisites.py"
+  ],
+  "logs": {
+    "conventional_tests": {
+      "return_code": 0,
+      "sha256": "aabf2ee9c03c7cf9fb5cc33736bba0d555e608f761dfb6e6bee5d7ea13d30cef",
+      "output": "   Compiling ring v0.17.14\n   Compiling pyo3-ffi v0.30.1\n   Compiling pyo3 v0.30.1\n   Compiling cellar-python v0.6.2 (/Users/haipingfu/.codex/worktrees/6a8d/cellar/crates/cellar-python)\n   Compiling rustls-webpki v0.103.13\n   Compiling rustls v0.23.43\n   Compiling tokio-rustls v0.26.4\n   Compiling ureq v3.4.0\n   Compiling hyper-rustls v0.27.9\n   Compiling reqwest v0.12.28\n   Compiling object_store v0.12.5\n   Compiling cellar-ltx v0.0.0 (/Users/haipingfu/.codex/worktrees/6a8d/cellar/crates/cellar-ltx)\n   Compiling cellar v0.6.2 (/Users/haipingfu/.codex/worktrees/6a8d/cellar/crates/cellar)\n    Finished `test` profile [unoptimized + debuginfo] target(s) in 59.58s\n     Running unittests lib.rs (/Users/haipingfu/Workspace/crabbuild-target/cellar-6a8d/debug/deps/cellar_python-74df3c7576132905)\n<jemalloc>: option background_thread currently supports pthread only\n\nrunning 10 tests\ntest failure::tests::result_limits_preserve_uncertainty_and_exact_utf8_boundaries ... ok\ntest failure::tests::typed_verdicts_survive_context_without_guessing_rollback ... ok\ntest runtime::budget::tests::reservations_bound_aggregate_and_release_on_drop ... ok\ntest runtime::channel_tests::mailbox_boundaries_release_every_reservation ... ok\ntest runtime::identity::tests::exhaustion_refuses_without_reusing_an_identity ... ok\ntest runtime::identity::tests::simultaneous_factory_and_invocation_reservations_are_distinct ... ok\ntest runtime::snapshot::tests::readers_observe_age_and_skip_a_busy_publisher ... ok\ntest runtime::telemetry::tests::every_lifecycle_exit_has_one_terminal_disposition ... ok\ntest runtime::telemetry::tests::histogram_bounds_are_inclusive_and_elapsed_totals_saturate ... ok\ntest values::tests::nested_request_body_and_header_limits_have_exact_boundaries ... ok\n\ntest result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n     Running unittests ../../examples/python/main.rs (/Users/haipingfu/Workspace/crabbuild-target/cellar-6a8d/debug/deps/cellar_python_example-a9fa4ec3bd7788ff)\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n     Running tests/bridge.rs (/Users/haipingfu/Workspace/crabbuild-target/cellar-6a8d/debug/deps/bridge-3c7898f4659733fb)\n<jemalloc>: option background_thread currently supports pthread only\n<jemalloc>: option background_thread currently supports pthread only\n<jemalloc>: option background_thread currently supports pthread only\n<jemalloc>: option background_thread currently supports pthread only\n<jemalloc>: option background_thread currently supports pthread only\ncellar local reload scan failed: local reload requires replication\ncellar local reload scan failed: local reload requires replication\ncellar local reload scan failed: local reload requires replication\ncellar local reload scan failed: local reload requires replication\nPASS embedded Python: HTTP, native import, checked storage, SQL, alarms, expiration, cancellation, restart, remote owner routing, handoff recovery, shutdown\n     Running tests/startup.rs (/Users/haipingfu/Workspace/crabbuild-target/cellar-6a8d/debug/deps/startup-c774647c0d89c426)\n<jemalloc>: option background_thread currently supports pthread only\nPASS isolated CPython bootstrap: ambient paths/site hooks refused, explicit roots accepted, invalid ABI/home/thread/preinitialized state refused\n   Doc-tests cellar_python\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n"
+    },
+    "conventional_clippy": {
+      "return_code": 0,
+      "sha256": "21cce57b958382cfd3296f7b6028243c4d18ea9fb24d0078bc9c1e88cc6b0130",
+      "output": "    Checking tokio-rustls v0.26.4\n    Checking pyo3-ffi v0.30.1\n   Compiling cellar-python v0.6.2 (/Users/haipingfu/.codex/worktrees/6a8d/cellar/crates/cellar-python)\n    Checking hyper-rustls v0.27.9\n    Checking reqwest v0.12.28\n    Checking pyo3 v0.30.1\n    Checking object_store v0.12.5\n    Checking cellar-ltx v0.0.0 (/Users/haipingfu/.codex/worktrees/6a8d/cellar/crates/cellar-ltx)\n    Checking cellar v0.6.2 (/Users/haipingfu/.codex/worktrees/6a8d/cellar/crates/cellar)\n    Finished `dev` profile [unoptimized + debuginfo] target(s) in 25.66s\n"
+    },
+    "free_threaded_tests": {
+      "return_code": 0,
+      "sha256": "1c4ea32a388e39f3e5232de99244c1b216cdadbc955cecb93297e6471b46eac1",
+      "output": "   Compiling pyo3-ffi v0.30.1\n   Compiling pyo3 v0.30.1\n   Compiling cellar-python v0.6.2 (/Users/haipingfu/.codex/worktrees/6a8d/cellar/crates/cellar-python)\n    Finished `test` profile [unoptimized + debuginfo] target(s) in 9.27s\n     Running unittests lib.rs (/Users/haipingfu/Workspace/crabbuild-target/cellar-6a8d/debug/deps/cellar_python-74df3c7576132905)\n<jemalloc>: option background_thread currently supports pthread only\n\nrunning 10 tests\ntest failure::tests::result_limits_preserve_uncertainty_and_exact_utf8_boundaries ... ok\ntest failure::tests::typed_verdicts_survive_context_without_guessing_rollback ... ok\ntest runtime::budget::tests::reservations_bound_aggregate_and_release_on_drop ... ok\ntest runtime::channel_tests::mailbox_boundaries_release_every_reservation ... ok\ntest runtime::identity::tests::exhaustion_refuses_without_reusing_an_identity ... ok\ntest runtime::identity::tests::simultaneous_factory_and_invocation_reservations_are_distinct ... ok\ntest runtime::snapshot::tests::readers_observe_age_and_skip_a_busy_publisher ... ok\ntest runtime::telemetry::tests::every_lifecycle_exit_has_one_terminal_disposition ... ok\ntest runtime::telemetry::tests::histogram_bounds_are_inclusive_and_elapsed_totals_saturate ... ok\ntest values::tests::nested_request_body_and_header_limits_have_exact_boundaries ... ok\n\ntest result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n     Running unittests ../../examples/python/main.rs (/Users/haipingfu/Workspace/crabbuild-target/cellar-6a8d/debug/deps/cellar_python_example-a9fa4ec3bd7788ff)\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n     Running tests/bridge.rs (/Users/haipingfu/Workspace/crabbuild-target/cellar-6a8d/debug/deps/bridge-3c7898f4659733fb)\n<jemalloc>: option background_thread currently supports pthread only\n<jemalloc>: option background_thread currently supports pthread only\n<jemalloc>: option background_thread currently supports pthread only\n<jemalloc>: option background_thread currently supports pthread only\n<jemalloc>: option background_thread currently supports pthread only\ncellar local reload scan failed: local reload requires replication\ncellar local reload scan failed: local reload requires replication\ncellar local reload scan failed: local reload requires replication\ncellar local reload scan failed: local reload requires replication\nPASS embedded Python: HTTP, native import, checked storage, SQL, alarms, expiration, cancellation, restart, remote owner routing, handoff recovery, shutdown\n     Running tests/startup.rs (/Users/haipingfu/Workspace/crabbuild-target/cellar-6a8d/debug/deps/startup-c774647c0d89c426)\n<jemalloc>: option background_thread currently supports pthread only\nPASS isolated CPython bootstrap: ambient paths/site hooks refused, explicit roots accepted, invalid ABI/home/thread/preinitialized state refused\n   Doc-tests cellar_python\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n"
+    },
+    "free_threaded_clippy": {
+      "return_code": 0,
+      "sha256": "6ee0be49b8a0e9bdc7ee2e1120c0f5fd9e760e3904b99a64655990c4afbbd55b",
+      "output": "    Checking pyo3-ffi v0.30.1\n   Compiling cellar-python v0.6.2 (/Users/haipingfu/.codex/worktrees/6a8d/cellar/crates/cellar-python)\n    Checking pyo3 v0.30.1\n    Finished `dev` profile [unoptimized + debuginfo] target(s) in 4.47s\n"
+    },
+    "rust_format": {
+      "return_code": 0,
+      "sha256": "92f2247d9ca20efcefc54a685fd3147f43b0bf33f5ed9188434033bc0f02353d",
+      "output": "Checked 629 Rust files\n"
+    },
+    "rust_layout": {
+      "return_code": 0,
+      "sha256": "4f8cd3ba8a93f333b01502ffb23b7168d2b436f6fdded0ab99c94c734b7d62ef",
+      "output": "Checked module layout for 629 Rust files\n"
+    },
+    "qualification_guards": {
+      "return_code": 0,
+      "sha256": "90269309cdbf660057208094f4d0c42ed21b8783c8fc0150a8569444f50457c4",
+      "output": "..\n----------------------------------------------------------------------\nRan 2 tests in 0.158s\n\nOK\n"
+    },
+    "native_capture_macos": {
+      "return_code": 0,
+      "sha256": "cab5186a3f8f6f87acf79ca8a45389be10d401b93f0ee2231cfd09d26726b8c5",
+      "output": "s..s..\n----------------------------------------------------------------------\nRan 6 tests in 1.199s\n\nOK (skipped=2)\n"
+    }
+  }
+}

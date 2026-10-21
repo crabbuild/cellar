@@ -1,6 +1,7 @@
 """Real native loader capture/refusal tests; uses only the platform C toolchain."""
 import json
 import os
+import re
 from pathlib import Path
 import subprocess
 import sys
@@ -54,6 +55,37 @@ class NativePrerequisites(unittest.TestCase):
             inventory["prerequisites"] = native.capture(inventory, binary)
             self.assertEqual(inventory["prerequisites"]["dependencies"][str(libc)][interpreter.name], [str(loader)])
             self.assertFalse(sentinel.exists(), "loader alias capture executed a constructor")
+
+    @unittest.skipUnless(sys.platform == "linux", "GNU dynamic dependency tokens")
+    def test_needed_tokens_resolve_to_the_actual_loader_provider(self):
+        for token in ("$ORIGIN", "${ORIGIN}", "$ORIGIN/$LIB", "${ORIGIN}/${LIB}",
+                      "$ORIGIN/$PLATFORM", "${ORIGIN}/${PLATFORM}"):
+            with self.subTest(token=token), tempfile.TemporaryDirectory() as directory:
+                inventory, binary, provider, sentinel = self.fixture(directory)
+                _, loader = native.elf(binary)
+                diagnostic = subprocess.run([str(loader), "--list-diagnostics"], check=True,
+                                            capture_output=True, text=True, env={}).stdout
+                values = {name: re.search('^' + field + r'="([^"\\]+)"$', diagnostic, re.M)[1]
+                          for name, field in (("LIB", "dl_dst_lib"), ("PLATFORM", "dl_platform"))}
+                actual = token.replace("${ORIGIN}", str(provider.parent)).replace("$ORIGIN", str(provider.parent))
+                for name, value in values.items():
+                    actual = actual.replace("${" + name + "}", value).replace("$" + name, value)
+                secondary = Path(actual) / "libsecondary.so"
+                secondary.parent.mkdir(parents=True, exist_ok=True)
+                reference = token + "/libsecondary.so"
+                source = Path(directory) / "secondary.c"
+                source.write_text("int secondary_value(void) { return 7; }\n")
+                subprocess.run(["cc", "-shared", "-fPIC", "-Wl,-soname," + reference, str(source), "-o", str(secondary)], check=True)
+                provider_source = Path(directory) / "provider.c"
+                provider_source.write_text("extern int secondary_value(void);\n" + provider_source.read_text().replace("return 7;", "return secondary_value();"))
+                subprocess.run(["cc", "-shared", "-fPIC", "-Wl,-soname,libprovider.so", str(provider_source),
+                                "-L" + str(secondary.parent), "-lsecondary", "-o", str(provider)], check=True)
+                subprocess.run(["cc", str(Path(directory) / "host.c"), "-L" + str(provider.parent), "-lprovider",
+                                "-Wl,--allow-shlib-undefined", "-Wl,-rpath,$ORIGIN/../../system", "-o", str(binary)], check=True)
+                inventory["prerequisites"] = native.capture(inventory, binary)
+                self.assertEqual(inventory["prerequisites"]["dependencies"][str(provider)][reference], [str(secondary)])
+                native.verify(inventory)
+                self.assertFalse(sentinel.exists(), "token capture executed a constructor")
 
     def test_capture_does_not_run_initializers_and_hashes_transitive_providers(self):
         with tempfile.TemporaryDirectory() as directory:

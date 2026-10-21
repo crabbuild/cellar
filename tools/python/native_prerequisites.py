@@ -23,11 +23,12 @@ def digest(path):
         return hashlib.file_digest(stream, "sha256").hexdigest()
 
 
-def command(*arguments):
+def command(*arguments, environment=None):
     # Build tools operate with explicit loader configuration. Do not inherit a
     # preload, audit module, search path or tunable from the caller's shell.
-    environment = {key: value for key, value in os.environ.items()
-                   if not key.startswith(("LD_", "DYLD_")) and key != "GLIBC_TUNABLES"}
+    if environment is None:
+        environment = {key: value for key, value in os.environ.items()
+                       if not key.startswith(("LD_", "DYLD_")) and key != "GLIBC_TUNABLES"}
     result = subprocess.run(arguments, capture_output=True, text=True, check=True,
                             timeout=15, env=environment)
     if len(result.stdout) > 4 * 1024 * 1024:
@@ -132,6 +133,43 @@ def linux_providers(loader, path, library_paths):
     return result
 
 
+@lru_cache(maxsize=16)
+def linux_tokens(loader):
+    # Diagnostics can contain environment values. Run with no environment,
+    # retain only the documented token values, and never emit the full output.
+    output = command(str(loader), "--list-diagnostics", environment={})
+    values = {}
+    for token, field in (("LIB", "dl_dst_lib"), ("PLATFORM", "dl_platform")):
+        value = re.search('^' + field + r'="([A-Za-z0-9_./-]+)"$', output, re.M)
+        if value:
+            values[token] = value[1]
+    return values
+
+
+def linux_destination(reference, source, candidates, loader):
+    def substitute(match):
+        token = match[1] or match[2]
+        if token == "ORIGIN":
+            return str(source.parent)
+        value = linux_tokens(loader).get(token)
+        if value is None:
+            raise ValueError("Qualified GNU loader has no dynamic token: " + token)
+        return value
+
+    # GNU expands these in DT_NEEDED as well as search paths. Its listing uses
+    # the expanded spelling; keep the original reference as the inventory key.
+    expanded = re.sub(r"\$(?:\{(ORIGIN|LIB|PLATFORM)\}|(ORIGIN|LIB|PLATFORM)(?![A-Za-z0-9_]))",
+                      substitute, reference)
+    if Path(expanded).is_absolute():
+        resolved = Path(expanded).resolve(strict=True)
+        # Existing bytes alone are not evidence that this load context chose
+        # that provider. Accept only identities observed in the real --list.
+        return resolved if resolved in candidates.values() else None
+    if "/" in expanded:
+        raise ValueError("Native dependency depends on an ambient working directory")
+    return candidates.get(expanded)
+
+
 def capture(inventory, native_host, extra_libraries=()):
     cohort = platform()
     target = inventory["target"]
@@ -149,7 +187,7 @@ def capture(inventory, native_host, extra_libraries=()):
     library_paths = [path for path in library_paths if path.is_dir()]
     if any(os.pathsep in str(path) for path in library_paths):
         raise ValueError("Native library search directories contain a path separator")
-    libraries, graph, queue = {}, {}, []
+    libraries, graph, queue, unresolved = {}, {}, [], {}
     seen, edges = set(), 0
     if cohort["kind"] == "linux":
         _, loader = elf(executable)
@@ -224,7 +262,7 @@ def capture(inventory, native_host, extra_libraries=()):
             candidates = dict(inherited) if inherited else linux_providers(loader, path, library_paths) if references else {}
             context = tuple(sorted(candidates.items()))
             for reference in references:
-                destination = Path(reference) if Path(reference).is_absolute() else candidates.get(reference)
+                destination = linux_destination(reference, path, candidates, loader)
                 if destination is None:
                     raise ValueError("Unresolved required ELF dependency: " + reference)
                 resolved[reference] = [provider(destination, context, main)]
@@ -249,12 +287,14 @@ def capture(inventory, native_host, extra_libraries=()):
             continue
         try:
             captured = dependencies(path, main, inherited)
-        except (ValueError, subprocess.CalledProcessError):
+        except (ValueError, subprocess.CalledProcessError) as error:
             # A dependency-only DSO can require its parent's inherited RPATH.
             # Keep it unresolved until a real parent context visits it. A
             # missing record is an error after all roots have been inspected.
             if inherited or path == executable:
                 raise
+            detail = (error.stderr or str(error)) if isinstance(error, subprocess.CalledProcessError) else str(error)
+            unresolved[str(path)] = detail.strip()[:512]
             continue
         seen.add(key)
         if len(seen) > MAX_EDGES:
@@ -263,8 +303,10 @@ def capture(inventory, native_host, extra_libraries=()):
         for reference, providers in captured.items():
             recorded[reference] = sorted(set(recorded.get(reference, []) + providers))
     required = {str(path) for path in native_files} | {path for path, entry in libraries.items() if entry["kind"] == "file"}
-    if not required.issubset(graph):
-        raise ValueError("A native binary has no resolved dependency context")
+    missing = sorted(required.difference(graph))
+    if missing:
+        details = "; ".join(path + ": " + unresolved.get(path, "no qualified parent context") for path in missing[:8])
+        raise ValueError(f"A native binary has no resolved dependency context ({len(missing)}): {details}")
     if not libraries or not host_dependencies:
         raise ValueError("Native dependency capture produced no qualified providers")
     return dict(platform=cohort, libraries=dict(sorted(libraries.items())),

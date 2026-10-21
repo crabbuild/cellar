@@ -91,8 +91,12 @@ does not import an application module or execute its native initializers.
 
 Capture runs on the qualified target. GNU/Linux build machines need `readelf`
 (binutils); macOS build machines need the SDK C compiler and `otool`. Linux uses
-the selected GNU loader's `--list` resolution mode. The deployed runtime uses
-Rust/OS APIs and needs none of those inspection tools or a C compiler.
+the selected GNU loader's `--list` resolution mode. Dynamic dependency tokens
+(`$ORIGIN`, `$LIB`, `$PLATFORM` and their braced forms) must resolve to a provider
+observed in that load context. LIB/PLATFORM expansions come from the qualified
+loader's diagnostics, run with an empty environment; dependencies that require
+an ambient working directory refuse capture. The deployed runtime uses Rust/OS
+APIs and needs none of those inspection tools or a C compiler.
 
 The inventory records the following host requirements:
 

@@ -93,7 +93,7 @@ Only a fresh, requirement-specific verification can mark a row **verified**.
 | ID | Requirement | Authoritative evidence required | Current status |
 | --- | --- | --- | --- |
 | P01 | Immutable source/registration descriptor bound to native artifact | Source/class/event digests and tamper tests | verified: build embeds exact source/registration/file inventory; typed per-executable inventory digest is rechecked before every factory/generation admission |
-| P02 | Hash-locked platform wheels and native dependency closure | Lock artifact hashes, transitive inventory and offline install | partial: required native prerequisite metadata, resolved load-context graphs, OS cohorts and external file/cache identities are implemented; installation and runtime pre-initialization/post-import provider gates are wired. Seven Rust tests and the real C capture tests pass (five GNU tests on Linux, four Mach-O tests on macOS); both 3.14.5 ABIs pass current-source inventory faults, pre-source/host refusal guards, new-schema cold archive restoration, actual native library operations, exact receipts, changed-source TERM/INT handoff and forced-KILL supervised restart. A private fixture's missing workspace crypto profiles caused a checker timeout; matching profiles corrects it without changing its 15-second deadline. Strict Clippy and local native 87/87 pass. GNU capture now passes direct Ubuntu 22.04 x86_64 and Debian ARM64 functional tests after the interpreter-alias correction; complete final-source Linux packaging qualification remains open |
+| P02 | Hash-locked platform wheels and native dependency closure | Lock artifact hashes, transitive inventory and offline install | partial: native prerequisite metadata, resolved load contexts, OS cohorts and external provider identities are implemented with install/pre-initialization/post-import gates. Both local 3.14.5 ABIs pass inventory faults, cold archive restoration, native library execution, receipts, changed-source TERM/INT handoff and forced-KILL supervisor recovery. Published 3e56924 passes adapter/native/default-load stages in all four Linux jobs but fails package inventory capture. The local GNU dynamic-token correction passes real ELF regressions on ARM64/emulated x86_64 and complete native ARM64 free-threaded runtime/package capture and verification (6,139 files); full final-source Linux installed-host qualification remains open. |
 | P03 | Runtime identifies CPython/GIL/SOABI/platform and actual files | Inventory capture plus pre-code digest/ABI verification | verified for supported targets: CPython/GIL/SOABI/micro version/target, actual loaded libpython and exact file contents/executable modes; external OS closure tracked in P02 |
 | P04 | Native package metadata inventories Python artifacts, format marker 1 | Protocol types, strict validation and old-node feature rejection | verified: typed native runtime references, format marker 1, embedded-python-v1 feature gate and executable/inventory pairing; malformed pairing tests added |
 | P05 | Build/deploy/install stage, publish, recover and verify closure | Real bucket package tests, corrupt/missing artifact refusal | verified locally: build/stage, pre-selector verified bucket publication, corrupt/missing blob refusal and real restoration with original runtime absent |
@@ -109,7 +109,7 @@ Only a fresh, requirement-specific verification can mark a row **verified**.
 
 | ID | Requirement | Authoritative evidence required | Current status |
 | --- | --- | --- | --- |
-| Q01 | Finite startup/request/body/value/depth/batch/mailbox/task/object/drain limits | Named limits, boundary tests, reservations released on every exit | partial: configured invocation/task/object/byte admission, operation mailbox capacity, response envelope and existing body/header/depth/batch/startup/drain limits have direct boundary tests; empty/oversized mailboxes refuse before bootstrap and task admission also covers empty-context callbacks; SDK-result envelope/depth boundaries now pass independently through native storage/SQL; shipping-default mixed-load qualification now passes three optimized repetitions per ABI at clean source 7d90f0c, with 12,720 requests, actual 128-invocation saturation/refusal/reuse, exact body boundaries, 3,180 acknowledged updates recovered after owner kill/local disk deletion, and complete joins; raw evidence and scope are in the recorded baselines. Linux/final-source execution remains Q12 |
+| Q01 | Finite startup/request/body/value/depth/batch/mailbox/task/object/drain limits | Named limits, boundary tests, reservations released on every exit | partial: configured invocation/task/object/byte admission, operation mailbox capacity, response envelope and existing body/header/depth/batch/startup/drain limits have direct boundary tests; empty/oversized mailboxes refuse before bootstrap and task admission also covers empty-context callbacks; SDK-result envelope/depth boundaries now pass independently through native storage/SQL; shipping-default mixed-load qualification now passes three optimized repetitions per ABI at clean source 7d90f0c, with 12,720 requests, actual 128-invocation saturation/refusal/reuse, exact body boundaries, 3,180 acknowledged updates recovered after owner kill/local disk deletion, and complete joins; raw evidence and scope are in the recorded baselines. Linux shipping-default workload execution passes in all four 3e56924 jobs; final-source qualification remains Q12 |
 | Q02 | Bounded backpressure both ways and cleanup accounting | Saturation/cancellation/failure tests with zero leaked reservations | verified locally for runtime-owned queues/reservations in both threading ABIs: independent real-node invocation, task, object, exact aggregate-byte and reply-channel saturation refuses excess work, releases/reuses capacity and keeps later work usable; full/closed operation mailbox tests release every event reservation; native-future/reply drop stages, binding proof faults, cancellation, 32-way mutation pressure and retirement/shutdown conserve all admitted operations with zero leaked reservations; trusted factory replacement/raw tasks/private pools remain outside cooperative admission |
 | Q03 | Queue, bridge, Python/Rust duration, copied bytes, allocations/RSS and cleanup metrics | Instrumented counters/histograms and live snapshot tests | verified locally: bounded queue/SDK/reply/round-trip histograms, explicit UTF-8 boundary-copy counters distinct from reservations, lifecycle conservation/gauges, live age-stamped interpreter/work snapshots, loop scheduling delay, optional traced allocation bytes and pre-interpreter/post-join RSS/jemalloc/libc samples; scope/exclusions documented; adapter matrix and pinned package smoke pass; cross-platform and performance baselines remain Q09/Q10/Q12 |
 | Q04 | Python CPU attributed separately; native accounting gaps disclosed | Separate measurements and documented coverage | verified locally: managed-loop thread CPU measured separately from Rust; handler duration/count and memory-snapshot assertions pass; exclusions for native/executor pools documented; cross-platform qualification remains Q09/Q12 |
@@ -120,7 +120,7 @@ Only a fresh, requirement-specific verification can mark a row **verified**.
 | Q09 | Pure Python, PyO3 native extension and numerical library compatibility | Exact pinned versions/platforms; representative operations/concurrency/teardown | verified for stated platforms/versions: macOS ARM64 CPython 3.14.5/3.14.6 and 3.14.5t; Linux x86_64 regular 3.14.8 plus installed 3.14.5 and 3.14.5t execute pinned Pydantic/NumPy/pure-library workloads; both 0bfd83f free-threaded Linux jobs completely pass the 3.14.8t adapter suite and 3.14.5t package/archive/rolling/supervisor/native-library qualification; final lifecycle/cancellation source remains Q12 and other platforms/library versions remain unqualified |
 | Q10 | Native versus Python latency/throughput/memory/copy/recovery baselines | Reproducible harness and raw measured evidence, no invented target | verified for the stated development scope: [recorded baselines](007-embedded-python-baselines.md) retain two independent nine-case optimized experiments and raw data, including matched CPython 3.14.5/3.14.5t and a true native-only executable; exact HTTP/counter receipts, killed-owner/disk-deletion takeover, copy/memory observations and joined reports pass; the verifier rejects corrupted receipts/metrics/drain/cleanup; shared-machine load and development-store limits are explicit and no production capacity target is claimed |
 | Q11 | Native-only dependency/build check and no JS all-features | Explicit CI check, local graph/build evidence | verified for dependency/build separation: explicit Linux CI native-only check with nonexistent interpreter and all-feature no-JavaScript graph passed on fe6d2f8; current source retains the same feature/dependency graph, with local no-embed and graph checks |
-| Q12 | Full affected test/lint/format/layout/doc qualification; preserve failures | Exact source/toolchain commands and passing scope-specific results | partial: both 9143fef Linux workflows 39520485909/39520490587 completed successfully in both ABIs, including native 87/87, adapter/bootstrap, installed packages, recovery/replacement/supervisor and native examples; all four full logs are retained. Later b4c228c fails all four jobs in the new GNU native-capture tests; the reproduced interpreter-alias defect is corrected and passes direct Linux/macOS capture checks. Native-prerequisite metadata, measured-default harness and early loaded-library ABI guard still need final-source Linux qualification. Earlier delivery deadline, event-owner lease, initial consumer admission and drain-token failures remain preserved and unexplained; passing retries do not close diagnosis |
+| Q12 | Full affected test/lint/format/layout/doc qualification; preserve failures | Exact source/toolchain commands and passing scope-specific results | partial: all four 3e56924 Linux jobs pass adapter/bootstrap, default workloads, actual loaded-ABI guards and native tests/lints, then fail package inventory capture. A local GNU dynamic-token correction has direct before/after capture evidence; final-source Linux installation/recovery/replacement remains open. The separate local native lease timeout-floor correction passes six controlled runs, native 88/88, both local Python ABI suites and strict Clippy, but still needs final-source Linux qualification. Preserved delivery deadline, initial consumer admission and clock/replay failures require diagnosis; passing retries do not close them. |
 | Q13 | Public facade type annotations and accepted implementation decisions | Typed Python API, accepted ADR, build/bootstrap/bridge decision record | verified: public facade annotations and frozen CellIdentity; accepted ADR 004 records bootstrap, bridge, signals, immutable packaging/replacement, cleanup, compatibility and qualification boundaries against implemented contracts |
 | Q14 | Current docs describe executable APIs and remaining gates accurately | Plan sketches updated to actual contracts; audit has no unstated exception | verified for current documented surface: main plan, adapter/example/environment guides describe actual facade, source layout, accepted ADR, provisioning and conservative failure outcomes; chronological audit history is explicitly distinguished from current tables; remaining gates are stated |
 
@@ -133,10 +133,10 @@ qualification. Conventional and free-threaded CPython remain equal targets.
 
 | Order | Focus | Remaining gate and evidence |
 | --- | --- | --- |
-| 1 | Current Linux blockers | Q12: both Linux workflows 39520485909/39520490587 at 9143fef completed successfully in both ABIs, including all four native 87/87 and installed-package jobs. They do not qualify the newer prerequisite/default-limit/early-ABI source. Localize/fix the preserved conventional `--runtime-delivery` host deadline failure. Preserve captured failures and retain assertions/deadlines; prove corrections on the failing Linux configurations. Also resolve the preserved native lease/admission/drain failures. A passing retry alone does not explain a failure. |
-| 2 | Finish deployment dependency closure | P02: review/publish the locally qualified implementation and run its Linux GNU-loader closure/refusal plus new-schema restoration/replacement matrix. Both ABI local fault/bootstrap/archive/handoff/supervisor gates, strict Clippy and native 87/87 pass. Preserve the earlier checker timeout and its measured fixture-profile correction. |
-| 3 | Qualify operating defaults on Linux | Q01: three optimized repetitions per ABI now retain mixed-load latency, memory/copy observations, actual default admission/body boundaries, overload recovery and joined takeover. Run the new CI workload in both ABIs and preserve its stated development scope; measured concurrency is not a production SLO or maximum throughput guarantee. |
-| 4 | Final release evidence | Q12/Q14: run complete affected tests/lints, installed example, archive recovery and process replacement against the final source in both ABIs; publish exact versions/platforms and reconcile every remaining partial row. |
+| 1 | P0: unblock Linux packaging | P02/Q12: all four jobs at published 3e56924 pass adapter/bootstrap, shipping-default workloads, actual loaded-ABI guards and native tests/lints, then fail package inventory capture. The local GNU DT_NEEDED token correction passes six real-loader test methods on Linux ARM64 and emulated x86_64; complete 3.14.5t/Pydantic/NumPy inventory capture and verification passes on native Linux ARM64. Publish the correction after local checks, then require the full Linux install/refusal, offline restoration, process handoff and supervisor matrix in both ABIs. A capture-only C host does not qualify a deployed Cellar host. |
+| 2 | P0: close preserved reliability failures | M3/Q12: the native lease attempt floor can consume the entire remaining authority window. A controlled before/after committed-but-lost-reply regression proves the local correction; six corrected runs, native 88/88 and strict Clippy pass. Both local Python ABI suites and strict Clippy now pass the changed effect; qualify it on Linux. Separately diagnose the preserved delivery deadline, initial consumer admission and clock/replay failures; historical CAS commit states remain unknown. Keep deadlines/assertions and require a causal regression, not a green retry. |
+| 3 | P1: qualify one final source | Q01/Q12: run complete affected tests/lints, installed example, cold archive recovery and changed-source process replacement against the same final commit in conventional and free-threaded CPython. Linux shipping-default workloads already pass at 3e56924; repeat them as part of the final matrix, rather than treating them as missing implementation. Preserve exact source, versions, platforms and terminal results. |
+| 4 | P1: publish acceptance and deployment scope | Q12/Q14: reconcile every partial row with its evidence, document supported runtime/wheel/OS combinations and provisioning, retain incomplete-drain/ambiguous-write limitations, and update the existing draft PR. Close milestones only within the qualified scope; development load measurements are not production SLOs or a throughput guarantee. |
 
 Do not expand ASGI/streaming while these core gates remain. Those adapters are
 explicitly optional/deferred and need their own independent qualification when
@@ -1698,3 +1698,88 @@ commands now run inventory tooling with the selected managed interpreter and
 state the tooling requirement. These results close this capture defect; the
 complete Linux prerequisite installation, replacement and new adapter/default
 qualification still require a fresh final-source workflow.
+
+## Native lease attempt/readback budget correction (local qualification)
+
+The preserved drain-token and successor-owner traces both show ambiguous renewals
+with less than 250ms of proven authority left before self-fencing. The native effect adapter's
+250ms minimum attempt timeout can consume that entire window, contradicting its
+intent to leave time for ambiguity readback. The historical traces do not prove
+whether those last CAS operations actually committed; that fact remains unknown.
+
+A new public Node/SQLite regression reconstructs this failure class independently
+of shutdown. Its first renewal times out before reaching the store. The next
+renewal really commits, then its response is held beyond the old authority.
+With 218ms left, the previous minimum keeps the attempt pending until the
+watchdog fences, and the regression fails. Removing the minimum returns that
+attempt as ambiguous after 109ms, with another 109ms available for ordinary
+native readback. The node proves the actual stored renewal, remains live across
+another full TTL, accepts the next acknowledged business write and completely
+joins through the existing preserving/handoff report assertions. The 2.5s cap,
+watchdog deadline, native guards and operation-specific proof rules remain intact.
+
+The [raw controlled comparison](evidence/python-lease-readback-2026-10-20.json)
+contains source digests, the original failing run and six successful corrected
+runs. The private fixture uses a 900ms lease to make the timing window explicit;
+no existing test assertion, request deadline or stop budget is extended. This
+corrects a demonstrated availability defect without fabricating authority from
+an ambiguous reply. The full local native suite passes, including native 88/88
+and the original 75-second drain-token case; strict all-target/all-feature Clippy
+also passes. The change is local and is not included in the terminal 3e56924
+Linux workflows. Both local Python ABI adapter/startup suites and strict Clippy subsequently pass this native correction; Linux qualification remains open.
+Earlier consumer
+admission/delivery and clock-replay failures retain their separate diagnosis
+requirements; this comparison does not claim to explain every historical failure.
+
+## GNU dynamic dependency tokens and current milestone priorities
+
+Both 3e56924 workflows 39531929061/39531931874 are terminal failures in all four
+jobs. Adapter/bootstrap, default-load workloads, actual opposite-library ABI
+guards and native tests/lints pass; package inventory capture then refuses a
+native binary with no resolved dependency context. These runs supersede earlier
+in-progress status, but do not provide complete installed-package acceptance.
+
+A complete native Linux ARM64 reproduction with CPython 3.14.5t and pinned
+Pydantic/NumPy isolates the unresolved library: the runtime's `libpython3.so`
+shim requests `$ORIGIN/../lib/libpython3.14t.so.1.0` in DT_NEEDED, while GNU
+`--list` reports the expanded absolute provider. The local correction expands
+GNU ORIGIN/LIB/PLATFORM tokens, preserves the original dependency reference in
+the inventory and accepts only a provider observed in that actual load context.
+LIB/PLATFORM values come from the qualified loader's diagnostics with an empty
+environment; full diagnostics are neither retained nor emitted. See GNU's
+[documented diagnostic values](https://sourceware.org/glibc/manual/latest/html_node/Dynamic-Linker-Diagnostics-Values.html).
+
+Real compiled C/ELF regressions fail in all six token spellings before the
+correction. All six capture test methods pass afterward on native Debian ARM64
+and Ubuntu 22.04 x86_64 under QEMU; macOS passes its four relevant methods with
+two GNU-only methods skipped. The complete ARM64 runtime/package inventory now
+captures and verifies 6,139 files. The full CPython x86_64 reproduction hits an
+internal QEMU assertion and supplies no package qualification; real x86_64 CI
+remains required. The [raw before/after evidence](evidence/python-gnu-needed-tokens-2026-10-20.json)
+records source/image identities, runtime inventory identity and exact test logs.
+This is capture/verification evidence using a C host, not the full Cellar
+installation, archive restoration or replacement matrix.
+
+The current priority is completing packaging and explaining preserved reliability
+failures, then qualifying one final source in both ABIs. M0–M5 feature coverage
+does not mean every acceptance gate passed. ASGI/streaming remain optional and
+deferred while these core gates are open.
+
+
+## Local qualification before publishing lease and GNU token corrections
+
+The complete adapter/startup suites and strict all-target/all-feature Clippy now
+pass serially with conventional CPython 3.14.5 and free-threaded 3.14.5t on macOS
+ARM64 after the native lease correction. Both suites include the delivery,
+cron timeout/owner-loss recovery, authority, proof-fault, capacity and lifecycle
+harnesses. This is regression qualification; it does not explain the preserved
+historical intermittent failures. Rust formatting and module layout pass for
+629 files, and the all-feature native dependency graph has 415 reachable packages
+with no JavaScript engine. The [raw local qualification](evidence/python-lease-token-qualification-2026-10-20.json)
+records the selected runtimes, commands, source identities and terminal logs.
+
+The next CI run moves the complete embedded-package step before the long native
+workspace suite. All 20 step bodies remain byte-identical; no test, assertion,
+deadline or feature mode is removed. Native workspace and Axum qualification
+still run afterward. This gives the current packaging blocker a faster real
+Linux feedback loop while retaining the final-source release gate.
