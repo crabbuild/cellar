@@ -111,8 +111,9 @@ pub(super) async fn leadership_transfer_checks_progress() -> Result<()> {
         entered: _entered,
         ..
     } = Setup::new()?;
-    let cluster =
-        cluster::Cluster::start(&definitions[..3], vec![registration.clone()], 100).await?;
+    let cluster = cluster::Cluster::start(&definitions[..3], vec![registration.clone()], 100)
+        .await
+        .context("start transfer fixture")?;
     let cells = cluster
         .services
         .iter()
@@ -130,7 +131,8 @@ pub(super) async fn leadership_transfer_checks_progress() -> Result<()> {
             5_i64.to_be_bytes().to_vec(),
             public_node::options(1)?,
         )
-        .await?;
+        .await
+        .context("first transfer-fixture command")?;
     for (cell, definition) in cells.iter().zip(&definitions) {
         cell.query(
             definition.get.clone(),
@@ -140,19 +142,30 @@ pub(super) async fn leadership_transfer_checks_progress() -> Result<()> {
                 ..Default::default()
             },
         )
-        .await?;
+        .await
+        .context("initial voter query before transfer")?;
     }
     let target = (primary + 1) % 3;
-    cluster.isolate_consensus(target).await?;
+    cluster
+        .isolate_consensus(target)
+        .await
+        .context("isolate lagging transfer target")?;
     let receipt = cells[primary]
         .command(
             definitions[primary].increment.clone(),
             1_i64.to_be_bytes().to_vec(),
             public_node::options(2)?,
         )
-        .await?;
-    let before = cells[primary].status().await?;
-    let progress = cells[primary].replication_status().await?;
+        .await
+        .context("partitioned transfer-fixture command")?;
+    let before = cells[primary]
+        .status()
+        .await
+        .context("pre-refusal leader status")?;
+    let progress = cells[primary]
+        .replication_status()
+        .await
+        .context("pre-refusal replication progress")?;
     let target_member = MemberId::new(target as u64 + 1)?;
     ensure!(progress
         .members
@@ -197,7 +210,10 @@ pub(super) async fn leadership_transfer_checks_progress() -> Result<()> {
             ensure!(result.is_err());
         }
     }
-    let after = cells[primary].status().await?;
+    let after = cells[primary]
+        .status()
+        .await
+        .context("post-refusal leader status")?;
     ensure!(
         after.command_ready
             && after.term == before.term
@@ -226,11 +242,13 @@ pub(super) async fn leadership_transfer_checks_progress() -> Result<()> {
                 ..Default::default()
             },
         )
-        .await?;
+        .await
+        .context("query caught-up transfer target")?;
     assert_eq!(read.result, 6_i64.to_be_bytes());
     cells[primary]
         .transfer_leadership(request, Duration::from_secs(2))
-        .await?;
+        .await
+        .context("transfer to caught-up voter")?;
     tokio::time::timeout(Duration::from_secs(5), async {
         loop {
             if cells[target]
@@ -244,14 +262,21 @@ pub(super) async fn leadership_transfer_checks_progress() -> Result<()> {
         }
     })
     .await?;
-    ensure!(!cells[primary].status().await?.command_ready);
+    ensure!(
+        !cells[primary]
+            .status()
+            .await
+            .context("old leader status after transfer")?
+            .command_ready
+    );
     let final_receipt = cells[target]
         .command(
             definitions[target].increment.clone(),
             2_i64.to_be_bytes().to_vec(),
             public_node::options(3)?,
         )
-        .await?;
+        .await
+        .context("successor command after transfer")?;
     assert_eq!(final_receipt.result, 8_i64.to_be_bytes());
     let old_read = cells[primary]
         .query(
@@ -262,13 +287,14 @@ pub(super) async fn leadership_transfer_checks_progress() -> Result<()> {
                 ..Default::default()
             },
         )
-        .await?;
+        .await
+        .context("query old voter after successor write")?;
     assert_eq!(old_read.result, 8_i64.to_be_bytes());
     ensure!(cells[primary]
         .transfer_leadership(request, Duration::from_secs(2))
         .await
         .is_err());
-    cluster.close().await
+    cluster.close().await.context("join transfer fixture")
 }
 
 impl Fixture {
