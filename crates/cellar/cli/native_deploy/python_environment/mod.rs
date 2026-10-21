@@ -2,7 +2,9 @@
 #![allow(clippy::disallowed_methods)]
 mod archive;
 mod files;
+mod prerequisites;
 pub use files::verify_inventory_files;
+pub use prerequisites::{verify_loaded_libraries, verify_prerequisites};
 
 use crate::{
     bucket::Bucket,

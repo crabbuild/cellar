@@ -171,6 +171,7 @@ pub(super) fn install(
     let blobs = tempfile::tempdir_in(parent)?;
     let checked = inspect(archive, Some(blobs.path()))?;
     verify_reference(reference, &checked)?;
+    super::prerequisites::verify_prerequisites(&checked.inventory)?;
     if requested_prefix.exists() {
         verify_inventory_files(&checked.inventory)?;
         return Ok(());

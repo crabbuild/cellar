@@ -92,7 +92,7 @@ Only a fresh, requirement-specific verification can mark a row **verified**.
 | ID | Requirement | Authoritative evidence required | Current status |
 | --- | --- | --- | --- |
 | P01 | Immutable source/registration descriptor bound to native artifact | Source/class/event digests and tamper tests | verified: build embeds exact source/registration/file inventory; typed per-executable inventory digest is rechecked before every factory/generation admission |
-| P02 | Hash-locked platform wheels and native dependency closure | Lock artifact hashes, transitive inventory and offline install | partial: hash-locked platform wheels install offline; the bundled runtime/package/native-extension closure is inventoried and restored from verified bucket artifacts; external OS/native-library prerequisite closure and attestation remain open |
+| P02 | Hash-locked platform wheels and native dependency closure | Lock artifact hashes, transitive inventory and offline install | partial: required native prerequisite metadata, resolved load-context graphs, OS cohorts and external file/cache identities are implemented; installation and runtime pre-initialization/post-import provider gates are wired. Seven Rust tests/four real C capture tests pass; both 3.14.5 ABIs pass current-source inventory faults, pre-source/host refusal guards, new-schema cold archive restoration, actual native library operations, exact receipts, changed-source TERM/INT handoff and forced-KILL supervised restart. A private fixture's missing workspace crypto profiles caused a checker timeout; matching profiles corrects it without changing its 15-second deadline. Strict Clippy and local native 87/87 pass. Linux GNU-loader and final-source packaging qualification remain open |
 | P03 | Runtime identifies CPython/GIL/SOABI/platform and actual files | Inventory capture plus pre-code digest/ABI verification | verified for supported targets: CPython/GIL/SOABI/micro version/target, actual loaded libpython and exact file contents/executable modes; external OS closure tracked in P02 |
 | P04 | Native package metadata inventories Python artifacts, format marker 1 | Protocol types, strict validation and old-node feature rejection | verified: typed native runtime references, format marker 1, embedded-python-v1 feature gate and executable/inventory pairing; malformed pairing tests added |
 | P05 | Build/deploy/install stage, publish, recover and verify closure | Real bucket package tests, corrupt/missing artifact refusal | verified locally: build/stage, pre-selector verified bucket publication, corrupt/missing blob refusal and real restoration with original runtime absent |
@@ -133,7 +133,7 @@ qualification. Conventional and free-threaded CPython remain equal targets.
 | Order | Focus | Remaining gate and evidence |
 | --- | --- | --- |
 | 1 | Current Linux blockers | H06/Q12: qualify the local `private-init-failure` correction in both ABIs and localize/fix the conventional `--runtime-delivery` host deadline failure. Preserve captured failures and retain assertions/deadlines; prove corrections on the failing Linux configurations. Also resolve the preserved native lease/admission/drain failures. A passing retry alone does not explain a failure. |
-| 2 | Deployment dependency closure | P02: distinguish bundled artifacts from OS/native prerequisites, attest supported host requirements and resolved external dependencies, and refuse incompatible/missing prerequisites before admission; qualify offline restoration on each supported target. |
+| 2 | Finish deployment dependency closure | P02: review/publish the locally qualified implementation and run its Linux GNU-loader closure/refusal plus new-schema restoration/replacement matrix. Both ABI local fault/bootstrap/archive/handoff/supervisor gates, strict Clippy and native 87/87 pass. Preserve the earlier checker timeout and its measured fixture-profile correction. |
 | 3 | Measured operating defaults | Q01: use reproducible mixed workloads, increasing concurrency and saturation to justify shipping limits; record latency, memory, overload behavior and joined recovery in both ABIs. State the operating scope; existing development baselines are not production SLOs. |
 | 4 | Final release evidence | Q12/Q14: run complete affected tests/lints, installed example, archive recovery and process replacement against the final source in both ABIs; publish exact versions/platforms and reconcile every remaining partial row. |
 
@@ -1441,6 +1441,75 @@ by the dyld shared cache (the SDK documents that their disk paths can be absent)
 This survey is not transitive prerequisite attestation; P02 remains open.
 
 
+## Native prerequisite implementation checkpoint (qualification in progress)
+
+Required prerequisite records now extend format marker 1 without a legacy
+reader/default. The data contract identifies a qualified OS cohort, canonical
+external file sizes/SHA-256s, cache providers, resolved dependencies and the
+compiled host's dependencies without binding its build path. Provider lists
+retain alternatives from distinct inherited load contexts.
+
+Capture inspects every bundled native binary plus the selected host. GNU ELF
+uses readelf and the qualified loader's --list mode with explicit runtime search
+roots; Mach-O uses SDK otool metadata, inherited rpaths and weak-load semantics.
+A private C constructor sentinel remains absent during inspection. Additional
+runtime-loaded libraries can be declared explicitly. macOS provider identity
+includes machine, OS build and the actual shared-cache UUID; SDK-compiled C reads
+our own kernel-provided dyld metadata with size/version guards. Runtime checks
+need no compiler, inspection tool, package installer or application import.
+
+Rust validates resource bounds and graph providers, checks all bundled native
+files have records, verifies external prerequisites before installation and
+initialization, and verifies actual loaded providers before initialization and
+again after application imports/before Rust host admission. Darwin add/remove
+callbacks copy owned names and perform no I/O/Python/SDK operations; they avoid
+racing the public image-count/name iterator. Linux uses dl_iterate_phdr. Native-only
+hosts acquire no Python dependency; the new C helper is OS introspection only.
+
+Local evidence so far:
+
+- Seven focused protocol/native tests pass, including real unlisted dlopen
+  refusal, explicit qualification and removal on dlclose; changed cohort,
+  missing/tampered external files and missing native graph records refuse.
+  The first graph fixture had an incorrect executable bit; matching the actual
+  file mode and asserting the dependency-record error fixes the fixture without
+  weakening the file verifier. The earlier failed log is preserved.
+- Four capture tests compile real C executables/libraries and prove no inspected
+  constructor runs. They cover checksum/loss refusal, transitive inherited
+  search paths, two distinct parent contexts selecting different approved
+  providers for one dependency, and OS-cohort refusal.
+- Native archive/prerequisite unit tests and the CLI build pass. Conventional
+  CPython 3.14.5 captures 3,289 files under the new schema; inventory digest is
+  ce0242ae333547eae67b61dc1aa23f5aee553466f5bc9b289a4770ab0c41a9ea.
+  Its bound package, complete inventory fault drill and full example smoke with
+  cron, preserving restart, exact receipts and clean joins pass.
+- The compiled conventional bootstrap guard proves valid source/host execution
+  and complete join. Wrong OS/cache identity, missing/tampered external native
+  library and missing dependency record refuse before both source side effect
+  and Rust host entry; error chains remain sanitized. Logs are
+  /tmp/cellar-6a8d-prerequisites-guard-regular.log and its private build directory.
+
+The free-threaded counterpart subsequently passed the bound package, inventory
+fault drill, full cron/restart/receipt smoke and compiled bootstrap guards. Its
+terminal log is /tmp/cellar-6a8d-prerequisites-guard-ft.log. P02 remains partial until
+both ABI/package modes, strict lints/layout, restoration/replacement and Linux
+GNU-loader execution qualify the implementation. Older inventories are retained
+as evidence and deliberately refused by the new required metadata. No Cellar
+format marker was incremented.
+
+Both c5acacc Linux workflows 39505176770/39505187876 completed successfully in
+both ABIs. All four full logs are retained under /tmp/cellar-6a8d-ci-395051*-success.log.
+These cover the full authority/cycle/error/native 87/87/package/recovery/rolling/
+supervisor/native-example gates, not the subsequent privacy/prerequisite source.
+The tested privacy commit e9b8d15 is published to draft PR92; its workflows
+39514545895/39514550654 both failed in both ABIs. The push conventional job reports a
+`--runtime-delivery` host deadline error; the PR conventional job and both
+free-threaded jobs report a private bootstrap sentinel leak in
+`private-init-failure`. All four full failure
+logs are retained under /tmp/cellar-6a8d-ci-395145*-failure.log. H06 is reopened;
+preserved earlier intermittent native failures remain unexplained, and
+P02/Q01/Q12 remain open. No final-source acceptance is implied by older green CI.
+
 ## CPython 3.14.8 raw diagnostic regression (local correction)
 
 The failed Linux bootstrap privacy check is a real micro-version difference.
@@ -1480,3 +1549,45 @@ does not establish that shutdown itself timed out. Permanent stage context now
 distinguishes consumer admission, initial/replacement node admission and each
 preserving shutdown. The unchanged-deadline local delivery drill passes, which
 is diagnostic evidence only and does not explain the preserved Linux failure.
+
+## Current prerequisite packaging and qualification checkpoint
+
+Both conventional/free-threaded CPython 3.14.5 packages now pass current-source
+native-prerequisite refusal guards, inventory mutation/loss, original-runtime
+removal and archive restoration, clean-environment real native-library execution,
+exact receipt replay, changed-source TERM/INT handoff and forced-KILL supervised
+restart. Logs are under
+/private/tmp/cellar-6a8d-qualified-prerequisites-bootstrap-{regular,ft}/. The
+conventional successful installed-package log has the suffix -profile-matched;
+the original failed log is preserved separately. All native library/tests pass,
+including node 87/87; checker changes also pass strict all-target/all-feature
+Clippy. No cellar_internal_tests cfg was enabled.
+
+The first conventional INT run exceeded the unchanged 15-second package-check
+deadline. The old helper discarded child output, so its exact checker role is
+unavailable. A separate controlled comparison finds that the private rolling
+workspace did not inherit the repository's SHA2/RSA development profiles.
+CPU samples place the slow child in SHA256 software compression during inventory
+verification. Identical Python source/inventory/archive checks take 13.3–13.6 s
+(about 12.9 CPU-s) in the unmatched fixture and 1.4–1.9 s (about 1.2 CPU-s) with
+matching profiles. Both complete handoff/supervisor scenarios then pass, with
+actual checker times about 1.4–1.5 s and no deadline/assertion changes. The
+[raw diagnostic comparison](evidence/python-checker-profile-2026-10-20.json)
+identifies the measured binaries and scope. Checker failures now retain output
+and report host/package role, expected acceptance and elapsed time.
+
+Qualification-client checks also no longer depend on Python assert statements.
+With -O, the old inventory tool both bypasses its filesystem-root guard and
+reports PASS for a dummy host that accepts every corrupted artifact. Two complete
+CLI regressions fail against the previous tool and pass after unconditional
+checks; mutated private fixture contents are restored. The real free-threaded
+inventory mutation/loss drill also passes under -O. Logs are
+/tmp/cellar-6a8d-qualification-guards-{before-complete,after}.log and
+/tmp/cellar-6a8d-inventory-optimized-ft.log.
+
+Bootstrap correction 9143fef is published to draft PR92. All four adapter jobs in
+Linux workflows 39520485909/39520490587 pass, including the previously failing
+privacy cases; complete workflow qualification is still running. These jobs
+do not qualify the later local prerequisite implementation. P02, measured
+shipping defaults (Q01) and preserved deadline/final-source qualification (Q12)
+remain open; H06 retains its complete packaged/platform qualification gate.

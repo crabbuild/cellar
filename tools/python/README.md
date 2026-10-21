@@ -6,8 +6,10 @@ owner-loss recovery measurements, use the [baseline harness](baseline.md).
 `environment.py` inventories a provisioned CPython 3.14 or free-threaded CPython 3.14t and explicit
 package roots. `CELLAR_PYTHON_INVENTORY` binds that inventory into the Rust host at
 build time. Startup compares the source, event registrations, distribution pins,
-ABI, loaded libpython and filesystem contents before initializing Python or
-starting a node. A changed, missing or additional file refuses admission.
+ABI, loaded libpython, filesystem contents and native OS prerequisites before
+initializing Python. Loaded library providers are checked again after imports,
+before starting the Rust host. A changed, missing or additional file refuses
+admission.
 
 A native project's `python_environment` field pairs an inventory and environment
 archive with the executable. `cellar build` binds the inventory into that binary,
@@ -16,8 +18,9 @@ stages its archive, and emits `embedded-python-v1` metadata with both digests.
 `cellar install` verifies downloaded contents and restores the closure under its
 explicit prefix before publishing the new executable. Existing matching prefixes
 are reused after verification; different contents and even competing empty
-prefixes are never overwritten. Applications still need a compatible OS; external
-system-library attestation remains in the [completion audit](../../plans/007-embedded-python-audit.md).
+prefixes are never overwritten. External libraries belong to the qualified OS
+installation; they are attested by the inventory rather than copied into the
+environment archive.
 Use immutable absolute paths and protect them against writes during process life.
 Startup verification is not a filesystem sandbox.
 
@@ -38,10 +41,12 @@ export PYTHONDONTWRITEBYTECODE=1
   --find-links "$CELLAR_PYTHON_PREFIX/wheels" --require-hashes --only-binary :all: \
   --target "$CELLAR_PYTHON_PREFIX/site" -r examples/python/requirements.lock
 export CELLAR_PYTHON_SITE_PACKAGES="$CELLAR_PYTHON_PREFIX/site"
+unset CELLAR_PYTHON_INVENTORY
+cargo build -p cellar-python --bin cellar-python-example --features embed --locked
 export CELLAR_PYTHON_INVENTORY="$CELLAR_PYTHON_PREFIX/inventory.json"
 export CELLAR_PYTHON_TARGET="$(rustc -vV | sed -n 's/^host: //p')"
 python3 tools/python/environment.py capture --python "$PYO3_PYTHON" \
-  --site-packages "$CELLAR_PYTHON_SITE_PACKAGES" --source examples/python/app.py \
+  --site-packages "$CELLAR_PYTHON_SITE_PACKAGES" --native-host "$CARGO_TARGET_DIR/debug/cellar-python-example" --source examples/python/app.py \
   --filename app.py --descriptor examples/python/descriptor.json \
   --target "$CELLAR_PYTHON_TARGET" --output "$CELLAR_PYTHON_INVENTORY"
 python3 tools/python/environment.py bundle "$CELLAR_PYTHON_INVENTORY" \
@@ -69,7 +74,47 @@ contents for this target. It includes package metadata and bundled native
 libraries, and validates the actual loaded libpython rather than assuming that
 a matching filename means the correct library was loaded. System shared
 libraries outside these roots remain the responsibility of the deployment's OS
-image. Arbitrary native packages may require additional libraries or system tools.
+image. Their required identities are checked at installation and startup.
+Arbitrary native packages may also require application-specific system tools.
+
+## Native prerequisites
+
+Capture inspects every bundled ELF/Mach-O binary and the supplied compiled host.
+Build the host with the selected interpreter before capture; it supplies the
+host's actual native dependencies without binding its temporary build path.
+Native reference graphs retain inherited search paths and explicitly list
+qualified provider alternatives. Missing required dependencies refuse capture;
+absent Mach-O weak references retain their optional native semantics. Inspection
+does not import an application module or execute its native initializers.
+
+Capture runs on the qualified target. GNU/Linux build machines need `readelf`
+(binutils); macOS build machines need the SDK C compiler and `otool`. Linux uses
+the selected GNU loader's `--list` resolution mode. The deployed runtime uses
+Rust/OS APIs and needs none of those inspection tools or a C compiler.
+
+The inventory records the following host requirements:
+
+- Linux machine, kernel release, OS-release file digest, and canonical external
+  library file sizes and SHA-256 digests.
+- macOS machine, OS build and active shared-cache UUID. Required cache paths
+  must exist in that vendor cache; the attested cache covers its transitive
+  system images even where no filesystem inode exists. External files outside
+  the cache retain ordinary size/digest identities.
+
+These are exact qualified cohorts. Provision the matching OS/native libraries
+on each node; installation and bootstrap refuse different cohorts or missing/
+changed files. OS/library updates require qualification, recapture and a new
+executable. This is an explicit host requirement, not a container requirement.
+Both pre-initialization and post-import provider checks retain the trusted native
+execution boundary; they do not sandbox arbitrary later application effects.
+
+Libraries opened dynamically without a load-time dependency record (for example
+through `ctypes`) can be declared with repeated `capture --native-library PATH`
+arguments. Their files and transitive dependencies become prerequisites too.
+Keep loader configuration, the runtime and those files immutable during process
+life. Ordinary developer builds without a bound inventory remain unverified.
+All Cellar format markers remain 1; inventories without prerequisite records
+are refused. Recapture and rebuild instead of adding a legacy reader.
 
 ## Publish and install
 
@@ -103,15 +148,35 @@ complete captured diagnostic omits inventoried private paths. Removing libpython
 can instead fail in the OS loader before `main`; its diagnostic is outside the
 runtime's error boundary.
 
+Qualification checks remain active under `python -O`, including the scratch
+prefix guard and rejection of a host that accepts corrupted files. Run their
+negative-oracle regression with `python3 tools/python/test_qualification_guards.py`.
+
 ```sh
 python3 tools/python/qualify_inventory.py \
   --host "$CARGO_TARGET_DIR/debug/cellar-python-example" \
   --inventory "$CELLAR_PYTHON_INVENTORY" --scratch-prefix "$CELLAR_PYTHON_PREFIX"
+python3 tools/python/qualify_prerequisites.py \
+  --inventory "$CELLAR_PYTHON_INVENTORY" --native-host "$CARGO_TARGET_DIR/debug/cellar-python-example" \
+  --target-dir "$CARGO_TARGET_DIR" --output /absolute/private/path/prerequisite-qualification
 python3 examples/python/smoke.py --cellar "$CARGO_TARGET_DIR/debug/cellar" \
   --project "$CELLAR_PYTHON_PREFIX/project.json" --with-cron
 cargo run -p cellar --example python-package-qualification --locked -- \
   /absolute/private/path/python-package /absolute/private/path
 ```
+
+The rolling fixture inherits the repository's development package profiles so
+hashing/crypto verification uses the same settings as its baseline host. The
+[recorded profile experiment](../../plans/evidence/python-checker-profile-2026-10-20.json)
+preserves the diagnostic comparison. Checker assertions and the 15-second
+deadline are unchanged; failures retain child output and identify the checker
+role and elapsed time.
+
+The prerequisite drill compiles a private bootstrap fixture from the repository
+lock. A source sentinel and Rust host-entry flag prove that wrong OS/cache
+identity, missing/tampered external libraries and missing dependency records
+refuse before either side executes. The valid fixture imports its source and
+completely joins. Use a fresh output path; runtime roots are read only.
 
 To qualify a Python source upgrade, generate a private application fixture with
 changed cell handler code, build its distinct native package, and supply that
@@ -119,6 +184,7 @@ package as the third qualification argument:
 
 ```sh
 python3 tools/python/rolling_project.py "$CELLAR_PYTHON_PREFIX/project.json" \
+  --native-host "$CARGO_TARGET_DIR/debug/cellar-python-example" \
   --output /absolute/private/path/rolling-project
 "$CARGO_TARGET_DIR/debug/cellar" build /absolute/private/path/rolling-project/project.json \
   --output /absolute/private/path/python-package-v2

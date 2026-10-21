@@ -55,6 +55,10 @@ jobs:
         run: python3 tools/check_native_dependencies.py
       - name: Verify documentation integrity
         run: python3 tools/docs/check.py
+      - name: Test native Python prerequisite capture
+        run: python3 tools/python/test_native_prerequisites.py
+      - name: Test Python qualification guards
+        run: python3 tools/python/test_qualification_guards.py
       - name: Test Cloudflare benchmark peer relay
         run: |
           npm ci --ignore-scripts --prefix tools/perf/cloudflare
@@ -99,9 +103,11 @@ jobs:
           "$PYO3_PYTHON" -I -B -m pip install --no-index --find-links "$CELLAR_PYTHON_PREFIX/wheels" \
             --require-hashes --only-binary :all: --target "$CELLAR_PYTHON_PREFIX/site" \
             -r examples/python/requirements.lock
+          unset CELLAR_PYTHON_INVENTORY
+          cargo build -p cellar-python --bin cellar-python-example --features embed --locked
           export CELLAR_PYTHON_INVENTORY="$CELLAR_PYTHON_PREFIX/inventory.json"
           python tools/python/environment.py capture --python "$PYO3_PYTHON" \
-            --site-packages "$CELLAR_PYTHON_PREFIX/site" --source examples/python/app.py \
+            --site-packages "$CELLAR_PYTHON_PREFIX/site" --native-host target/debug/cellar-python-example --source examples/python/app.py \
             --filename app.py --descriptor examples/python/descriptor.json \
             --target x86_64-unknown-linux-gnu --output "$CELLAR_PYTHON_INVENTORY"
           python tools/python/environment.py bundle "$CELLAR_PYTHON_INVENTORY" \
@@ -115,7 +121,11 @@ jobs:
           target/debug/cellar build "$CELLAR_PYTHON_PREFIX/project.json" --output "$RUNNER_TEMP/python-package"
           python tools/python/qualify_inventory.py --host target/debug/cellar-python-example \
             --inventory "$CELLAR_PYTHON_INVENTORY" --scratch-prefix "$CELLAR_PYTHON_PREFIX"
+          python tools/python/qualify_prerequisites.py --inventory "$CELLAR_PYTHON_INVENTORY" \
+            --native-host target/debug/cellar-python-example --target-dir target \
+            --output "$RUNNER_TEMP/python-prerequisite-qualification"
           python tools/python/rolling_project.py "$CELLAR_PYTHON_PREFIX/project.json" \
+            --native-host target/debug/cellar-python-example \
             --output "$RUNNER_TEMP/python-rolling-project"
           target/debug/cellar build "$RUNNER_TEMP/python-rolling-project/project.json" \
             --output "$RUNNER_TEMP/python-package-v2"

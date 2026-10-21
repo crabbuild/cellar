@@ -12,6 +12,11 @@ import subprocess
 import tempfile
 
 
+def require(condition, message):
+    if not condition:
+        raise RuntimeError(message)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--host", type=Path, required=True)
@@ -20,32 +25,35 @@ def main():
     args = parser.parse_args()
     inventory = json.loads(args.inventory.read_text())
     scratch = args.scratch_prefix.resolve(strict=True)
-    assert scratch != Path(scratch.anchor), "scratch prefix cannot be a filesystem root"
+    require(scratch != Path(scratch.anchor), "scratch prefix cannot be a filesystem root")
     roots = [Path(root) for root in inventory["roots"]]
-    assert roots and all(root.is_relative_to(scratch) for root in roots)
+    require(roots and all(root.is_relative_to(scratch) for root in roots),
+            "inventory roots must be inside the private scratch prefix")
     environment = dict(os.environ, CELLAR_PYTHON_SITE_PACKAGES=os.pathsep.join(inventory["module_paths"]))
 
     def run(expected_success, *, loader_failure=False):
         result = subprocess.run([str(args.host.resolve(strict=True)), "--help"], env=environment,
                                 capture_output=True, timeout=15)
         if expected_success:
-            assert result.returncode == 0, result.stderr.decode(errors="replace")
+            require(result.returncode == 0, result.stderr.decode(errors="replace"))
         else:
-            assert result.returncode != 0, "corrupted environment admitted host"
+            require(result.returncode != 0, "corrupted environment admitted host")
             expected = (b"Python runtime inventory verification failed",
                         b"CPython path is missing or inaccessible")
             if loader_failure:
                 expected += (b"Library not loaded", b"error while loading shared libraries",
                              b"loaded libpython is outside the verified inventory")
-            assert any(message in result.stderr for message in expected), result.stderr
-            assert b"UNAPPROVED-IMPORT-EXECUTED" not in result.stderr
+            require(any(message in result.stderr for message in expected), result.stderr)
+            require(b"UNAPPROVED-IMPORT-EXECUTED" not in result.stderr,
+                    "corrupted environment executed an unapproved import")
             if not loader_failure:
                 # Inspect the complete captured error, not just its top-level
                 # stage. The OS loader can emit paths before main() runs when
                 # libpython itself is absent; that case is process-owned.
                 private_paths = [*inventory["roots"], inventory["home"],
                                  inventory["executable"], inventory["source"]["filename"]]
-                assert all(os.fsencode(path) not in result.stderr for path in private_paths), "inventory failure exposed a private path"
+                require(all(os.fsencode(path) not in result.stderr for path in private_paths),
+                        "inventory failure exposed a private path")
 
     run(True)
     source = next(Path(path) for path, entry in inventory["files"].items()
@@ -72,7 +80,8 @@ def main():
     with tempfile.TemporaryDirectory(dir=scratch) as temporary:
         hidden = Path(temporary) / "missing"
         for missing in (source, extension, Path(inventory["module_paths"][0]), library):
-            assert not any(hidden.is_relative_to(root) for root in roots)
+            require(not any(hidden.is_relative_to(root) for root in roots),
+                    "missing-file fixture must remain outside inventory roots")
             try:
                 missing.rename(hidden)
                 run(False, loader_failure=(missing == library))
@@ -80,7 +89,7 @@ def main():
                 if hidden.exists():
                     hidden.rename(missing)
     added = Path(inventory["module_paths"][0]) / "unlisted_cellar_code.py"
-    assert not added.exists()
+    require(not added.exists(), "unlisted-file fixture already exists")
     try:
         added.write_text('raise RuntimeError("UNAPPROVED-IMPORT-EXECUTED")\n')
         run(False)

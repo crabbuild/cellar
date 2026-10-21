@@ -87,8 +87,10 @@ builds the inventory/archive, prepares a native project, publishes verified blob
 before the selector and restores them with `cellar install --python-root PREFIX`.
 The installed host uses its compiled import roots and checks all file contents
 before startup. Python source and the SDK facade stay embedded in the executable.
-System-library/OS prerequisites and the remaining production fault/performance
-matrix are tracked in the [completion audit](../../plans/007-embedded-python-audit.md).
+The inventory also attests external native libraries and the qualified OS cohort;
+installation/startup refuse mismatches. Those OS libraries are provisioned on the
+host. The remaining platform/fault/performance qualification is tracked in the
+[completion audit](../../plans/007-embedded-python-audit.md).
 See the [adapter contract and limitations](../../crates/cellar-python/README.md)
 before using it for production workloads.
 

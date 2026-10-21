@@ -17,10 +17,17 @@ pub use event_resources::{
 
 #[path = "python_environment.rs"]
 mod python_environment;
+#[path = "python_prerequisites.rs"]
+mod python_prerequisites;
 pub use python_environment::{
     PythonEnvironmentRef, PythonFile, PythonInventory, PythonSourceInventory,
     FEATURE_EMBEDDED_PYTHON_V1, MAX_PYTHON_ARCHIVE_BYTES, MAX_PYTHON_EXPANDED_BYTES,
     MAX_PYTHON_FILES, MAX_PYTHON_INVENTORY_BYTES,
+};
+pub(crate) use python_prerequisites::system_cache_path;
+pub use python_prerequisites::{
+    PythonNativeLibrary, PythonPlatform, PythonPrerequisites, MAX_PYTHON_NATIVE_EDGES,
+    MAX_PYTHON_NATIVE_LIBRARIES,
 };
 
 /// `deploy/<script>/<version>/manifest.json` — the normalized thing cellar reads

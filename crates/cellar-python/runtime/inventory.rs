@@ -51,6 +51,7 @@ pub(super) fn verify(options: &Options, source: &Source) -> Result<()> {
         "Python source/registration inventory mismatch"
     );
     cellar::native_deploy::verify_python_inventory_files(&inventory)?;
+    cellar::native_deploy::verify_loaded_python_libraries(&inventory)?;
     for path in inventory
         .standard_library_paths
         .iter()
@@ -81,6 +82,14 @@ pub(super) fn verify(options: &Options, source: &Source) -> Result<()> {
         version.split_whitespace().next() == Some(inventory.version.as_str()),
         "loaded CPython micro version differs from inventory"
     );
+    Ok(())
+}
+
+pub(super) fn verify_loaded() -> Result<()> {
+    if is_verified_build() {
+        let inventory: Inventory = serde_json::from_str(build_layout::INVENTORY)?;
+        cellar::native_deploy::verify_loaded_python_libraries(&inventory)?;
+    }
     Ok(())
 }
 

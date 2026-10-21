@@ -21,6 +21,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("project", type=Path)
     parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--native-host", required=True, type=Path)
     args = parser.parse_args()
     project = json.loads(args.project.read_text())
     root = Path(project["cargo_manifest"]).resolve().parent
@@ -66,7 +67,8 @@ async def fetch(request, ctx):
 '''
     (output / "app.py").write_text(source)
     shutil.copyfile(example / "main.rs", output / "main.rs")
-    baseline = tomllib.loads((root / "Cargo.toml").read_text())["workspace"]["dependencies"]
+    workspace_manifest = tomllib.loads((root / "Cargo.toml").read_text())
+    baseline = workspace_manifest["workspace"]["dependencies"]
     dependencies = []
     for name in ("anyhow", "serde_json"):
         spec = baseline[name]
@@ -78,6 +80,12 @@ async def fetch(request, ctx):
         "cellar = { path = " + json.dumps(str(root / "crates/cellar")) + " }",
         "cellar-python = { path = " + json.dumps(str(root / "crates/cellar-python")) + ', features = ["embed"] }',
     ])
+    # A private workspace does not inherit the repository's package profiles.
+    # Match them so hashing/crypto verification uses the baseline build settings.
+    profiles = []
+    for package, settings in workspace_manifest.get("profile", {}).get("dev", {}).get("package", {}).items():
+        profiles.append("[profile.dev.package." + json.dumps(package) + "]\n" +
+                        "\n".join(key + " = " + json.dumps(value) for key, value in settings.items()))
     manifest = output / "Cargo.toml"
     manifest.write_text('''[workspace]
 [package]
@@ -88,7 +96,7 @@ edition = "2021"
 name = "cellar-python-rolling-example"
 path = "main.rs"
 [dependencies]
-''' + "\n".join(dependencies) + "\n")
+''' + "\n".join(dependencies) + "\n\n" + "\n\n".join(profiles) + "\n")
     shutil.copyfile(root / "Cargo.lock", output / "Cargo.lock")
     # Add only the private root package to a copy of the repository lock. Do not
     # resolve from network or permit new dependency versions in this fixture.
@@ -103,7 +111,8 @@ path = "main.rs"
     archive = output / "environment.tar.gz"
     environment.capture(SimpleNamespace(python=Path(base["executable"]),
         site_packages=[Path(path) for path in base["module_paths"]], source=output / "app.py",
-        descriptor=example / "descriptor.json", filename="app.py", target=base["target"], output=inventory))
+        descriptor=example / "descriptor.json", filename="app.py", target=base["target"], output=inventory,
+        native_host=args.native_host, native_library=[Path(path) for path in base["prerequisites"]["libraries"]]))
     with tarfile.open(project["python_environment"]["archive"], "r:gz") as reader:
         metadata = json.load(reader.extractfile("environment.json"))
     environment.bundle(SimpleNamespace(inventory=inventory, prefix=Path(metadata["prefix"]), output=archive))

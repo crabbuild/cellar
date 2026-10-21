@@ -204,7 +204,16 @@ process APIs still have ordinary process capabilities, and user writes to
 `Options::module_paths` explicitly adds installed dependency directories.
 `Source::require_distribution(name, version)` refuses startup on a missing or
 mismatched installed distribution. No request installs packages. Build and deploy
-a pinned Python runtime and dependency environment on every node. Native projects can carry a `python_environment` declaration that stages, publishes and restores the hash-verified runtime/stdlib/package archive with the executable. The installer requires an explicit `--python-root` matching its immutable prefix and never overwrites different existing contents. Bound package roots become the default import paths; startup needs no Python path flags. The process registers its inventory identity, and generation admission rejects a different declaration before running factories. Follow the [environment build/install workflow](../../tools/python/README.md). System libraries outside the closure remain OS prerequisites and require separate platform qualification.
+a pinned Python runtime and dependency environment on every node. Native projects can carry a `python_environment` declaration that stages, publishes and restores the hash-verified runtime/stdlib/package archive with the executable. The installer requires an explicit `--python-root` matching its immutable prefix and never overwrites different existing contents. Bound package roots become the default import paths; startup needs no Python path flags. The process registers its inventory identity, and generation admission rejects a different declaration before running factories. Follow the [environment build/install workflow](../../tools/python/README.md).
+
+Verified inventories also declare the resolved native dependency graph and OS
+cohort. External library files retain exact hashes; macOS system-cache providers
+retain the qualified OS build and cache UUID. Installation and initialization
+refuse missing or different prerequisites. Actual loaded providers are checked
+before initialization and again after imports, before the Rust supervisor starts.
+OS libraries are provisioned with the qualified host, outside the environment
+archive. OS/library updates require recapture and rebuilding. No compiler,
+dependency inspection tool or package installer runs during node startup.
 
 This is trusted native execution: Python libraries can access the host OS and
 external services, and native extension crashes affect the entire Cellar process.

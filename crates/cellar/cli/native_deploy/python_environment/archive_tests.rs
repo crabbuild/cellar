@@ -1,5 +1,7 @@
 use super::*;
-use crate::protocol::{PythonSourceInventory, MAX_PYTHON_ARCHIVE_BYTES};
+use crate::protocol::{
+    PythonNativeLibrary, PythonPrerequisites, PythonSourceInventory, MAX_PYTHON_ARCHIVE_BYTES,
+};
 use std::io::Cursor;
 
 struct Fixture {
@@ -15,6 +17,8 @@ impl Fixture {
         let directory = tempfile::tempdir()?;
         let root = directory.path().canonicalize()?;
         let prefix = root.join("environment");
+        let system_library = root.join("qualified-system-library");
+        std::fs::write(&system_library, b"test")?;
         let mut files = BTreeMap::new();
         let mut blobs = BTreeMap::new();
         for (name, data, executable) in [
@@ -60,6 +64,27 @@ impl Fixture {
                 distributions: vec![],
             },
             files,
+            prerequisites: PythonPrerequisites {
+                platform: super::super::prerequisites::current_platform()?,
+                libraries: BTreeMap::from([(
+                    system_library.clone(),
+                    PythonNativeLibrary::File {
+                        bytes: 4,
+                        sha256: format!("{:x}", Sha256::digest(b"test")),
+                    },
+                )]),
+                dependencies: BTreeMap::from([
+                    (
+                        prefix.join("python/bin/python3.14"),
+                        BTreeMap::from([("system-library".into(), vec![system_library.clone()])]),
+                    ),
+                    (system_library.clone(), BTreeMap::new()),
+                ]),
+                host_dependencies: BTreeMap::from([(
+                    "system-library".into(),
+                    vec![system_library],
+                )]),
+            },
         };
         Ok(Self {
             path: root.join("environment.tar.gz"),

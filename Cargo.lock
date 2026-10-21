@@ -259,6 +259,7 @@ dependencies = [
  "axum",
  "base64 0.22.1",
  "bytes",
+ "cc",
  "cellar-logic",
  "cellar-ltx",
  "cellar-native",

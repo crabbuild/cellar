@@ -526,16 +526,28 @@ or let the adapter fabricate an activation context.
 | M4: packaging | Runtime/source/dependency inventory, verified install and process replacement | Wrong ABI/missing library/tampered source refuses startup; offline deployment; old/new process handoff; runtime artifact recovery; Python example runs from a fresh installation |
 | M5: SDK growth | Additional bindings and optional ASGI/stream adapters | Independent authority, cancellation, backpressure, replay and resource tests for each surface |
 
-The deliverables in all six phases are implemented, but that does not close all
-acceptance gates. M0 now has direct local authority/cycle evidence in both
-threading ABIs, and M2 has evidence for every storage/alarm requirement in the
-[completion audit](007-embedded-python-audit.md). Final-source platform
-qualification is still shared by every phase. M1 now has direct local managed-error
-privacy evidence, including bootstrap and response conversion. M3 retains final
-Linux lifecycle qualification and investigation of native test
-failures; M4 retains external OS/native-library prerequisite attestation. M5's
-KV, SQL, queue and cron bindings have independent local failure tests, while
-ASGI/streaming remain explicitly deferred optional adapters.
+Core features span all six phases; the milestones are not all accepted. The
+[completion audit](007-embedded-python-audit.md) distinguishes local evidence,
+published source and remaining qualification:
+
+| Phase | Current assessment | Gate still open |
+| --- | --- | --- |
+| M0 | Bootstrap, invocation pump, authority and cancellation implemented; direct evidence in both threading ABIs | Final-source platform matrix |
+| M1 | HTTP, pinned native packages, bounds and error handling implemented; bootstrap correction passes all four Linux adapter jobs at 9143fef | Complete current-source installed-package/platform qualification |
+| M2 | All S01–S09 storage/alarm requirements have direct evidence within their stated scopes | Final-source regression qualification |
+| M3 | Fencing, retirement, takeover and supervised noncooperative shutdown implemented | Linux conventional delivery test reports a host deadline failure; identify its stage and diagnose preserved native failures |
+| M4 | Verified packaging, external prerequisite attestation, offline restoration and process replacement implemented and qualified locally in both ABIs | Qualify the new prerequisite schema on Linux and publish the remaining implementation |
+| M5 | KV, shared SQL, queues and cron implemented with independent local failure matrices | Measured shipping defaults and final-source qualification; optional ASGI/streaming remain deferred |
+
+At previous e9b8d15, both Linux workflows failed: the push conventional job in
+`--runtime-delivery` with `host_failed=true` and a deadline error; the PR
+conventional job and both free-threaded jobs in the `private-init-failure`
+bootstrap privacy check. The correction at 9143fef passes all four subsequent
+Linux adapter jobs; their complete workflows are still running. External
+prerequisite guards, cold archive restoration, changed-source TERM/INT handoff
+and forced-restart supervision now pass locally in both ABIs. That implementation
+still needs Linux qualification. Earlier green workflows do not qualify later
+source, and the preserved delivery deadline is not explained by passing retries.
 
 Prioritize the audit's [current work](007-embedded-python-audit.md#current-work)
 before adding more surfaces. A gate closes only with its stated evidence on

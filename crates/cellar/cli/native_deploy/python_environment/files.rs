@@ -28,6 +28,7 @@ pub fn verify_inventory_files(inventory: &PythonInventory) -> Result<()> {
         actual == inventory.files,
         "Python provisioned files differ from the compiled inventory"
     );
+    super::prerequisites::verify_graph_files(inventory)?;
     Ok(())
 }
 

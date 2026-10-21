@@ -545,6 +545,9 @@ impl PythonRuntime {
                     .getattr("validate")?
                     .call1((app.clone(), serde_json::to_string(&source.descriptor())?))
                     .map_err(|_| anyhow::anyhow!("Python handler descriptor validation failed"))?;
+                inventory::verify_loaded().map_err(|_| {
+                    anyhow::anyhow!("Python native library provider verification failed")
+                })?;
                 let inbox = Py::new(
                     py,
                     Inbox {

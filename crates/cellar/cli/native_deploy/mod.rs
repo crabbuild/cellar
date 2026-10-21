@@ -22,7 +22,9 @@ mod python_environment;
 pub use build::{verify_native_dependencies, Project};
 pub use images::ContainerProject;
 pub use python_environment::{
-    verify_inventory_files as verify_python_inventory_files, PythonProject,
+    verify_inventory_files as verify_python_inventory_files,
+    verify_loaded_libraries as verify_loaded_python_libraries,
+    verify_prerequisites as verify_python_prerequisites, PythonProject,
 };
 mod assets;
 pub mod cli;

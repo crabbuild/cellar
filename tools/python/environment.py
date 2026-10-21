@@ -14,6 +14,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import native_prerequisites
 
 MAX_FILES = 200_000
 
@@ -73,6 +74,7 @@ json.dump(dict(home=os.path.realpath(sys.base_prefix), executable=os.path.realpa
                      source=dict(sha256=hashlib.sha256(source).hexdigest(), filename=args.filename,
                                  descriptor=descriptor["handlers"], distributions=descriptor["distributions"]),
                      files=files(roots))
+    inventory["prerequisites"] = native_prerequisites.capture(inventory, args.native_host, args.native_library)
     if any(args.output.resolve().is_relative_to(root) for root in roots):
         raise ValueError("Inventory output must be outside the captured roots")
     args.output.write_text(json.dumps(inventory, sort_keys=True, indent=2) + "\n")
@@ -86,6 +88,7 @@ def verify(args):
     actual = files([Path(root) for root in inventory["roots"]])
     if actual != inventory["files"]:
         raise ValueError("Provisioned files differ from inventory")
+    native_prerequisites.verify(inventory)
     print(f"Verified {len(actual)} provisioned files")
 
 
@@ -100,6 +103,7 @@ def bundle(args):
         raise ValueError("Archive output must be outside captured import roots")
     if files(roots) != inventory["files"]:
         raise ValueError("Provisioned files differ from inventory")
+    native_prerequisites.verify(inventory)
     metadata = json.dumps(dict(format=1, prefix=str(prefix), inventory_sha256=hashlib.sha256(raw).hexdigest()), sort_keys=True).encode()
     with args.output.open("xb") as destination:
         with gzip.GzipFile(filename="", mode="wb", fileobj=destination, mtime=0) as compressed:
@@ -143,6 +147,8 @@ def main():
     command.add_argument("--descriptor", type=Path, required=True)
     command.add_argument("--target", required=True)
     command.add_argument("--output", type=Path, required=True)
+    command.add_argument("--native-host", type=Path, required=True)
+    command.add_argument("--native-library", type=Path, action="append", default=[])
     command = commands.add_parser("verify")
     command.add_argument("inventory", type=Path)
     command = commands.add_parser("bundle")

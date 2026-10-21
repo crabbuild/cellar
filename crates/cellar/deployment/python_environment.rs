@@ -1,5 +1,6 @@
 //! Data-only identities for immutable embedded-Python deployment resources.
 //! No interpreter or Python API is linked into the deployment protocol.
+use super::python_prerequisites::PythonPrerequisites;
 use anyhow::{ensure, Result};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -92,6 +93,7 @@ pub struct PythonInventory {
     pub roots: Vec<PathBuf>,
     pub source: PythonSourceInventory,
     pub files: BTreeMap<PathBuf, PythonFile>,
+    pub prerequisites: PythonPrerequisites,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -201,6 +203,8 @@ impl PythonInventory {
                 }
             }
         }
+        self.prerequisites
+            .validate(&self.target, &self.roots, &self.files)?;
         Ok(())
     }
 }

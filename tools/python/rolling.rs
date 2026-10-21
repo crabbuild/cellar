@@ -194,28 +194,47 @@ pub(super) async fn increment(
 }
 
 async fn check_package(host: &Path, package: &Path, accepted: bool) -> Result<()> {
+    let output = tempfile::NamedTempFile::new()?;
     let mut child = Process(
         Command::new(host)
             .env_clear()
             .arg("--check-native-package")
             .arg(package.join("package.json"))
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
+            .stdout(Stdio::from(output.as_file().try_clone()?))
+            .stderr(Stdio::from(output.as_file().try_clone()?))
             .spawn()?,
     );
-    let deadline = Instant::now() + Duration::from_secs(15);
+    let started = Instant::now();
+    let deadline = started + Duration::from_secs(15);
     loop {
         if let Some(status) = child.0.try_wait()? {
-            ensure!(
-                status.success() == accepted,
-                "package check acceptance {accepted} contradicted by {status}"
-            );
+            if status.success() != accepted {
+                let (_, path) = output
+                    .keep()
+                    .map_err(|error| anyhow::anyhow!(error.error))?;
+                anyhow::bail!("package check acceptance {accepted} contradicted by {status}; host={}, package={}, diagnostics={}",
+                    host.display(), package.display(), path.display());
+            }
+            cellar::cli_output::Output::new(cellar::cli_output::Format::Text).line(
+                format_args!(
+                    "PASS Python package checker: host={}, accepted={accepted}, elapsed={:?}",
+                    host.file_name()
+                        .context("checker host filename")?
+                        .to_string_lossy(),
+                    started.elapsed(),
+                ),
+            )?;
             return Ok(());
         }
-        ensure!(
-            Instant::now() < deadline,
-            "rolling package checker timed out"
-        );
+        if Instant::now() >= deadline {
+            let _ = child.0.kill();
+            let _ = child.0.wait();
+            let (_, path) = output
+                .keep()
+                .map_err(|error| anyhow::anyhow!(error.error))?;
+            anyhow::bail!("rolling package checker timed out; host={}, package={}, accepted={accepted}, elapsed={:?}, diagnostics={}",
+                host.display(), package.display(), started.elapsed(), path.display());
+        }
         tokio::time::sleep(Duration::from_millis(25)).await;
     }
 }

@@ -134,3 +134,6 @@ nix.workspace = true
 
 [dev-dependencies]
 lz4_flex.workspace = true
+
+[build-dependencies]
+cc.workspace = true
