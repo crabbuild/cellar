@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "baseline_revision": "79a46b7d8d7af7ed9f8c26c3989b6026ff785d88",
+  "baseline_revision": "f328ebd6c7da9f6f4c7c60b04c0d67f88a116b58",
   "status_values": [
     "TODO",
     "IN_PROGRESS",
@@ -1670,7 +1670,14 @@
         "crates/cellar/tests/support/raft_storage_fault.rs",
         "crates/cellar/tests/native_raft_host.rs",
         "crates/cellar/tests/support/raft_catalog_fault.rs",
-        "crates/cellar/tests/native_raft_snapshot.rs"
+        "crates/cellar/tests/native_raft_snapshot.rs",
+        "crates/cellar/durability/raft/transport.rs",
+        "crates/cellar/durability/raft/transport_tests.rs",
+        "crates/cellar/durability/raft/query_transport.rs",
+        "crates/cellar/durability/raft/snapshot_transport.rs",
+        "crates/cellar/durability/raft/filesystem.rs",
+        "crates/cellar/durability/raft/mod.rs",
+        "crates/cellar/tests/native_raft_archive.rs"
       ],
       "creates": [
         "crates/cellar/durability/raft/membership.rs",
@@ -1689,7 +1696,14 @@
         "plans/multi-raft/node-directory-design.md",
         "crates/cellar/tests/support/raft_node_registration_storage.rs",
         "crates/cellar/durability/raft/node_directory.rs",
-        "crates/cellar/tests/native_raft_directory.rs"
+        "crates/cellar/tests/native_raft_directory.rs",
+        "crates/cellar/durability/raft/host_directory.rs",
+        "crates/cellar/durability/raft/transport_directory.rs",
+        "crates/cellar/durability/raft/transport_directory_tests.rs",
+        "crates/cellar/tests/support/raft_directory_native.rs",
+        "crates/cellar/durability/raft/host_startup_tests.rs",
+        "crates/cellar/durability/raft/mailbox.rs",
+        "crates/cellar/durability/raft/mailbox_tests.rs"
       ],
       "steps": [
         "Implement domain-aware desired placement and versioned idempotent controller plans.",
@@ -1789,7 +1803,9 @@
         "evidence/MR-11-leadership-progress.json",
         "evidence/MR-11-standby-progress.json",
         "evidence/MR-11-node-storage-progress.json",
-        "evidence/MR-11-directory-progress.json"
+        "evidence/MR-11-directory-progress.json",
+        "evidence/MR-11-process-regression-progress.json",
+        "evidence/MR-11-control-progress.json"
       ]
     },
     {

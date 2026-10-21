@@ -1,0 +1,21 @@
+{
+  "source_revision": "5751f36dcf46186cb09fba8d3c322ad58beaf4a9",
+  "iterations": 1000,
+  "passed_per_iteration": 2,
+  "repeated_passes": 2000,
+  "unique_cases": [
+    "checkpoint_completion_loss_still_retains_durable_image",
+    "checkpoint_failed_sync_preserves_prospective_recovery_image"
+  ],
+  "executable_sha256": "57ebbf24d65bc4563fc2713da3dcd1b852edd66ab673b1a39524029320df64d7",
+  "executable_bytes": 132215136,
+  "driver": {
+    "path": "MR-11-process-checkpoint-repeat.py",
+    "sha256": "1e8417fac3d791035f4eb06289c74cc5b8f84d7a011ec606074c5faa220a231f"
+  },
+  "output": {
+    "path": "MR-11-process-checkpoint-repeat.log",
+    "sha256": "dc12a2a1856ddc7c5f77ec648d3b03198472c71748e710da41acbad05af81833"
+  },
+  "limitations": "Focused race repetition only, separate from unique qualification counts and the complete task acceptance matrix. The per-child ten-second limit detects a hang and never retries a failed child. Child stdout is kept in temporary diagnostic files by the exact driver."
+}

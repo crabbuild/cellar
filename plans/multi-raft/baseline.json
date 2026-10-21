@@ -1,8 +1,8 @@
 {
   "format": 1,
   "repository": "https://github.com/crabbuild/cellar",
-  "revision": "79a46b7d8d7af7ed9f8c26c3989b6026ff785d88",
-  "prepared_date": "2026-10-20",
+  "revision": "f328ebd6c7da9f6f4c7c60b04c0d67f88a116b58",
+  "prepared_date": "2026-10-21",
   "files": [
     {
       "path": ".github/workflows/native-sdk.yml",
@@ -194,7 +194,7 @@
     },
     {
       "path": "crates/cellar/node/embedded.rs",
-      "sha256": "0e0c1ba49afae229c4fa0d13411281dce0294a979d189df73e47af6a023ca114"
+      "sha256": "43b031415b501abe7ad06e6f3215673f862ecec9406550cd72995419b8986b12"
     },
     {
       "path": "crates/cellar/node/mod.rs",

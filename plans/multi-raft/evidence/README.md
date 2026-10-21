@@ -33,3 +33,12 @@ required cases pass.
 The package checker validates record structure and coverage. It cannot attest
 that a claimed external run happened or that a history oracle is correct. Review
 the actual logs and release evidence. Do not store secrets in logs or this folder.
+
+The MR-11 [process/control record](MR-11-control-progress.json) qualifies physical
+process distribution, atomic refresh, reserved host control admission and joined
+queue teardown at source f328ebd. It records 217 unique Rust passes and all 19
+checks, without completing automatic repair. The separate
+[5751f36 regression record](MR-11-process-regression-progress.json) retains 359
+Rust passes and its failed Clippy check; current qualification fixes that cleanup.
+The [checkpoint repetition record](MR-11-process-checkpoint-repeat.json) counts
+2,000 repeated passes separately. All original MR-11 completion gates remain.

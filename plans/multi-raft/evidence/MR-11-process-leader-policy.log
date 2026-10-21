@@ -1,0 +1,16 @@
+Source: 5751f36dcf46186cb09fba8d3c322ad58beaf4a9
+Command: ["cargo", "test", "-p", "cellar-logic", "--lib", "--locked", "--", "raft_leadership::", "--test-threads=1"]
+    Finished `test` profile [unoptimized] target(s) in 0.12s
+     Running unittests lib.rs (/Users/haipingfu/Workspace/crabbuild-target/cellar-23c7-multi-raft/debug/deps/cellar_logic-55f9563f79f9435f)
+
+running 7 tests
+test raft_leadership::tests::cooldown_joint_repair_and_deadband_suppress_moves ... ok
+test raft_leadership::tests::deterministic_balancing_binds_history_term_and_revision ... ok
+test raft_leadership::tests::drain_bypasses_pressure_but_preserves_target_eligibility ... ok
+test raft_leadership::tests::lagging_or_unapplied_voters_are_ineligible ... ok
+test raft_leadership::tests::malformed_views_and_foreign_or_duplicate_samples_are_refused ... ok
+test raft_leadership::tests::projected_utilization_does_not_oscillate_or_ignore_capacity_weights ... ok
+test raft_leadership::tests::stale_unavailable_incompatible_draining_and_full_samples_are_refused ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s
+

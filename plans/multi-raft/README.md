@@ -25,10 +25,32 @@ public Node restart. An incoming majority without the old outgoing majority
 cannot finish or serve a fresh strong read. Later replication resumes without
 replaying business callbacks during recovery.
 
+The [process and control qualification](evidence/MR-11-control-progress.json)
+pins source `f328ebd6c7da9f6f4c7c60b04c0d67f88a116b58`: 217 Rust cases across
+11 binaries and all 19 checks pass. This includes four native directory cases,
+three atomic process-route cases, gated startup ownership, shared consensus
+closure and two channel ownership cases. Business and administrative admission
+have separate bounds, and retained control waiters leave a real query available.
+Admitted command continuation precedes status observers; the archive pressure
+case still requires commit before apply and refuses early acknowledgement.
+All 42 snapshot, 19 membership and 25 host cases pass. Format checks 661 Rust
+files; Clippy, both LTX modes, layout, dependency policy, docs, 17 planning tests
+and 71-anchor preflight pass. Five ignored child entry points run through their
+owning parents and are excluded.
+
+The separate [process regression record](evidence/MR-11-process-regression-progress.json)
+pins `5751f36dcf46186cb09fba8d3c322ad58beaf4a9`: all 359 Rust cases pass,
+including all 88 public Node cases. That matrix stopped at one Clippy cleanup,
+retained in its record and fixed in the current qualified source. A focused
+[checkpoint race run](evidence/MR-11-process-checkpoint-repeat.json) passed 1,000
+serial repetitions of two cases on that source; these repetitions are separate
+from unique test counts.
+
 MR-11 remains IN_PROGRESS. The partial inventory reports five of seven required
 names; `automatic_no_traffic_repair` and `leader_balance_with_lag` remain absent.
-Automatic scheduling, authenticated inspection/capacity, trusted process-view
-distribution and the six-node repair gate remain required. The full inventory
+Automatic scheduling, authenticated inspection/capacity and the six-node repair
+gate remain required. Trusted process-view distribution and reserved host
+control admission are implemented. The full inventory
 checker is unchanged. This is explicit administrative repair, without automatic
 redundancy repair or complete milestone qualification.
 
@@ -47,8 +69,8 @@ and automatic reconciliation remain open.
 The current internal identity is
 `cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1/nodes-1`; numeric markers remain 1.
 Use fresh namespace identities, storage prefix and local state. Current Node
-coverage is the affected Raft lifecycle case; MR-10 retains its separate
-all-88-Node historical qualification. No physical S3, power-loss, zone, production
+coverage is the affected Raft lifecycle case; the separate 5751f36 regression
+record includes all 88 Node cases. No physical S3, power-loss, zone, production
 capacity, larger-scale, federation or complete release qualification is claimed.
 
 Queries support Stale, authenticated AtLeast and safe ReadIndex consistency.

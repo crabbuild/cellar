@@ -658,23 +658,44 @@ same mutation identity/durability and original deadline, and asserts its result.
 Format checks 654 Rust files. Host process distribution, authenticated inspection
 and automatic reconciliation remain open.
 
+The [process and control qualification](evidence/MR-11-control-progress.json)
+pins source `f328ebd6c7da9f6f4c7c60b04c0d67f88a116b58`: 217 Rust cases across
+11 binaries and all 19 checks pass. This includes four native directory cases,
+three atomic process-route cases, gated startup ownership, shared consensus
+closure and two channel ownership cases. Business and administrative admission
+have separate bounds, and retained control waiters leave a real query available.
+Admitted command continuation precedes status observers; the archive pressure
+case still requires commit before apply and refuses early acknowledgement.
+All 42 snapshot, 19 membership and 25 host cases pass. Format checks 661 Rust
+files; Clippy, both LTX modes, layout, dependency policy, docs, 17 planning tests
+and 71-anchor preflight pass. Five ignored child entry points run through their
+owning parents and are excluded.
+
+The separate [process regression record](evidence/MR-11-process-regression-progress.json)
+pins `5751f36dcf46186cb09fba8d3c322ad58beaf4a9`: all 359 Rust cases pass,
+including all 88 public Node cases. That matrix stopped at one Clippy cleanup,
+retained in its record and fixed in the current qualified source. A focused
+[checkpoint race run](evidence/MR-11-process-checkpoint-repeat.json) passed 1,000
+serial repetitions of two cases on that source; these repetitions are separate
+from unique test counts.
+
 MR-11 remains IN_PROGRESS. The partial inventory reports five of seven required
 names; `automatic_no_traffic_repair` and `leader_balance_with_lag` remain absent.
-Automatic scheduling, authenticated inspection/capacity collection, trusted
-node/process-view distribution and the six-node repair gate remain required. The full inventory
-checker is unchanged. This is explicit administrative repair, without automatic
+Automatic scheduling, authenticated inspection/capacity collection and the
+six-node repair gate remain required. Process-view distribution and reserved
+host control admission are implemented. The full inventory checker is unchanged. This is explicit administrative repair, without automatic
 redundancy repair or complete milestone qualification.
 
 The current internal identity is
 `cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1/nodes-1`; numeric markers remain 1.
 Use fresh namespace identities, storage prefix and local state. Current Node
-coverage is the affected Raft lifecycle case; MR-10 retains its separate
-all-88-Node historical qualification. No physical S3, power-loss, zone, production
+coverage is the affected Raft lifecycle case; the separate 5751f36 regression
+record includes all 88 Node cases. No physical S3, power-loss, zone, production
 capacity, larger-scale, federation or complete release qualification is claimed.
 
-Modify: `crates/cellar/durability/raft/catalog.rs`, `crates/cellar/durability/raft/runtime.rs`, `crates/cellar-logic/rebalance.rs`, `crates/cellar-logic/lib.rs`, `crates/cellar/durability/raft/member_state.rs`, `crates/cellar/application/consensus/mod.rs`, `crates/cellar/application/consensus/protocol.rs`, `crates/cellar/durability/raft/catalog_wire.rs`, `crates/cellar/application/consensus/client.rs`, `crates/cellar/durability/raft/host.rs`, `crates/cellar/durability/raft/host_membership.rs`, `crates/cellar/durability/raft/completion.rs`, `crates/cellar/durability/raft/replica.rs`, `crates/cellar/durability/raft/transport_frame.rs`, `crates/cellar/tests/native_raft_runtime.rs`, `crates/cellar/tests/support/raft_cluster.rs`, `crates/cellar/tests/support/raft_seed_crash.rs`, `crates/cellar/durability/raft/README.md`, `crates/cellar/durability/raft/host_sql.rs`, `crates/cellar/durability/raft/seed_transport.rs`, `crates/cellar/durability/raft/seed_archive.rs`, `crates/cellar/node/embedded.rs`, `crates/cellar-logic/consensus.rs`, `crates/cellar/durability/raft/storage.rs`, `crates/cellar/durability/raft/records.rs`, `crates/cellar/tests/native_raft_storage.rs`, `crates/cellar/tests/support/raft_storage_fault.rs`.
+Modify: `crates/cellar/durability/raft/catalog.rs`, `crates/cellar/durability/raft/runtime.rs`, `crates/cellar-logic/rebalance.rs`, `crates/cellar-logic/lib.rs`, `crates/cellar/durability/raft/member_state.rs`, `crates/cellar/application/consensus/mod.rs`, `crates/cellar/application/consensus/protocol.rs`, `crates/cellar/durability/raft/catalog_wire.rs`, `crates/cellar/application/consensus/client.rs`, `crates/cellar/durability/raft/host.rs`, `crates/cellar/durability/raft/host_membership.rs`, `crates/cellar/durability/raft/completion.rs`, `crates/cellar/durability/raft/replica.rs`, `crates/cellar/durability/raft/transport_frame.rs`, `crates/cellar/tests/native_raft_runtime.rs`, `crates/cellar/tests/support/raft_cluster.rs`, `crates/cellar/tests/support/raft_seed_crash.rs`, `crates/cellar/durability/raft/README.md`, `crates/cellar/durability/raft/host_sql.rs`, `crates/cellar/durability/raft/seed_transport.rs`, `crates/cellar/durability/raft/seed_archive.rs`, `crates/cellar/node/embedded.rs`, `crates/cellar-logic/consensus.rs`, `crates/cellar/durability/raft/storage.rs`, `crates/cellar/durability/raft/records.rs`, `crates/cellar/tests/native_raft_storage.rs`, `crates/cellar/tests/support/raft_storage_fault.rs`, `crates/cellar/tests/native_raft_host.rs`, `crates/cellar/tests/support/raft_catalog_fault.rs`, `crates/cellar/tests/native_raft_snapshot.rs`, `crates/cellar/durability/raft/transport.rs`, `crates/cellar/durability/raft/transport_tests.rs`, `crates/cellar/durability/raft/query_transport.rs`, `crates/cellar/durability/raft/snapshot_transport.rs`, `crates/cellar/durability/raft/filesystem.rs`, `crates/cellar/durability/raft/mod.rs`, `crates/cellar/tests/native_raft_archive.rs`.
 
-Create: `crates/cellar/durability/raft/membership.rs`, `crates/cellar/durability/raft/placement.rs`, `crates/cellar/tests/native_raft_membership.rs`, `plans/multi-raft/membership-design.md`, `crates/cellar-logic/raft_placement.rs`, `crates/cellar/durability/raft/member_plan_tests.rs`, `crates/cellar/tests/support/raft_repair_native.rs`, `crates/cellar/tests/support/raft_repair_crash.rs`, `crates/cellar/durability/raft/replica_leadership.rs`, `crates/cellar-logic/raft_leadership.rs`, `crates/cellar-logic/raft_leadership_tests.rs`, `crates/cellar/durability/raft/host_standby.rs`, `crates/cellar/tests/support/raft_standby_native.rs`, `plans/multi-raft/node-directory-design.md`, `crates/cellar/tests/support/raft_node_registration_storage.rs`, `crates/cellar/durability/raft/node_directory.rs`, `crates/cellar/tests/native_raft_directory.rs`.
+Create: `crates/cellar/durability/raft/membership.rs`, `crates/cellar/durability/raft/placement.rs`, `crates/cellar/tests/native_raft_membership.rs`, `plans/multi-raft/membership-design.md`, `crates/cellar-logic/raft_placement.rs`, `crates/cellar/durability/raft/member_plan_tests.rs`, `crates/cellar/tests/support/raft_repair_native.rs`, `crates/cellar/tests/support/raft_repair_crash.rs`, `crates/cellar/durability/raft/replica_leadership.rs`, `crates/cellar-logic/raft_leadership.rs`, `crates/cellar-logic/raft_leadership_tests.rs`, `crates/cellar/durability/raft/host_standby.rs`, `crates/cellar/tests/support/raft_standby_native.rs`, `plans/multi-raft/node-directory-design.md`, `crates/cellar/tests/support/raft_node_registration_storage.rs`, `crates/cellar/durability/raft/node_directory.rs`, `crates/cellar/tests/native_raft_directory.rs`, `crates/cellar/durability/raft/host_directory.rs`, `crates/cellar/durability/raft/transport_directory.rs`, `crates/cellar/durability/raft/transport_directory_tests.rs`, `crates/cellar/tests/support/raft_directory_native.rs`, `crates/cellar/durability/raft/host_startup_tests.rs`, `crates/cellar/durability/raft/mailbox.rs`, `crates/cellar/durability/raft/mailbox_tests.rs`.
 
 The [native membership implementation contract](membership-design.md) defines
 committed plan recovery, learner seeding, joint consensus, dynamic standby

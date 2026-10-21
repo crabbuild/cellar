@@ -1,0 +1,19 @@
+Source note: 03cf680 plus temporary test stage diagnostics; original status_busy command admission. Temporary code was removed.
+<jemalloc>: option background_thread currently supports pthread only
+
+running 1 test
+cellar local reload scan failed: local reload requires replication
+ARCHIVE_PRESSURE_DIAG status Some(Ok(CellStatus { leader: Some(MemberId(1)), term: Term(2), command_ready: true, version: Some(CommittedVersion { scope: GroupScope { cluster: ClusterId([1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]), namespace: NamespaceId([2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2]), cell: "Counter:one", group: GroupId([5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5]), incarnation: IncarnationId([6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6]) }, position: LogPosition { index: LogIndex(4), term: Term(2) } }), persisted: LogIndex(4), committed: LogIndex(4), applied: LogPosition { index: LogIndex(4), term: Term(2) }, checkpoint: LogPosition { index: LogIndex(1), term: Term(1) }, archived: LogIndex(0), membership_revision: LogIndex(1), member_high_water: 1 })); third Some(Err(Unavailable)); calls 2
+Error: third command did not reach commit ahead of apply
+
+Caused by:
+    deadline has elapsed
+test archive_pin_pressure_defers_committed_apply_without_corruption ... FAILED
+
+failures:
+
+failures:
+    archive_pin_pressure_defers_committed_apply_without_corruption
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 28 filtered out; finished in 5.61s
+

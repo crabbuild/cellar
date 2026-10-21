@@ -1,0 +1,16 @@
+Source: 03cf680de9fd241fc94c94f50b40f13dc015b0c2
+The initial reverse-isolation assertion dropped a query waiter without joining its producer.
+<jemalloc>: option background_thread currently supports pthread only
+
+running 1 test
+cellar local reload scan failed: local reload requires replication
+Error: control waiters must leave business admission available
+test control_capacity_survives_unpolled_business_waiters ... FAILED
+
+failures:
+
+failures:
+    control_capacity_survives_unpolled_business_waiters
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 24 filtered out; finished in 0.69s
+
