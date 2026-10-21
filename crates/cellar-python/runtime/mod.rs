@@ -26,6 +26,7 @@ pub use budget::BridgeReport;
 pub(crate) use budget::{Budget, Reservation};
 mod environment;
 mod initialization;
+mod initialization_output;
 mod inventory;
 mod telemetry;
 pub use telemetry::{LatencyReport, OperationReport};
@@ -426,6 +427,8 @@ impl Stop {
 /// Call on the process main thread. The host closure runs on a joined thread
 /// and may own Tokio runtimes or call `Host::run_until`. Python is initialized once;
 /// interpreter reinitialization and concurrent application generations are refused.
+/// C initialization briefly discards process stderr to contain CPython's raw
+/// path diagnostics; it is restored before application imports and host startup.
 pub struct PythonRuntime;
 
 impl PythonRuntime {
@@ -433,6 +436,9 @@ impl PythonRuntime {
     /// This bootstrap owns process-wide CPython initialization. No other thread
     /// may initialize/finalize Python concurrently, and no Python API may run
     /// until initialization completes. Start it before spawning Python users.
+    /// Do not concurrently replace or close the process stderr descriptor during
+    /// bootstrap; other threads' stderr writes during C initialization are also
+    /// discarded. Start host workers and logging tasks after this bootstrap.
     /// The process main-thread requirement is checked before invoking CPython.
     pub unsafe fn run<F>(options: Options, source: Source, host: F) -> Result<Report>
     where

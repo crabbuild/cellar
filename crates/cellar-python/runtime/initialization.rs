@@ -107,13 +107,25 @@ impl Interpreter {
         // SAFETY: config exclusively owns a valid PyInitConfig; all borrowed
         // path buffers have been copied by the setters. No Python API runs on
         // another thread, and the main-thread check above succeeded.
-        config.check(unsafe { ffi::Py_InitializeFromInitConfig(config.0.as_ptr()) })?;
+        // CPython 3.14.8 unconditionally dumps configured paths if importing
+        // encodings fails, ignoring pathconfig_warnings=0 (Python/codecs.c).
+        // There is no Python stderr hook yet. Contain raw C output at the
+        // process-owned initialization boundary, then restore before admission.
+        let mut diagnostics = super::initialization_output::Diagnostics::silence()?;
+        let status = unsafe { ffi::Py_InitializeFromInitConfig(config.0.as_ptr()) };
+        let restored = diagnostics.restore();
         // SAFETY: successful initialization attached this main thread. Detach
         // it before PyO3 attaches or the Rust host starts; this also releases
         // the GIL when the selected interpreter uses one.
-        unsafe {
-            ffi::PyEval_SaveThread();
+        if status >= 0 {
+            // SAFETY: only successful initialization attached this thread.
+            // Detach even if restoring stderr failed, before refusing startup.
+            unsafe {
+                ffi::PyEval_SaveThread();
+            }
         }
+        restored?;
+        config.check(status)?;
         Ok(())
     }
 }

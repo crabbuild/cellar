@@ -97,7 +97,8 @@ pub(super) fn child() -> Result<()> {
             };
             let bucket = cellar::bucket::Bucket::open_dev(&directory.path().join("fleet.sqlite"))?;
             let data = directory.path().join("node");
-            let (node, url) = start_graph(&data, application.clone(), "delivery", Some(bucket.clone()), configure).await?;
+            let (node, url) = start_graph(&data, application.clone(), "delivery", Some(bucket.clone()), configure)
+                .await.context("delivery initial node admission")?;
             let client = reqwest::Client::builder().timeout(Duration::from_secs(10)).build()?;
             ensure!(value(&client, &url, "/setup").await? == true);
             ensure!(value(&client, &url, "/wrong-event").await? == true);
@@ -115,7 +116,7 @@ pub(super) fn child() -> Result<()> {
                             if value(&client, &url, "/state").await?["holding"] == true { return Ok::<_, anyhow::Error>(()); }
                             tokio::task::yield_now().await;
                         }
-                    }).await??;
+                    }).await.context("delivery held consumer admission deadline")??;
                     ensure!(value(&client, &url, "/cross").await? == true);
                     ensure!(value(&client, &url, "/release").await? == true);
                 }
@@ -132,11 +133,12 @@ pub(super) fn child() -> Result<()> {
             }
             ensure!(value(&client, &url, "/expired").await? == true);
             let before = drained(&client, &url).await?;
-            stop(node, &monitor).await?;
-            let (node, url) = start_graph(&data, application, "delivery", Some(bucket), configure).await?;
+            stop(node, &monitor).await.context("delivery first preserving shutdown")?;
+            let (node, url) = start_graph(&data, application, "delivery", Some(bucket), configure)
+                .await.context("delivery restart admission")?;
             let after = drained(&client, &url).await?;
             ensure!(before == after, "settled queue or receipts changed across preserving restart: {before} -> {after}");
-            stop(node, &monitor).await
+            stop(node, &monitor).await.context("delivery replacement shutdown")
         })
         },
     )?;

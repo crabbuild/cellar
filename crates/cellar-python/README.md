@@ -178,6 +178,15 @@ The host controls logging of that source. Application/library output and OS
 loader diagnostics before `main` runs remain process output; embedding is not
 an output sandbox.
 
+CPython 3.14.8 can print configured paths directly from C before Python's error
+hooks exist. The main-thread bootstrap therefore briefly redirects process
+stderr to a discard sink around C initialization, flushes C output, and restores
+the original descriptor and its flags before application imports or host startup.
+A closed stderr stays closed. Start host/logging workers afterward: unrelated
+threads' stderr writes during this interval are discarded too, and callers must
+not concurrently replace or close that descriptor. Restoration failure refuses
+startup. Later Python and native logging uses the original destination.
+
 Bootstrap imports `signal` before asyncio and removes CPython's implicitly
 installed default INT handler. Disabling initialization signal handlers alone
 does not prevent that later import from installing it. Existing native host

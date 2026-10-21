@@ -5,6 +5,7 @@ use anyhow::{ensure, Result};
 use cellar_python::{Environment, EventKind, Options, PythonRuntime, Source};
 use pyo3::types::PyAnyMethods;
 use std::{
+    io::Write,
     path::Path,
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -33,6 +34,8 @@ assert sys.flags.safe_path
 assert 'sitecustomize' not in sys.modules
 assert 'usercustomize' not in sys.modules
 assert 'ambient_dependency' not in sys.modules
+if sys.stderr is not None:
+    sys.stderr.write('BOOTSTRAP-PYTHON-STDERR-RESTORED\n')
 "#;
 
 fn main() -> Result<()> {
@@ -59,6 +62,8 @@ fn main() -> Result<()> {
         "async-constructor",
         "duplicate-event",
         "host-signals",
+        "stderr-closed",
+        "stderr-cloexec",
         "private-import",
         "private-descriptor",
         "private-nul-source",
@@ -74,6 +79,7 @@ fn main() -> Result<()> {
         "private-missing-pin",
         "private-init-failure",
         "private-init-import",
+        "private-init-builtin",
     ];
     // Cargo forwards libtest flags to this harness-free binary too. Preserve
     // full-suite execution for those flags while permitting one named scenario.
@@ -146,9 +152,20 @@ fn main() -> Result<()> {
                 let log = std::fs::read_to_string(output.path())?;
                 ensure!(
                     !log.contains("PRIVATE-BOOTSTRAP-SENTINEL"),
-                    "bootstrap leaked a private exception or path: {mode}"
+                    "bootstrap leaked a private exception or path: {mode}: {}",
+                    log.replace("PRIVATE-BOOTSTRAP-SENTINEL", "<redacted>")
                 );
                 ensure!(status.success(), "bootstrap scenario failed: {mode}: {log}");
+                ensure!(
+                    log.contains("BOOTSTRAP-DESCRIPTORS-RESTORED"),
+                    "bootstrap did not preserve host descriptors: {mode}"
+                );
+                if matches!(mode, "isolated" | "stderr-cloexec") {
+                    ensure!(
+                        log.contains("BOOTSTRAP-PYTHON-STDERR-RESTORED"),
+                        "Python stderr was not restored before application import: {mode}"
+                    );
+                }
                 break;
             }
             if Instant::now() >= deadline {
@@ -207,6 +224,18 @@ gc.collect()
         _ => APPLICATION,
     };
     match mode {
+        "stderr-closed" => {
+            // SAFETY: this disposable child owns its descriptors. The parent
+            // still observes stdout and requires successful bootstrap/cleanup.
+            ensure!(unsafe { libc::close(libc::STDERR_FILENO) } == 0);
+        }
+        "stderr-cloexec" | "private-init-builtin" => {
+            // SAFETY: this child owns stderr; verify initialization preserves
+            // its descriptor flags after both success and codec failure.
+            ensure!(
+                unsafe { libc::fcntl(libc::STDERR_FILENO, libc::F_SETFD, libc::FD_CLOEXEC) } == 0
+            );
+        }
         "host-signals" => {
             extern "C" fn host_handler(_: libc::c_int) {}
             // SAFETY: this disposable child owns main-thread bootstrap before
@@ -243,6 +272,38 @@ gc.collect()
                 "cpython-314-"
             };
             options.interpreter.soabi = format!("{prefix}PRIVATE-BOOTSTRAP-SENTINEL");
+        }
+        _ => {}
+    }
+    match mode {
+        "private-init-builtin" => {
+            // Some distributions freeze encodings, so an empty stdlib root
+            // does not reach the codec-bootstrap failure. A failing builtin
+            // exercises the actual initialization error on either layout.
+            unsafe extern "C" fn fail_encodings() -> *mut pyo3::ffi::PyObject {
+                // SAFETY: CPython calls this initializer with an attached
+                // thread during codec initialization. Its exception type and
+                // static string remain live for the call.
+                unsafe {
+                    pyo3::ffi::PyErr_SetString(
+                        pyo3::ffi::PyExc_RuntimeError,
+                        c"PRIVATE-BOOTSTRAP-SENTINEL".as_ptr(),
+                    );
+                }
+                std::ptr::null_mut()
+            }
+            // SAFETY: this disposable process has not initialized Python. The
+            // builtin name and initializer have process lifetime; no thread
+            // concurrently accesses the initialization table.
+            ensure!(
+                unsafe {
+                    pyo3::ffi::PyImport_AppendInittab(c"encodings".as_ptr(), Some(fail_encodings))
+                } == 0,
+                "register failing codec initializer"
+            );
+            let path = root.join("PRIVATE-BOOTSTRAP-SENTINEL");
+            std::fs::create_dir(&path)?;
+            options.module_paths.push(path);
         }
         "private-init-failure" | "private-init-import" => {
             let path = root.join("PRIVATE-BOOTSTRAP-SENTINEL");
@@ -303,6 +364,8 @@ gc.collect()
     .contains("secret-value"));
     let check_original_environment = mode != "preinitialized";
     let started = entered.clone();
+    let stdout_before = descriptor(libc::STDOUT_FILENO)?;
+    let stderr_before = descriptor(libc::STDERR_FILENO)?;
     // SAFETY: each scenario owns a disposable process. There is no concurrent
     // Python initialization/finalization; the preinitialized case is quiescent
     // and must be rejected before Cellar uses it.
@@ -362,6 +425,15 @@ gc.collect()
             Ok(())
         })
     };
+    ensure!(
+        descriptor(libc::STDOUT_FILENO)? == stdout_before,
+        "bootstrap changed stdout"
+    );
+    ensure!(
+        descriptor(libc::STDERR_FILENO)? == stderr_before,
+        "bootstrap changed stderr"
+    );
+    writeln!(std::io::stdout().lock(), "BOOTSTRAP-DESCRIPTORS-RESTORED")?;
     if trace_allocations {
         let still_tracing = pyo3::Python::attach(|py| -> pyo3::PyResult<bool> {
             py.import("tracemalloc")?
@@ -386,7 +458,7 @@ gc.collect()
             );
             return Ok(());
         }
-        "isolated" | "wrong-thread" | "host-signals" => {
+        "isolated" | "wrong-thread" | "host-signals" | "stderr-closed" | "stderr-cloexec" => {
             let report = result?;
             ensure!(report.complete());
             if trace_allocations {
@@ -416,7 +488,9 @@ gc.collect()
             "Python distribution version mismatch"
         }
         "private-missing-pin" => "Python interpreter execution failed",
-        "private-init-failure" | "private-init-import" => "CPython initialization failed",
+        "private-init-failure" | "private-init-import" | "private-init-builtin" => {
+            "CPython initialization failed"
+        }
         "empty-mailbox" | "oversized-mailbox" => "mailbox capacity is outside its supported range",
         "undersized-value-budget" => "value budget must be at least 128 bytes",
         "wrong-abi" => "SOABI mismatch",
@@ -449,4 +523,19 @@ gc.collect()
         "invalid bootstrap admitted the host"
     );
     Ok(())
+}
+
+fn descriptor(fd: libc::c_int) -> Result<Option<(libc::c_int, libc::dev_t, libc::ino_t)>> {
+    // SAFETY: these calls inspect a child-owned descriptor; successful fstat
+    // initializes the complete stat buffer, and no pointer escapes the call.
+    let flags = unsafe { libc::fcntl(fd, libc::F_GETFD) };
+    if flags < 0 {
+        ensure!(std::io::Error::last_os_error().raw_os_error() == Some(libc::EBADF));
+        return Ok(None);
+    }
+    let mut stat = std::mem::MaybeUninit::<libc::stat>::uninit();
+    ensure!(unsafe { libc::fstat(fd, stat.as_mut_ptr()) } == 0);
+    // SAFETY: the successful fstat call initialized the buffer.
+    let stat = unsafe { stat.assume_init() };
+    Ok(Some((flags, stat.st_dev, stat.st_ino)))
 }

@@ -23,6 +23,16 @@ only CPython's implicit INT handler; preserve an existing native handler. The
 Rust host owns process signals. Never finalize/reinitialize the interpreter or
 replace its source/dependency environment in the same process.
 
+Contain pre-hook C initialization diagnostics with a scoped process-stderr
+discard sink. CPython 3.14.8 dumps configured paths on codec import failure even
+with path warnings disabled. Flush existing host diagnostics before redirecting;
+flush/discard bootstrap C output and restore the descriptor and its flags before
+application imports or Rust host startup. Closed stderr retains its normal
+semantics. This is a brief process-wide effect: start host/logging workers after
+bootstrap, and prohibit concurrent descriptor replacement/closure. A restoration
+failure refuses startup. Ordinary later application/library output is not
+sandboxed.
+
 Compile source, facade and class/event registrations into the native executable.
 Validate async handler signatures and synchronous no-argument constructors before
 admission. Synchronous Rust factories allocate proxies without entering Python;
