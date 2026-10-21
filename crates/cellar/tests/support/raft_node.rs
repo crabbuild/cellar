@@ -56,6 +56,8 @@ pub async fn node_declared_with_filesystem(
     .await
 }
 
+// Shared support is also compiled by targets using only the default policy.
+#[allow(dead_code)]
 pub async fn node_with_shutdown(
     directory: &Path,
     application: Arc<dyn Application>,
