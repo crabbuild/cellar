@@ -122,7 +122,7 @@ impl StepOutput {
                 // brownout fenced 9 nodes whose sole hung attempt was
                 // still inside the transport's 15 s timeout when the
                 // 10 s TTL expired. Bound the attempt to half the
-                // remaining authority (capped, floored) and map timeout
+                // remaining authority (capped) and map timeout
                 // to Ambiguous — the same conservative outcome a lost
                 // response already produces, so safety is unchanged.
                 // The stamp survives a timed-out attempt: the backend
@@ -134,8 +134,11 @@ impl StepOutput {
                 let result = match authority_expires_ms {
                     Some(expires_ms) => {
                         let remaining = expires_ms.saturating_sub(now_ms());
-                        let bound =
-                            std::time::Duration::from_millis((remaining / 2).clamp(250, 2_500));
+                        // A fixed minimum can exceed the remaining authority
+                        // after a failed attempt and its retry delay. Reserve
+                        // half even near expiry so a committed-but-lost reply
+                        // can still be proven by the ordinary readback.
+                        let bound = std::time::Duration::from_millis((remaining / 2).min(2_500));
                         match crate::asyncrt::timeout(
                             bound,
                             ownership.cas_node_lease(guard, record, &mut stamped_log_state),

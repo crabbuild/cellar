@@ -3,6 +3,8 @@
 #[allow(dead_code)]
 #[path = "support/html.rs"]
 mod fixture;
+#[path = "support/lease_renewal.rs"]
+mod lease_renewal;
 #[path = "support/node_assets.rs"]
 mod node_assets;
 #[path = "support/node_events.rs"]
