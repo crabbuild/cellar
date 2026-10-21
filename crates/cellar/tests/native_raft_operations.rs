@@ -18,6 +18,8 @@ mod image_fault;
 mod log_fault;
 #[path = "support/raft_management_native.rs"]
 mod management;
+#[path = "support/raft_mode_native.rs"]
+mod mode_guard;
 #[path = "support/raft_node.rs"]
 #[allow(dead_code)]
 mod public_node;
@@ -33,6 +35,11 @@ use std::{
     },
     time::Duration,
 };
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn rollback_mode_guard() -> Result<()> {
+    mode_guard::rollback_mode_guard().await
+}
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn management_stop_seals_raft_before_joined_receipt() -> Result<()> {
