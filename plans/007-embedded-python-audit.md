@@ -8,14 +8,24 @@ features (ASGI, streaming, arbitrary transaction callbacks, untrusted-code
 isolation and subinterpreters) remain deferred. Free-threaded CPython 3.14t was
 subsequently requested and is an additional supported build/qualification scope.
 
-Core deliverables now span M0–M5, including both CPython threading ABIs. The
-full objective is **not achieved**: preserved delivery/native lifecycle failures
-and final-source release evidence retain open gates. The controlled reset/read
-correction passes complete Linux adapter steps in both ABIs at 85cdef4. Linux
-installed-package prerequisite qualification passes in all four Linux jobs at
-85cdef4. The bootstrap correction and measured defaults have direct evidence
-within the scopes below. A verified row covers only its explicitly
-stated evidence and scope.
+Core deliverables span M0–M5, including both CPython threading ABIs. The delivery
+review found no missing required runtime, SDK or packaging feature. All four
+complete Linux push/PR jobs pass at 85cdef4, including adapter/bootstrap,
+installed-package recovery/replacement, native-node 88/88, workspace tests/lints,
+Axum modes and native examples. The terminal
+[push](https://github.com/crabbuild/cellar/actions/runs/39548047580) and
+[PR](https://github.com/crabbuild/cellar/actions/runs/39548052722) results cover
+unchanged runtime/test sources, dependencies and twenty main qualification step
+bodies in subsequent follow-ups.
+The full objective is **not achieved**: Q12 still retains preserved
+delivery/native lifecycle failures with unexplained causes. A verified row
+covers only its explicitly stated evidence and scope.
+
+Raw evidence files are no longer included in the repository. Historical notes
+below summarize the observations made during those runs; references to captured
+logs, fixtures or datasets describe the original investigations. CI results
+remain linked where available. Use the documented harnesses to produce fresh
+qualification artifacts outside the source tree.
 
 Status meanings: **partial** = some implementation/evidence exists;
 **missing** = implementation or required direct evidence absent;
@@ -55,7 +65,7 @@ Only a fresh, requirement-specific verification can mark a row **verified**.
 | H03 | Finite floats, integer range, keys, cycles and unsupported values | Codec boundary corpus and no mutation assertions | verified: real-node invalid-value corpus (nonfinite, int bounds, keys, unsupported, cycles, depth) has no mutation; valid boundaries round-trip |
 | H04 | Typed validation, conflict, expired/ownership, overload, ambiguity | Public Python error tests and native cause classifications | verified locally in both threading ABIs: public error classes, explicit outcomes and fixed messages retain codec/batch/conflict and real expiration/fencing coverage; real native residency exhaustion reaches Python as Overloaded/unknown before the target handler enters, then the same caller reuses its mutation reservation; failed output proof reaches a still-live caller as Ambiguous/unknown with one handler attempt and no replay; ownership routing classification is unit-tested. Some native bindings flatten internal causes: unavailable provenance remains unknown, never inferred rollback. Final Linux execution remains Q12 |
 | H05 | Cancellation stays cancellation; no blind retry | Cancel-before/after submission and ambiguous-result reconciliation | verified locally: independent KV/shared-SQL/producer cancellation before submission and during withheld native proof stays CancelledError, failed submitted proof remains Ambiguous/unknown and the adapter attempt count stays one; explicit reconciliation retains singular business effects; native consumer timeout also refuses late ack before same-ID redelivery; packaged S09 covers lost proof-gated response reconciliation; Q08 independently qualifies cron interruption |
-| H06 | Sanitized, bounded failures; no secrets/paths/stack locals | Sentinel request/exception/path tests on public response and logs | verified within the recorded macOS ARM64/Linux x86_64 managed-error scope: CPython 3.14.8's pre-hook codec path leak has a direct before/after correction and 36 disposable bootstrap cases. Three complete Linux jobs at 97be2cc cover both ABIs, including adapter/bootstrap and installed packages. The production adapter, dependency manifests and specific privacy/bootstrap tests are byte-identical at published 85cdef4; its fresh free-threaded push adapter step also passes. The [privacy qualification](evidence/python-privacy-qualification-2026-10-20.json) records source identity and exact job scope. Descriptor identity/flags and later stderr are preserved; managed HTTP/nested failures stay bounded and sanitized with exact effects and no replay. Typed Incomplete/native outcomes remain intact. Arbitrary trusted application/library output and pre-main OS-loader diagnostics retain their documented scope; full-release qualification remains Q12 |
+| H06 | Sanitized, bounded failures; no secrets/paths/stack locals | Sentinel request/exception/path tests on public response and logs | verified within the recorded macOS ARM64/Linux x86_64 managed-error scope: CPython 3.14.8's pre-hook codec path leak has a direct before/after correction and 36 disposable bootstrap cases. Three complete Linux jobs at 97be2cc cover both ABIs, including adapter/bootstrap and installed packages. The production adapter, dependency manifests and specific privacy/bootstrap tests are byte-identical at published 85cdef4; its fresh free-threaded push adapter step also passes. The privacy qualification records source identity and exact job scope. Descriptor identity/flags and later stderr are preserved; managed HTTP/nested failures stay bounded and sanitized with exact effects and no replay. Typed Incomplete/native outcomes remain intact. Arbitrary trusted application/library output and pre-main OS-loader diagnostics retain their documented scope; full-release qualification remains Q12 |
 | H07 | Concurrent Python work during host await | Two-handler synchronization with one blocked host operation | verified: `host_await_progress` barrier test runs another handler during pending SDK fetch |
 | H08 | Native-extension representative execution and teardown | Pinned package matrix, real operations and joined report | verified for macOS ARM64/Linux x86_64 qualification: pinned Pydantic/core, NumPy, hashing and pure Python inspection perform real work; managed executor operations join and TERM/INT replacement reaps the old process with complete reports; arbitrary private native-library pools are explicitly outside in-process drain accounting; exact versions/platforms remain Q09 |
 
@@ -95,7 +105,7 @@ Only a fresh, requirement-specific verification can mark a row **verified**.
 | ID | Requirement | Authoritative evidence required | Current status |
 | --- | --- | --- | --- |
 | P01 | Immutable source/registration descriptor bound to native artifact | Source/class/event digests and tamper tests | verified: build embeds exact source/registration/file inventory; typed per-executable inventory digest is rechecked before every factory/generation admission |
-| P02 | Hash-locked platform wheels and native dependency closure | Lock artifact hashes, transitive inventory and offline install | verified within recorded package scopes: resolved load contexts, OS cohorts, external provider identities and pre-initialization/post-import gates are implemented. Both local 3.14.5 ABIs pass inventory faults, cold restoration, native operations, receipts and process/supervisor replacement. All four Linux jobs at 85cdef4 complete the installed-package step, including GNU capture/refusal, offline archive restoration, changed-source TERM/INT handoff and forced-KILL supervisor recovery. The [current component evidence](evidence/python-linux-85-components-2026-10-20.json) records exact job/step scope; complete release evidence remains Q12. |
+| P02 | Hash-locked platform wheels and native dependency closure | Lock artifact hashes, transitive inventory and offline install | verified within recorded package scopes: resolved load contexts, OS cohorts, external provider identities and pre-initialization/post-import gates are implemented. Both local 3.14.5 ABIs pass inventory faults, cold restoration, native operations, receipts and process/supervisor replacement. All four Linux jobs at 85cdef4 complete the installed-package step, including GNU capture/refusal, offline archive restoration, changed-source TERM/INT handoff and forced-KILL supervisor recovery. The current component evidence records exact job/step scope; complete release evidence remains Q12. |
 | P03 | Runtime identifies CPython/GIL/SOABI/platform and actual files | Inventory capture plus pre-code digest/ABI verification | verified for supported targets: CPython/GIL/SOABI/micro version/target, actual loaded libpython and exact file contents/executable modes; external OS closure tracked in P02 |
 | P04 | Native package metadata inventories Python artifacts, format marker 1 | Protocol types, strict validation and old-node feature rejection | verified: typed native runtime references, format marker 1, embedded-python-v1 feature gate and executable/inventory pairing; malformed pairing tests added |
 | P05 | Build/deploy/install stage, publish, recover and verify closure | Real bucket package tests, corrupt/missing artifact refusal | verified locally: build/stage, pre-selector verified bucket publication, corrupt/missing blob refusal and real restoration with original runtime absent |
@@ -111,7 +121,7 @@ Only a fresh, requirement-specific verification can mark a row **verified**.
 
 | ID | Requirement | Authoritative evidence required | Current status |
 | --- | --- | --- | --- |
-| Q01 | Finite startup/request/body/value/depth/batch/mailbox/task/object/drain limits | Named limits, boundary tests, reservations released on every exit | partial: configured invocation/task/object/byte admission, operation mailbox capacity, response envelope and existing body/header/depth/batch/startup/drain limits have direct boundary tests; empty/oversized mailboxes refuse before bootstrap and task admission also covers empty-context callbacks; SDK-result envelope/depth boundaries now pass independently through native storage/SQL; shipping-default mixed-load qualification now passes three optimized repetitions per ABI at clean source 7d90f0c, with 12,720 requests, actual 128-invocation saturation/refusal/reuse, exact body boundaries, 3,180 acknowledged updates recovered after owner kill/local disk deletion, and complete joins; raw evidence and scope are in the recorded baselines. Linux shipping-default workloads pass in all four 3e56924 jobs and the three 97be2cc jobs that reach the workload, including both ABIs; final-source qualification remains Q12 |
+| Q01 | Finite startup/request/body/value/depth/batch/mailbox/task/object/drain limits | Named limits, boundary tests, reservations released on every exit | verified within the recorded limits and development workload scope: configured invocation/task/object/byte admission, operation mailbox capacity, response envelope and existing body/header/depth/batch/startup/drain limits have direct boundary tests; empty/oversized mailboxes refuse before bootstrap and task admission also covers empty-context callbacks; SDK-result envelope/depth boundaries now pass independently through native storage/SQL; shipping-default mixed-load qualification now passes three optimized repetitions per ABI at clean source 7d90f0c, with 12,720 requests, actual 128-invocation saturation/refusal/reuse, exact body boundaries, 3,180 acknowledged updates recovered after owner kill/local disk deletion, and complete joins; raw evidence and scope are in the recorded baselines. Linux shipping-default workloads pass in all four 3e56924 jobs and the three 97be2cc jobs that reach the workload, including both ABIs; all four complete 85cdef4 Linux jobs now pass these boundaries and defaults; startup is bounded by the external Unix supervisor, request deadlines by the native handler configuration and drain by Options; broader reliability remains Q12 |
 | Q02 | Bounded backpressure both ways and cleanup accounting | Saturation/cancellation/failure tests with zero leaked reservations | verified locally for runtime-owned queues/reservations in both threading ABIs: independent real-node invocation, task, object, exact aggregate-byte and reply-channel saturation refuses excess work, releases/reuses capacity and keeps later work usable; full/closed operation mailbox tests release every event reservation; native-future/reply drop stages, binding proof faults, cancellation, 32-way mutation pressure and retirement/shutdown conserve all admitted operations with zero leaked reservations; trusted factory replacement/raw tasks/private pools remain outside cooperative admission |
 | Q03 | Queue, bridge, Python/Rust duration, copied bytes, allocations/RSS and cleanup metrics | Instrumented counters/histograms and live snapshot tests | verified locally: bounded queue/SDK/reply/round-trip histograms, explicit UTF-8 boundary-copy counters distinct from reservations, lifecycle conservation/gauges, live age-stamped interpreter/work snapshots, loop scheduling delay, optional traced allocation bytes and pre-interpreter/post-join RSS/jemalloc/libc samples; scope/exclusions documented; adapter matrix and pinned package smoke pass; cross-platform and performance baselines remain Q09/Q10/Q12 |
 | Q04 | Python CPU attributed separately; native accounting gaps disclosed | Separate measurements and documented coverage | verified locally: managed-loop thread CPU measured separately from Rust; handler duration/count and memory-snapshot assertions pass; exclusions for native/executor pools documented; cross-platform qualification remains Q09/Q12 |
@@ -122,28 +132,31 @@ Only a fresh, requirement-specific verification can mark a row **verified**.
 | Q09 | Pure Python, PyO3 native extension and numerical library compatibility | Exact pinned versions/platforms; representative operations/concurrency/teardown | verified for stated platforms/versions: macOS ARM64 CPython 3.14.5/3.14.6 and 3.14.5t; Linux x86_64 regular 3.14.8 plus installed 3.14.5 and 3.14.5t execute pinned Pydantic/NumPy/pure-library workloads; both 0bfd83f free-threaded Linux jobs completely pass the 3.14.8t adapter suite and 3.14.5t package/archive/rolling/supervisor/native-library qualification; final lifecycle/cancellation source remains Q12 and other platforms/library versions remain unqualified |
 | Q10 | Native versus Python latency/throughput/memory/copy/recovery baselines | Reproducible harness and raw measured evidence, no invented target | verified for the stated development scope: [recorded baselines](007-embedded-python-baselines.md) retain two independent nine-case optimized experiments and raw data, including matched CPython 3.14.5/3.14.5t and a true native-only executable; exact HTTP/counter receipts, killed-owner/disk-deletion takeover, copy/memory observations and joined reports pass; the verifier rejects corrupted receipts/metrics/drain/cleanup; shared-machine load and development-store limits are explicit and no production capacity target is claimed |
 | Q11 | Native-only dependency/build check and no JS all-features | Explicit CI check, local graph/build evidence | verified for dependency/build separation: explicit Linux CI native-only check with nonexistent interpreter and all-feature no-JavaScript graph passed on fe6d2f8; current source retains the same feature/dependency graph, with local no-embed and graph checks |
-| Q12 | Full affected test/lint/format/layout/doc qualification; preserve failures | Exact source/toolchain commands and passing scope-specific results | partial: 97be2cc has three complete successful Linux jobs across both ABIs, including installed packages, native-node 88/88, workspace tests/lints, Axum modes and native examples; its PR free-threaded job retains the reset/read failure. The controlled correction has local before/after evidence, both local ABI suites/lints and three conventional repetitions, then complete Linux adapter-step passes in both ABIs at 85cdef4. The [Linux correction evidence](evidence/python-reset-read-linux-2026-10-20.json) records exact source/job scope. Package/native/example qualification at that source remains nonterminal. Earlier delivery/initial consumer/clock-replay failures retain separate diagnosis; passing retries do not close them. |
+| Q12 | Full affected test/lint/format/layout/doc qualification; preserve failures | Exact source/toolchain commands and passing scope-specific results | partial release gate: the complete 85cdef4 Linux matrix now passes all four push/PR jobs across both ABIs: adapter/bootstrap, baseline/default verifiers, actual loaded ABI guards, installed-package refusal/offline restoration/replacement, native-node 88/88 per job, workspace tests/lints, Axum modes and native examples. Follow-ups preserve production/test sources, dependencies and all twenty main qualification step bodies. The pending complete-matrix subgate is closed. Earlier delivery/initial consumer/clock-replay failures remain preserved with unexplained causes; passing repetitions do not close that reliability subgate. |
 | Q13 | Public facade type annotations and accepted implementation decisions | Typed Python API, accepted ADR, build/bootstrap/bridge decision record | verified: public facade annotations and frozen CellIdentity; accepted ADR 004 records bootstrap, bridge, signals, immutable packaging/replacement, cleanup, compatibility and qualification boundaries against implemented contracts |
 | Q14 | Current docs describe executable APIs and remaining gates accurately | Plan sketches updated to actual contracts; audit has no unstated exception | verified for current documented surface: main plan, adapter/example/environment guides describe actual facade, source layout, accepted ADR, provisioning and conservative failure outcomes; chronological audit history is explicitly distinguished from current tables; remaining gates are stated |
 
 ## Current work
 
-The adapter's core deliverables exist across M0–M5. Completion means closing
-acceptance evidence, not adding another happy-path example. M2's S01–S09 rows
-are verified within their stated scopes; all phases still share final-source
-qualification. Conventional and free-threaded CPython remain equal targets.
+The implementation review maps every required feature to executable code and
+its acceptance evidence. M0–M5 have no identified missing core implementation.
+Q01 now has complete final-source boundary/default workload evidence; Q12's
+complete Linux matrix subgate also passes. The remaining reliability subgate
+continues to limit release acceptance.
 
-| Order | Focus | Remaining gate and evidence |
+| Order | Focus | Concrete delivery and acceptance work |
 | --- | --- | --- |
-| 1 | P0: diagnose preserved reliability failures | M3/Q12: retain the earlier delivery deadline, initial consumer admission and clock/replay failures. The lease-floor correction has direct before/after proof, local native 88/88 and three complete Linux native 88/88 runs at 97be2cc. The Linux consumer campaign at 85cdef4 passes exactly 100 fresh fixtures without reproducing its historical refusal. Twenty current macOS clock replays and ten delivery replays per ABI also pass. An unmodified historical clock campaign retains a distinct catalog-startup timeout before the target recovery phase; twenty current-source cases on the matched filesystem/profile pass. The historical failure also has a preceding Cargo timing outlier, but CPU/storage attribution remains unproven. Keep original deadlines/assertions and conservative mutation outcomes; passing repetitions do not establish historical causes. |
-| 2 | P1: qualify one final source | Q01/Q12: complete all affected tests/lints and installed-package/refusal/offline restoration/replacement checks against the final source in both ABIs. All four 85cdef4 Linux jobs pass adapter/bootstrap, baseline/default verifiers, loaded-ABI guards and package/recovery/replacement steps. Native/Axum/example stages remain nonterminal. These component results do not replace the final complete matrix. |
-| 3 | P1: publish acceptance and deployment scope | Q12/Q14: reconcile every partial row with exact source/runtime/platform evidence and update the existing draft PR. Preserve incomplete-drain and ambiguous-write semantics; development load measurements are not production SLOs or a throughput guarantee. |
+| 1 | Deliver the implemented Python feature for review | Publish the existing adapter, typed facade, runnable example, verified packaging and supervision through the active PR. Keep standard/free-threaded Python equal targets. Review the implemented contracts against this ledger; a newly identified contract defect takes priority over new SDK surfaces. |
+| 2 | Close the preserved reliability gate | M3/Q12: retain the earlier delivery deadline, initial consumer admission and clock/replay failures. The source-pinned evidence and existing replay tools support targeted diagnosis. Fix a demonstrated defect at its owning boundary and qualify the correction with unchanged assertions/deadlines. The 100 Linux consumer fixtures, twenty current matched clock fixtures and ten delivery fixtures per ABI pass, but do not establish the historical causes. This remains required release work. |
+| 3 | Apply the documented deployment contract | Use the example and environment workflow for a hash-locked, matched-ABI installation on a qualified OS cohort. Keep process replacement, receipt reconciliation, external startup/liveness supervision and complete combined drain reports explicit. Existing measurements establish development behavior, not a production SLO. |
 
-Do not expand ASGI/streaming while these core gates remain. Those adapters are
-explicitly optional/deferred and need their own independent qualification when
-introduced. No scope reduction or production-readiness claim is implied by this
-ordering. The chronological checkpoints below preserve earlier CI failures and
-successes; they do not replace qualification of later source.
+Feature delivery now centers on the existing runtime/SDK/package path. Additional
+ASGI/streaming adapters and more diagnostic workflow modes are outside this
+iteration. The unfinished native-suite/Python-delivery workflow expansion was
+removed; the previously validated source-pinned replay and empty-selection guards
+remain. The chronological checkpoints below preserve earlier failures and
+then-current pending CI states. Their historical status does not override the
+terminal evidence linked above.
 
 ## Current evidence added after the initial audit
 
@@ -1574,7 +1587,7 @@ verification. Identical Python source/inventory/archive checks take 13.3–13.6 
 (about 12.9 CPU-s) in the unmatched fixture and 1.4–1.9 s (about 1.2 CPU-s) with
 matching profiles. Both complete handoff/supervisor scenarios then pass, with
 actual checker times about 1.4–1.5 s and no deadline/assertion changes. The
-[raw diagnostic comparison](evidence/python-checker-profile-2026-10-20.json)
+raw diagnostic comparison
 identifies the measured binaries and scope. Checker failures now retain output
 and report host/package role, expected acceptance and elapsed time.
 
@@ -1653,7 +1666,7 @@ initialization or PyO3 attachment. CPython 3.14 includes that option only for
 `Py_GIL_DISABLED` builds, so the guard can compare the actual provider with the
 compiled threading ABI without reading Python object layouts.
 
-The [raw mismatch/control evidence](evidence/python-loaded-abi-2026-10-20.json)
+The raw mismatch/control evidence
 retains binary/library/source digests, actual matched runtime/GIL states,
 combined matched shutdown reports, the original signal failure, and both
 corrected opposite-library refusals. Both corrected children exit normally with
@@ -1686,7 +1699,7 @@ basename aliases for unrelated absolute libraries.
 
 All five GNU capture tests now pass on both Linux environments; four macOS
 capture tests also pass, with the GNU-only regression explicitly skipped. The
-[raw functional evidence](evidence/python-gnu-loader-alias-2026-10-20.json)
+raw functional evidence
 includes source/image/loader digests, actual loader output, the before/after map,
 the completed libc dependency edge and refusal/constructor tests. The amd64
 container uses QEMU, so it establishes parser behavior, not native performance.
@@ -1719,7 +1732,7 @@ another full TTL, accepts the next acknowledged business write and completely
 joins through the existing preserving/handoff report assertions. The 2.5s cap,
 watchdog deadline, native guards and operation-specific proof rules remain intact.
 
-The [raw controlled comparison](evidence/python-lease-readback-2026-10-20.json)
+The raw controlled comparison
 contains source digests, the original failing run and six successful corrected
 runs. The private fixture uses a 900ms lease to make the timing window explicit;
 no existing test assertion, request deadline or stop budget is extended. This
@@ -1756,7 +1769,7 @@ and Ubuntu 22.04 x86_64 under QEMU; macOS passes its four relevant methods with
 two GNU-only methods skipped. The complete ARM64 runtime/package inventory now
 captures and verifies 6,139 files. The full CPython x86_64 reproduction hits an
 internal QEMU assertion and supplies no package qualification; real x86_64 CI
-remains required. The [raw before/after evidence](evidence/python-gnu-needed-tokens-2026-10-20.json)
+remains required. The raw before/after evidence
 records source/image identities, runtime inventory identity and exact test logs.
 This is capture/verification evidence using a C host, not the full Cellar
 installation, archive restoration or replacement matrix.
@@ -1776,7 +1789,7 @@ cron timeout/owner-loss recovery, authority, proof-fault, capacity and lifecycle
 harnesses. This is regression qualification; it does not explain the preserved
 historical intermittent failures. Rust formatting and module layout pass for
 629 files, and the all-feature native dependency graph has 415 reachable packages
-with no JavaScript engine. The [raw local qualification](evidence/python-lease-token-qualification-2026-10-20.json)
+with no JavaScript engine. The raw local qualification
 records the selected runtimes, commands, source identities and terminal logs.
 
 The next CI run moves the complete embedded-package step before the long native
@@ -1796,7 +1809,7 @@ supervisor replacement. Both threading ABIs therefore have direct Linux evidence
 for the GNU capture correction. All three jobs subsequently complete successfully,
 including native-node 88/88, workspace tests/lints, Axum feature modes/generated
 contracts and native examples. The fourth job retains the failure below. The
-[terminal Linux evidence](evidence/python-linux-97be-2026-10-20.json) records all
+terminal Linux evidence records all
 four job outcomes and exact source/toolchain scope; later test/diagnostic changes
 still require fresh qualification.
 
@@ -1824,7 +1837,7 @@ its timeout fails the case; the pending read is joined normally or aborted on
 error before the caller-owned runtime joins. The complete adapter/bootstrap
 suites and strict Clippy pass in both local CPython 3.14.5 ABIs, with three more
 conventional controlled repetitions. Formatting/layout pass for 630 Rust files.
-The [raw reset/read evidence](evidence/python-reset-read-2026-10-20.json) records
+The raw reset/read evidence records
 the Linux failure, controlled before/after runs, suite logs, source digests and
 published package-step results. This demonstrates the matching failure class;
 separate historical delivery/initial-consumer/clock failures remain unproven.
@@ -1838,7 +1851,7 @@ cause. Its fixture previously logged only `DeliveryError.message`, which can be
 a fixed public envelope while a native admission/transport cause remains in the
 error chain. The private fixture now logs that chain, bounded to 2,048 characters.
 The public JSON response, fetch identity and mutation/replay policy are unchanged.
-The [diagnostic qualification](evidence/python-consumer-diagnostics-2026-10-20.json)
+The diagnostic qualification
 records native-node 88/88, strict all-target/all-feature Clippy and format/layout
 success on macOS ARM64. Both live-foreign recovery cases pass. These passing runs
 do not exercise the failure branch or explain the historical refusal; the added
@@ -1853,7 +1866,7 @@ failure JSON are retained. It does not retry a claiming operation in a live
 application, change native deadlines or replace the full ABI matrix. A distinct
 concurrency group allows investigation alongside complete qualification.
 
-The [driver evidence](evidence/python-consumer-replay-driver-2026-10-20.json)
+The driver evidence
 records local execution of the exact workflow driver: four invalid bounds refuse
 before fixture creation, a real Cargo failure stops before the next iteration,
 and two fresh native fixtures pass. This validates investigation controls on
@@ -1876,7 +1889,7 @@ The separate [100-fixture consumer investigation](https://github.com/crabbuild/c
 uses that exact source. These jobs remain nonterminal at this checkpoint; their
 submission does not close any acceptance gate.
 
-The [raw clock/receipt replays](evidence/python-clock-replay-2026-10-20.json.gz)
+The raw clock/receipt replays
 record 20 serial executions of the exact preserved delayed-cold-read fixture on
 macOS ARM64, using Rust 1.98.1 and fresh private state. All pass in 355.056 seconds
 including Cargo startup. Each independently exercises the forced read deadline,
@@ -1890,7 +1903,7 @@ causal gate remains open alongside delivery and initial-consumer diagnosis.
 ## Managed-error acceptance and serial delivery replays
 
 H06 now has requirement-specific acceptance within its recorded runtime/platform
-scope. The [privacy evidence](evidence/python-privacy-qualification-2026-10-20.json)
+scope. The privacy evidence
 verifies byte identity for 29 production/configuration/privacy-test files against
 97be2cc, whose three complete successful Linux jobs cover both threading ABIs.
 The later main bridge-harness diff only registers the reset/read mode. The fresh
@@ -1900,7 +1913,7 @@ unrelated reset/read or historical reliability failures as privacy failures, and
 without accepting arbitrary application/library output or pre-main loader output
 as a managed boundary. Full release acceptance remains Q12.
 
-The [delivery replay evidence](evidence/python-delivery-replay-2026-10-20.json)
+The delivery replay evidence
 records ten serial executions per CPython 3.14.5 ABI on macOS ARM64, each with
 fresh private state. All 20 dedicated delivery children pass, including native
 queue decisions/retries, business-effect receipts, cancellation and retained
@@ -1920,7 +1933,7 @@ separate from complete qualification and from each other in workflow concurrency
 The failure upload whitelist additionally retains the synthetic accepted prefix
 and cold-read/startup observations, excluding cell databases and private keys.
 
-The [driver evidence](evidence/python-native-replay-driver-2026-10-20.json)
+The driver evidence
 records execution of the exact extracted workflow driver on macOS ARM64: seven
 invalid-input cases refuse before creating fixture roots; both accepted upper
 bounds reach a real Cargo target error and stop before iteration two; and both
@@ -1932,7 +1945,7 @@ new clock mode and the historical clock/replay cause remain open gates.
 
 ## Reset/read correction accepted at the Linux adapter boundary
 
-The [Linux correction evidence](evidence/python-reset-read-linux-2026-10-20.json)
+The Linux correction evidence
 records successful complete conventional and free-threaded adapter steps at
 85cdef4. Both execute the dedicated controlled reset/read child through the
 ordinary full-suite command. The recorded fixture bytes match that published
@@ -1950,13 +1963,13 @@ the remaining causal investigations and complete final-source matrix.
 
 ## Linux component acceptance and 100-fixture consumer campaign
 
-The [current Linux component evidence](evidence/python-linux-85-components-2026-10-20.json)
+The current Linux component evidence
 records successful adapter/bootstrap, baseline/operating-default verifier,
 actual loaded-library ABI and installed-package steps in all four push/PR jobs
 at 85cdef4. The native/Axum/example stages remain nonterminal at this checkpoint;
 complete final-source acceptance is still open.
 
-The separate [consumer investigation](evidence/python-consumer-linux-100-2026-10-20.json.gz)
+The separate consumer investigation
 completes successfully on Linux. Its full raw log verifies exactly 100 fresh
 fixture iterations, 100 one-test passes and 100 final clock/receipt/business
 settlement proofs. All old-owner and successor lineages are distinct across
@@ -1968,7 +1981,7 @@ failure. The local clock-mode follow-up still needs publication/Linux execution.
 
 ## Unmodified historical clock campaign: distinct early startup failure
 
-The [historical replay evidence](evidence/python-clock-historical-2026-10-20.json.gz)
+The historical replay evidence
 retains unmodified source 21f6b30 in a separate managed checkout and unique build
 target. On macOS ARM64 with Rust 1.98.1, debug information disabled and fresh
 SQLite fixtures on the workspace volume, eighteen exact delayed-cold-read cases
@@ -1990,7 +2003,7 @@ remain unchanged.
 
 ## Matched current-source clock campaign and host timing clue
 
-The [matched campaign](evidence/python-clock-matched-2026-10-20.json.gz) records
+The matched campaign records
 twenty more current-source native fixture passes with the same workspace
 filesystem class, Rust version and debug profile as the historical campaign.
 Runtime/test source bytes are unchanged from published 85cdef4; intervening
@@ -2009,7 +2022,7 @@ clock/replay assertion and the other preserved causes remain open.
 
 ## Exact replay fixture selection guard
 
-The [selection oracle](evidence/python-replay-selection-2026-10-20.json) proves
+The selection oracle proves
 a diagnostic false green: replacing only a whitelisted fixture-name literal with
 a nonexistent exact name makes real Cargo/libtest run zero tests and exit
 successfully, which the previous driver accepted. The corrected driver lists the
@@ -2038,7 +2051,7 @@ uses the workflow commit, with all 20 step bodies and its 90-minute budget
 unchanged. Each diagnostic campaign has an independent concurrency group so
 source comparisons can run together.
 
-The [pinned-driver evidence](evidence/python-pinned-replay-driver-2026-10-20.json)
+The pinned-driver evidence
 records nine source-shape controls, a real requested/current-checkout mismatch
 refused before fixture-root creation, and both current-source fixture passes.
 A restored clean historical checkout at 21f6b30 also verifies/prints that SHA

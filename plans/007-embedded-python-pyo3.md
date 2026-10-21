@@ -1,8 +1,9 @@
 # 007: Embedded CPython applications through PyO3
 
-Status: partial implementation; full-plan completion is unproven. The
-[requirement-by-requirement audit](007-embedded-python-audit.md) tracks the remaining
-implementation, artifact and qualification gates without reducing this plan's scope.
+Status: core feature implementation delivered across M0–M5; release qualification
+remains open. The [requirement-by-requirement audit](007-embedded-python-audit.md)
+tracks acceptance evidence and preserved reliability failures. No missing core
+runtime, SDK or packaging implementation was identified in the delivery review.
 
 Implementation: [cellar-python](../crates/cellar-python/README.md), with a
 [runnable example](../examples/python/README.md). Buffered HTTP, cell JSON and
@@ -18,11 +19,16 @@ recovery. The packaged smoke additionally covers Pydantic/native-extension impor
 KV, SQL, queue delivery and cron. These are implementation checks, not broad
 production certification. The design below records the intended full contract.
 
-Remaining qualification: diagnose preserved lifecycle failures and complete
-final-source regression evidence in both threading ABIs. The reset/read audit
-correction passes complete Linux adapter steps in both ABIs at 85cdef4. The
-Linux installed-host prerequisite/refusal,
-offline recovery and replacement steps pass in all four jobs at 85cdef4. Operating
+The complete Linux [push](https://github.com/crabbuild/cellar/actions/runs/39548047580)
+and [PR](https://github.com/crabbuild/cellar/actions/runs/39548052722) matrix now
+passes all four push/PR jobs at 85cdef4, covering both threading ABIs, adapter
+and bootstrap, installed-host prerequisite/refusal, offline recovery,
+replacement, workspace tests/lints, Axum modes and native examples. Each job
+passes native-node 88/88. Subsequent changes are documentation/evidence and
+opt-in diagnostic controls; runtime/test sources, dependencies and all twenty
+main qualification step bodies are unchanged. Remaining release work concerns
+the preserved historical lifecycle failures, whose causes are not established
+by passing repetitions. Operating
 defaults have repeated local measurements and Linux CI workload evidence within
 their stated development scope. Interrupted cron delivery, admission/retirement races and
 native-versus-Python development measurements now have direct evidence in the audit.
@@ -530,18 +536,19 @@ or let the adapter fabricate an activation context.
 | M4: packaging | Runtime/source/dependency inventory, verified install and process replacement | Wrong ABI/missing library/tampered source refuses startup; offline deployment; old/new process handoff; runtime artifact recovery; Python example runs from a fresh installation |
 | M5: SDK growth | Additional bindings and optional ASGI/stream adapters | Independent authority, cancellation, backpressure, replay and resource tests for each surface |
 
-Core features span all six phases; the milestones are not all accepted. The
-[completion audit](007-embedded-python-audit.md) distinguishes local evidence,
-published source and remaining qualification:
+Core features span all six phases. The delivery review found no unimplemented
+required surface; optional adapters remain deferred. The
+[completion audit](007-embedded-python-audit.md) distinguishes component acceptance
+from the still-open reliability release gate:
 
 | Phase | Current assessment | Gate still open |
 | --- | --- | --- |
-| M0 | Bootstrap, invocation pump, authority and cancellation implemented; direct evidence in both threading ABIs | Final-source platform matrix |
-| M1 | HTTP, pinned native packages, bounds and sanitized failures implemented; all four 85cdef4 Linux adapter/package steps pass across both ABIs | Complete final-source platform qualification |
-| M2 | All S01–S09 storage/alarm requirements have direct evidence within their stated scopes | Final-source regression qualification |
-| M3 | Fencing, retirement, takeover and supervised noncooperative shutdown implemented; lease correction has direct before/after evidence; the controlled reset/read correction passes complete Linux adapter steps in both ABIs at 85cdef4 | Diagnose preserved delivery, initial consumer admission and clock/replay failures; complete final-source regression qualification |
-| M4 | Verified packaging, native prerequisites, offline restoration and process replacement have direct evidence locally and in all four Linux package steps at 85cdef4 | Complete final-source release regression matrix |
-| M5 | KV, shared SQL, queues and cron implemented with independent local failure matrices; repeated optimized defaults pass locally and Linux CI defaults pass in both ABIs | Final-source qualification; optional ASGI/streaming remain deferred |
+| M0 | Bootstrap, invocation pump, authority and cancellation implemented; complete Linux matrix passes in both ABIs at 85cdef4 | No missing feature identified; shared release gate Q12 remains |
+| M1 | HTTP, pinned native packages, bounds and sanitized failures implemented; complete Linux matrix passes in both ABIs at 85cdef4 | No missing feature identified; shared release gate Q12 remains |
+| M2 | All S01–S09 storage/alarm requirements have direct evidence; complete Linux regressions pass | No missing feature identified; shared release gate Q12 remains |
+| M3 | Fencing, retirement, takeover and supervised noncooperative shutdown implemented; lease and reset/read corrections have direct evidence; complete Linux regressions pass | Diagnose preserved delivery, initial consumer admission and clock/replay failures without weakening assertions |
+| M4 | Verified packaging, native prerequisites, offline restoration and process replacement pass locally and in all four complete Linux jobs at 85cdef4 | No missing feature identified; shared release gate Q12 remains |
+| M5 | KV, shared SQL, queues and cron implemented with independent failure matrices; measured defaults and complete Linux regressions pass in both ABIs | Optional ASGI/streaming remain deferred; shared release gate Q12 remains |
 
 Qualification of source 97be2cc completes the Linux installed-package step in
 both push ABI jobs and the conventional PR job. The PR free-threaded job fails
@@ -550,12 +557,14 @@ proof failure. A controlled public Cell destruction barrier reproduces the same
 HTTP 503 with one business attempt. The local correction observes recovery by
 repeating only that read-only query within the original HTTP budget; both local
 ABI suites and strict Clippy pass. The
-[Linux correction evidence](evidence/python-reset-read-linux-2026-10-20.json)
+Linux correction evidence
 records complete adapter-step passes in both ABIs at 85cdef4, including the
-controlled case. Its remaining package/native/example stages are nonterminal.
+controlled case. All four complete 85cdef4 jobs now pass, including the later
+package/native/example stages. The linked CI runs replace the earlier
+nonterminal checkpoint.
 The other three 97be2cc jobs complete successfully, including native-node 88/88,
 workspace tests/lints, Axum modes and native examples. The
-[terminal Linux evidence](evidence/python-linux-97be-2026-10-20.json) preserves all
+historical CI runs record all
 four outcomes. These results do not qualify later source or explain every
 historical lifecycle failure. A bounded native cause diagnostic and opt-in Linux
 fresh-fixture consumer replay mode target the preserved initial admission refusal;

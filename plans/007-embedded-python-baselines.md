@@ -39,14 +39,11 @@ write to all four counters, and produces complete native/Python joined reports.
 There is no mutation retry. Recovery uses a private SQLite development bucket,
 not a remote object store or a follower quorum.
 
-- [Primary matched-build raw JSON, gzip](evidence/python-baseline-2026-10-20-matched.json.gz).
-  Uncompressed SHA-256:
-  `b39c95594b7a8c6080909d48143d141337f1ae01144efb4c9fa883e729bbb05c`.
-- [Earlier Homebrew-build raw JSON, gzip](evidence/python-baseline-2026-10-20-homebrew.json.gz).
-  Uncompressed SHA-256:
-  `cf1a9ad4c119f1cb876d1d36500564f84a0f86e48b901117cc207d063ace1f29`.
+Raw benchmark datasets are not included in the repository. The tables below
+summarize the original matched-build and earlier Homebrew-build experiments;
+rerun the documented harness to generate new captures outside the source tree.
 
-Both datasets preserve binary digests, platform/toolchain/profile, actual Python
+Both experiments captured binary digests, platform/toolchain/profile, actual Python
 ABI/GIL state, per-request attempts, raw latencies, copy and memory observations,
 recovered receipts and joined reports. The
 [report verifier](../tools/python/baseline_report.py) checks each published
@@ -202,10 +199,9 @@ bytes and 1,793.0–1,794.2 output bytes across concurrency levels, including ec
 warmup; these exclude transport/codec/SQLite copies. Recovery includes the
 3,100-ms lease wait and all 32 cold reads.
 
-[Raw JSON, gzip](evidence/python-defaults-2026-10-20.json.gz) records effective
-limits, all attempts, observations, recovery receipts and executable digests.
-Its uncompressed SHA-256 is
-`5fee14e4173409f6ecefa8821ef668356f824a480c626b10d0b81825a0fbd1b2`.
+The defaults experiment captured effective limits, all attempts, observations,
+recovery receipts and executable digests. Its raw dataset is no longer included
+in the repository.
 The conventional executable is
 `32be1e9e14223a582cb526cb17b931a844fadc0521d2bd0509f4ed34d963eea8`;
 the free-threaded executable is

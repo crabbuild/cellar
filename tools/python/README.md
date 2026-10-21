@@ -172,11 +172,9 @@ cargo run -p cellar --example python-package-qualification --locked -- \
 ```
 
 The rolling fixture inherits the repository's development package profiles so
-hashing/crypto verification uses the same settings as its baseline host. The
-[recorded profile experiment](../../plans/evidence/python-checker-profile-2026-10-20.json)
-preserves the diagnostic comparison. Checker assertions and the 15-second
-deadline are unchanged; failures retain child output and identify the checker
-role and elapsed time.
+hashing/crypto verification uses the same settings as its baseline host.
+Checker assertions and the 15-second deadline are unchanged; failures retain
+child output and identify the checker role and elapsed time.
 
 The prerequisite drill compiles a private bootstrap fixture from the repository
 lock. A source sentinel and Rust host-entry flag prove that wrong OS/cache
