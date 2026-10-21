@@ -147,3 +147,46 @@ async fn native_peer_inspection_refreshes_process_and_joins_retained_waiters() -
     }
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn native_complete_node_load_scan_covers_every_registered_history() -> Result<()> {
+    let cluster = Cluster::start_with_inspection(true).await?;
+    cluster.write(0, 1, 1).await?;
+    cluster.write(1, 1, 1).await?;
+    let mut expected = [0; 4];
+    for group in 0..2 {
+        expected[cluster.leader(group).await?] += 1;
+    }
+    let caller = cluster.cell(0, 0)?;
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    for (target, leaders) in expected.into_iter().enumerate() {
+        loop {
+            let observed = caller
+                .inspect_peer(cluster.peers[target].node, Duration::from_millis(500))
+                .await;
+            if let Ok(observed) = observed {
+                if let Some(load) = observed.leader_load {
+                    assert_eq!(load.capacity, 2);
+                    if load.leaders == leaders {
+                        ensure!(load.sample_age_ms < 5000, "complete load sample was stale");
+                        break;
+                    }
+                }
+            }
+            ensure!(
+                tokio::time::Instant::now() < deadline,
+                "node-wide leader count did not converge for node {target}"
+            );
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    }
+    assert_eq!(
+        cluster
+            .calls
+            .iter()
+            .map(|calls| calls.load(Ordering::Acquire))
+            .sum::<usize>(),
+        2
+    );
+    cluster.close().await
+}

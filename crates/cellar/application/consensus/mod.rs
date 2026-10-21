@@ -15,7 +15,8 @@ pub use crate::raft::catalog::{
 };
 pub use crate::raft::host::{
     RaftArchiveOptions, RaftCellPlacement, RaftCellRegistration, RaftCellsConfig,
-    RaftCellsServices, RaftHostOptions, RaftNodeDirectoryOptions, RaftPeerNode,
+    RaftCellsServices, RaftHostOptions, RaftInspectionScanOptions, RaftNodeDirectoryOptions,
+    RaftPeerNode,
 };
 pub use crate::raft::inspection::{
     CellInspection, InspectionError, LeaderLoad, MemberInspection, NodeInspection, RaftNodeProfile,

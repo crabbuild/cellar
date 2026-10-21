@@ -37,6 +37,9 @@ mod startup_tests;
 mod directory;
 #[path = "host_inspection.rs"]
 mod inspection;
+#[path = "host_leader_load.rs"]
+mod load;
+pub use load::RaftInspectionScanOptions;
 #[path = "host_membership.rs"]
 mod membership;
 pub use directory::RaftNodeDirectoryOptions;
@@ -49,6 +52,8 @@ mod standby;
 
 #[derive(Clone, Debug)]
 pub struct RaftHostOptions {
+    /// Bounded complete node-wide status scans when inspection is enabled.
+    pub inspection_scan: RaftInspectionScanOptions,
     /// Explicit inbound metadata permissions. Discovery and query grants do not
     /// enable inspection. Each peer must match the configured trusted endpoint.
     pub inspection_origins: Vec<super::transport_options::NamespaceInspectionOrigin>,
@@ -84,6 +89,7 @@ impl Default for RaftHostOptions {
             ..Default::default()
         };
         Self {
+            inspection_scan: RaftInspectionScanOptions::default(),
             inspection_origins: Vec::new(),
             node_directory: None,
             node_profile: None,
@@ -120,6 +126,7 @@ impl RaftHostOptions {
             self.inspection_origins.len() <= 4096,
             "too many inspection grants"
         );
+        self.inspection_scan.validate()?;
         self.archive.validate()?;
         self.execution.validate()?;
         anyhow::ensure!(
@@ -776,6 +783,10 @@ async fn initialize(
         let mut read_nonce = [0; 16];
         rng.fill_bytes(&mut read_nonce);
         let mut driver = Driver {
+            leader_load: options
+                .node_profile
+                .as_ref()
+                .map(|_| load::Scanner::new(options.inspection_scan.clone())),
             directory: node_directory,
             peers,
             label,
@@ -963,6 +974,7 @@ enum SqlPurpose {
 }
 
 enum Job {
+    LeaderLoad(Box<load::Completed>),
     Inspection(Box<inspection::Completed>),
     PeerInspection(Box<inspection::PeerCompleted>),
     Directory(Box<directory::Observation>),
@@ -1048,6 +1060,7 @@ enum Job {
 }
 
 struct Driver {
+    leader_load: Option<load::Scanner>,
     directory: Option<directory::Directory>,
     standbys: BTreeMap<GroupScope, standby::Dormant>,
     activating: Option<GroupScope>,
@@ -2609,6 +2622,7 @@ impl Driver {
         }
         self.pump_archive();
         self.pump_reads();
+        self.pump_leader_load();
     }
 
     fn archive_admission(&self) -> bool {
@@ -2698,6 +2712,7 @@ impl Driver {
 
     fn on_job(&mut self, job: Job) {
         match job {
+            Job::LeaderLoad(completed) => self.finish_leader_load(*completed),
             Job::Inspection(completed) => self.finish_inspection(*completed),
             Job::PeerInspection(completed) => self.finish_peer_inspection(*completed),
             Job::Directory(observation) => self.on_directory(*observation),

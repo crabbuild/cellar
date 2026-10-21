@@ -264,8 +264,19 @@ Durable apply and published-image positions remain separate. Inspection uses
 control response reservations, reads bounded cache metadata and counts engine
 groups without scanning their contents. It performs no SQL callback or member
 initialization. Existing, retired and initializing histories are ineligible as
-blank standbys. Missing aggregate leadership load remains absent until a
-complete bounded node-wide scan exists.
+blank standbys.
+
+Inspection-enabled hosts collect aggregate leadership load independently of
+incoming requests. `inspection_scan` configures the interval (250 ms), whole-scan
+deadline (5 s) and groups per batch (four, bounded to 1–16). The existing host
+owns each batch; it samples the actual runtime for every attached history using
+a bounded ordered cursor. A result appears only after a complete scan with the
+same attached/durable group population. Initialization or a changed population
+hides the old count. A failed or partial scan retains the prior complete result
+at its original age; it never substitutes a partial count or refreshes its time.
+The age starts before the first batch, and remote collection adds the full RPC
+duration. An empty attached set can report zero after its complete empty scan.
+Load observations grant no membership, transfer or read authority.
 
 `inspect_peer(node_id, timeout)` uses configured trusted endpoints and the node
 execution domain. Remote collection requires a profile, node directory and
@@ -759,7 +770,8 @@ Native tests cover a held transfer with a dropped waiter and retained handles,
 pre-admission/no-claim refusal, S3 activation and target-first public restart,
 quorumless S3 refusal, later promotion/replication and joined shutdown while a
 transfer remains held. These are explicit local activation APIs; controller
-scheduling, metadata/process-view distribution and automatic repair remain open.
+scheduling and automatic repair remain open. Node-directory distribution and
+authenticated inspection are implemented above.
 
 `RaftCellHandle::replication_status` returns bounded leader-local matched
 positions and recent activity. These are observations, without apply or quorum
@@ -776,7 +788,8 @@ capacity-weighted deadband. Normal balancing must lower peak utilization without
 reversing the nodes' load order. Draining bypasses the load threshold while
 preserving target eligibility. Native tests cover refusal while a follower is
 isolated, caught-up movement after healing, subsequent writes/reads and refusal
-during an active repair. Automatic load collection and balancing remain open.
+during an active repair. Complete node-load collection is available through
+inspection; automatic balancing remains open.
 
 This extends the internal protocol to
 `cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1/nodes-1`; numeric format markers stay 1.

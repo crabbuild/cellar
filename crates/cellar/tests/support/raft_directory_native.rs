@@ -182,6 +182,11 @@ impl Cluster {
                         vec![]
                     },
                     host: RaftHostOptions {
+                        inspection_scan: RaftInspectionScanOptions {
+                            interval_ms: 20,
+                            groups_per_batch: 1,
+                            ..Default::default()
+                        },
                         inspection_origins: if self.inspection {
                             self.peers
                                 .iter()

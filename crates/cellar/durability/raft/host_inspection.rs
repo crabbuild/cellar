@@ -217,6 +217,17 @@ impl Driver {
             groups,
             reserved_bytes,
         };
+        let leader_load = self.log.domain().mono_ms().ok().and_then(|now| {
+            self.leader_load.as_ref()?.view(
+                now,
+                load::Population {
+                    cells: self.cells.len(),
+                    groups: groups as usize,
+                },
+                self.activating.is_some(),
+                node.profile.leader_capacity,
+            )
+        });
         let mut snapshot = InspectionSnapshot {
             view: CellInspection {
                 scope: scope.clone(),
@@ -225,7 +236,7 @@ impl Driver {
                 node,
                 occupancy: ReplicaOccupancy::Failed,
                 member: None,
-                leader_load: None,
+                leader_load,
             },
             membership: None,
             configuration: None,
