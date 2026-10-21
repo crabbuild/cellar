@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "baseline_revision": "275c45d93da4e73e2180f5b0f2f930613b4fcea5",
+  "baseline_revision": "ec312e85f57035974d0b31fc46516f635b9fa4ee",
   "status_values": [
     "TODO",
     "IN_PROGRESS",
@@ -1999,7 +1999,11 @@
         "crates/cellar/tests/support/raft_outbox_loopback.rs",
         "crates/cellar/tests/support/raft_outbox_native.rs",
         "crates/cellar/durability/raft/transport_inspection_tests.rs",
-        "crates/cellar/tests/support/raft_repair_native.rs"
+        "crates/cellar/tests/support/raft_repair_native.rs",
+        "crates/cellar/fleet/management/mod.rs",
+        "crates/cellar/fleet/management/operations.rs",
+        "crates/cellar-admin/tests/console.rs",
+        "crates/cellar/tests/support/raft_storage_fault.rs"
       ],
       "creates": [
         "crates/cellar/durability/raft/operations.rs",
@@ -2007,7 +2011,10 @@
         "crates/cellar/durability/raft/host_drain.rs",
         "plans/multi-raft/operations-design.md",
         "crates/cellar/application/consensus/admission.rs",
-        "crates/cellar/application/consensus/admission_tests.rs"
+        "crates/cellar/application/consensus/admission_tests.rs",
+        "crates/cellar/fleet/management/raft_stop.rs",
+        "crates/cellar/fleet/management/raft_stop_tests.rs",
+        "crates/cellar/tests/support/raft_management_native.rs"
       ],
       "steps": [
         "Expose explicit limits and metrics for groups, byte queues, apply/archive lag, query pins, snapshot and repair budgets.",
@@ -2104,6 +2111,58 @@
             "I13",
             "I14"
           ]
+        },
+        {
+          "name": "management_stop_seals_raft_before_joined_receipt",
+          "oracle": "Authenticated operator stop seals new Raft work and cannot publish a joined receipt while private SQL remains held",
+          "invariants": [
+            "I14"
+          ]
+        },
+        {
+          "name": "management_stop_reports_raft_archive_lag",
+          "oracle": "Joined durable stop receipt binds the actual engine and preserves archive lag; malformed or absent Raft evidence is refused",
+          "invariants": [
+            "I09",
+            "I14"
+          ]
+        },
+        {
+          "name": "management_stop_keeps_raft_ambiguity_incomplete",
+          "oracle": "A committed command held below S3 proof remains exactly identified and keeps the durable stop receipt incomplete",
+          "invariants": [
+            "I01",
+            "I09",
+            "I14"
+          ]
+        },
+        {
+          "name": "management_stop_raft_cancel_has_no_graceful_proof",
+          "oracle": "Forced cancellation joins held private SQL and publishes a failed receipt without graceful proof",
+          "invariants": [
+            "I14"
+          ]
+        },
+        {
+          "name": "management_stop_raft_close_error_is_incomplete",
+          "oracle": "An actual fsync failure at Raft closure survives in the durable incomplete stop receipt after physical joining",
+          "invariants": [
+            "I14"
+          ]
+        },
+        {
+          "name": "management_stop_raft_physical_join_preserves_deadline",
+          "oracle": "An fsync held beyond the original Node deadline remains physically owned and cannot yield a complete stop receipt",
+          "invariants": [
+            "I14"
+          ]
+        },
+        {
+          "name": "management_stop_raft_cancelled_start_is_incomplete",
+          "oracle": "Cancelled startup joins the held opening fsync and cannot be misreported as an absent Raft host",
+          "invariants": [
+            "I14"
+          ]
         }
       ],
       "verification": [
@@ -2131,7 +2190,8 @@
         ]
       ],
       "evidence": [
-        "evidence/MR-13-shutdown-progress.json"
+        "evidence/MR-13-shutdown-progress.json",
+        "evidence/MR-13-management-progress.json"
       ]
     },
     {

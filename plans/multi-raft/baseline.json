@@ -1,7 +1,7 @@
 {
   "format": 1,
   "repository": "https://github.com/crabbuild/cellar",
-  "revision": "275c45d93da4e73e2180f5b0f2f930613b4fcea5",
+  "revision": "ec312e85f57035974d0b31fc46516f635b9fa4ee",
   "prepared_date": "2026-10-21",
   "files": [
     {
@@ -27,6 +27,10 @@
     {
       "path": "NOTICE",
       "sha256": "1d4037fb4402efc9a42fd7b5bfbb3753550413700f7ffba259cf0d33b0d296e4"
+    },
+    {
+      "path": "crates/cellar-admin/tests/console.rs",
+      "sha256": "b1aa55263989ed5490695df6a7b4265a5e8ef1c0bcda6495af763c58a92ca2ab"
     },
     {
       "path": "crates/cellar-axum/README.md",
@@ -169,8 +173,16 @@
       "sha256": "1ba0d1abffd3455d155aab413f68631f6e7cfed5f541e3913d6b20fd19f7fd65"
     },
     {
+      "path": "crates/cellar/fleet/management/mod.rs",
+      "sha256": "3235685251ffd15628b36fde011da4181a708ac065912bd9eaf520a510b2f816"
+    },
+    {
       "path": "crates/cellar/fleet/management/nodes.rs",
       "sha256": "f4e52c9a9a79d97d4936fd76e7edacda5468193477642f5a737cb64fe8abae6c"
+    },
+    {
+      "path": "crates/cellar/fleet/management/operations.rs",
+      "sha256": "81c91fc2146d6a74312e3809d783ce634ba5539db0e8475b37e713dab5faeac7"
     },
     {
       "path": "crates/cellar/fleet/management/routing.rs",
@@ -194,11 +206,11 @@
     },
     {
       "path": "crates/cellar/node/driver.rs",
-      "sha256": "7779f2b76016778ff874367c0b5e4cbb769cf47eb1da6359fa1f47c4fc8a22d9"
+      "sha256": "ff5ba2189b26e2a15a053312cec7e99aab4d76d68b5ef251127706e3a66df552"
     },
     {
       "path": "crates/cellar/node/embedded.rs",
-      "sha256": "fe15289d7afaa13dcb83293fdfbf2513d627c97b676d068a3945ba710e0259b9"
+      "sha256": "e3bb77a6b817a64dfe5d7a55ed5533d43ce54295a7b3af82fac63831d2849c2d"
     },
     {
       "path": "crates/cellar/node/lifecycle.rs",

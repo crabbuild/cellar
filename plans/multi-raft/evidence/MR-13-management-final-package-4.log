@@ -1,0 +1,3 @@
+Source: ec312e85f57035974d0b31fc46516f635b9fa4ee with reviewed MR-13 documentation/evidence metadata updates
+Command: ["python3", "plans/multi-raft/plan.py", "preflight"]
+Source preflight passed: 76 anchors at baseline ec312e85f57035974d0b31fc46516f635b9fa4ee.

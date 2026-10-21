@@ -12,6 +12,7 @@ alarms and receipt-checked outbox/inbox delivery share an owned leader scheduler
 
 | Boundary | Qualification |
 | --- | --- |
+| [MR-13 durable stop receipts](evidence/MR-13-management-progress.json) | Source `ec312e8`: 839 unit/integration cases across 26 binaries, four capability doctests and two recovery process runs. Partial milestone; earlier intermittent transfer refusal remains under investigation. |
 | [MR-13 node shutdown component](evidence/MR-13-shutdown-progress.json) | Library source `6784512`: 810 unit/integration cases, 24 binaries and four capability doctests; example-only successor `275c45d`: Clippy, build and two recovery process runs. Partial milestone. |
 | [MR-11 automatic repair](evidence/MR-11.json) | Source `cc93ccf`: 248 Rust cases, 12 binaries, 26 checks; six-node repair and eight-group balancing |
 | [MR-12 complete business features](evidence/MR-12.json) | Source `a28babe`: 782 unit/integration cases, 21 binaries, four capability doctests, two recovery process runs and 34 checks; all six original feature requirements |
@@ -32,7 +33,10 @@ attempts bounded authenticated leadership handoff and joins the registered host.
 Its bounded report includes actual engine identity, submitted ambiguous commands,
 known archive lag and explicitly unknown parked histories. The
 [operations contract](operations-design.md) describes those observations and
-retained-disk obligations. Production CLI startup, durable management receipts,
+retained-disk obligations. Authenticated operator and caller/signal stops share
+the driver. Durable management receipts now include actual Raft closure and the
+original deadline through physical joining; missing startup/closure proof and
+submitted ambiguity cannot yield a complete receipt. Production Raft CLI startup,
 full readiness/metrics, receipt maintenance and fenced disaster restore remain
 MR-13 work. MR-14 adds batching/workloads, MR-15 release qualification including
 the 24-hour soak, MR-16 measured density/physical tiers and MR-17 federation.

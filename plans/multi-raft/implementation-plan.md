@@ -728,13 +728,24 @@ The [partial qualification record](evidence/MR-13-shutdown-progress.json) pins
 the example-only status-poll fix and two recovery process runs at `275c45d`.
 Seven native operations cases cover resource pressure and shutdown plus the four
 additional report/handoff requirements below. Full role readiness, aggregate
-resource metrics, safe receipt maintenance, production CLI/management parity,
+resource metrics, safe receipt maintenance, production Raft CLI startup,
+remaining management surfaces,
 fenced new-history disaster restore and the three remaining original acceptance
 cases remain required before DONE.
 
-Modify: `crates/cellar/node/embedded.rs`, `crates/cellar/actor/output_proofs.rs`, `crates/cellar/fleet/management/nodes.rs`, `crates/cellar/fleet/management/routing.rs`, `crates/cellar/cli/cli_options.rs`, `crates/cellar/durability/raft/options.rs`, `crates/cellar/application/consensus/client.rs`, `crates/cellar/application/consensus/mod.rs`, `crates/cellar/durability/raft/effect_delivery.rs`, `crates/cellar/durability/raft/host.rs`, `crates/cellar/durability/raft/host_controller.rs`, `crates/cellar/durability/raft/host_effects.rs`, `crates/cellar/durability/raft/host_inspection.rs`, `crates/cellar/durability/raft/mod.rs`, `crates/cellar/execution/services.rs`, `crates/cellar/node/driver.rs`, `crates/cellar/node/lifecycle.rs`, `crates/cellar/tests/native_raft_membership.rs`, `crates/cellar/tests/support/raft_alarm_native.rs`, `crates/cellar/tests/support/raft_controller_native.rs`, `crates/cellar/tests/support/raft_node.rs`, `crates/cellar/tests/support/raft_outbox_loopback.rs`, `crates/cellar/tests/support/raft_outbox_native.rs`, `crates/cellar/durability/raft/transport_inspection_tests.rs`, `crates/cellar/tests/support/raft_repair_native.rs`.
+The [durable management receipt component](evidence/MR-13-management-progress.json)
+records 839 unit/integration cases across 26 binaries, four SDK doctests and two
+recovery process runs at `ec312e8`. Shared caller/operator/signal shutdown closes
+the actual Raft host before publishing `joining_domain`; the final durable
+receipt follows whole-domain joining. Held startup/closing fsync, close failure,
+the original deadline, private SQL, archive lag and exact submitted ambiguity
+have native coverage. A prior unlocalized transfer-test `Overloaded` refusal
+remains an open qualification finding despite bounded successful replays and
+the current passing matrix. No transfer oracle or retry rule was weakened.
 
-Create: `crates/cellar/durability/raft/operations.rs`, `crates/cellar/tests/native_raft_operations.rs`, `crates/cellar/durability/raft/host_drain.rs`, `plans/multi-raft/operations-design.md`, `crates/cellar/application/consensus/admission.rs`, `crates/cellar/application/consensus/admission_tests.rs`.
+Modify: `crates/cellar/node/embedded.rs`, `crates/cellar/actor/output_proofs.rs`, `crates/cellar/fleet/management/nodes.rs`, `crates/cellar/fleet/management/routing.rs`, `crates/cellar/cli/cli_options.rs`, `crates/cellar/durability/raft/options.rs`, `crates/cellar/application/consensus/client.rs`, `crates/cellar/application/consensus/mod.rs`, `crates/cellar/durability/raft/effect_delivery.rs`, `crates/cellar/durability/raft/host.rs`, `crates/cellar/durability/raft/host_controller.rs`, `crates/cellar/durability/raft/host_effects.rs`, `crates/cellar/durability/raft/host_inspection.rs`, `crates/cellar/durability/raft/mod.rs`, `crates/cellar/execution/services.rs`, `crates/cellar/node/driver.rs`, `crates/cellar/node/lifecycle.rs`, `crates/cellar/tests/native_raft_membership.rs`, `crates/cellar/tests/support/raft_alarm_native.rs`, `crates/cellar/tests/support/raft_controller_native.rs`, `crates/cellar/tests/support/raft_node.rs`, `crates/cellar/tests/support/raft_outbox_loopback.rs`, `crates/cellar/tests/support/raft_outbox_native.rs`, `crates/cellar/durability/raft/transport_inspection_tests.rs`, `crates/cellar/tests/support/raft_repair_native.rs`, `crates/cellar/fleet/management/mod.rs`, `crates/cellar/fleet/management/operations.rs`, `crates/cellar-admin/tests/console.rs`, `crates/cellar/tests/support/raft_storage_fault.rs`.
+
+Create: `crates/cellar/durability/raft/operations.rs`, `crates/cellar/tests/native_raft_operations.rs`, `crates/cellar/durability/raft/host_drain.rs`, `plans/multi-raft/operations-design.md`, `crates/cellar/application/consensus/admission.rs`, `crates/cellar/application/consensus/admission_tests.rs`, `crates/cellar/fleet/management/raft_stop.rs`, `crates/cellar/fleet/management/raft_stop_tests.rs`, `crates/cellar/tests/support/raft_management_native.rs`.
 
 1. Expose explicit limits and metrics for groups, byte queues, apply/archive lag, query pins, snapshot and repair budgets.
 2. Implement readiness by group role and compatible applied state; avoid aggregate health that conceals unavailable cells.
@@ -757,6 +768,13 @@ Stop conditions: Stop if cancellation drops owned blocking work without a truthf
 | `node_shutdown_reports_submitted_ambiguity` | A committed command held below its requested S3 proof remains ambiguous in a bounded Node stop report |
 | `node_shutdown_report_bounds_preserve_complete_lag_count` | Omitted bounded group details do not hide archive lag in complete aggregate counts |
 | `node_shutdown_reports_parked_archive_unknown` | A resumed subset reports every durable engine history and explicitly unknown archive coverage for parked histories without executing their callbacks |
+| `management_stop_seals_raft_before_joined_receipt` | An authenticated stop seals Raft work and retains an unjoined receipt while private SQL is held |
+| `management_stop_reports_raft_archive_lag` | A durable receipt binds the actual engine and preserves archive obligations; malformed Raft evidence is refused |
+| `management_stop_keeps_raft_ambiguity_incomplete` | A committed command held below S3 proof keeps the durable receipt incomplete |
+| `management_stop_raft_cancel_has_no_graceful_proof` | Forced cancellation joins held SQL and records failure without graceful proof |
+| `management_stop_raft_close_error_is_incomplete` | A physical fsync failure survives in the durable stop receipt |
+| `management_stop_raft_physical_join_preserves_deadline` | A held fsync remains owned beyond the original deadline and the final receipt is incomplete |
+| `management_stop_raft_cancelled_start_is_incomplete` | Interrupted startup joins its opening fsync and retains explicit incomplete startup evidence |
 
 Verification target: `native_raft_operations`. Run the exact list/test commands
 shown by `plan.py show MR-13`; the manifest is authoritative for arguments.

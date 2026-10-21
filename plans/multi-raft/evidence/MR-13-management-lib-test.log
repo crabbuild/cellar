@@ -1,0 +1,703 @@
+Source: ec312e85f57035974d0b31fc46516f635b9fa4ee
+Command: ["cargo", "test", "-p", "cellar", "--lib", "--locked", "--", "--test-threads=1"]
+warning: hiding a lifetime that's elided elsewhere is confusing
+  --> vendor/raft-proto/src/confchange.rs:74:14
+   |
+74 |     fn as_v2(&self) -> Cow<ConfChangeV2>;
+   |              ^^^^^     ^^^^^^^^^^^^^^^^^ the same lifetime is hidden here
+   |              |
+   |              the lifetime is elided here
+   |
+   = help: the same lifetime is referred to in inconsistent ways, making the signature confusing
+   = note: `#[warn(mismatched_lifetime_syntaxes)]` on by default
+help: use `'_` for type paths
+   |
+74 |     fn as_v2(&self) -> Cow<'_, ConfChangeV2>;
+   |                            +++
+
+warning: hiding a lifetime that's elided elsewhere is confusing
+  --> vendor/raft-proto/src/confchange.rs:93:14
+   |
+93 |     fn as_v2(&self) -> Cow<ConfChangeV2> {
+   |              ^^^^^     ^^^^^^^^^^^^^^^^^ the same lifetime is hidden here
+   |              |
+   |              the lifetime is elided here
+   |
+   = help: the same lifetime is referred to in inconsistent ways, making the signature confusing
+help: use `'_` for type paths
+   |
+93 |     fn as_v2(&self) -> Cow<'_, ConfChangeV2> {
+   |                            +++
+
+warning: hiding a lifetime that's elided elsewhere is confusing
+   --> vendor/raft-proto/src/confchange.rs:110:14
+    |
+110 |     fn as_v2(&self) -> Cow<ConfChangeV2> {
+    |              ^^^^^     ^^^^^^^^^^^^^^^^^ the same lifetime is hidden here
+    |              |
+    |              the lifetime is elided here
+    |
+    = help: the same lifetime is referred to in inconsistent ways, making the signature confusing
+help: use `'_` for type paths
+    |
+110 |     fn as_v2(&self) -> Cow<'_, ConfChangeV2> {
+    |                            +++
+
+warning: `raft-proto` (lib) generated 3 warnings (run `cargo fix --lib -p raft-proto` to apply 3 suggestions)
+warning: unused import: `parse_reserved_file_name`
+  --> vendor/raft-engine/src/file_pipe_log/mod.rs:13:18
+   |
+13 | pub use format::{parse_reserved_file_name, FileNameExt};
+   |                  ^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `RecoveryConfig`
+  --> vendor/raft-engine/src/file_pipe_log/mod.rs:16:68
+   |
+16 |     DefaultMachineFactory, DualPipesBuilder as FilePipeLogBuilder, RecoveryConfig, ReplayMachine,
+   |                                                                    ^^^^^^^^^^^^^^
+
+warning: use of deprecated function `protobuf::parse_from_bytes`: Use Message::parse_from_bytes instead
+  --> vendor/raft-engine/src/engine.rs:11:16
+   |
+11 | use protobuf::{parse_from_bytes, Message};
+   |                ^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(deprecated)]` on by default
+
+warning: use of deprecated function `protobuf::parse_from_bytes`: Use Message::parse_from_bytes instead
+   --> vendor/raft-engine/src/engine.rs:602:17
+    |
+602 |         let e = parse_from_bytes(
+    |                 ^^^^^^^^^^^^^^^^
+
+warning: use of deprecated function `protobuf::parse_from_bytes`: Use Message::parse_from_bytes instead
+   --> vendor/raft-engine/src/engine.rs:247:32
+    |
+247 |                 return Ok(Some(parse_from_bytes(&value)?));
+    |                                ^^^^^^^^^^^^^^^^
+
+warning: use of deprecated function `protobuf::parse_from_bytes`: Use Message::parse_from_bytes instead
+   --> vendor/raft-engine/src/engine.rs:276:28
+    |
+276 |             if let Ok(v) = parse_from_bytes(raw_v) {
+    |                            ^^^^^^^^^^^^^^^^
+
+warning: function `lock_file_path` is never used
+   --> vendor/raft-engine/src/file_pipe_log/format.rs:100:15
+    |
+100 | pub(super) fn lock_file_path<P: AsRef<Path>>(dir: P) -> PathBuf {
+    |               ^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: methods `must_rewrite_append_queue`, `must_rewrite_rewrite_queue`, and `must_purge_all_stale` are never used
+   --> vendor/raft-engine/src/purge.rs:135:12
+    |
+ 59 | / impl<P> PurgeManager<P>
+ 60 | | where
+ 61 | |     P: PipeLog,
+    | |_______________- methods in this implementation
+...
+135 |       pub fn must_rewrite_append_queue(
+    |              ^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+162 |       pub fn must_rewrite_rewrite_queue(&self) {
+    |              ^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+172 |       pub fn must_purge_all_stale(&self) {
+    |              ^^^^^^^^^^^^^^^^^^^^
+
+warning: hiding a lifetime that's elided elsewhere is confusing
+   --> vendor/raft-engine/src/log_batch.rs:375:17
+    |
+375 |     pub fn iter(&self) -> std::slice::Iter<LogItem> {
+    |                 ^^^^^     ^^^^^^^^^^^^^^^^^^^^^^^^^ the same lifetime is hidden here
+    |                 |
+    |                 the lifetime is elided here
+    |
+    = help: the same lifetime is referred to in inconsistent ways, making the signature confusing
+    = note: `#[warn(mismatched_lifetime_syntaxes)]` on by default
+help: use `'_` for type paths
+    |
+375 |     pub fn iter(&self) -> std::slice::Iter<'_, LogItem> {
+    |                                            +++
+
+warning: hiding a lifetime that's elided elsewhere is confusing
+   --> vendor/raft-engine/src/log_batch.rs:379:18
+    |
+379 |     pub fn drain(&mut self) -> LogItemDrain {
+    |                  ^^^^^^^^^     ^^^^^^^^^^^^ the same lifetime is hidden here
+    |                  |
+    |                  the lifetime is elided here
+    |
+    = help: the same lifetime is referred to in inconsistent ways, making the signature confusing
+help: use `'_` for type paths
+    |
+379 |     pub fn drain(&mut self) -> LogItemDrain<'_> {
+    |                                            ++++
+
+warning: hiding a lifetime that's elided elsewhere is confusing
+   --> vendor/raft-engine/src/log_batch.rs:881:25
+    |
+881 |     pub(crate) fn drain(&mut self) -> LogItemDrain {
+    |                         ^^^^^^^^^     ^^^^^^^^^^^^ the same lifetime is hidden here
+    |                         |
+    |                         the lifetime is elided here
+    |
+    = help: the same lifetime is referred to in inconsistent ways, making the signature confusing
+help: use `'_` for type paths
+    |
+881 |     pub(crate) fn drain(&mut self) -> LogItemDrain<'_> {
+    |                                                   ++++
+
+warning: `raft-engine` (lib) generated 11 warnings (run `cargo fix --lib -p raft-engine` to apply 5 suggestions)
+warning: unexpected `cfg` condition value: `cargo-clippy`
+   --> vendor/raft/src/lib.rs:478:17
+    |
+478 | #![cfg_attr(not(feature = "cargo-clippy"), allow(unknown_lints))]
+    |                 ^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: expected values for `feature` are: `bytes`, `default`, `default-logger`, `fail`, `failpoints`, `prost-codec`, `protobuf-codec`, `slog-envlogger`, `slog-stdlog`, and `slog-term`
+    = help: consider adding `cargo-clippy` as a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+    = note: `#[warn(unexpected_cfgs)]` on by default
+
+warning: unused import: `ReadState`
+  --> vendor/raft/src/config.rs:17:44
+   |
+17 | pub use super::read_only::{ReadOnlyOption, ReadState};
+   |                                            ^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unexpected `cfg` condition value: `cargo-clippy`
+  --> vendor/raft/src/errors.rs:53:16
+   |
+53 |     #[cfg_attr(feature = "cargo-clippy", allow(clippy::match_same_arms))]
+   |                ^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: expected values for `feature` are: `bytes`, `default`, `default-logger`, `fail`, `failpoints`, `prost-codec`, `protobuf-codec`, `slog-envlogger`, `slog-stdlog`, and `slog-term`
+   = help: consider adding `cargo-clippy` as a feature in `Cargo.toml`
+   = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition value: `cargo-clippy`
+  --> vendor/raft/src/errors.rs:93:16
+   |
+93 |     #[cfg_attr(feature = "cargo-clippy", allow(clippy::match_same_arms))]
+   |                ^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: expected values for `feature` are: `bytes`, `default`, `default-logger`, `fail`, `failpoints`, `prost-codec`, `protobuf-codec`, `slog-envlogger`, `slog-stdlog`, and `slog-term`
+   = help: consider adding `cargo-clippy` as a feature in `Cargo.toml`
+   = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition value: `cargo-clippy`
+   --> vendor/raft/src/raft.rs:935:16
+    |
+935 |     #[cfg_attr(feature = "cargo-clippy", allow(clippy::needless_pass_by_value))]
+    |                ^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: expected values for `feature` are: `bytes`, `default`, `default-logger`, `fail`, `failpoints`, `prost-codec`, `protobuf-codec`, `slog-envlogger`, `slog-stdlog`, and `slog-term`
+    = help: consider adding `cargo-clippy` as a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition value: `cargo-clippy`
+   --> vendor/raft/src/raw_node.rs:385:16
+    |
+385 |     #[cfg_attr(feature = "cargo-clippy", allow(clippy::needless_pass_by_value))]
+    |                ^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: expected values for `feature` are: `bytes`, `default`, `default-logger`, `fail`, `failpoints`, `prost-codec`, `protobuf-codec`, `slog-envlogger`, `slog-stdlog`, and `slog-term`
+    = help: consider adding `cargo-clippy` as a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: variable does not need to be mutable
+    --> vendor/raft/src/raft.rs:1019:19
+     |
+1019 |         for (&id, mut pr) in self.mut_prs().iter_mut() {
+     |                   ----^^
+     |                   |
+     |                   help: remove this `mut`
+     |
+     = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: trait `AssertSend` is never used
+   --> vendor/raft/src/raft.rs:296:7
+    |
+296 | trait AssertSend: Send {}
+    |       ^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: hiding a lifetime that's elided elsewhere is confusing
+  --> vendor/raft/src/confchange/changer.rs:46:25
+   |
+46 |     pub fn new(tracker: &ProgressTracker) -> Changer {
+   |                         ^^^^^^^^^^^^^^^^     ^^^^^^^ the same lifetime is hidden here
+   |                         |
+   |                         the lifetime is elided here
+   |
+   = help: the same lifetime is referred to in inconsistent ways, making the signature confusing
+   = note: `#[warn(mismatched_lifetime_syntaxes)]` on by default
+help: use `'_` for type paths
+   |
+46 |     pub fn new(tracker: &ProgressTracker) -> Changer<'_> {
+   |                                                     ++++
+
+warning: hiding a lifetime that's elided elsewhere is confusing
+   --> vendor/raft/src/confchange/changer.rs:272:23
+    |
+272 |     fn check_and_copy(&self) -> Result<(Configuration, IncrChangeMap)> {
+    |                       ^^^^^                            ^^^^^^^^^^^^^ the same lifetime is hidden here
+    |                       |
+    |                       the lifetime is elided here
+    |
+    = help: the same lifetime is referred to in inconsistent ways, making the signature confusing
+help: use `'_` for type paths
+    |
+272 |     fn check_and_copy(&self) -> Result<(Configuration, IncrChangeMap<'_>)> {
+    |                                                                     ++++
+
+warning: hiding a lifetime that's elided elsewhere is confusing
+   --> vendor/raft/src/raw_node.rs:729:19
+    |
+729 |     pub fn status(&self) -> Status {
+    |                   ^^^^^     ^^^^^^ the same lifetime is hidden here
+    |                   |
+    |                   the lifetime is elided here
+    |
+    = help: the same lifetime is referred to in inconsistent ways, making the signature confusing
+help: use `'_` for type paths
+    |
+729 |     pub fn status(&self) -> Status<'_> {
+    |                                   ++++
+
+warning: `raft` (lib) generated 11 warnings (run `cargo fix --lib -p raft` to apply 5 suggestions)
+    Finished `test` profile [unoptimized] target(s) in 0.18s
+     Running unittests lib.rs (/Users/haipingfu/Workspace/crabbuild-target/cellar-23c7-multi-raft/debug/deps/cellar-96bbfcbfc8b6353c)
+<jemalloc>: option background_thread currently supports pthread only
+
+running 419 tests
+test actor::output_proofs::tests::records_adapter_sources_and_errors_without_inventing_cancelled_proofs ... ok
+test application::blob::types::tests::blob_range_and_condition_parsing_need_no_store ... ok
+test application::consensus::admission::tests::poisoned_registration_never_grants_new_work ... ok
+test application::consensus::admission::tests::seal_waits_for_prior_work_registration ... ok
+test application::cron::types::tests::cron_retry_control_is_shared_only_within_one_occurrence ... ok
+test application::event_stream::authority::tests::proposed_grants_do_not_supply_resource_creation_authority ... ok
+test application::event_stream::catalog::tests::duplicate_and_stale_catalog_completions_preserve_accepted_metadata ... ok
+test application::event_stream::catalog_inventory::tests::catalog_cursor_and_pages_bind_namespace_identity_and_tail ... ok
+test application::event_stream::catalog_inventory::tests::catalog_metadata_refuses_sensitive_fields_and_preserves_decimal_revisions ... ok
+test application::event_stream::client::tests::configuration_acceptance_binds_exact_definition_and_historical_operation ... ok
+test application::event_stream::client::tests::configuration_error_metadata_retains_bounded_unicode_and_exact_revisions ... ok
+test application::event_stream::client::tests::configuration_rejects_wrong_identity_revision_digest_and_state ... ok
+test application::event_stream::client::tests::malformed_read_encoding_and_zero_event_version_are_typed_failures ... ok
+test application::event_stream::client::tests::pending_configuration_allows_only_consistent_accepted_metadata ... ok
+test application::event_stream::client::tests::raw_read_preserves_unknown_schema_and_exact_integer_payloads ... ok
+test application::event_stream::client::tests::replay_preserves_positions_above_binary64_and_at_i64_end ... ok
+test application::event_stream::client::tests::replay_rejects_batches_over_caller_or_host_budgets ... ok
+test application::event_stream::client::tests::replay_rejects_noncanonical_metadata_and_record_offsets ... ok
+test application::event_stream::client::tests::replay_rejects_skipped_offsets_and_unmatched_next_cursor ... ok
+test application::event_stream::client::tests::replay_rejects_wrong_envelope_family_lane_or_event_identity ... ok
+test application::event_stream::client::tests::replay_respects_the_requested_position_and_empty_end_cursor ... ok
+test application::event_stream::client::tests::unrestricted_read_still_rejects_protocol_record_overflow_before_decoding ... ok
+test application::event_stream::encoding::tests::payload_encoding_preserves_integer_ranges_and_does_not_read_numbers_in_strings ... ok
+test application::event_stream::error::tests::contradictory_and_invalid_error_envelopes_are_ambiguous ... ok
+test application::event_stream::error::tests::definitive_broker_refusals_bypass_success_metadata_acceptance ... ok
+test application::event_stream::error::tests::error_metadata_is_bounded_before_typed_acceptance ... ok
+test application::event_stream::error::tests::invalid_submitted_success_metadata_is_ambiguous_without_reflecting_details ... ok
+test application::event_stream::error::tests::malformed_or_unprojectable_wire_results_are_ambiguous_without_payload_text ... ok
+test application::event_stream::error::tests::oversized_json_wire_is_refused_before_successful_decoding ... ok
+test application::event_stream::error::tests::public_code_names_match_wire_names_and_contextual_errors_remain_typed ... ok
+test application::event_stream::error::tests::successful_reply_moves_its_payload_without_cloning ... ok
+test application::event_stream::error::tests::valid_protocol_errors_preserve_codes_and_exact_metadata ... ok
+test application::event_stream::error::tests::wire_reply_decodes_broker_envelopes_and_preserves_known_refusals ... ok
+test application::event_stream::inventory::tests::inventory_cursor_rejects_foreign_resources_and_malformed_fields ... ok
+test application::event_stream::lifecycle::acceptance_tests::audit_acceptance_preserves_gapped_sequence_and_other_authorized_principals ... ok
+test application::event_stream::lifecycle::acceptance_tests::audit_bounds_record_count_before_typed_receipt_decode ... ok
+test application::event_stream::lifecycle::acceptance_tests::audit_rejects_count_order_scope_and_unmatched_continuations ... ok
+test application::event_stream::lifecycle::acceptance_tests::deletion_requires_invalidation_and_precise_skipped_start ... ok
+test application::event_stream::lifecycle::acceptance_tests::lifecycle_acceptance_matches_action_reason_operator_and_full_identity ... ok
+test application::event_stream::lifecycle::acceptance_tests::lifecycle_rejects_invalid_counter_time_reason_and_uuid ... ok
+test application::event_stream::lifecycle::acceptance_tests::pause_and_resume_never_replace_incarnation_or_claim_loss ... ok
+test application::event_stream::lifecycle::acceptance_tests::reset_requires_new_incarnation_exact_target_and_bounded_skipped_range ... ok
+test application::event_stream::lifecycle::observation_tests::observation_acceptance_rejects_inconsistent_metrics_and_keeps_decimal_precision ... ok
+test application::event_stream::name_resolution::tests::activated_generation_keeps_its_original_uuid ... ok
+test application::event_stream::name_resolution::tests::name_authority_is_read_only_namespace_bound_and_header_bounded ... ok
+test application::event_stream::retirement::acceptance_tests::pending_retirement_does_not_accept_partial_loss_metadata ... ok
+test application::event_stream::retirement::acceptance_tests::retirement_acceptance_requires_terminal_loss_accounting_and_keeps_pending_intent ... ok
+test application::event_stream::retirement::acceptance_tests::retirement_rejects_invalid_ranges_and_noncanonical_counters ... ok
+test application::event_stream::retirement_store::tests::retirement_acceptance_preserves_exact_ranges_and_operator_identity ... ok
+test application::event_stream::service::tests::reservations_bound_hosts_and_lanes_and_release_on_cancellation ... ok
+test application::event_stream::source_inventory::tests::source_cursor_is_bound_to_tenant_application_resource_and_page_tail ... ok
+test application::event_stream::source_inventory::tests::source_pages_preserve_large_watermarks_and_refuse_forged_identity_or_order ... ok
+test application::event_stream::statistics::tests::stats_acceptance_preserves_precision_and_rejects_foreign_or_conflicting_observations ... ok
+test application::event_stream::store::tests::live_lease_schedules_only_expiry_then_expired_lease_cleanup_unblocks_age ... ok
+test application::event_stream::store::tests::required_protection_quiesces_age_work_then_progress_rearms_bounded_sweeps ... ok
+test application::event_stream::store::tests::retention_configuration_release_and_rollback_preserve_deadline_authority ... ok
+test application::event_stream::store::tests::scheduling_clamps_to_durable_clock_and_rejects_protected_deadline_overflow ... ok
+test application::event_stream::subscription::tests::acknowledgment_acceptance_preserves_definitive_statuses_and_refuses_unknown_success ... ok
+test application::event_stream::subscription::tests::extension_response_preserves_absolute_target_and_rejects_shortening ... ok
+test application::event_stream::subscription::tests::fetch_acceptance_preserves_exact_receipt_unknown_schema_and_integer_payload ... ok
+test application::event_stream::subscription::tests::fetch_bounds_second_envelope_by_remaining_batch_bytes ... ok
+test application::event_stream::subscription::tests::fetch_enforces_caller_and_host_budgets_before_envelope_allocation ... ok
+test application::event_stream::subscription::tests::fetch_preserves_offsets_and_deadlines_near_i64_end ... ok
+test application::event_stream::subscription::tests::fetch_rejects_invalid_lease_intervals_and_noncanonical_times ... ok
+test application::event_stream::subscription::tests::fetch_rejects_missing_repeated_skipped_and_noncanonical_offsets ... ok
+test application::event_stream::subscription::tests::fetch_rejects_untrusted_envelope_identity_and_malformed_codecs ... ok
+test application::event_stream::subscription::tests::fetch_rejects_wrong_resolved_subscription_and_recreation ... ok
+test application::event_stream::subscription::tests::retry_acceptance_requires_canonical_deadline_consistent_with_delay ... ok
+test application::kv::validation::tests::kv_validation_uses_the_supplied_clock_and_expiry_floor ... ok
+test application::queue::message::tests::queue_codec_enforces_the_supplied_budget_without_a_host ... ok
+test application::sql::wire::tests::sql_request_normalization_preserves_typed_refusals ... ok
+test application::storage::outbox_inspection::tests::acceptance_checks_source_totals_reason_cardinality_and_decimal_ages ... ok
+test application::workflow::definition::tests::diagram_identity_and_references_are_validated ... ok
+test application::workflow::operator::tests::search_bounds_escaped_payloads_without_hiding_identity_or_redaction ... ok
+test application::workflow::types::tests::retention_uses_the_supplied_clock_and_budget ... ok
+test blob_store::tests::interrupted_uploads_cannot_append_or_complete_and_abort_only_once ... ok
+test bucket::library_storage_tests::supplied_clients_keep_cas_fencing_and_scoped_pagination ... ok
+test container::exit_tests::delayed_old_exit_cannot_hide_the_latest_run_completion ... ok
+test daemon::driver::tests::a_deadline_cut_reports_unfinished_work_and_retains_the_last_committed_state ... ok
+test daemon::driver::tests::caller_stops_drain_admitted_cells_and_facets_without_exiting_or_stopping_a_sibling ... ok
+test daemon::driver::tests::explicit_driver_policy_does_not_consult_shutdown_environment ... ok
+test daemon::driver::tests::fencing_core_failure_and_cancellation_return_control_and_close_admission ... ok
+test daemon::driver::tests::fencing_during_application_drain_preserves_the_authority_report ... ok
+test daemon::driver::tests::losing_fence_reports_is_a_core_failure_without_fabricating_a_fence ... ok
+test daemon::driver::tests::shutdown_policy_rejects_inconsistent_budgets_and_cli_settings_are_captured ... ok
+test daemon::embedded::tests::closure_during_entered_poll_refuses_build_and_metrics_without_panicking ... ok
+test daemon::embedded::tests::event_startup_activation_failure_closes_and_joins_before_returning ... ok
+test daemon::embedded::tests::event_startup_activation_failure_preserves_the_supervisor_error_chain ... ok
+test daemon::embedded::tests::event_startup_activation_failure_preserves_the_supervisor_outcome ... ok
+test daemon::embedded::tests::event_startup_observes_supervisor_exit_before_activation_is_polled ... ok
+test daemon::embedded::tests::event_startup_rejects_completed_outcomes_even_when_readiness_is_ready ... ok
+test daemon::embedded::tests::event_startup_waits_for_activation_and_preserves_live_supervision ... ok
+test daemon::event_failure::tests::local_gate_and_peer_gate_agree_on_typed_outcome ... ok
+test daemon::event_failure::tests::transport_certainty_survives_without_changing_replay_classification ... ok
+test daemon::event_failure::tests::unknown_peer_failures_never_claim_non_execution ... ok
+test daemon::event_reply::tests::always_ready_empty_frames_cannot_starve_cancellation ... ok
+test daemon::event_reply::tests::cancellation_after_body_poll_drops_the_stalled_body ... ok
+test daemon::event_reply::tests::cancellation_wins_a_tie_with_an_exhausted_deadline ... ok
+test daemon::event_reply::tests::cancellation_wins_ready_success_and_dropped_sender_without_polling_body ... ok
+test daemon::event_reply::tests::chunk_overflow_stops_before_collecting_the_suffix ... ok
+test daemon::event_reply::tests::dropping_the_receiving_future_releases_its_body ... ok
+test daemon::event_reply::tests::exact_budget_and_unknown_length_chunks_are_accepted ... ok
+test daemon::event_reply::tests::exhausted_original_deadline_refuses_even_a_ready_body ... ok
+test daemon::event_reply::tests::hyper_incoming_distinguishes_declared_overflow_from_truncated_transport ... ok
+test daemon::event_reply::tests::many_tiny_frames_are_coalesced_within_the_byte_budget ... ok
+test daemon::event_reply::tests::original_deadline_drops_a_stalled_body_without_network_retry_tag ... ok
+test daemon::event_reply::tests::oversized_declared_body_is_refused_without_polling ... ok
+test daemon::event_reply::tests::real_body_transport_failure_retains_its_activation_tag ... ok
+test daemon::event_reply::tests::receiver_enforces_the_shared_wire_ceiling_before_polling ... ok
+test daemon::event_reply::tests::unused_trailers_are_not_part_of_the_rpc_result ... ok
+test daemon::event_reply::tests::very_large_captured_budget_still_accepts_a_ready_body ... ok
+test daemon::event_resources::tests::activation_replays_only_tagged_transport_failure ... ok
+test daemon::event_resources::tests::activation_retry_retains_its_enclosing_deadline ... ok
+test daemon::event_resources::tests::permanent_activation_failure_is_not_replayed ... ok
+test daemon::event_resources::tests::protocol_refusal_is_not_tagged_for_activation_replay ... ok
+test daemon::event_resources::tests::resolution_readiness_retries_do_not_extend_to_mutating_methods ... ok
+test daemon::event_wait::tests::a_submitted_timeout_cannot_undo_an_already_committed_effect ... ok
+test daemon::event_wait::tests::ambiguous_attempt_discards_its_route_without_replay_or_cleanup_wait ... ok
+test daemon::event_wait::tests::cancellation_after_submission_drops_the_wait_without_inventing_rollback ... ok
+test daemon::event_wait::tests::cancellation_of_an_unpolled_local_wait_releases_the_actual_activity ... ok
+test daemon::event_wait::tests::cancellation_wins_ready_result_and_deadline_before_submission ... ok
+test daemon::event_wait::tests::existing_typed_outcomes_survive_and_large_budgets_do_not_reset ... ok
+test daemon::event_wait::tests::expired_original_budget_never_polls_an_unsubmitted_operation ... ok
+test daemon::event_wait::tests::expired_wait_setup_never_submits_or_commits_the_operation ... ok
+test daemon::event_wait::tests::real_dispatch_route_timeout_cancels_the_pending_actor_request ... ok
+test daemon::event_wait::tests::routing_and_definite_refusal_deadlines_preserve_non_execution_certainty ... ok
+test daemon::event_wait::tests::submitted_effect_survives_wait_installation_after_the_original_deadline ... ok
+test daemon::peer_tunnel::tests::dead_tunnel_returns_exact_unsent_request_for_safe_retry ... ok
+test daemon::wake_discovery::tests::cold_discovery_waits_for_activation_without_consuming_work ... ok
+test daemon::wake_discovery::tests::failed_or_cancelled_activation_never_starts_discovery ... ok
+test daemon::wake_discovery::tests::runtime_without_event_activation_starts_discovery_immediately ... ok
+test event_cli::inventory::tests::fleet_cursor_cannot_move_between_buckets_or_continuation_kinds ... ok
+test event_cli::tests::collection_bounds_cannot_be_unrestricted ... ok
+test event_inventory::tests::descriptor_scope_and_request_kind_cannot_be_substituted ... ok
+test event_inventory::tests::history_preserves_precision_and_binds_scope_tail_and_lifecycle ... ok
+test event_metrics::tests::cancellation_and_clock_observations_retain_their_host_across_domains ... ok
+test event_metrics::tests::metrics_are_bounded_saturating_and_preserve_integer_precision ... ok
+test event_state::tests::failed_acceptance_never_partially_changes_fleet_totals ... ok
+test event_state::tests::gauge_sums_are_exact_above_i64_and_ages_take_maximum ... ok
+test host_gates::library_ownership_tests::abort_publication_and_retirement_keep_the_captured_host ... ok
+test host_gates::library_ownership_tests::closed_domains_cannot_turn_missing_output_channels_into_ungated_effects ... ok
+test host_gates::library_ownership_tests::context_cleanup_in_another_domain_only_abandons_its_own_gate ... ok
+test host_io::input_gate_lifecycle::tests::a_claim_retains_its_origin_and_terminal_retirement_refuses_new_claims ... ok
+test host_io::input_gate_lifecycle::tests::answered_idle_driver_waits_for_final_origin_claim_release ... ok
+test host_io::input_gate_lifecycle::tests::subscription_precedes_retirement_recheck_and_observes_a_short_lived_claim ... ok
+test host_io::tests::budget_is_atomic_invocation_local_and_counts_failed_attempts ... ok
+test host_io::tests::completed_turns_share_one_budget_without_charging_suspension ... ok
+test host_io::tests::guards_restore_nested_context_before_reentrant_cleanup ... ok
+test host_io::tests::input_gate_retirement_drains_exact_claims_and_notifies_outside_ownership_lock ... ok
+test host_io::tests::mailbox_wakes_its_driver_and_terminal_retirement_refuses_new_work ... ok
+test host_io::tests::panic_unwinds_to_the_original_host_turn ... ok
+test host_io::tests::refused_and_abandoned_background_work_drops_after_unlocking_event_state ... ok
+test host_io::tests::socket_cleanup_receives_the_retiring_owner_after_its_guard_restores_the_predecessor ... ok
+test host_io::tests::tail_capture_uses_serialized_bytes_and_stops_at_first_oversized_record ... ok
+test host_io::tests::temporary_directories_are_lazy_and_do_not_cross_invocations ... ok
+test host_io::tests::weak_registration_does_not_retain_the_invocation ... ok
+test host_loader::tests::concurrent_admission_shares_principal_limits_and_reserves_host_capacity ... ok
+test host_loader::tests::facet_claims_root_retirement_and_pins_keep_their_host_when_identities_collide ... ok
+test host_loader::tests::loader_quotas_and_owner_retirement_are_independent_on_one_application_runtime ... ok
+test host_rpc::budget::tests::malformed_or_oversized_requests_cannot_extend_the_budget ... ok
+test host_rpc::budget::tests::validated_poll_wait_is_added_once_to_transport_budget ... ok
+test host_rpc::tests::declared_poll_wait_survives_a_short_transport_budget ... ok
+test host_rpc::tests::dropped_submitted_result_is_ambiguous_and_cancels_exact_request ... ok
+test host_rpc::tests::pending_source_gate_times_out_without_submitting ... ok
+test host_rpc::tests::queued_source_timeout_cancels_the_submitted_request ... ok
+test host_rpc::tests::refused_source_gate_never_submits_event_rpc ... ok
+test host_services::runtime_policy_tests::queue_lease_uses_its_own_host_runtime_and_settlement_policy ... ok
+test host_tcp::tests::default_invocation_cleanup_closes_transport_and_allows_reentrant_drop ... ok
+test host_tcp::tests::pending_tls_opening_dropped_in_another_domain_closes_only_its_reserved_socket ... ok
+test host_tcp::tests::replaced_transport_is_released_outside_the_registry_lock ... ok
+test host_tcp::tests::transport_cleanup_and_domain_shutdown_keep_colliding_socket_ids_separate ... ok
+test host_tcp::tests::transport_reservations_tls_starttls_and_cancellation ... ok
+test host_turn::tests::admitted_reply_still_waits_for_discovery_and_reports_completion ... ok
+test host_turn::tests::closed_poll_discards_success_value_and_never_bypasses_gate ... ok
+test host_turn::tests::closed_poll_refuses_alarm_gate_reply_without_panic_or_output ... ok
+test html_rewriter::tests::free_exits_threads_waiting_on_input_or_live_token_commands ... ok
+test http_policy::tests::client_construction_failure_returns_an_error_without_panicking ... ok
+test http_policy::tests::ordinary_pools_are_reused_and_closed_without_reconstruction ... ok
+test http_policy::tests::retained_host_services_cannot_rebuild_http_after_closure ... ok
+test local_store::read_tests::body_reads_retain_their_original_domain_and_join_entered_io ... ok
+test local_store::read_tests::cancelled_body_reader_retains_its_native_io_reservation ... ok
+test local_store::read_tests::cancelled_metadata_reader_retains_its_native_io_reservation ... ok
+test local_store::read_tests::closed_response_owner_refuses_a_new_read_on_another_domain ... ok
+test local_store::read_tests::full_reads_stream_without_materializing_the_object ... ok
+test local_store::read_tests::head_and_ranges_keep_metadata_conditions_and_exact_bytes ... ok
+test local_store::read_tests::head_does_not_materialize_the_object ... ok
+test local_store::read_tests::range_does_not_materialize_the_object ... ok
+test local_store::read_tests::replacing_a_body_mid_read_refuses_instead_of_mixing_versions ... ok
+test local_store::read_tests::small_get_keeps_metadata_and_original_bytes_across_replacement ... ok
+test local_store::read_tests::stored_ltx_bytes_do_not_retain_upload_request_capacity ... ok
+test local_store::schema_tests::system_tables_and_etags_survive_reopen ... ok
+test ltx_repl::source_facet_cleanup_tests::bounded_local_cleanup_restarts_and_preserves_outside_paths ... ok
+test ltx_repl::source_facet_cleanup_tests::cleanup_batches_preserve_root_and_sibling_replica_objects ... ok
+test management::event_inventory::tests::console_inventory_continuation_pins_fleet_and_filter ... ok
+test management::events::lifecycle_tests::lifecycle_actions_pin_scope_incarnation_and_exact_revision ... ok
+test management::events::lifecycle_tests::source_lifecycle_receipts_reject_foreign_payloads_and_false_completion ... ok
+test management::events::tests::event_actions_reject_cross_target_and_unbounded_requests ... ok
+test management::events::tests::host_metrics_are_exact_and_fixed_schema ... ok
+test management::inventory::tests::metadata_excludes_secrets_and_keeps_shared_identity ... ok
+test management::inventory::tests::page_limits_cannot_request_a_fleet_scan ... ok
+test management::inventory::tests::stream_metadata_excludes_grants_and_keeps_named_selectors ... ok
+test management::kv::tests::console_edits_validate_encoding_revision_and_json_metadata ... ok
+test management::raft_stop::tests::raft_stop_receipt_has_constant_aggregate_size ... ok
+test management::raft_stop::tests::raft_stop_refuses_fabricated_identity_counts_and_fields ... ok
+test management::raft_stop::tests::raft_stop_refuses_incomplete_work_and_unknown_handoff ... ok
+test native_worker::gate::library_ownership_tests::queued_cleanup_uses_its_owner_after_the_domain_closes ... ok
+test native_worker::tests::direct_native_bootstrap_preserves_turns_background_cancellation_gates_and_handoff ... ok
+test native_worker::tests::native_wake_releases_its_sender_lock_before_notifying_the_receiver ... ok
+test native_worker::tests::sdk_context_refuses_another_domain_and_effects_after_its_owner_closes ... ok
+test native_worker::tests::source_recovery_retains_unavailable_application_alarms_without_consuming_retry_budget ... ok
+test native_worker::tests::storage_authority_tests::closing_domain_before_commit_rolls_back_business_and_outbox_together ... ok
+test native_worker::tests::storage_authority_tests::retained_storage_refuses_wrong_and_closed_domains_inside_an_entered_turn ... ok
+test native_worker::tests::stream_clock_tests::configuration_receipt_survives_own_grant_rotation_with_durable_expiry ... ok
+test native_worker::tests::stream_clock_tests::duplicate_append_preserves_observed_expiry_across_clock_rollback ... ok
+test native_worker::tests::stream_clock_tests::failed_configuration_preserves_observed_expiry_across_clock_rollback ... ok
+test native_worker::tests::stream_clock_tests::protected_capacity_refusal_preserves_observed_expiry_across_clock_rollback ... ok
+test native_worker::tests::stream_clock_tests::reconfiguration_preserves_observed_expiry_across_clock_rollback ... ok
+test native_worker::tests::stream_clock_tests::rejected_batch_preserves_observed_expiry_across_clock_rollback ... ok
+test native_worker::tests::stream_clock_tests::retirement_refusal_preserves_observed_expiry_across_clock_rollback ... ok
+test native_worker::tests::stream_clock_tests::scheduling_cannot_forget_a_later_expiry_sample_within_one_mutation ... ok
+test native_worker::tests::stream_clock_tests::unauthorized_mutations_cannot_advance_the_durable_stream_clock ... ok
+test node_lifecycle::tests::cli_refuses_success_for_missing_raft_close_proof ... ok
+test node_lifecycle::tests::cli_report_distinguishes_failure_from_fence ... ok
+test node_lifecycle::tests::cli_report_preserves_incomplete_shutdown ... ok
+test node_log::bundle_budget::tests::cancelled_caller_cannot_return_admission_before_entered_file_io_joins ... ok
+test node_log::bundle_budget::tests::sorted_consumption_and_uniqueness_rewind_retain_the_reservation ... ok
+test node_log::bundle_scan_tests::concurrent_production_bundle_scans_keep_one_node_memory_bound ... ok
+test node_log::bundle_scan_tests::dead_session_bundle_recovery_preserves_original_rows_with_bounded_memory ... ok
+test node_log::bundle_scan_tests::production_bundle_scan_spills_original_rows_under_its_memory_budget ... ok
+test node_log::bundle_snapshot::tests::a_duplicate_after_a_sort_run_cannot_expose_an_earlier_prefix ... ok
+test node_log::bundle_snapshot::tests::checked_bundle_reader_preserves_exact_rows_and_numeric_order ... ok
+test node_log::bundle_snapshot::tests::malformed_or_duplicate_envelopes_never_return_a_gather ... ok
+test node_log::bundle_snapshot::tests::source_changes_between_hash_and_copy_cannot_enter_the_gather ... ok
+test node_log::follower_batch_tests::group_commit_bounds_empty_frames_too ... ok
+test node_log::follower_batch_tests::group_commit_returns_the_unsent_frame_at_its_byte_budget ... ok
+test node_log::follower_index::tests::indexed_reads_refuse_damage_in_later_chunks ... ok
+test node_log::follower_index::tests::merge_refuses_scratch_faults_and_releases_failed_inputs ... ok
+test node_log::follower_index::tests::sorted_inventory_preserves_every_descriptor_across_partial_runs ... ok
+test node_log::follower_index::tests::unavailable_scratch_cannot_truncate_an_inventory ... ok
+test node_log::follower_state::tests::cold_inventory_refuses_late_directory_failure_without_caching ... ok
+test node_log::follower_state::tests::cold_inventory_spills_and_retains_missing_suffix_evidence ... ok
+test node_log::follower_state::tests::cold_scan_payload_residency_stays_bounded ... ok
+test node_log::follower_state::tests::exact_state_bound_is_read_without_losing_the_seal_floor ... ok
+test node_log::follower_state::tests::invalid_first_batch_cannot_acknowledge_an_unrepresentable_entry ... ok
+test node_log::follower_state::tests::noncanonical_batch_names_never_supply_recovery_proof ... ok
+test node_log::follower_state::tests::opened_batch_read_failures_cannot_credit_the_acknowledged_end ... ok
+test node_log::follower_state::tests::opened_state_failures_never_become_a_fresh_fragment ... ok
+test node_log::follower_state::tests::oversized_batch_preserves_the_required_end_without_requesting_payload ... ok
+test node_log::follower_state::tests::oversized_state_is_refused_before_any_payload_read ... ok
+test node_log::follower_state::tests::seal_payload_residency_stays_bounded ... ok
+test node_log::follower_state::tests::tail_refuses_valid_payload_substitution_after_indexing ... ok
+test node_log::follower_state::tests::tail_transfer_payload_residency_stays_bounded ... ok
+test node_log::follower_state::tests::warm_directory_observation_failure_does_not_invent_missing_data ... ok
+test node_log::follower_state::tests::warm_seal_corrupt_batch_refuses_cached_credit ... ok
+test node_log::follower_state::tests::warm_seal_missing_batch_refuses_cached_credit ... ok
+test node_log::follower_state::tests::warm_tail_corrupt_batch_refuses_cached_credit ... ok
+test node_log::follower_state::tests::warm_tail_missing_batch_refuses_cached_credit ... ok
+test node_log::recovery_bundles::tests::cancelled_multipart_recovery_retains_admission_until_entered_sqlite_upload_joins ... ok
+test node_log::recovery_bundles::tests::cancelled_recovery_retains_admission_until_entered_sqlite_upload_joins ... ok
+test node_log::recovery_bundles::tests::corrupt_bundle_refuses_the_whole_recovery_window_until_original_bytes_return ... ok
+test node_log::recovery_bundles::tests::multipart_recovery_preserves_original_rows_metadata_and_releases_admission ... ok
+test node_log::recovery_bundles::tests::recovery_upload_keeps_small_cell_histories_together_and_restores_every_commit ... ok
+test node_log::recovery_bundles::tests::recovery_waiting_for_node_scan_admission_keeps_its_claim_live ... ok
+test node_log::recovery_rows::tests::explicit_cancellation_refuses_staging_sorting_and_batch_reads ... ok
+test node_log::recovery_rows::tests::gather_payload_residency_stays_bounded ... ok
+test node_log::recovery_rows::tests::indexed_payload_reread_must_match_its_digest_and_length ... ok
+test node_log::recovery_rows::tests::invalid_cell_is_refused_before_spooling_and_empty_needs_no_scratch ... ok
+test node_log::recovery_rows::tests::late_index_damage_refuses_after_a_successful_prefix ... ok
+test node_log::recovery_rows::tests::row_buffers_preserve_clones_and_reuse_completed_bodies ... ok
+test node_log::recovery_rows::tests::scratch_failures_never_return_an_empty_success_and_release_files ... ok
+test node_log::recovery_rows::tests::unavailable_scratch_refuses_the_obligation_without_creating_a_partial_index ... ok
+test node_log::recovery_rows::tests::upload_batches_bound_empty_rows_and_allow_one_large_row ... ok
+test node_log::recovery_rows::tests::upload_batches_bound_payload_and_metadata_without_losing_rows ... ok
+test node_log::recovery_rows::tests::valid_descriptor_duplication_cannot_cross_a_batch_watermark ... ok
+test node_log::recovery_rows::tests::valid_descriptor_duplication_cannot_skip_a_row ... ok
+test node_log::recovery_rows::tests::valid_foreign_descriptor_cannot_change_the_original_spool_identity ... ok
+test node_log::recovery_rows::tests::valid_foreign_descriptor_cannot_hide_a_missing_row_as_a_duplicate_key ... ok
+test node_log::recovery_rows::tests::variable_keys_numeric_order_and_duplicate_precedence_survive_many_runs ... ok
+test node_log::recovery_rows::tests::verification_and_spool_copy_read_large_rows_in_chunks_and_preserve_precedence ... ok
+test node_log::reply_reader::tests::a_large_lane_window_drains_replies_while_submission_is_backpressured ... ok
+test node_log::reply_reader::tests::closure_in_the_current_poll_refuses_reader_admission_without_panicking ... ok
+test node_log::reply_reader::tests::data_frames_keep_their_larger_limit ... ok
+test node_log::reply_reader::tests::metadata_header_refuses_before_requesting_its_payload ... ok
+test node_log::reply_reader::tests::reply_burst_backpressures_and_joins_when_receiver_closes ... ok
+test node_log::reply_reader::tests::retirement_joins_a_spawned_reader_with_a_full_mailbox ... ok
+test node_log::reply_reader::tests::valid_metadata_preserves_fifo_across_backpressure_and_joins_at_eof ... ok
+test node_log::startup_retry::tests::lease_return_before_wait_wakes_without_waiting_for_ttl ... ok
+test node_log::startup_retry::tests::unchanged_heartbeat_absence_and_invalid_reads_preserve_backoff ... ok
+test node_log::startup_retry::tests::untagged_errors_preserve_backoff ... ok
+test node_log::tail_stream::tests::active_snapshots_bound_admission_and_drop_releases_capacity ... ok
+test node_log::tail_stream::tests::cancelled_or_failed_cold_index_never_caches_partial_follower_state ... ok
+test node_log::tail_stream::tests::completion_cannot_hide_trailing_stream_bytes ... ok
+test node_log::tail_stream::tests::disconnect_during_preparation_cancels_and_domain_joins_entered_io ... ok
+test node_log::tail_stream::tests::incomplete_or_forged_streams_never_return_a_snapshot ... ok
+test node_log::tail_stream::tests::late_snapshot_damage_aborts_the_shared_gather ... ok
+test node_log::tail_stream::tests::maximum_admitted_entry_crosses_chunk_boundaries_without_refusal ... ok
+test node_log::tail_stream::tests::missing_acknowledged_rows_remain_incomplete_and_refuse_warm_credit ... ok
+test node_log::tail_stream::tests::oversized_frame_is_refused_before_its_payload_is_read ... ok
+test node_log::tail_stream::tests::preparation_progress_alone_never_supplies_a_witness ... ok
+test node_log::tail_stream::tests::receiver_payload_residency_stays_bounded ... ok
+test node_log::tail_stream::tests::receiver_scratch_faults_cannot_supply_a_verified_snapshot ... ok
+test node_log::tail_stream::tests::snapshot_transfer_retains_exact_rows_and_releases_follower_guard ... ok
+test outbox_cli::census::tests::census_bounds_and_source_selection ... ok
+test outbox_cli::census::tests::cursor_binds_fleet_prefix_and_class_without_assuming_provider_order ... ok
+test pool::turn_scheduler_tests::cancellation_racing_grant_keeps_the_next_waiter_runnable ... ok
+test pool::turn_scheduler_tests::cancelled_waiters_preserve_round_robin_and_same_lane_fifo ... ok
+test pool::turn_scheduler_tests::cancelling_a_granted_turn_before_its_next_poll_releases_the_lane ... ok
+test pool::turn_scheduler_tests::cancelling_the_only_granted_waiter_allows_new_turns ... ok
+test pool::turn_scheduler_tests::granting_a_turn_wakes_its_waiter_outside_the_scheduler_lock ... ok
+test pool::turn_scheduler_tests::receiving_a_grant_retains_exclusive_ownership_until_permit_drop ... ok
+test raft::catalog_wire::tests::root_refuses_earlier_protocols ... ok
+test raft::effects::blob::tests::immutable_blob_capacity_refuses_growth_but_retains_duplicate_and_empty_values ... ok
+test raft::effects::blob::tests::immutable_blob_refuses_corrupt_bodies_and_reference_metadata ... ok
+test raft::effects::delivery::tests::canonical_and_semantic_wire_validation ... ok
+test raft::effects::delivery::tests::delivery_bounds_and_secret_debug ... ok
+test raft::effects::delivery::tests::immutable_wire_and_payload_conflict_identity ... ok
+test raft::effects::delivery::tests::receipt_binds_exact_request_destination_and_policy ... ok
+test raft::effects::delivery::tests::request_requires_source_grant_and_exact_target ... ok
+test raft::host::load::tests::partial_and_failed_scans_never_refresh_or_replace_a_complete_sample ... ok
+test raft::host::load::tests::population_change_and_old_batches_cannot_complete_a_new_scan ... ok
+test raft::host::load::tests::scan_refuses_deadline_identity_order_and_cardinality_errors ... ok
+test raft::host::startup_tests::failed_preflight_joins_infrastructure_with_retained_handles ... ok
+test raft::inspection_wire::tests::inspection_refuses_missing_nulls_and_conflicting_identity_or_progress ... ok
+test raft::inspection_wire::tests::inspection_round_trip_preserves_durable_and_visible_cuts ... ok
+test raft::mailbox::tests::receiver_does_not_retain_its_producers ... ok
+test raft::mailbox::tests::receiver_teardown_joins_an_admitted_late_sender ... ok
+test raft::manifest::tests::archive_configuration_set_order_is_canonical ... ok
+test raft::manifest::tests::archive_configuration_unknown_and_duplicate_members_refused ... ok
+test raft::member_state::repairs::tests::aborted_learner_consumes_identity_before_another_plan ... ok
+test raft::member_state::repairs::tests::completed_plan_retains_receipt_without_blocking_later_manual_configuration ... ok
+test raft::member_state::repairs::tests::explicit_joint_plan_retains_outgoing_members_until_finish ... ok
+test raft::member_state::repairs::tests::maximum_repair_membership_fits_completion_metadata_bound ... ok
+test raft::member_state::repairs::tests::omitted_nullable_repair_fields_are_not_a_current_record ... ok
+test raft::member_state::repairs::tests::repair_intent_refuses_payload_rebinding_and_configuration_substitution ... ok
+test raft::member_state::repairs::tests::repair_plan_serializes_and_requires_the_original_phase ... ok
+test raft::member_state::tests::fresh_bindings_require_learner_first ... ok
+test raft::member_state::tests::joint_leave_keeps_bindings_until_outgoing_member_retires ... ok
+test raft::member_state::tests::retired_ids_and_watermark_survive_serialization ... ok
+test raft::member_state::tests::snapshot_successor_refuses_rebinding_resurrection_and_lost_watermark ... ok
+test raft::member_state::tests::stale_noncanonical_unknown_and_oversized_intents_refused ... ok
+test raft::query_wire::tests::query_origin_binds_node_process_without_voting_identity ... ok
+test raft::query_wire::tests::query_wire_binds_channel_request_route_and_payload ... ok
+test raft::query_wire::tests::query_wire_failures_remain_typed ... ok
+test raft::query_wire::tests::query_wire_preserves_explicit_constraints ... ok
+test raft::query_wire::tests::query_wire_refuses_size_replay_and_consensus_domain_confusion ... ok
+test raft::transport::inspections::tests::authenticated_body_cannot_cross_history_or_physical_owner ... ok
+test raft::transport::inspections::tests::inspection_mac_rejects_other_purposes_channels_and_request_replay ... ok
+test raft::transport::inspections::tests::inspection_physical_route_rejects_unscoped_and_zero_identities ... ok
+test raft::transport::inspections::tests::only_a_direct_failed_dial_is_unreachable ... ok
+test raft::transport::tests::directory::inspection::inspection_deadline_and_missing_discovery_never_report_failed_tcp ... ok
+test raft::transport::tests::directory::inspection::inspection_grants_stay_separate_and_revoked_across_process_refresh ... ok
+test raft::transport::tests::directory::inspection::inspection_owns_bounded_sockets_through_cancel_refresh_and_shutdown ... ok
+test raft::transport::tests::directory::inspection::inspection_revocation_and_process_refresh_cancel_an_admitted_inbound_call ... ok
+test raft::transport::tests::directory::process_observation_and_seed_epochs_have_fixed_node_limits ... ok
+test raft::transport::tests::directory::process_refresh_is_atomic_across_routes_grants_and_capacity ... ok
+test raft::transport::tests::directory::process_refresh_pins_instance_and_future_route_admission ... ok
+test raft::transport::tests::poisoned_registry_still_waits_for_resource_owners ... ok
+test raft::transport::tests::query_grants_are_scoped_revocable_and_never_voting_authority ... ok
+test raft::transport_frame::tests::lane_is_derived_from_actual_message ... ok
+test raft::transport_frame::tests::prefix_rejects_large_lengths_before_header_allocation ... ok
+test raft::transport_frame::tests::protobuf_preflight_bounds_decoded_entries_and_snapshot_members ... ok
+test raft::transport_frame::tests::request_binds_body_prefix_and_channel ... ok
+test raft::transport_frame::tests::response_domain_cannot_authenticate_request ... ok
+test raft::transport_frame::tests::response_requires_channel_request_and_route ... ok
+test raft::transport_frame::tests::strict_header_identity_sequence_and_protocol ... ok
+test runtime::catalog_control::tests::catalog_control_arguments_use_the_event_rpc_decoder_contract ... ok
+test runtime::catalog_control::tests::retirement_proof_decoder_and_projection_require_exact_terminal_identity ... ok
+test runtime::rpc_authority::tests::catalog_authority_is_namespace_and_method_bound_without_resource_promotion ... ok
+test runtime::rpc_authority::tests::event_operator_authority_is_read_or_admin_and_stream_method_bound ... ok
+test runtime::rpc_authority::tests::inventory_capability_is_separate_from_metrics_and_mutation ... ok
+test runtime::rpc_authority::tests::retirement_proof_capability_is_resource_scoped_and_read_only ... ok
+test runtime::rpc_authority::tests::source_authority_is_method_and_scope_bound_and_preserves_event_wire_shape ... ok
+test runtime::rpc_authority::tests::state_sample_capability_cannot_authorize_another_scope_or_mutation ... ok
+test runtime::stream_control::tests::read_projection_rejects_malformed_or_foreign_pages ... ok
+test runtime::stream_control::tests::source_projection_refuses_forged_lanes_and_sensitive_extra_fields ... ok
+test runtime::stream_control::tests::subscription_projection_rejects_foreign_and_unordered_inventory ... ok
+test storage::event_schema::tests::future_and_missing_markers_fail_before_any_schema_mutation ... ok
+test storage::event_schema::tests::marked_retirement_provenance_is_required_before_base_schema_changes ... ok
+test storage::event_schema::tests::retained_byte_windows_survive_wrap_prefix_reclamation_and_restore ... ok
+test storage::event_schema::tests::stream_observation_layout_and_accounting_fail_before_base_mutation ... ok
+test storage::identity_tests::established_actor_name_needs_no_writer_lock ... ok
+test storage::identity_tests::warm_actor_identity_reuses_prepared_statements ... ok
+test storage::inbox::tests::receipt_and_effect_rollback_and_duplicate_at_capacity_is_safe ... ok
+test storage::outbox::tests::activation_refuses_invalid_observation_accounting_and_missing_indices ... ok
+test storage::outbox::tests::caught_capacity_failure_consumes_no_sequence_and_leaves_no_partial_emit ... ok
+test storage::outbox::tests::emission_and_business_state_commit_or_rollback_together ... ok
+test storage::outbox::tests::incompatible_host_limits_refuse_activation_without_changing_pending_events ... ok
+test storage::outbox::tests::lane_accounting_and_blocked_reasons_follow_commit_rollback_and_restore ... ok
+test storage::outbox::tests::nested_rollback_and_grant_conflict_cannot_change_original_obligation ... ok
+test storage::outbox::tests::ownership_change_preserves_lane_and_pending_event_bytes ... ok
+test storage::outbox::tests::rejected_first_envelope_does_not_initialize_identity_or_publish_work ... ok
+test storage::outbox::tests::reopen_preserves_pending_envelopes_seals_and_deadlines ... ok
+test storage::outbox::tests::resetting_user_storage_cannot_erase_pending_delivery_or_sequence_history ... ok
+test storage::outbox::tests::sealing_rolls_back_and_retains_a_recoverable_terminal_obligation ... ok
+test storage::outbox::tests::unmarked_state_cannot_be_marked_or_repaired ... ok
+test storage::outbox_control::tests::lifecycle_work_and_missing_evidence_fail_before_base_schema_mutation ... ok
+test storage::outbox_control::tests::source_receipts_survive_activation_and_corrupt_accounting_fails_closed ... ok
+test storage::system_schema_tests::reserved_schema_and_replication_survive_storage_reset_and_reopen ... ok
+test storage::transaction_cache_tests::allocation_observations_preserve_warm_statements_and_sql_restrictions ... ok
+test storage::transaction_cache_tests::batch_unwinding_rolls_back_without_leaking_authority ... ok
+test storage::transaction_cache_tests::bulk_failures_rollback_only_their_atomic_boundary ... ok
+test storage::transaction_cache_tests::bulk_storage_writes_preserve_warm_statements ... ok
+test storage::transaction_cache_tests::storage_observations_never_reserve_the_writer ... ok
+test storage::transaction_cache_tests::storage_transactions_do_not_expire_prepared_queries ... ok
+test storage::transaction_cache_tests::transaction_privilege_never_authorizes_application_sql ... ok
+test storage::work::tests::application_alarm_consumption_keeps_framework_work_armed ... ok
+test storage::work::tests::current_projection_reopen_preserves_deadlines_and_publication_tombstones ... ok
+test storage::work::tests::generation_exhaustion_and_invalid_deadline_leave_prior_obligation_intact ... ok
+test storage::work::tests::previous_alarm_projection_is_refused_before_schema_or_identity_mutation ... ok
+test storage::work::tests::reasons_preserve_user_alarm_and_stale_completion_cannot_clear_replacement ... ok
+test storage::work::tests::repeated_scheduling_reuses_prepared_queries ... ok
+test storage::work::tests::restore_and_reset_preserve_internal_obligations_and_generations ... ok
+test storage::work::tests::work_and_wake_identity_follow_root_and_nested_rollback ... ok
+test wake_entry::tests::closing_inside_an_entered_poll_refuses_discovery_without_panicking ... ok
+test wake_format::tests::cutover_refuses_unmarked_state_and_previous_markers ... ok
+test wake_format::tests::fresh_fleet_initialization_is_concurrent_and_reopenable ... ok
+test worker::tests::native_bootstrap_never_initializes_or_looks_up_the_source_backend ... ok
+test ws_client::tests::verified_tls_and_ipv6_websocket_transport ... ok
+test ws_registry::retirement_tests::unregister_releases_backpressure_with_a_retained_reader ... ok
+
+test result: ok. 419 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 75.30s
+
