@@ -7,7 +7,8 @@ are [qualified locally](evidence/MR-11-directory-progress.json): nine directory
 cases and a public standby identity regression pass with owning Raft checks.
 Opt-in host publication/distribution, atomic routing refresh and independently
 bounded host control admission are [qualified at their component boundary](evidence/MR-11-control-progress.json).
-Inspection and automatic controller integration remain unimplemented.
+Local registered-history capture is [qualified](evidence/MR-11-inspection-progress.json).
+Authenticated peer inspection and automatic controller integration remain unimplemented.
 The [membership contract](membership-design.md) remains authoritative for
 learner initialization and configuration changes. A directory observation never
 changes voters, initializes storage or supplies a quorum proof.

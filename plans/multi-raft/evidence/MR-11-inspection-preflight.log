@@ -1,0 +1,4 @@
+Source: 2b8d35c5180ac8d3b461c68803188af06af8cae8
+Command: ["python3", "plans/multi-raft/plan.py", "preflight"]
+Final metadata/documents rerun.
+Source preflight passed: 71 anchors at baseline 2b8d35c5180ac8d3b461c68803188af06af8cae8.

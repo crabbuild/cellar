@@ -42,3 +42,8 @@ checks, without completing automatic repair. The separate
 Rust passes and its failed Clippy check; current qualification fixes that cleanup.
 The [checkpoint repetition record](MR-11-process-checkpoint-repeat.json) counts
 2,000 repeated passes separately. All original MR-11 completion gates remain.
+
+The [local inspection record](MR-11-inspection-progress.json) pins 2b8d35c and
+records 78 Rust passes and all 15 checks. Its five binaries include the held
+private-callback and claim-free standby cases. Remote authentication/collection,
+aggregate leadership sampling and automatic control remain open.

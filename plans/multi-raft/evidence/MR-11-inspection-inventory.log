@@ -1,0 +1,4 @@
+Source: 2b8d35c5180ac8d3b461c68803188af06af8cae8
+Command: ["python3", "-c", "from pathlib import Path\ns=Path('plans/multi-raft/evidence/MR-11-inspection-list.log').read_text()\nfor name in ['inspection::member_inspection_preserves_published_cut_while_callback_is_private','inspection::standby_inspection_creates_no_member_or_group']:assert name+': test' in s,name\nprint('Both native local inspection cases are listed; automatic MR-11 gates remain open.')"]
+Final metadata/documents rerun.
+Both native local inspection cases are listed; automatic MR-11 gates remain open.

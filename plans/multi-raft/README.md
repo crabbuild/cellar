@@ -46,6 +46,16 @@ retained in its record and fixed in the current qualified source. A focused
 serial repetitions of two cases on that source; these repetitions are separate
 from unique test counts.
 
+The [local inspection qualification](evidence/MR-11-inspection-progress.json)
+pins `2b8d35c5180ac8d3b461c68803188af06af8cae8`: 78 Rust cases across five
+binaries and all 15 checks pass. The two new native cases observe only the
+published cut while a callback holds a private write, then inspect a dormant
+standby without creating a group, claim or callback. All 27 host, 13 directory
+and 35 library cases pass, together with the affected Node case and two selected
+snapshot regressions. Explicit profiles declare capacity; engine group counting
+is constant time. Aggregate leadership load remains absent. Authenticated peer
+collection and automatic reconciliation still require implementation.
+
 MR-11 remains IN_PROGRESS. The partial inventory reports five of seven required
 names; `automatic_no_traffic_repair` and `leader_balance_with_lag` remain absent.
 Automatic scheduling, authenticated inspection/capacity and the six-node repair

@@ -1,0 +1,8 @@
+Source: 2b8d35c5180ac8d3b461c68803188af06af8cae8
+Command: ["python3", "-m", "unittest", "discover", "-s", "plans/multi-raft", "-p", "test_*.py"]
+Final metadata/documents rerun.
+.................
+----------------------------------------------------------------------
+Ran 17 tests in 0.067s
+
+OK

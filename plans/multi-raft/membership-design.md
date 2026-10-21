@@ -11,7 +11,9 @@ its local identity/fence foundation is [qualified](evidence/MR-11-node-storage-p
 while the S3 pin/view adapter is [qualified locally](evidence/MR-11-directory-progress.json).
 Process distribution, atomic routing refresh and independently bounded host
 control admission are [qualified at their component boundary](evidence/MR-11-control-progress.json).
-Authenticated inspection remains unimplemented.
+Local occupancy/capacity capture is [qualified](evidence/MR-11-inspection-progress.json),
+including dormant standbys and publication during a private callback.
+Authenticated peer inspection remains unimplemented.
 MR-10 qualification remains separate.
 These component results establish no additional capacity or release qualification.
 

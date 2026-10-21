@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "baseline_revision": "f328ebd6c7da9f6f4c7c60b04c0d67f88a116b58",
+  "baseline_revision": "2b8d35c5180ac8d3b461c68803188af06af8cae8",
   "status_values": [
     "TODO",
     "IN_PROGRESS",
@@ -1703,7 +1703,10 @@
         "crates/cellar/tests/support/raft_directory_native.rs",
         "crates/cellar/durability/raft/host_startup_tests.rs",
         "crates/cellar/durability/raft/mailbox.rs",
-        "crates/cellar/durability/raft/mailbox_tests.rs"
+        "crates/cellar/durability/raft/mailbox_tests.rs",
+        "crates/cellar/durability/raft/inspection.rs",
+        "crates/cellar/durability/raft/host_inspection.rs",
+        "crates/cellar/tests/support/raft_inspection_native.rs"
       ],
       "steps": [
         "Implement domain-aware desired placement and versioned idempotent controller plans.",
@@ -1805,7 +1808,8 @@
         "evidence/MR-11-node-storage-progress.json",
         "evidence/MR-11-directory-progress.json",
         "evidence/MR-11-process-regression-progress.json",
-        "evidence/MR-11-control-progress.json"
+        "evidence/MR-11-control-progress.json",
+        "evidence/MR-11-inspection-progress.json"
       ]
     },
     {
