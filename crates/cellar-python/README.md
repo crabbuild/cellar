@@ -66,6 +66,12 @@ application code retains the expired context. Cancellation does not roll back
 an acknowledged write. Retired activation objects are released while the loop
 is idle, as well as during later requests.
 
+A failed durability proof can reset the cell's native activation. A read arriving
+during that cleanup can be refused before recovery finishes, even after the
+storage and peer transports are available again. A caller can repeat a known
+read-only observation within its original deadline. Submitted business mutations
+still require receipt-based reconciliation; a reset does not establish rollback.
+
 ## Python API
 
 Import `Request`, `Response`, `Conflict`, `SDKError`, `Snapshot` and `MISSING` from

@@ -4,9 +4,36 @@ use super::python_control::{call as control, observe};
 use super::*;
 use std::sync::atomic::Ordering;
 
+#[path = "proof_recovery.rs"]
+mod recovery;
+
+async fn recovered_state(
+    client: &reqwest::Client,
+    url: &str,
+    mut response: Option<reqwest::Response>,
+) -> Result<(Value, usize)> {
+    let mut refused = 0;
+    loop {
+        let response = match response.take() {
+            Some(response) => response,
+            None => client.get(format!("{url}/state")).send().await?,
+        };
+        if response.status() != reqwest::StatusCode::SERVICE_UNAVAILABLE {
+            return Ok((response.error_for_status()?.json().await?, refused));
+        }
+        // A proof failure resets the activation asynchronously. Requests
+        // queued during that reset are refused even after transport recovery.
+        // This fixed route contains only reads; never repeat /failure, /seed
+        // or any business mutation. The enclosing original audit budget wins.
+        refused += 1;
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+}
+
 pub(super) fn child(kind: &str, fence: bool) -> Result<()> {
     let directory = tempfile::tempdir()?;
-    let kind = kind.to_owned();
+    let recovering = kind == "recovery";
+    let kind = if recovering { "failure" } else { kind }.to_owned();
     let result = run(
         Options::default(),
         Source::new(include_str!("proof_authority.py"), "proof_authority.py")
@@ -18,6 +45,13 @@ pub(super) fn child(kind: &str, fence: bool) -> Result<()> {
                 .enable_all()
                 .build()?;
             runtime.block_on(async move {
+                let reset = Arc::new(recovery::Reset::default());
+                let _reset_release = recovery::Release(reset.clone());
+                let application: Arc<dyn Application> = if recovering {
+                    Arc::new(recovery::Observed { application, reset: reset.clone() })
+                } else {
+                    application
+                };
                 let bucket =
                     cellar::bucket::Bucket::open_dev(&directory.path().join("fleet.sqlite"))?;
                 let peers = Arc::new(Gate::default());
@@ -134,6 +168,7 @@ pub(super) fn child(kind: &str, fence: bool) -> Result<()> {
                     "proof-held mutation returned before cancellation/fence"
                 );
                 if kind == "failure" {
+                    reset.armed.store(recovering, Ordering::Release);
                     peers.fail();
                     data.fail();
                 } else if fence {
@@ -199,13 +234,34 @@ pub(super) fn child(kind: &str, fence: bool) -> Result<()> {
                     .context("remaining proof node")?
                     .2
                     .clone();
-                let value: Value = client
-                    .get(format!("{remaining_url}/state"))
-                    .send()
-                    .await?
-                    .error_for_status()?
-                    .json()
-                    .await?;
+                let value: Value = tokio::time::timeout(Duration::from_secs(20), async {
+                    let response = if recovering {
+                        tokio::time::timeout(Duration::from_secs(1), reset.entered.acquire()).await??.forget();
+                        let reader = client.clone();
+                        let url = remaining_url.clone();
+                        let mut reading = recovery::Reading(tokio::spawn(async move { reader.get(format!("{url}/state")).send().await }));
+                        observe(|view| view["state_reads"] == 1).await?;
+                        ensure!(tokio::time::timeout(Duration::from_millis(150), &mut reading.0).await.is_err(),
+                            "state read completed before the held native reset");
+                        reset.open();
+                        ensure!(!reset.timed_out.load(Ordering::Acquire), "reset barrier timed out");
+                        let response = (&mut reading.0).await??;
+                        eprintln!("RESET_READ_EVIDENCE status={} attempts={}", response.status(), control("snapshot")?["attempts"]);
+                        response
+                    } else {
+                        client.get(format!("{remaining_url}/state")).send().await?
+                    };
+                    let (value, refused) = recovered_state(&client, &remaining_url, Some(response)).await?;
+                    if recovering {
+                        let snapshot = control("snapshot")?;
+                        ensure!(refused >= 1 && snapshot["attempts"] == 1 && snapshot["state_reads"].as_u64().is_some_and(|reads| reads >= 2),
+                            "reset recovery did not retain the refused read and singular business effect: {snapshot}");
+                        eprintln!("RECOVERED_READ_EVIDENCE refused={refused} attempts={} reads={} reset_timeout={}", snapshot["attempts"], snapshot["state_reads"], reset.timed_out.load(Ordering::Acquire));
+                    }
+                    Ok::<_, anyhow::Error>(value)
+                })
+                .await
+                .context("read-only proof recovery exceeded its original HTTP budget")??;
                 ensure!(
                     value["seed"] == 7 && value["late"].is_null() && value["late-raw"].is_null(),
                     "acknowledged/stale state changed: {value}"

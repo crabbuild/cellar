@@ -227,6 +227,9 @@ fn main() -> Result<()> {
     if mode == "--runtime-proof-authority-failure" {
         return proof_authority::child("failure", false);
     }
+    if mode == "--runtime-proof-authority-recovery" {
+        return proof_authority::child("recovery", false);
+    }
     if mode == "--runtime-routing" {
         return routing::child();
     }
@@ -455,6 +458,7 @@ fn main() -> Result<()> {
         "--runtime-proof-authority-output-deadline",
         "--runtime-proof-authority-output-fence",
         "--runtime-proof-authority-failure",
+        "--runtime-proof-authority-recovery",
         "--runtime-routing",
         "--runtime-privacy",
         "--runtime-lifetimes",
@@ -844,6 +848,7 @@ fn lifecycle_mode(mode: &str) -> Result<()> {
                 | "--runtime-proof-authority-output-deadline"
                 | "--runtime-proof-authority-output-fence"
                 | "--runtime-proof-authority-failure"
+                | "--runtime-proof-authority-recovery"
                 | "--runtime-routing"
                 | "--runtime-bindings"
                 | "--runtime-delivery"

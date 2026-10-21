@@ -18,11 +18,12 @@ recovery. The packaged smoke additionally covers Pydantic/native-extension impor
 KV, SQL, queue delivery and cron. These are implementation checks, not broad
 production certification. The design below records the intended full contract.
 
-Remaining qualification: the complete Linux installed-host matrix for external
-native-library/OS attestation, diagnosis of preserved lifecycle test failures and
-final-source regression evidence in both threading ABIs. Operating defaults have
-repeated local measurements and Linux CI workload evidence within their stated
-development scope. Interrupted cron delivery, admission/retirement races and
+Remaining qualification: publish and qualify the reset/read audit correction,
+diagnose preserved lifecycle failures and complete final-source regression
+evidence in both threading ABIs. The Linux installed-host prerequisite/refusal,
+offline recovery and replacement steps pass in both ABIs at 97be2cc. Operating
+defaults have repeated local measurements and Linux CI workload evidence within
+their stated development scope. Interrupted cron delivery, admission/retirement races and
 native-versus-Python development measurements now have direct evidence in the audit.
 Independent KV, shared-SQL
 and queue matrices now cover cancellation, failed proof, explicit reconciliation,
@@ -537,20 +538,19 @@ published source and remaining qualification:
 | M0 | Bootstrap, invocation pump, authority and cancellation implemented; direct evidence in both threading ABIs | Final-source platform matrix |
 | M1 | HTTP, pinned native packages, bounds and sanitized failures implemented; all four 3e56924 Linux adapter jobs pass | Complete current-source installed-package/platform qualification |
 | M2 | All S01–S09 storage/alarm requirements have direct evidence within their stated scopes | Final-source regression qualification |
-| M3 | Fencing, retirement, takeover and supervised noncooperative shutdown implemented; local native lease correction passes its controlled regression, native 88/88 and strict Clippy | Both local Python ABI suites and strict Clippy pass; qualify the correction on Linux and diagnose preserved delivery, initial consumer admission and clock/replay failures |
-| M4 | Verified packaging, external prerequisites, offline restoration and process replacement implemented with local evidence in both ABIs | All four 3e56924 Linux jobs fail package inventory capture; qualify the local GNU dynamic-token correction through the full Linux installed-host matrix |
-| M5 | KV, shared SQL, queues and cron implemented with independent local failure matrices; repeated optimized defaults pass locally and CI defaults pass in all four 3e56924 jobs | Final-source qualification; optional ASGI/streaming remain deferred |
+| M3 | Fencing, retirement, takeover and supervised noncooperative shutdown implemented; local lease correction and both ABI suites pass; a controlled reset/read regression corrects the final observation audit | Publish/qualify the reset/read correction on Linux and diagnose preserved delivery, initial consumer admission and clock/replay failures |
+| M4 | Verified packaging, native prerequisites, offline restoration and process replacement have direct evidence locally and in both Linux ABI package steps at 97be2cc | Complete final-source release regression matrix |
+| M5 | KV, shared SQL, queues and cron implemented with independent local failure matrices; repeated optimized defaults pass locally and Linux CI defaults pass in both ABIs | Final-source qualification; optional ASGI/streaming remain deferred |
 
-The current published source is 3e56924. Both Linux workflows
-39531929061/39531931874 are terminal failures: all four jobs pass the adapter,
-default-load, actual loaded-library ABI guards and native test/lint stages, then
-fail package inventory capture. A local GNU dynamic-token correction now passes
-real ELF regressions and captures/verifies the complete free-threaded runtime
-and pinned package inventory on native Linux ARM64. This is not complete Cellar
-installation/recovery/replacement qualification; the full Linux matrix remains
-open. A separate native lease correction has direct local before/after evidence,
-but does not explain every historical lifecycle failure. Earlier green workflows
-do not qualify later source, and a passing retry does not close diagnosis.
+Qualification of source 97be2cc completes the Linux installed-package step in
+both push ABI jobs and the conventional PR job. The PR free-threaded job fails
+earlier when its final read-only state audit races native reset after a deliberate
+proof failure. A controlled public Cell destruction barrier reproduces the same
+HTTP 503 with one business attempt. The local correction observes recovery by
+repeating only that read-only query within the original HTTP budget; both local
+ABI suites and strict Clippy pass, and the correction still needs Linux execution.
+The other three 97be2cc jobs continue through native tests/lints. These component
+results do not qualify later source or explain every historical lifecycle failure.
 
 Prioritize the audit's [current work](007-embedded-python-audit.md#current-work)
 before adding more surfaces. A gate closes only with its stated evidence on

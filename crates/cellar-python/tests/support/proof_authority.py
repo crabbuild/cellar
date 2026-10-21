@@ -15,13 +15,14 @@ _returned = False
 _cancelled = False
 _late_entered = False
 _late_done = False
+_state_reads = 0
 
 
 def snapshot():
     with _lock:
         return dict(owner=_owner, attempts=_attempts, committed=_committed, returned=_returned,
                     cancelled=_cancelled, late_entered=_late_entered, late_done=_late_done,
-                    active=_ctx._bridge.active() if _ctx else False)
+                    active=_ctx._bridge.active() if _ctx else False, state_reads=_state_reads)
 
 
 def release():
@@ -62,6 +63,10 @@ async def late(ctx, event):
 
 
 async def fetch(request, ctx):
+    global _state_reads
+    if request.path == "/state":
+        with _lock:
+            _state_reads += 1
     cell = ctx.namespace("COUNTERS").get_by_name("proof-authority")
     if request.path == "/failure":
         try:
