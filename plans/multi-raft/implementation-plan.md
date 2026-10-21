@@ -650,7 +650,7 @@ shown by `plan.py show MR-11`; the manifest is authoritative for arguments.
 
 ### MR-12 Integrate committed alarms, outbox and capability gates
 
-Dependencies: MR-08, MR-09, MR-11. Phase: v1. Status: IN_PROGRESS.
+Dependencies: MR-08, MR-09, MR-11. Phase: v1. Status: DONE at the recorded native boundary.
 
 The [complete business-feature evidence](evidence/MR-12.json) pins source
 `a28babe1904c1287cb4d1877674bd98a87313700`: all 782 unique unit/integration cases
