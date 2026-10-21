@@ -90,7 +90,7 @@ before startup. Python source and the SDK facade stay embedded in the executable
 The inventory also attests external native libraries and the qualified OS cohort;
 installation/startup refuse mismatches. Those OS libraries are provisioned on the
 host. The remaining platform/fault/performance qualification is tracked in the
-[completion audit](../../plans/007-embedded-python-audit.md).
+[implementation plan](../../plans/007-embedded-python-pyo3.md#implementation-milestones-and-acceptance-gates).
 See the [adapter contract and limitations](../../crates/cellar-python/README.md)
 before using it for production workloads.
 

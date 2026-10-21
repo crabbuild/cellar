@@ -99,8 +99,8 @@ The [adapter guide](../../crates/cellar-python/README.md),
 [runtime package/source-upgrade qualification](../../tools/python/README.md)
 define executable APIs and checks. Real TERM/INT upgrade tests use different
 Python cell code, retain acknowledged state/receipts and require both joined
-reports to complete. The [completion audit](../../plans/007-embedded-python-audit.md)
-records exact scope and failures. This decision accepts the integration model;
+reports to complete. The [implementation plan](../../plans/007-embedded-python-pyo3.md#implementation-milestones-and-acceptance-gates)
+records milestone status and remaining reliability work. This decision accepts the integration model;
 quorum/binding fault matrices, external dependency attestation, remaining telemetry
 and measured baselines are still release gates, not waived requirements.
 

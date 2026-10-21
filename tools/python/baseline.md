@@ -70,8 +70,8 @@ remain GIL-off.
 checks complete repetitions, raw request/percentile/copy consistency, recovered
 values against the acknowledged command ledger, subsequent writes, and native
 and Python cleanup. Corrupted receipts, published percentiles or incomplete
-drain/cleanup refuse a report. The [recorded development measurements](../../plans/007-embedded-python-baselines.md)
-include raw evidence and its exact scope.
+drain/cleanup refuse a report. Keep generated measurements outside the source
+tree with their exact build, runtime and workload scope.
 
 ## Shipping Python defaults
 

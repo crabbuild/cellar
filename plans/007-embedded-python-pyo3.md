@@ -1,9 +1,9 @@
 # 007: Embedded CPython applications through PyO3
 
 Status: core feature implementation delivered across M0–M5; release qualification
-remains open. The [requirement-by-requirement audit](007-embedded-python-audit.md)
-tracks acceptance evidence and preserved reliability failures. No missing core
-runtime, SDK or packaging implementation was identified in the delivery review.
+remains open. The [milestones and acceptance gates](#implementation-milestones-and-acceptance-gates)
+below describe the delivered features and remaining reliability work. No missing
+core runtime, SDK or packaging implementation was identified in the delivery review.
 
 Implementation: [cellar-python](../crates/cellar-python/README.md), with a
 [runnable example](../examples/python/README.md). Buffered HTTP, cell JSON and
@@ -31,7 +31,7 @@ the preserved historical lifecycle failures, whose causes are not established
 by passing repetitions. Operating
 defaults have repeated local measurements and Linux CI workload evidence within
 their stated development scope. Interrupted cron delivery, admission/retirement races and
-native-versus-Python development measurements now have direct evidence in the audit.
+native-versus-Python development measurements have been exercised by the shipped harnesses.
 Independent KV, shared-SQL
 and queue matrices now cover cancellation, failed proof, explicit reconciliation,
 backpressure, resource cleanup and preserving restart. The queue producer drill
@@ -537,18 +537,18 @@ or let the adapter fabricate an activation context.
 | M5: SDK growth | Additional bindings and optional ASGI/stream adapters | Independent authority, cancellation, backpressure, replay and resource tests for each surface |
 
 Core features span all six phases. The delivery review found no unimplemented
-required surface; optional adapters remain deferred. The
-[completion audit](007-embedded-python-audit.md) distinguishes component acceptance
-from the still-open reliability release gate:
+required surface; optional adapters remain deferred. The shared release gate
+is diagnosis of the preserved historical delivery, consumer-admission and
+clock/replay failures. Component acceptance does not close that reliability gate:
 
 | Phase | Current assessment | Gate still open |
 | --- | --- | --- |
-| M0 | Bootstrap, invocation pump, authority and cancellation implemented; complete Linux matrix passes in both ABIs at 85cdef4 | No missing feature identified; shared release gate Q12 remains |
-| M1 | HTTP, pinned native packages, bounds and sanitized failures implemented; complete Linux matrix passes in both ABIs at 85cdef4 | No missing feature identified; shared release gate Q12 remains |
-| M2 | All S01–S09 storage/alarm requirements have direct evidence; complete Linux regressions pass | No missing feature identified; shared release gate Q12 remains |
+| M0 | Bootstrap, invocation pump, authority and cancellation implemented; complete Linux matrix passes in both ABIs at 85cdef4 | No missing feature identified; shared reliability release gate remains |
+| M1 | HTTP, pinned native packages, bounds and sanitized failures implemented; complete Linux matrix passes in both ABIs at 85cdef4 | No missing feature identified; shared reliability release gate remains |
+| M2 | Storage, atomic batches, alarms, proof and receipt recovery have direct evidence; complete Linux regressions pass | No missing feature identified; shared reliability release gate remains |
 | M3 | Fencing, retirement, takeover and supervised noncooperative shutdown implemented; lease and reset/read corrections have direct evidence; complete Linux regressions pass | Diagnose preserved delivery, initial consumer admission and clock/replay failures without weakening assertions |
-| M4 | Verified packaging, native prerequisites, offline restoration and process replacement pass locally and in all four complete Linux jobs at 85cdef4 | No missing feature identified; shared release gate Q12 remains |
-| M5 | KV, shared SQL, queues and cron implemented with independent failure matrices; measured defaults and complete Linux regressions pass in both ABIs | Optional ASGI/streaming remain deferred; shared release gate Q12 remains |
+| M4 | Verified packaging, native prerequisites, offline restoration and process replacement pass locally and in all four complete Linux jobs at 85cdef4 | No missing feature identified; shared reliability release gate remains |
+| M5 | KV, shared SQL, queues and cron implemented with independent failure matrices; measured defaults and complete Linux regressions pass in both ABIs | Optional ASGI/streaming remain deferred; shared reliability release gate remains |
 
 Qualification of source 97be2cc completes the Linux installed-package step in
 both push ABI jobs and the conventional PR job. The PR free-threaded job fails
@@ -570,8 +570,8 @@ historical lifecycle failure. A bounded native cause diagnostic and opt-in Linux
 fresh-fixture consumer replay mode target the preserved initial admission refusal;
 passing repetitions alone cannot establish its cause.
 
-Prioritize the audit's [current work](007-embedded-python-audit.md#current-work)
-before adding more surfaces. A gate closes only with its stated evidence on
+Prioritize delivery and review of the implemented runtime, SDK and packaging,
+then resolve the preserved reliability failures before adding more surfaces. A gate closes only with its stated evidence on
 the relevant source, threading ABI and platform; a historical successful CI run
 does not qualify later changes.
 
@@ -587,11 +587,11 @@ exercise actual operations, blocking behavior and teardown rather than import
 alone. Establish native Rust versus Python adapter latency, throughput, memory,
 copying and recovery baselines without claiming a performance target in advance.
 
-The [recorded development baselines](007-embedded-python-baselines.md) now
-provide matched CPython 3.14.5/3.14.5t and native-only measurements, repeated raw
-request evidence, memory/copy observations and bucket-only owner-loss recovery.
-They state the shared-machine load and development-store limits explicitly;
-remaining qualification gates are tracked independently in the audit.
+The [baseline harness](../tools/python/baseline.md) produces matched Python and
+native-only measurements, per-request results, memory/copy observations and
+bucket-only owner-loss recovery. Generate reports outside the source tree and
+record the exact build, runtime, shared-machine load and development-store scope.
+These measurements do not close the reliability release gate.
 
 ## Alternatives and decisions still needing evidence
 
@@ -610,8 +610,8 @@ remaining qualification gates are tracked independently in the audit.
 
 Accepted bootstrap, bridge, retirement, combined reporting and deployment
 decisions are recorded in [ADR 004](../docs/adr/004-embedded-python.md). The
-[completion audit](007-embedded-python-audit.md) retains the remaining direct
-evidence gates for those contracts; accepting a design does not qualify every
+[milestones and acceptance gates](#implementation-milestones-and-acceptance-gates)
+retain the remaining qualification requirements for those contracts; accepting a design does not qualify every
 failure, package or platform.
 
 ## References and planning validation

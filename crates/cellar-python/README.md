@@ -289,7 +289,7 @@ The target's matching libpython/PyO3 cross-build configuration is still required
 Paths must exist on the running target and the actual ABI is checked before app
 imports. Main-thread ownership checks currently support Linux and macOS. Platform
 qualification and verified deployment closure work remain tracked in the
-[completion audit](../../plans/007-embedded-python-audit.md).
+[implementation plan](../../plans/007-embedded-python-pyo3.md#implementation-milestones-and-acceptance-gates).
 
 Public Python APIs include type annotations. `loop.shutdown_asyncgens()` and the managed executor are closed while the loop remains alive. Background exceptions trigger a sanitized runtime failure; exception repr and traceback data are not logged by the runner. The report covers runtime-owned work and explicitly recorded native nodes; it does not certify arbitrary raw Python/native threads or the process-wide heap.
 
@@ -358,8 +358,9 @@ before interpreter initialization and after joined cleanup. Probes run outside
 node execution and interpreter ticks. Unavailable probes are `None`. Growth
 includes the host, interpreter, imports and caches. CPython remains initialized;
 libc/jemalloc counters exclude private allocators and are not Python heap limits.
-Measured Rust/Python performance baselines and remaining qualification still
-belong to the [completion audit](../../plans/007-embedded-python-audit.md).
+Use the [baseline harness](../../tools/python/baseline.md) to measure native/Python
+performance. Remaining qualification gates are listed in the
+[implementation plan](../../plans/007-embedded-python-pyo3.md#implementation-milestones-and-acceptance-gates).
 
 Unraisable exceptions (including destructor failures) and unhandled Python thread
 exceptions produce failure counts and an incomplete runtime report. Default
