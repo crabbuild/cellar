@@ -2006,3 +2006,22 @@ logic. CPU scheduling and storage latency are not distinguished by this trace.
 No production fix, deadline increase, assertion relaxation or automatic mutation
 replay follows from that timing correlation. The original historical Linux
 clock/replay assertion and the other preserved causes remain open.
+
+## Exact replay fixture selection guard
+
+The [selection oracle](evidence/python-replay-selection-2026-10-20.json) proves
+a diagnostic false green: replacing only a whitelisted fixture-name literal with
+a nonexistent exact name makes real Cargo/libtest run zero tests and exit
+successfully, which the previous driver accepted. The corrected driver lists the
+exact target and requires one matching test before starting its replay loop. The
+same missing-fixture fault now refuses before any fixture executes.
+
+Both valid consumer/clock selections pass through the corrected driver. Seven
+invalid-input cases still refuse before creating fixture roots, and accepted
+upper bounds propagate two actual Cargo target failures during preflight. All
+20 complete qualification step bodies and the 90-minute budget are unchanged.
+The original published 100-fixture result remains valid: its retained raw log
+independently proves 100 one-test passes. This correction protects future
+diagnostic qualification; it changes no native runtime behavior or assertion,
+and supplies no cause for a preserved historical native failure. Linux execution
+of the local diagnostic follow-up remains open.

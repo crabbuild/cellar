@@ -45,6 +45,10 @@ native cause log and failure JSON. Each repetition is a new fixture; it does not
 repeat a claiming request against a live application. Native assertions and
 request/lease deadlines stay unchanged.
 
+Before replay, the driver requires the exact fixture name to select one test.
+A missing or renamed fixture refuses qualification; libtest's successful exit
+after selecting zero tests cannot produce an accepted campaign.
+
 ```sh
 gh workflow run native-sdk.yml --ref YOUR_BRANCH \
   -f mode=consumer-replay -f repetitions=20

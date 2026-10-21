@@ -212,9 +212,13 @@ jobs:
           root = Path(os.environ["CELLAR_NATIVE_REPLAY_ROOT"])
           root.mkdir(parents=True, exist_ok=True)
           environment = dict(os.environ, TMPDIR=str(root))
-          command = ["cargo", "test", "-p", "cellar", "--all-features", "--test", "native_node", "--locked", "--",
-                     f"node_events::event_refusal_clock::{fixture}",
-                     "--exact", "--nocapture", "--test-threads=1"]
+          command = ["cargo", "test", "-p", "cellar", "--all-features", "--test", "native_node", "--locked", "--"]
+          selected = f"node_events::event_refusal_clock::{fixture}"
+          listed = subprocess.run(command + [selected, "--exact", "--list"], check=True,
+                                  env=environment, stdout=subprocess.PIPE, text=True)
+          if listed.stdout.splitlines().count(f"{selected}: test") != 1:
+              raise SystemExit("Native replay fixture did not select exactly one test")
+          command += [selected, "--exact", "--nocapture", "--test-threads=1"]
           for iteration in range(repetitions):
               print(f"Fresh {mode} fixture {iteration + 1}/{repetitions}", flush=True)
               subprocess.run(command, check=True, env=environment)
