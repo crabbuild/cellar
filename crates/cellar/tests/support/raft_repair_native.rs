@@ -163,7 +163,7 @@ pub(super) async fn leadership_transfer_checks_progress() -> Result<()> {
         expected_term: before.term,
         expected_revision: before.membership_revision,
     };
-    for refused in [
+    for (index, refused) in [
         request,
         LeadershipTransfer {
             expected_term: Term::new(before.term.get() + 1),
@@ -181,11 +181,21 @@ pub(super) async fn leadership_transfer_checks_progress() -> Result<()> {
             target: MemberId::new(999)?,
             ..request
         },
-    ] {
-        ensure!(cells[primary]
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let result = cells[primary]
             .transfer_leadership(refused, Duration::from_secs(2))
-            .await
-            .is_err());
+            .await;
+        if index == 0 {
+            ensure!(
+                matches!(result, Err(CommandFailure::Overloaded)),
+                "lagging target must yield a retryable readiness refusal: {result:?}"
+            );
+        } else {
+            ensure!(result.is_err());
+        }
     }
     let after = cells[primary].status().await?;
     ensure!(

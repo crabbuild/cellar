@@ -2825,7 +2825,9 @@ impl Driver {
                 } else {
                     result.map_err(|error| match error {
                         RuntimeError::NotLeader => CommandFailure::NotLeader { leader: None },
-                        RuntimeError::Overloaded => CommandFailure::Overloaded,
+                        RuntimeError::Overloaded | RuntimeError::NotReady => {
+                            CommandFailure::Overloaded
+                        }
                         _ => CommandFailure::Unavailable,
                     })
                 };
