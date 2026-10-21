@@ -688,6 +688,10 @@ impl RaftClass {
         !self.system_commands.is_empty()
     }
 
+    pub(crate) fn has_queries(&self) -> bool {
+        !self.queries.is_empty()
+    }
+
     pub(crate) fn validate_system_operation(
         &self,
         contract: &OperationContract,

@@ -46,6 +46,8 @@ mod directory;
 mod inspection;
 #[path = "host_leader_load.rs"]
 mod load;
+#[path = "host_readiness.rs"]
+mod readiness;
 pub use load::RaftInspectionScanOptions;
 #[path = "host_membership.rs"]
 mod membership;
@@ -1368,12 +1370,12 @@ impl Driver {
                     .get(&read.request.scope)
                     .is_some_and(|cell| status.replica == *cell.group.identity()) =>
             {
-                let deadline = status
-                    .source_observed_ms
-                    .filter(|at| *at <= now)
-                    .and_then(|at| at.checked_add(self.options.stale_source_timeout_ms));
-                if deadline.is_some_and(|deadline| now < deadline) {
-                    read.source_deadline = deadline;
+                if let Some(deadline) = super::query::recent_source_deadline(
+                    status.source_observed_ms,
+                    now,
+                    self.options.stale_source_timeout_ms,
+                ) {
+                    read.source_deadline = Some(deadline);
                     read.phase = ReadPhase::Image;
                 } else {
                     self.finish_read(&id, Err(CommandFailure::VersionUnavailable));
@@ -1977,11 +1979,32 @@ impl Driver {
             Ok(status)
         });
         if let StatusPurpose::Observe(mut request) = purpose {
-            let result = accepted.map(|status| {
-                Response::Status(client::CellStatus {
+            let result = accepted.and_then(|status| {
+                let now = self
+                    .log
+                    .domain()
+                    .mono_ms()
+                    .map_err(|_| RuntimeError::Closed)?;
+                let registered_queries = self
+                    .local
+                    .bindings
+                    .get(&(scope.namespace, scope.cell.clone()))
+                    .is_some_and(|binding| binding.class.has_queries());
+                let (role, queries) = readiness::capture(
+                    cell,
+                    &status,
+                    now,
+                    self.options.stale_source_timeout_ms,
+                    self.local.admission.is_draining(),
+                    registered_queries,
+                )?;
+                Ok(Response::Status(client::CellStatus {
+                    role,
+                    queries,
                     leader: status.leader.and_then(|id| MemberId::new(id).ok()),
                     term: status.term,
-                    command_ready: cell.pending.is_none()
+                    command_ready: role == crate::application::consensus::RaftReplicaRole::Leader
+                        && cell.pending.is_none()
                         && cell.incoming.is_none()
                         && cell.core.authority().is_some()
                         && status.protocol_ready
@@ -2000,7 +2023,7 @@ impl Driver {
                     archived: cell.archived,
                     membership_revision: status.membership_revision,
                     member_high_water: status.member_high_water,
-                })
+                }))
             });
             reply(
                 &mut request,

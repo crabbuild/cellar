@@ -136,6 +136,8 @@ pub struct QueryResult {
 /// Discovery/readiness observation, never a grant of mutation authority.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CellStatus {
+    pub role: super::RaftReplicaRole,
+    pub queries: super::RaftQueryReadiness,
     pub leader: Option<MemberId>,
     pub term: Term,
     pub command_ready: bool,

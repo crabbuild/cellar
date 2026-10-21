@@ -6,6 +6,8 @@
 pub(crate) mod admission;
 mod class;
 pub(crate) mod client;
+mod readiness;
+pub use readiness::{RaftQueryReadiness, RaftReplicaRole};
 pub(crate) mod protocol;
 
 pub use crate::raft::archive::ArchiveLimits;

@@ -251,6 +251,7 @@ type JoinedResumeCheck =
 
 enum ExtraNode<'a> {
     None,
+    InitialLearner,
     QueryRouter(&'a [(ClusterId, NamespaceId)]),
     Standby(Option<Arc<dyn cellar_ltx::FileSystem>>),
     Resume {
@@ -302,6 +303,42 @@ impl Cluster {
             tick_ms,
             host,
             ExtraNode::None,
+            TransportOptions::default(),
+            None,
+        )
+        .await
+    }
+
+    #[allow(dead_code)]
+    pub async fn start_with_initial_learner(
+        definitions: &[public_node::Counter],
+        registrations: Vec<RaftCellRegistration>,
+        tick_ms: u64,
+        host: RaftHostOptions,
+    ) -> Result<Self> {
+        let learner = NodeId::new([4; 16])?;
+        ensure!(
+            !registrations.is_empty()
+                && registrations.iter().all(|registration| {
+                    registration
+                        .birth
+                        .learners
+                        .iter()
+                        .any(|member| member.member.get() == 4 && member.node == learner)
+                        && !registration
+                            .birth
+                            .voters
+                            .iter()
+                            .any(|member| member.member.get() == 4 || member.node == learner)
+                }),
+            "fourth fixture replica must be an initial learner"
+        );
+        Self::start_layout(
+            definitions,
+            registrations,
+            tick_ms,
+            host,
+            ExtraNode::InitialLearner,
             TransportOptions::default(),
             None,
         )
@@ -522,8 +559,9 @@ impl Cluster {
         transport: TransportOptions,
         store: Option<Arc<dyn object_store::ObjectStore>>,
     ) -> Result<Self> {
+        let initial_learner = matches!(&extra, ExtraNode::InitialLearner);
         let (namespaces, standby_node, resume, filesystem) = match extra {
-            ExtraNode::None => (None, false, None, None),
+            ExtraNode::None | ExtraNode::InitialLearner => (None, false, None, None),
             ExtraNode::QueryRouter(namespaces) => (Some(namespaces), false, None, None),
             ExtraNode::Standby(filesystem) => (None, true, None, filesystem),
             ExtraNode::Resume {
@@ -543,7 +581,7 @@ impl Cluster {
         let target_first = resume
             .as_ref()
             .is_some_and(|(_, _, _, _, target_first)| *target_first);
-        let count = if namespaces.is_some() || standby_node || resuming {
+        let count = if namespaces.is_some() || standby_node || resuming || initial_learner {
             4
         } else {
             3
@@ -682,7 +720,7 @@ impl Cluster {
                     .map(|mut registration| {
                         if let Some(placements) = &placements {
                             registration.placement = placements[i];
-                        } else if i == 3 {
+                        } else if i == 3 && !initial_learner {
                             registration.placement = RaftCellPlacement::QueryRouter {
                                 leader_hint: Some(MemberId::new(1).unwrap()),
                             };

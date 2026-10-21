@@ -8,6 +8,8 @@ mod ordinary_context;
 #[allow(dead_code)]
 #[path = "support/raft_node.rs"]
 mod public_node;
+#[path = "support/raft_readiness_native.rs"]
+mod readiness;
 #[path = "support/raft_catalog_fault.rs"]
 mod store;
 
@@ -20,6 +22,16 @@ use std::{
 };
 
 type Query = dyn for<'a> Fn(&QueryContext<'a>, &[u8]) -> Result<Vec<u8>> + Send + Sync;
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn native_readiness_reports_voters_learners_and_empty_image() -> Result<()> {
+    readiness::voter_learner_and_empty().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn native_readiness_distinguishes_historical_and_recent_source() -> Result<()> {
+    readiness::historical_without_recent_source().await
+}
 
 fn counter(query: Arc<Query>) -> Result<public_node::Counter> {
     counter_query(Some(query))
@@ -253,12 +265,19 @@ fn routed(receipt: &CommandReceipt, member: usize, fallback: bool) -> QueryOptio
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
 async fn fallback_preserves_contract() -> Result<()> {
-    let fixture = Fixture::start(Arc::new(get)).await?;
-    let primary = leader(&fixture.handles, None).await?;
+    let fixture = Fixture::start(Arc::new(get))
+        .await
+        .context("fallback fixture startup")?;
+    let primary = leader(&fixture.handles, None)
+        .await
+        .context("fallback initial leader")?;
     let source = (primary + 1) % 3;
     let target = (primary + 2) % 3;
     fixture.cluster.isolate_consensus(target).await?;
-    let newer = fixture.write(primary, 2, 4).await?;
+    let newer = fixture
+        .write(primary, 2, 4)
+        .await
+        .context("fallback committed command")?;
     assert_eq!(newer.result, 5_i64.to_be_bytes());
     // A real RPC can reach the isolated replica's older image. It must wait
     // for the exact token rather than answer its stale value of one.
@@ -278,7 +297,8 @@ async fn fallback_preserves_contract() -> Result<()> {
             vec![],
             routed(&newer, target, true),
         )
-        .await?;
+        .await
+        .context("minimum-version leader fallback")?;
     assert_eq!(read.result, 5_i64.to_be_bytes());
     assert_eq!(read.served_by, MemberId::new(primary as u64 + 1)?);
     assert!(read.version.covers(&newer.version)?);
@@ -286,7 +306,8 @@ async fn fallback_preserves_contract() -> Result<()> {
     strong.consistency = QueryConsistency::Linearizable;
     let read = fixture.handles[source]
         .query(fixture.definition.get.clone(), vec![], strong)
-        .await?;
+        .await
+        .context("linearizable leader fallback")?;
     assert_eq!(read.result, 5_i64.to_be_bytes());
     assert_eq!(read.served_by, MemberId::new(primary as u64 + 1)?);
     // The candidate's longer attempt budget and fallback cannot restart the
@@ -555,6 +576,7 @@ async fn voter_without_query_code_can_route_to_a_compatible_replica() -> Result<
     ];
     assert_eq!(definitions[0].schema, definitions[1].schema);
     let fixture = Fixture::start_definitions(definitions, RaftHostOptions::default()).await?;
+    readiness::without_query_code(&fixture.handles[0]).await?;
     assert!(matches!(
         fixture.handles[0]
             .query(

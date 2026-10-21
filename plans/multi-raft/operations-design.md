@@ -43,6 +43,34 @@ authority over retained Raft files. Re-enabling a compatible Raft definition
 uses the retained engine and a fresh process generation through normal resume;
 existing logical-history tokens remain scoped to that same history.
 
+## Local query readiness
+
+`RaftCellHandle.status()` reports the local replica role and query observations
+beside its exact published version. A leader is distinguished from other voters
+and learners. Outgoing voters remain voters during joint configuration; a
+configuration or term mismatch yields `Unknown`. Removed membership supplies no
+query readiness. A nonleader voter may be a follower, candidate or pre-candidate.
+
+`queries.coherent_image` requires agreement between the published image, durable
+apply marker and sampled runtime position. An empty history without an image is
+not query ready. `registered_queries` records local callback capability; a voter
+without query code can still replicate and route to a compatible serving node.
+`historical` additionally requires an unblocked local execution path, without
+drain, failure, retirement, incoming seed or unfinished apply/publication work.
+`recent_source` uses the same monotonic source-observation deadline as actual
+RecentSource query admission. Missing/future observations, overflow and the exact
+expiry boundary refuse freshness. The observation includes its source age and
+configured timeout.
+
+These fields are local hints at capture time. They do not reserve capacity,
+validate a future minimum-version token or prove a current quorum. Explicit
+disconnected historical reads can remain available after source freshness
+expires. Every linearizable query, including one served by a learner, still
+obtains a fresh ReadIndex barrier. `command_ready` retains the existing authority,
+pending-work, persistence and apply checks and additionally requires leader role.
+No node-wide healthy boolean hides unavailable cells; nonmember/query-router
+occupancy retains its separate typed inspection contract.
+
 ## Drain and leadership handoff
 
 The existing `ShutdownPolicy.total_ms` supplies one original Node deadline. The
@@ -127,8 +155,8 @@ evidence are refused by the receipt reader. The internal receipt marker stays
 
 The Node outcome formatter includes Raft results. Production CLI configuration
 and startup still require separate end-to-end Raft integration; the shared drain
-and formatter do not qualify that missing bootstrap path. Role/query readiness,
-resource inspection and other management surfaces remain MR-13 work.
+and formatter do not qualify that missing bootstrap path. Aggregate resource
+inspection and other management surfaces remain MR-13 work.
 
 After a stop:
 
