@@ -15,6 +15,9 @@ use sha2::{Digest, Sha256};
 use std::collections::VecDeque;
 use std::sync::Arc;
 
+#[path = "replica_leadership.rs"]
+mod leadership;
+
 pub(crate) struct Operations {
     owner: Arc<()>,
     next: u64,
@@ -239,6 +242,11 @@ impl Replica {
             return Err(RuntimeError::NotReady);
         }
         match action {
+            GroupAction::ReplicationStatus => self.replication_status().map(Response::Replication),
+            GroupAction::TransferLeadership(transfer) => {
+                self.transfer_leadership(transfer)?;
+                Ok(Response::Unit)
+            }
             GroupAction::Checkpoint(checkpoint) => {
                 if self.node.has_ready() || self.apply_ticket.is_some() || !self.apply.is_empty() {
                     return Err(RuntimeError::NotReady);
@@ -439,6 +447,9 @@ impl Replica {
             || !self.accepts_peer(message.from)
             || ::raft::raw_node::is_local_msg(message.get_msg_type())
             || message.get_msg_type() == MessageType::MsgPropose
+            // Transfers enter through the term/revision/progress checked
+            // owner action. No production follower forwards this local intent.
+            || message.get_msg_type() == MessageType::MsgTransferLeader
             || [
                 message.term,
                 message.log_term,

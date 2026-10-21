@@ -19,6 +19,11 @@ mod seed_fault;
 
 use cellar_logic::{consensus::*, raft_placement::*};
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn native_leadership_transfer_checks_progress() -> anyhow::Result<()> {
+    native_repairs::leadership_transfer_checks_progress().await
+}
+
 fn fixture() -> (PlacementView, Vec<NodeCapacity>, PlacementPolicy) {
     let nodes: Vec<_> = (1..=6)
         .map(|id| NodeCapacity {

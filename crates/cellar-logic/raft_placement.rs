@@ -115,7 +115,7 @@ fn domains(nodes: &[&NodeCapacity], policy: &PlacementPolicy) -> bool {
 }
 
 // Deterministic distribution for equal load; not a cryptographic identity.
-fn rank(scope: &GroupScope, node: NodeId) -> u64 {
+pub(crate) fn rank(scope: &GroupScope, node: NodeId) -> u64 {
     let mut hash = 0xcbf29ce484222325_u64;
     for bytes in [
         scope.cluster.bytes(),

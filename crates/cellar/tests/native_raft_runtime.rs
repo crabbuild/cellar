@@ -705,6 +705,19 @@ async fn snapshot_requires_verified_install() -> Result<()> {
 async fn malformed_peer_message_is_refused() -> Result<()> {
     let mut cluster = Cluster::new(3, &[10]).await?;
     cluster.elect(10, 0).await?;
+    let transfer = raft::prelude::Message {
+        from: 2,
+        to: 1,
+        msg_type: raft::prelude::MessageType::MsgTransferLeader,
+        ..Default::default()
+    };
+    assert!(
+        matches!(
+            cluster.hosts[0].runtime.step(&scope(10), transfer).await,
+            Err(RuntimeError::Invalid(_))
+        ),
+        "a peer frame bypassed the term/revision/progress transfer boundary"
+    );
     let mut message = raft::prelude::Message {
         from: 1,
         to: 2,

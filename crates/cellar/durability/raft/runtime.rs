@@ -20,6 +20,8 @@ use tokio::sync::{mpsc, oneshot};
 
 pub(crate) enum GroupAction {
     Campaign,
+    ReplicationStatus,
+    TransferLeadership(LeadershipTransfer),
     Checkpoint(Box<SnapshotCheckpoint>),
     Step(Message),
     Propose {
@@ -42,6 +44,7 @@ pub(crate) enum Response {
     Unit,
     Proposal(AcceptedProposal),
     Status(GroupStatus),
+    Replication(ReplicationStatus),
 }
 
 type Reply = oneshot::Sender<Result<Response, RuntimeError>>;
@@ -527,6 +530,31 @@ impl RaftRuntime {
             Response::Status(s) => Ok(s),
             _ => Err(RuntimeError::Protocol("status reply".into())),
         }
+    }
+
+    pub async fn replication_status(
+        &self,
+        scope: &GroupScope,
+    ) -> Result<ReplicationStatus, RuntimeError> {
+        match self
+            .group(scope, GroupAction::ReplicationStatus, 4096)
+            .await?
+        {
+            Response::Replication(status) => Ok(status),
+            _ => Err(RuntimeError::Protocol("replication status reply".into())),
+        }
+    }
+
+    /// Request transfer only from the expected current leader/configuration to
+    /// a caught-up voter. A lost response does not prove no transfer occurred.
+    pub async fn transfer_leadership(
+        &self,
+        scope: &GroupScope,
+        transfer: LeadershipTransfer,
+    ) -> Result<(), RuntimeError> {
+        self.group(scope, GroupAction::TransferLeadership(transfer), 4096)
+            .await
+            .map(|_| ())
     }
 
     pub async fn attach(&self, scope: &GroupScope) -> Result<(), RuntimeError> {

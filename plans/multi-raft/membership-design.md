@@ -108,6 +108,24 @@ actual caught-up progress. Bound transfers per interval and apply a load
 threshold/deadband so stale samples cannot cause oscillation. Transfer requests
 are requests to the consensus owner, never changes to external routing authority.
 
+The implemented native transfer primitive binds expected term/configuration and
+rechecks current-voter status, recent activity and actual matched progress at the
+serialized Raft owner. It refuses an active repair, joint state, pending
+configuration or transfer. A success acknowledges admission, without promising
+election. Peer `MsgTransferLeader` frames are refused so they cannot bypass this
+boundary. Native verification isolates a follower, commits newer state, refuses
+movement, heals/catches up, then elects the requested voter and resumes writes
+and causal follower reads.
+
+The implemented pure leadership planner requires fresh compatible target
+observations and both matched/applied progress at the inspected commit cut. It
+compares exact leader-count/capacity ratios, applies a configurable utilization
+deadband and consumes a minimum interval even for failed attempts. Normal moves
+strictly reduce the two nodes' peak utilization without reversing their relative
+load. Draining bypasses only the pressure threshold. The future controller must
+provide fresh receiver-local samples and revalidate at the owning runtime;
+planner output supplies no authority or automatic scheduling by itself.
+
 ## Completion gates
 
 The seven MR-11 manifest cases remain required. Native qualification must include

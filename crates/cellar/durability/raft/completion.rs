@@ -109,6 +109,34 @@ pub struct AcceptedProposal {
     pub entry_digest: [u8; 32],
 }
 
+/// A request to Raft's current leader, never an external routing change.
+/// Acceptance does not establish that the target won an election.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LeadershipTransfer {
+    pub target: MemberId,
+    pub expected_term: Term,
+    pub expected_revision: LogIndex,
+}
+
+/// Leader-local replication observations. These are neither apply nor quorum
+/// proofs; the owner rechecks actual progress when accepting a transfer.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ReplicationStatus {
+    pub replica: ReplicaIdentity,
+    pub term: Term,
+    pub membership_revision: LogIndex,
+    pub committed: LogIndex,
+    pub members: Vec<MemberProgress>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MemberProgress {
+    pub member: MemberId,
+    pub matched: LogIndex,
+    pub voter: bool,
+    pub recent_active: bool,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct GroupStatus {
     pub membership_revision: LogIndex,

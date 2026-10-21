@@ -96,6 +96,163 @@ impl Setup {
 mod crashes;
 pub(super) use crashes::joint_plan_process_kill_resume;
 
+pub(super) async fn leadership_transfer_checks_progress() -> Result<()> {
+    let Setup {
+        definitions,
+        registration,
+        entered: _entered,
+        ..
+    } = Setup::new()?;
+    let cluster =
+        cluster::Cluster::start(&definitions[..3], vec![registration.clone()], 100).await?;
+    let cells = cluster
+        .services
+        .iter()
+        .map(|service| {
+            service.cell(
+                registration.namespace.namespace,
+                &registration.birth.scope.cell,
+            )
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let primary = leader(&cells).await?;
+    let first = cells[primary]
+        .command(
+            definitions[primary].increment.clone(),
+            5_i64.to_be_bytes().to_vec(),
+            public_node::options(1)?,
+        )
+        .await?;
+    for (cell, definition) in cells.iter().zip(&definitions) {
+        cell.query(
+            definition.get.clone(),
+            vec![],
+            QueryOptions {
+                consistency: QueryConsistency::AtLeast(first.version_token.clone()),
+                ..Default::default()
+            },
+        )
+        .await?;
+    }
+    let target = (primary + 1) % 3;
+    cluster.isolate_consensus(target).await?;
+    let receipt = cells[primary]
+        .command(
+            definitions[primary].increment.clone(),
+            1_i64.to_be_bytes().to_vec(),
+            public_node::options(2)?,
+        )
+        .await?;
+    let before = cells[primary].status().await?;
+    let progress = cells[primary].replication_status().await?;
+    let target_member = MemberId::new(target as u64 + 1)?;
+    ensure!(progress
+        .members
+        .iter()
+        .any(|p| p.member == target_member && p.matched < progress.committed));
+    let request = LeadershipTransfer {
+        target: target_member,
+        expected_term: before.term,
+        expected_revision: before.membership_revision,
+    };
+    for refused in [
+        request,
+        LeadershipTransfer {
+            expected_term: Term::new(before.term.get() + 1),
+            ..request
+        },
+        LeadershipTransfer {
+            expected_revision: LogIndex::new(before.membership_revision.get() + 1),
+            ..request
+        },
+        LeadershipTransfer {
+            target: MemberId::new(primary as u64 + 1)?,
+            ..request
+        },
+        LeadershipTransfer {
+            target: MemberId::new(999)?,
+            ..request
+        },
+    ] {
+        ensure!(cells[primary]
+            .transfer_leadership(refused, Duration::from_secs(2))
+            .await
+            .is_err());
+    }
+    let after = cells[primary].status().await?;
+    ensure!(
+        after.command_ready
+            && after.term == before.term
+            && after.membership_revision == before.membership_revision
+    );
+    cluster.heal();
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            if cells[primary].replication_status().await.is_ok_and(|p| {
+                p.members.iter().any(|m| {
+                    m.member == target_member && m.recent_active && m.matched >= p.committed
+                })
+            }) {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await?;
+    let read = cells[target]
+        .query(
+            definitions[target].get.clone(),
+            vec![],
+            QueryOptions {
+                consistency: QueryConsistency::AtLeast(receipt.version_token.clone()),
+                ..Default::default()
+            },
+        )
+        .await?;
+    assert_eq!(read.result, 6_i64.to_be_bytes());
+    cells[primary]
+        .transfer_leadership(request, Duration::from_secs(2))
+        .await?;
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            if cells[target]
+                .status()
+                .await
+                .is_ok_and(|s| s.command_ready && s.term > before.term)
+            {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await?;
+    ensure!(!cells[primary].status().await?.command_ready);
+    let final_receipt = cells[target]
+        .command(
+            definitions[target].increment.clone(),
+            2_i64.to_be_bytes().to_vec(),
+            public_node::options(3)?,
+        )
+        .await?;
+    assert_eq!(final_receipt.result, 8_i64.to_be_bytes());
+    let old_read = cells[primary]
+        .query(
+            definitions[primary].get.clone(),
+            vec![],
+            QueryOptions {
+                consistency: QueryConsistency::AtLeast(final_receipt.version_token),
+                ..Default::default()
+            },
+        )
+        .await?;
+    assert_eq!(old_read.result, 8_i64.to_be_bytes());
+    ensure!(cells[primary]
+        .transfer_leadership(request, Duration::from_secs(2))
+        .await
+        .is_err());
+    cluster.close().await
+}
+
 impl Fixture {
     async fn new(s3: bool) -> Result<Self> {
         Self::new_with_store(s3, None).await
@@ -251,6 +408,22 @@ pub(super) async fn learner_before_promotion() -> Result<()> {
     let f = Fixture::new(false).await?;
     f.fail_obsolete().await?;
     let started = f.begin().await?;
+    let current = f.handles[f.primary].status().await?;
+    let healthy = (0..3).find(|i| *i != f.primary && *i != f.failed).unwrap();
+    ensure!(
+        f.handles[f.primary]
+            .transfer_leadership(
+                LeadershipTransfer {
+                    target: MemberId::new(healthy as u64 + 1)?,
+                    expected_term: current.term,
+                    expected_revision: current.membership_revision,
+                },
+                Duration::from_secs(2)
+            )
+            .await
+            .is_err(),
+        "leadership balancing competed with an active repair"
+    );
     let result = f.handles[f.primary]
         .advance_repair(
             f.plan.id,

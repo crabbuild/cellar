@@ -251,6 +251,38 @@ pub struct RaftCellHandle {
 }
 
 impl RaftCellHandle {
+    /// Inspect bounded leader-local replication progress. This grants no
+    /// quorum, apply, seeding or membership authority.
+    pub fn replication_status(
+        &self,
+    ) -> impl Future<Output = Result<super::ReplicationStatus, CommandFailure>> + Send + 'static
+    {
+        let call = self.call(Kind::ReplicationStatus, Duration::from_secs(5));
+        async move {
+            match call.await? {
+                Response::Replication(status) => Ok(status),
+                _ => Err(CommandFailure::CorruptState),
+            }
+        }
+    }
+
+    /// Request movement to a caught-up current voter. Success is admission
+    /// only; observe the newly elected leader separately. Unavailable or a lost
+    /// response does not establish that the transfer did not occur.
+    pub fn transfer_leadership(
+        &self,
+        transfer: super::LeadershipTransfer,
+        timeout: Duration,
+    ) -> impl Future<Output = Result<(), CommandFailure>> + Send + 'static {
+        let call = self.call(Kind::TransferLeadership(transfer), timeout);
+        async move {
+            match call.await? {
+                Response::LeadershipRequested => Ok(()),
+                _ => Err(CommandFailure::CorruptState),
+            }
+        }
+    }
+
     pub(crate) fn prepare_seed(
         &self,
         target: cellar_logic::consensus::ReplicaIdentity,
@@ -509,8 +541,16 @@ impl RaftCellHandle {
                         }
                     }
                 }
-                Kind::Status | Kind::RepairStatus => {
+                Kind::Status | Kind::RepairStatus | Kind::ReplicationStatus => {
                     if self.binding.member.is_none() {
+                        return Err(CommandFailure::UnsupportedCapability);
+                    }
+                }
+                Kind::TransferLeadership(transfer) => {
+                    if self.binding.member.is_none()
+                        || transfer.expected_term.get() == 0
+                        || transfer.expected_revision.get() == 0
+                    {
                         return Err(CommandFailure::UnsupportedCapability);
                     }
                 }
@@ -608,6 +648,8 @@ pub(crate) struct Work {
 }
 
 pub(crate) enum Kind {
+    ReplicationStatus,
+    TransferLeadership(super::LeadershipTransfer),
     BeginRepair {
         plan: crate::raft::member_state::RepairPlan,
     },
@@ -649,6 +691,8 @@ impl Kind {
             | Self::Seed { .. }
             | Self::BeginRepair { .. }
             | Self::AdvanceRepair { .. }
+            | Self::ReplicationStatus
+            | Self::TransferLeadership(_)
             | Self::RepairStatus => 0,
         }
     }
@@ -661,6 +705,8 @@ impl Kind {
             | Self::AddLearner { .. }
             | Self::BeginRepair { .. }
             | Self::AdvanceRepair { .. }
+            | Self::ReplicationStatus
+            | Self::TransferLeadership(_)
             | Self::RepairStatus => CancelFailure::Status,
         }
     }
@@ -684,6 +730,8 @@ impl CancelFailure {
 }
 
 pub(crate) enum Response {
+    Replication(super::ReplicationStatus),
+    LeadershipRequested,
     Repair(Option<crate::raft::member_state::RepairStatus>),
     Seed(Box<crate::raft::transport::seeds::SourceSeed>),
     Learner(LearnerReceipt),

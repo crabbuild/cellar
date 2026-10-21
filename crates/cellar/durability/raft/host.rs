@@ -792,6 +792,10 @@ enum SqlPurpose {
 }
 
 enum Job {
+    Leadership {
+        request: Box<Request>,
+        result: Result<Response, RuntimeError>,
+    },
     SeedArchive {
         id: ReadId,
         result: Box<Result<Option<super::archive::ArchiveMetadata>, ArchiveError>>,
@@ -1496,6 +1500,44 @@ impl Driver {
             return;
         }
         match std::mem::replace(&mut request.kind, Kind::Status) {
+            Kind::ReplicationStatus => {
+                let runtime = self.runtime.clone();
+                self.jobs.push(Box::pin(async move {
+                    let result = runtime
+                        .replication_status(&scope)
+                        .await
+                        .map(Response::Replication);
+                    Job::Leadership {
+                        request: Box::new(request),
+                        result,
+                    }
+                }));
+            }
+            Kind::TransferLeadership(transfer) => {
+                if cell.pending.is_some() || cell.configuration.is_some() || cell.incoming.is_some()
+                {
+                    reply(&mut request, Err(CommandFailure::Unavailable));
+                    return;
+                }
+                if !request.control.begin_submission() {
+                    return;
+                }
+                let runtime = self.runtime.clone();
+                self.jobs.push(Box::pin(async move {
+                    let result = if request.control.cancelled() {
+                        Err(RuntimeError::Closed)
+                    } else {
+                        runtime
+                            .transfer_leadership(&scope, transfer)
+                            .await
+                            .map(|()| Response::LeadershipRequested)
+                    };
+                    Job::Leadership {
+                        request: Box::new(request),
+                        result,
+                    }
+                }));
+            }
             Kind::AddLearner { .. }
             | Kind::Seed { .. }
             | Kind::BeginRepair { .. }
@@ -2452,6 +2494,22 @@ impl Driver {
 
     fn on_job(&mut self, job: Job) {
         match job {
+            Job::Leadership {
+                mut request,
+                result,
+            } => {
+                let result = if request.control.cancelled() || self.closing.load(Ordering::Acquire)
+                {
+                    Err(CommandFailure::Unavailable)
+                } else {
+                    result.map_err(|error| match error {
+                        RuntimeError::NotLeader => CommandFailure::NotLeader { leader: None },
+                        RuntimeError::Overloaded => CommandFailure::Overloaded,
+                        _ => CommandFailure::Unavailable,
+                    })
+                };
+                reply(&mut request, result);
+            }
             Job::SeedArchive { id, result } => self.seed_archive(id, *result),
             Job::Configured { scope, result } => self.configured(scope, result),
             job @ (Job::SnapshotSent { .. }

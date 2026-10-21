@@ -629,6 +629,23 @@ failure. Existing plans and joint states must be reconciled first. The controlle
 and dynamic standby/process-view integration remain MR-11 work. Explicit native
 APIs and their tests do not establish automatic redundancy repair.
 
+`RaftCellHandle::replication_status` returns bounded leader-local matched
+positions and recent activity. These are observations, without apply or quorum
+proof. `transfer_leadership` requests movement to an existing voter at an exact
+term and configuration revision. The serialized owner refuses lagging or
+inactive targets, learners, joint configurations, active repairs and competing
+transfers. Ordinary peer frames cannot request a transfer around these checks.
+Success means the request was admitted; callers must observe the new leader
+separately. An unavailable response does not establish whether movement occurred.
+
+The dependency-free leadership planner checks fresh node load and applied/matched
+progress, respects a minimum interval between attempts, and uses an exact
+capacity-weighted deadband. Normal balancing must lower peak utilization without
+reversing the nodes' load order. Draining bypasses the load threshold while
+preserving target eligibility. Native tests cover refusal while a follower is
+isolated, caught-up movement after healing, subsequent writes/reads and refusal
+during an active repair. Automatic load collection and balancing remain open.
+
 This extends the internal protocol to
 `cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1`; numeric format markers stay 1.
 Earlier roots/state have no compatibility reader. Use a fresh experimental

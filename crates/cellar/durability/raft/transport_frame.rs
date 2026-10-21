@@ -374,7 +374,6 @@ pub(crate) fn classify(message: &Message) -> Result<Lane, TransportError> {
         | MsgRequestVoteResponse
         | MsgHeartbeat
         | MsgHeartbeatResponse
-        | MsgTransferLeader
         | MsgTimeoutNow
         | MsgReadIndex
         | MsgReadIndexResp
