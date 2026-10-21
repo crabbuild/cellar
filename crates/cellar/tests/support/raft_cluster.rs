@@ -358,6 +358,7 @@ impl Cluster {
         .await
     }
 
+    #[allow(dead_code)] // Shared with targets that do not run seed crash matrices.
     pub async fn start_seed_crash_fixture(
         definitions: &[public_node::Counter],
         registrations: Vec<RaftCellRegistration>,
@@ -376,6 +377,7 @@ impl Cluster {
         .await
     }
 
+    #[allow(dead_code)] // Shared with targets that do not run seed crash matrices.
     pub async fn resume_seed_crash_fixture(
         definitions: &[public_node::Counter],
         registrations: Vec<RaftCellRegistration>,
@@ -861,6 +863,7 @@ impl Cluster {
     }
 }
 
+#[allow(dead_code)] // Shared with targets that do not run seed crash matrices.
 fn copy_fixture_directory(from: &std::path::Path, to: &std::path::Path) -> Result<()> {
     let mut pending = vec![(from.to_path_buf(), to.to_path_buf())];
     let mut count = 0;
