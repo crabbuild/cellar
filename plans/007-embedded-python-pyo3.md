@@ -537,7 +537,7 @@ published source and remaining qualification:
 | M2 | All S01–S09 storage/alarm requirements have direct evidence within their stated scopes | Final-source regression qualification |
 | M3 | Fencing, retirement, takeover and supervised noncooperative shutdown implemented | Linux conventional delivery test reports a host deadline failure; identify its stage and diagnose preserved native failures |
 | M4 | Verified packaging, external prerequisite attestation, offline restoration and process replacement implemented and qualified locally in both ABIs | Qualify the new prerequisite schema on Linux and publish the remaining implementation |
-| M5 | KV, shared SQL, queues and cron implemented with independent local failure matrices | Measured shipping defaults and final-source qualification; optional ASGI/streaming remain deferred |
+| M5 | KV, shared SQL, queues and cron implemented with independent local failure matrices; shipping-default mixed workloads and saturation pass repeated optimized runs in both ABIs | Linux execution of the new default-limit workload and final-source qualification; optional ASGI/streaming remain deferred |
 
 At previous e9b8d15, both Linux workflows failed: the push conventional job in
 `--runtime-delivery` with `host_failed=true` and a deadline error; the PR

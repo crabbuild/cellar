@@ -141,3 +141,76 @@ bucket-backed output proof. This establishes a reproducible comparison for the
 stated workload and machine; it does not impose a performance target, qualify
 arbitrary packages, or complete the remaining authority/lifecycle/native-library
 and final CI gates in the [completion audit](007-embedded-python-audit.md).
+
+## Shipping-default mixed workload qualification
+
+The [default-limit harness](../tools/python/baseline.md#shipping-python-defaults)
+was measured separately at clean source
+`7d90f0c23b3c2f189d39839ae9972b7ea530f08c`, on the same macOS ARM64 machine,
+Rust 1.98.1 and optimized `lab` profile. Both hosts use matching provisioned
+CPython 3.14.5 builds; the free-threaded host remains GIL-off before/after load
+and recovery. One-minute load averages are approximately 2.17–2.94. These runs
+are separate from the earlier, busier comparison above.
+
+Three repetitions per ABI rotate runtime order, with forty measured operations
+per worker at concurrency 1, 4, 16 and 32. Each worker repeats empty echo,
+durable checked counter, 4,096-byte echo and bounded CPU work. All 12,720 mixed
+requests pass. All 3,180 acknowledged counter updates survive six killed owners
+and deletion of their local cell files; each replacement also accepts a further
+write to all 32 counters. Every replacement completely joins native/Python work
+with zero pending tasks, objects, managed threads, operations or reservations.
+
+Each of six cases accepts an exact 1,048,576-byte body and refuses the next byte.
+The independent saturation phase holds all 128 default Python invocation slots
+with 65,536-byte requests. A fresh interpreter snapshot directly observes full
+capacity, sixteen additional requests are refused specifically by Python
+invocation admission, all held requests complete and subsequent work succeeds.
+Across repeats, this proves 768 held completions and 96 excess refusals.
+
+| Runtime | Concurrency | Median per-run p50 (ms) | Median per-run p99 (ms) | Median requests/s |
+| --- | ---: | ---: | ---: | ---: |
+| conventional | 1 | 1.292 | 16.406 | 268.3 |
+| conventional | 4 | 1.321 | 24.331 | 799.1 |
+| conventional | 16 | 1.342 | 147.433 | 1215.4 |
+| conventional | 32 | 1.361 | 402.798 | 1319.7 |
+| free-threaded | 1 | 1.296 | 16.669 | 270.6 |
+| free-threaded | 4 | 1.339 | 25.652 | 791.7 |
+| free-threaded | 16 | 1.349 | 136.891 | 1072.9 |
+| free-threaded | 32 | 1.378 | 397.644 | 1210.7 |
+
+The mixed latency distribution includes durable counter I/O. The tail grows
+with concurrency even though median latency remains near the adapter's one-ms
+poll interval. The 128-invocation default is a finite overload ceiling, not a
+recommended sustained concurrency or throughput guarantee. The held saturation
+uses cooperative suspension, not 128 simultaneously CPU-intensive handlers.
+All Python limits remain unchanged; to reach Python admission independently,
+the fixture explicitly raises native stateless admission to 256 with zero wait.
+The five-second native handler budget, 64 resident-cell limit and private SQLite
+bucket are fixture policies, not an unchanged default production node.
+
+| Runtime | Median sampled RSS before kill (MiB) | Highest observed bridge reservation peak (MiB) | Median kill-to-verified-reads (ms) |
+| --- | ---: | ---: | ---: |
+| conventional | 145.50 | 8.026 | 4374.4 |
+| free-threaded | 150.53 | 7.776 | 4377.9 |
+
+RSS is process memory sampled after load/pressure, not a peak or per-cell heap
+bound. The bridge's 32-MiB default bounds owned transfer reservations, not total
+Python/native heap; this workload stays below it. Existing configured-limit
+tests separately exercise byte/task/object/mailbox/batch exhaustion. Mean
+explicit boundary copies per mixed request range from 1,583.8–1,584.4 input
+bytes and 1,793.0–1,794.2 output bytes across concurrency levels, including echo
+warmup; these exclude transport/codec/SQLite copies. Recovery includes the
+3,100-ms lease wait and all 32 cold reads.
+
+[Raw JSON, gzip](evidence/python-defaults-2026-10-20.json.gz) records effective
+limits, all attempts, observations, recovery receipts and executable digests.
+Its uncompressed SHA-256 is
+`5fee14e4173409f6ecefa8821ef668356f824a480c626b10d0b81825a0fbd1b2`.
+The conventional executable is
+`32be1e9e14223a582cb526cb17b931a844fadc0521d2bd0509f4ed34d963eea8`;
+the free-threaded executable is
+`549a5a962f429586277bdfd1d7a7d80d712ad2362b8d0e0c83a9a3bd01ee9bc3`.
+The report verifier accepts these complete raw results; six CLI regressions
+reject changed receipts/percentiles, missing observed saturation, incomplete
+native drain and pending operations under ordinary Python and `-O`. Linux
+execution and final-source release qualification remain separate audit gates.

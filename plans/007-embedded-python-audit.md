@@ -9,9 +9,10 @@ isolation and subinterpreters) remain deferred. Free-threaded CPython 3.14t was
 subsequently requested and is an additional supported build/qualification scope.
 
 Core deliverables now span M0–M5, including both CPython threading ABIs. The
-full objective is **not achieved**: Linux bootstrap privacy and delivery host-deadline
-failures, external native prerequisites, operating defaults and final-source qualification retain
-open gates. A verified row covers only its explicitly
+full objective is **not achieved**: preserved delivery/native lifecycle failures,
+Linux native-prerequisite qualification and final-source release evidence retain
+open gates. The bootstrap correction and measured defaults have direct evidence
+within the scopes below. A verified row covers only its explicitly
 stated evidence and scope.
 
 Status meanings: **partial** = some implementation/evidence exists;
@@ -52,7 +53,7 @@ Only a fresh, requirement-specific verification can mark a row **verified**.
 | H03 | Finite floats, integer range, keys, cycles and unsupported values | Codec boundary corpus and no mutation assertions | verified: real-node invalid-value corpus (nonfinite, int bounds, keys, unsupported, cycles, depth) has no mutation; valid boundaries round-trip |
 | H04 | Typed validation, conflict, expired/ownership, overload, ambiguity | Public Python error tests and native cause classifications | verified locally in both threading ABIs: public error classes, explicit outcomes and fixed messages retain codec/batch/conflict and real expiration/fencing coverage; real native residency exhaustion reaches Python as Overloaded/unknown before the target handler enters, then the same caller reuses its mutation reservation; failed output proof reaches a still-live caller as Ambiguous/unknown with one handler attempt and no replay; ownership routing classification is unit-tested. Some native bindings flatten internal causes: unavailable provenance remains unknown, never inferred rollback. Final Linux execution remains Q12 |
 | H05 | Cancellation stays cancellation; no blind retry | Cancel-before/after submission and ambiguous-result reconciliation | verified locally: independent KV/shared-SQL/producer cancellation before submission and during withheld native proof stays CancelledError, failed submitted proof remains Ambiguous/unknown and the adapter attempt count stays one; explicit reconciliation retains singular business effects; native consumer timeout also refuses late ack before same-ID redelivery; packaged S09 covers lost proof-gated response reconciliation; Q08 independently qualifies cron interruption |
-| H06 | Sanitized, bounded failures; no secrets/paths/stack locals | Sentinel request/exception/path tests on public response and logs | partial: published e9b8d15 leaks the bootstrap sentinel on Linux in both ABIs. CPython 3.14.8's unconditional pre-hook codec path dump is reproduced locally and contained by a scoped C-initialization stderr sink; all 36 bootstrap cases and complete adapter suites pass with conventional 3.14.8 and free-threaded 3.14.5t. Descriptor identity/flags and normal later stderr are preserved. Fresh Linux qualification remains required. Existing HTTP/nested failure evidence retains bounded fixed messages, exact committed effects and no replay. Typed Incomplete/native outcomes remain intact; arbitrary application/library output and pre-main OS loader diagnostics retain their documented trusted-process scope |
+| H06 | Sanitized, bounded failures; no secrets/paths/stack locals | Sentinel request/exception/path tests on public response and logs | partial: published e9b8d15 leaks the bootstrap sentinel on Linux in both ABIs. CPython 3.14.8's unconditional pre-hook codec path dump is reproduced locally and contained by a scoped C-initialization stderr sink; all 36 bootstrap cases and complete adapter suites pass with conventional 3.14.8 and free-threaded 3.14.5t. Descriptor identity/flags and normal later stderr are preserved. All four Linux adapter and installed-package jobs at published 9143fef pass; complete current-source qualification remains Q12. Existing HTTP/nested failure evidence retains bounded fixed messages, exact committed effects and no replay. Typed Incomplete/native outcomes remain intact; arbitrary application/library output and pre-main OS loader diagnostics retain their documented trusted-process scope |
 | H07 | Concurrent Python work during host await | Two-handler synchronization with one blocked host operation | verified: `host_await_progress` barrier test runs another handler during pending SDK fetch |
 | H08 | Native-extension representative execution and teardown | Pinned package matrix, real operations and joined report | verified for macOS ARM64/Linux x86_64 qualification: pinned Pydantic/core, NumPy, hashing and pure Python inspection perform real work; managed executor operations join and TERM/INT replacement reaps the old process with complete reports; arbitrary private native-library pools are explicitly outside in-process drain accounting; exact versions/platforms remain Q09 |
 
@@ -108,7 +109,7 @@ Only a fresh, requirement-specific verification can mark a row **verified**.
 
 | ID | Requirement | Authoritative evidence required | Current status |
 | --- | --- | --- | --- |
-| Q01 | Finite startup/request/body/value/depth/batch/mailbox/task/object/drain limits | Named limits, boundary tests, reservations released on every exit | partial: configured invocation/task/object/byte admission, operation mailbox capacity, response envelope and existing body/header/depth/batch/startup/drain limits have direct boundary tests; empty/oversized mailboxes refuse before bootstrap and task admission also covers empty-context callbacks; SDK-result envelope/depth boundaries now pass independently through native storage/SQL; shipping-default workload qualification remains |
+| Q01 | Finite startup/request/body/value/depth/batch/mailbox/task/object/drain limits | Named limits, boundary tests, reservations released on every exit | partial: configured invocation/task/object/byte admission, operation mailbox capacity, response envelope and existing body/header/depth/batch/startup/drain limits have direct boundary tests; empty/oversized mailboxes refuse before bootstrap and task admission also covers empty-context callbacks; SDK-result envelope/depth boundaries now pass independently through native storage/SQL; shipping-default mixed-load qualification now passes three optimized repetitions per ABI at clean source 7d90f0c, with 12,720 requests, actual 128-invocation saturation/refusal/reuse, exact body boundaries, 3,180 acknowledged updates recovered after owner kill/local disk deletion, and complete joins; raw evidence and scope are in the recorded baselines. Linux/final-source execution remains Q12 |
 | Q02 | Bounded backpressure both ways and cleanup accounting | Saturation/cancellation/failure tests with zero leaked reservations | verified locally for runtime-owned queues/reservations in both threading ABIs: independent real-node invocation, task, object, exact aggregate-byte and reply-channel saturation refuses excess work, releases/reuses capacity and keeps later work usable; full/closed operation mailbox tests release every event reservation; native-future/reply drop stages, binding proof faults, cancellation, 32-way mutation pressure and retirement/shutdown conserve all admitted operations with zero leaked reservations; trusted factory replacement/raw tasks/private pools remain outside cooperative admission |
 | Q03 | Queue, bridge, Python/Rust duration, copied bytes, allocations/RSS and cleanup metrics | Instrumented counters/histograms and live snapshot tests | verified locally: bounded queue/SDK/reply/round-trip histograms, explicit UTF-8 boundary-copy counters distinct from reservations, lifecycle conservation/gauges, live age-stamped interpreter/work snapshots, loop scheduling delay, optional traced allocation bytes and pre-interpreter/post-join RSS/jemalloc/libc samples; scope/exclusions documented; adapter matrix and pinned package smoke pass; cross-platform and performance baselines remain Q09/Q10/Q12 |
 | Q04 | Python CPU attributed separately; native accounting gaps disclosed | Separate measurements and documented coverage | verified locally: managed-loop thread CPU measured separately from Rust; handler duration/count and memory-snapshot assertions pass; exclusions for native/executor pools documented; cross-platform qualification remains Q09/Q12 |
@@ -132,9 +133,9 @@ qualification. Conventional and free-threaded CPython remain equal targets.
 
 | Order | Focus | Remaining gate and evidence |
 | --- | --- | --- |
-| 1 | Current Linux blockers | H06/Q12: qualify the local `private-init-failure` correction in both ABIs and localize/fix the conventional `--runtime-delivery` host deadline failure. Preserve captured failures and retain assertions/deadlines; prove corrections on the failing Linux configurations. Also resolve the preserved native lease/admission/drain failures. A passing retry alone does not explain a failure. |
+| 1 | Current Linux blockers | Q12: all four Linux adapter and installed-package jobs at 9143fef pass the bootstrap correction; complete workflows are still running. Localize/fix the preserved conventional `--runtime-delivery` host deadline failure. Preserve captured failures and retain assertions/deadlines; prove corrections on the failing Linux configurations. Also resolve the preserved native lease/admission/drain failures. A passing retry alone does not explain a failure. |
 | 2 | Finish deployment dependency closure | P02: review/publish the locally qualified implementation and run its Linux GNU-loader closure/refusal plus new-schema restoration/replacement matrix. Both ABI local fault/bootstrap/archive/handoff/supervisor gates, strict Clippy and native 87/87 pass. Preserve the earlier checker timeout and its measured fixture-profile correction. |
-| 3 | Measured operating defaults | Q01: use reproducible mixed workloads, increasing concurrency and saturation to justify shipping limits; record latency, memory, overload behavior and joined recovery in both ABIs. State the operating scope; existing development baselines are not production SLOs. |
+| 3 | Qualify operating defaults on Linux | Q01: three optimized repetitions per ABI now retain mixed-load latency, memory/copy observations, actual default admission/body boundaries, overload recovery and joined takeover. Run the new CI workload in both ABIs and preserve its stated development scope; measured concurrency is not a production SLO or maximum throughput guarantee. |
 | 4 | Final release evidence | Q12/Q14: run complete affected tests/lints, installed example, archive recovery and process replacement against the final source in both ABIs; publish exact versions/platforms and reconcile every remaining partial row. |
 
 Do not expand ASGI/streaming while these core gates remain. Those adapters are
@@ -1612,3 +1613,24 @@ percentiles, saturation observations, native drain and pending operations are
 refused. These smoke runs validate the harness, not capacity or production SLOs.
 Repeated optimized mixed-load measurements and final-source Linux execution
 remain required before closing Q01/Q12. See the [harness guide](../tools/python/baseline.md#shipping-python-defaults).
+
+At clean source 7d90f0c, all six optimized runs now complete: three repetitions
+per ABI, each with concurrency 1/4/16/32 and forty mixed operations per worker.
+All 12,720 mixed requests and 3,180 acknowledged durable updates pass; six
+killed-owner/local-disk-deletion takeovers retain the exact ledger and permit new
+writes. Actual default body boundaries and 128 held invocations pass in every
+case, including all 96 excess refusals, capacity reuse and combined joins.
+The [recorded measurements](007-embedded-python-baselines.md#shipping-default-mixed-workload-qualification)
+include compressed raw evidence, source/binary digests, memory/copy observations
+and rising latency tails. They establish the stated development workload,
+not production capacity or a bound on arbitrary Python heap/native pools.
+
+The exact new CI command also passes locally with a debug free-threaded host;
+all six CLI verifier tests pass on both measured and debug datasets, under
+ordinary Python and `-O`. The existing native/Python baseline smoke and its
+report verifier also pass with newly built debug hosts. Strict example Clippy
+passes for embedded free-threaded and native-only modes; the latter builds with
+a nonexistent interpreter. Format/layout, dependency graph and docs checks pass.
+Linux execution of the new workload, external-prerequisite schema and the
+preserved failure diagnoses remain open. The earlier 9143fef free-threaded push
+job is terminal success; the three other jobs are still running native examples.
