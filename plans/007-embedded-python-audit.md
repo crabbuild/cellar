@@ -134,7 +134,7 @@ qualification. Conventional and free-threaded CPython remain equal targets.
 
 | Order | Focus | Remaining gate and evidence |
 | --- | --- | --- |
-| 1 | P0: qualify the reset/read correction | Q12: the PR free-threaded job at 97be2cc refuses the final read-only audit during native reset. A controlled public Cell destruction barrier reproduces the same failure, and corrected bounded observation passes with one business attempt, acknowledged state, stale-context refusal and complete joins. Both local ABI suites/lints and three conventional repetitions pass. Publish the correction and require fresh Linux execution; all older 97be2cc jobs are terminal. |
+| 1 | P0: qualify the reset/read correction | Q12: the PR free-threaded job at 97be2cc refuses the final read-only audit during native reset. A controlled public Cell destruction barrier reproduces the same failure, and corrected bounded observation passes with one business attempt, acknowledged state, stale-context refusal and complete joins. Both local ABI suites/lints and three conventional repetitions pass. The correction is published in 85cdef4; fresh Linux qualification is running or queued, and all older 97be2cc jobs are terminal. |
 | 2 | P0: diagnose preserved reliability failures | M3/Q12: retain the earlier delivery deadline, initial consumer admission and clock/replay failures. The lease-floor correction has direct before/after proof, local native 88/88 and three complete Linux native 88/88 runs at 97be2cc. Isolated macOS consumer replays pass without reproducing the historical refusal. A bounded error-chain diagnostic and opt-in Linux fresh-fixture replay mode target the next occurrence. Keep separate causes, original deadlines/assertions and conservative mutation outcomes. |
 | 3 | P1: qualify one final source | Q01/Q12: complete all affected tests/lints and installed-package/refusal/offline restoration/replacement checks against the final source in both ABIs. The GNU packaging blocker is corrected and both ABI package steps pass at 97be2cc; operating-default workloads also pass there. These component results do not replace the final complete matrix. |
 | 4 | P1: publish acceptance and deployment scope | Q12/Q14: reconcile every partial row with exact source/runtime/platform evidence and update the existing draft PR. Preserve incomplete-drain and ambiguous-write semantics; development load measurements are not production SLOs or a throughput guarantee. |
@@ -1865,3 +1865,24 @@ separate diagnosis gates. A successful fresh run supplies regression evidence;
 it does not establish the cause of a preserved failure. The immediate focus is
 M3 reliability and one final-source M0–M5 qualification matrix. New optional
 ASGI/stream adapters remain deferred until these gates close.
+
+## Published correction and exact clock/receipt replays
+
+Source 85cdef4 publishes the reset/read correction, bounded native consumer cause
+diagnostic and isolated Linux replay workflow. Complete Linux qualification is
+submitted in [push 39548047580](https://github.com/crabbuild/cellar/actions/runs/39548047580)
+and [PR 39548052722](https://github.com/crabbuild/cellar/actions/runs/39548052722).
+The separate [100-fixture consumer investigation](https://github.com/crabbuild/cellar/actions/runs/39548056261)
+uses that exact source. These jobs remain nonterminal at this checkpoint; their
+submission does not close any acceptance gate.
+
+The [raw clock/receipt replays](evidence/python-clock-replay-2026-10-20.json.gz)
+record 20 serial executions of the exact preserved delayed-cold-read fixture on
+macOS ARM64, using Rust 1.98.1 and fresh private state. All pass in 355.056 seconds
+including Cargo startup. Each independently exercises the forced read deadline,
+recovers the proven clock before receipt reuse and reaches checkpoint 2, exact
+business total 3 and settled-through 2. Original assertions, native operation
+deadlines and replay policy are unchanged. The artifact retains commands, source
+and fixture identity, durations, log digests and full raw output. This campaign
+does not reproduce or explain the historical Linux clock/replay failure; that
+causal gate remains open alongside delivery and initial-consumer diagnosis.

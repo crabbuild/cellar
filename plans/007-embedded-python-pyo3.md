@@ -538,7 +538,7 @@ published source and remaining qualification:
 | M0 | Bootstrap, invocation pump, authority and cancellation implemented; direct evidence in both threading ABIs | Final-source platform matrix |
 | M1 | HTTP, pinned native packages, bounds and sanitized failures implemented; three complete 97be2cc Linux jobs pass across both ABIs | Complete final-source platform qualification |
 | M2 | All S01–S09 storage/alarm requirements have direct evidence within their stated scopes | Final-source regression qualification |
-| M3 | Fencing, retirement, takeover and supervised noncooperative shutdown implemented; local lease correction and both ABI suites pass; a controlled reset/read regression corrects the final observation audit | Publish/qualify the reset/read correction on Linux and diagnose preserved delivery, initial consumer admission and clock/replay failures |
+| M3 | Fencing, retirement, takeover and supervised noncooperative shutdown implemented; local lease correction and both ABI suites pass; a controlled reset/read regression corrects the final observation audit | Qualify the published reset/read correction on Linux and diagnose preserved delivery, initial consumer admission and clock/replay failures |
 | M4 | Verified packaging, native prerequisites, offline restoration and process replacement have direct evidence locally and in both Linux ABI package steps at 97be2cc | Complete final-source release regression matrix |
 | M5 | KV, shared SQL, queues and cron implemented with independent local failure matrices; repeated optimized defaults pass locally and Linux CI defaults pass in both ABIs | Final-source qualification; optional ASGI/streaming remain deferred |
 
