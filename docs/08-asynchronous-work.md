@@ -36,6 +36,12 @@ clear it. Persist work state and schedule changes consistently with your
 business mutation. On invocation, load durable state, determine what remains,
 and finish, retry with a bounded policy, or record terminal failure.
 
+`scheduled_ms` is the current delivery deadline; native retry backoff can change
+it. Persist a business occurrence ID atomically with the alarm, and use that ID
+for receipts. Commit the receipt and its business effect in the same checked
+batch, retaining the identity through retries. A delivery timestamp alone does
+not identify an immutable business occurrence.
+
 An alarm is not a hard real-time SLA. Delays can include ownership recovery,
 load and dependency outages. Define overdue-work metrics and reconciliation.
 Alarm/wake coverage must survive eviction and shutdown; do not discard the
@@ -179,6 +185,17 @@ Cron reaches `Invocation::Scheduled` with `cron::Scheduled`; `no_retry` can
 decline retry. Use a job/time-window ID to deduplicate application jobs and
 design a catch-up policy for downtime. Avoid assuming a schedule can replace
 an audit of missed business work.
+
+The scheduling cell persists the original occurrence, remaining expressions and
+retry progress beside its alarm. Recreating an activation retains a pending
+retry. If a handler is interrupted, recovery repeats its unfinished expression
+with the original `scheduled_ms`; its earlier history entry remains `started`
+with no fabricated completion. Application effects still require idempotency:
+an interrupted handler may already have committed an effect. Finished expressions
+are checkpointed with their history so that recovery can skip them. Existing
+native retry limits and calendar scheduling policy still apply. Changing the
+deployment or schedule configuration replaces pending work from the previous
+configuration; retained history remains available for reconciliation.
 
 ## Test failure and replay behavior
 

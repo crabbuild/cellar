@@ -7,6 +7,8 @@ SDK, routing, SQLite, alarms and output gates, with a private local store under
 
 The [Axum counter](axum-counter/README.md) is a separate shared-builder example
 with native Cellar and Axum hosts, OpenAPI export and a generated client.
+The [Python example](python/README.md) uses an optional PyO3 adapter in a native
+Rust host and has its own CPython 3.14 prerequisites and smoke test.
 [FleetCare](fleetcare/README.md) is a field-service application with embedded and
 daemon hosts, a local console and a repeatable fleet performance suite.
 
@@ -15,7 +17,7 @@ The catalog borrows application patterns from the
 These are new Rust implementations. The pinned revision and every project's
 source, route and prerequisites are in [catalog.json](catalog.json).
 Every recipe has a README with purpose, code flow, prerequisites, end-to-end
-commands, expected output, interpretation and cleanup. The catalog contains 30
+commands, expected output, interpretation and cleanup. The catalog contains 31
 entries, including the original standalone embedding and stream hosts.
 Each entry demonstrates its named feature with runnable code. The catalog does
 not claim Workers SDK compatibility or production fleet certification.

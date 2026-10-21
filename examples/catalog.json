@@ -244,6 +244,14 @@
       "status": "runnable",
       "guide": "durable-streams/README.md",
       "prerequisites": "Private bucket-backed demo; stream primitive remains under implementation."
+    },
+    {
+      "name": "python",
+      "project": "python/project.json",
+      "source": "python/app.py",
+      "route": "/counters/demo",
+      "status": "requires-python-runtime",
+      "guide": "python/README.md"
     }
   ]
 }

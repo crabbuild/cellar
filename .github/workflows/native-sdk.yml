@@ -4,12 +4,29 @@ on:
   push:
   pull_request:
   workflow_dispatch:
+    inputs:
+      mode:
+        description: Qualification or isolated native-event investigation
+        type: choice
+        default: qualification
+        options:
+          - qualification
+          - consumer-replay
+          - clock-replay
+      repetitions:
+        description: Fresh fixtures (1-100 consumer, 1-50 clock)
+        type: number
+        default: 20
+      replay_sha:
+        description: Optional full repository commit SHA for isolated replay
+        type: string
+        default: ''
 
 permissions:
   contents: read
 
 concurrency:
-  group: cellar-sdk-${{ github.ref }}
+  group: cellar-sdk-${{ github.ref }}-${{ github.event_name == 'workflow_dispatch' && (inputs.mode == 'consumer-replay' || inputs.mode == 'clock-replay') && format('replay-{0}', github.run_id) || 'qualification' }}
   cancel-in-progress: true
 
 env:
@@ -21,15 +38,35 @@ env:
 
 jobs:
   check:
-    name: Rust framework and SDK
+    if: github.event_name != 'workflow_dispatch' || (inputs.mode != 'consumer-replay' && inputs.mode != 'clock-replay')
+    name: Rust framework and SDK (${{ matrix.python }})
     runs-on: ubuntu-22.04
-    timeout-minutes: 60
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - python: '3.14'
+            runtime: '3.14.5'
+            opposite_runtime: '3.14.5t'
+            smoke_flags: ''
+          - python: '3.14t'
+            runtime: '3.14.5t'
+            opposite_runtime: '3.14.5'
+            smoke_flags: '--expect-free-threaded'
     steps:
       - uses: actions/checkout@v6
       - name: Install Rust
         run: |
           rustup toolchain install "$RUST_VERSION" --profile minimal --component clippy --component rustfmt
           rustup default "$RUST_VERSION"
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Select embedded Python
+        run: echo "PYO3_PYTHON=$(command -v python)" >> "$GITHUB_ENV"
+      - name: Check native-only libraries without Python
+        run: PYO3_PYTHON=/nonexistent/cellar-native-only cargo check -p cellar -p cellar-python --no-default-features --lib --locked
       - name: Check Rust formatting
         run: cargo format --check
       - name: Check Rust module layout
@@ -38,15 +75,84 @@ jobs:
         run: python3 tools/check_native_dependencies.py
       - name: Verify documentation integrity
         run: python3 tools/docs/check.py
+      - name: Test native Python prerequisite capture
+        run: python3 tools/python/test_native_prerequisites.py
+      - name: Test Python qualification guards
+        run: python3 tools/python/test_qualification_guards.py
       - name: Test Cloudflare benchmark peer relay
         run: |
           npm ci --ignore-scripts --prefix tools/perf/cloudflare
           npm test --prefix tools/perf/cloudflare
+      - name: Test embedded Python adapter
+        run: cargo test -p cellar-python --features embed --locked -- --test-threads=1
+      - name: Verify native and Python baseline harness
+        run: |
+          cargo build -p cellar-python --example python-baseline --no-default-features --locked
+          cp target/debug/examples/python-baseline "$RUNNER_TEMP/baseline-native"
+          cargo build -p cellar-python --example python-baseline --features embed --locked
+          cp target/debug/examples/python-baseline "$RUNNER_TEMP/baseline-python"
+          python tools/python/baseline.py --native-host "$RUNNER_TEMP/baseline-native" \
+            --python-host "selected=$RUNNER_TEMP/baseline-python" \
+            --output "$RUNNER_TEMP/python-baseline" --build-profile dev --count 3 --warmup 1 --concurrency 2 --repetitions 1
+          python tools/python/baseline_report.py "$RUNNER_TEMP/python-baseline/baseline.json" > "$RUNNER_TEMP/python-baseline/report.md"
+          python tools/python/operating_defaults.py --python-host "selected=$RUNNER_TEMP/baseline-python" \
+            --output "$RUNNER_TEMP/python-defaults" --build-profile dev --count 4 --concurrency 1 4 16 32 --repetitions 1
+          python tools/python/operating_defaults_report.py "$RUNNER_TEMP/python-defaults/operating-defaults.json" > "$RUNNER_TEMP/python-defaults/report.md"
+          python tools/python/test_operating_defaults_report.py "$RUNNER_TEMP/python-defaults/operating-defaults.json"
+      - name: Qualify actual loaded Python threading ABI
+        run: |
+          python -m pip install uv==0.11.19
+          export CELLAR_ABI_PREFIX="$(mktemp -d "$RUNNER_TEMP/cellar-abi-runtime-XXXXXX")"
+          uv python install '${{ matrix.opposite_runtime }}' --install-dir "$CELLAR_ABI_PREFIX" --no-bin
+          export CELLAR_OPPOSITE_PYTHON="$(UV_PYTHON_INSTALL_DIR="$CELLAR_ABI_PREFIX" uv python find --managed-python '${{ matrix.opposite_runtime }}')"
+          python -O tools/python/qualify_loaded_abi.py --host "$RUNNER_TEMP/baseline-python" \
+            --compiled-python "$PYO3_PYTHON" --opposite-python "$CELLAR_OPPOSITE_PYTHON" \
+            --output "$RUNNER_TEMP/python-loaded-abi"
+      - name: Exercise embedded Python package
+        run: |
+          export CELLAR_PYTHON_PREFIX="$(mktemp -d "$RUNNER_TEMP/cellar-python-XXXXXX")"
+          uv python install '${{ matrix.runtime }}' --install-dir "$CELLAR_PYTHON_PREFIX/runtime" --no-bin
+          export PYO3_PYTHON="$(UV_PYTHON_INSTALL_DIR="$CELLAR_PYTHON_PREFIX/runtime" uv python find --managed-python '${{ matrix.runtime }}')"
+          export PYTHONDONTWRITEBYTECODE=1
+          "$PYO3_PYTHON" -I -B -m pip download --require-hashes --only-binary :all: \
+            -r examples/python/requirements.lock --dest "$CELLAR_PYTHON_PREFIX/wheels"
+          "$PYO3_PYTHON" -I -B -m pip install --no-index --find-links "$CELLAR_PYTHON_PREFIX/wheels" \
+            --require-hashes --only-binary :all: --target "$CELLAR_PYTHON_PREFIX/site" \
+            -r examples/python/requirements.lock
+          unset CELLAR_PYTHON_INVENTORY
+          cargo build -p cellar-python --bin cellar-python-example --features embed --locked
+          export CELLAR_PYTHON_INVENTORY="$CELLAR_PYTHON_PREFIX/inventory.json"
+          python tools/python/environment.py capture --python "$PYO3_PYTHON" \
+            --site-packages "$CELLAR_PYTHON_PREFIX/site" --native-host target/debug/cellar-python-example --source examples/python/app.py \
+            --filename app.py --descriptor examples/python/descriptor.json \
+            --target x86_64-unknown-linux-gnu --output "$CELLAR_PYTHON_INVENTORY"
+          python tools/python/environment.py bundle "$CELLAR_PYTHON_INVENTORY" \
+            --prefix "$CELLAR_PYTHON_PREFIX" --output "$CELLAR_PYTHON_PREFIX/environment.tar.gz"
+          python tools/python/environment.py project examples/python/project.json \
+            --inventory "$CELLAR_PYTHON_INVENTORY" --archive "$CELLAR_PYTHON_PREFIX/environment.tar.gz" \
+            --output "$CELLAR_PYTHON_PREFIX/project.json"
+          cargo build -p cellar --bin cellar --example python-package-qualification --locked
+          python examples/python/smoke.py --cellar target/debug/cellar \
+            --project "$CELLAR_PYTHON_PREFIX/project.json" --with-cron ${{ matrix.smoke_flags }}
+          target/debug/cellar build "$CELLAR_PYTHON_PREFIX/project.json" --output "$RUNNER_TEMP/python-package"
+          python tools/python/qualify_inventory.py --host target/debug/cellar-python-example \
+            --inventory "$CELLAR_PYTHON_INVENTORY" --scratch-prefix "$CELLAR_PYTHON_PREFIX"
+          python tools/python/qualify_prerequisites.py --inventory "$CELLAR_PYTHON_INVENTORY" \
+            --native-host target/debug/cellar-python-example --target-dir target \
+            --output "$RUNNER_TEMP/python-prerequisite-qualification"
+          python tools/python/rolling_project.py "$CELLAR_PYTHON_PREFIX/project.json" \
+            --native-host target/debug/cellar-python-example \
+            --output "$RUNNER_TEMP/python-rolling-project"
+          target/debug/cellar build "$RUNNER_TEMP/python-rolling-project/project.json" \
+            --output "$RUNNER_TEMP/python-package-v2"
+          cargo run -p cellar --example python-package-qualification --locked -- \
+            "$RUNNER_TEMP/python-package" "$RUNNER_TEMP" "$RUNNER_TEMP/python-package-v2" \
+            --supervisor "$PWD/target/debug/cellar"
       - name: Test and lint
         run: |
           # Fleet fixtures own concurrent runtimes and short authority leases.
           # Run independent cases serially to keep their resource envelope stable.
-          cargo test --workspace --all-features --lib --tests --locked -- --test-threads=1
+          cargo test --workspace --exclude cellar-python --all-features --lib --tests --locked -- --test-threads=1
           cargo test --workspace --all-features --doc --locked
           cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
       - name: Test Axum feature modes and generated contract
@@ -73,3 +179,85 @@ jobs:
             --project examples/team-services/project.json --suite team
           python3 examples/platform_smoke.py --cellar target/debug/cellar \
             --embedded target/debug/cellar-example-embedded --with-containers
+
+  native_replay:
+    name: Native event replay (${{ inputs.mode }}, diagnostic only)
+    if: github.event_name == 'workflow_dispatch' && (inputs.mode == 'consumer-replay' || inputs.mode == 'clock-replay')
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - name: Validate replay source
+        env:
+          CELLAR_NATIVE_REPLAY_SHA: ${{ inputs.replay_sha }}
+        run: |
+          python3 - <<'PY'
+          import os
+          import re
+
+          selected = os.environ["CELLAR_NATIVE_REPLAY_SHA"]
+          if selected and not re.fullmatch(r"[0-9a-fA-F]{40}", selected):
+              raise SystemExit("Replay source must be a full 40-character commit SHA")
+          PY
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.replay_sha || github.sha }}
+          persist-credentials: false
+      - name: Install Rust
+        run: |
+          rustup toolchain install "$RUST_VERSION" --profile minimal
+          rustup default "$RUST_VERSION"
+      - name: Replay fresh event fixtures
+        env:
+          CELLAR_NATIVE_REPLAY_MODE: ${{ inputs.mode }}
+          CELLAR_NATIVE_REPLAY_SHA: ${{ inputs.replay_sha }}
+          CELLAR_NATIVE_REPETITIONS: ${{ inputs.repetitions }}
+          CELLAR_NATIVE_REPLAY_ROOT: /tmp/cellar-native-replay-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          import subprocess
+
+          fixtures = {
+              "consumer-replay": ("live_foreign_recovery_resumes_after_replaced_claimed_metadata_returns", 100),
+              "clock-replay": ("cold_follower_audit_survives_one_read_deadline_without_receipt_replay", 50),
+          }
+          mode = os.environ["CELLAR_NATIVE_REPLAY_MODE"]
+          if mode not in fixtures:
+              raise SystemExit("Unknown native replay mode")
+          fixture, maximum = fixtures[mode]
+          repetitions = int(os.environ["CELLAR_NATIVE_REPETITIONS"])
+          if not 1 <= repetitions <= maximum:
+              raise SystemExit(f"{mode} repetitions must be an integer from 1 to {maximum}")
+          actual = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+          expected = os.environ.get("CELLAR_NATIVE_REPLAY_SHA", "").lower()
+          if expected and actual != expected:
+              raise SystemExit("Native replay checkout differs from requested commit")
+          print(f"Native replay source {actual}", flush=True)
+          root = Path(os.environ["CELLAR_NATIVE_REPLAY_ROOT"])
+          root.mkdir(parents=True, exist_ok=True)
+          environment = dict(os.environ, TMPDIR=str(root))
+          command = ["cargo", "test", "-p", "cellar", "--all-features", "--test", "native_node", "--locked", "--"]
+          selected = f"node_events::event_refusal_clock::{fixture}"
+          listed = subprocess.run(command + [selected, "--exact", "--list"], check=True,
+                                  env=environment, stdout=subprocess.PIPE, text=True)
+          if listed.stdout.splitlines().count(f"{selected}: test") != 1:
+              raise SystemExit("Native replay fixture did not select exactly one test")
+          command += [selected, "--exact", "--nocapture", "--test-threads=1"]
+          for iteration in range(repetitions):
+              print(f"Fresh {mode} fixture {iteration + 1}/{repetitions}", flush=True)
+              subprocess.run(command, check=True, env=environment)
+          PY
+      - uses: actions/upload-artifact@v6
+        if: failure()
+        with:
+          name: native-replay-failure-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            /tmp/cellar-native-replay-${{ github.run_id }}-${{ github.run_attempt }}/**/failure.json
+            /tmp/cellar-native-replay-${{ github.run_id }}-${{ github.run_attempt }}/**/cold-read-failure.json
+            /tmp/cellar-native-replay-${{ github.run_id }}-${{ github.run_attempt }}/**/cold-start-failure.json
+            /tmp/cellar-native-replay-${{ github.run_id }}-${{ github.run_attempt }}/**/delayed-cold-read.json
+            /tmp/cellar-native-replay-${{ github.run_id }}-${{ github.run_attempt }}/**/accepted-prefix.json
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 7

@@ -657,7 +657,10 @@ async fn run_case(
         "projection",
     )
     .await?;
-    ensure!(original["processed"] == 1);
+    ensure!(
+        original["processed"] == 1,
+        "initial consumer fetch did not expose one proven record: {original}"
+    );
     let receipt = Receipt::decode(
         original["batch"]["receipt"]
             .as_str()
@@ -735,7 +738,8 @@ async fn run_case(
     offset.store(expiry_cut - wall(), Ordering::SeqCst);
     proxy.capture.request_release.add_permits(1);
     tokio::time::timeout(Duration::from_secs(5), proxy.capture.entered.acquire())
-        .await??
+        .await
+        .context("initial clock-refusal capture did not reach the typed response boundary within five seconds")??
         .forget();
     offset.store(0, Ordering::SeqCst);
     let captured = proxy
@@ -826,7 +830,9 @@ async fn run_case(
         "refusal capture/audit exceeded the original operation budget"
     );
     proxy.capture.release.add_permits(1);
-    tokio::time::timeout(Duration::from_secs(5), proxy.wait_for_release()).await??;
+    tokio::time::timeout(Duration::from_secs(5), proxy.wait_for_release())
+        .await
+        .context("captured clock-refusal response was not released within five seconds")??;
     tokio::time::timeout(Duration::from_secs(5), async {
         loop {
             let state = pending(&client, &source)
@@ -851,7 +857,9 @@ async fn run_case(
     outage.block();
     proxy.capture.expect_upstream_close();
     let old_services = destination.services();
-    let outcome = tokio::time::timeout(Duration::from_secs(10), destination.cancel()).await??;
+    let outcome = tokio::time::timeout(Duration::from_secs(10), destination.cancel())
+        .await
+        .context("clock-refusal destination did not join cancellation within ten seconds")??;
     ensure!(outcome == NodeOutcome::Cancelled);
     ensure!(old_services
         .configure_metrics(Arc::new(HostMetricsSample::default))
@@ -1678,7 +1686,8 @@ async fn run_case(
         replay["processed"] == 1
             && replay["batch"]["records"] == original["batch"]["records"]
             && number(&replay["batch"]["issued_ms"])? >= expiry_cut
-            && replay["batch"]["receipt"] != original["batch"]["receipt"]
+            && replay["batch"]["receipt"] != original["batch"]["receipt"],
+        "recovered lease replay changed records, processing or receipt identity: original={original}; replay={replay}; expiry_cut={expiry_cut}"
     );
     let replacement = Receipt::decode(
         replay["batch"]["receipt"]

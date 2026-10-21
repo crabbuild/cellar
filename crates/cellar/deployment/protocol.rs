@@ -15,6 +15,21 @@ pub use event_resources::{
     event_resources_from_manifest, validate_event_resources, EventResources,
 };
 
+#[path = "python_environment.rs"]
+mod python_environment;
+#[path = "python_prerequisites.rs"]
+mod python_prerequisites;
+pub use python_environment::{
+    PythonEnvironmentRef, PythonFile, PythonInventory, PythonSourceInventory,
+    FEATURE_EMBEDDED_PYTHON_V1, MAX_PYTHON_ARCHIVE_BYTES, MAX_PYTHON_EXPANDED_BYTES,
+    MAX_PYTHON_FILES, MAX_PYTHON_INVENTORY_BYTES,
+};
+pub(crate) use python_prerequisites::system_cache_path;
+pub use python_prerequisites::{
+    PythonNativeLibrary, PythonPlatform, PythonPrerequisites, MAX_PYTHON_NATIVE_EDGES,
+    MAX_PYTHON_NATIVE_LIBRARIES,
+};
+
 /// `deploy/<script>/<version>/manifest.json` — the normalized thing cellar reads
 /// to know what to run. The script name is deployment identity, not a fleet
 /// selector: one fleet has one current application.
@@ -72,6 +87,7 @@ pub struct Manifest {
 /// partially and fail (or misbehave) at worker load instead.
 pub const SUPPORTED_DEPLOYMENT_FEATURES: &[&str] = &[
     FEATURE_NATIVE_V1,
+    FEATURE_EMBEDDED_PYTHON_V1,
     FEATURE_EVENT_DELIVERY_V1,
     FEATURE_ASSETS_V1,
     FEATURE_CONTAINERS_V1,
@@ -101,6 +117,8 @@ pub struct NativeDeployment {
     pub host_protocol: u32,
     pub application_version: String,
     pub artifacts: Vec<NativeArtifact>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub python: Vec<PythonEnvironmentRef>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -157,6 +175,21 @@ impl NativeDeployment {
             !self.artifacts.is_empty(),
             "native deployment has no executable artifacts"
         );
+        let mut environments = std::collections::BTreeSet::new();
+        for environment in &self.python {
+            environment.validate()?;
+            anyhow::ensure!(
+                self.artifacts
+                    .iter()
+                    .any(|artifact| artifact.target == environment.target
+                        && artifact.sha256 == environment.executable_sha256),
+                "Python environment has no matching native executable"
+            );
+            anyhow::ensure!(
+                environments.insert((&environment.target, &environment.executable_sha256)),
+                "duplicate Python environment identity"
+            );
+        }
         let mut identities = std::collections::BTreeSet::new();
         for artifact in &self.artifacts {
             artifact.key()?;
@@ -181,6 +214,14 @@ impl NativeDeployment {
 /// Refuse ambiguous execution formats before reading code or constructing
 /// workers. The feature gate makes older nodes reject native manifests too.
 pub fn validate_execution_manifest(manifest: &Manifest) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        manifest.native.is_some()
+            || !manifest
+                .required_features
+                .iter()
+                .any(|feature| feature == FEATURE_EMBEDDED_PYTHON_V1),
+        "embedded Python requires a native manifest"
+    );
     let gated = manifest
         .required_features
         .iter()
@@ -188,6 +229,14 @@ pub fn validate_execution_manifest(manifest: &Manifest) -> anyhow::Result<()> {
     match &manifest.native {
         Some(native) => {
             native.validate()?;
+            anyhow::ensure!(
+                manifest
+                    .required_features
+                    .iter()
+                    .any(|feature| feature == FEATURE_EMBEDDED_PYTHON_V1)
+                    == !native.python.is_empty(),
+                "embedded Python environment requires its explicit feature gate"
+            );
             anyhow::ensure!(
                 gated,
                 "native deployment requires the native-v1 feature gate"

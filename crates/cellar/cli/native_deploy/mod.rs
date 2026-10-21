@@ -18,8 +18,14 @@ use std::time::Duration;
 
 mod build;
 mod images;
+mod python_environment;
 pub use build::{verify_native_dependencies, Project};
 pub use images::ContainerProject;
+pub use python_environment::{
+    verify_inventory_files as verify_python_inventory_files,
+    verify_loaded_libraries as verify_loaded_python_libraries,
+    verify_prerequisites as verify_python_prerequisites, PythonProject,
+};
 mod assets;
 pub mod cli;
 pub mod dev;
@@ -221,6 +227,7 @@ impl ApplicationConfig {
             host_protocol: NATIVE_HOST_PROTOCOL,
             application_version: self.application_version.clone(),
             artifacts,
+            python: Vec::new(),
         };
         let mut manifest = Manifest {
             schema_version: 1,
@@ -361,8 +368,14 @@ impl Package {
         bucket: &Bucket,
         executables: &BTreeMap<String, PathBuf>,
     ) -> Result<()> {
-        self.publish_resources(bucket, executables, BTreeMap::new(), BTreeMap::new())
-            .await
+        self.publish_resources(
+            bucket,
+            executables,
+            BTreeMap::new(),
+            BTreeMap::new(),
+            BTreeMap::new(),
+        )
+        .await
     }
 
     /// Publish an on-disk package produced by Project::build or stage_manifest.
@@ -372,8 +385,10 @@ impl Package {
         let mut resources = BTreeMap::new();
         let mut executables = BTreeMap::new();
         let mut images = BTreeMap::new();
+        let mut python = BTreeMap::new();
         for manifest in std::iter::once(&self.primary).chain(&self.cohosted) {
             images.extend(images::load_staged(manifest, directory)?);
+            python.extend(python_environment::load_staged(manifest, directory)?);
             if let Some(staged) = assets::load_staged(manifest, directory)? {
                 resources.insert(manifest.script_name.clone(), staged);
             }
@@ -381,7 +396,7 @@ impl Package {
                 executables.insert(artifact.sha256.clone(), directory.join(&artifact.sha256));
             }
         }
-        self.publish_resources(bucket, &executables, resources, images)
+        self.publish_resources(bucket, &executables, resources, images, python)
             .await
     }
 
@@ -391,9 +406,16 @@ impl Package {
         executables: &BTreeMap<String, PathBuf>,
         mut assets: BTreeMap<String, crate::deploy::BuiltAssets>,
         images: BTreeMap<String, PathBuf>,
+        python: BTreeMap<String, PathBuf>,
     ) -> Result<()> {
         self.validate()?;
         for manifest in std::iter::once(&self.primary).chain(&self.cohosted) {
+            for reference in &manifest.native.as_ref().unwrap().python {
+                let path = python
+                    .get(&reference.archive_sha256)
+                    .context("Python environments require publish_staged")?;
+                python_environment::verify_file(reference, path)?;
+            }
             for archive in &manifest.container_images {
                 let path = images
                     .get(&archive.sha256)
@@ -433,6 +455,12 @@ impl Package {
                 images::publish(bucket, archive, &images[&archive.sha256]).await?;
             }
         }
+        for manifest in std::iter::once(&self.primary).chain(&self.cohosted) {
+            for reference in &manifest.native.as_ref().unwrap().python {
+                python_environment::publish(bucket, reference, &python[&reference.archive_sha256])
+                    .await?;
+            }
+        }
         for manifest in self.cohosted.iter().chain(std::iter::once(&self.primary)) {
             let built = crate::deploy::Built {
                 script_name: manifest.script_name.clone(),
@@ -459,6 +487,18 @@ impl Package {
     /// Does not start or replace a running node. Activation uses the existing
     /// graceful shutdown and an application-owned process supervisor.
     pub async fn install(&self, bucket: &Bucket, target: &str, output: &Path) -> Result<()> {
+        self.install_with_python(bucket, target, output, None).await
+    }
+
+    /// Install a native executable and restore its verified runtime closure.
+    /// The caller explicitly approves the immutable provisioning prefix.
+    pub async fn install_with_python(
+        &self,
+        bucket: &Bucket,
+        target: &str,
+        output: &Path,
+        python_root: Option<&Path>,
+    ) -> Result<()> {
         self.validate()?;
         let artifacts = &self.primary.native.as_ref().unwrap().artifacts;
         let matches: Vec<_> = artifacts.iter().filter(|a| a.target == target).collect();
@@ -472,6 +512,27 @@ impl Package {
             .await?
             .context("native executable blob is absent")?;
         artifact.verify(&bytes)?;
+        let environment = self
+            .primary
+            .native
+            .as_ref()
+            .unwrap()
+            .python
+            .iter()
+            .find(|environment| {
+                environment.target == artifact.target
+                    && environment.executable_sha256 == artifact.sha256
+            });
+        match (environment, python_root) {
+            (Some(environment), Some(prefix)) => {
+                python_environment::install(bucket, environment, prefix).await?
+            }
+            (Some(_), None) => anyhow::bail!(
+                "Python runtime restoration requires --python-root matching the compiled prefix"
+            ),
+            (None, Some(_)) => anyhow::bail!("native target has no Python environment"),
+            (None, None) => {}
+        }
         let parent = output
             .parent()
             .filter(|p| !p.as_os_str().is_empty())

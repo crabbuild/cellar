@@ -2,6 +2,7 @@
 //! cellar_logic::cron; storage, wake discovery and ownership remain the host's.
 
 mod history;
+mod state;
 mod types;
 pub use types::Scheduled;
 pub(crate) use types::{Configuration as HistoryConfiguration, Query as HistoryQuery};
@@ -13,23 +14,12 @@ use super::{Application, Cell, Context, EventState, HandlerFuture, Invocation, O
 use crate::engine_api::HttpResponse;
 use anyhow::{anyhow, Result};
 use cellar_logic::cron as policy;
+use state::{Owed, State};
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::atomic::Ordering;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::task::{Context as TaskContext, Poll};
-
-struct Owed {
-    occurrence: i64,
-    indices: Vec<usize>,
-    armed_for: i64,
-}
-
-#[derive(Default)]
-struct State {
-    retry: i64,
-    owed: Option<Owed>,
-}
 
 struct Schedule {
     storage: Storage,
@@ -43,7 +33,7 @@ struct Schedule {
     application_name: String,
     node: String,
     runtime_generation: u64,
-    state: Mutex<State>,
+    state_configuration: String,
 }
 
 pub(crate) fn create_cell(
@@ -80,6 +70,17 @@ pub(crate) fn create_cell(
             positions.push(index);
         }
     }
+    use sha2::{Digest as _, Sha256};
+    let state_configuration = format!(
+        "{:x}",
+        Sha256::digest(serde_json::to_vec(&json!({
+            "application":context.worker_config.script_name,
+            "configuration":context.worker_config.cron_history,
+            "expressions":expressions,
+            "workflows":workflow_targets.iter().map(|target|target.as_ref().map(|workflow|workflow.name())).collect::<Vec<_>>(),
+            "bindings":workflow_bindings,
+        }))?)
+    );
     Ok(Arc::new(Schedule {
         storage: context.storage()?,
         application,
@@ -92,7 +93,7 @@ pub(crate) fn create_cell(
         application_name: context.worker_config.script_name.clone(),
         node: context.worker_config.node.clone(),
         runtime_generation: context.generation,
-        state: Mutex::new(State::default()),
+        state_configuration,
     }))
 }
 
@@ -101,12 +102,17 @@ fn now() -> i64 {
 }
 
 impl Schedule {
-    fn arm(&self, occurrence: Option<i64>, failed: Vec<usize>, retried: bool) -> Result<()> {
-        let mut state = self.state.lock().unwrap();
+    fn arm(
+        &self,
+        mut state: State,
+        occurrence: Option<i64>,
+        failed: Vec<usize>,
+        retried: bool,
+    ) -> Result<()> {
         state.retry = if failed.is_empty() {
             0
         } else if retried {
-            state.retry + 1
+            state.retry.saturating_add(1)
         } else {
             1
         };
@@ -116,23 +122,43 @@ impl Schedule {
                 occurrence: occurrence.expect("a retry follows an occurrence"),
                 indices: failed,
                 armed_for: plan.arm_at.expect("retry has an alarm"),
+                failed: Vec::new(),
+                attempt: state.retry,
+                running: false,
+                in_flight: false,
             })
         } else {
             None
         };
-        match plan.arm_at {
-            Some(at) => self.storage.set_alarm(at),
-            None => self.storage.delete_alarm(),
-        }
+        self.storage.transaction_sync(|storage| {
+            state::save(storage, &self.state_configuration, &state)?;
+            match plan.arm_at {
+                Some(at) => storage.set_alarm(at),
+                None => storage.delete_alarm(),
+            }
+        })
     }
 
     fn fetch(&self) -> Result<Output> {
-        if self.state.lock().unwrap().owed.is_none() {
+        let mut state = state::load(
+            &self.storage,
+            &self.state_configuration,
+            self.expressions.len(),
+        )?;
+        if !state::has_alarm(
+            &self.storage,
+            &policy::reserved_cell(&self.application_name),
+        )? {
+            // The native alarm's bounded failure policy can exhaust a never-
+            // completing handler. Resume the calendar, not another blind retry.
+            state.owed = None;
+        }
+        if state.owed.is_none() {
             let armed = self.storage.get_alarm()?;
             // Preserve a due occurrence after downtime. A pending retry
-            // preserves both its deadline and its activation-local owed set.
+            // preserves both its deadline and its persisted owed set.
             if armed.is_none_or(|at| at > now()) {
-                self.arm(None, Vec::new(), false)?;
+                self.arm(state, None, Vec::new(), false)?;
             }
         }
         Ok(Output::Http(HttpResponse {
@@ -147,29 +173,50 @@ impl Schedule {
     }
 
     async fn alarm(&self, context: &Context, fired: i64) -> Result<()> {
-        let (occurrence, due, retried) = {
-            let state = self.state.lock().unwrap();
-            match state.owed.as_ref().filter(|owed| owed.armed_for == fired) {
-                Some(owed) => (owed.occurrence, owed.indices.clone(), true),
-                None => {
-                    let plan = policy::plan(&self.parsed, Some(fired), now(), 0, false);
-                    (
-                        fired,
-                        plan.matching
-                            .into_iter()
-                            .map(|index| self.positions[index])
-                            .collect(),
-                        false,
-                    )
+        let mut state = state::load(
+            &self.storage,
+            &self.state_configuration,
+            self.expressions.len(),
+        )?;
+        let retried = match state
+            .owed
+            .as_mut()
+            .filter(|owed| owed.running || owed.armed_for == fired)
+        {
+            Some(owed) => {
+                if owed.running && owed.in_flight {
+                    state.retry = state.retry.saturating_add(1);
+                    owed.attempt = owed.attempt.saturating_add(1);
+                } else if !owed.running {
+                    owed.attempt = state.retry.saturating_add(1);
                 }
+                owed.running = true;
+                owed.in_flight = false;
+                true
+            }
+            None => {
+                let plan = policy::plan(&self.parsed, Some(fired), now(), 0, false);
+                state.retry = 0;
+                state.owed = Some(Owed {
+                    occurrence: fired,
+                    indices: plan
+                        .matching
+                        .into_iter()
+                        .map(|index| self.positions[index])
+                        .collect(),
+                    failed: Vec::new(),
+                    armed_for: fired,
+                    attempt: 1,
+                    running: true,
+                    in_flight: false,
+                });
+                false
             }
         };
-        let attempt = if retried {
-            self.state.lock().unwrap().retry.saturating_add(1)
-        } else {
-            1
-        };
-        let mut failed = Vec::new();
+        state::save(&self.storage, &self.state_configuration, &state)?;
+        let pending = state.owed.as_ref().expect("running cron occurrence");
+        let (occurrence, due, attempt) =
+            (pending.occurrence, pending.indices.clone(), pending.attempt);
         for index in due {
             let started = now();
             let clock = crate::asyncrt::mono_ms();
@@ -186,7 +233,18 @@ impl Schedule {
                 "workflow_name":workflow.map(|w|w.name()),"workflow_binding":self.workflow_bindings[index],
                 "workflow_instance":workflow.map(|_|schedule.instance_id()),"retry_requested":null,
             });
-            let id = history::begin(&self.storage, &self.expressions[index], record.clone())?;
+            state
+                .owed
+                .as_mut()
+                .expect("running cron occurrence")
+                .in_flight = true;
+            let id = history::begin(
+                &self.storage,
+                &self.expressions[index],
+                record.clone(),
+                || state::save(&self.storage, &self.state_configuration, &state),
+            )?;
+            let mut retry = false;
             if let Some(workflow) = workflow {
                 match workflow.create_scheduled(context, schedule).await {
                     Ok(()) => {
@@ -198,7 +256,7 @@ impl Schedule {
                         record["status"] = json!("failed");
                         record["error"] = json!(history::error_text(error));
                         record["retry_requested"] = json!(true);
-                        failed.push(index);
+                        retry = true;
                     }
                 }
             } else {
@@ -206,7 +264,7 @@ impl Schedule {
                 let outcome =
                     ScheduledRun::new(context, self.application.clone(), controller).await;
                 if outcome.retry {
-                    failed.push(index);
+                    retry = true;
                 }
                 record["status"] = json!(if outcome.error.is_some() {
                     if outcome.retry {
@@ -226,9 +284,20 @@ impl Schedule {
             }
             record["ended_at"] = json!(now());
             record["duration_ms"] = json!(crate::asyncrt::mono_ms().saturating_sub(clock));
-            history::finish(&self.storage, id, record)?;
+            let pending = state.owed.as_mut().expect("running cron occurrence");
+            pending.indices.retain(|pending| *pending != index);
+            if retry {
+                pending.failed.push(index);
+            }
+            pending.in_flight = false;
+            self.storage.transaction_sync(|storage| {
+                history::finish(storage, id, record)?;
+                state::save(storage, &self.state_configuration, &state)
+            })?;
         }
-        self.arm(Some(occurrence), failed, retried)
+        let failed =
+            std::mem::take(&mut state.owed.as_mut().expect("running cron occurrence").failed);
+        self.arm(state, Some(occurrence), failed, retried)
     }
 }
 

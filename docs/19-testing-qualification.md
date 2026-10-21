@@ -35,6 +35,44 @@ loaders, packages, nodes, logs and replication. `cellar_internal_tests` requires
 external simulation/conformance sources. Do not enable it without those
 sources or claim those tests ran in an ordinary build.
 
+### Native event recovery investigation
+
+The SDK workflow has opt-in `consumer-replay` and `clock-replay` dispatch modes
+for the preserved initial consumer admission refusal and delayed-cold-read
+clock/receipt failure. They run their exact native fixtures serially against
+fresh private SQLite state, stop on the first failure and retain the bounded
+native cause log and failure JSON. Each repetition is a new fixture; it does not
+repeat a claiming request against a live application. Native assertions and
+request/lease deadlines stay unchanged.
+
+Before replay, the driver requires the exact fixture name to select one test.
+A missing or renamed fixture refuses qualification; libtest's successful exit
+after selecting zero tests cannot produce an accepted campaign.
+
+```sh
+gh workflow run native-sdk.yml --ref YOUR_BRANCH \
+  -f mode=consumer-replay -f repetitions=20
+gh workflow run native-sdk.yml --ref YOUR_BRANCH \
+  -f mode=clock-replay -f repetitions=20
+```
+
+For a historical comparison, add `-f replay_sha=FULL_40_CHARACTER_COMMIT_SHA`.
+The workflow validates its shape before checkout, verifies the actual checked-out
+commit before replay and prints that source identity. Empty `replay_sha` uses the
+workflow commit. The run's head SHA identifies the workflow; the printed SHA
+identifies the tested source. This input applies only to isolated replay modes;
+complete qualification always uses the workflow commit.
+
+The integer repetition count is bounded to 1–100 for consumer replay and 1–50
+for the slower clock fixture. Each replay campaign has its own concurrency group
+so source comparisons can run alongside ordinary SDK qualification. Failure artifacts contain only
+the private synthetic fixture's whitelisted evidence JSON, including the
+accepted prefix and cold recovery observations when present. No cell databases,
+node directories or private keys are uploaded. A passing replay run covers only
+its selected fixture; full release qualification still requires the regular
+Python ABI matrix and native examples. Ordinary push/PR runs and dispatch mode
+`qualification` retain the complete SDK checks.
+
 ## Application test layers
 
 | Layer | Required behavior | Evidence |

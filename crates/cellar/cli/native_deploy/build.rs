@@ -20,6 +20,8 @@ pub struct Project {
     pub features: Vec<String>,
     pub primary: ApplicationConfig,
     #[serde(default)]
+    pub python_environment: Option<PythonProject>,
+    #[serde(default)]
     pub cohosted: Vec<ApplicationConfig>,
 }
 
@@ -140,6 +142,11 @@ impl Project {
         let base = project_file.parent().unwrap_or_else(|| Path::new("."));
         let manifest = base.join(&project.cargo_manifest).canonicalize()?;
         let metadata = inspect_metadata(&project, &manifest)?;
+        let python = project
+            .python_environment
+            .as_ref()
+            .map(|config| config.prepare(base))
+            .transpose()?;
         if dev {
             std::fs::create_dir_all(output)?;
             std::fs::write(
@@ -150,7 +157,10 @@ impl Project {
         let mut build = Command::new("cargo");
         build.current_dir(manifest.parent().unwrap());
         build
-            .args(["build", "--manifest-path"])
+            .args([
+                if python.is_some() { "rustc" } else { "build" },
+                "--manifest-path",
+            ])
             .arg(&manifest)
             .args([
                 "--package",
@@ -162,8 +172,31 @@ impl Project {
                 "--message-format=json-render-diagnostics",
             ]);
         cargo_features(&mut build, &project.features);
+        build.env(
+            "CELLAR_APPLICATION_VERSION",
+            &project.primary.application_version,
+        );
+        // Only explicit project metadata may bind a provisioned environment.
+        // Ambient build flags must not silently change unrelated native hosts.
+        if let Some(python) = &python {
+            anyhow::ensure!(
+                python.target() == project.target.as_deref().unwrap_or(current_target()),
+                "Python inventory target differs from project target"
+            );
+            build
+                .env("CELLAR_PYTHON_INVENTORY", &python.inventory_path)
+                .env("PYTHONDONTWRITEBYTECODE", "1");
+            if project.target.as_deref().unwrap_or(current_target()) == current_target() {
+                build.env("PYO3_PYTHON", python.executable());
+            }
+        } else {
+            build.env_remove("CELLAR_PYTHON_INVENTORY");
+        }
         if let Some(target) = &project.target {
             build.arg("--target").arg(target);
+        }
+        if let Some(python) = &python {
+            build.arg("--").args(python.linker_arguments()?);
         }
         let built = build.output().context("build native Rust application")?;
         anyhow::ensure!(
@@ -205,7 +238,7 @@ impl Project {
         };
         let artifact = executable_identity(&executable, &target)?;
         std::fs::create_dir_all(output)?;
-        let package = Package {
+        let mut package = Package {
             primary: project.primary.stage_manifest_mode(
                 vec![artifact.clone()],
                 base,
@@ -218,6 +251,11 @@ impl Project {
                 .map(|c| c.stage_manifest_mode(vec![artifact.clone()], base, output, dev))
                 .collect::<Result<_>>()?,
         };
+        if let Some(python) = &python {
+            for manifest in std::iter::once(&mut package.primary).chain(&mut package.cohosted) {
+                python.stage(manifest, &artifact, output)?;
+            }
+        }
         package.validate()?;
         let destination = output.join(&artifact.sha256);
         if destination.exists() {

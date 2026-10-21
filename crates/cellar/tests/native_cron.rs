@@ -118,7 +118,9 @@ async fn worker(context: Context, invocation: Invocation, signals: Arc<Signals>)
         json!({"cron":controller.cron,"at":controller.scheduled_ms,"attempt":attempt}),
     )
     .await?;
-    if controller.cron == FAIL && signals.mode.load(Ordering::SeqCst) == 3 {
+    if (controller.cron == FAIL && signals.mode.load(Ordering::SeqCst) == 3)
+        || (controller.cron == SUCCESS && signals.mode.load(Ordering::SeqCst) == 4)
+    {
         let captured = signals.clone();
         context.wait_until(async move {
             let _drop = DropFlag(captured.clone());
@@ -463,11 +465,16 @@ async fn run() -> Result<()> {
     assert_eq!(filtered["items"].as_array().unwrap().len(), 1);
     let retry = runtime.alarm(&scope).unwrap();
     assert!((1..=4000).contains(&(retry - cellar::ownership_store::now_ms() as i64)));
+    // Retry identity must survive activation retirement, not just the native
+    // alarm row. Recreate the actual reserved cell before its retry is due.
+    runtime.swap_out_cell(&scope, 1).await?;
+    runtime.start_cell(scope.clone(), 1, false).await?;
+    runtime.publish_cell(&scope, 1)?;
     arm(&runtime, &scope).await?;
     assert_eq!(
         runtime.alarm(&scope),
         Some(retry),
-        "arm must preserve the activation's pending retry"
+        "arm must preserve the persisted pending retry across activation"
     );
     let wait = retry - cellar::ownership_store::now_ms() as i64;
     if wait >= 0 {
@@ -495,16 +502,18 @@ async fn run() -> Result<()> {
     assert_eq!(retried["items"][0]["status"], "completed");
     assert_eq!(retried["items"][0]["attempt"], 2);
     assert_eq!(retried["items"][0]["scheduled_at"], occurrence);
-    // Owed expressions intentionally remain activation-local, as before.
+    // Another failed occurrence also survives activation retirement; no arm
+    // request may silently replace its retry with the next calendar run.
     signals.mode.store(2, Ordering::SeqCst);
     seed(&runtime, &data, &scope, occurrence).await?;
     runtime.fire_alarm(3, scope.clone(), occurrence).await?;
-    assert!(runtime.alarm(&scope).unwrap() < planned);
+    let owed_retry = runtime.alarm(&scope).unwrap();
+    assert!(owed_retry < planned);
     runtime.swap_out_cell(&scope, 1).await?;
     runtime.start_cell(scope.clone(), 1, false).await?;
     runtime.publish_cell(&scope, 1)?;
     arm(&runtime, &scope).await?;
-    assert_eq!(runtime.alarm(&scope), Some(planned));
+    assert_eq!(runtime.alarm(&scope), Some(owed_retry));
     // Retiring a suspended child event must retire its retained context and
     // drop its background future before a replacement activation opens.
     signals.mode.store(3, Ordering::SeqCst);
@@ -530,6 +539,32 @@ async fn run() -> Result<()> {
     assert!(interrupted["items"][0]["duration_ms"].is_null());
     assert!(interrupted["items"][0]["retry_requested"].is_null());
     assert_eq!(interrupted["active_alarm"], occurrence);
+    // Resume that occurrence and interrupt its final expression. Earlier
+    // successful/declined expressions must be checkpointed with their history.
+    signals.mode.store(4, Ordering::SeqCst);
+    let host = runtime.clone();
+    let fire_scope = scope.clone();
+    let firing =
+        cellar::asyncrt::spawn(async move { host.fire_alarm(6, fire_scope, occurrence).await });
+    signals.background_entered.notified().await;
+    runtime.swap_out_cell(&scope, 1).await?;
+    runtime.start_cell(scope.clone(), 1, false).await?;
+    runtime.publish_cell(&scope, 1)?;
+    cellar::asyncrt::timeout(Duration::from_secs(2), firing).await???;
+    let before = signals.calls.lock().unwrap().len();
+    signals.mode.store(0, Ordering::SeqCst);
+    runtime.fire_alarm(7, scope.clone(), occurrence).await?;
+    assert_eq!(
+        &signals.calls.lock().unwrap()[before..],
+        &[(SUCCESS.into(), occurrence)],
+        "resume must skip expressions already checkpointed by this occurrence"
+    );
+    let resumed = executions(&runtime, &scope, json!({"expression":SUCCESS})).await?;
+    assert_eq!(resumed["items"][0]["scheduled_at"], occurrence);
+    assert_eq!(resumed["items"][0]["attempt"], 3);
+    assert_eq!(resumed["items"][0]["status"], "completed");
+    assert_eq!(resumed["items"][1]["status"], "started");
+    assert!(resumed["items"][1]["ended_at"].is_null());
     // Real attempts enforce bounded retention, including across activations.
     runtime.swap_out_cell(&scope, 1).await?;
     runtime.adopt(generation(99, vec![SUCCESS.into(); 260], signals.clone())?);

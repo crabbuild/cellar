@@ -5,7 +5,7 @@
 
 use super::{CompletedEffect, EffectFuture, Ownership, TimerArm, TimerSlots};
 use crate::ownership_store::now_ms;
-use cellar_logic::{CasGuard, Event, Failure, LeaseCasOutcome, NodeLeaseRecord, OpId};
+use cellar_logic::{CasGuard, Event, Failure, LeaseCasOutcome, NodeLeaseRecord, OpId, Timer};
 use futures_util::stream::FuturesUnordered;
 use std::future::Future;
 use tokio_util::time::{delay_queue, DelayQueue};
@@ -122,7 +122,7 @@ impl StepOutput {
                 // brownout fenced 9 nodes whose sole hung attempt was
                 // still inside the transport's 15 s timeout when the
                 // 10 s TTL expired. Bound the attempt to half the
-                // remaining authority (capped, floored) and map timeout
+                // remaining authority (capped) and map timeout
                 // to Ambiguous — the same conservative outcome a lost
                 // response already produces, so safety is unchanged.
                 // The stamp survives a timed-out attempt: the backend
@@ -134,8 +134,11 @@ impl StepOutput {
                 let result = match authority_expires_ms {
                     Some(expires_ms) => {
                         let remaining = expires_ms.saturating_sub(now_ms());
-                        let bound =
-                            std::time::Duration::from_millis((remaining / 2).clamp(250, 2_500));
+                        // A fixed minimum can exceed the remaining authority
+                        // after a failed attempt and its retry delay. Reserve
+                        // half even near expiry so a committed-but-lost reply
+                        // can still be proven by the ordinary readback.
+                        let bound = std::time::Duration::from_millis((remaining / 2).min(2_500));
                         match crate::asyncrt::timeout(
                             bound,
                             ownership.cas_node_lease(guard, record, &mut stamped_log_state),
@@ -259,9 +262,7 @@ pub(crate) fn drain_step_output(
         }
     }
     for arm in out.timers.drain(..) {
-        let delay = std::time::Duration::from_millis(
-            arm.at_mono_ms.saturating_sub(crate::asyncrt::mono_ms()),
-        );
+        let delay = timer_delay(&arm, crate::asyncrt::mono_ms());
         let key = delays.insert(arm.clone(), delay);
         if let Some(displaced) = timers.install(&arm, key) {
             delays.remove(&displaced);
@@ -269,3 +270,35 @@ pub(crate) fn drain_step_output(
     }
     Ok(())
 }
+
+// DelayQueue has a finite timer wheel. Durable alarm timestamps can be much
+// farther away, so revisit them without reporting an early TimerFired event.
+const TIMER_CHECKPOINT_MS: u64 = 24 * 60 * 60 * 1000;
+
+fn timer_delay(arm: &TimerArm, now_mono_ms: u64) -> std::time::Duration {
+    std::time::Duration::from_millis(
+        arm.at_mono_ms
+            .saturating_sub(now_mono_ms)
+            .min(TIMER_CHECKPOINT_MS),
+    )
+}
+
+pub(super) fn ready_timer(
+    arm: TimerArm,
+    delays: &mut DelayQueue<TimerArm>,
+    timers: &mut TimerSlots<delay_queue::Key>,
+    now_mono_ms: u64,
+) -> Option<Timer> {
+    timers.fire(&arm.slot, arm.ordinal)?;
+    if arm.at_mono_ms <= now_mono_ms {
+        return Some(arm.timer);
+    }
+    let key = delays.insert(arm.clone(), timer_delay(&arm, now_mono_ms));
+    let displaced = timers.install(&arm, key);
+    debug_assert!(displaced.is_none());
+    None
+}
+
+#[cfg(test)]
+#[path = "effects_tests.rs"]
+mod tests;

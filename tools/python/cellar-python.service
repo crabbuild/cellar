@@ -1,0 +1,33 @@
+# Install only after the executable and its verified runtime prefix are present.
+# Configure fleet/listener settings in /etc/cellar/python.env.
+[Unit]
+Description=Cellar embedded Python application
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=600
+StartLimitBurst=3
+
+[Service]
+Type=exec
+User=cellar
+Group=cellar
+EnvironmentFile=/etc/cellar/python.env
+Environment=CELLAR_NATIVE_FLEET=1
+Environment=CELLAR_WATCH=/var/lib/cellar-python/runtime
+Environment=CELLAR_SHUTDOWN_REPORT_JSON=1
+StateDirectory=cellar-python
+WorkingDirectory=/var/lib/cellar-python
+ExecStart=/usr/local/bin/cellar supervise --json --health-url http://127.0.0.1:8080/health --startup-ms 30000 --probe-ms 2000 --interval-ms 1000 --failures 3 --shutdown-ms 35000 --restart-ms 1000 --max-restarts 3 -- /opt/cellar/python/current/host
+KillMode=mixed
+TimeoutStopSec=50
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/cellar-python
+PrivateTmp=yes
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
