@@ -121,7 +121,7 @@ Only a fresh, requirement-specific verification can mark a row **verified**.
 | Q09 | Pure Python, PyO3 native extension and numerical library compatibility | Exact pinned versions/platforms; representative operations/concurrency/teardown | verified for stated platforms/versions: macOS ARM64 CPython 3.14.5/3.14.6 and 3.14.5t; Linux x86_64 regular 3.14.8 plus installed 3.14.5 and 3.14.5t execute pinned Pydantic/NumPy/pure-library workloads; both 0bfd83f free-threaded Linux jobs completely pass the 3.14.8t adapter suite and 3.14.5t package/archive/rolling/supervisor/native-library qualification; final lifecycle/cancellation source remains Q12 and other platforms/library versions remain unqualified |
 | Q10 | Native versus Python latency/throughput/memory/copy/recovery baselines | Reproducible harness and raw measured evidence, no invented target | verified for the stated development scope: [recorded baselines](007-embedded-python-baselines.md) retain two independent nine-case optimized experiments and raw data, including matched CPython 3.14.5/3.14.5t and a true native-only executable; exact HTTP/counter receipts, killed-owner/disk-deletion takeover, copy/memory observations and joined reports pass; the verifier rejects corrupted receipts/metrics/drain/cleanup; shared-machine load and development-store limits are explicit and no production capacity target is claimed |
 | Q11 | Native-only dependency/build check and no JS all-features | Explicit CI check, local graph/build evidence | verified for dependency/build separation: explicit Linux CI native-only check with nonexistent interpreter and all-feature no-JavaScript graph passed on fe6d2f8; current source retains the same feature/dependency graph, with local no-embed and graph checks |
-| Q12 | Full affected test/lint/format/layout/doc qualification; preserve failures | Exact source/toolchain commands and passing scope-specific results | partial: 97be2cc completes Linux installed-package qualification in both ABIs (three jobs), which continue through native tests/lints. The PR free-threaded adapter job fails when its final read races native reset after a deliberately failed proof. A real native Cell destruction barrier reproduces the same HTTP 503 with one business attempt; bounded repetition of only the read-only observation corrects the audit assumption. Both complete local ABI suites, strict Clippy, three conventional controlled repetitions and format/layout for 630 files pass. This correction still needs publication and Linux qualification. Earlier delivery/initial consumer/clock-replay failures retain separate diagnosis; passing retries do not close them. |
+| Q12 | Full affected test/lint/format/layout/doc qualification; preserve failures | Exact source/toolchain commands and passing scope-specific results | partial: 97be2cc has three complete successful Linux jobs across both ABIs, including installed packages, native-node 88/88, workspace tests/lints, Axum modes and native examples. The PR free-threaded adapter job fails when its final read races native reset after a deliberately failed proof. A real native Cell destruction barrier reproduces the same HTTP 503 with one business attempt; bounded repetition of only the read-only observation corrects the audit assumption. Both complete local ABI suites, strict Clippy, three conventional controlled repetitions and format/layout for 630 files pass. This correction still needs Linux qualification. Earlier delivery/initial consumer/clock-replay failures retain separate diagnosis; passing retries do not close them. |
 | Q13 | Public facade type annotations and accepted implementation decisions | Typed Python API, accepted ADR, build/bootstrap/bridge decision record | verified: public facade annotations and frozen CellIdentity; accepted ADR 004 records bootstrap, bridge, signals, immutable packaging/replacement, cleanup, compatibility and qualification boundaries against implemented contracts |
 | Q14 | Current docs describe executable APIs and remaining gates accurately | Plan sketches updated to actual contracts; audit has no unstated exception | verified for current documented surface: main plan, adapter/example/environment guides describe actual facade, source layout, accepted ADR, provisioning and conservative failure outcomes; chronological audit history is explicitly distinguished from current tables; remaining gates are stated |
 
@@ -134,8 +134,8 @@ qualification. Conventional and free-threaded CPython remain equal targets.
 
 | Order | Focus | Remaining gate and evidence |
 | --- | --- | --- |
-| 1 | P0: qualify the reset/read correction | Q12: the PR free-threaded job at 97be2cc refuses the final read-only audit during native reset. A controlled public Cell destruction barrier reproduces the same failure, and corrected bounded observation passes with one business attempt, acknowledged state, stale-context refusal and complete joins. Both local ABI suites/lints and three conventional repetitions pass. Finish existing useful CI, then publish the correction and require fresh Linux execution. |
-| 2 | P0: diagnose preserved reliability failures | M3/Q12: retain the earlier delivery deadline, initial consumer admission and clock/replay failures. The lease-floor correction has direct before/after proof and local native 88/88; Linux native jobs at 97be2cc are still running. Five isolated macOS consumer replays pass without reproducing the historical refusal. Keep separate causes, original deadlines/assertions and conservative mutation outcomes. |
+| 1 | P0: qualify the reset/read correction | Q12: the PR free-threaded job at 97be2cc refuses the final read-only audit during native reset. A controlled public Cell destruction barrier reproduces the same failure, and corrected bounded observation passes with one business attempt, acknowledged state, stale-context refusal and complete joins. Both local ABI suites/lints and three conventional repetitions pass. Publish the correction and require fresh Linux execution; all older 97be2cc jobs are terminal. |
+| 2 | P0: diagnose preserved reliability failures | M3/Q12: retain the earlier delivery deadline, initial consumer admission and clock/replay failures. The lease-floor correction has direct before/after proof, local native 88/88 and three complete Linux native 88/88 runs at 97be2cc. Isolated macOS consumer replays pass without reproducing the historical refusal. A bounded error-chain diagnostic and opt-in Linux fresh-fixture replay mode target the next occurrence. Keep separate causes, original deadlines/assertions and conservative mutation outcomes. |
 | 3 | P1: qualify one final source | Q01/Q12: complete all affected tests/lints and installed-package/refusal/offline restoration/replacement checks against the final source in both ABIs. The GNU packaging blocker is corrected and both ABI package steps pass at 97be2cc; operating-default workloads also pass there. These component results do not replace the final complete matrix. |
 | 4 | P1: publish acceptance and deployment scope | Q12/Q14: reconcile every partial row with exact source/runtime/platform evidence and update the existing draft PR. Preserve incomplete-drain and ambiguous-write semantics; development load measurements are not production SLOs or a throughput guarantee. |
 
@@ -1793,7 +1793,12 @@ At 97be2cc, the conventional push/PR jobs and free-threaded push job complete
 host, inventory/prerequisite refusal guards, offline archive restoration, native
 library work, exact receipt replay, changed-source TERM/INT handoff and forced-KILL
 supervisor replacement. Both threading ABIs therefore have direct Linux evidence
-for the GNU capture correction. The three jobs continue through native tests/lints.
+for the GNU capture correction. All three jobs subsequently complete successfully,
+including native-node 88/88, workspace tests/lints, Axum feature modes/generated
+contracts and native examples. The fourth job retains the failure below. The
+[terminal Linux evidence](evidence/python-linux-97be-2026-10-20.json) records all
+four job outcomes and exact source/toolchain scope; later test/diagnostic changes
+still require fresh qualification.
 
 The PR free-threaded job 119023823453 instead fails earlier in
 `--runtime-proof-authority-failure`: the final `/state` audit returns HTTP 503
@@ -1838,3 +1843,25 @@ records native-node 88/88, strict all-target/all-feature Clippy and format/layou
 success on macOS ARM64. Both live-foreign recovery cases pass. These passing runs
 do not exercise the failure branch or explain the historical refusal; the added
 diagnostic is intended to distinguish the next actual occurrence.
+
+## Isolated consumer investigation and milestone focus
+
+The SDK workflow adds an opt-in `consumer-replay` dispatch mode for Linux. Each
+iteration runs the exact preserved live-foreign recovery fixture against fresh
+private state; the first failure stops the run. The bounded native cause and
+failure JSON are retained. It does not retry a claiming operation in a live
+application, change native deadlines or replace the full ABI matrix. A distinct
+concurrency group allows investigation alongside complete qualification.
+
+The [driver evidence](evidence/python-consumer-replay-driver-2026-10-20.json)
+records local execution of the exact workflow driver: four invalid bounds refuse
+before fixture creation, a real Cargo failure stops before the next iteration,
+and two fresh native fixtures pass. This validates investigation controls on
+macOS ARM64; Linux execution and reproduction remain open. The existing complete
+qualification step bodies and 90-minute budget are unchanged.
+
+The delivery deadline, initial consumer refusal and clock/replay failures remain
+separate diagnosis gates. A successful fresh run supplies regression evidence;
+it does not establish the cause of a preserved failure. The immediate focus is
+M3 reliability and one final-source M0–M5 qualification matrix. New optional
+ASGI/stream adapters remain deferred until these gates close.

@@ -18,7 +18,7 @@ recovery. The packaged smoke additionally covers Pydantic/native-extension impor
 KV, SQL, queue delivery and cron. These are implementation checks, not broad
 production certification. The design below records the intended full contract.
 
-Remaining qualification: publish and qualify the reset/read audit correction,
+Remaining qualification: qualify the reset/read audit correction on Linux,
 diagnose preserved lifecycle failures and complete final-source regression
 evidence in both threading ABIs. The Linux installed-host prerequisite/refusal,
 offline recovery and replacement steps pass in both ABIs at 97be2cc. Operating
@@ -536,7 +536,7 @@ published source and remaining qualification:
 | Phase | Current assessment | Gate still open |
 | --- | --- | --- |
 | M0 | Bootstrap, invocation pump, authority and cancellation implemented; direct evidence in both threading ABIs | Final-source platform matrix |
-| M1 | HTTP, pinned native packages, bounds and sanitized failures implemented; all four 3e56924 Linux adapter jobs pass | Complete current-source installed-package/platform qualification |
+| M1 | HTTP, pinned native packages, bounds and sanitized failures implemented; three complete 97be2cc Linux jobs pass across both ABIs | Complete final-source platform qualification |
 | M2 | All S01–S09 storage/alarm requirements have direct evidence within their stated scopes | Final-source regression qualification |
 | M3 | Fencing, retirement, takeover and supervised noncooperative shutdown implemented; local lease correction and both ABI suites pass; a controlled reset/read regression corrects the final observation audit | Publish/qualify the reset/read correction on Linux and diagnose preserved delivery, initial consumer admission and clock/replay failures |
 | M4 | Verified packaging, native prerequisites, offline restoration and process replacement have direct evidence locally and in both Linux ABI package steps at 97be2cc | Complete final-source release regression matrix |
@@ -549,8 +549,13 @@ proof failure. A controlled public Cell destruction barrier reproduces the same
 HTTP 503 with one business attempt. The local correction observes recovery by
 repeating only that read-only query within the original HTTP budget; both local
 ABI suites and strict Clippy pass, and the correction still needs Linux execution.
-The other three 97be2cc jobs continue through native tests/lints. These component
-results do not qualify later source or explain every historical lifecycle failure.
+The other three 97be2cc jobs complete successfully, including native-node 88/88,
+workspace tests/lints, Axum modes and native examples. The
+[terminal Linux evidence](evidence/python-linux-97be-2026-10-20.json) preserves all
+four outcomes. These results do not qualify later source or explain every
+historical lifecycle failure. A bounded native cause diagnostic and opt-in Linux
+fresh-fixture consumer replay mode target the preserved initial admission refusal;
+passing repetitions alone cannot establish its cause.
 
 Prioritize the audit's [current work](007-embedded-python-audit.md#current-work)
 before adding more surfaces. A gate closes only with its stated evidence on

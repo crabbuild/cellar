@@ -4,12 +4,24 @@ on:
   push:
   pull_request:
   workflow_dispatch:
+    inputs:
+      mode:
+        description: Qualification or isolated consumer-admission investigation
+        type: choice
+        default: qualification
+        options:
+          - qualification
+          - consumer-replay
+      repetitions:
+        description: Fresh consumer fixtures for replay mode (integer 1-100)
+        type: number
+        default: 20
 
 permissions:
   contents: read
 
 concurrency:
-  group: cellar-sdk-${{ github.ref }}
+  group: cellar-sdk-${{ github.ref }}-${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'consumer-replay' && 'consumer-replay' || 'qualification' }}
   cancel-in-progress: true
 
 env:
@@ -21,6 +33,7 @@ env:
 
 jobs:
   check:
+    if: github.event_name != 'workflow_dispatch' || inputs.mode != 'consumer-replay'
     name: Rust framework and SDK (${{ matrix.python }})
     runs-on: ubuntu-22.04
     timeout-minutes: 90
@@ -161,3 +174,46 @@ jobs:
             --project examples/team-services/project.json --suite team
           python3 examples/platform_smoke.py --cellar target/debug/cellar \
             --embedded target/debug/cellar-example-embedded --with-containers
+
+  consumer_replay:
+    name: Native consumer admission replay (diagnostic only)
+    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'consumer-replay'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install Rust
+        run: |
+          rustup toolchain install "$RUST_VERSION" --profile minimal
+          rustup default "$RUST_VERSION"
+      - name: Replay fresh consumer fixtures
+        env:
+          CELLAR_CONSUMER_REPETITIONS: ${{ inputs.repetitions }}
+          CELLAR_CONSUMER_REPLAY_ROOT: /tmp/cellar-consumer-replay-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          import subprocess
+
+          repetitions = int(os.environ["CELLAR_CONSUMER_REPETITIONS"])
+          if not 1 <= repetitions <= 100:
+              raise SystemExit("Consumer repetitions must be an integer from 1 to 100")
+          root = Path(os.environ["CELLAR_CONSUMER_REPLAY_ROOT"])
+          root.mkdir(parents=True, exist_ok=True)
+          environment = dict(os.environ, TMPDIR=str(root))
+          command = ["cargo", "test", "-p", "cellar", "--all-features", "--test", "native_node", "--locked", "--",
+                     "node_events::event_refusal_clock::live_foreign_recovery_resumes_after_replaced_claimed_metadata_returns",
+                     "--exact", "--nocapture", "--test-threads=1"]
+          for iteration in range(repetitions):
+              print(f"Fresh consumer fixture {iteration + 1}/{repetitions}", flush=True)
+              subprocess.run(command, check=True, env=environment)
+          PY
+      - uses: actions/upload-artifact@v6
+        if: failure()
+        with:
+          name: consumer-replay-failure-${{ github.run_id }}-${{ github.run_attempt }}
+          path: /tmp/cellar-consumer-replay-${{ github.run_id }}-${{ github.run_attempt }}/**/failure.json
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 7
