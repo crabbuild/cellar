@@ -85,6 +85,9 @@ pub struct RaftHostOptions {
     pub max_groups: usize,
     pub blocking_workers: usize,
     pub worker_queue: usize,
+    /// Node-wide physical SDK query-reader reservations (1..=16). Each remains
+    /// owned until its callback and immutable connection exit, even if cancelled.
+    pub max_query_pins: usize,
     pub max_requests: usize,
     /// Independent administrative/inspection admission, including retained waiters.
     pub max_control_requests: usize,
@@ -117,6 +120,7 @@ impl Default for RaftHostOptions {
             max_groups: 128,
             blocking_workers: 2,
             worker_queue: 32,
+            max_query_pins: 16,
             max_requests: 128,
             max_control_requests: 16,
             max_control_bytes: 16 * 1024 * 1024,
@@ -198,6 +202,7 @@ impl RaftHostOptions {
                 && self.max_groups <= 4096
                 && (1..=16).contains(&self.blocking_workers)
                 && (1..=256).contains(&self.worker_queue)
+                && (1..=16).contains(&self.max_query_pins)
                 && (1..=4096).contains(&self.max_requests)
                 && (1..=256).contains(&self.max_control_requests)
                 && (4096..=64 * 1024 * 1024).contains(&self.max_control_bytes)
@@ -350,13 +355,18 @@ async fn initialize(
     );
     let domain = service.log.domain();
     let budget = Budget::new(options.max_pending_bytes, options.max_requests);
+    let archive_capture_budget = Budget::new(options.archive.limits.max_capture_bytes, 1);
+    let query_pins = Budget::new(0, options.max_query_pins);
     let mut pool = Pool::start(
         domain.clone(),
         options.blocking_workers,
         options.worker_queue,
         options.max_groups,
-        budget.clone(),
-        Budget::new(options.archive.limits.max_capture_bytes, 1),
+        super::host_sql::Budgets {
+            business: budget.clone(),
+            archive_capture: archive_capture_budget.clone(),
+            query_pins: query_pins.clone(),
+        },
     )?;
     let mut cells = BTreeMap::new();
     let mut standbys = BTreeMap::new();
@@ -780,6 +790,8 @@ async fn initialize(
         admission: Arc::new(crate::application::consensus::admission::Admission::default()),
         terminal: terminal.clone(),
         budget: budget.clone(),
+        archive_capture_budget,
+        query_pins,
         max_input_bytes: options.max_input_bytes,
         bindings,
         work: crate::asyncrt::services().application_work_registry(),

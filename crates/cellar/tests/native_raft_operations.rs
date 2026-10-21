@@ -23,6 +23,8 @@ mod mode_guard;
 #[path = "support/raft_node.rs"]
 #[allow(dead_code)]
 mod public_node;
+#[path = "support/raft_resources_native.rs"]
+mod resources;
 #[path = "support/raft_seed_fault.rs"]
 #[allow(dead_code)]
 mod seed_fault;
@@ -35,6 +37,16 @@ use std::{
     },
     time::Duration,
 };
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn query_pin_pressure_survives_waiter_cancellation() -> Result<()> {
+    resources::run(false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn query_pin_shutdown_waits_for_physical_reader() -> Result<()> {
+    resources::run(true).await
+}
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn rollback_mode_guard() -> Result<()> {

@@ -12,6 +12,10 @@ pub(crate) struct Budget {
 }
 
 impl Budget {
+    pub(crate) fn capacity(&self) -> (usize, usize) {
+        (self.max_bytes, self.max_items)
+    }
+
     pub(crate) fn usage(&self) -> (usize, usize) {
         (
             self.bytes.load(Ordering::Acquire),

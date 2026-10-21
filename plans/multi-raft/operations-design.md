@@ -1,7 +1,7 @@
 # Multi-Raft node operations
 
-MR-13 is under implementation. This contract records the Node-owned shutdown
-component; it does not establish the complete milestone or a release envelope.
+MR-13 is under implementation. This contract records implemented local node
+operations; it does not establish the complete milestone or a release envelope.
 The [implementation plan](implementation-plan.md#mr-13-bound-resources-and-complete-node-lifecycle-operations)
 retains the resource, readiness, disaster-restore and qualification gates.
 
@@ -70,6 +70,32 @@ obtains a fresh ReadIndex barrier. `command_ready` retains the existing authorit
 pending-work, persistence and apply checks and additionally requires leader role.
 No node-wide healthy boolean hides unavailable cells; nonmember/query-router
 occupancy retains its separate typed inspection contract.
+
+## Physical query-reader admission
+
+`RaftHostOptions.max_query_pins` bounds simultaneous SDK query-reader
+reservations across the node's SQL workers (1 through 16, default 16). Each
+blocking SQL owner acquires a permit before opening its immutable query database.
+Saturation returns typed `Overloaded` without invoking the query callback. The
+permit stays on that physical stack until the callback and connection exit,
+including error/unwind and cancellation of the async caller. A cancelled waiter
+does not free a reader slot. Shutdown still joins the held reader before its
+permit is released. Other groups retain their independent command/consensus
+path and reserved control admission.
+
+`RaftCells.resource_usage()` reads fixed-size, actual host business/output,
+control and archive-capture budget usage/capacity plus query-reader reservations.
+It performs no I/O, callback or group enumeration, and remains readable during
+drain and after closure. Independent atomic loads do not form a transactional
+snapshot. SDK futures/results can retain request/output reservations after host
+closure; the sampler does not replace those values with zero. Reader permits
+reach zero only after the physical readers exit.
+
+Query-reader reservations do not count every `GenerationPin` clone or an image
+writer reservation. Archive, seed, checkpoint and effect readers use their own
+existing bounds. This API does not yet provide complete transport, queue, image
+retention, lag or controller metrics. Aggregate export and sampled authenticated
+group inspection remain separate operational work.
 
 ## Drain and leadership handoff
 

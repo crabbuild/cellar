@@ -188,6 +188,12 @@ pub(crate) struct Pool {
     stopped: Arc<AtomicBool>,
 }
 
+pub(crate) struct Budgets {
+    pub business: Arc<Budget>,
+    pub archive_capture: Arc<Budget>,
+    pub query_pins: Arc<Budget>,
+}
+
 /// A bounded port into one existing SQL owner. It owns no worker and cannot
 /// outlive pool shutdown admission; dynamic initialization uses this same port.
 #[derive(Clone)]
@@ -204,8 +210,7 @@ impl Pool {
         count: usize,
         queue: usize,
         max_cells: usize,
-        budget: Arc<Budget>,
-        archive_budget: Arc<Budget>,
+        budgets: Budgets,
     ) -> Result<Self, ExecutionError> {
         let stopped = Arc::new(AtomicBool::new(false));
         let mut pool = Self {
@@ -219,8 +224,9 @@ impl Pool {
             let (sender, receiver) = mpsc::sync_channel::<Request>(queue);
             let owner = domain.clone();
             let stopped = stopped.clone();
-            let budget = budget.clone();
-            let archive_budget = archive_budget.clone();
+            let budget = budgets.business.clone();
+            let archive_budget = budgets.archive_capture.clone();
+            let query_pins = budgets.query_pins.clone();
             let task = domain
                 .blocking(move || {
                     let mut cells = BTreeMap::<GroupScope, Cell>::new();
@@ -268,44 +274,44 @@ impl Pool {
                         } else {
                             None
                         };
-                        let result = Self::execute(&mut cells, max_cells, &scope, action).and_then(
-                            |value| {
-                                let bytes = value.bytes();
-                                let budget = if matches!(&value, Value::ArchiveCut(_)) {
-                                    &archive_budget
-                                } else {
-                                    &budget
-                                };
-                                let permit = if capture.is_some()
-                                    && matches!(&value, Value::ArchiveCut(_))
-                                {
-                                    capture.take()
-                                } else if bytes == 0 {
-                                    None
-                                } else {
-                                    match budget.acquire(bytes) {
-                                        Some(permit) => Some(permit),
-                                        None => {
-                                            if matches!(
-                                                &value,
-                                                Value::Staged(StageOutcome::Prepared(_))
-                                            ) {
-                                                if let Some(cell) = cells.get_mut(&scope) {
-                                                    cell.discard(None)?;
+                        let result =
+                            Self::execute(&mut cells, max_cells, &scope, action, &query_pins)
+                                .and_then(|value| {
+                                    let bytes = value.bytes();
+                                    let budget = if matches!(&value, Value::ArchiveCut(_)) {
+                                        &archive_budget
+                                    } else {
+                                        &budget
+                                    };
+                                    let permit = if capture.is_some()
+                                        && matches!(&value, Value::ArchiveCut(_))
+                                    {
+                                        capture.take()
+                                    } else if bytes == 0 {
+                                        None
+                                    } else {
+                                        match budget.acquire(bytes) {
+                                            Some(permit) => Some(permit),
+                                            None => {
+                                                if matches!(
+                                                    &value,
+                                                    Value::Staged(StageOutcome::Prepared(_))
+                                                ) {
+                                                    if let Some(cell) = cells.get_mut(&scope) {
+                                                        cell.discard(None)?;
+                                                    }
                                                 }
+                                                return Err(ExecutionError::Refused(
+                                                    CommandFailure::Overloaded,
+                                                ));
                                             }
-                                            return Err(ExecutionError::Refused(
-                                                CommandFailure::Overloaded,
-                                            ));
                                         }
-                                    }
-                                };
-                                Ok(Output {
-                                    value,
-                                    _bytes: permit,
-                                })
-                            },
-                        );
+                                    };
+                                    Ok(Output {
+                                        value,
+                                        _bytes: permit,
+                                    })
+                                });
                         let _ = reply.send(result);
                     };
                     // Keep joining/closing every resource even when one reports an
@@ -381,6 +387,7 @@ impl Pool {
         max: usize,
         scope: &GroupScope,
         action: Action,
+        query_pins: &Arc<Budget>,
     ) -> Result<Value, ExecutionError> {
         if let Action::SealArchiveSeed { received, storage } = action {
             if cells.contains_key(scope) || cells.len() >= max || received.scope() != scope {
@@ -473,7 +480,7 @@ impl Pool {
         cells
             .get_mut(scope)
             .ok_or(ExecutionError::Invalid("unregistered cell"))?
-            .run(action)
+            .run(action, query_pins)
     }
 }
 
@@ -553,7 +560,7 @@ impl Cell {
         Ok(())
     }
 
-    fn run(&mut self, action: Action) -> Result<Value, ExecutionError> {
+    fn run(&mut self, action: Action, query_pins: &Arc<Budget>) -> Result<Value, ExecutionError> {
         match action {
             Action::SealArchiveSeed { .. }
             | Action::SealSeed { .. }
@@ -877,6 +884,12 @@ impl Cell {
                 {
                     return Err(ExecutionError::Refused(CommandFailure::VersionUnavailable));
                 }
+                // This stack belongs to the blocking SQL worker, not its async
+                // waiter. The immutable database drops inside the call before
+                // the reservation is released, including on error or unwind.
+                let _query_pin = query_pins
+                    .acquire(0)
+                    .ok_or(ExecutionError::Refused(CommandFailure::Overloaded))?;
                 Ok(Value::Queried(query_registered_controlled(
                     &published,
                     &self.class,

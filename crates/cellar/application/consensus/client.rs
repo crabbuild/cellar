@@ -210,6 +210,8 @@ pub(crate) struct Handle {
     pub admission: Arc<super::admission::Admission>,
     pub terminal: Arc<Terminal>,
     pub budget: Arc<Budget>,
+    pub archive_capture_budget: Arc<Budget>,
+    pub query_pins: Arc<Budget>,
     pub max_input_bytes: usize,
     pub bindings: BTreeMap<(NamespaceId, String), Binding>,
     pub work: Arc<crate::host_services::ApplicationWork>,
@@ -223,6 +225,21 @@ pub struct RaftCells {
 }
 
 impl RaftCells {
+    /// Read actual fixed-size local admission counters without I/O, enumeration
+    /// or callbacks. Remains available during drain and after joined closure.
+    /// Independent atomic loads can observe concurrent acquisition/release.
+    pub fn resource_usage(&self) -> super::RaftResourceUsage {
+        super::RaftResourceUsage {
+            business: super::RaftBudgetUsage::capture(&self.handle.budget),
+            control: super::RaftBudgetUsage::capture(&self.handle.control_budget),
+            archive_capture: super::RaftBudgetUsage::capture(&self.handle.archive_capture_budget),
+            query_pins: super::RaftQueryPinUsage {
+                in_use: self.handle.query_pins.usage().1,
+                limit: self.handle.query_pins.capacity().1,
+            },
+        }
+    }
+
     pub(crate) fn begin_node_drain(&self) {
         // Even a poisoned gate remains sealed. Final physical close reports
         // its failure after joining all owners, rather than inventing proof.
