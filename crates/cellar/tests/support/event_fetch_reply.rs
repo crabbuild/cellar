@@ -31,10 +31,11 @@ pub(super) async fn fetch_and_save(context: Context, url: &str) -> Result<Output
                 .downcast_ref::<DeliveryError>()
                 .context("fetch refusal was untyped")?;
             if refusal.code == ErrorCode::Unavailable {
-                // Preserve the distinction between admission, read-only
-                // identity resolution and RPC failure in a failed fixture's
-                // log. The response and mutation/replay policy stay identical.
-                eprintln!("event fetch unavailable: {}", refusal.message);
+                // The public message can omit a retained native admission or
+                // transport cause. Keep that bounded chain in this private
+                // fixture's log; response and mutation/replay policy stay intact.
+                let detail: String = format!("{error:#}").chars().take(2_048).collect();
+                eprintln!("event fetch unavailable: {detail}");
             }
             json!({"error":refusal.code.as_str()})
         }

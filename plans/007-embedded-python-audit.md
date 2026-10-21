@@ -1824,3 +1824,17 @@ the Linux failure, controlled before/after runs, suite logs, source digests and
 published package-step results. This demonstrates the matching failure class;
 separate historical delivery/initial-consumer/clock failures remain unproven.
 The correction is local and still requires publication and final-source Linux CI.
+
+
+## Bounded native consumer failure diagnostics
+
+The preserved initial consumer `Unavailable` refusal still has no reproduced
+cause. Its fixture previously logged only `DeliveryError.message`, which can be
+a fixed public envelope while a native admission/transport cause remains in the
+error chain. The private fixture now logs that chain, bounded to 2,048 characters.
+The public JSON response, fetch identity and mutation/replay policy are unchanged.
+The [diagnostic qualification](evidence/python-consumer-diagnostics-2026-10-20.json)
+records native-node 88/88, strict all-target/all-feature Clippy and format/layout
+success on macOS ARM64. Both live-foreign recovery cases pass. These passing runs
+do not exercise the failure branch or explain the historical refusal; the added
+diagnostic is intended to distinguish the next actual occurrence.
