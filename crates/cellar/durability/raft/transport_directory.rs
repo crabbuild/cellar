@@ -223,34 +223,39 @@ impl State {
         Ok(wait)
     }
 
-    pub(super) async fn seed_process_until<T>(
-        &self,
+    pub(super) fn seed_process_until<'a, T: 'a>(
+        &'a self,
         epoch: &watch::Receiver<bool>,
         deadline: u64,
-        future: impl Future<Output = Result<T, TransportError>>,
-    ) -> Result<T, TransportError> {
+        future: impl Future<Output = Result<T, TransportError>> + 'a,
+    ) -> impl Future<Output = Result<T, TransportError>> + 'a {
         let mut epoch = epoch.clone();
-        if *epoch.borrow_and_update() {
-            return Err(TransportError::StalePeer);
-        }
-        crate::asyncrt::select_biased! { "physical process revocation precedes a ready seed response";
-            _=epoch.changed()=>Err(TransportError::StalePeer),
-            result=self.seed_until(deadline,future)=>{
-                let value=result?;
-                if *epoch.borrow() {Err(TransportError::StalePeer)} else {Ok(value)}
-            },
+        // TLS and snapshot futures already contain bounded transport state.
+        // Box before constructing the guard so nested select/await frames do
+        // not multiply that state on the caller's stack during node startup.
+        let future = Box::pin(future);
+        async move {
+            if *epoch.borrow_and_update() {
+                return Err(TransportError::StalePeer);
+            }
+            crate::asyncrt::select_biased! { "physical process revocation precedes a ready seed response";
+                _=epoch.changed()=>Err(TransportError::StalePeer),
+                result=self.seed_until(deadline,future)=>{
+                    let value=result?;
+                    if *epoch.borrow() {Err(TransportError::StalePeer)} else {Ok(value)}
+                },
+            }
         }
     }
 }
 
 impl State {
-    pub(super) async fn seed_process_io<T>(
-        &self,
+    pub(super) fn seed_process_io<'a, T: 'a>(
+        &'a self,
         epoch: &watch::Receiver<bool>,
         deadline: u64,
-        future: impl Future<Output = Result<T, TransportError>>,
-    ) -> Result<T, TransportError> {
+        future: impl Future<Output = Result<T, TransportError>> + 'a,
+    ) -> impl Future<Output = Result<T, TransportError>> + 'a {
         self.seed_process_until(epoch, deadline, self.seed_io(deadline, future))
-            .await
     }
 }
