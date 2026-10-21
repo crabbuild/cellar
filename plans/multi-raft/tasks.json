@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "baseline_revision": "2b8d35c5180ac8d3b461c68803188af06af8cae8",
+  "baseline_revision": "ec21635f9ae91b151e3b258a73f830804471f6a1",
   "status_values": [
     "TODO",
     "IN_PROGRESS",
@@ -1677,7 +1677,8 @@
         "crates/cellar/durability/raft/snapshot_transport.rs",
         "crates/cellar/durability/raft/filesystem.rs",
         "crates/cellar/durability/raft/mod.rs",
-        "crates/cellar/tests/native_raft_archive.rs"
+        "crates/cellar/tests/native_raft_archive.rs",
+        "crates/cellar/durability/raft/transport_options.rs"
       ],
       "creates": [
         "crates/cellar/durability/raft/membership.rs",
@@ -1706,7 +1707,14 @@
         "crates/cellar/durability/raft/mailbox_tests.rs",
         "crates/cellar/durability/raft/inspection.rs",
         "crates/cellar/durability/raft/host_inspection.rs",
-        "crates/cellar/tests/support/raft_inspection_native.rs"
+        "crates/cellar/tests/support/raft_inspection_native.rs",
+        "crates/cellar/durability/raft/inspection_auth_tests.rs",
+        "crates/cellar/durability/raft/inspection_identity.rs",
+        "crates/cellar/durability/raft/inspection_transport.rs",
+        "crates/cellar/durability/raft/inspection_wire.rs",
+        "crates/cellar/durability/raft/inspection_wire_tests.rs",
+        "crates/cellar/durability/raft/transport_inspection_tests.rs",
+        "crates/cellar/tests/support/raft_peer_inspection_native.rs"
       ],
       "steps": [
         "Implement domain-aware desired placement and versioned idempotent controller plans.",
@@ -1809,7 +1817,8 @@
         "evidence/MR-11-directory-progress.json",
         "evidence/MR-11-process-regression-progress.json",
         "evidence/MR-11-control-progress.json",
-        "evidence/MR-11-inspection-progress.json"
+        "evidence/MR-11-inspection-progress.json",
+        "evidence/MR-11-peer-progress.json"
       ]
     },
     {

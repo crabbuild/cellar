@@ -53,13 +53,29 @@ published cut while a callback holds a private write, then inspect a dormant
 standby without creating a group, claim or callback. All 27 host, 13 directory
 and 35 library cases pass, together with the affected Node case and two selected
 snapshot regressions. Explicit profiles declare capacity; engine group counting
-is constant time. Aggregate leadership load remains absent. Authenticated peer
-collection and automatic reconciliation still require implementation.
+is constant time. Aggregate leadership load remains absent at that source. The peer collection
+qualification below extends it; automatic reconciliation still requires implementation.
+
+The [peer inspection qualification](evidence/MR-11-peer-progress.json) pins
+`ec21635f9ae91b151e3b258a73f830804471f6a1`: 231 Rust cases across 11 binaries
+and all 19 checks pass. Ten new library cases and two four-node native cases
+cover separate namespace permissions, purpose/channel/request authentication,
+full history and physical-engine binding, process refresh, strict progress
+metadata, held sockets, revocation, original deadlines and per-peer admission.
+A dormant source and destination need no member identity. A real command
+commits while unpolled inspection waiters retain independent control capacity.
+All 42 snapshot, 19 membership, 27 host and 15 directory cases pass. Format checks
+671 Rust files; Clippy, both LTX modes, layout, dependency policy, docs, 17
+planning tests and 71-anchor preflight pass. Five ignored child entry points run
+through their parents and are excluded. The revocation case holds the host
+consumer seam after actual TLS/authentication and SDK admission. Profile
+capacity remains declared; aggregate leader load and automatic reconciliation
+remain open. Initial fixture/schema and Clippy failures are retained separately.
 
 MR-11 remains IN_PROGRESS. The partial inventory reports five of seven required
 names; `automatic_no_traffic_repair` and `leader_balance_with_lag` remain absent.
-Automatic scheduling, authenticated inspection/capacity and the six-node repair
-gate remain required. Trusted process-view distribution and reserved host
+Automatic scheduling, complete node-wide leader-load collection and the six-node
+repair gate remain required. Trusted process-view distribution and reserved host
 control admission are implemented. The full inventory
 checker is unchanged. This is explicit administrative repair, without automatic
 redundancy repair or complete milestone qualification.

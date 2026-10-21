@@ -8,7 +8,9 @@ cases and a public standby identity regression pass with owning Raft checks.
 Opt-in host publication/distribution, atomic routing refresh and independently
 bounded host control admission are [qualified at their component boundary](evidence/MR-11-control-progress.json).
 Local registered-history capture is [qualified](evidence/MR-11-inspection-progress.json).
-Authenticated peer inspection and automatic controller integration remain unimplemented.
+Authenticated peer collection is [qualified](evidence/MR-11-peer-progress.json),
+including separate namespace permissions, conservative ages, physical routes
+and joined cancellation. Automatic controller integration remains unimplemented.
 The [membership contract](membership-design.md) remains authoritative for
 learner initialization and configuration changes. A directory observation never
 changes voters, initializes storage or supplies a quorum proof.
