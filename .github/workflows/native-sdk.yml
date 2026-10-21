@@ -67,22 +67,6 @@ jobs:
           npm test --prefix tools/perf/cloudflare
       - name: Test embedded Python adapter
         run: cargo test -p cellar-python --features embed --locked -- --test-threads=1
-      - name: Test and lint
-        run: |
-          # Fleet fixtures own concurrent runtimes and short authority leases.
-          # Run independent cases serially to keep their resource envelope stable.
-          cargo test --workspace --exclude cellar-python --all-features --lib --tests --locked -- --test-threads=1
-          cargo test --workspace --all-features --doc --locked
-          cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
-      - name: Test Axum feature modes and generated contract
-        run: |
-          cargo test -p cellar-axum --no-default-features --locked
-          cargo check -p cellar-axum-counter --no-default-features --bins --locked
-          cargo run -p cellar-axum-counter --bin export-openapi --locked -- "$RUNNER_TEMP/counter-openapi.json"
-          diff examples/axum-counter/openapi.json "$RUNNER_TEMP/counter-openapi.json"
-          python3 examples/axum-counter/generate_client.py "$RUNNER_TEMP/counter-openapi.json" "$RUNNER_TEMP/counter-client.rs"
-          rustfmt --edition 2021 "$RUNNER_TEMP/counter-client.rs"
-          diff examples/axum-counter/generated_client.rs "$RUNNER_TEMP/counter-client.rs"
       - name: Verify native and Python baseline harness
         run: |
           cargo build -p cellar-python --example python-baseline --no-default-features --locked
@@ -106,6 +90,22 @@ jobs:
           python -O tools/python/qualify_loaded_abi.py --host "$RUNNER_TEMP/baseline-python" \
             --compiled-python "$PYO3_PYTHON" --opposite-python "$CELLAR_OPPOSITE_PYTHON" \
             --output "$RUNNER_TEMP/python-loaded-abi"
+      - name: Test and lint
+        run: |
+          # Fleet fixtures own concurrent runtimes and short authority leases.
+          # Run independent cases serially to keep their resource envelope stable.
+          cargo test --workspace --exclude cellar-python --all-features --lib --tests --locked -- --test-threads=1
+          cargo test --workspace --all-features --doc --locked
+          cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+      - name: Test Axum feature modes and generated contract
+        run: |
+          cargo test -p cellar-axum --no-default-features --locked
+          cargo check -p cellar-axum-counter --no-default-features --bins --locked
+          cargo run -p cellar-axum-counter --bin export-openapi --locked -- "$RUNNER_TEMP/counter-openapi.json"
+          diff examples/axum-counter/openapi.json "$RUNNER_TEMP/counter-openapi.json"
+          python3 examples/axum-counter/generate_client.py "$RUNNER_TEMP/counter-openapi.json" "$RUNNER_TEMP/counter-client.rs"
+          rustfmt --edition 2021 "$RUNNER_TEMP/counter-client.rs"
+          diff examples/axum-counter/generated_client.rs "$RUNNER_TEMP/counter-client.rs"
       - name: Exercise embedded Python package
         run: |
           export CELLAR_PYTHON_PREFIX="$(mktemp -d "$RUNNER_TEMP/cellar-python-XXXXXX")"
