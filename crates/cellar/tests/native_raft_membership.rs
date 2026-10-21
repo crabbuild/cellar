@@ -2,11 +2,20 @@
 #[path = "support/raft_cluster.rs"]
 #[allow(dead_code)]
 mod cluster;
+#[path = "support/raft_ltx_fault.rs"]
+#[allow(dead_code)]
+mod image_fault;
+#[path = "support/raft_storage_fault.rs"]
+#[allow(dead_code)]
+mod log_fault;
 #[path = "support/raft_repair_native.rs"]
 mod native_repairs;
 #[path = "support/raft_node.rs"]
 #[allow(dead_code)]
 mod public_node;
+#[path = "support/raft_seed_fault.rs"]
+#[allow(dead_code)]
+mod seed_fault;
 
 use cellar_logic::{consensus::*, raft_placement::*};
 
@@ -233,4 +242,9 @@ async fn minority_cannot_reconfigure() -> anyhow::Result<()> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn joint_configuration_restart() -> anyhow::Result<()> {
     native_repairs::joint_configuration_restart().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn joint_plan_process_kill_resume() -> anyhow::Result<()> {
+    native_repairs::joint_plan_process_kill_resume().await
 }

@@ -264,3 +264,20 @@ fn maximum_repair_membership_fits_completion_metadata_bound() {
     restored.validate(&after, 3).unwrap();
     assert_eq!(restored, next);
 }
+
+#[test]
+fn omitted_nullable_repair_fields_are_not_a_current_record() {
+    let state = GroupMembership::initial(&configuration());
+    let mut value = serde_json::to_value(&state).unwrap();
+    value.as_object_mut().unwrap().remove("repair");
+    assert!(serde_json::from_value::<GroupMembership>(value).is_err());
+    let mut change = ConfChangeV2 {
+        changes: vec![item(4, ConfChangeType::AddLearnerNode)].into(),
+        ..Default::default()
+    };
+    let member = plan(&state, 4, 4).replacement;
+    state.bind_change(&mut change, &[member]).unwrap();
+    let mut value: serde_json::Value = serde_json::from_slice(&change.context).unwrap();
+    value.as_object_mut().unwrap().remove("repair");
+    assert!(serde_json::from_value::<Intent>(value).is_err());
+}

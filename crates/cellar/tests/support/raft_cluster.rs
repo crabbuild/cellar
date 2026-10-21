@@ -385,6 +385,7 @@ impl Cluster {
         paths: &[std::path::PathBuf],
         placements: Vec<RaftCellPlacement>,
         target_first: bool,
+        check: Option<JoinedResumeCheck>,
     ) -> Result<Self> {
         let mut roots = Vec::new();
         for path in paths {
@@ -400,7 +401,7 @@ impl Cluster {
             ExtraNode::Resume {
                 roots,
                 placements,
-                check: Box::new(|_| Box::pin(async { Ok(()) })),
+                check: check.unwrap_or_else(|| Box::new(|_| Box::pin(async { Ok(()) }))),
                 generation: 60,
                 target_first,
             },

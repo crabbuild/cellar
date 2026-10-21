@@ -48,6 +48,7 @@ pub struct GroupMembership {
     high_water: u64,
     revision: u64,
     bindings: Vec<Binding>,
+    #[serde(deserialize_with = "required_nullable")]
     repair: Option<RepairRecord>,
 }
 
@@ -57,7 +58,18 @@ struct Intent {
     format: u32,
     expected_revision: u64,
     joins: Vec<Binding>,
+    #[serde(deserialize_with = "required_nullable")]
     repair: Option<RepairIntent>,
+}
+
+// Marker-1 records use explicit null for no plan. Serde otherwise treats a
+// missing Option field as None, silently accepting an earlier record shape.
+fn required_nullable<'de, T, D>(decoder: D) -> Result<Option<T>, D::Error>
+where
+    T: Deserialize<'de>,
+    D: serde::Deserializer<'de>,
+{
+    Option::<T>::deserialize(decoder)
 }
 
 fn invalid() -> LogError {

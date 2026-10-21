@@ -210,6 +210,7 @@ pub(super) async fn crash_matrix(s3: bool) -> Result<()> {
             &state.directories,
             placements,
             seeded,
+            None,
         )
         .await
         .with_context(|| format!("public restart after {cut}, s3={s3}, seeded={seeded}"))?;

@@ -38,8 +38,15 @@ async fn leader(handles: &[RaftCellHandle]) -> Result<usize> {
     .await?)
 }
 
-impl Fixture {
-    async fn new(s3: bool) -> Result<Self> {
+struct Setup {
+    definitions: Vec<public_node::Counter>,
+    calls: Vec<Arc<AtomicUsize>>,
+    registration: RaftCellRegistration,
+    entered: tokio::sync::mpsc::UnboundedReceiver<()>,
+}
+
+impl Setup {
+    fn new() -> Result<Self> {
         let (gate, entered) = public_node::Gate::new();
         gate.release();
         let calls: Vec<_> = (0..4).map(|_| Arc::new(AtomicUsize::new(0))).collect();
@@ -76,8 +83,49 @@ impl Fixture {
                 learners: vec![],
             },
         };
-        let cluster =
-            cluster::Cluster::start_with_standby(&definitions, vec![registration.clone()]).await?;
+        Ok(Self {
+            definitions,
+            calls,
+            registration,
+            entered,
+        })
+    }
+}
+
+#[path = "raft_repair_crash.rs"]
+mod crashes;
+pub(super) use crashes::joint_plan_process_kill_resume;
+
+impl Fixture {
+    async fn new(s3: bool) -> Result<Self> {
+        Self::new_with_store(s3, None).await
+    }
+
+    async fn new_with_store(
+        s3: bool,
+        store: Option<Arc<dyn object_store::ObjectStore>>,
+    ) -> Result<Self> {
+        let Setup {
+            definitions,
+            calls,
+            registration,
+            entered,
+        } = Setup::new()?;
+        let cluster = match store {
+            Some(store) => {
+                cluster::Cluster::start_with_standby_store(
+                    &definitions,
+                    vec![registration.clone()],
+                    RaftHostOptions::default(),
+                    store,
+                )
+                .await?
+            }
+            None => {
+                cluster::Cluster::start_with_standby(&definitions, vec![registration.clone()])
+                    .await?
+            }
+        };
         let handles = cluster
             .services
             .iter()
