@@ -18,11 +18,84 @@ use cellar_ltx::DirectFileSystem;
 use object_store::{path::Path as ObjectPath, ObjectStore};
 use std::path::Path;
 use std::sync::{atomic::Ordering, Arc};
+use std::time::Duration;
 
 fn registered_counter() -> Result<RaftClass> {
     Ok(RaftClass::new("Counter", 1, [7; 32])?
         .command("Increment", [8; 32], |_, _| Ok(vec![]))?
         .query("Get", [9; 32], |_, _| Ok(vec![]))?)
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn standby_storage_pin_refuses_recreated_node_before_member_claim() -> Result<()> {
+    use cellar::sdk::{consensus::*, ShutdownMode};
+    let (gate, _entered) = public_node::Gate::new();
+    gate.release();
+    let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let definition = public_node::counter(calls.clone(), gate)?;
+    let store = Arc::new(object_store::memory::InMemory::new());
+    let mut namespace = config(2, NamespaceMode::Raft, true);
+    namespace.schema_digest = definition.schema;
+    let mut birth = proposal(2, "Counter:standby", 5, 1);
+    birth.voters[0].node = NodeId::new([2; 16])?;
+    let catalog = Catalog::new(
+        store.clone(),
+        CatalogOptions {
+            prefix: "host/test".into(),
+            ..Default::default()
+        },
+    )?;
+    let selected = catalog.open_namespace(namespace.clone()).await?;
+    selected.resolve_birth(birth.clone()).await?;
+    let registration = RaftCellRegistration {
+        placement: RaftCellPlacement::Standby,
+        namespace,
+        birth,
+        class: "Counter".into(),
+    };
+    let intact = tempfile::tempdir()?;
+    let original = public_node::node(intact.path(), definition.application.clone()).await?;
+    let service = public_node::cells(
+        &original,
+        definition.application.clone(),
+        store.clone(),
+        registration.clone(),
+        false,
+    )
+    .await?;
+    ensure!(service.close().await?.unfinished.is_empty());
+    original.shutdown(ShutdownMode::Preserve).await?;
+
+    // Repeating the configured node/disk IDs on an empty engine cannot obtain
+    // a fresh identity, even though this standby never claimed a group member.
+    let blank = tempfile::tempdir()?;
+    let replacement = public_node::node(blank.path(), definition.application.clone()).await?;
+    let outcome = public_node::cells(
+        &replacement,
+        definition.application,
+        store.clone(),
+        registration,
+        false,
+    )
+    .await;
+    replacement.shutdown(ShutdownMode::Preserve).await?;
+    let error = outcome
+        .err()
+        .context("blank replacement acquired standby admission")?;
+    ensure!(matches!(
+        error.downcast_ref::<CatalogError>(),
+        Some(CatalogError::LostStableState)
+    ));
+    use futures_util::TryStreamExt;
+    let objects = store.list(None).try_collect::<Vec<_>>().await?;
+    ensure!(objects
+        .iter()
+        .any(|o| o.location.as_ref().ends_with("/pin")));
+    ensure!(!objects
+        .iter()
+        .any(|o| o.location.as_ref().contains("/claims/")));
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+    Ok(())
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -2087,6 +2160,9 @@ async fn catalog_reconciles_lost_create_responses() -> Result<()> {
         .await?;
     let root = tempfile::tempdir()?;
     let (domain, log) = open_log(root.path(), 11, 21, LogOpenMode::Create).await?;
+    namespace
+        .register_node_storage(&log, Duration::from_secs(5))
+        .await?;
     store.fail_after.store(true, Ordering::Release);
     let permit = namespace.bootstrap_member(&birth, &log).await?;
     assert_eq!(permit.replica().scope, *birth.scope());
@@ -2172,6 +2248,9 @@ async fn unconfirmed_claim_keeps_the_group_parked() -> Result<()> {
         .await?;
     let root = tempfile::tempdir()?;
     let (domain, log) = open_log(root.path(), 11, 21, LogOpenMode::Create).await?;
+    namespace
+        .register_node_storage(&log, Duration::from_secs(5))
+        .await?;
     store.fail_confirmation.store(true, Ordering::Release);
     assert!(namespace.bootstrap_member(&birth, &log).await.is_err());
     assert_eq!(

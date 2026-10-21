@@ -19,8 +19,18 @@ node marker and engine root. Resume checks the exact pair; another empty engine
 cannot repeat this identity by reusing configured node/disk values. The required
 marker-1 field is a hard local-storage cutover, without an older-record reader.
 The ID is a persistent identity rather than protection against copying live
-vote files to another disk. Node storage pins and process views are separate
-MR-11 work and are not established by this field alone.
+vote files to another disk. Before bootstrap, joined recovery or standby
+registration, the catalog verifies an immutable cluster-wide S3 pin against
+this exact live engine instance. A recreated engine cannot acquire the old node
+identity, even before that node has claimed a cell member. Query-only routers
+do not acquire a member storage pin.
+
+The directory adapter also publishes bounded, conditional process views using a
+synced node revision. It binds configured node/disk/label/server-name trust to
+the live engine owner; exact retry reconciles an ambiguous publication, and old
+closed owners cannot replace a newer process. These views grant no membership,
+seeding or read authority. Host publication, atomic routing refresh, inspection
+and automatic controller integration remain MR-11 work.
 
 `reserve_node_revision` syncs a nonempty root fence and returns the node-wide
 monotonic sync sequence. It changes no group vote, configuration or applied
@@ -582,7 +592,7 @@ lost claim response without resetting its log or votes. Normal follower proofs
 still govern queries after attachment.
 
 The internal namespace protocol identity is
-`cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1`; format markers remain 1. Use a fresh
+`cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1/nodes-1`; format markers remain 1. Use a fresh
 experimental namespace/prefix and local state after this hard cutover.
 
 
@@ -691,7 +701,7 @@ isolated, caught-up movement after healing, subsequent writes/reads and refusal
 during an active repair. Automatic load collection and balancing remain open.
 
 This extends the internal protocol to
-`cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1`; numeric format markers stay 1.
+`cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1/nodes-1`; numeric format markers stay 1.
 Earlier roots/state have no compatibility reader. Use a fresh experimental
 namespace/prefix and local state. The earlier MR-10 evidence retains its exact
 historical protocol and source scope.

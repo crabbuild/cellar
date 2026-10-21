@@ -31,6 +31,10 @@ pub struct Store {
     pub payload_resume: tokio::sync::Notify,
     pub held_payload_path: std::sync::Mutex<Option<Path>>,
     pub non_create: AtomicUsize,
+    pub hold_next_view: AtomicBool,
+    pub view_hang: AtomicBool,
+    pub view_waiting: AtomicBool,
+    pub view_resume: tokio::sync::Notify,
 }
 
 impl std::fmt::Display for Store {
@@ -84,6 +88,19 @@ impl ObjectStore for Store {
         options: PutOptions,
     ) -> object_store::Result<PutResult> {
         tokio::task::yield_now().await;
+        if path.filename() == Some("view") && self.hold_next_view.swap(false, Ordering::AcqRel) {
+            self.view_waiting.store(true, Ordering::Release);
+            loop {
+                let resumed = self.view_resume.notified();
+                tokio::pin!(resumed);
+                resumed.as_mut().enable();
+                if !self.view_hang.load(Ordering::Acquire) {
+                    break;
+                }
+                resumed.await;
+            }
+            self.view_waiting.store(false, Ordering::Release);
+        }
         self.archive_fault(path).await?;
         if !matches!(options.mode, PutMode::Create) {
             self.non_create.fetch_add(1, Ordering::AcqRel);

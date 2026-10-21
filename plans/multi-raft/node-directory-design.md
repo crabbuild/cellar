@@ -2,8 +2,10 @@
 
 Status: MR-11 implementation contract. The [local storage foundation](evidence/MR-11-node-storage-progress.json)
 qualifies stable engine identity, root-fence allocation and physical close
-ownership. S3 pins, process publication/distribution, inspection and controller
-integration are not yet implemented or qualified.
+ownership. The S3 pin/process-view adapter and mandatory physical storage checks
+are implemented; their focused tests pass, with broader qualification pending.
+Host process publication/distribution, inspection and controller integration
+remain unimplemented.
 The [membership contract](membership-design.md) remains authoritative for
 learner initialization and configuration changes. A directory observation never
 changes voters, initializes storage or supplies a quorum proof.
@@ -58,8 +60,8 @@ A process-view publisher is bound to the exact open engine owner. The configured
 local endpoint must match its node, disk and process and the host's authenticated
 label. A fresh boot uses a fresh process generation. Retrying an ambiguous PUT
 keeps the boot attempt and payload identity; exact readback reconciles success.
-Conditional updates use the observed object version. Rebase only while that
-engine owner remains open, reserving another synced sequence when necessary.
+Conditional updates use the observed object version. An older publication that
+wins before this owner's CAS is retried with the exact same fenced payload.
 An old closed owner cannot reserve or publish another revision. A late old PUT
 cannot overwrite a newer conditional update.
 

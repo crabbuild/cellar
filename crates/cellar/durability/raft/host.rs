@@ -305,6 +305,7 @@ pub(crate) async fn start(
                         && !bindings.contains_key(&(scope.namespace, scope.cell.clone())),
                     "duplicate standby registration"
                 );
+                namespace.require_node_storage(&service.log).await?;
                 let existing = match service.log.group(&scope) {
                     Ok(group) => Some(group),
                     Err(super::storage::LogError::NotFound) => None,

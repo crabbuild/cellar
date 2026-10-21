@@ -57,7 +57,8 @@ pub mod verification {
     };
     pub use crate::raft::catalog::{
         BirthProposal, BootstrapPermit, Catalog, CatalogError, CatalogOptions, GroupBirth,
-        InitialMember, NamespaceCatalog, NamespaceConfig, VoterPolicy,
+        InitialMember, NamespaceCatalog, NamespaceConfig, NodePublication, NodeRegistration,
+        NodeView, VoterPolicy,
     };
     pub use crate::raft::completion::{
         AcceptedProposal, ApplyCompletion, ApplyTicket, GroupStatus, RuntimeError, RuntimeEvent,

@@ -16,6 +16,10 @@ use futures_util::TryStreamExt;
 use object_store::{path::Path, ObjectStore, PutMode, PutOptions, UpdateVersion};
 use std::{collections::BTreeSet, fmt, sync::Arc};
 
+#[path = "node_directory.rs"]
+mod directory;
+pub use directory::{NodePublication, NodeRegistration, NodeView};
+
 #[derive(Debug)]
 pub enum CatalogError {
     Invalid(&'static str),
@@ -44,6 +48,8 @@ impl std::error::Error for CatalogError {}
 pub struct CatalogOptions {
     pub prefix: String,
     pub max_record_bytes: usize,
+    /// Whole-operation bound for mandatory physical storage registration.
+    pub node_timeout_ms: u64,
 }
 
 impl Default for CatalogOptions {
@@ -51,6 +57,7 @@ impl Default for CatalogOptions {
         Self {
             prefix: String::new(),
             max_record_bytes: 64 * 1024,
+            node_timeout_ms: 5000,
         }
     }
 }
@@ -94,6 +101,7 @@ struct Inner {
     prefix: String,
     limit: usize,
     owner: Arc<()>,
+    node_timeout_ms: u64,
 }
 
 #[derive(Clone)]
@@ -187,6 +195,9 @@ impl Catalog {
         if !(1024..=64 * 1024).contains(&options.max_record_bytes) {
             return Err(CatalogError::Limit);
         }
+        if !(1..=60_000).contains(&options.node_timeout_ms) {
+            return Err(CatalogError::Invalid("node registration timeout"));
+        }
         let prefix = crate::replica_storage::normalize_prefix(&options.prefix)
             .map_err(|_| CatalogError::Invalid("catalog prefix"))?;
         if prefix.len() > 1024 {
@@ -198,6 +209,7 @@ impl Catalog {
                 prefix,
                 limit: options.max_record_bytes,
                 owner: Arc::new(()),
+                node_timeout_ms: options.node_timeout_ms,
             }),
         })
     }
@@ -518,6 +530,7 @@ impl NamespaceCatalog {
             .chain(&birth.learners)
             .find(|m| m.node == log.limits().node)
             .ok_or(CatalogError::NotInitialMember)?;
+        self.require_node_storage(log).await?;
         let expected = BootstrapClaim {
             scope: birth.scope.clone(),
             member: selected.member,
@@ -594,6 +607,7 @@ impl NamespaceCatalog {
         {
             return Err(CatalogError::Conflict("joined member is initial"));
         }
+        self.require_node_storage(log).await?;
         let expected = BootstrapClaim {
             scope: birth.scope.clone(),
             member,
