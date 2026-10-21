@@ -252,6 +252,14 @@
       "route": "/counters/demo",
       "status": "requires-python-runtime",
       "guide": "python/README.md"
+    },
+    {
+      "name": "python-fastapi",
+      "project": "python-fastapi/project.json",
+      "source": "python-fastapi/app.py",
+      "route": "/orders/order-42",
+      "status": "requires-python-runtime",
+      "guide": "python-fastapi/README.md"
     }
   ]
 }

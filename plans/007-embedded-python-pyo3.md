@@ -13,6 +13,11 @@ have explicit admission, cancellation and returning-host shutdown contracts.
 Source and SDK facade bytes are embedded in the native executable. Installed
 package version pins are checked before admitting the host. A build-bound inventory can additionally verify the provisioned runtime, installed files, loaded libpython and source registrations before initialization.
 
+The [FastAPI order example](../examples/python-fastapi/README.md) now adds a
+bounded, buffered ASGI HTTP integration and a verified runtime/dependency
+deployment walkthrough. It is an example-level HTTP transport; general ASGI
+lifespan, WebSockets and live streaming remain deferred.
+
 Local validation covers real-node storage conflicts, context expiration,
 cancellation, alarms, preserving restart, remote-owner routing and handoff
 recovery. The packaged smoke additionally covers Pydantic/native-extension imports,

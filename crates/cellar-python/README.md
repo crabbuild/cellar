@@ -1,5 +1,10 @@
 # Embedded Python
 
+The [FastAPI order example](../../examples/python-fastapi/README.md) demonstrates
+an example-only buffered ASGI HTTP transport, durable cells and verified package
+deployment. General ASGI lifespan, WebSocket and streaming support remain outside
+the adapter's current SDK contract.
+
 `cellar-python` implements Cellar's native `Application` and `Cell` contracts using
 PyO3 and **CPython 3.14 or free-threaded CPython 3.14t**. Enable the optional `embed` feature. A compiled
 Rust executable includes the Python source and starts one interpreter and one

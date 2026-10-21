@@ -11,6 +11,8 @@ recovery.
 The optional [embedded Python adapter](examples/python/README.md) runs Python
 business logic in a native Rust host using CPython 3.14 and PyO3, with Cellar
 storage, alarms, KV, SQL, queues and cron.
+The [FastAPI order example](examples/python-fastapi/README.md) includes OpenAPI,
+durable creation receipts and verified Python dependency packaging/deployment.
 
 [Quickstart](#quickstart) · [Write code](#work-with-cells) ·
 [Architecture](#how-cellar-works) · [Examples](#explore-the-sdk) ·

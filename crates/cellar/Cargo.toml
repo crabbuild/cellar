@@ -72,6 +72,10 @@ disallowed_macros = "forbid"
 name = "python-package-qualification"
 path = "../../tools/python/install_smoke.rs"
 
+[[example]]
+name = "python-fastapi-deployment"
+path = "../../examples/python-fastapi/deploy.rs"
+
 [dependencies]
 async-trait.workspace = true
 chrono.workspace = true
