@@ -12,6 +12,7 @@ alarms and receipt-checked outbox/inbox delivery share an owned leader scheduler
 
 | Boundary | Qualification |
 | --- | --- |
+| [MR-13 SQL and transport resources](evidence/MR-13-resources-progress.json) | Source `f89c7b4`: 850 unique unit/integration cases across 26 binaries, four SDK doctests and two recovery processes. Physical SQL and actual directional transport budgets; 68 fixed samples with grouped metric families. Prior intermittent findings remain open. |
 | [MR-13 authenticated reservation metrics](evidence/MR-13-metrics-progress.json) | Source `4e25ffa`: 551 cases across six affected binaries, four SDK doctests and two recovery processes. Exactly 14 gauge identities for one versus 32 committed groups; separate scope from the parent result. |
 | [MR-13 local readiness and reader resources](evidence/MR-13-readiness-pins-progress.json) | Source `e55e6cb`: 847 unique unit/integration cases across 26 binaries, four SDK doctests and two recovery processes. Local query readiness and physical reader limits/usage; transfer and concurrent fallback findings remain open. |
 | [MR-13 retained-state mode guard](evidence/MR-13-mode-guard-progress.json) | Test-only source `33f3c86`: all 15 native operations cases pass; 790 other frozen parent files match `ec312e8`. No combined count across revisions. |
@@ -46,6 +47,9 @@ source freshness; strong reads still obtain a fresh quorum barrier. Physical SDK
 query-reader permits survive waiter cancellation, and fixed-size usage reflects
 actual reservations. An authenticated, process-bound internal endpoint exports
 those same counters with fixed series identities and refuses unavailable samples.
+SQL observations follow real work slots and physical worker lifetime. Transport
+observations distinguish directional and auxiliary banks through a weak observer;
+retaining an SDK service cannot retain the joined transport owner.
 MR-14 adds batching/workloads, MR-15 release qualification including
 the 24-hour soak, MR-16 measured density/physical tiers and MR-17 federation.
 

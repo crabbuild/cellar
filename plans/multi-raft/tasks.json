@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "baseline_revision": "4e25ffa4b93b1446a92a851d200acbb959f9351c",
+  "baseline_revision": "f89c7b462032405988ec24cd7e1f02c3476d49aa",
   "status_values": [
     "TODO",
     "IN_PROGRESS",
@@ -2030,7 +2030,10 @@
         "crates/cellar/application/consensus/resources.rs",
         "crates/cellar/tests/support/raft_resources_native.rs",
         "crates/cellar/node/raft_metrics.rs",
-        "crates/cellar/tests/support/raft_metrics_native.rs"
+        "crates/cellar/tests/support/raft_metrics_native.rs",
+        "crates/cellar/application/consensus/resource_metrics.rs",
+        "crates/cellar/application/consensus/resources_tests.rs",
+        "crates/cellar/durability/raft/transport_resources.rs"
       ],
       "steps": [
         "Expose explicit limits and metrics for groups, byte queues, apply/archive lag, query pins, snapshot and repair budgets.",
@@ -2226,7 +2229,8 @@
         "evidence/MR-13-management-progress.json",
         "evidence/MR-13-mode-guard-progress.json",
         "evidence/MR-13-readiness-pins-progress.json",
-        "evidence/MR-13-metrics-progress.json"
+        "evidence/MR-13-metrics-progress.json",
+        "evidence/MR-13-resources-progress.json"
       ]
     },
     {
@@ -2242,7 +2246,8 @@
         "crates/cellar/durability/raft/storage.rs",
         "crates/cellar/durability/raft/transport.rs",
         "crates/cellar/Cargo.toml",
-        "tools/perf/README.md"
+        "tools/perf/README.md",
+        "crates/cellar/durability/raft/host.rs"
       ],
       "creates": [
         "tools/perf/raft_run.py",
@@ -2255,7 +2260,7 @@
         "Optimize shared log batches, pooled transport and fair scheduling while retaining per-group Ready ordering.",
         "Deliver the runner interface and reference workload from qualification.md, with executable/image freshness checks.",
         "Measure copy/apply cost, group density and failure recovery against current fleet and bucket baselines under equivalent contracts.",
-        "Record numeric deployment SLO profiles and offered-load methodology before performance qualification."
+        "Record numeric deployment SLO profiles and offered-load methodology before performance qualification. Reconcile the 4,096-group host bound with Q1's 5,000 average voter replicas per process through bounded implementation and measured density; preserve the Q1 workload gate."
       ],
       "acceptance": [
         "Q0 and preliminary Q1 runs emit raw ledgers, all required metrics and reconciled results.",

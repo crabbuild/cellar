@@ -766,7 +766,17 @@ authentication bind each scrape. One and 32 committed groups expose the same
 and held cancelled startup refuses an unavailable sample. This scoped result
 is separate from the broader parent record; counts are not pooled.
 
-Complete SQL/transport/image/lag/controller views and bounded aggregate role
+The [SQL and transport resource component](evidence/MR-13-resources-progress.json)
+qualifies 850 unique unit/integration cases across 26 binaries, four SDK doctests
+and two recovery processes at `f89c7b4`. Physical SQL stacks own worker counts;
+actual semaphores report queued/executing work. Weak transport observations expose
+directional node and auxiliary banks without retaining the engine. A held real
+RPC demonstrates reservations at both ends; joined shutdown releases physical
+work. One and 32 committed groups expose the same 68 samples. A strengthened HTTP
+oracle rejects the prior encoder's interleaved metric families; the grouped
+replacement passes. The prior transfer/fallback findings remain open.
+
+Complete image/connection/lag/controller views and bounded aggregate role
 sampling, safe receipt maintenance, production Raft CLI startup and remaining
 management surfaces, fenced new-history disaster restore and complete operating
 qualification remain required before DONE. The remaining original case is
@@ -774,7 +784,7 @@ qualification remain required before DONE. The remaining original case is
 
 Modify: `crates/cellar/node/embedded.rs`, `crates/cellar/actor/output_proofs.rs`, `crates/cellar/fleet/management/nodes.rs`, `crates/cellar/fleet/management/routing.rs`, `crates/cellar/cli/cli_options.rs`, `crates/cellar/durability/raft/options.rs`, `crates/cellar/application/consensus/client.rs`, `crates/cellar/application/consensus/mod.rs`, `crates/cellar/durability/raft/effect_delivery.rs`, `crates/cellar/durability/raft/host.rs`, `crates/cellar/durability/raft/host_controller.rs`, `crates/cellar/durability/raft/host_effects.rs`, `crates/cellar/durability/raft/host_inspection.rs`, `crates/cellar/durability/raft/mod.rs`, `crates/cellar/execution/services.rs`, `crates/cellar/node/driver.rs`, `crates/cellar/node/lifecycle.rs`, `crates/cellar/tests/native_raft_membership.rs`, `crates/cellar/tests/support/raft_alarm_native.rs`, `crates/cellar/tests/support/raft_controller_native.rs`, `crates/cellar/tests/support/raft_node.rs`, `crates/cellar/tests/support/raft_outbox_loopback.rs`, `crates/cellar/tests/support/raft_outbox_native.rs`, `crates/cellar/durability/raft/transport_inspection_tests.rs`, `crates/cellar/tests/support/raft_repair_native.rs`, `crates/cellar/fleet/management/mod.rs`, `crates/cellar/fleet/management/operations.rs`, `crates/cellar-admin/tests/console.rs`, `crates/cellar/tests/support/raft_storage_fault.rs`, `crates/cellar/application/consensus/class.rs`, `crates/cellar/durability/raft/query.rs`, `crates/cellar/tests/native_raft_reads.rs`, `crates/cellar/tests/support/raft_cluster.rs`, `crates/cellar/durability/raft/budget.rs`, `crates/cellar/durability/raft/host_sql.rs`, `crates/cellar/node/mod.rs`.
 
-Create: `crates/cellar/durability/raft/operations.rs`, `crates/cellar/tests/native_raft_operations.rs`, `crates/cellar/durability/raft/host_drain.rs`, `plans/multi-raft/operations-design.md`, `crates/cellar/application/consensus/admission.rs`, `crates/cellar/application/consensus/admission_tests.rs`, `crates/cellar/fleet/management/raft_stop.rs`, `crates/cellar/fleet/management/raft_stop_tests.rs`, `crates/cellar/tests/support/raft_management_native.rs`, `crates/cellar/tests/support/raft_mode_native.rs`, `crates/cellar/application/consensus/readiness.rs`, `crates/cellar/durability/raft/host_readiness.rs`, `crates/cellar/durability/raft/host_readiness_tests.rs`, `crates/cellar/tests/support/raft_readiness_native.rs`, `crates/cellar/application/consensus/resources.rs`, `crates/cellar/tests/support/raft_resources_native.rs`, `crates/cellar/node/raft_metrics.rs`, `crates/cellar/tests/support/raft_metrics_native.rs`.
+Create: `crates/cellar/durability/raft/operations.rs`, `crates/cellar/tests/native_raft_operations.rs`, `crates/cellar/durability/raft/host_drain.rs`, `plans/multi-raft/operations-design.md`, `crates/cellar/application/consensus/admission.rs`, `crates/cellar/application/consensus/admission_tests.rs`, `crates/cellar/fleet/management/raft_stop.rs`, `crates/cellar/fleet/management/raft_stop_tests.rs`, `crates/cellar/tests/support/raft_management_native.rs`, `crates/cellar/tests/support/raft_mode_native.rs`, `crates/cellar/application/consensus/readiness.rs`, `crates/cellar/durability/raft/host_readiness.rs`, `crates/cellar/durability/raft/host_readiness_tests.rs`, `crates/cellar/tests/support/raft_readiness_native.rs`, `crates/cellar/application/consensus/resources.rs`, `crates/cellar/tests/support/raft_resources_native.rs`, `crates/cellar/node/raft_metrics.rs`, `crates/cellar/tests/support/raft_metrics_native.rs`, `crates/cellar/application/consensus/resource_metrics.rs`, `crates/cellar/application/consensus/resources_tests.rs`, `crates/cellar/durability/raft/transport_resources.rs`.
 
 1. Expose explicit limits and metrics for groups, byte queues, apply/archive lag, query pins, snapshot and repair budgets.
 2. Implement readiness by group role and compatible applied state; avoid aggregate health that conceals unavailable cells.
@@ -814,7 +824,7 @@ shown by `plan.py show MR-13`; the manifest is authoritative for arguments.
 
 Dependencies: MR-13. Phase: v1. Initial status: TODO.
 
-Modify: `crates/cellar/durability/raft/runtime.rs`, `crates/cellar/durability/raft/storage.rs`, `crates/cellar/durability/raft/transport.rs`, `crates/cellar/Cargo.toml`, `tools/perf/README.md`.
+Modify: `crates/cellar/durability/raft/runtime.rs`, `crates/cellar/durability/raft/storage.rs`, `crates/cellar/durability/raft/transport.rs`, `crates/cellar/Cargo.toml`, `tools/perf/README.md`, `crates/cellar/durability/raft/host.rs`.
 
 Create: `tools/perf/raft_run.py`, `tools/perf/raft_workload.rs`, `tools/perf/test_raft_run.py`, `tools/perf/raft_profiles.json`, `crates/cellar/tests/native_raft_multigroup.rs`.
 
@@ -822,6 +832,11 @@ Create: `tools/perf/raft_run.py`, `tools/perf/raft_workload.rs`, `tools/perf/tes
 2. Deliver the runner interface and reference workload from qualification.md, with executable/image freshness checks.
 3. Measure copy/apply cost, group density and failure recovery against current fleet and bucket baselines under equivalent contracts.
 4. Record numeric deployment SLO profiles and offered-load methodology before performance qualification.
+
+The current host's 4,096-group limit cannot admit Q1's average 5,000 voter
+replicas per process (10,000 cells, three voters, six processes), before reserve.
+Reconcile the bound through bounded implementation and density measurements;
+changing a numeric limit alone does not qualify it. Keep the Q1 workload gate.
 
 Acceptance: Q0 and preliminary Q1 runs emit raw ledgers, all required metrics and reconciled results. Performance claims compare the same durability contract and disclose hardware.
 

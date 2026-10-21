@@ -46,6 +46,14 @@ private-image publication cost, cache policy and failure recovery requirements.
 | Q4 | 1,000 physical nodes; at least 1,000,000 cells | Independent infrastructure run, bounded controller/network fan-out and upgrade drills |
 | Q5 | Multiple independent clusters | Cross-cluster routing/migration/restore protocol from MR-17 |
 
+The current native host admits at most 4,096 registered groups per node. Q1's
+10,000 cells with three voters require 30,000 replica placements, averaging
+5,000 per process across six processes, before learners or recovery reserve.
+MR-14 must reconcile that host bound with the Q1 workload through bounded
+implementation and measured qualification. Raising a configured limit alone
+establishes no capacity, and counting only the busy cells does not remove idle
+replicas' consensus, image or recovery costs. The Q1 gate remains unchanged.
+
 These are work targets, not a deployment sizing recommendation. Each report must
 state the active fraction, database-size distribution, request mix, skew, payloads,
 hardware and SLO. Thousands of processes on one host do not qualify Q4. A namespace

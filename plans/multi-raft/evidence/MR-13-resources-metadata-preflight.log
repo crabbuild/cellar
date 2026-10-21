@@ -1,0 +1,4 @@
+Rust source: f89c7b462032405988ec24cd7e1f02c3476d49aa
+Scope: documentation/evidence successor; all frozen Rust/manifests/smoke unchanged
+Command: ["python3", "plans/multi-raft/plan.py", "preflight"]
+Source preflight passed: 76 anchors at baseline f89c7b462032405988ec24cd7e1f02c3476d49aa.

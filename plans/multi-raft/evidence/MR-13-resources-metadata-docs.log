@@ -1,0 +1,4 @@
+Rust source: f89c7b462032405988ec24cd7e1f02c3476d49aa
+Scope: documentation/evidence successor; all frozen Rust/manifests/smoke unchanged
+Command: ["python3", "tools/docs/check.py"]
+Validated 36 documents, 6 crate READMEs, 10 visual guides, 6 flows and 622 local references.
