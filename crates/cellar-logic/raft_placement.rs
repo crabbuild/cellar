@@ -15,6 +15,21 @@ pub struct PlacementPolicy {
     pub required_bytes: u64,
 }
 
+impl PlacementPolicy {
+    /// Validate explicit policy bounds before collecting observations.
+    pub fn validate(&self) -> Result<(), PlacementError> {
+        if self.revision == 0
+            || !label(&self.pool)
+            || self.max_sample_age_ms == 0
+            || self.max_sample_age_ms > 3_600_000
+            || self.required_bytes == 0
+        {
+            return Err(PlacementError::InvalidPolicy);
+        }
+        Ok(())
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NodeHealth {
     Healthy,
@@ -164,14 +179,7 @@ pub fn select_repair(
     policy: &PlacementPolicy,
     now_ms: u64,
 ) -> Result<Option<RepairPlacement>, PlacementError> {
-    if policy.revision == 0
-        || !label(&policy.pool)
-        || policy.max_sample_age_ms == 0
-        || policy.max_sample_age_ms > 3_600_000
-        || policy.required_bytes == 0
-    {
-        return Err(PlacementError::InvalidPolicy);
-    }
+    policy.validate()?;
     if nodes.is_empty() || nodes.len() > 4096 {
         return Err(PlacementError::InvalidObservation);
     }
@@ -217,11 +225,17 @@ pub fn select_repair(
     };
     let mut voters: Vec<_> = view.voters.iter().collect();
     voters.sort_by_key(|m| m.member);
-    let mut obsolete = voters.iter().copied().find(|m| {
-        observed(m).is_some_and(|n| {
-            n.health == NodeHealth::Unavailable || n.draining || n.pool != policy.pool
-        })
-    });
+    let mut obsolete = voters
+        .iter()
+        .copied()
+        .find(|member| observed(member).is_some_and(|node| node.health == NodeHealth::Unavailable))
+        .or_else(|| {
+            voters.iter().copied().find(|member| {
+                observed(member).is_some_and(|node| {
+                    node.draining || node.pool != policy.pool || !node.compatible
+                })
+            })
+        });
     if obsolete.is_none() {
         // Desired domain changes may also move a healthy voter. Observe the
         // complete current set before making that decision.
@@ -251,6 +265,12 @@ pub fn select_repair(
         .map(|m| observed(m))
         .collect();
     let remaining = remaining.ok_or(PlacementError::InvalidObservation)?;
+    if remaining
+        .iter()
+        .any(|node| node.health != NodeHealth::Healthy || !node.compatible)
+    {
+        return Err(PlacementError::InvalidObservation);
+    }
     let mut capacity: Vec<_> = nodes
         .iter()
         .filter(|n| {

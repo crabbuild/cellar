@@ -12,6 +12,19 @@ pub struct LeaderPolicy {
     pub deadband_basis_points: u16,
 }
 
+impl LeaderPolicy {
+    /// Validate explicit policy bounds before collecting observations.
+    pub fn validate(&self) -> Result<(), LeaderError> {
+        if !(1..=3_600_000).contains(&self.max_sample_age_ms)
+            || !(1..=3_600_000).contains(&self.min_transfer_interval_ms)
+            || self.deadband_basis_points > 10_000
+        {
+            return Err(LeaderError::InvalidPolicy);
+        }
+        Ok(())
+    }
+}
+
 pub struct LeaderView {
     pub scope: GroupScope,
     pub term: Term,
@@ -72,12 +85,7 @@ pub fn select_leader(
     policy: LeaderPolicy,
     now_ms: u64,
 ) -> Result<Option<LeaderMove>, LeaderError> {
-    if !(1..=3_600_000).contains(&policy.max_sample_age_ms)
-        || !(1..=3_600_000).contains(&policy.min_transfer_interval_ms)
-        || policy.deadband_basis_points > 10_000
-    {
-        return Err(LeaderError::InvalidPolicy);
-    }
+    policy.validate()?;
     if view.scope.validate().is_err()
         || view.term.get() == 0
         || view.term.get() >= u64::MAX - 2

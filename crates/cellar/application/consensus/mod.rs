@@ -13,10 +13,13 @@ pub use crate::raft::completion::{LeadershipTransfer, MemberProgress, Replicatio
 pub use crate::raft::catalog::{
     BirthProposal, CatalogOptions, InitialMember, NamespaceConfig, VoterPolicy,
 };
+pub use cellar_logic::raft_leadership::LeaderPolicy;
+pub use cellar_logic::raft_placement::PlacementPolicy;
+
 pub use crate::raft::host::{
     RaftArchiveOptions, RaftCellPlacement, RaftCellRegistration, RaftCellsConfig,
-    RaftCellsServices, RaftHostOptions, RaftInspectionScanOptions, RaftNodeDirectoryOptions,
-    RaftPeerNode,
+    RaftCellsServices, RaftControllerOptions, RaftControllerStatus, RaftHostOptions,
+    RaftInspectionScanOptions, RaftNodeDirectoryOptions, RaftPeerNode,
 };
 pub use crate::raft::inspection::{
     CellInspection, InspectionError, LeaderLoad, MemberInspection, NodeInspection, RaftNodeProfile,

@@ -33,6 +33,9 @@ use tokio::sync::{mpsc, Notify};
 #[path = "host_startup_tests.rs"]
 mod startup_tests;
 
+#[path = "host_controller.rs"]
+mod controller;
+pub use controller::{RaftControllerOptions, RaftControllerStatus};
 #[path = "host_directory.rs"]
 mod directory;
 #[path = "host_inspection.rs"]
@@ -52,6 +55,8 @@ mod standby;
 
 #[derive(Clone, Debug)]
 pub struct RaftHostOptions {
+    /// Opt in to bounded automatic repair and optional leadership balancing.
+    pub controller: Option<RaftControllerOptions>,
     /// Bounded complete node-wide status scans when inspection is enabled.
     pub inspection_scan: RaftInspectionScanOptions,
     /// Explicit inbound metadata permissions. Discovery and query grants do not
@@ -89,6 +94,7 @@ impl Default for RaftHostOptions {
             ..Default::default()
         };
         Self {
+            controller: None,
             inspection_scan: RaftInspectionScanOptions::default(),
             inspection_origins: Vec::new(),
             node_directory: None,
@@ -127,6 +133,9 @@ impl RaftHostOptions {
             "too many inspection grants"
         );
         self.inspection_scan.validate()?;
+        if let Some(controller) = &self.controller {
+            controller.validate(self)?;
+        }
         self.archive.validate()?;
         self.execution.validate()?;
         anyhow::ensure!(
@@ -783,6 +792,10 @@ async fn initialize(
         let mut read_nonce = [0; 16];
         rng.fill_bytes(&mut read_nonce);
         let mut driver = Driver {
+            controller: options
+                .controller
+                .as_ref()
+                .map(|options| controller::Controller::new(options.clone(), &local)),
             leader_load: options
                 .node_profile
                 .as_ref()
@@ -974,6 +987,7 @@ enum SqlPurpose {
 }
 
 enum Job {
+    Controller(Box<controller::Completed>),
     LeaderLoad(Box<load::Completed>),
     Inspection(Box<inspection::Completed>),
     PeerInspection(Box<inspection::PeerCompleted>),
@@ -1060,6 +1074,7 @@ enum Job {
 }
 
 struct Driver {
+    controller: Option<controller::Controller>,
     leader_load: Option<load::Scanner>,
     directory: Option<directory::Directory>,
     standbys: BTreeMap<GroupScope, standby::Dormant>,
@@ -1621,6 +1636,21 @@ impl Driver {
     }
 
     fn on_request(&mut self, mut request: Request) {
+        if matches!(
+            &request.kind,
+            Kind::ControllerStatus | Kind::SetControllerEnabled(_)
+        ) {
+            if self.closing.load(Ordering::Acquire) || request.control.cancelled() {
+                reply(&mut request, Err(CommandFailure::Unavailable));
+            } else {
+                let enabled = match request.kind {
+                    Kind::SetControllerEnabled(enabled) => Some(enabled),
+                    _ => None,
+                };
+                self.controller_control(request, enabled);
+            }
+            return;
+        }
         let scope = request.scope.clone();
         if matches!(&request.kind, Kind::Inspect | Kind::InspectPeer(_)) {
             if self.closing.load(Ordering::Acquire) {
@@ -1751,7 +1781,9 @@ impl Driver {
                     }
                 }));
             }
-            Kind::Inspect
+            Kind::ControllerStatus
+            | Kind::SetControllerEnabled(_)
+            | Kind::Inspect
             | Kind::InspectPeer(_)
             | Kind::AddLearner { .. }
             | Kind::ActivateLearner(_)
@@ -2623,6 +2655,7 @@ impl Driver {
         self.pump_archive();
         self.pump_reads();
         self.pump_leader_load();
+        self.pump_controller();
     }
 
     fn archive_admission(&self) -> bool {
@@ -2712,6 +2745,7 @@ impl Driver {
 
     fn on_job(&mut self, job: Job) {
         match job {
+            Job::Controller(completed) => self.finish_controller(*completed),
             Job::LeaderLoad(completed) => self.finish_leader_load(*completed),
             Job::Inspection(completed) => self.finish_inspection(*completed),
             Job::PeerInspection(completed) => self.finish_peer_inspection(*completed),
@@ -2926,6 +2960,9 @@ impl Driver {
     async fn shutdown(&mut self) -> Result<client::RaftCloseReport, CommandFailure> {
         self.closing.store(true, Ordering::Release);
         self.snapshot_source.take();
+        if let Some(controller) = &self.controller {
+            controller.stop();
+        }
         self.close_configurations();
         if let Some(owner) = &self.archive_owner {
             let _ = owner.cancellation.send(true);

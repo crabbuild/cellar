@@ -4,8 +4,8 @@ This component owns the log engine and the raft-rs adapter. Business activation,
 command output, query publication and archive proof belong to the actor and
 `cellar-logic`; `GroupStatus::protocol_ready` is only a protocol observation.
 Native command/query serving, committed archives and replica recovery are
-implemented; automatic placement, effects and later operating/release work
-remain under implementation.
+implemented. An opt-in controller repairs committed membership and balances
+eligible leaders; effects and later operating/release work remain under implementation.
 The [technical design](../../../../plans/multi-raft/technical-design.md) defines
 the complete contract.
 
@@ -31,7 +31,7 @@ the live engine owner; exact retry reconciles an ambiguous publication, and old
 closed owners cannot replace a newer process. These views grant no membership,
 seeding or read authority. Opt-in host publication and atomic routing refresh
 are implemented with focused verification; broader qualification is pending.
-Authenticated peer inspection uses these views; automatic controller integration remains MR-11 work.
+Authenticated peer inspection and the automatic controller use these views.
 
 Set `RaftHostOptions.node_directory` to `Some(RaftNodeDirectoryOptions::default())`
 to publish this boot's process and refresh explicitly configured peers from an
@@ -57,6 +57,46 @@ host; an older self revision cannot displace the current boot. Missing records,
 read failures and S3 outage preserve cached routes and live quorum authority.
 The host refreshes its own peer map before later membership route construction.
 This timer performs no membership repair or automatic leadership balancing.
+
+Set `RaftHostOptions.controller` to `Some(RaftControllerOptions::new(policy))`
+to enable owned reconciliation. It requires snapshots, a node directory, a node
+profile with the policy's byte reservation, and reserved control capacity.
+Configure `inspection_origins` explicitly on every participating node for the
+namespace. Discovery grants no inspection permission. Missing, refused, stale or
+overloaded observations cannot establish a failed member or an eligible target.
+Only repeated failed TCP dials or authenticated failed-state observations after
+the configured grace period establish unavailability for placement.
+
+The controller inventories durable plans before proposing new ones, examines
+registered histories in bounded rotating turns, and probes all current bindings
+plus a bounded rotating candidate set. One owned job and one unresolved new-plan
+intent per node bound automatic work. Decoded observations reserve controller
+memory before transport reservations are released. Defaults allow eight samples
+per group, four concurrent probes, 8 MiB of retained metadata, a 500 ms probe
+deadline and a five-second whole-observation deadline. These are admission bounds,
+not measured deployment capacity. Candidate profiles and failure domains are
+declared hints; committed configuration remains the authority.
+
+Repair uses the ordinary revision-bound begin/advance APIs and fresh-quorum
+learner activation. It preserves an exact plan across ambiguous replies, pause,
+election and restart; current matched and published progress gate promotion.
+An empty source has no published SQL image, so canonical empty-state catch-up
+uses its verified durable position. Joint transitions retain both majorities
+until the committed finish. A timed-out unpromoted learner can be aborted through
+the same guarded API; its member identity remains consumed.
+
+Optional `leadership` policy uses complete node-wide load samples, compatible
+current voters, fresh matched/activity and published progress, cooldown and a
+deadband. The node-wide attempt interval applies even when a transfer fails.
+Sample ages begin before probes/scans; receipt never refreshes an old observation.
+Transfer acceptance does not promise an election outcome.
+
+`RaftCells::set_controller_enabled(false)` pauses new reconciliation and cancels
+its observation/action waiters while quorum serving continues. Admitted mutations
+and target-owned initialization can still complete. Resume reconstructs committed
+plans and restarts observation/cooldown state. `controller_status()` exposes local
+attempt counters, which reset on boot and supply no consensus proof. Public Node
+shutdown owns cancellation and physical joining of controller and transport work.
 
 `reserve_node_revision` syncs a nonempty root fence and returns the node-wide
 monotonic sync sequence. It changes no group vote, configuration or applied

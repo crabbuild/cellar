@@ -1,4 +1,6 @@
 //! Placement contracts; native controller repair is qualified separately.
+#[path = "support/raft_controller_native.rs"]
+mod automatic;
 #[path = "support/raft_cluster.rs"]
 #[allow(dead_code)]
 mod cluster;
@@ -42,6 +44,31 @@ async fn registered_standby_activation_shutdown_joins() -> anyhow::Result<()> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn native_leadership_transfer_checks_progress() -> anyhow::Result<()> {
     native_repairs::leadership_transfer_checks_progress().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn automatic_no_traffic_repair() -> anyhow::Result<()> {
+    automatic::no_traffic_repair().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn automatic_empty_cell_repair_before_first_command() -> anyhow::Result<()> {
+    automatic::empty_cell_repair().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn leader_balance_with_lag() -> anyhow::Result<()> {
+    automatic::balance_with_lag().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn automatic_minority_does_not_seed_from_reachable_s3() -> anyhow::Result<()> {
+    automatic::minority_refused().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn automatic_plan_recovers_controller_and_leader_loss() -> anyhow::Result<()> {
+    automatic::plan_recovery().await
 }
 
 fn fixture() -> (PlacementView, Vec<NodeCapacity>, PlacementPolicy) {
@@ -111,6 +138,25 @@ fn insufficient_domain_capacity() {
         Err(PlacementError::InsufficientDomains)
     );
     assert_eq!(view.voters[2].member.get(), 3);
+}
+
+#[test]
+fn failed_domains_cannot_prove_remaining_voter_diversity() {
+    let (view, mut nodes, policy) = fixture();
+    nodes[1].health = NodeHealth::Unavailable;
+    assert_eq!(
+        select_repair(&view, &nodes, &policy, 1000),
+        Err(PlacementError::InvalidObservation)
+    );
+    nodes[1].health = NodeHealth::Healthy;
+    nodes[0].draining = true;
+    let repair = select_repair(&view, &nodes, &policy, 1000)
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        repair.obsolete, view.voters[2].member,
+        "restore redundancy before moving a healthy draining voter"
+    );
 }
 
 #[test]

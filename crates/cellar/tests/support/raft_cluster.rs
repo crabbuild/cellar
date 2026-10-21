@@ -213,6 +213,39 @@ impl Drop for Proxy {
     }
 }
 
+/// One globally advertised data endpoint, shared by every source. Directory
+/// refresh therefore preserves this fault boundary rather than bypassing it.
+#[allow(dead_code)] // Shared fixture targets do not all use global endpoints.
+pub struct DataLink(Proxy);
+
+#[allow(dead_code)] // Shared fixture targets do not all use global endpoints.
+impl DataLink {
+    pub async fn start(destination: SocketAddr) -> Result<Self> {
+        Ok(Self(Proxy::start(destination).await?))
+    }
+
+    pub fn address(&self) -> SocketAddr {
+        self.0.address
+    }
+
+    pub async fn block(&self, blocked: bool) -> Result<()> {
+        self.0.block(blocked);
+        if blocked {
+            tokio::time::timeout(Duration::from_secs(5), async {
+                while self.0.active.load(Ordering::SeqCst) != 0 {
+                    tokio::time::sleep(Duration::from_millis(1)).await;
+                }
+            })
+            .await?;
+        }
+        Ok(())
+    }
+
+    pub async fn close(&mut self) -> Result<()> {
+        self.0.close().await
+    }
+}
+
 type JoinedResumeCheck =
     Box<dyn FnOnce(RaftCells) -> futures_util::future::BoxFuture<'static, Result<()>> + Send>;
 

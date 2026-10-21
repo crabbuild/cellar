@@ -231,6 +231,52 @@ pub struct RaftCells {
 }
 
 impl RaftCells {
+    /// Observe the optional local controller. This is not a readiness, quorum
+    /// or membership proof; attempt counters reset with the node process.
+    pub fn controller_status(
+        &self,
+    ) -> impl Future<Output = Result<super::RaftControllerStatus, CommandFailure>> + Send + 'static
+    {
+        let call = self.controller_call(Kind::ControllerStatus);
+        async move {
+            match call.await? {
+                Response::Controller(status) => Ok(status),
+                _ => Err(CommandFailure::CorruptState),
+            }
+        }
+    }
+
+    /// Pause/resume new automatic work without closing quorum or inspection.
+    /// Admitted mutations and target-owned initialization may still complete;
+    /// resumption reconciles their committed state before creating another plan.
+    pub fn set_controller_enabled(
+        &self,
+        enabled: bool,
+    ) -> impl Future<Output = Result<super::RaftControllerStatus, CommandFailure>> + Send + 'static
+    {
+        let call = self.controller_call(Kind::SetControllerEnabled(enabled));
+        async move {
+            match call.await? {
+                Response::Controller(status) => Ok(status),
+                _ => Err(CommandFailure::CorruptState),
+            }
+        }
+    }
+
+    fn controller_call(
+        &self,
+        kind: Kind,
+    ) -> Pin<Box<dyn Future<Output = Result<Response, CommandFailure>> + Send>> {
+        let Some(binding) = self.handle.bindings.values().next().cloned() else {
+            return Box::pin(async { Err(CommandFailure::UnsupportedCapability) });
+        };
+        RaftCellHandle {
+            handle: self.handle.clone(),
+            binding,
+        }
+        .call(kind, Duration::from_secs(5))
+    }
+
     pub fn cell(
         &self,
         namespace: NamespaceId,
@@ -673,7 +719,7 @@ impl RaftCellHandle {
                         }
                     }
                 }
-                Kind::Inspect => (),
+                Kind::Inspect | Kind::ControllerStatus | Kind::SetControllerEnabled(_) => (),
                 Kind::InspectPeer(_) => {
                     if timeout > Duration::from_secs(60) {
                         return Err(CommandFailure::UnsupportedCapability);
@@ -789,6 +835,8 @@ pub(crate) struct Work {
 }
 
 pub(crate) enum Kind {
+    ControllerStatus,
+    SetControllerEnabled(bool),
     Inspect,
     InspectPeer(cellar_logic::consensus::NodeId),
     ActivateLearner(LearnerActivation),
@@ -834,7 +882,9 @@ impl Kind {
     fn bytes(&self) -> usize {
         4096 + match self {
             Self::Command { input, .. } | Self::Query { input, .. } => input.len(),
-            Self::Inspect
+            Self::ControllerStatus
+            | Self::SetControllerEnabled(_)
+            | Self::Inspect
             | Self::InspectPeer(_)
             | Self::Status
             | Self::AddLearner { .. }
@@ -852,7 +902,9 @@ impl Kind {
         match self {
             Self::Command { options, .. } => CancelFailure::Command(options.id),
             Self::Query { .. } | Self::Seed { .. } => CancelFailure::Query,
-            Self::Inspect
+            Self::ControllerStatus
+            | Self::SetControllerEnabled(_)
+            | Self::Inspect
             | Self::InspectPeer(_)
             | Self::Status
             | Self::AddLearner { .. }
@@ -884,6 +936,7 @@ impl CancelFailure {
 }
 
 pub(crate) enum Response {
+    Controller(super::RaftControllerStatus),
     PeerInspection(
         Result<Box<crate::raft::inspection::InspectionSnapshot>, super::InspectionError>,
     ),

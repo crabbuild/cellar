@@ -266,6 +266,38 @@ impl Driver {
             reply(&mut request, result);
             return;
         }
+        // Placement is a hint. Recheck this node's current admission before a
+        // new history consumes storage; exact existing members still resume.
+        let admission = match self.log.group(&scope) {
+            Ok(_) => Ok(()),
+            Err(super::super::storage::LogError::NotFound) => self
+                .options
+                .node_profile
+                .as_ref()
+                .map_or(Ok(()), |profile| {
+                    let groups = self
+                        .log
+                        .group_count()
+                        .map_err(|_| CommandFailure::Unavailable)?;
+                    let next = u64::try_from(groups)
+                        .ok()
+                        .and_then(|groups| groups.checked_add(1))
+                        .and_then(|groups| groups.checked_mul(profile.bytes_per_group));
+                    if profile.draining
+                        || groups >= profile.group_capacity as usize
+                        || !next.is_some_and(|bytes| bytes <= profile.byte_capacity)
+                    {
+                        Err(CommandFailure::Overloaded)
+                    } else {
+                        Ok(())
+                    }
+                }),
+            Err(_) => Err(CommandFailure::Unavailable),
+        };
+        if let Err(error) = admission {
+            reply(&mut request, Err(error));
+            return;
+        }
         let setup = (|| -> anyhow::Result<Initializer> {
             Ok(Initializer {
                 worker: self.pool.worker(dormant.worker)?,
