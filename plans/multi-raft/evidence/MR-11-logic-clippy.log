@@ -1,0 +1,4 @@
+Source: cc93ccf96bda3c48caf57d1f59d7d3bcd1a4a355
+Command: ["cargo", "clippy", "-p", "cellar-logic", "--lib", "--tests", "--locked", "--", "-D", "warnings"]
+    Checking cellar-logic v0.1.0 (/Users/haipingfu/.codex/worktrees/23c7/cellar/crates/cellar-logic)
+    Finished `dev` profile [unoptimized] target(s) in 0.20s

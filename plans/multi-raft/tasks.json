@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "baseline_revision": "6dd95193b30c3020d6f4b2543c7ae454a2c5f4e0",
+  "baseline_revision": "cc93ccf96bda3c48caf57d1f59d7d3bcd1a4a355",
   "status_values": [
     "TODO",
     "IN_PROGRESS",
@@ -1634,7 +1634,7 @@
       "id": "MR-11",
       "title": "Place replicas and repair membership automatically",
       "phase": "v1",
-      "status": "IN_PROGRESS",
+      "status": "DONE",
       "depends_on": [
         "MR-10",
         "MR-04",
@@ -1716,7 +1716,11 @@
         "crates/cellar/durability/raft/transport_inspection_tests.rs",
         "crates/cellar/tests/support/raft_peer_inspection_native.rs",
         "crates/cellar/durability/raft/host_leader_load.rs",
-        "crates/cellar/durability/raft/host_leader_load_tests.rs"
+        "crates/cellar/durability/raft/host_leader_load_tests.rs",
+        "crates/cellar/durability/raft/host_controller.rs",
+        "crates/cellar/durability/raft/controller_probe.rs",
+        "crates/cellar/durability/raft/controller_action.rs",
+        "crates/cellar/tests/support/raft_controller_native.rs"
       ],
       "steps": [
         "Implement domain-aware desired placement and versioned idempotent controller plans.",
@@ -1812,16 +1816,7 @@
         ]
       ],
       "evidence": [
-        "evidence/MR-11-plans-progress.json",
-        "evidence/MR-11-leadership-progress.json",
-        "evidence/MR-11-standby-progress.json",
-        "evidence/MR-11-node-storage-progress.json",
-        "evidence/MR-11-directory-progress.json",
-        "evidence/MR-11-process-regression-progress.json",
-        "evidence/MR-11-control-progress.json",
-        "evidence/MR-11-inspection-progress.json",
-        "evidence/MR-11-peer-progress.json",
-        "evidence/MR-11-load-progress.json"
+        "evidence/MR-11.json"
       ]
     },
     {

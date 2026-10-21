@@ -205,8 +205,8 @@ leader hint is discovery metadata and never supplies a read barrier.
 cluster/namespace/node/disk/process endpoints. These grants do not authorize
 Raft messages or change membership. Live revocation cancels old query waits;
 revision tombstones prevent stale updates/regrants from reviving those requests.
-The embedding supplies current trusted grants on restart; durable distribution
-and dynamic placement remain controller work. See the [read audit](read-audit.md)
+The embedding supplies trusted grants on restart; MR-11 distributes current
+process views and implements bounded dynamic placement. See the [read audit](read-audit.md)
 for scope and [counter HTTP contract](https://github.com/crabbuild/cellar/blob/8f18c29a0f28977eb8a4cae51848982ad7d43739/examples/raft-counter/README.md) for
 the native/Axum consistency, token and bounded-routing headers.
 

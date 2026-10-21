@@ -1,0 +1,14 @@
+Source: cc93ccf96bda3c48caf57d1f59d7d3bcd1a4a355
+Command: ["cargo", "test", "-p", "cellar-logic", "--lib", "--locked", "--", "raft_", "--list"]
+   Compiling cellar-logic v0.1.0 (/Users/haipingfu/.codex/worktrees/23c7/cellar/crates/cellar-logic)
+    Finished `test` profile [unoptimized] target(s) in 0.70s
+     Running unittests lib.rs (/Users/haipingfu/Workspace/crabbuild-target/cellar-23c7-multi-raft/debug/deps/cellar_logic-55f9563f79f9435f)
+raft_leadership::tests::cooldown_joint_repair_and_deadband_suppress_moves: test
+raft_leadership::tests::deterministic_balancing_binds_history_term_and_revision: test
+raft_leadership::tests::drain_bypasses_pressure_but_preserves_target_eligibility: test
+raft_leadership::tests::lagging_or_unapplied_voters_are_ineligible: test
+raft_leadership::tests::malformed_views_and_foreign_or_duplicate_samples_are_refused: test
+raft_leadership::tests::projected_utilization_does_not_oscillate_or_ignore_capacity_weights: test
+raft_leadership::tests::stale_unavailable_incompatible_draining_and_full_samples_are_refused: test
+
+7 tests, 0 benchmarks

@@ -70,8 +70,8 @@ after its public Node path and failure cases pass together.
 Priority 1 is complete at the qualified native recovery boundary: exact-ticket
 abort, native checkpoints, existing-replica catch-up, authorized peer/S3 learner
 seeding, public joined-node restart, claim reconciliation and process-kill cuts.
-Priority 2 is next: automatic placement and redundancy repair under committed
-membership authority.
+Priority 2 is complete at the qualified six-node native boundary. Priority 3 is
+next: committed alarms, outbox delivery and immutable Blob dependency closure.
 Keep each later package's dependency and acceptance gates intact.
 
 ## Package dependency order
@@ -582,159 +582,44 @@ shown by `plan.py show MR-10`; the manifest is authoritative for arguments.
 
 ### MR-11 Place replicas and repair membership automatically
 
-Dependencies: MR-10, MR-04, MR-07. Phase: v1. Status: IN_PROGRESS.
+Dependencies: MR-10, MR-04, MR-07. Phase: v1. Status: DONE.
 
-The [MR-11 plan foundation](evidence/MR-11-plans-progress.json) pins source
-`8d4c5cdd594c8e54629b10b383522261aabca078`: 231 Rust cases and all 25 checks pass.
-The 13 membership cases include nine pure placement contracts and four real-Node
-repair cases. Six ledger unit cases cover bounded persisted plans and phase
-validation; the owning regressions include 42 snapshot, 29 archive, 28 library
-and the affected public Node Raft lifecycle case. Format checks 645 Rust files;
-Clippy, both cellar-ltx modes, layout, dependency policy, docs, 17 planning tests
-and 71-anchor preflight pass. Eight ignored child entry points execute through
-owning parents and are excluded.
+The [MR-11 completion evidence](evidence/MR-11.json) pins source
+`cc93ccf96bda3c48caf57d1f59d7d3bcd1a4a355`: all 248 unique Rust cases across
+12 binaries and all 26 commands pass. This includes all seven original MR-11
+requirements, 25 membership cases, seven pure leadership cases, 48 Raft library,
+42 snapshot, 29 archive, 27 host, 16 directory and the affected public Node
+lifecycle case. Five ignored child entry points execute through owning parents
+and are excluded. Clippy, both LTX modes, format (678 Rust files), layout,
+dependency policy, docs, 17 planning tests and 71-anchor preflight pass.
 
-Public begin/advance/status APIs persist one immutable repair plan, admit and
-seed a learner, check actual matched progress, enter explicit joint consensus,
-finish under both majorities, or abort while still an unpromoted learner.
-Native cases refuse empty promotion and minority reconfiguration, reconcile a
-lost/unpolled response and stale/rebound plans, then resume joint state through
-public Node restart. An incoming majority without the old outgoing majority
-cannot finish or serve a fresh strong read. Later replication resumes without
-replaying business callbacks during recovery.
+An opt-in owned controller inventories committed plans, probes bounded rotating
+candidate sets and repairs without incoming business traffic. A six-Node fixture
+covers failed-member replacement, canonical empty-state repair before the first
+command, pause/resume, minority refusal with reachable object storage, and loss
+of controller/leader while resuming the exact Seeding plan. Eight groups exercise
+automatic leadership movement to caught-up voters while a control-reachable,
+data-lagging voter remains ineligible; node-wide attempt limits bound movement.
+Fresh-quorum seed grants, actual matched/published progress and explicit joint
+consensus retain the existing authority boundaries. Declared domains/capacities
+are placement inputs, not measured infrastructure qualification.
 
-The [repair recovery and leadership qualification](evidence/MR-11-leadership-progress.json)
-pins source `7af7fd7f5de8579b2288c48c49e16aee01611ca9`: 241 Rust cases across
-14 binaries and all 26 checks pass. This adds an all-node process kill after
-joint commit, target-first native recovery, an explicit-null decoder regression,
-a native guarded leadership transfer and seven pure leadership-policy cases.
-The 15 membership passes include six native cases and nine placement contracts;
-29 Raft library cases and all 42 snapshot cases pass. The 24 process-kill cuts
-include the new joint-plan cut. Format checks 649 Rust files; Clippy, both LTX
-modes, layout, dependencies, docs, 17 planning tests and 71-anchor preflight pass.
-Nine ignored child entry points execute through owning parents and are excluded.
+Public Node shutdown joins the controller's domain and closes retained Raft
+handles. Its existing Fleet stop report does not yet supply a graceful Raft
+close receipt or report Raft archive obligations; MR-13 retains that semantic
+drain work. Existing explicit `RaftCells.close()` tests retain their separate
+receipt/join contract. No physical S3, power-loss, real-zone resilience,
+production capacity, larger tiers, federation or complete release is claimed.
+MR-12 through MR-17 remain open.
 
-Native transfer requests bind term/configuration and recheck current-voter
-status, activity and matched progress at the Raft owner. Active repair/joint
-state and peer-frame bypasses are refused. A healed caught-up voter can win
-leadership and resume commands and causal reads. The pure planner requires
-fresh compatible applied/matched samples, cooldown and a capacity-weighted
-deadband. Neither primitive implements automatic balancing by itself.
-
-The [registered standby qualification](evidence/MR-11-standby-progress.json) pins
-source `4c7e52a808f0aa5744620237b06b30323ea8af10`: 245 Rust cases across 14
-binaries and all 26 checks pass. Four additional native cases activate a peer/S3
-learner inside the existing running host/engine/SQL pool, retain pre-activation
-handles, survive waiter loss and public restart, refuse quorumless S3 activation
-without a claim, and join shutdown while a transfer is held. The 19 membership
-passes include ten native and nine placement cases. All 42 snapshot cases pass;
-24 process-kill cuts and nine ignored child entry points retain their preceding
-boundaries. Format checks 651 Rust files; current Node coverage remains the
-affected Raft lifecycle case. This is explicit activation rather than an
-automatic controller. The [node-directory contract](node-directory-design.md)
-defines stable storage pins, fenced process views and bounded inspection for the
-remaining controller work; its directory adapter is qualified below.
-
-The [node storage/fence qualification](evidence/MR-11-node-storage-progress.json)
-pins source `c127b13f772b68992d061167c6bbf8873ab9a95e`: 252 Rust cases across
-14 binaries and all 26 checks pass. Seven added storage cases cover stable
-engine identity, marker substitution, required/nonzero fields, synced node
-revisions, failure admission, cancelled close waiters and three node-fence
-process-kill cuts. A held-lock regression reproduced failed close returning
-before physical ownership release; terminal close now waits for that release.
-All 42 snapshot, 19 membership and 17 storage cases pass. Format checks 652 Rust
-files. That local marker-1 identity field was a hard cutover; S3 pins/views
-were still unimplemented at that source.
-
-The [S3 node directory qualification](evidence/MR-11-directory-progress.json)
-pins source `79a46b7d8d7af7ed9f8c26c3989b6026ff785d88`: 262 Rust cases across 15 binaries and all
-26 checks pass. Nine directory cases cover immutable physical pins, fenced
-process publication, lost responses, delayed old PUTs, reused generations,
-missing/corrupt records and original deadlines. A public host regression refuses
-an empty recreated standby before any member claim or business callback. All
-42 snapshot, 19 membership and 24 host cases pass. The failed initial snapshot
-run is retained; its fixture now retries only explicit backpressure with the
-same mutation identity/durability and original deadline, and asserts its result.
-Format checks 654 Rust files. Host process distribution, authenticated inspection
-and automatic reconciliation remain open.
-
-The [process and control qualification](evidence/MR-11-control-progress.json)
-pins source `f328ebd6c7da9f6f4c7c60b04c0d67f88a116b58`: 217 Rust cases across
-11 binaries and all 19 checks pass. This includes four native directory cases,
-three atomic process-route cases, gated startup ownership, shared consensus
-closure and two channel ownership cases. Business and administrative admission
-have separate bounds, and retained control waiters leave a real query available.
-Admitted command continuation precedes status observers; the archive pressure
-case still requires commit before apply and refuses early acknowledgement.
-All 42 snapshot, 19 membership and 25 host cases pass. Format checks 661 Rust
-files; Clippy, both LTX modes, layout, dependency policy, docs, 17 planning tests
-and 71-anchor preflight pass. Five ignored child entry points run through their
-owning parents and are excluded.
-
-The separate [process regression record](evidence/MR-11-process-regression-progress.json)
-pins `5751f36dcf46186cb09fba8d3c322ad58beaf4a9`: all 359 Rust cases pass,
-including all 88 public Node cases. That matrix stopped at one Clippy cleanup,
-retained in its record and fixed in the current qualified source. A focused
-[checkpoint race run](evidence/MR-11-process-checkpoint-repeat.json) passed 1,000
-serial repetitions of two cases on that source; these repetitions are separate
-from unique test counts.
-
-The [local inspection qualification](evidence/MR-11-inspection-progress.json)
-pins `2b8d35c5180ac8d3b461c68803188af06af8cae8`: 78 Rust cases across five
-binaries and all 15 checks pass. The two new native cases observe only the
-published cut while a callback holds a private write, then inspect a dormant
-standby without creating a group, claim or callback. All 27 host, 13 directory
-and 35 library cases pass, together with the affected Node case and two selected
-snapshot regressions. Explicit profiles declare capacity; engine group counting
-is constant time. Aggregate leadership load remains absent at that source. The peer collection
-qualification below extends it; automatic reconciliation still requires implementation.
-
-The [peer inspection qualification](evidence/MR-11-peer-progress.json) pins
-`ec21635f9ae91b151e3b258a73f830804471f6a1`: 231 Rust cases across 11 binaries
-and all 19 checks pass. Ten new library cases and two four-node native cases
-cover separate namespace permissions, purpose/channel/request authentication,
-full history and physical-engine binding, process refresh, strict progress
-metadata, held sockets, revocation, original deadlines and per-peer admission.
-A dormant source and destination need no member identity. A real command
-commits while unpolled inspection waiters retain independent control capacity.
-All 42 snapshot, 19 membership, 27 host and 15 directory cases pass. Format checks
-671 Rust files; Clippy, both LTX modes, layout, dependency policy, docs, 17
-planning tests and 71-anchor preflight pass. Five ignored child entry points run
-through their parents and are excluded. The revocation case holds the host
-consumer seam after actual TLS/authentication and SDK admission. Profile
-capacity remains declared; aggregate leader load and automatic reconciliation
-remain open. Initial fixture/schema and Clippy failures are retained separately.
-
-The [complete load-scan qualification](evidence/MR-11-load-progress.json)
-pins `6dd95193b30c3020d6f4b2543c7ae454a2c5f4e0`: 91 Rust cases across three
-binaries and all 13 focused checks pass. Three aggregation/failure cases refuse
-partial, stale-sequence, wrong-owner, changed-population and late completions.
-A four-node native case samples one group per batch and verifies each node's
-aggregate across two histories, including the dormant node. Its two commands
-execute exactly two callbacks. Counts appear after a complete bounded scan;
-failures retain the prior complete sample at its original age. All 48 library,
-27 host and 16 directory cases pass. Format checks 673 Rust files; Clippy,
-layout, dependency policy, docs, 17 planning tests and 71-anchor preflight pass.
-The earlier 231-case record retains its full snapshot/membership scope and
-source pin. Automatic reconciliation and balancing remain unimplemented.
-
-MR-11 remains IN_PROGRESS. The partial inventory reports five of seven required
-names; `automatic_no_traffic_repair` and `leader_balance_with_lag` remain absent.
-Automatic scheduling and the six-node repair gate remain required. Complete
-node-wide load collection is qualified above. Process-view distribution and reserved
-host control admission are implemented. The full inventory checker is unchanged. This is explicit administrative repair, without automatic
-redundancy repair or complete milestone qualification.
-
-The current internal identity is
-`cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1/nodes-1`; numeric markers remain 1.
-Use fresh namespace identities, storage prefix and local state. Current Node
-coverage is the affected Raft lifecycle case; the separate 5751f36 regression
-record includes all 88 Node cases. No physical S3, power-loss, zone, production
-capacity, larger-scale, federation or complete release qualification is claimed.
+Earlier component evidence remains linked from the completion record with its
+original source, failures and narrower qualification scope. The
+[native membership contract](membership-design.md) and
+[node-directory contract](node-directory-design.md) describe the implementation.
 
 Modify: `crates/cellar/durability/raft/catalog.rs`, `crates/cellar/durability/raft/runtime.rs`, `crates/cellar-logic/rebalance.rs`, `crates/cellar-logic/lib.rs`, `crates/cellar/durability/raft/member_state.rs`, `crates/cellar/application/consensus/mod.rs`, `crates/cellar/application/consensus/protocol.rs`, `crates/cellar/durability/raft/catalog_wire.rs`, `crates/cellar/application/consensus/client.rs`, `crates/cellar/durability/raft/host.rs`, `crates/cellar/durability/raft/host_membership.rs`, `crates/cellar/durability/raft/completion.rs`, `crates/cellar/durability/raft/replica.rs`, `crates/cellar/durability/raft/transport_frame.rs`, `crates/cellar/tests/native_raft_runtime.rs`, `crates/cellar/tests/support/raft_cluster.rs`, `crates/cellar/tests/support/raft_seed_crash.rs`, `crates/cellar/durability/raft/README.md`, `crates/cellar/durability/raft/host_sql.rs`, `crates/cellar/durability/raft/seed_transport.rs`, `crates/cellar/durability/raft/seed_archive.rs`, `crates/cellar/node/embedded.rs`, `crates/cellar-logic/consensus.rs`, `crates/cellar/durability/raft/storage.rs`, `crates/cellar/durability/raft/records.rs`, `crates/cellar/tests/native_raft_storage.rs`, `crates/cellar/tests/support/raft_storage_fault.rs`, `crates/cellar/tests/native_raft_host.rs`, `crates/cellar/tests/support/raft_catalog_fault.rs`, `crates/cellar/tests/native_raft_snapshot.rs`, `crates/cellar/durability/raft/transport.rs`, `crates/cellar/durability/raft/transport_tests.rs`, `crates/cellar/durability/raft/query_transport.rs`, `crates/cellar/durability/raft/snapshot_transport.rs`, `crates/cellar/durability/raft/filesystem.rs`, `crates/cellar/durability/raft/mod.rs`, `crates/cellar/tests/native_raft_archive.rs`, `crates/cellar/durability/raft/transport_options.rs`.
 
-Create: `crates/cellar/durability/raft/membership.rs`, `crates/cellar/durability/raft/placement.rs`, `crates/cellar/tests/native_raft_membership.rs`, `plans/multi-raft/membership-design.md`, `crates/cellar-logic/raft_placement.rs`, `crates/cellar/durability/raft/member_plan_tests.rs`, `crates/cellar/tests/support/raft_repair_native.rs`, `crates/cellar/tests/support/raft_repair_crash.rs`, `crates/cellar/durability/raft/replica_leadership.rs`, `crates/cellar-logic/raft_leadership.rs`, `crates/cellar-logic/raft_leadership_tests.rs`, `crates/cellar/durability/raft/host_standby.rs`, `crates/cellar/tests/support/raft_standby_native.rs`, `plans/multi-raft/node-directory-design.md`, `crates/cellar/tests/support/raft_node_registration_storage.rs`, `crates/cellar/durability/raft/node_directory.rs`, `crates/cellar/tests/native_raft_directory.rs`, `crates/cellar/durability/raft/host_directory.rs`, `crates/cellar/durability/raft/transport_directory.rs`, `crates/cellar/durability/raft/transport_directory_tests.rs`, `crates/cellar/tests/support/raft_directory_native.rs`, `crates/cellar/durability/raft/host_startup_tests.rs`, `crates/cellar/durability/raft/mailbox.rs`, `crates/cellar/durability/raft/mailbox_tests.rs`, `crates/cellar/durability/raft/inspection.rs`, `crates/cellar/durability/raft/host_inspection.rs`, `crates/cellar/tests/support/raft_inspection_native.rs`, `crates/cellar/durability/raft/inspection_auth_tests.rs`, `crates/cellar/durability/raft/inspection_identity.rs`, `crates/cellar/durability/raft/inspection_transport.rs`, `crates/cellar/durability/raft/inspection_wire.rs`, `crates/cellar/durability/raft/inspection_wire_tests.rs`, `crates/cellar/durability/raft/transport_inspection_tests.rs`, `crates/cellar/tests/support/raft_peer_inspection_native.rs`, `crates/cellar/durability/raft/host_leader_load.rs`, `crates/cellar/durability/raft/host_leader_load_tests.rs`.
+Create: `crates/cellar/durability/raft/membership.rs`, `crates/cellar/durability/raft/placement.rs`, `crates/cellar/tests/native_raft_membership.rs`, `plans/multi-raft/membership-design.md`, `crates/cellar-logic/raft_placement.rs`, `crates/cellar/durability/raft/member_plan_tests.rs`, `crates/cellar/tests/support/raft_repair_native.rs`, `crates/cellar/tests/support/raft_repair_crash.rs`, `crates/cellar/durability/raft/replica_leadership.rs`, `crates/cellar-logic/raft_leadership.rs`, `crates/cellar-logic/raft_leadership_tests.rs`, `crates/cellar/durability/raft/host_standby.rs`, `crates/cellar/tests/support/raft_standby_native.rs`, `plans/multi-raft/node-directory-design.md`, `crates/cellar/tests/support/raft_node_registration_storage.rs`, `crates/cellar/durability/raft/node_directory.rs`, `crates/cellar/tests/native_raft_directory.rs`, `crates/cellar/durability/raft/host_directory.rs`, `crates/cellar/durability/raft/transport_directory.rs`, `crates/cellar/durability/raft/transport_directory_tests.rs`, `crates/cellar/tests/support/raft_directory_native.rs`, `crates/cellar/durability/raft/host_startup_tests.rs`, `crates/cellar/durability/raft/mailbox.rs`, `crates/cellar/durability/raft/mailbox_tests.rs`, `crates/cellar/durability/raft/inspection.rs`, `crates/cellar/durability/raft/host_inspection.rs`, `crates/cellar/tests/support/raft_inspection_native.rs`, `crates/cellar/durability/raft/inspection_auth_tests.rs`, `crates/cellar/durability/raft/inspection_identity.rs`, `crates/cellar/durability/raft/inspection_transport.rs`, `crates/cellar/durability/raft/inspection_wire.rs`, `crates/cellar/durability/raft/inspection_wire_tests.rs`, `crates/cellar/durability/raft/transport_inspection_tests.rs`, `crates/cellar/tests/support/raft_peer_inspection_native.rs`, `crates/cellar/durability/raft/host_leader_load.rs`, `crates/cellar/durability/raft/host_leader_load_tests.rs`, `crates/cellar/durability/raft/host_controller.rs`, `crates/cellar/durability/raft/controller_probe.rs`, `crates/cellar/durability/raft/controller_action.rs`, `crates/cellar/tests/support/raft_controller_native.rs`.
 
 The [native membership implementation contract](membership-design.md) defines
 committed plan recovery, learner seeding, joint consensus, dynamic standby

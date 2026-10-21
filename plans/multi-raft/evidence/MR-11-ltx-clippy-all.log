@@ -1,0 +1,3 @@
+Source: cc93ccf96bda3c48caf57d1f59d7d3bcd1a4a355
+Command: ["cargo", "clippy", "-p", "cellar-ltx", "--all-features", "--locked", "--", "-D", "warnings"]
+    Finished `dev` profile [unoptimized] target(s) in 0.10s

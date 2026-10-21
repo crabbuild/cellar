@@ -11,8 +11,8 @@ Local registered-history capture is [qualified](evidence/MR-11-inspection-progre
 Authenticated peer collection is [qualified](evidence/MR-11-peer-progress.json),
 including separate namespace permissions, conservative ages, physical routes
 and joined cancellation. Complete bounded node-wide load collection is
-[qualified](evidence/MR-11-load-progress.json). Automatic controller integration
-remains unimplemented.
+[qualified](evidence/MR-11-load-progress.json). The integrated automatic controller
+is [qualified at the native boundary](evidence/MR-11.json).
 The [membership contract](membership-design.md) remains authoritative for
 learner initialization and configuration changes. A directory observation never
 changes voters, initializes storage or supplies a quorum proof.

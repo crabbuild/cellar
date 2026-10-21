@@ -1,25 +1,12 @@
 # Native placement and repair implementation contract
 
-Status: MR-11 implementation in progress. The [plan foundation](evidence/MR-11-plans-progress.json),
-[leadership/recovery](evidence/MR-11-leadership-progress.json) and
-[registered standby](evidence/MR-11-standby-progress.json) evidence qualify explicit
-repair APIs, guarded transfer and peer/S3 activation in an already-running host.
-Automatic scheduling and the six-node no-business-traffic gate remain open.
-Authenticated peer collection is [qualified](evidence/MR-11-peer-progress.json)
-with separate namespace permissions and bounded process/engine-bound RPCs. The
-[node-directory contract](node-directory-design.md) specifies that next boundary;
-its local identity/fence foundation is [qualified](evidence/MR-11-node-storage-progress.json),
-while the S3 pin/view adapter is [qualified locally](evidence/MR-11-directory-progress.json).
-Process distribution, atomic routing refresh and independently bounded host
-control admission are [qualified at their component boundary](evidence/MR-11-control-progress.json).
-Local occupancy/capacity capture is [qualified](evidence/MR-11-inspection-progress.json),
-including dormant standbys and publication during a private callback.
-Peer inspection does not supply quorum or activation authority. Complete bounded
-leader-load scans are [qualified](evidence/MR-11-load-progress.json); failed or
-partial scans cannot refresh the previous sample. Automatic reconciliation and
-balancing remain unimplemented.
-MR-10 qualification remains separate.
-These component results establish no additional capacity or release qualification.
+Status: MR-11 is complete at the qualified native boundary. The
+[completion evidence](evidence/MR-11.json) records all seven required cases,
+automatic six-node repair, bounded observations, exact plan recovery and
+eight-group leadership balancing with a lagging voter. Component records retain
+their original source pins. This establishes no additional deployment capacity
+or release qualification. Public Node domain cancellation is joined; its unified
+Raft semantic drain and archive-obligation reporting remain MR-13 work.
 
 ## Authority and durable intent
 
