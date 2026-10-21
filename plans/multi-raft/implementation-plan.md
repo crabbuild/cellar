@@ -747,15 +747,26 @@ the same engine with a fresh process, preserves the old scoped token/value and
 does not rerun the original callback. This is a native retained-state drill;
 production Raft CLI and compatible-binary rollback remain separate work.
 
-Full role readiness, aggregate resource metrics, safe receipt maintenance,
+The [local readiness and reader-resource component](evidence/MR-13-readiness-pins-progress.json)
+qualifies 847 unique unit/integration cases across 26 binaries, four SDK doctests
+and two recovery processes at `e55e6cb`. Native checks distinguish voter/learner
+roles, absent/coherent images, historical/recent-source queries and fresh learner
+ReadIndex reads. A node-wide physical reader limit survives waiter cancellation,
+refuses extra query callbacks while another worker continues commands, and stays
+owned through Node joining. Fixed-size SDK usage reports actual host budgets.
+The record retains a separate concurrent fallback `VersionUnavailable` finding;
+its cause and the earlier transfer refusal remain unresolved. No retry, deadline
+or production readiness check was weakened.
+
+Aggregate resource metrics/export, safe receipt maintenance,
 production Raft CLI startup, remaining management surfaces, fenced new-history
 disaster restore and complete operating qualification remain required before
 DONE. The two remaining original cases are `metrics_group_cardinality` and
 `disaster_old_quorum_fenced`.
 
-Modify: `crates/cellar/node/embedded.rs`, `crates/cellar/actor/output_proofs.rs`, `crates/cellar/fleet/management/nodes.rs`, `crates/cellar/fleet/management/routing.rs`, `crates/cellar/cli/cli_options.rs`, `crates/cellar/durability/raft/options.rs`, `crates/cellar/application/consensus/client.rs`, `crates/cellar/application/consensus/mod.rs`, `crates/cellar/durability/raft/effect_delivery.rs`, `crates/cellar/durability/raft/host.rs`, `crates/cellar/durability/raft/host_controller.rs`, `crates/cellar/durability/raft/host_effects.rs`, `crates/cellar/durability/raft/host_inspection.rs`, `crates/cellar/durability/raft/mod.rs`, `crates/cellar/execution/services.rs`, `crates/cellar/node/driver.rs`, `crates/cellar/node/lifecycle.rs`, `crates/cellar/tests/native_raft_membership.rs`, `crates/cellar/tests/support/raft_alarm_native.rs`, `crates/cellar/tests/support/raft_controller_native.rs`, `crates/cellar/tests/support/raft_node.rs`, `crates/cellar/tests/support/raft_outbox_loopback.rs`, `crates/cellar/tests/support/raft_outbox_native.rs`, `crates/cellar/durability/raft/transport_inspection_tests.rs`, `crates/cellar/tests/support/raft_repair_native.rs`, `crates/cellar/fleet/management/mod.rs`, `crates/cellar/fleet/management/operations.rs`, `crates/cellar-admin/tests/console.rs`, `crates/cellar/tests/support/raft_storage_fault.rs`.
+Modify: `crates/cellar/node/embedded.rs`, `crates/cellar/actor/output_proofs.rs`, `crates/cellar/fleet/management/nodes.rs`, `crates/cellar/fleet/management/routing.rs`, `crates/cellar/cli/cli_options.rs`, `crates/cellar/durability/raft/options.rs`, `crates/cellar/application/consensus/client.rs`, `crates/cellar/application/consensus/mod.rs`, `crates/cellar/durability/raft/effect_delivery.rs`, `crates/cellar/durability/raft/host.rs`, `crates/cellar/durability/raft/host_controller.rs`, `crates/cellar/durability/raft/host_effects.rs`, `crates/cellar/durability/raft/host_inspection.rs`, `crates/cellar/durability/raft/mod.rs`, `crates/cellar/execution/services.rs`, `crates/cellar/node/driver.rs`, `crates/cellar/node/lifecycle.rs`, `crates/cellar/tests/native_raft_membership.rs`, `crates/cellar/tests/support/raft_alarm_native.rs`, `crates/cellar/tests/support/raft_controller_native.rs`, `crates/cellar/tests/support/raft_node.rs`, `crates/cellar/tests/support/raft_outbox_loopback.rs`, `crates/cellar/tests/support/raft_outbox_native.rs`, `crates/cellar/durability/raft/transport_inspection_tests.rs`, `crates/cellar/tests/support/raft_repair_native.rs`, `crates/cellar/fleet/management/mod.rs`, `crates/cellar/fleet/management/operations.rs`, `crates/cellar-admin/tests/console.rs`, `crates/cellar/tests/support/raft_storage_fault.rs`, `crates/cellar/application/consensus/class.rs`, `crates/cellar/durability/raft/query.rs`, `crates/cellar/tests/native_raft_reads.rs`, `crates/cellar/tests/support/raft_cluster.rs`, `crates/cellar/durability/raft/budget.rs`, `crates/cellar/durability/raft/host_sql.rs`.
 
-Create: `crates/cellar/durability/raft/operations.rs`, `crates/cellar/tests/native_raft_operations.rs`, `crates/cellar/durability/raft/host_drain.rs`, `plans/multi-raft/operations-design.md`, `crates/cellar/application/consensus/admission.rs`, `crates/cellar/application/consensus/admission_tests.rs`, `crates/cellar/fleet/management/raft_stop.rs`, `crates/cellar/fleet/management/raft_stop_tests.rs`, `crates/cellar/tests/support/raft_management_native.rs`, `crates/cellar/tests/support/raft_mode_native.rs`.
+Create: `crates/cellar/durability/raft/operations.rs`, `crates/cellar/tests/native_raft_operations.rs`, `crates/cellar/durability/raft/host_drain.rs`, `plans/multi-raft/operations-design.md`, `crates/cellar/application/consensus/admission.rs`, `crates/cellar/application/consensus/admission_tests.rs`, `crates/cellar/fleet/management/raft_stop.rs`, `crates/cellar/fleet/management/raft_stop_tests.rs`, `crates/cellar/tests/support/raft_management_native.rs`, `crates/cellar/tests/support/raft_mode_native.rs`, `crates/cellar/application/consensus/readiness.rs`, `crates/cellar/durability/raft/host_readiness.rs`, `crates/cellar/durability/raft/host_readiness_tests.rs`, `crates/cellar/tests/support/raft_readiness_native.rs`, `crates/cellar/application/consensus/resources.rs`, `crates/cellar/tests/support/raft_resources_native.rs`.
 
 1. Expose explicit limits and metrics for groups, byte queues, apply/archive lag, query pins, snapshot and repair budgets.
 2. Implement readiness by group role and compatible applied state; avoid aggregate health that conceals unavailable cells.
@@ -785,6 +796,8 @@ Stop conditions: Stop if cancellation drops owned blocking work without a truthf
 | `management_stop_raft_close_error_is_incomplete` | A physical fsync failure survives in the durable stop receipt |
 | `management_stop_raft_physical_join_preserves_deadline` | A held fsync remains owned beyond the original deadline and the final receipt is incomplete |
 | `management_stop_raft_cancelled_start_is_incomplete` | Interrupted startup joins its opening fsync and retains explicit incomplete startup evidence |
+| `query_pin_pressure_survives_waiter_cancellation` | A held cancelled reader retains its pin while another worker refuses queries and continues commands; release resumes exact reads |
+| `query_pin_shutdown_waits_for_physical_reader` | Node shutdown joins the cancelled physical reader before reporting zero pin usage |
 
 Verification target: `native_raft_operations`. Run the exact list/test commands
 shown by `plan.py show MR-13`; the manifest is authoritative for arguments.

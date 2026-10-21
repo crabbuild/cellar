@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "baseline_revision": "33f3c865aa60fc3973f72c89153438fa0cd15a47",
+  "baseline_revision": "e55e6cb52b42922db06686369849cf0b4ad0130b",
   "status_values": [
     "TODO",
     "IN_PROGRESS",
@@ -2003,7 +2003,13 @@
         "crates/cellar/fleet/management/mod.rs",
         "crates/cellar/fleet/management/operations.rs",
         "crates/cellar-admin/tests/console.rs",
-        "crates/cellar/tests/support/raft_storage_fault.rs"
+        "crates/cellar/tests/support/raft_storage_fault.rs",
+        "crates/cellar/application/consensus/class.rs",
+        "crates/cellar/durability/raft/query.rs",
+        "crates/cellar/tests/native_raft_reads.rs",
+        "crates/cellar/tests/support/raft_cluster.rs",
+        "crates/cellar/durability/raft/budget.rs",
+        "crates/cellar/durability/raft/host_sql.rs"
       ],
       "creates": [
         "crates/cellar/durability/raft/operations.rs",
@@ -2015,7 +2021,13 @@
         "crates/cellar/fleet/management/raft_stop.rs",
         "crates/cellar/fleet/management/raft_stop_tests.rs",
         "crates/cellar/tests/support/raft_management_native.rs",
-        "crates/cellar/tests/support/raft_mode_native.rs"
+        "crates/cellar/tests/support/raft_mode_native.rs",
+        "crates/cellar/application/consensus/readiness.rs",
+        "crates/cellar/durability/raft/host_readiness.rs",
+        "crates/cellar/durability/raft/host_readiness_tests.rs",
+        "crates/cellar/tests/support/raft_readiness_native.rs",
+        "crates/cellar/application/consensus/resources.rs",
+        "crates/cellar/tests/support/raft_resources_native.rs"
       ],
       "steps": [
         "Expose explicit limits and metrics for groups, byte queues, apply/archive lag, query pins, snapshot and repair budgets.",
@@ -2164,6 +2176,22 @@
           "invariants": [
             "I14"
           ]
+        },
+        {
+          "name": "query_pin_pressure_survives_waiter_cancellation",
+          "oracle": "A cancelled physical reader retains the sole node pin while another worker refuses queries before callbacks and continues commands; release permits exact minimum-version reads",
+          "invariants": [
+            "I07",
+            "I13"
+          ]
+        },
+        {
+          "name": "query_pin_shutdown_waits_for_physical_reader",
+          "oracle": "Node shutdown retains and physically joins a cancelled query reader before its pin reservation reaches zero",
+          "invariants": [
+            "I13",
+            "I14"
+          ]
         }
       ],
       "verification": [
@@ -2193,7 +2221,8 @@
       "evidence": [
         "evidence/MR-13-shutdown-progress.json",
         "evidence/MR-13-management-progress.json",
-        "evidence/MR-13-mode-guard-progress.json"
+        "evidence/MR-13-mode-guard-progress.json",
+        "evidence/MR-13-readiness-pins-progress.json"
       ]
     },
     {

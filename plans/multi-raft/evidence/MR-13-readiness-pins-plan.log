@@ -1,0 +1,9 @@
+Source: e55e6cb52b42922db06686369849cf0b4ad0130b
+Command: ["python3", "plans/multi-raft/plan.py", "validate"]
+{
+  "package_validation": "passed",
+  "tasks": 17,
+  "cases": 143,
+  "source_anchors": 76,
+  "local_links": 125
+}

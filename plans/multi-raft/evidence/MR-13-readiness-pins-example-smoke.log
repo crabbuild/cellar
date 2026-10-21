@@ -1,0 +1,3 @@
+Source: e55e6cb52b42922db06686369849cf0b4ad0130b
+Command: ["python3", "examples/raft-effects/smoke.py", "/Users/haipingfu/Workspace/crabbuild-target/cellar-23c7-multi-raft/debug/cellar-raft-effects", "/tmp/cellar-23c7-mr13-readiness-pins-qualified-e55e6cb", "crates/cellar/transport/tcp/fixtures/ca.der", "crates/cellar/transport/tcp/fixtures/server.der", "crates/cellar/transport/tcp/fixtures/key.der"]
+Two producer/receiver runs passed; executable sha256=1dfacd8463596eb80fbb93ed9fa69929ab0c7be65c365284c8f3a76d9e79eedb; logs=/private/tmp/cellar-23c7-mr13-readiness-pins-qualified-e55e6cb

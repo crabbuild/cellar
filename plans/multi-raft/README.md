@@ -12,6 +12,7 @@ alarms and receipt-checked outbox/inbox delivery share an owned leader scheduler
 
 | Boundary | Qualification |
 | --- | --- |
+| [MR-13 local readiness and reader resources](evidence/MR-13-readiness-pins-progress.json) | Source `e55e6cb`: 847 unique unit/integration cases across 26 binaries, four SDK doctests and two recovery processes. Local query readiness and physical reader limits/usage; transfer and concurrent fallback findings remain open. |
 | [MR-13 retained-state mode guard](evidence/MR-13-mode-guard-progress.json) | Test-only source `33f3c86`: all 15 native operations cases pass; 790 other frozen parent files match `ec312e8`. No combined count across revisions. |
 | [MR-13 durable stop receipts](evidence/MR-13-management-progress.json) | Source `ec312e8`: 839 unit/integration cases across 26 binaries, four capability doctests and two recovery process runs. Partial milestone; earlier intermittent transfer refusal remains under investigation. |
 | [MR-13 node shutdown component](evidence/MR-13-shutdown-progress.json) | Library source `6784512`: 810 unit/integration cases, 24 binaries and four capability doctests; example-only successor `275c45d`: Clippy, build and two recovery process runs. Partial milestone. |
@@ -38,8 +39,11 @@ retained-disk obligations. Authenticated operator and caller/signal stops share
 the driver. Durable management receipts now include actual Raft closure and the
 original deadline through physical joining; missing startup/closure proof and
 submitted ambiguity cannot yield a complete receipt. Production Raft CLI startup,
-full readiness/metrics, receipt maintenance and fenced disaster restore remain
-MR-13 work. MR-14 adds batching/workloads, MR-15 release qualification including
+aggregate metrics/export, receipt maintenance and fenced disaster restore remain
+MR-13 work. Local role/query readiness separates coherent historical images from
+source freshness; strong reads still obtain a fresh quorum barrier. Physical SDK
+query-reader permits survive waiter cancellation, and fixed-size usage reflects
+actual reservations. MR-14 adds batching/workloads, MR-15 release qualification including
 the 24-hour soak, MR-16 measured density/physical tiers and MR-17 federation.
 
 Local/in-memory stores, declared zones and small native fixtures do not qualify

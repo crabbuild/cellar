@@ -1,0 +1,16 @@
+Source: e55e6cb52b42922db06686369849cf0b4ad0130b
+Command: ["python3", "-m", "unittest", "discover", "-s", "plans/multi-raft", "-p", "test_*.py"]
+..F..............
+======================================================================
+FAIL: test_current_package (test_plan.PackageTests.test_current_package)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/haipingfu/.codex/worktrees/23c7/cellar/plans/multi-raft/test_plan.py", line 21, in test_current_package
+    self.assertEqual(stats["cases"], 141)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 143 != 141
+
+----------------------------------------------------------------------
+Ran 17 tests in 0.088s
+
+FAILED (failures=1)

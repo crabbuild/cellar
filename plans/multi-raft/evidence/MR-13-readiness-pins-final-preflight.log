@@ -1,0 +1,3 @@
+Source: e55e6cb52b42922db06686369849cf0b4ad0130b; metadata-only final check
+Command: ["python3", "plans/multi-raft/plan.py", "preflight"]
+Source preflight passed: 76 anchors at baseline e55e6cb52b42922db06686369849cf0b4ad0130b.

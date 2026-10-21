@@ -45,6 +45,17 @@ receipt and matching attempt generation can settle source progress. The concrete
 exercise native destinations. The [outbox contract](../../../../plans/multi-raft/effects-design.md#committed-outbox-and-receiver)
 records authentication, bounds, ambiguous outcomes and remaining retention work.
 
+`RaftCellHandle.status()` reports a sampled replica role and local query
+readiness, including coherent image, registered callbacks and exact RecentSource
+age. These observations do not reserve capacity or prove a current quorum.
+`RaftHostOptions.max_query_pins` bounds physical SDK query-reader reservations;
+the blocking owner retains its permit through callback/connection exit after
+waiter cancellation. `RaftCells.resource_usage()` reads actual fixed-size host
+business/output, control, archive-capture and query-reader usage/capacity without
+I/O or group enumeration. This component does not yet export complete resource
+metrics. The [operations contract](../../../../plans/multi-raft/operations-design.md)
+defines the boundary.
+
 `ReplicaLog` owns one blocking execution-domain task and one Raft Engine.
 Its bounded `GroupLog` caches become visible after sync. Storage lookups on the
 consensus worker perform no filesystem I/O. The filesystem is always supplied
