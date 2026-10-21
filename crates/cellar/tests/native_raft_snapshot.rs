@@ -543,7 +543,8 @@ async fn native_seed_drill(
         RaftHostOptions::default(),
         store.clone(),
     )
-    .await?;
+    .await
+    .context("start seed fixture")?;
     let mut handles = cluster
         .services
         .iter()
@@ -707,7 +708,12 @@ async fn native_seed_drill(
     if lose_quorum {
         for (index, service) in cluster.services.iter().enumerate() {
             if index != primary {
-                ensure!(service.close().await?.unfinished.is_empty());
+                ensure!(service
+                    .close()
+                    .await
+                    .context("close lost-quorum voter")?
+                    .unfinished
+                    .is_empty());
             }
         }
         tokio::time::sleep(Duration::from_millis(600)).await;
@@ -745,9 +751,17 @@ async fn native_seed_drill(
         .join_standby(definitions[3].application.clone(), placement)
         .await;
     if lose_quorum {
+        let error = joined.err().context("seeded without live quorum")?;
         ensure!(
-            joined.is_err(),
-            "S3 bytes and membership observation seeded without live quorum"
+            matches!(
+                error.downcast_ref::<TransportError>(),
+                Some(TransportError::Refused | TransportError::Timeout | TransportError::Io(_))
+            ),
+            "unexpected quorumless startup failure: {error:?}"
+        );
+        ensure!(
+            cluster.data_attempts(3) > 0,
+            "quorumless seed made no peer request"
         );
         let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
         let log = domain
@@ -761,7 +775,8 @@ async fn native_seed_drill(
                 ),
                 Arc::new(DirectFileSystem),
             ))
-            .await??;
+            .await?
+            .context("inspect refused learner after failed startup")?;
         ensure!(
             matches!(
                 log.group(&registration.birth.scope),

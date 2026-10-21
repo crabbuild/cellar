@@ -65,6 +65,13 @@ admission closure from physical completion: even error results wait for engine
 and directory-lock release. Dropping a close waiter leaves the worker owning
 drain/fence/join; later waiters observe the same terminal result.
 
+Host initialization errors also close and join the supplied Raft infrastructure,
+including preflight failures before any SQL pool or cell exists. Retained
+infrastructure handles observe closed admission before the error returns. The
+public Node entry point covers failure to enter the host's execution domain
+after acquiring that infrastructure. A gated lock-drop regression verifies the
+error waits for physical release and permits immediate recovery reopening.
+
 The private consensus storage view can finish mechanical lookups against the
 last durable cache during engine closure. Public group/proof reads remain
 closed. This avoids turning ordinary cancellation or an I/O failure into a

@@ -28,6 +28,10 @@ use std::sync::{
 };
 use tokio::sync::{mpsc, Notify};
 
+#[cfg(all(test, not(cellar_internal_tests)))]
+#[path = "host_startup_tests.rs"]
+mod startup_tests;
+
 #[path = "host_directory.rs"]
 mod directory;
 #[path = "host_membership.rs"]
@@ -224,6 +228,37 @@ pub(crate) struct Registrations {
 }
 
 pub(crate) async fn start(
+    service: crate::daemon::NodeRaftService,
+    registrations: Registrations,
+    directory: PathBuf,
+    label: String,
+    options: RaftHostOptions,
+    versions: super::version::VersionKeys,
+) -> anyhow::Result<RaftCells> {
+    let log = service.log.clone();
+    let runtime = service.runtime.clone();
+    let transport = service.transport.clone();
+    let result = Box::pin(initialize(
+        service,
+        registrations,
+        directory,
+        label,
+        options,
+        versions,
+    ))
+    .await;
+    if result.is_err() {
+        // This includes preflight and pool-construction errors before the
+        // initialized-cell cleanup exists. Retained handles must observe real
+        // closure; dropping the last caller is not a physical join boundary.
+        let _ = runtime.close().await;
+        transport.close().await;
+        let _ = log.close().await;
+    }
+    result
+}
+
+async fn initialize(
     service: crate::daemon::NodeRaftService,
     registrations: Registrations,
     directory: PathBuf,

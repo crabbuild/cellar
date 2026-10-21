@@ -21,7 +21,7 @@ pub const TORN_WRITE: u8 = 6;
 pub const CRASH_AFTER_DELETE: u8 = 7;
 pub const FAIL_PARENT_SYNC: u8 = 8;
 pub const FAIL_SYNC_HOLD_LOCK_DROP: u8 = 9;
-const HOLD_LOCK_DROP: u8 = 10;
+pub const HOLD_LOCK_DROP: u8 = 10;
 
 pub struct Gate {
     pub mode: AtomicU8,

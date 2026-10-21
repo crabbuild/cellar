@@ -783,7 +783,11 @@ impl Node {
         let service = self
             .start_raft_service(config.infrastructure, services.listeners, services.tls)
             .await?;
-        self.domain
+        let log = service.log.clone();
+        let runtime = service.runtime.clone();
+        let transport = service.transport.clone();
+        let result = self
+            .domain
             .run(crate::raft::host::start(
                 service,
                 crate::raft::host::Registrations {
@@ -796,7 +800,19 @@ impl Node {
                 config.host,
                 services.versions,
             ))
-            .await?
+            .await;
+        let result = match result {
+            Ok(result) => result,
+            Err(error) => Err(error.into()),
+        };
+        if result.is_err() {
+            // Domain entry/cancellation can fail before the host's owned
+            // startup guard runs. Join the infrastructure here as well.
+            let _ = runtime.close().await;
+            transport.close().await;
+            let _ = log.close().await;
+        }
+        result
     }
 
     /// Start opt-in Raft infrastructure on this node's existing executor and

@@ -483,7 +483,9 @@ impl Worker {
                 Err(error) => return Err(error.into()),
             },
         }
-        let directory_lock = fs.lock_file(&options.directory.join("CELLAR_LOCK"))?;
+        let directory_lock = fs
+            .lock_file(&options.directory.join("CELLAR_LOCK"))
+            .map_err(|error| LogError::Io(format!("node directory lock: {error}")))?;
         let marker = options.directory.join("node.json");
         let log_directory = options.directory.join("log");
         let expected = match options.mode {

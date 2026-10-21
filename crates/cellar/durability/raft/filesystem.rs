@@ -186,7 +186,9 @@ impl raft_engine::env::FileSystem for EngineFileSystem {
     }
 
     fn lock_directory(&self, path: &Path) -> io::Result<DirectoryLock> {
-        self.0.lock_file(&path.join("LOCK"))
+        self.0.lock_file(&path.join("LOCK")).map_err(|error| {
+            io::Error::new(error.kind(), format!("Raft Engine directory lock: {error}"))
+        })
     }
 
     fn sync_directory(&self, path: &Path) -> io::Result<()> {
