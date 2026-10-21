@@ -1,5 +1,9 @@
 # Provisioned Python environments
 
+The [FastAPI order example](../../examples/python-fastapi/README.md) provides a
+single packaging helper, an installed-host deployment smoke and target-node
+deployment commands using the workflow below.
+
 For reproducible native/Python latency, throughput, memory, bridge-copy and
 owner-loss recovery measurements, use the [baseline harness](baseline.md).
 

@@ -1,0 +1,176 @@
+# FastAPI orders with a packaged Python runtime
+
+This runnable order-draft API embeds FastAPI in a native Cellar host. FastAPI
+provides async routes, Pydantic validation, dependency injection and OpenAPI.
+Each order is a durable Cellar cell with SQLite state, atomic creation receipts
+and checked status changes. Cellar owns the listener, routing and durability;
+Uvicorn and Docker are not required.
+
+## Build the application and its dependencies
+
+Prerequisites: Rust 1.98.1 (the SDK CI toolchain), `uv`, and Python 3.11 or newer
+for build/test scripts. Run from the repository root on the target OS and CPU
+architecture. Linux capture requires binutils; macOS requires the SDK compiler
+and `otool`. Follow the [native prerequisite contract](../../tools/python/README.md#native-prerequisites).
+
+```sh
+export PATH="$HOME/.cargo/bin:$HOME/.local/bin:$PATH"
+export RUSTUP_TOOLCHAIN=1.98.1
+export CARGO_TARGET_DIR="$HOME/Workspace/crabbuild-target/cellar-your-checkout"
+mkdir -p "$HOME/Workspace"
+export CELLAR_FASTAPI_ROOT="$(mktemp -d "$HOME/Workspace/cellar-fastapi-XXXXXX")"
+
+python3 examples/python-fastapi/package.py \
+  --prefix "$CELLAR_FASTAPI_ROOT/env-v1" \
+  --output "$CELLAR_FASTAPI_ROOT/package-v1"
+```
+
+The helper provisions CPython 3.14.5 inside the new prefix, downloads hash-locked
+wheels, installs them offline into `site/`, and builds the native host. It then
+captures runtime/source/native prerequisites, creates the environment archive
+and invokes `cellar build` with a `python_environment` project declaration.
+Existing prefixes are refused. The example uses the `dev` Cargo profile.
+
+The package contains a manifest, executable and verified environment archive.
+Python source is embedded in the executable. No package installer runs on a
+request or when the deployed host starts. [requirements.lock](requirements.lock)
+pins FastAPI 0.157.0, Pydantic 2.14.1 and their transitive dependencies. When
+updating the lock, update the matching distribution pins in
+[main.rs](main.rs) and [descriptor.json](descriptor.json).
+
+Add `--runtime 3.14.5t` with a **new** prefix/output to package free-threaded
+Python. Its wheels, compiled host and environment use the distinct `cp314t` ABI.
+
+## Run and call the API
+
+```sh
+"$CARGO_TARGET_DIR/debug/cellar" dev "$CELLAR_FASTAPI_ROOT/env-v1/project.json" \
+  --no-watch --port 8080
+```
+
+In a second terminal:
+
+```sh
+curl http://127.0.0.1:8080/health
+curl http://127.0.0.1:8080/openapi.json
+curl -X POST http://127.0.0.1:8080/orders/order-42 \
+  -H 'content-type: application/json' \
+  -d '{"customer_id":"customer-7","items":[{"sku":"coffee","quantity":2,"unit_price_cents":1250}]}'
+curl http://127.0.0.1:8080/orders/order-42
+curl -X PATCH http://127.0.0.1:8080/orders/order-42 \
+  -H 'content-type: application/json' \
+  -d '{"expected_version":1,"status":"confirmed"}'
+```
+
+Swagger UI is available at `/docs`; its default browser assets use a CDN.
+`/openapi.json` remains available offline. Creation returns 201 with `total_cents: 2500`,
+`status: "pending"` and `version: 1`. Prices are integer cents supplied in the
+draft. A status change requires the current version and a pending order, then
+returns version 2. Invalid inputs return 422; conflicting payloads/versions
+return 409. Order IDs and SKUs are bounded ASCII identifiers.
+
+The order ID is the creation idempotency key. The normalized request, order and
+rendered creation response commit in one checked batch. Retrying the same order
+returns its original response, including after a status change or process
+restart. Reusing the ID for a different order refuses. Preserve receipts for the
+full business reconciliation window. SDK failures expose conservative outcomes;
+the example never automatically retries an ambiguous mutation.
+
+## Test a fresh package installation locally
+
+Stop the dev host first. The following drill temporarily moves the original
+environment aside, publishes through the real native package API into a private
+SQLite development bucket, and restores the runtime from that bucket. The
+installed executable runs with a cleared environment, without import-path flags.
+
+```sh
+cargo run -p cellar --example python-fastapi-deployment --locked -- \
+  "$CELLAR_FASTAPI_ROOT/package-v1" "$CELLAR_FASTAPI_ROOT" "$(command -v python3)"
+```
+
+Only use this command with the private scratch root created above. No process may
+share its runtime while the drill runs. The test interpreter must be outside
+that runtime. Add `--expect-free-threaded` for a `3.14.5t` package.
+
+The drill checks real FastAPI validation/OpenAPI, native-extension-backed
+Pydantic models, durable order creation, receipt replay, version conflicts,
+preserving restart and complete combined native/Python shutdown reports. It
+restores the original environment even on failure. Expected final output starts
+with `PASS FastAPI deployment`. This is local deployment/recovery coverage;
+it does not establish a remote object-store performance target.
+
+The example's buffered ASGI boundary tests run with its installed dependencies:
+
+```sh
+export PYO3_PYTHON="$(UV_PYTHON_INSTALL_DIR="$CELLAR_FASTAPI_ROOT/env-v1/runtime" uv python find --managed-python 3.14.5)"
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$CELLAR_FASTAPI_ROOT/env-v1/site" \
+  "$PYO3_PYTHON" -B examples/python-fastapi/test_app.py
+```
+
+Use `3.14.5t` in the interpreter lookup for a free-threaded package.
+
+## Publish and install on fleet nodes
+
+Configure the normal bucket credentials/endpoint, then publish:
+
+```sh
+"$CARGO_TARGET_DIR/debug/cellar" deploy "$CELLAR_FASTAPI_ROOT/package-v1" \
+  --bucket YOUR_BUCKET
+```
+
+On each matching target node, provide the generated `package.json` in a package
+directory and install:
+
+```sh
+cellar install /path/to/package-v1 --bucket YOUR_BUCKET \
+  --output /opt/cellar/releases/orders-v1 \
+  --python-root /absolute/prefix/recorded/during/build
+```
+
+`--python-root` must equal the immutable prefix captured during packaging; it is
+not a relocation option. Choose that path on the build machine with deployment
+in mind and create its parent on each node. The installer downloads the matching
+executable/archive, verifies their digests and restores runtime/package files
+before publishing the executable. Nodes need matching attested OS libraries;
+external system libraries are not copied into the archive. Normal and
+free-threaded packages require separate matched hosts/environments.
+
+Start the executable with the fleet's bucket, node, storage and listener
+configuration. For process monitoring, use the shipped supervisor:
+
+```sh
+cellar supervise --health-url http://127.0.0.1:8080/health \
+  --startup-ms 30000 --shutdown-ms 35000 --max-restarts 3 -- \
+  /opt/cellar/releases/orders-v1 --listen 0.0.0.0:8080 \
+  --internal-listen YOUR_PRIVATE_PEER_ADDRESS
+```
+
+The Python health route echoes the supervisor instance header. See the
+[supervision recipe](../../tools/python/README.md#process-supervision) for the
+remaining fleet configuration and systemd template. Installation does not start
+or replace running processes. For an update, build with `--version v2`, a new
+prefix and a new output directory, publish/install, then gracefully replace the
+process using the same business namespace. Source/dependency changes require a
+new executable; the live interpreter is never hot-reloaded.
+
+## HTTP integration boundaries
+
+[app.py](app.py) contains an example-only adapter for the
+[ASGI HTTP protocol](https://asgi.readthedocs.io/en/stable/specs/www.html), which
+[FastAPI implements](https://fastapi.tiangolo.com/advanced/middleware/). It passes
+the original Cellar context in request-local ASGI state; an async dependency
+retrieves it. Async routes call named Cellar cells rather than opening SQLite
+connections themselves. SDK operations still execute in the original Rust turn.
+
+Responses are fully buffered up to 1 MiB, with at most 128 headers/32 KiB of
+header data. Native bridge limits also apply. Binary bodies, repeated headers,
+query strings, cancellation and concurrent request-context separation are tested.
+The current native request does not expose the original HTTP version/client
+address, so the ASGI scope uses HTTP/1.1 and `client=None`.
+
+This example supports async HTTP routes, not WebSockets, live SSE/streaming,
+ASGI lifespan hooks or file-send extensions. It has no lifespan resources.
+Keep SDK dependencies/endpoints async: synchronous FastAPI functions run in a
+thread pool outside the managed SDK loop. Background work remains nondurable;
+use Cellar queues or alarms for persisted jobs. The adapter waits for the ASGI
+call to finish and propagates cancellation without returning a partial response.

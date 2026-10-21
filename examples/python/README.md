@@ -4,6 +4,9 @@ This is a runnable embedded CPython example: Python handles HTTP requests and
 cell logic, Pydantic validates input, NumPy performs native numerical work, and Cellar owns SQLite, alarms, routing, KV,
 SQL, queues and cron. CPython runs in the native Rust process through PyO3.
 
+For a framework application and a complete dependency/package deployment example,
+see the [FastAPI order service](../python-fastapi/README.md).
+
 ## Install and run
 
 Use **CPython 3.14 or free-threaded CPython 3.14t**, with development headers and a shared libpython,
