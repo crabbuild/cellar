@@ -14,6 +14,21 @@ Its bounded `GroupLog` caches become visible after sync. Storage lookups on the
 consensus worker perform no filesystem I/O. The filesystem is always supplied
 by the node; unsupported operations fail explicitly.
 
+Every newly created engine persists a nonzero `EngineInstanceId` in both its
+node marker and engine root. Resume checks the exact pair; another empty engine
+cannot repeat this identity by reusing configured node/disk values. The required
+marker-1 field is a hard local-storage cutover, without an older-record reader.
+The ID is a persistent identity rather than protection against copying live
+vote files to another disk. Node storage pins and process views are separate
+MR-11 work and are not established by this field alone.
+
+`reserve_node_revision` syncs a nonempty root fence and returns the node-wide
+monotonic sync sequence. It changes no group vote, configuration or applied
+position and cannot settle a group persistence ticket. Storage close separates
+admission closure from physical completion: even error results wait for engine
+and directory-lock release. Dropping a close waiter leaves the worker owning
+drain/fence/join; later waiters observe the same terminal result.
+
 The private consensus storage view can finish mechanical lookups against the
 last durable cache during engine closure. Public group/proof reads remain
 closed. This avoids turning ordinary cancellation or an I/O failure into a

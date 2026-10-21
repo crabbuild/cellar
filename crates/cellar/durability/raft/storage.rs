@@ -16,7 +16,7 @@ use std::fmt;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{mpsc, Arc, Mutex, RwLock};
 use std::time::Duration;
-use tokio::sync::oneshot;
+use tokio::sync::{oneshot, Notify};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum LogError {
@@ -106,17 +106,42 @@ pub struct ReplicaLog {
 }
 
 struct LogHandle {
+    instance: std::sync::OnceLock<cellar_logic::consensus::EngineInstanceId>,
     owner: Arc<()>,
     sender: mpsc::SyncSender<Request>,
     domain: crate::asyncrt::DomainToken,
     groups: Catalog,
     pending: Arc<AtomicUsize>,
     options: ReplicaLogOptions,
-    closing: AtomicBool,
+    closing: Arc<AtomicBool>,
     runtime_claimed: AtomicBool,
     abort: Arc<AtomicBool>,
     closed: Arc<AtomicBool>,
-    terminal: Arc<Mutex<Option<Result<(), LogError>>>>,
+    terminal: Arc<Terminal>,
+}
+
+struct Terminal {
+    result: Mutex<Option<Result<(), LogError>>>,
+    changed: Notify,
+}
+
+impl Terminal {
+    async fn wait(&self) -> Result<(), LogError> {
+        loop {
+            let changed = self.changed.notified();
+            tokio::pin!(changed);
+            changed.as_mut().enable();
+            let result = self
+                .result
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .clone();
+            if let Some(result) = result {
+                return result;
+            }
+            changed.await;
+        }
+    }
 }
 
 impl Drop for LogHandle {
@@ -153,11 +178,11 @@ struct Request {
 }
 
 enum Work {
+    NodeFence(Reply<u64>),
     Create(GroupBootstrap, Reply<GroupLog>),
     Seeded(Box<super::snapshot::PreparedSeed>, Reply<GroupLog>),
     Persist(OperationId, Vec<GroupWrite>, Reply<SyncReceipt>),
     Purge(Reply<()>),
-    Close(Reply<()>),
 }
 
 /// Exclusive consensus ownership; normal release follows a final storage fence.
@@ -171,6 +196,18 @@ impl RuntimeLease {
 }
 
 impl ReplicaLog {
+    /// Stable engine-creation identity, not a vote or group membership proof.
+    pub fn storage_instance(&self) -> Result<cellar_logic::consensus::EngineInstanceId, LogError> {
+        self.admit()?;
+        self.inner.instance.get().copied().ok_or(LogError::Closed)
+    }
+
+    /// Allocate a durable node-local directory revision through a nonempty
+    /// synced root fence. This cannot settle a Raft group persistence ticket.
+    pub async fn reserve_node_revision(&self) -> Result<u64, LogError> {
+        self.request(1024, Work::NodeFence).await
+    }
+
     pub(crate) fn claim_runtime(&self) -> Result<RuntimeLease, LogError> {
         self.admit()?;
         self.inner
@@ -205,17 +242,22 @@ impl ReplicaLog {
         let groups = Arc::new(RwLock::new(BTreeMap::new()));
         let closed = Arc::new(AtomicBool::new(false));
         let abort = Arc::new(AtomicBool::new(false));
-        let terminal = Arc::new(Mutex::new(None));
+        let terminal = Arc::new(Terminal {
+            result: Mutex::new(None),
+            changed: Notify::new(),
+        });
+        let closing = Arc::new(AtomicBool::new(false));
         let owner = Arc::new(());
         let handle = Self {
             inner: Arc::new(LogHandle {
+                instance: std::sync::OnceLock::new(),
                 owner: owner.clone(),
                 sender,
                 domain: domain.clone(),
                 groups: groups.clone(),
                 pending: Arc::new(AtomicUsize::new(0)),
                 options: options.clone(),
-                closing: AtomicBool::new(false),
+                closing: closing.clone(),
                 runtime_claimed: AtomicBool::new(false),
                 abort: abort.clone(),
                 closed: closed.clone(),
@@ -227,14 +269,26 @@ impl ReplicaLog {
         // if the open waiter or public handle is dropped.
         let _worker = domain
             .blocking(move || {
-                struct ClosedOnDrop(Arc<AtomicBool>);
+                struct ClosedOnDrop(Arc<AtomicBool>, Arc<Terminal>);
 
                 impl Drop for ClosedOnDrop {
                     fn drop(&mut self) {
                         self.0.store(true, Ordering::Release);
+                        // Worker/resources unwind before this outer guard. A
+                        // panic may close admission early, but cannot fake join.
+                        let mut terminal = self
+                            .1
+                            .result
+                            .lock()
+                            .unwrap_or_else(|poisoned| poisoned.into_inner());
+                        if terminal.is_none() {
+                            *terminal = Some(Err(LogError::Closed));
+                        }
+                        drop(terminal);
+                        self.1.changed.notify_waiters();
                     }
                 }
-                let _guard = ClosedOnDrop(closed.clone());
+                let _guard = ClosedOnDrop(closed.clone(), terminal.clone());
                 let result = Worker::open(options, filesystem, groups, owner, closed.clone());
                 let mut worker = match result {
                     Ok(worker) => worker,
@@ -243,23 +297,31 @@ impl ReplicaLog {
                         return;
                     }
                 };
-                if ready.send(Ok(())).is_err() {
+                let instance = worker
+                    .root
+                    .identity
+                    .instance(worker.options.node, worker.options.disk);
+                if ready.send(instance).is_err() {
                     return;
                 }
-                let (result, close_reply) = worker.run(receiver, &worker_domain, &abort);
+                let result = worker.run(receiver, &worker_domain, &abort, &closing);
                 closed.store(true, Ordering::Release);
                 // Engine drop joins its metrics thread; directory locks are owned
                 // by this same worker and cannot outlive its completion.
                 drop(worker);
-                if let Ok(mut terminal) = terminal.lock() {
-                    *terminal = Some(result.clone());
-                }
-                if let Some(reply) = close_reply {
-                    let _ = reply.send(result);
-                }
+                *terminal
+                    .result
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(result);
+                terminal.changed.notify_waiters();
             })
             .map_err(|_| LogError::Closed)?;
-        wait.await.map_err(|_| LogError::Closed)??;
+        let instance = wait.await.map_err(|_| LogError::Closed)??;
+        handle
+            .inner
+            .instance
+            .set(instance)
+            .map_err(|_| LogError::WrongIdentity)?;
         handle.admit()?;
         Ok(handle)
     }
@@ -329,49 +391,15 @@ impl ReplicaLog {
         self.request(1024, Work::Purge).await
     }
 
+    /// Close admission, drain submitted work, fence and join physical storage
+    /// ownership. Concurrent/repeated waiters observe the same terminal result;
+    /// dropping one waiter does not abandon shutdown. Errors also wait for the
+    /// engine and directory locks to be released.
     pub async fn close(&self) -> Result<(), LogError> {
-        if self.inner.closed.load(Ordering::Acquire) {
-            return self
-                .inner
-                .terminal
-                .lock()
-                .map_err(|_| LogError::Closed)?
-                .clone()
-                .unwrap_or(Err(LogError::Closed));
-        }
-        if self.inner.closing.swap(true, Ordering::AcqRel) {
-            return Err(LogError::Closed);
-        }
-        let (reply, wait) = oneshot::channel();
-        let permit = Permit::acquire(
-            self.inner.pending.clone(),
-            0,
-            self.inner.options.max_pending_bytes,
-        )?;
-        let mut request = Request {
-            work: Work::Close(reply),
-            _permit: permit,
-        };
-        loop {
-            match self.inner.sender.try_send(request) {
-                Ok(()) => break,
-                Err(mpsc::TrySendError::Disconnected(_)) => return Err(LogError::Closed),
-                Err(mpsc::TrySendError::Full(unsent)) => {
-                    request = unsent;
-                    let now = self.inner.domain.mono_ms().map_err(|_| LogError::Closed)?;
-                    self.inner
-                        .domain
-                        .sleep_until(now.saturating_add(1))
-                        .map_err(|_| LogError::Closed)?
-                        .await;
-                }
-            }
-        }
-        let result = wait.await.map_err(|_| LogError::Closed)?;
-        if self.inner.domain.mono_ms().is_err() {
-            return Err(LogError::Closed);
-        }
-        result
+        // The worker owns draining/fencing, independently of every close
+        // waiter. Admission-closed is distinct from physically joined.
+        self.inner.closing.store(true, Ordering::Release);
+        self.inner.terminal.wait().await
     }
 
     fn admit(&self) -> Result<(), LogError> {
@@ -444,7 +472,6 @@ impl Worker {
         owner: Arc<()>,
         closed: Arc<AtomicBool>,
     ) -> Result<Self, LogError> {
-        let expected = NodeRecord::new(options.node, options.disk);
         match options.mode {
             LogOpenMode::Create => create_directory_durably(fs.as_ref(), &options.directory)?,
             LogOpenMode::Resume => match fs.metadata(&options.directory) {
@@ -459,17 +486,24 @@ impl Worker {
         let directory_lock = fs.lock_file(&options.directory.join("CELLAR_LOCK"))?;
         let marker = options.directory.join("node.json");
         let log_directory = options.directory.join("log");
-        match options.mode {
+        let expected = match options.mode {
             LogOpenMode::Create => {
                 for entry in fs.read_dir_iter(&options.directory)? {
                     if entry?.file_name != "CELLAR_LOCK" {
                         return Err(LogError::AlreadyExists);
                     }
                 }
+                let mut nonce = [0; 16];
+                use rand::RngCore as _;
+                crate::asyncrt::rng("raft-storage-instance").fill_bytes(&mut nonce);
+                let instance = cellar_logic::consensus::EngineInstanceId::new(nonce)
+                    .map_err(|_| LogError::Invalid("empty storage instance identity".into()))?;
+                let expected = NodeRecord::new(options.node, options.disk, instance);
                 let mut file = fs.create_new(&marker)?;
                 file.write_all(&records::encode(&expected)?)?;
                 file.sync_all()?;
                 fs.sync_all(&options.directory)?;
+                expected
             }
             LogOpenMode::Resume => {
                 let mut file = fs.open(&marker).map_err(|_| LogError::LostStableState)?;
@@ -478,9 +512,7 @@ impl Worker {
                     return Err(LogError::Corrupt("oversized node marker".into()));
                 }
                 let found: NodeRecord = records::decode(&file.read_exact_at(0, length as usize)?)?;
-                if found != expected {
-                    return Err(LogError::WrongIdentity);
-                }
+                found.instance(options.node, options.disk)?;
                 if !fs
                     .metadata(&log_directory)
                     .map_err(|_| LogError::LostStableState)?
@@ -488,8 +520,9 @@ impl Worker {
                 {
                     return Err(LogError::LostStableState);
                 }
+                found
             }
-        }
+        };
         let config = raft_engine::Config {
             dir: log_directory
                 .to_str()
@@ -891,20 +924,33 @@ impl Worker {
         receiver: mpsc::Receiver<Request>,
         domain: &crate::asyncrt::DomainToken,
         abort: &AtomicBool,
-    ) -> (Result<(), LogError>, Option<Reply<()>>) {
+        closing: &AtomicBool,
+    ) -> Result<(), LogError> {
         loop {
             if abort.load(Ordering::Acquire)
                 || self.closed.load(Ordering::Acquire)
                 || domain.mono_ms().is_err()
             {
-                return (Err(LogError::Closed), None);
+                return Err(LogError::Closed);
             }
             let request = match receiver.recv_timeout(Duration::from_millis(10)) {
                 Ok(request) => request,
+                Err(mpsc::RecvTimeoutError::Timeout) if closing.load(Ordering::Acquire) => {
+                    return self.fence(&mut LogBatch::default()).map(|_| ())
+                }
                 Err(mpsc::RecvTimeoutError::Timeout) => continue,
-                Err(mpsc::RecvTimeoutError::Disconnected) => return (Err(LogError::Closed), None),
+                Err(mpsc::RecvTimeoutError::Disconnected) => return Err(LogError::Closed),
             };
             let fatal = match request.work {
+                Work::NodeFence(reply) => {
+                    let result = self.fence(&mut LogBatch::default());
+                    let fatal = result.as_ref().err().filter(|error| error.fatal()).cloned();
+                    if fatal.is_some() {
+                        self.closed.store(true, Ordering::Release);
+                    }
+                    let _ = reply.send(result);
+                    fatal
+                }
                 Work::Create(bootstrap, reply) => {
                     let result = self.create(bootstrap);
                     let fatal = result.as_ref().err().filter(|error| error.fatal()).cloned();
@@ -945,15 +991,9 @@ impl Worker {
                     let _ = reply.send(result);
                     fatal
                 }
-                Work::Close(reply) => {
-                    return (
-                        self.fence(&mut LogBatch::default()).map(|_| ()),
-                        Some(reply),
-                    )
-                }
             };
             if let Some(error) = fatal {
-                return (Err(error), None);
+                return Err(error);
             }
         }
     }

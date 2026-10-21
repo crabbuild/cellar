@@ -4,7 +4,7 @@ use super::cache::{CachedGroup, CommittedImage, DurableApply};
 use super::storage::{GroupBootstrap, LogError};
 use crate::application::consensus::protocol::WireScope;
 use ::raft::prelude::{ConfState, HardState, Snapshot};
-use cellar_logic::consensus::{DiskLineage, LogIndex, LogPosition, NodeId, Term};
+use cellar_logic::consensus::{DiskLineage, EngineInstanceId, LogIndex, LogPosition, NodeId, Term};
 use protobuf::Message;
 use serde::{Deserialize, Serialize};
 
@@ -18,15 +18,27 @@ pub(crate) struct NodeRecord {
     pub format: u32,
     pub node: String,
     pub disk: String,
+    pub storage_instance: [u8; 16],
 }
 
 impl NodeRecord {
-    pub fn new(node: NodeId, disk: DiskLineage) -> Self {
+    pub fn new(node: NodeId, disk: DiskLineage, instance: EngineInstanceId) -> Self {
         Self {
             format: 1,
             node: hex::encode(node.bytes()),
             disk: hex::encode(disk.bytes()),
+            storage_instance: instance.bytes(),
         }
+    }
+
+    pub fn instance(&self, node: NodeId, disk: DiskLineage) -> Result<EngineInstanceId, LogError> {
+        if self.format != 1
+            || self.node != hex::encode(node.bytes())
+            || self.disk != hex::encode(disk.bytes())
+        {
+            return Err(LogError::WrongIdentity);
+        }
+        EngineInstanceId::new(self.storage_instance).map_err(|_| LogError::WrongIdentity)
     }
 }
 

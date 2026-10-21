@@ -2,6 +2,8 @@
 #![allow(clippy::disallowed_methods)]
 #[path = "support/raft_storage_fault.rs"]
 mod fault;
+#[path = "support/raft_node_registration_storage.rs"]
+mod registration_storage;
 
 use ::raft::prelude::{Entry, HardState, Snapshot};
 use ::raft::{GetEntriesContext, Storage};
@@ -703,6 +705,9 @@ async fn storage_process_fixture() -> Result<()> {
         Arc::new(FaultFileSystem { gate: gate.clone() }),
     )
     .await?;
+    if cut.starts_with("node-fence-") {
+        return registration_storage::child_node_fence(&log, &gate, &path, &signal, &cut).await;
+    }
     if cut == "birth-after-sync" {
         let _release = gate.arm(CRASH_AFTER_SYNC);
         log.create_group(bootstrap(11)).await?;

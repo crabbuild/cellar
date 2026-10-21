@@ -34,6 +34,7 @@ identity!(
     IncarnationId,
     NodeId,
     DiskLineage,
+    EngineInstanceId,
     ProcessGeneration,
     ProposalId,
     ClientId

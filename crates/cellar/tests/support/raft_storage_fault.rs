@@ -20,6 +20,8 @@ pub const CRASH_AFTER_SYNC: u8 = 5;
 pub const TORN_WRITE: u8 = 6;
 pub const CRASH_AFTER_DELETE: u8 = 7;
 pub const FAIL_PARENT_SYNC: u8 = 8;
+pub const FAIL_SYNC_HOLD_LOCK_DROP: u8 = 9;
+const HOLD_LOCK_DROP: u8 = 10;
 
 pub struct Gate {
     pub mode: AtomicU8,
@@ -96,6 +98,24 @@ struct FaultFile {
     log: bool,
 }
 
+struct TrackedLock {
+    _lock: HostFileLock,
+    gate: Arc<Gate>,
+}
+
+impl Drop for TrackedLock {
+    fn drop(&mut self) {
+        if self
+            .gate
+            .mode
+            .compare_exchange(HOLD_LOCK_DROP, OFF, Ordering::AcqRel, Ordering::Acquire)
+            .is_ok()
+        {
+            let _ = self.gate.pause();
+        }
+    }
+}
+
 impl HostFileIo for FaultFile {
     fn write_all(&mut self, bytes: &[u8]) -> io::Result<()> {
         self.inner.write_all(bytes)
@@ -126,7 +146,11 @@ impl HostFileIo for FaultFile {
             let mode = self.gate.mode.load(Ordering::Acquire);
             let mode = if matches!(
                 mode,
-                HOLD_SYNC | FAIL_SYNC | CRASH_BEFORE_SYNC | CRASH_AFTER_SYNC
+                HOLD_SYNC
+                    | FAIL_SYNC
+                    | CRASH_BEFORE_SYNC
+                    | CRASH_AFTER_SYNC
+                    | FAIL_SYNC_HOLD_LOCK_DROP
             ) && self
                 .gate
                 .mode
@@ -140,6 +164,12 @@ impl HostFileIo for FaultFile {
             match mode {
                 HOLD_SYNC | CRASH_BEFORE_SYNC => self.gate.pause()?,
                 FAIL_SYNC => return Err(io::Error::other("injected Raft sync failure")),
+                FAIL_SYNC_HOLD_LOCK_DROP => {
+                    self.gate.mode.store(HOLD_LOCK_DROP, Ordering::Release);
+                    return Err(io::Error::other(
+                        "injected Raft sync failure before held lock release",
+                    ));
+                }
                 CRASH_AFTER_SYNC => {
                     self.inner.sync_all()?;
                     self.gate.pause()?;
@@ -198,7 +228,15 @@ impl FileSystem for FaultFileSystem {
     }
 
     fn lock_file(&self, path: &Path) -> io::Result<HostFileLock> {
-        DirectFileSystem.lock_file(path)
+        let lock = DirectFileSystem.lock_file(path)?;
+        if path.file_name().is_some_and(|name| name == "CELLAR_LOCK") {
+            Ok(Box::new(TrackedLock {
+                _lock: lock,
+                gate: self.gate.clone(),
+            }))
+        } else {
+            Ok(lock)
+        }
     }
 
     fn write(&self, path: &Path, bytes: &[u8]) -> io::Result<()> {
