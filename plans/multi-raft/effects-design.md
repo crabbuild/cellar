@@ -4,8 +4,8 @@ Status: MR-12 is IN_PROGRESS. The immutable Blob adapter is
 [qualified at its native boundary](evidence/MR-12-blob-progress.json).
 The alarm implementation is
 [qualified at its native boundary](evidence/MR-12-alarm-progress.json). Outbox dispatch, durable
-destination receipts, leadership races and the full unsupported-binding gate
-are still required. Enabling Blobs alone starts no business timer.
+destination receipts, leadership races and capability gates are implemented and
+undergoing combined qualification. Enabling Blobs alone starts no business timer.
 
 ## Immutable Blob adapter
 
@@ -61,15 +61,15 @@ time, payload, durability and a generation bound to the full history, setting
 command ID and name. A rearm replaces that generation; cancellation removes it.
 These changes share the business transaction and receipt.
 
-The host requires explicit `RaftHostOptions::alarms`. Before catalog creation,
+The host requires explicit `RaftHostOptions::effects` (`RaftEffectOptions`). Before catalog creation,
 it checks capability and image capacity. Its one owned timer examines at most
 four registered groups per discovery turn, reserves metadata before observation,
 checks actual current-term leader readiness and reads only a published image
 through the existing SQL owner. Follower and learner roles cannot invoke an
 alarm callback. S3 intents wait for archive proof covering the selected cut;
 Quorum intents retain ordinary backlog admission. Defaults use a 100 ms interval,
-5-second status/firing deadlines, a 60-second receipt retry window and a 64 KiB
-metadata reservation. These are configured bounds, not a deployment latency SLO.
+5-second status/firing deadlines, a 60-second receipt retry window and a 512 KiB
+shared metadata reservation. These are configured bounds, not a deployment latency SLO.
 Owned physical SQL work can delay this single scheduler; it is joined on closure.
 
 Alarm firing uses a private system-command registry. Public contract discovery,
@@ -97,26 +97,133 @@ the complete drain/reporting contract remain later work. Public Node closure
 joins the timer's domain; its existing Fleet report does not supply a graceful
 Raft close receipt or permission to discard unarchived disks.
 
-## Remaining MR-12 integration
+## Committed outbox and receiver
 
-1. Persist bounded outbox intent identity, destination binding, payload,
-   sequence, retry deadline and generation in the replicated transaction.
-2. Extend the bounded owned scheduler to delivery: rotate registered histories, verify
-   current-term leader readiness and reads only published images. Followers
-   never run business timer or delivery callbacks.
-3. Commit attempts before sending. Recheck authority, cancel obsolete waiters,
-   and reconcile completion through a conditional replicated command. Cancellation
-   cannot establish that an external request did not take effect.
-4. Supply a concrete receiver adapter whose business change and stable receipt
-   commit together. Retrying equal identity/payload returns that receipt; changed
-   payload conflicts. Retention cannot silently permit an old effect to run again.
-5. Validate unsupported Workflow/Queue/container/socket capabilities before
-   activation. Do not route them through Fleet ownership for a Raft history.
-6. Run all six original MR-12 cases through native producer/receiver examples,
-   including no-traffic alarm recovery, private-intent suppression, an old request
-   racing failover, and lost delivery completion. Run existing outbox/event-stream
-   regressions as well as owning Raft tests before marking this package DONE.
+`RaftClass::outbox(RaftOutbox)` explicitly declares bounded lanes. Each lane binds
+an immutable logical target: full destination history, stable class definition and
+exact command contract, receipt verification key and a fixed minimum durability
+policy. Signing
+keys, grant identities, lane definitions and limits enter class compatibility.
+Physical endpoint hints do not enter that identity. Changing a target or key is
+an incompatible definition, rather than a silent redirect of retained intents.
 
-Raft alone supplies no external exactly-once contract. MR-13 still owns unified
-Node semantic drain and archive-obligation reporting. Release, scale and
-federation retain their separate gates in the implementation plan.
+`RaftClass::definition_digest()` binds the class name, explicit schema version and
+supplied definition digest before adding delivery bindings. Pairing that stable
+identity with an exact operation digest permits self-delivery and mutually
+referencing class declarations. A digest of the entire target manifest would
+create recursive hashes. Namespace admission still checks `schema_digest()`,
+which binds the complete required command/capability manifest, including grants,
+limits, keys and delivery protocol identity. The target's full immutable history
+selects that namespace; the stable definition alone grants no compatibility or
+mutation proof. Native tests exercise actual S3-gated self-delivery, rather than
+only comparing declaration hashes. Wire markers remain 1; incompatible capability
+protocols require fresh experimental namespaces, without a migration reader.
+
+`CommandContext::emit(lane, bytes)` persists the actual signed canonical request in
+the business transaction. Full origin history, origin schema, binding identity,
+monotonic lane sequence, target and payload digest are immutable. Rollback removes
+the request and sequence increment. Repeated attempts and elections send identical
+bytes: attempt generations, terms, process identities and clocks stay outside the
+receiver input. Payload bytes are separate from logical identity, so reusing an ID
+with changed bytes cannot create a new delivery. A new incarnation cannot silently
+redispatch an old history's retained bytes; disaster cutover needs an explicit
+reconciliation protocol.
+
+The shared owned scheduler rotates groups and alternates alarm/outbox priority
+per history. A node-wide parity counter would unfairly pin priority when the
+registered group count is even. Both adapters use the same committed internal
+client allocator and one reserved metadata permit. It skips older producers,
+configuration changes and unpublished state, then observes actual current-term
+leader readiness and reads only the published image. S3 intents wait for verified
+archive coverage of that selected cut.
+
+Before each send, a private command conditionally claims the head of one lane,
+committing an attempt generation and retry deadline. Its ordinary command receipt
+must pass the intent's durability gate. The dispatcher rechecks term, local process
+and engine authority immediately before calling the sink, and at bounded intervals
+while awaiting its result. Leadership loss or the operation deadline drops the
+waiter; an already sent receiver command can still commit. A committed claim whose
+response was lost becomes retryable from its persisted deadline. Cancellation is
+never evidence that the destination did nothing.
+
+`RaftInbox` wraps an explicitly declared normal destination command. Its source
+grants bind cluster, namespace, source class, binding digest and sender public key.
+The signed request also binds the exact destination history/definition/operation. Strict
+marker-1 canonical decoding, size limits, signature and payload digest checks run
+before command receipt lookup and again at transaction execution. Signatures supply
+configured native-receiver authentication; they are not Byzantine quorum certificates
+or an OS sandbox. Native code and provisioned keys remain trusted.
+
+A source lane uses one reserved client namespace and an increasing command sequence,
+rather than a new client per message. Normal application operations cannot consume
+that client in a receiver class. Generic command receipts enforce exact input and
+contract identity; the receiver additionally commits its business change, full lane
+digest, request digest and signed result atomically. It retains the latest receipt
+per authorized source lane and refuses expired sequences rather than executing them
+again. Receiver callbacks are private/speculative until commit, so arbitrary network
+side effects inside a callback do not acquire this contract.
+
+A receipt signs a purpose-separated digest of the exact canonical request, full
+logical lane identity, target, fixed durability policy and bounded business result.
+The receiver requires that policy before invoking its callback, and releases the
+signed bytes only through its ordinary Quorum/S3 output gate. A receipt from a
+different request, history, payload or key cannot settle the source intent. Source
+cleanup is another private replicated command: it verifies the proof and exact
+attempt generation, deletes that intent and advances only the contiguous settled
+prefix. Stale-generation completions are harmless conditional refusals. Lost
+cleanup responses are reconciled from the committed source image.
+
+`RaftNativeEffectSink` is the concrete adapter for up to eight independently
+replicated native receiver handles. Endpoint replacement remains a routing concern;
+logical identity and receiver proofs stay fixed. Custom adapters must honor their
+memory/cancellation bounds and must not detach tasks. A Rust success result or an
+arbitrary HTTP 200 is insufficient for settlement. Endpoint routing preserves
+terminal identity/contract/expired-receipt refusals, rather than replacing them
+with a later follower routing error. A permanently refused delivery stays retained
+and blocks its lane; this component provides no implicit payload rewrite or
+dead-letter/skip operation. There is no generic external
+exactly-once promise. The [producer/receiver example](../../examples/raft-effects/README.md)
+runs a primary replacement and then resumes the same retained disks in a second
+process invocation.
+
+| Bound | Default / maximum |
+| --- | --- |
+| Declared outbox lanes | 16 / 32 |
+| Pending signed requests per cell | 16 / 128 |
+| Payload bytes per request | 32 KiB / 32 KiB |
+| Encoded signed request | 60 KiB |
+| Retained pending request bytes | 1 MiB / 16 MiB |
+| Business result / signed receipt | 4 KiB / 16 KiB |
+| Receiver grants / source lanes | at most 32 / 128, explicitly configured |
+| Retry delay | 1 second / configured 100 ms–60 seconds |
+| Scheduler metadata | 512 KiB default; required for outbox activation |
+
+Node and direct-host preflight check capability, input/result/receipt/client/image
+capacity before creating catalog or engine state. SQL observations check lengths
+and types before allocating retained fields. Settled intent rows are deleted;
+generic command receipts have their existing separate retention limits. There is
+no automatic pruning yet: a long outage or enough attempts can fill those limits
+and cause controlled refusal. MR-13 must supply an operational retention contract,
+including protection of the latest receiver receipt while its source can retry.
+No indefinite uptime or unconstrained recurrence is claimed here.
+
+## Mutable SDK capability gates
+
+Raft registration cannot also own a Fleet `Cell` or Workflow factory. Node checks
+that boundary independently of `Application::resolve_raft_class`, before catalog
+or engine creation, so a custom application cannot bypass it. Native tests use
+actual Workflow registrations and mutable factories that request the existing
+Queue, container and websocket APIs, and assert no factory invocation or catalog
+write. Fleet cell/Workflow bindings cannot reinterpret a registered Raft class;
+unrelated Fleet resources can coexist in the native application.
+
+`CommandContext` has no Workflow, Queue, container or websocket methods; compile-fail
+documentation checks those type boundaries. Deployment bindings available to a
+Fleet `Context` are not inherited by a Raft transaction. The explicit immutable
+Blob, committed alarm and outbox adapters are the supported feature surface.
+
+Combined qualification must execute all six original MR-12 cases, owning Raft
+regressions, existing Fleet outbox/event-stream cases and the finite native restart
+example before this package is marked DONE. MR-13 still owns unified Node semantic
+drain and archive-obligation reporting. Release, physical scale and federation
+retain their separate gates in the implementation plan.

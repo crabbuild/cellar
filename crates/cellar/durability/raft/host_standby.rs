@@ -182,6 +182,7 @@ impl Cell {
             pending: None,
             sequence: 0,
             status_busy: false,
+            prefer_delivery: false,
             sql_busy: false,
             apply: None,
             publication: None,

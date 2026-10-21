@@ -308,7 +308,17 @@ impl Application for Registry {
         &self,
         options: &crate::engine_api::WorkerConfigOptions,
     ) -> Result<()> {
-        for class in &options.do_classes {
+        for class in options
+            .do_classes
+            .iter()
+            .chain(options.bindings.iter().map(|(_, class)| class))
+            .chain(
+                options
+                    .workflow_bindings
+                    .iter()
+                    .map(|binding| &binding.class),
+            )
+        {
             anyhow::ensure!(
                 !self.raft_classes.contains_key(class),
                 consensus::RegistrationError::WrongMode {

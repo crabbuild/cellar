@@ -1,8 +1,7 @@
 //! Transactional alarm generations and exact committed-image discovery.
-use super::super::{apply::PublishedImage, budget::Permit};
 use crate::application::consensus::{CommandContext, RaftClass};
 use anyhow::{ensure, Context as _, Result};
-use cellar_logic::consensus::{CommandFailure, CommandId, Durability, LogPosition};
+use cellar_logic::consensus::{CommandFailure, Durability};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -28,42 +27,6 @@ impl RaftAlarmLimits {
             (1..=32).contains(&self.max_alarms)
                 && (1..=1024 * 1024).contains(&self.max_payload_bytes),
             "invalid alarm limits"
-        );
-        Ok(())
-    }
-}
-
-#[derive(Clone, Copy, Debug)]
-pub struct RaftAlarmOptions {
-    pub interval_ms: u64,
-    pub operation_timeout_ms: u64,
-    pub retry_window_ms: u64,
-    pub metadata_bytes: usize,
-}
-
-impl Default for RaftAlarmOptions {
-    fn default() -> Self {
-        Self {
-            interval_ms: 100,
-            operation_timeout_ms: 5000,
-            retry_window_ms: 60_000,
-            metadata_bytes: 64 * 1024,
-        }
-    }
-}
-
-impl RaftAlarmOptions {
-    pub(crate) fn validate(self, host: &crate::raft::host::RaftHostOptions) -> Result<()> {
-        ensure!(
-            (10..=60_000).contains(&self.interval_ms)
-                && (1..=60_000).contains(&self.operation_timeout_ms)
-                && self
-                    .operation_timeout_ms
-                    .checked_add(100)
-                    .is_some_and(|n| n <= self.retry_window_ms)
-                && self.retry_window_ms <= host.execution.max_retry_window_ms
-                && (64 * 1024..=8 * 1024 * 1024).contains(&self.metadata_bytes),
-            "invalid alarm scheduler bounds"
         );
         Ok(())
     }
@@ -198,53 +161,15 @@ pub(crate) struct DueAlarm {
     pub minimum: Durability,
 }
 
-pub(crate) struct AlarmScan {
-    pub position: LogPosition,
-    pub next: CommandId,
-    pub due: Option<DueAlarm>,
-    pub _reservation: Permit,
-}
-
-pub(crate) fn scan(
-    image: PublishedImage,
+pub(crate) fn due(
+    connection: &Connection,
     class: &RaftClass,
-    services: cellar_ltx::generation::ReadServices,
     now: u64,
-    reservation: Permit,
-) -> Result<AlarmScan> {
-    let limits = class
-        .alarm_limits()
-        .ok_or(CommandFailure::UnsupportedCapability)?;
-    let database = crate::storage::open_immutable_generation(
-        image.pin(),
-        crate::storage::ImmutableQueryOptions {
-            services,
-            sqlite_vec: false,
-        },
-    )?;
-    let connection = database.connection();
-    let client = super::system_client(image.scope())?;
-    let last: Option<Vec<u8>> = connection
-        .query_row(
-            "SELECT CASE WHEN typeof(last_sequence)='blob' AND length(last_sequence)=8 THEN last_sequence ELSE NULL END FROM __sys_raft_clients WHERE client_id=?1",
-            [client.bytes().as_slice()],
-            |row| row.get(0),
-        )
-        .optional()?;
-    let last = last
-        .map(|bytes| {
-            bytes
-                .try_into()
-                .map(u64::from_be_bytes)
-                .map_err(|_| anyhow::anyhow!(CommandFailure::CorruptState))
-        })
-        .transpose()?
-        .unwrap_or(0);
-    let next = CommandId::new(
-        client,
-        last.checked_add(1).ok_or(CommandFailure::Overloaded)?,
-    )?;
-    let due = if exists(connection)? {
+) -> Result<Option<DueAlarm>> {
+    let Some(limits) = class.alarm_limits() else {
+        return Ok(None);
+    };
+    Ok(if exists(connection)? {
         let count: usize =
             connection.query_row("SELECT count(*) FROM __sys_raft_alarms", [], |row| {
                 row.get(0)
@@ -276,11 +201,5 @@ pub(crate) fn scan(
             .transpose()?
     } else {
         None
-    };
-    Ok(AlarmScan {
-        position: image.position(),
-        next,
-        due,
-        _reservation: reservation,
     })
 }

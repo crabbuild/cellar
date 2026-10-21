@@ -506,6 +506,18 @@ impl PrivateExecutor {
         let scope = self.authority.replica.scope.clone();
         let command = attempt.request.id;
         let durability = attempt.request.durability;
+        if !system {
+            class
+                .validate_command_identity(&scope, &contract, command, durability, input)
+                .map_err(|error| {
+                    ExecutionError::Refused(
+                        error
+                            .downcast_ref::<CommandFailure>()
+                            .cloned()
+                            .unwrap_or(CommandFailure::UnsupportedCapability),
+                    )
+                })?;
+        }
         self.stage(attempt, |transaction| {
             // Receipt lookup precedes this closure. A retry may recover its
             // stored result while backlog admission refuses new business work.

@@ -83,6 +83,25 @@ impl std::error::Error for RegistrationError {}
 /// outbound network, cell-call, task-spawn or general storage capability.
 /// Explicitly declared alarms persist intents through the command transaction.
 /// Native code is trusted; this contract is not an operating-system sandbox.
+/// Mutable Fleet capabilities are absent from this context, including bindings
+/// declared elsewhere in a mixed Fleet/Raft native application.
+///
+/// ```compile_fail
+/// use cellar::sdk::consensus::CommandContext;
+/// fn workflow(context: &CommandContext<'_>) { let _ = context.workflow("FLOW"); }
+/// ```
+/// ```compile_fail
+/// use cellar::sdk::consensus::CommandContext;
+/// fn queue(context: &CommandContext<'_>) { let _ = context.queue("JOBS"); }
+/// ```
+/// ```compile_fail
+/// use cellar::sdk::consensus::CommandContext;
+/// fn container(context: &CommandContext<'_>) { let _ = context.container(); }
+/// ```
+/// ```compile_fail
+/// use cellar::sdk::consensus::CommandContext;
+/// fn socket(context: &CommandContext<'_>) { let _ = context.websocket_pair(); }
+/// ```
 pub struct CommandContext<'a> {
     scope: &'a GroupScope,
     command: CommandId,
@@ -91,6 +110,9 @@ pub struct CommandContext<'a> {
     alarm_limits: Option<super::RaftAlarmLimits>,
     alarm_names: &'a BTreeSet<String>,
     durability: Durability,
+    schema_digest: [u8; 32],
+    definition_digest: [u8; 32],
+    outbox: Option<&'a super::RaftOutbox>,
 }
 
 impl<'a> CommandContext<'a> {
@@ -100,6 +122,18 @@ impl<'a> CommandContext<'a> {
 
     pub fn command(&self) -> CommandId {
         self.command
+    }
+
+    pub fn schema_digest(&self) -> [u8; 32] {
+        self.schema_digest
+    }
+
+    pub(crate) fn definition_digest(&self) -> [u8; 32] {
+        self.definition_digest
+    }
+
+    pub(crate) fn durability(&self) -> Durability {
+        self.durability
     }
 
     pub fn inputs(&self) -> CommandInputs {
@@ -134,6 +168,14 @@ impl<'a> CommandContext<'a> {
 }
 
 impl CommandContext<'_> {
+    /// Append immutable bytes to a declared delivery lane in this transaction.
+    /// The returned lane sequence supplies no commit or external-effect proof.
+    pub fn emit(&self, lane: &str, payload: &[u8]) -> anyhow::Result<u64> {
+        self.outbox
+            .ok_or(super::CommandFailure::UnsupportedCapability)?
+            .emit(self, lane, payload)
+    }
+
     /// Arm a declared alarm in this transaction. Only its committed generation
     /// can fire; setting it again replaces the previously selected generation.
     pub fn set_alarm(
@@ -172,9 +214,19 @@ pub struct QueryContext<'a> {
     version: &'a CommittedVersion,
     database: &'a ImmutableQuery,
     blobs: Option<super::RaftBlobLimits>,
+    outbox: Option<&'a super::RaftOutbox>,
 }
 
 impl QueryContext<'_> {
+    pub fn outbox_progress(&self, lane: &str) -> anyhow::Result<super::RaftOutboxProgress> {
+        crate::raft::effects::outbox::progress(
+            self.database.connection(),
+            self.outbox
+                .ok_or(super::CommandFailure::UnsupportedCapability)?,
+            lane,
+        )
+    }
+
     pub fn identity(&self) -> &GroupScope {
         &self.version.scope
     }
@@ -237,6 +289,8 @@ pub struct RaftClass {
     blobs: Option<super::RaftBlobLimits>,
     alarm_limits: Option<super::RaftAlarmLimits>,
     alarm_names: BTreeSet<String>,
+    inboxes: BTreeMap<String, super::RaftInbox>,
+    outbox: Option<Arc<super::RaftOutbox>>,
 }
 
 impl RaftClass {
@@ -274,6 +328,8 @@ impl RaftClass {
             blobs: None,
             alarm_limits: None,
             alarm_names: BTreeSet::new(),
+            inboxes: BTreeMap::new(),
+            outbox: None,
         };
         class.bind_command_manifest();
         Ok(class)
@@ -293,6 +349,14 @@ impl RaftClass {
     /// compatibility. Read this value after registering commands for the catalog.
     pub fn schema_digest(&self) -> [u8; 32] {
         self.schema_digest
+    }
+
+    /// Stable declaration identity binding class name, explicit schema version
+    /// and supplied definition digest. Effect targets pair this value with an
+    /// exact operation contract, avoiding recursive hashes for self/cyclic
+    /// delivery. Namespace admission still requires the complete schema_digest.
+    pub fn definition_digest(&self) -> [u8; 32] {
+        self.base_schema_digest
     }
 
     /// Opt in to bounded immutable bytes replicated with the cell. This changes
@@ -361,13 +425,64 @@ impl RaftClass {
         self.alarm_limits
     }
 
+    pub fn outbox(mut self, outbox: super::RaftOutbox) -> Result<Self, RegistrationError> {
+        if self.outbox.is_some() || outbox.bindings.is_empty() {
+            return Err(RegistrationError::Invalid("empty/duplicate outbox"));
+        }
+        let identity = outbox
+            .identity()
+            .map_err(|_| RegistrationError::Invalid("outbox identity"))?;
+        let outbox = Arc::new(outbox);
+        self.outbox = Some(outbox.clone());
+        let claim = outbox.clone();
+        self.register_system_command(
+            crate::raft::effects::outbox::CLAIM.into(),
+            identity,
+            move |context, input| claim.claim(context, input),
+        )?;
+        self.register_system_command(
+            crate::raft::effects::outbox::COMPLETE.into(),
+            identity,
+            move |context, input| outbox.complete(context, input),
+        )?;
+        Ok(self)
+    }
+
+    pub(crate) fn outbox_definition(&self) -> Option<&Arc<super::RaftOutbox>> {
+        self.outbox.as_ref()
+    }
+
     pub(crate) fn validate_host(
         &self,
         host: &crate::raft::host::RaftHostOptions,
     ) -> anyhow::Result<()> {
+        if let Some(outbox) = &self.outbox {
+            anyhow::ensure!(host.effects.is_some_and(|options|options.metadata_bytes>=512*1024)
+                && host.max_input_bytes>=32*1024
+                && host.execution.max_result_bytes>=33+crate::raft::effects::delivery::MAX_REQUEST
+                && host.execution.max_client_identities>=2
+                && host.execution.max_retained_receipts>=3
+                && (outbox.limits.max_total_bytes as u64).checked_add(128*1024).is_some_and(|n|n<=host.execution.max_image_bytes),
+                "outbox requires owned scheduler and bounded metadata/command/receipt/image capacity");
+        }
+        for inbox in self.inboxes.values() {
+            let internal = usize::from(self.has_system_commands());
+            anyhow::ensure!(
+                host.max_input_bytes >= crate::raft::effects::delivery::MAX_REQUEST
+                    && host.execution.max_result_bytes
+                        >= crate::raft::effects::delivery::MAX_RECEIPT
+                    && inbox.max_sources + 1 + internal <= host.execution.max_client_identities
+                    && inbox.max_sources + 1 + 2 * internal <= host.execution.max_retained_receipts
+                    && (inbox.max_sources as u64)
+                        .checked_mul(crate::raft::effects::delivery::MAX_RECEIPT as u64)
+                        .and_then(|n| n.checked_add(128 * 1024))
+                        .is_some_and(|n| n <= host.execution.max_image_bytes),
+                "inbox exceeds host command/receipt/image limits"
+            );
+        }
         if let Some(limits) = self.alarm_limits {
             anyhow::ensure!(
-                host.alarms.is_some()
+                host.effects.is_some()
                     && host.max_input_bytes >= 1024
                     && host.execution.max_client_identities >= 2
                     && host.execution.max_retained_receipts >= 2
@@ -421,6 +536,90 @@ impl RaftClass {
         );
         self.bind_command_manifest();
         Ok(self)
+    }
+
+    /// Register a normal command with authenticated, durable receiver receipts.
+    /// Business changes and the deduplication record commit atomically. Native
+    /// callbacks remain trusted and must not leak a receipt before commit.
+    pub fn inbox(
+        mut self,
+        operation: impl Into<String>,
+        digest: [u8; 32],
+        inbox: super::RaftInbox,
+        callback: impl for<'a> Fn(&CommandContext<'a>, &[u8]) -> anyhow::Result<Vec<u8>>
+            + Send
+            + Sync
+            + 'static,
+    ) -> Result<Self, RegistrationError> {
+        let operation = operation.into();
+        self.validate_new(&operation, digest)?;
+        if self
+            .inboxes
+            .values()
+            .any(|existing| existing.max_sources != inbox.max_sources)
+        {
+            return Err(RegistrationError::Invalid(
+                "inconsistent class inbox source limit",
+            ));
+        }
+        self.inboxes.insert(operation.clone(), inbox.clone());
+        let contract = OperationContract {
+            operation: operation.clone(),
+            kind: OperationKind::Command,
+            digest,
+        };
+        self.commands.insert(
+            operation,
+            Command {
+                digest,
+                callback: Arc::new(move |context, input| {
+                    inbox.receive(context, &contract, input, &callback)
+                }),
+            },
+        );
+        self.bind_command_manifest();
+        Ok(self)
+    }
+
+    pub(crate) fn validate_command_identity(
+        &self,
+        scope: &GroupScope,
+        contract: &OperationContract,
+        id: CommandId,
+        durability: Durability,
+        input: &[u8],
+    ) -> anyhow::Result<()> {
+        if let Some(inbox) = self.inboxes.get(&contract.operation) {
+            anyhow::ensure!(
+                durability >= inbox.durability,
+                super::CommandFailure::UnsupportedCapability
+            );
+            let incoming = crate::raft::effects::delivery::authenticate(
+                input,
+                &inbox.grants,
+                scope,
+                self.base_schema_digest,
+                contract,
+                inbox.signer.verification_key(),
+                inbox.durability,
+            )?;
+            anyhow::ensure!(
+                incoming.command == id,
+                super::CommandFailure::CommandConflict
+            );
+        } else if !self.inboxes.is_empty() {
+            anyhow::ensure!(
+                !crate::raft::effects::delivery::reserved_client(id.client),
+                super::CommandFailure::UnsupportedCapability
+            );
+        }
+        if self.has_system_commands() {
+            anyhow::ensure!(
+                id.client != crate::raft::effects::system_client(scope)?,
+                super::CommandFailure::UnsupportedCapability
+            );
+        }
+        Ok(())
     }
 
     pub fn query(
@@ -602,6 +801,9 @@ impl RaftClass {
                 alarm_limits: self.alarm_limits,
                 alarm_names: &self.alarm_names,
                 durability,
+                schema_digest: self.schema_digest,
+                definition_digest: self.base_schema_digest,
+                outbox: self.outbox.as_deref(),
             },
             input,
         )
@@ -631,6 +833,7 @@ impl RaftClass {
                     version,
                     database,
                     blobs: self.blobs,
+                    outbox: self.outbox.as_deref(),
                 },
                 input,
             )
@@ -657,6 +860,17 @@ impl RaftClass {
             hash.update((limits.max_alarms as u64).to_be_bytes());
             hash.update((limits.max_payload_bytes as u64).to_be_bytes());
         }
+        if !self.inboxes.is_empty() {
+            hash.update(b"inboxes-1");
+            hash.update((self.inboxes.len() as u64).to_be_bytes());
+            for (name, inbox) in &self.inboxes {
+                hash.update((name.len() as u16).to_be_bytes());
+                hash.update(name.as_bytes());
+                hash.update(inbox.identity());
+            }
+        }
+        // Outbox limits, keys and bindings are included by the mandatory system
+        // command digests. Definitions cannot silently change after restart.
         hash.update((self.commands.len() as u16).to_be_bytes());
         // BTree order makes declaration order irrelevant. A voter cannot omit
         // or alter required commands while claiming the same application root.

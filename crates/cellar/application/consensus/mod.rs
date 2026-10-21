@@ -10,7 +10,10 @@ pub(crate) mod protocol;
 pub use crate::raft::archive::ArchiveLimits;
 pub use crate::raft::completion::{LeadershipTransfer, MemberProgress, ReplicationStatus};
 pub use crate::raft::effects::{
-    RaftAlarmLimits, RaftAlarmOptions, RaftBlobLimits, RaftBlobReference,
+    RaftAlarmLimits, RaftBlobLimits, RaftBlobReference, RaftDeliveryRequest, RaftEffectOptions,
+    RaftEffectSigningKey, RaftEffectSink, RaftEffectSourceGrant, RaftEffectTarget,
+    RaftEffectVerificationKey, RaftInbox, RaftNativeEffectSink, RaftOutbox, RaftOutboxLimits,
+    RaftOutboxProgress,
 };
 
 pub use crate::raft::catalog::{

@@ -96,8 +96,9 @@ pub(crate) enum Action {
     CaptureArchive {
         limits: ArchiveLimits,
     },
-    ScanAlarms {
+    ScanEffects {
         now: u64,
+        prefer_delivery: bool,
         reservation: Permit,
     },
     CaptureCheckpoint {
@@ -134,7 +135,7 @@ pub(crate) enum Value {
     Retired(cellar_logic::consensus::LogPosition),
     Prepared(ApplyCompletion),
     ArchiveCut(Option<Box<CommittedArchiveCut>>),
-    AlarmScan(Option<Box<super::effects::alarm::AlarmScan>>),
+    EffectScan(Option<Box<super::effects::scan::EffectScan>>),
     Checkpoint(Box<SnapshotCheckpoint>),
     SnapshotSource {
         package: Box<SnapshotPackage>,
@@ -716,23 +717,28 @@ impl Cell {
                     .transpose()?;
                 Ok(Value::ArchiveCut(cut.map(Box::new)))
             }
-            Action::ScanAlarms { now, reservation } => {
+            Action::ScanEffects {
+                now,
+                prefer_delivery,
+                reservation,
+            } => {
                 let scan = self
                     .applier
                     .queryable()
                     .map_err(super::execution::storage)?
                     .map(|image| {
-                        super::effects::alarm::scan(
+                        super::effects::scan::scan(
                             image,
                             &self.class,
                             self.options.query_services.clone(),
                             now,
+                            prefer_delivery,
                             reservation,
                         )
                     })
                     .transpose()
                     .map_err(super::execution::storage)?;
-                Ok(Value::AlarmScan(scan.map(Box::new)))
+                Ok(Value::EffectScan(scan.map(Box::new)))
             }
             Action::CaptureSeed {
                 limits,

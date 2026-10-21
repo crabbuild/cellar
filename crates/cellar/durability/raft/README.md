@@ -6,8 +6,9 @@ command output, query publication and archive proof belong to the actor and
 Native command/query serving, committed archives and replica recovery are
 implemented. An opt-in controller repairs committed membership and balances
 eligible leaders. Immutable Blob bytes have an explicit bounded adapter;
-committed alarms use an owned timer. Outbox delivery and later operating/release
-work remain under implementation.
+committed alarms and receipt-checked outbox delivery share an owned scheduler.
+Combined business-feature qualification and later operating/release work remain
+under implementation.
 The [technical design](../../../../plans/multi-raft/technical-design.md) defines
 the complete contract.
 
@@ -20,10 +21,10 @@ alone proves no content or durability. Defaults retain at most 128 values,
 64 KiB per value and 1 MiB total; there is no deletion/GC API. This initial adapter
 duplicates content in the SQL image and dependency objects. The
 [business-feature contract](../../../../plans/multi-raft/effects-design.md)
-records this boundary and the remaining alarm/outbox work.
+records this boundary and the alarm/outbox contracts.
 
 `RaftClass::alarm(name, digest, callback)` declares a synchronous callback and
-`RaftHostOptions::alarms` enables its owned scheduler. Commands set/cancel declared
+`RaftHostOptions::effects` enables its owned scheduler. Commands set/cancel declared
 names through `CommandContext`. The generation, due time, payload and required
 durability share the command transaction. Firing reads a committed image, checks
 current leader readiness and uses a private replicated command that rechecks and
@@ -34,6 +35,15 @@ and retained metadata; physical SQL work stays joined and can delay that timer.
 Existing receipt limits apply, with no automatic pruning in this component.
 The [alarm contract](../../../../plans/multi-raft/effects-design.md#committed-alarms)
 states the resource, clock, retry and shutdown boundaries.
+
+`RaftClass::outbox(RaftOutbox)` declares immutable delivery lanes. `emit` persists
+a signed request in the business transaction; a committed private claim precedes
+sending. `RaftInbox` commits receiver deduplication and business changes together,
+and releases a signed receipt through the normal durability gate. Only a verified
+receipt and matching attempt generation can settle source progress. The concrete
+`RaftNativeEffectSink` and [recovery example](../../../../examples/raft-effects/README.md)
+exercise native destinations. The [outbox contract](../../../../plans/multi-raft/effects-design.md#committed-outbox-and-receiver)
+records authentication, bounds, ambiguous outcomes and remaining retention work.
 
 `ReplicaLog` owns one blocking execution-domain task and one Raft Engine.
 Its bounded `GroupLog` caches become visible after sync. Storage lookups on the

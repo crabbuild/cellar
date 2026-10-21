@@ -1,14 +1,31 @@
 //! Committed business-feature adapters. Immutable values carry their actual
 //! bounded bytes in the command transaction and in the archive dependency set.
 //! Alarm callbacks use private replicated commands and an owned host scheduler.
-//! Outbox delivery remains separate integration work.
+//! Outbox attempts and receipt-checked settlement use the same owned scheduler.
 
 #[path = "effect_alarm.rs"]
 pub(crate) mod alarm;
 #[path = "effect_blob.rs"]
 mod blob;
-pub use alarm::{RaftAlarmLimits, RaftAlarmOptions};
+#[path = "effect_delivery.rs"]
+pub(crate) mod delivery;
+#[path = "effect_inbox.rs"]
+mod inbox;
+#[path = "effect_outbox.rs"]
+pub(crate) mod outbox;
+#[path = "effect_scan.rs"]
+pub(crate) mod scan;
+pub use delivery::{
+    RaftDeliveryRequest, RaftEffectSigningKey, RaftEffectSink, RaftEffectSourceGrant,
+    RaftEffectTarget, RaftEffectVerificationKey, RaftNativeEffectSink,
+};
+pub use inbox::RaftInbox;
+pub use outbox::{RaftOutbox, RaftOutboxLimits, RaftOutboxProgress};
+#[path = "effect_options.rs"]
+mod options;
+pub use alarm::RaftAlarmLimits;
 pub(crate) use blob::{capture_dependencies, get_blob, put_blob};
+pub use options::RaftEffectOptions;
 
 /// One stable private command client per history, independent of node boot and
 /// leadership. Public commands cannot consume it in a class with system work.

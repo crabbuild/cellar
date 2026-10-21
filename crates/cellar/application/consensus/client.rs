@@ -701,12 +701,21 @@ impl RaftCellHandle {
                         return Err(CommandFailure::UnsupportedCapability);
                     }
                     self.validate(contract, OperationKind::Command, input)?;
-                    if self.binding.class.has_system_commands()
-                        && options.id.client
-                            == crate::raft::effects::system_client(&self.binding.scope)?
-                    {
-                        return Err(CommandFailure::UnsupportedCapability);
-                    }
+                    self.binding
+                        .class
+                        .validate_command_identity(
+                            &self.binding.scope,
+                            contract,
+                            options.id,
+                            options.durability,
+                            input,
+                        )
+                        .map_err(|error| {
+                            error
+                                .downcast_ref::<CommandFailure>()
+                                .cloned()
+                                .unwrap_or(CommandFailure::UnsupportedCapability)
+                        })?;
                 }
                 Kind::SystemCommand {
                     contract,

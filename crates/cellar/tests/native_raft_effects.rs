@@ -1,11 +1,17 @@
-//! Native business-feature qualification. Blob cases use one explicit
-//! development voter; these do not qualify alarm/outbox scheduling or failover.
+//! Native committed business features: three-voter alarm/outbox groups and an
+//! explicit single-voter development fixture for immutable Blob closure.
 #![allow(clippy::disallowed_methods)]
 #[path = "support/raft_alarm_native.rs"]
 mod alarms;
+#[path = "support/raft_binding_gate.rs"]
+mod binding_gate;
 #[path = "support/raft_catalog_fault.rs"]
 #[allow(dead_code)]
 mod faults;
+#[path = "support/raft_outbox_loopback.rs"]
+mod loopback;
+#[path = "support/raft_outbox_native.rs"]
+mod outbox;
 #[path = "support/raft_node.rs"]
 #[allow(dead_code)]
 mod public_node;
@@ -21,6 +27,26 @@ use std::{
     },
     time::Duration,
 };
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn outbox_never_speculative() -> Result<()> {
+    outbox::never_speculative().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn effect_leadership_race() -> Result<()> {
+    outbox::leadership_race().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn delivery_progress_replicated() -> Result<()> {
+    outbox::replicated_progress().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn unsupported_binding_gate() -> Result<()> {
+    binding_gate::native_gate().await
+}
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 6)]
 async fn alarm_no_traffic_recovery() -> Result<()> {
@@ -434,4 +460,19 @@ async fn blob_capability_and_archive_capacity_gate() -> Result<()> {
         "preflight failure created catalog objects"
     );
     Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn native_delivery_authentication_and_receipt_replay() -> Result<()> {
+    outbox::authentication_and_replay().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn native_alarm_and_outbox_share_internal_client() -> Result<()> {
+    outbox::shared_alarm_client().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 6)]
+async fn native_outbox_self_delivery_definition_identity() -> Result<()> {
+    loopback::self_delivery().await
 }

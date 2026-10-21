@@ -165,7 +165,7 @@ impl Fixture {
             let node = fixture.nodes[index].as_ref().context("node")?;
             let peer = &peers[index];
             let host = RaftHostOptions {
-                alarms: Some(RaftAlarmOptions {
+                effects: Some(RaftEffectOptions {
                     interval_ms: 20,
                     ..Default::default()
                 }),
@@ -487,7 +487,7 @@ pub async fn disabled_scheduler_preflight() -> Result<()> {
     for variant in 0..4 {
         let mut host = RaftHostOptions::default();
         if variant != 0 {
-            host.alarms = Some(RaftAlarmOptions::default());
+            host.effects = Some(RaftEffectOptions::default());
         }
         if variant == 1 {
             host.max_input_bytes = 1;
