@@ -5,8 +5,9 @@ qualifies stable engine identity, root-fence allocation and physical close
 ownership. The S3 pin/process-view adapter and mandatory physical storage checks
 are [qualified locally](evidence/MR-11-directory-progress.json): nine directory
 cases and a public standby identity regression pass with owning Raft checks.
-Host process publication/distribution, inspection and controller integration
-remain unimplemented.
+Opt-in host publication/distribution and atomic routing refresh are implemented
+with focused verification; broader qualification is pending. Inspection and
+controller integration remain unimplemented.
 The [membership contract](membership-design.md) remains authoritative for
 learner initialization and configuration changes. A directory observation never
 changes voters, initializes storage or supplies a quorum proof.

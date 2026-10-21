@@ -3,6 +3,11 @@
 #![allow(clippy::disallowed_methods)]
 #[path = "support/raft_storage_fault.rs"]
 mod fault;
+#[path = "support/raft_directory_native.rs"]
+mod native;
+#[path = "support/raft_node.rs"]
+#[allow(dead_code)]
+mod public_node;
 #[path = "support/raft_catalog_fault.rs"]
 mod store;
 

@@ -35,6 +35,11 @@ pub struct Store {
     pub view_hang: AtomicBool,
     pub view_waiting: AtomicBool,
     pub view_resume: tokio::sync::Notify,
+    pub fail_directory_reads: AtomicBool,
+    pub hold_view_reads: AtomicBool,
+    pub view_reads: AtomicUsize,
+    pub active_view_reads: AtomicUsize,
+    pub view_reads_resume: tokio::sync::Notify,
 }
 
 impl std::fmt::Display for Store {
@@ -150,6 +155,33 @@ impl ObjectStore for Store {
 
     async fn get_opts(&self, path: &Path, options: GetOptions) -> object_store::Result<GetResult> {
         tokio::task::yield_now().await;
+        if matches!(path.filename(), Some("pin" | "view"))
+            && self.fail_directory_reads.load(Ordering::Acquire)
+        {
+            return Err(failure());
+        }
+        if path.filename() == Some("view") {
+            self.view_reads.fetch_add(1, Ordering::AcqRel);
+
+            struct Reading<'a>(&'a AtomicUsize);
+
+            impl Drop for Reading<'_> {
+                fn drop(&mut self) {
+                    self.0.fetch_sub(1, Ordering::AcqRel);
+                }
+            }
+            self.active_view_reads.fetch_add(1, Ordering::AcqRel);
+            let _reading = Reading(&self.active_view_reads);
+            loop {
+                let resumed = self.view_reads_resume.notified();
+                tokio::pin!(resumed);
+                resumed.as_mut().enable();
+                if !self.hold_view_reads.load(Ordering::Acquire) {
+                    break;
+                }
+                resumed.await;
+            }
+        }
         self.archive_fault(path).await?;
         if path.as_ref().contains("/archives/")
             && ["/snapshots/", "/tails/", "/dependencies/"]

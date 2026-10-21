@@ -85,6 +85,7 @@ impl RaftTransport {
                     | TransportError::StalePeer,
                 ) => {
                     let state = &self.handle.0;
+                    state.seed_peer_epoch(&RaftPeerNode::from(&source))?;
                     let now = state.domain.mono_ms().map_err(|_| TransportError::Closed)?;
                     if now >= deadline {
                         return Err(TransportError::Timeout.into());
@@ -119,7 +120,7 @@ impl RaftTransport {
         );
         let archive = archive.with_read_retention(reservation.clone());
         let set = state
-            .seed_until(grant.deadline(), async {
+            .seed_process_until(grant.process_epoch(), grant.deadline(), async {
                 Ok(archive.recovery_set_at(grant.reference()).await)
             })
             .await??;

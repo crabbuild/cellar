@@ -324,6 +324,19 @@ impl RaftTransport {
 }
 
 impl State {
+    pub(super) fn invalidate_snapshot_routes(&self) {
+        let source = self
+            .snapshot_source
+            .lock()
+            .ok()
+            .and_then(|source| source.as_ref().and_then(Weak::upgrade));
+        if let Some(source) = source {
+            if !self.current_route(&source.peer.replica.scope, &source.route, &source.peer) {
+                source.finished.store(true, Ordering::Release);
+            }
+        }
+    }
+
     pub(super) fn finish_seed_source(&self, id: u64) {
         if let Ok(source) = self.snapshot_source.lock() {
             if let Some(source) = source
@@ -634,6 +647,7 @@ impl RaftTransport {
             return Err(TransportError::Identity);
         }
         let deadline = grant.deadline();
+        let process = grant.process_epoch().clone();
         let peer = grant.source().clone();
         let lease = grant.lease();
         let digest = snapshot_digest(grant.snapshot())?;
@@ -661,7 +675,7 @@ impl RaftTransport {
             });
         }
         let mut stream = state
-            .seed_io(deadline, async {
+            .seed_process_io(&process, deadline, async {
                 let tcp = TcpStream::connect(peer.data_address).await?;
                 tcp.set_nodelay(true)?;
                 let name = rustls::pki_types::ServerName::try_from(peer.server_name.clone())
@@ -704,7 +718,7 @@ impl RaftTransport {
                 length,
             };
             let received = state
-                .seed_io(deadline, async {
+                .seed_process_io(&process, deadline, async {
                     let request_head =
                         wire.encode(REQUEST_MAGIC, REQUEST_PURPOSE, &[], &request, &[])?;
                     write_head(&mut stream, &request_head).await?;

@@ -57,6 +57,7 @@ pub struct NodeView {
     cluster: ClusterId,
     revision: u64,
     instance: EngineInstanceId,
+    boot_attempt: [u8; 16],
     peer: RaftPeerNode,
 }
 
@@ -118,6 +119,7 @@ impl View {
             cluster,
             revision,
             instance,
+            boot_attempt: self.boot_attempt,
             peer,
         })
     }

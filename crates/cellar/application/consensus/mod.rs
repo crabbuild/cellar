@@ -15,7 +15,7 @@ pub use crate::raft::catalog::{
 };
 pub use crate::raft::host::{
     RaftArchiveOptions, RaftCellPlacement, RaftCellRegistration, RaftCellsConfig,
-    RaftCellsServices, RaftHostOptions, RaftPeerNode,
+    RaftCellsServices, RaftHostOptions, RaftNodeDirectoryOptions, RaftPeerNode,
 };
 pub use crate::raft::member_state::{
     JoiningMember, RepairPhase, RepairPlan, RepairStatus, RepairStep,

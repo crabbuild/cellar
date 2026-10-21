@@ -28,8 +28,11 @@ use std::sync::{
 };
 use tokio::sync::{mpsc, Notify};
 
+#[path = "host_directory.rs"]
+mod directory;
 #[path = "host_membership.rs"]
 mod membership;
+pub use directory::RaftNodeDirectoryOptions;
 #[path = "host_seed.rs"]
 mod seed;
 #[path = "host_snapshot.rs"]
@@ -39,6 +42,9 @@ mod standby;
 
 #[derive(Clone, Debug)]
 pub struct RaftHostOptions {
+    /// Publish and refresh explicitly configured physical node endpoints.
+    /// Requires a trusted self endpoint and stable member/standby storage.
+    pub node_directory: Option<RaftNodeDirectoryOptions>,
     /// Enable native snapshot recovery and its larger image admission floor.
     pub enable_snapshots: bool,
     /// Applied entries between automatic checkpoints; zero disables compaction.
@@ -63,6 +69,7 @@ impl Default for RaftHostOptions {
             ..Default::default()
         };
         Self {
+            node_directory: None,
             enable_snapshots: true,
             checkpoint_entries: 256,
             archive: RaftArchiveOptions::default(),
@@ -82,6 +89,9 @@ impl Default for RaftHostOptions {
 
 impl RaftHostOptions {
     pub(crate) fn validate(&self) -> anyhow::Result<()> {
+        if let Some(directory) = &self.node_directory {
+            directory.validate()?;
+        }
         self.archive.validate()?;
         self.execution.validate()?;
         anyhow::ensure!(
@@ -248,6 +258,7 @@ pub(crate) async fn start(
     let mut standbys = BTreeMap::new();
     let mut bindings = BTreeMap::new();
     let mut archive_owner = None;
+    let mut node_directory = None;
     let peer_count = peers.len();
     let peers: BTreeMap<_, _> = peers.into_iter().map(|peer| (peer.node, peer)).collect();
     let initialized = async {
@@ -263,6 +274,14 @@ pub(crate) async fn start(
             );
             service.transport.grant_query_origin(origin)?;
         }
+        node_directory = directory::prepare(
+            options.node_directory.as_ref(),
+            &registrations,
+            &peers,
+            &service,
+            &label,
+        )
+        .await?;
         for (index, registration) in registrations.into_iter().enumerate() {
             let Registration {
                 mut placement,
@@ -665,6 +684,7 @@ pub(crate) async fn start(
         let mut read_nonce = [0; 16];
         rng.fill_bytes(&mut read_nonce);
         let mut driver = Driver {
+            directory: node_directory,
             peers,
             label,
             archive_owner,
@@ -850,6 +870,7 @@ enum SqlPurpose {
 }
 
 enum Job {
+    Directory(Box<directory::Observation>),
     Standby(Box<standby::Completed>),
     Leadership {
         request: Box<Request>,
@@ -932,6 +953,7 @@ enum Job {
 }
 
 struct Driver {
+    directory: Option<directory::Directory>,
     standbys: BTreeMap<GroupScope, standby::Dormant>,
     activating: Option<GroupScope>,
     peers: BTreeMap<NodeId, RaftPeerNode>,
@@ -2399,6 +2421,7 @@ impl Driver {
     }
 
     fn pump(&mut self) {
+        self.pump_directory();
         self.pump_membership();
         self.pump_snapshots();
         for scope in self.applying.clone() {
@@ -2564,6 +2587,7 @@ impl Driver {
 
     fn on_job(&mut self, job: Job) {
         match job {
+            Job::Directory(observation) => self.on_directory(*observation),
             Job::Standby(completed) => self.on_standby_job(*completed),
             Job::Leadership {
                 mut request,
@@ -2729,6 +2753,9 @@ impl Driver {
         };
         let mut poll_at = now.saturating_add(self.options.poll_ms);
         loop {
+            if self.closing.load(Ordering::Acquire) {
+                return;
+            }
             self.pump();
             let Ok(timer) = self.log.domain().sleep_until(poll_at) else {
                 return;

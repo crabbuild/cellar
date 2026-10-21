@@ -52,7 +52,7 @@ pub(super) struct SendQuery {
 pub(super) struct OriginGrant {
     pub(super) revision: u64,
     pub(super) peer: Option<RaftPeerNode>,
-    stop: watch::Sender<bool>,
+    pub(super) stop: watch::Sender<bool>,
 }
 
 impl RaftTransport {
@@ -67,6 +67,7 @@ impl RaftTransport {
         let key = (grant.cluster, grant.namespace, grant.peer.node);
         let mut registry = state.registry.lock().map_err(|_| TransportError::Closed)?;
         state.admit(&registry)?;
+        registry.check_node_view(&grant.peer)?;
         if let Some(old) = registry.origins.get(&key) {
             if old.revision == grant.revision && old.peer.as_ref() == Some(&grant.peer) {
                 return Ok(());
@@ -185,6 +186,9 @@ impl RaftTransport {
         }
         let mut registry = state.registry.lock().map_err(|_| TransportError::Closed)?;
         state.admit(&registry)?;
+        for peer in &physical {
+            registry.check_node_view(peer)?;
+        }
         if let Some(old) = registry.query_groups.get(&route.scope) {
             if **old == route {
                 return Ok(());

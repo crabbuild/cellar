@@ -95,13 +95,28 @@ pub(super) fn route(
             if node != group.identity().node || !membership.permits(group.identity()) {
                 return Err(CommandFailure::CorruptState);
             }
+            let endpoint = peers.get(&node);
+            if let Some(peer) = endpoint {
+                peer.validate_endpoint()
+                    .map_err(|_| CommandFailure::UnsupportedCapability)?;
+                if peer.disk != group.identity().disk
+                    || peer.process != group.identity().process
+                    || peer.label != label
+                {
+                    return Err(CommandFailure::CommandConflict);
+                }
+            }
             routes.push(RaftPeer {
                 replica: group.identity().clone(),
                 label: label.into(),
-                server_name: "localhost".into(),
-                control_address: transport.control_address(),
-                data_address: transport.data_address(),
-                query_address: transport.query_address(),
+                server_name: endpoint
+                    .map_or_else(|| "localhost".into(), |peer| peer.server_name.clone()),
+                control_address: endpoint
+                    .map_or_else(|| transport.control_address(), |peer| peer.control_address),
+                data_address: endpoint
+                    .map_or_else(|| transport.data_address(), |peer| peer.data_address),
+                query_address: endpoint
+                    .map_or_else(|| transport.query_address(), |peer| peer.query_address),
             });
         } else {
             let peer = peers.get(&node).ok_or(CommandFailure::Unavailable)?;

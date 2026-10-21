@@ -111,6 +111,7 @@ struct SeedAuthorization {
     deadline: u64,
     owner: Arc<()>,
     domain: DomainToken,
+    process: watch::Receiver<bool>,
     _metadata: Arc<Permit>,
 }
 
@@ -118,6 +119,7 @@ impl SeedAuthorization {
     fn authorized(&self, owner: &Arc<()>, identity: &ReplicaIdentity) -> bool {
         Arc::ptr_eq(&self.owner, owner)
             && self.local == *identity
+            && !*self.process.borrow()
             && self.domain.mono_ms().is_ok_and(|now| now < self.deadline)
     }
 }
@@ -153,6 +155,10 @@ impl SeedGrant {
         self.authorization.deadline
     }
 
+    pub(super) fn process_epoch(&self) -> &watch::Receiver<bool> {
+        &self.authorization.process
+    }
+
     pub(crate) fn authorized(&self, owner: &Arc<()>, identity: &ReplicaIdentity) -> bool {
         self.authorization.authorized(owner, identity)
     }
@@ -174,6 +180,10 @@ impl ArchiveSeedGrant {
 
     pub(crate) fn deadline(&self) -> u64 {
         self.authorization.deadline
+    }
+
+    pub(super) fn process_epoch(&self) -> &watch::Receiver<bool> {
+        &self.authorization.process
     }
 
     pub(crate) fn reference(&self) -> &crate::raft::archive::ArchiveReference {
@@ -252,6 +262,7 @@ impl RaftTransport {
                     | TransportError::StalePeer,
                 ) => {
                     let state = &self.handle.0;
+                    state.seed_peer_epoch(&RaftPeerNode::from(&source))?;
                     let now = state.domain.mono_ms().map_err(|_| TransportError::Closed)?;
                     if now >= deadline {
                         return Err(TransportError::Timeout);
@@ -343,6 +354,7 @@ impl RaftTransport {
         {
             return Err(TransportError::Identity);
         }
+        let process = state.seed_peer_epoch(&RaftPeerNode::from(&source))?;
         let metadata = Arc::new(
             state
                 .seed_metadata
@@ -374,7 +386,7 @@ impl RaftTransport {
             kind,
         };
         let mut stream = state
-            .seed_io(deadline, async {
+            .seed_process_io(&process, deadline, async {
                 let tcp = TcpStream::connect(source.data_address).await?;
                 tcp.set_nodelay(true)?;
                 let name = rustls::pki_types::ServerName::try_from(source.server_name.clone())
@@ -398,7 +410,7 @@ impl RaftTransport {
         };
         let request_head = wire.encode(REQUEST_MAGIC, REQUEST_PURPOSE, &[], &request, &[])?;
         let (reply, body) = state
-            .seed_until(deadline, async {
+            .seed_process_until(&process, deadline, async {
                 write_head(&mut stream, &request_head).await?;
                 let head = read_bulk_head(
                     &mut stream,
@@ -449,6 +461,7 @@ impl RaftTransport {
                 deadline,
                 owner: state.runtime.log().owner(),
                 domain: state.domain.clone(),
+                process,
                 _metadata: metadata,
             },
             body,

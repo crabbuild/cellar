@@ -29,8 +29,34 @@ The directory adapter also publishes bounded, conditional process views using a
 synced node revision. It binds configured node/disk/label/server-name trust to
 the live engine owner; exact retry reconciles an ambiguous publication, and old
 closed owners cannot replace a newer process. These views grant no membership,
-seeding or read authority. Host publication, atomic routing refresh, inspection
-and automatic controller integration remain MR-11 work.
+seeding or read authority. Opt-in host publication and atomic routing refresh
+are implemented with focused verification; broader qualification is pending.
+Inspection and automatic controller integration remain MR-11 work.
+
+Set `RaftHostOptions.node_directory` to `Some(RaftNodeDirectoryOptions::default())`
+to publish this boot's process and refresh explicitly configured peers from an
+owned timer. Include a self endpoint matching the engine's node/disk/process and
+host label. Every source uses the same advertised endpoint for a physical node;
+the advertised data endpoint may be a shared node-wide proxy. Replica/standby
+storage is required; query-only routers retain their separate registration.
+
+Startup publishes once per cluster under one original deadline. The timer
+observes only configured exact keys, with at most eight concurrent bounded
+records and one active batch. Views refresh all group/query routes, query-origin
+permissions and pools under one registry lock, retaining group/configuration
+revisions and revocation tombstones. A full replacement task budget refuses the
+whole refresh; old workers stay counted until physical exit. Old frames, queries,
+snapshot sources and seed epochs are revoked. A seed grant retains its process
+epoch through physical preparation and cannot authorize initialization after
+revocation. Future route/grant installs also refuse a stale process view.
+
+Equal revisions require the same complete observation, including boot attempt.
+Storage-instance, disk, label or server-name rebinding is refused. A newer valid
+self publication from another process closes local Raft admission and joins the
+host; an older self revision cannot displace the current boot. Missing records,
+read failures and S3 outage preserve cached routes and live quorum authority.
+The host refreshes its own peer map before later membership route construction.
+This timer performs no membership repair or automatic leadership balancing.
 
 `reserve_node_revision` syncs a nonempty root fence and returns the node-wide
 monotonic sync sequence. It changes no group vote, configuration or applied

@@ -4,12 +4,14 @@ Status: MR-11 implementation in progress. The [plan foundation](evidence/MR-11-p
 [leadership/recovery](evidence/MR-11-leadership-progress.json) and
 [registered standby](evidence/MR-11-standby-progress.json) evidence qualify explicit
 repair APIs, guarded transfer and peer/S3 activation in an already-running host.
-Automatic scheduling, authenticated inspection, durable node/process views and
-the six-node no-business-traffic gate remain open. The
+Automatic scheduling, authenticated inspection and the six-node
+no-business-traffic gate remain open. The
 [node-directory contract](node-directory-design.md) specifies that next boundary;
 its local identity/fence foundation is [qualified](evidence/MR-11-node-storage-progress.json),
 while the S3 pin/view adapter is [qualified locally](evidence/MR-11-directory-progress.json).
-Process distribution and inspection remain unimplemented. MR-10 qualification remains separate.
+Process distribution and atomic routing refresh now have focused verification;
+their broader qualification is pending. Inspection remains unimplemented.
+MR-10 qualification remains separate.
 These component results establish no additional capacity or release qualification.
 
 ## Authority and durable intent

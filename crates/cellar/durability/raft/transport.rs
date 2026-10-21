@@ -23,6 +23,8 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{mpsc, oneshot, watch, Notify, Semaphore};
 
+#[path = "transport_directory.rs"]
+mod directory;
 #[path = "query_transport.rs"]
 mod queries;
 #[path = "seed_transport.rs"]
@@ -244,6 +246,8 @@ struct Registry {
     query_groups: BTreeMap<GroupScope, Arc<GroupRoute>>,
     origins: BTreeMap<(ClusterId, NamespaceId, NodeId), Arc<queries::OriginGrant>>,
     pools: BTreeMap<NodeId, Arc<Pool>>,
+    node_views: BTreeMap<NodeId, crate::raft::catalog::NodeView>,
+    seed_peers: BTreeMap<NodeId, directory::SeedPeer>,
 }
 
 impl Registry {
@@ -390,6 +394,8 @@ impl RaftTransport {
                 query_groups: BTreeMap::new(),
                 origins: BTreeMap::new(),
                 pools: BTreeMap::new(),
+                node_views: BTreeMap::new(),
+                seed_peers: BTreeMap::new(),
             }),
             outgoing: Banks::new(
                 options.node_control_bytes,
@@ -501,6 +507,9 @@ impl RaftTransport {
         }
         let mut registry = state.registry.lock().map_err(|_| TransportError::Closed)?;
         state.admit(&registry)?;
+        for peer in &route.peers {
+            registry.check_node_view(&RaftPeerNode::from(peer))?;
+        }
         if registry.query_groups.contains_key(&route.scope) {
             return Err(TransportError::Identity);
         }
