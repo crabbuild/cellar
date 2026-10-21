@@ -2,12 +2,64 @@
 //! A receipt is not a seed grant; seed authorization needs a fresh read barrier.
 
 use super::*;
-use crate::raft::member_state::JoiningMember;
+use crate::raft::member_state::{JoiningMember, RepairPhase, RepairPlan, RepairStatus, RepairStep};
 
 pub(super) struct PendingConfiguration {
     request: Box<Request>,
-    member: JoiningMember,
+    goal: Goal,
     accepted: Option<AcceptedProposal>,
+}
+
+enum Goal {
+    Learner(JoiningMember),
+    Repair {
+        plan: RepairPlan,
+        phase: RepairPhase,
+    },
+}
+
+enum PlannedChange {
+    Observed(RepairStatus),
+    Propose {
+        change: ::raft::prelude::ConfChangeV2,
+        goal: Goal,
+    },
+}
+
+fn reached(actual: RepairPhase, wanted: RepairPhase) -> bool {
+    actual == wanted
+        || wanted == RepairPhase::Seeding
+        || (wanted == RepairPhase::Joint && actual == RepairPhase::Complete)
+}
+
+fn join_endpoint(
+    driver: &Driver,
+    cell: &Cell,
+    member: &JoiningMember,
+) -> Result<(), CommandFailure> {
+    let endpoint = driver
+        .peers
+        .get(&member.node)
+        .ok_or(CommandFailure::Unavailable)?;
+    endpoint
+        .validate_endpoint()
+        .map_err(|_| CommandFailure::UnsupportedCapability)?;
+    if endpoint.disk != member.disk
+        || route(
+            &cell.group,
+            &cell.birth,
+            &driver.peers,
+            cell.schema_digest,
+            &driver.label,
+            &driver.transport,
+        )?
+        .peers
+        .iter()
+        .any(|p| p.replica.node == member.node)
+    {
+        return Err(CommandFailure::CommandConflict);
+    }
+    Ok(())
 }
 
 pub(super) fn route(
@@ -127,28 +179,7 @@ impl Driver {
             if membership.revision() != expected || member.member.get() <= membership.high_water() {
                 return Err(CommandFailure::CommandConflict);
             }
-            let endpoint = self
-                .peers
-                .get(&member.node)
-                .ok_or(CommandFailure::Unavailable)?;
-            endpoint
-                .validate_endpoint()
-                .map_err(|_| CommandFailure::UnsupportedCapability)?;
-            if endpoint.disk != member.disk
-                || route(
-                    &cell.group,
-                    &cell.birth,
-                    &self.peers,
-                    cell.schema_digest,
-                    &self.label,
-                    &self.transport,
-                )?
-                .peers
-                .iter()
-                .any(|p| p.replica.node == member.node)
-            {
-                return Err(CommandFailure::CommandConflict);
-            }
+            join_endpoint(self, cell, &member)?;
             let mut change = ::raft::prelude::ConfChangeV2::default();
             change
                 .mut_changes()
@@ -184,17 +215,155 @@ impl Driver {
                 return;
             }
         };
+        self.propose_configuration(request, change, Goal::Learner(member));
+    }
+
+    pub(super) fn begin_repair(&mut self, mut request: Request, plan: RepairPlan) {
+        let result = (|| {
+            let cell = self
+                .cells
+                .get(&request.scope)
+                .ok_or(CommandFailure::Unavailable)?;
+            if cell.configuration.is_some() {
+                return Err(CommandFailure::Overloaded);
+            }
+            if cell.incoming.is_some() || cell.retired {
+                return Err(CommandFailure::Unavailable);
+            }
+            let observed = {
+                let cache = cell
+                    .group
+                    .read()
+                    .map_err(|_| CommandFailure::CorruptState)?;
+                cache
+                    .membership
+                    .repair_status()
+                    .map_err(|_| CommandFailure::CorruptState)?
+            };
+            if let Some(status) = observed {
+                if status.plan.id == plan.id {
+                    if status.plan != plan {
+                        return Err(CommandFailure::CommandConflict);
+                    }
+                    return Ok(PlannedChange::Observed(status));
+                }
+            }
+            join_endpoint(self, cell, &plan.replacement)?;
+            // Endpoint inspection reads the group independently. Reacquire only
+            // after it returns; recursive read locks can deadlock behind a writer.
+            let cache = cell
+                .group
+                .read()
+                .map_err(|_| CommandFailure::CorruptState)?;
+            let mut change = ::raft::prelude::ConfChangeV2::default();
+            cache
+                .membership
+                .bind_repair_start(&mut change, &cache.conf_state, &plan)
+                .map_err(|_| CommandFailure::CommandConflict)?;
+            Ok(PlannedChange::Propose {
+                change,
+                goal: Goal::Repair {
+                    plan,
+                    phase: RepairPhase::Seeding,
+                },
+            })
+        })();
+        match result {
+            Ok(PlannedChange::Propose { change, goal }) => {
+                self.propose_configuration(request, change, goal)
+            }
+            Ok(PlannedChange::Observed(status)) => {
+                reply(&mut request, Ok(Response::Repair(Some(status))))
+            }
+            Err(error) => reply(&mut request, Err(error)),
+        }
+    }
+
+    pub(super) fn advance_repair(
+        &mut self,
+        mut request: Request,
+        id: cellar_logic::consensus::ProposalId,
+        step: RepairStep,
+        expected: LogIndex,
+    ) {
+        let phase = match step {
+            RepairStep::PromoteAndRemove => RepairPhase::Joint,
+            RepairStep::FinishJoint => RepairPhase::Complete,
+            RepairStep::AbortLearner => RepairPhase::Aborted,
+        };
+        let result = (|| {
+            let cell = self
+                .cells
+                .get(&request.scope)
+                .ok_or(CommandFailure::Unavailable)?;
+            if cell.configuration.is_some() {
+                return Err(CommandFailure::Overloaded);
+            }
+            if cell.incoming.is_some() || cell.retired {
+                return Err(CommandFailure::Unavailable);
+            }
+            let cache = cell
+                .group
+                .read()
+                .map_err(|_| CommandFailure::CorruptState)?;
+            let status = cache
+                .membership
+                .repair_status()
+                .map_err(|_| CommandFailure::CorruptState)?
+                .ok_or(CommandFailure::CommandConflict)?;
+            if status.plan.id != id {
+                return Err(CommandFailure::CommandConflict);
+            }
+            if reached(status.phase, phase) {
+                return Ok(PlannedChange::Observed(status));
+            }
+            if cache.membership.revision() != expected {
+                return Err(CommandFailure::CommandConflict);
+            }
+            let mut change = ::raft::prelude::ConfChangeV2::default();
+            cache
+                .membership
+                .bind_repair_step(&mut change, &cache.conf_state, id, step)
+                .map_err(|_| CommandFailure::CommandConflict)?;
+            Ok(PlannedChange::Propose {
+                change,
+                goal: Goal::Repair {
+                    plan: status.plan,
+                    phase,
+                },
+            })
+        })();
+        match result {
+            Ok(PlannedChange::Propose { change, goal }) => {
+                self.propose_configuration(request, change, goal)
+            }
+            Ok(PlannedChange::Observed(status)) => {
+                reply(&mut request, Ok(Response::Repair(Some(status))))
+            }
+            Err(error) => reply(&mut request, Err(error)),
+        }
+    }
+
+    fn propose_configuration(
+        &mut self,
+        mut request: Request,
+        change: ::raft::prelude::ConfChangeV2,
+        goal: Goal,
+    ) {
+        let scope = request.scope.clone();
+        let Some(cell) = self.cells.get_mut(&scope) else {
+            reply(&mut request, Err(CommandFailure::Unavailable));
+            return;
+        };
         if !request.control.begin_submission() {
             return;
         }
         let control = request.control.clone();
-        if let Some(cell) = self.cells.get_mut(&scope) {
-            cell.configuration = Some(PendingConfiguration {
-                request: Box::new(request),
-                member,
-                accepted: None,
-            });
-        }
+        cell.configuration = Some(PendingConfiguration {
+            request: Box::new(request),
+            goal,
+            accepted: None,
+        });
         let runtime = self.runtime.clone();
         self.jobs.push(Box::pin(async move {
             let result = if control.cancelled() {
@@ -281,28 +450,45 @@ impl Driver {
             let Some(accepted) = pending.accepted.as_ref() else {
                 continue;
             };
-            let outcome = cell.group.read().ok().and_then(|cache| {
-                match cache.membership.joined(pending.member.member) {
-                    Ok(Some((binding, at))) if binding == pending.member => {
-                        (cell.route_revision >= at).then_some(Ok(at))
-                    }
-                    Ok(Some(_)) => Some(Err(CommandFailure::CommandConflict)),
-                    _ if cache.applied.position.index >= accepted.position.index => {
-                        Some(Err(CommandFailure::Unavailable))
-                    }
-                    _ => None,
-                }
-            });
+            let outcome = cell
+                .group
+                .read()
+                .ok()
+                .and_then(|cache| match &pending.goal {
+                    Goal::Learner(member) => match cache.membership.joined(member.member) {
+                        Ok(Some((binding, at))) if binding == *member => (cell.route_revision
+                            >= at)
+                            .then_some(Ok(Response::Learner(client::LearnerReceipt {
+                                scope: scope.clone(),
+                                member: member.clone(),
+                                joined_at: at,
+                            }))),
+                        Ok(Some(_)) => Some(Err(CommandFailure::CommandConflict)),
+                        _ if cache.applied.position.index >= accepted.position.index => {
+                            Some(Err(CommandFailure::Unavailable))
+                        }
+                        _ => None,
+                    },
+                    Goal::Repair { plan, phase } => match cache.membership.repair_status() {
+                        Ok(Some(status))
+                            if status.plan == *plan && reached(status.phase, *phase) =>
+                        {
+                            (cell.route_revision >= status.changed_at)
+                                .then_some(Ok(Response::Repair(Some(status))))
+                        }
+                        Ok(Some(status)) if status.plan != *plan || !status.phase.active() => {
+                            Some(Err(CommandFailure::CommandConflict))
+                        }
+                        Err(_) => Some(Err(CommandFailure::CorruptState)),
+                        _ if cache.applied.position.index >= accepted.position.index => {
+                            Some(Err(CommandFailure::Unavailable))
+                        }
+                        _ => None,
+                    },
+                });
             if let Some(outcome) = outcome {
                 if let Some(mut pending) = cell.configuration.take() {
-                    let result = outcome.map(|joined_at| {
-                        Response::Learner(client::LearnerReceipt {
-                            scope: scope.clone(),
-                            member: pending.member.clone(),
-                            joined_at,
-                        })
-                    });
-                    reply(&mut pending.request, result);
+                    reply(&mut pending.request, outcome);
                 }
             } else if pending.request.control.cancelled() {
                 // The Raft runtime now owns the submitted proposal. Releasing

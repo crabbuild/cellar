@@ -16,7 +16,9 @@ pub use crate::raft::host::{
     RaftArchiveOptions, RaftCellPlacement, RaftCellRegistration, RaftCellsConfig,
     RaftCellsServices, RaftHostOptions, RaftPeerNode,
 };
-pub use crate::raft::member_state::JoiningMember;
+pub use crate::raft::member_state::{
+    JoiningMember, RepairPhase, RepairPlan, RepairStatus, RepairStep,
+};
 pub use crate::raft::options::{LogOpenMode, RaftRuntimeOptions, ReplicaLogOptions};
 pub use crate::raft::transport_options::{NamespaceQueryOrigin, RaftTls, TransportOptions};
 pub use crate::raft::version::{
@@ -36,7 +38,7 @@ pub use client::{
 pub use cellar_logic::consensus::{
     ClientId, ClusterId, CommandFailure, CommandId, CommittedVersion, DiskLineage, Durability,
     GroupId, GroupScope, IncarnationId, LogIndex, LogPosition, MemberId, NamespaceId, NodeId,
-    NodeIdentity, ProcessGeneration, Term,
+    NodeIdentity, ProcessGeneration, ProposalId, Term,
 };
 pub use cellar_logic::NamespaceMode;
 pub use protocol::{CellUpdate, EnvelopeLimits, LtxImage, LtxUpdate, ProtocolError};

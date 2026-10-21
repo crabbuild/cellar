@@ -61,7 +61,7 @@ authorization; native fresh-member seeding requires the separate fresh safe
 ReadIndex grant described below.
 
 This is an internal marker-1 hard cutover. The namespace protocol identity is
-`cellar-raft-ltx-1/members-1/seeds-1/s3-1`; a root selected by an earlier binary
+`cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1`; a root selected by an earlier binary
 is refused before attachment. Use a fresh experimental namespace/storage prefix
 and local Raft state. There is no old-format reader or migration path.
 
@@ -567,7 +567,7 @@ lost claim response without resetting its log or votes. Normal follower proofs
 still govern queries after attachment.
 
 The internal namespace protocol identity is
-`cellar-raft-ltx-1/members-1/seeds-1/s3-1`; format markers remain 1. Use a fresh
+`cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1`; format markers remain 1. Use a fresh
 experimental namespace/prefix and local state after this hard cutover.
 
 
@@ -602,3 +602,35 @@ rename, directory fsync, atomic engine sync, engine reply, claim and attachment,
 then verify recovered reads and subsequent replication without callback replay.
 The process fixtures preserve successful conditional in-memory object mutations
 across child exit; they qualify no physical S3 or power-loss behavior.
+
+
+## Committed repair plans
+
+`RaftCellHandle::begin_repair`, `advance_repair` and `repair_status` expose a
+configuration-owned three-voter repair sequence. The immutable plan ID/payload,
+policy revision, basis configuration, replacement binding and phase persist with
+ConfState/applied markers. Phases are learner seeding, explicit joint promotion/
+removal, completion, or abort while still an unpromoted learner. Outgoing members
+remain through leave-joint; promotion checks actual leader matched progress.
+Status is an observation, without S3 output or fresh activation proof.
+
+Retries reconcile the same retained plan, including a lost/unpolled response.
+Stale/rebound intents append nothing. Aborting consumes the fresh member ID;
+retired IDs remain unavailable. Generic configuration changes cannot bypass an
+active plan. Complete/aborted status remains as a bounded last-plan record while
+later ordinary configuration changes proceed. Snapshots and archive manifests
+carry the same state; active phase/configuration mismatch refuses recovery.
+
+`cellar_logic::raft_placement` selects bounded deterministic replacements from
+fresh compatible capacity, pools and failure-domain policy. It excludes occupied,
+draining or full targets, accounts for the limiting group/storage utilization,
+and never grants membership authority. Missing/stale samples alone establish no
+failure. Existing plans and joint states must be reconciled first. The controller
+and dynamic standby/process-view integration remain MR-11 work. Explicit native
+APIs and their tests do not establish automatic redundancy repair.
+
+This extends the internal protocol to
+`cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1`; numeric format markers stay 1.
+Earlier roots/state have no compatibility reader. Use a fresh experimental
+namespace/prefix and local state. The earlier MR-10 evidence retains its exact
+historical protocol and source scope.

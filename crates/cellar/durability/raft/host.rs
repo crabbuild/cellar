@@ -1455,6 +1455,21 @@ impl Driver {
             self.on_routed_query(request);
             return;
         }
+        if matches!(
+            &request.kind,
+            Kind::BeginRepair { .. } | Kind::AdvanceRepair { .. }
+        ) {
+            match std::mem::replace(&mut request.kind, Kind::Status) {
+                Kind::BeginRepair { plan } => self.begin_repair(request, plan),
+                Kind::AdvanceRepair {
+                    id,
+                    step,
+                    expected_revision,
+                } => self.advance_repair(request, id, step, expected_revision),
+                _ => reply(&mut request, Err(CommandFailure::CorruptState)),
+            }
+            return;
+        }
         if matches!(&request.kind, Kind::AddLearner { .. }) {
             if let Kind::AddLearner {
                 member,
@@ -1481,10 +1496,26 @@ impl Driver {
             return;
         }
         match std::mem::replace(&mut request.kind, Kind::Status) {
-            Kind::AddLearner { .. } | Kind::Seed { .. } => {
+            Kind::AddLearner { .. }
+            | Kind::Seed { .. }
+            | Kind::BeginRepair { .. }
+            | Kind::AdvanceRepair { .. } => {
                 reply(&mut request, Err(CommandFailure::UnsupportedCapability))
             }
             Kind::Status => self.status(&scope, StatusPurpose::Observe(Box::new(request))),
+            Kind::RepairStatus => {
+                let result = cell
+                    .group
+                    .membership()
+                    .map_err(|_| CommandFailure::CorruptState)
+                    .and_then(|membership| {
+                        membership
+                            .repair_status()
+                            .map_err(|_| CommandFailure::CorruptState)
+                    })
+                    .map(Response::Repair);
+                reply(&mut request, result);
+            }
             Kind::Query {
                 contract,
                 input,

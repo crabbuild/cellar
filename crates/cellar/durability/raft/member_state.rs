@@ -8,6 +8,11 @@ use protobuf::Message as _;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
+#[path = "membership.rs"]
+mod repairs;
+use repairs::{RepairIntent, RepairRecord};
+pub use repairs::{RepairPhase, RepairPlan, RepairStatus, RepairStep};
+
 const MAX_BYTES: usize = 16 * 1024;
 const MAX_MEMBERS: usize = 32;
 
@@ -43,6 +48,7 @@ pub struct GroupMembership {
     high_water: u64,
     revision: u64,
     bindings: Vec<Binding>,
+    repair: Option<RepairRecord>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -51,6 +57,7 @@ struct Intent {
     format: u32,
     expected_revision: u64,
     joins: Vec<Binding>,
+    repair: Option<RepairIntent>,
 }
 
 fn invalid() -> LogError {
@@ -76,6 +83,7 @@ impl GroupMembership {
             initial,
             revision: 1,
             bindings: vec![],
+            repair: None,
         }
     }
 
@@ -119,7 +127,9 @@ impl GroupMembership {
     pub(crate) fn reserved_bytes(&self) -> usize {
         // Retirement can leave spare vector capacity until this value is
         // cloned or released. Keep that allocation charged too.
-        512 + self.initial.capacity() * 24 + self.bindings.capacity() * 384
+        512 + self.initial.capacity() * 24
+            + self.bindings.capacity() * 384
+            + self.repair.as_ref().map_or(0, RepairRecord::reserved_bytes)
     }
 
     pub(crate) fn validate(&self, conf: &ConfState, applied: u64) -> Result<(), LogError> {
@@ -162,6 +172,7 @@ impl GroupMembership {
         {
             return Err(invalid());
         }
+        self.validate_repair(conf, applied)?;
         Ok(())
     }
 
@@ -171,6 +182,15 @@ impl GroupMembership {
         &self,
         change: &mut ConfChangeV2,
         joins: &[JoiningMember],
+    ) -> Result<(), LogError> {
+        self.bind_intent(change, joins, None)
+    }
+
+    fn bind_intent(
+        &self,
+        change: &mut ConfChangeV2,
+        joins: &[JoiningMember],
+        repair: Option<RepairIntent>,
     ) -> Result<(), LogError> {
         if joins.len() > MAX_MEMBERS {
             return Err(LogError::Overloaded);
@@ -189,6 +209,7 @@ impl GroupMembership {
             format: 1,
             expected_revision: self.revision,
             joins: bindings,
+            repair,
         };
         let bytes = serde_json::to_vec(&intent).map_err(|_| invalid())?;
         if bytes.len() > MAX_BYTES {
@@ -207,6 +228,7 @@ impl GroupMembership {
                 format: 1,
                 expected_revision: self.revision,
                 joins: vec![],
+                repair: None,
             });
         }
         if change.context.len() > MAX_BYTES {
@@ -232,6 +254,7 @@ impl GroupMembership {
             return Err(invalid());
         }
         let intent = self.intent(change)?;
+        self.validate_repair_change(&intent, change, conf)?;
         let active = members(conf);
         let mut new = BTreeSet::new();
         let mut touched = BTreeSet::new();
@@ -283,7 +306,8 @@ impl GroupMembership {
         let intent = self.intent(change)?;
         let mut next = self.clone();
         next.revision = index.get();
-        for mut binding in intent.joins {
+        for binding in &intent.joins {
+            let mut binding = binding.clone();
             binding.joined_at = index.get();
             next.high_water = next.high_water.max(binding.member);
             next.bindings.push(binding);
@@ -291,6 +315,7 @@ impl GroupMembership {
         let active = members(after);
         next.bindings.retain(|b| active.contains(&b.member));
         next.bindings.sort_by_key(|b| b.member);
+        next.apply_repair(&intent, index.get())?;
         next.validate(after, index.get())?;
         Ok(next)
     }
@@ -312,6 +337,7 @@ impl GroupMembership {
         {
             return Err(invalid());
         }
+        self.repair_succeeds(old)?;
         Ok(())
     }
 

@@ -299,6 +299,66 @@ impl RaftCellHandle {
         }
     }
 
+    /// Observe the synced plan, without a fresh quorum or activation proof.
+    pub fn repair_status(
+        &self,
+    ) -> impl Future<Output = Result<Option<crate::raft::member_state::RepairStatus>, CommandFailure>>
+           + Send
+           + 'static {
+        let call = self.call(Kind::RepairStatus, Duration::from_secs(5));
+        async move {
+            match call.await? {
+                Response::Repair(status) => Ok(status),
+                _ => Err(CommandFailure::CorruptState),
+            }
+        }
+    }
+
+    /// Commit a revision-bound learner repair plan. Lost responses may follow
+    /// commitment; retry the same plan identity and immutable payload.
+    pub fn begin_repair(
+        &self,
+        plan: crate::raft::member_state::RepairPlan,
+        timeout: Duration,
+    ) -> impl Future<Output = Result<crate::raft::member_state::RepairStatus, CommandFailure>>
+           + Send
+           + 'static {
+        let call = self.call(Kind::BeginRepair { plan }, timeout);
+        async move {
+            match call.await? {
+                Response::Repair(Some(status)) => Ok(status),
+                _ => Err(CommandFailure::CorruptState),
+            }
+        }
+    }
+
+    /// Advance the current exact plan. Promotion still requires actual matched
+    /// progress at the consensus owner; neither status nor S3 supplies proof.
+    pub fn advance_repair(
+        &self,
+        id: cellar_logic::consensus::ProposalId,
+        step: crate::raft::member_state::RepairStep,
+        expected_revision: LogIndex,
+        timeout: Duration,
+    ) -> impl Future<Output = Result<crate::raft::member_state::RepairStatus, CommandFailure>>
+           + Send
+           + 'static {
+        let call = self.call(
+            Kind::AdvanceRepair {
+                id,
+                step,
+                expected_revision,
+            },
+            timeout,
+        );
+        async move {
+            match call.await? {
+                Response::Repair(Some(status)) => Ok(status),
+                _ => Err(CommandFailure::CorruptState),
+            }
+        }
+    }
+
     pub fn scope(&self) -> &GroupScope {
         &self.binding.scope
     }
@@ -449,8 +509,23 @@ impl RaftCellHandle {
                         }
                     }
                 }
-                Kind::Status => {
+                Kind::Status | Kind::RepairStatus => {
                     if self.binding.member.is_none() {
+                        return Err(CommandFailure::UnsupportedCapability);
+                    }
+                }
+                Kind::BeginRepair { plan } => {
+                    if self.binding.member.is_none()
+                        || plan.expected_revision.get() == 0
+                        || plan.policy_revision == 0
+                    {
+                        return Err(CommandFailure::UnsupportedCapability);
+                    }
+                }
+                Kind::AdvanceRepair {
+                    expected_revision, ..
+                } => {
+                    if self.binding.member.is_none() || expected_revision.get() == 0 {
                         return Err(CommandFailure::UnsupportedCapability);
                     }
                 }
@@ -533,6 +608,16 @@ pub(crate) struct Work {
 }
 
 pub(crate) enum Kind {
+    BeginRepair {
+        plan: crate::raft::member_state::RepairPlan,
+    },
+    AdvanceRepair {
+        id: cellar_logic::consensus::ProposalId,
+        step: crate::raft::member_state::RepairStep,
+        expected_revision: LogIndex,
+    },
+    RepairStatus,
+
     Seed {
         target: cellar_logic::consensus::ReplicaIdentity,
         kind: crate::raft::transport::seeds::SeedKind,
@@ -559,7 +644,12 @@ impl Kind {
     fn bytes(&self) -> usize {
         4096 + match self {
             Self::Command { input, .. } | Self::Query { input, .. } => input.len(),
-            Self::Status | Self::AddLearner { .. } | Self::Seed { .. } => 0,
+            Self::Status
+            | Self::AddLearner { .. }
+            | Self::Seed { .. }
+            | Self::BeginRepair { .. }
+            | Self::AdvanceRepair { .. }
+            | Self::RepairStatus => 0,
         }
     }
 
@@ -567,7 +657,11 @@ impl Kind {
         match self {
             Self::Command { options, .. } => CancelFailure::Command(options.id),
             Self::Query { .. } | Self::Seed { .. } => CancelFailure::Query,
-            Self::Status | Self::AddLearner { .. } => CancelFailure::Status,
+            Self::Status
+            | Self::AddLearner { .. }
+            | Self::BeginRepair { .. }
+            | Self::AdvanceRepair { .. }
+            | Self::RepairStatus => CancelFailure::Status,
         }
     }
 }
@@ -590,6 +684,7 @@ impl CancelFailure {
 }
 
 pub(crate) enum Response {
+    Repair(Option<crate::raft::member_state::RepairStatus>),
     Seed(Box<crate::raft::transport::seeds::SourceSeed>),
     Learner(LearnerReceipt),
     Command(CommandReceipt),

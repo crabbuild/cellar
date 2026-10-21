@@ -30,6 +30,7 @@ pub mod peer;
 pub mod pressure;
 pub mod queue;
 pub mod raft_command;
+pub mod raft_placement;
 pub mod rebalance;
 pub mod restore;
 pub mod routing;
