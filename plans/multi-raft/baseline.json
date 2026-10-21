@@ -1,7 +1,7 @@
 {
   "format": 1,
   "repository": "https://github.com/crabbuild/cellar",
-  "revision": "879d13e2608e94cf3ef5c92d4f3e05029f2a678d",
+  "revision": "8d4c5cdd594c8e54629b10b383522261aabca078",
   "prepared_date": "2026-10-20",
   "files": [
     {
@@ -54,7 +54,7 @@
     },
     {
       "path": "crates/cellar-logic/lib.rs",
-      "sha256": "6c0a0fb0f9fbb4e054647b8a06bfce2be1c8bc1f0ed2eff87cb96a04ad510f19"
+      "sha256": "442ff3946ef9cadc89d1f6d58651ec6ce20e9b3cbd90bdec21f7ee32385b2a29"
     },
     {
       "path": "crates/cellar-logic/log_tier.rs",

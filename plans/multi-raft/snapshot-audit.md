@@ -32,7 +32,7 @@ Every fresh-seed restart verifies all-or-absent group state and claim ordering,
 then resumes follower reads and subsequent replication without callback replay.
 
 MR-10 is complete at the native recovery boundary. MR-11 through MR-17 and the
-full delivery goal remain open. The internal protocol identity remains
+full delivery goal remain open. That MR-10 source uses protocol identity
 `cellar-raft-ltx-1/members-1/seeds-1/s3-1`, with numeric markers 1; use a fresh
 experimental namespace/prefix and local state. Ordinary stores are in-memory;
 process-kill fixtures checkpoint successful conditional mutations and rehydrate

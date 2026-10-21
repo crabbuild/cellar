@@ -1,17 +1,23 @@
 # Native placement and repair implementation contract
 
-Status: MR-11 implementation preparation. MR-10 qualification is separate. This
-contract adds no placement, repair, capacity or release qualification by itself.
+Status: MR-11 implementation in progress. The [plan foundation evidence](evidence/MR-11-plans-progress.json)
+qualifies explicit placement and administrative repair. Dynamic standby
+activation, controller scheduling/process views, leadership balancing and the
+six-node no-business-traffic gate remain open. MR-10 qualification is separate.
+This contract alone establishes no additional capacity or release qualification.
 
 ## Authority and durable intent
 
 Each group retains one active repair plan with its committed membership state.
 The plan binds full group/incarnation scope, desired-policy revision, expected
 configuration revision, fresh member/node/disk identity, obsolete member and a
-canonical plan digest. Its first change admits the target only as a learner.
+scoped plan ID and canonical payload comparison. Its first change admits the target only as a learner.
 Snapshots, compaction and archives must preserve that same plan cut. The catalog
 can describe desired placement; it cannot change a group's voters or replace a
 live quorum. A plan error or lost response may follow commitment.
+
+The enclosing group log and authenticated operation bind the full history scope;
+plan IDs do not supply authority.
 
 A controller recovers the group's actual plan and configuration before deciding
 its next action. Same-plan retries reconcile the committed phase. A competing
@@ -40,7 +46,12 @@ without retaining an unbounded history of controller requests.
    removes the obsolete voter from the incoming set. The outgoing set and its
    bindings remain active until leave-joint commits under both required
    majorities. A lost leader/controller resumes from the committed joint state.
-6. Commit leave-joint, reconcile the final configuration and only then report
+6. If a target fails while still an unpromoted learner, commit removal of that
+   learner and an aborted-plan tombstone before choosing another fresh identity.
+   A joint transition cannot use this abort path. Existing local state with a
+   different member ID makes that node ineligible for a new blank attachment;
+   normal repair never clears or rewrites it.
+7. Commit leave-joint, reconcile the final configuration and only then report
    repair completion. Retired members close local admission and retain their
    stable history for the separately defined operational retention policy.
 

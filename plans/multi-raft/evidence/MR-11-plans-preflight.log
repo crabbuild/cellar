@@ -1,0 +1,4 @@
+Source revision: 8d4c5cdd594c8e54629b10b383522261aabca078
+Command: ["python3", "plans/multi-raft/plan.py", "preflight"]
+
+Source preflight passed: 71 anchors at baseline 8d4c5cdd594c8e54629b10b383522261aabca078.

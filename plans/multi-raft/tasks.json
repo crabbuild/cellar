@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "baseline_revision": "879d13e2608e94cf3ef5c92d4f3e05029f2a678d",
+  "baseline_revision": "8d4c5cdd594c8e54629b10b383522261aabca078",
   "status_values": [
     "TODO",
     "IN_PROGRESS",
@@ -1634,7 +1634,7 @@
       "id": "MR-11",
       "title": "Place replicas and repair membership automatically",
       "phase": "v1",
-      "status": "TODO",
+      "status": "IN_PROGRESS",
       "depends_on": [
         "MR-10",
         "MR-04",
@@ -1643,13 +1643,24 @@
       "modifies": [
         "crates/cellar/durability/raft/catalog.rs",
         "crates/cellar/durability/raft/runtime.rs",
-        "crates/cellar-logic/rebalance.rs"
+        "crates/cellar-logic/rebalance.rs",
+        "crates/cellar-logic/lib.rs",
+        "crates/cellar/durability/raft/member_state.rs",
+        "crates/cellar/application/consensus/mod.rs",
+        "crates/cellar/application/consensus/protocol.rs",
+        "crates/cellar/durability/raft/catalog_wire.rs",
+        "crates/cellar/application/consensus/client.rs",
+        "crates/cellar/durability/raft/host.rs",
+        "crates/cellar/durability/raft/host_membership.rs"
       ],
       "creates": [
         "crates/cellar/durability/raft/membership.rs",
         "crates/cellar/durability/raft/placement.rs",
         "crates/cellar/tests/native_raft_membership.rs",
-        "plans/multi-raft/membership-design.md"
+        "plans/multi-raft/membership-design.md",
+        "crates/cellar-logic/raft_placement.rs",
+        "crates/cellar/durability/raft/member_plan_tests.rs",
+        "crates/cellar/tests/support/raft_repair_native.rs"
       ],
       "steps": [
         "Implement domain-aware desired placement and versioned idempotent controller plans.",
@@ -1744,7 +1755,9 @@
           "--test-threads=1"
         ]
       ],
-      "evidence": []
+      "evidence": [
+        "evidence/MR-11-plans-progress.json"
+      ]
     },
     {
       "id": "MR-12",

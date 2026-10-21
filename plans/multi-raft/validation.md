@@ -333,7 +333,7 @@ Every fresh-seed restart verifies all-or-absent group state and claim ordering,
 then resumes follower reads and subsequent replication without callback replay.
 
 MR-10 is complete at the native recovery boundary. MR-11 through MR-17 and the
-full delivery goal remain open. The internal protocol identity remains
+full delivery goal remain open. That MR-10 source uses protocol identity
 `cellar-raft-ltx-1/members-1/seeds-1/s3-1`, with numeric markers 1; use a fresh
 experimental namespace/prefix and local state. Ordinary stores are in-memory;
 process-kill fixtures checkpoint successful conditional mutations and rehydrate
@@ -341,3 +341,39 @@ them after child exit, then copy exact node file bytes into exclusively owned
 restart directories. These checks establish process-crash recovery, without
 physical S3, power-loss, zones, production capacity, larger-scale, federation or
 complete release qualification.
+
+
+## MR-11 repair-plan foundation
+
+The [MR-11 plan foundation](evidence/MR-11-plans-progress.json) pins source
+`8d4c5cdd594c8e54629b10b383522261aabca078`: 231 Rust cases and all 25 checks pass.
+The 13 membership cases include nine pure placement contracts and four real-Node
+repair cases. Six ledger unit cases cover bounded persisted plans and phase
+validation; the owning regressions include 42 snapshot, 29 archive, 28 library
+and the affected public Node Raft lifecycle case. Format checks 645 Rust files;
+Clippy, both cellar-ltx modes, layout, dependency policy, docs, 17 planning tests
+and 71-anchor preflight pass. Eight ignored child entry points execute through
+owning parents and are excluded.
+
+Public begin/advance/status APIs persist one immutable repair plan, admit and
+seed a learner, check actual matched progress, enter explicit joint consensus,
+finish under both majorities, or abort while still an unpromoted learner.
+Native cases refuse empty promotion and minority reconfiguration, reconcile a
+lost/unpolled response and stale/rebound plans, then resume joint state through
+public Node restart. An incoming majority without the old outgoing majority
+cannot finish or serve a fresh strong read. Later replication resumes without
+replaying business callbacks during recovery.
+
+MR-11 remains IN_PROGRESS. The partial inventory reports five of seven required
+names; `automatic_no_traffic_repair` and `leader_balance_with_lag` remain absent.
+Automatic scheduling, dynamic standby activation, trusted process-view
+distribution and the six-node repair gate remain required. The full inventory
+checker is unchanged. This is explicit administrative repair, without automatic
+redundancy repair or complete milestone qualification.
+
+The current internal identity is
+`cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1`; numeric markers remain 1.
+Use fresh namespace identities, storage prefix and local state. Current Node
+coverage is the affected Raft lifecycle case; MR-10 retains its separate
+all-88-Node historical qualification. No physical S3, power-loss, zone, production
+capacity, larger-scale, federation or complete release qualification is claimed.

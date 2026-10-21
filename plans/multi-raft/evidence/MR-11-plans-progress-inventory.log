@@ -1,0 +1,20 @@
+Source revision: 8d4c5cdd594c8e54629b10b383522261aabca078
+Command: ["python3", "-c", "import json,pathlib,re\np=pathlib.Path('plans/multi-raft');task=next(t for t in json.loads((p/'tasks.json').read_text())['tasks'] if t['id']=='MR-11');assert task['status']=='IN_PROGRESS';actual=set(re.findall(r'^([A-Za-z_][A-Za-z_0-9:]*)\\: test$',(p/'evidence/MR-11-plans-membership-list.log').read_text(),re.M));required={c['name'] for c in task['test_cases']};remaining=required-actual;assert remaining=={'automatic_no_traffic_repair','leader_balance_with_lag'},remaining;assert len(actual)==13;print(json.dumps(dict(task='MR-11',status=task['status'],implemented_required=sorted(required&actual),remaining_required=sorted(remaining),listed_cases=len(actual),note='Partial inventory only. The unchanged full check-list and native six-node repair gate remain required before DONE.'),indent=2))\n"]
+
+{
+  "task": "MR-11",
+  "status": "IN_PROGRESS",
+  "implemented_required": [
+    "insufficient_domain_capacity",
+    "joint_configuration_restart",
+    "learner_before_promotion",
+    "minority_cannot_reconfigure",
+    "stale_plan_idempotence"
+  ],
+  "remaining_required": [
+    "automatic_no_traffic_repair",
+    "leader_balance_with_lag"
+  ],
+  "listed_cases": 13,
+  "note": "Partial inventory only. The unchanged full check-list and native six-node repair gate remain required before DONE."
+}
