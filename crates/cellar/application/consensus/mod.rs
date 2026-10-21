@@ -16,6 +16,7 @@ pub use crate::raft::host::{
     RaftArchiveOptions, RaftCellPlacement, RaftCellRegistration, RaftCellsConfig,
     RaftCellsServices, RaftHostOptions, RaftPeerNode,
 };
+pub use crate::raft::member_state::JoiningMember;
 pub use crate::raft::options::{LogOpenMode, RaftRuntimeOptions, ReplicaLogOptions};
 pub use crate::raft::transport_options::{NamespaceQueryOrigin, RaftTls, TransportOptions};
 pub use crate::raft::version::{
@@ -27,8 +28,9 @@ pub use class::{
     RaftClass, RegistrationError,
 };
 pub use client::{
-    CellStatus, CommandOptions, CommandReceipt, QueryConsistency, QueryOptions, QueryResult,
-    QueryRouting, RaftCellHandle, RaftCells, RaftCloseReport, StaleReadPolicy, UnfinishedCommand,
+    CellStatus, CommandOptions, CommandReceipt, LearnerOptions, LearnerReceipt, QueryConsistency,
+    QueryOptions, QueryResult, QueryRouting, RaftCellHandle, RaftCells, RaftCloseReport,
+    StaleReadPolicy, UnfinishedCommand,
 };
 
 pub use cellar_logic::consensus::{

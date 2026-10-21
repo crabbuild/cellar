@@ -714,7 +714,8 @@ impl Node {
                         RaftCellPlacement::Replica => {
                             catalog.open_namespace(cell.namespace).await?
                         }
-                        RaftCellPlacement::QueryRouter { .. } => {
+                        RaftCellPlacement::QueryRouter { .. }
+                        | RaftCellPlacement::Joining { .. } => {
                             catalog.existing_namespace(cell.namespace).await?
                         }
                     };
@@ -724,19 +725,23 @@ impl Node {
                         .await?;
                     let birth = match cell.placement {
                         RaftCellPlacement::Replica => namespace.resolve_birth(cell.birth).await?,
-                        RaftCellPlacement::QueryRouter { .. } => {
+                        RaftCellPlacement::QueryRouter { .. }
+                        | RaftCellPlacement::Joining { .. } => {
                             let mut expected = cell.birth;
                             expected.voters.sort_by_key(|member| member.member);
                             expected.learners.sort_by_key(|member| member.member);
-                            let birth = namespace
-                                .birth(&expected.scope.cell)
-                                .await?
-                                .ok_or_else(|| anyhow::anyhow!("query route birth missing"))?;
+                            let birth =
+                                namespace
+                                    .birth(&expected.scope.cell)
+                                    .await?
+                                    .ok_or_else(|| {
+                                        anyhow::anyhow!("existing member/route birth missing")
+                                    })?;
                             anyhow::ensure!(
                                 birth.scope() == &expected.scope
                                     && birth.voters() == expected.voters.as_slice()
                                     && birth.learners() == expected.learners.as_slice(),
-                                "query route disagrees with existing birth"
+                                "member/route disagrees with existing birth"
                             );
                             birth
                         }

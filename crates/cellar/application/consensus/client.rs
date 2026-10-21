@@ -17,6 +17,21 @@ use std::sync::{
 use std::time::Duration;
 use tokio::sync::{mpsc, oneshot, Notify};
 
+/// A compare-and-set admission request for a preconfigured fresh learner.
+#[derive(Clone, Debug)]
+pub struct LearnerOptions {
+    pub expected_revision: LogIndex,
+    pub timeout: Duration,
+}
+
+/// Durable admission observation. This is not a live-quorum seeding grant.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LearnerReceipt {
+    pub scope: GroupScope,
+    pub member: crate::raft::member_state::JoiningMember,
+    pub joined_at: LogIndex,
+}
+
 #[derive(Clone, Debug)]
 pub struct CommandOptions {
     /// Persist the pending request before calling and reuse this ID and input
@@ -120,6 +135,8 @@ pub struct CellStatus {
     /// The durable Raft checkpoint boundary; it grants no read or write proof.
     pub checkpoint: LogPosition,
     pub archived: LogIndex,
+    pub membership_revision: LogIndex,
+    pub member_high_water: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -234,6 +251,45 @@ pub struct RaftCellHandle {
 }
 
 impl RaftCellHandle {
+    pub(crate) fn prepare_seed(
+        &self,
+        target: cellar_logic::consensus::ReplicaIdentity,
+        timeout: Duration,
+    ) -> impl Future<Output = Result<Box<crate::raft::transport::seeds::SourceSeed>, CommandFailure>>
+           + Send
+           + 'static {
+        let call = self.call(Kind::Seed { target }, timeout);
+        async move {
+            match call.await? {
+                Response::Seed(seed) => Ok(seed),
+                _ => Err(CommandFailure::CorruptState),
+            }
+        }
+    }
+
+    /// Admit a fresh identity as a learner at a trusted configured endpoint.
+    /// Unavailable/cancellation may follow a committed change: retry the same
+    /// member/node/disk and expected revision, never a newly invented identity.
+    pub fn add_learner(
+        &self,
+        member: crate::raft::member_state::JoiningMember,
+        options: LearnerOptions,
+    ) -> impl Future<Output = Result<LearnerReceipt, CommandFailure>> + Send + 'static {
+        let call = self.call(
+            Kind::AddLearner {
+                member,
+                expected_revision: options.expected_revision,
+            },
+            options.timeout,
+        );
+        async move {
+            match call.await? {
+                Response::Learner(receipt) => Ok(receipt),
+                _ => Err(CommandFailure::CorruptState),
+            }
+        }
+    }
+
     pub fn scope(&self) -> &GroupScope {
         &self.binding.scope
     }
@@ -389,6 +445,18 @@ impl RaftCellHandle {
                         return Err(CommandFailure::UnsupportedCapability);
                     }
                 }
+                Kind::AddLearner {
+                    expected_revision, ..
+                } => {
+                    if self.binding.member.is_none() || expected_revision.get() == 0 {
+                        return Err(CommandFailure::UnsupportedCapability);
+                    }
+                }
+                Kind::Seed { target } => {
+                    if self.binding.member.is_none() || target.scope != self.binding.scope {
+                        return Err(CommandFailure::UnsupportedCapability);
+                    }
+                }
             }
             let deadline = now
                 .checked_add(timeout.as_millis() as u64)
@@ -456,6 +524,13 @@ pub(crate) struct Work {
 }
 
 pub(crate) enum Kind {
+    Seed {
+        target: cellar_logic::consensus::ReplicaIdentity,
+    },
+    AddLearner {
+        member: crate::raft::member_state::JoiningMember,
+        expected_revision: LogIndex,
+    },
     Command {
         contract: OperationContract,
         input: Vec<u8>,
@@ -473,15 +548,15 @@ impl Kind {
     fn bytes(&self) -> usize {
         4096 + match self {
             Self::Command { input, .. } | Self::Query { input, .. } => input.len(),
-            Self::Status => 0,
+            Self::Status | Self::AddLearner { .. } | Self::Seed { .. } => 0,
         }
     }
 
     fn failure(&self) -> CancelFailure {
         match self {
             Self::Command { options, .. } => CancelFailure::Command(options.id),
-            Self::Query { .. } => CancelFailure::Query,
-            Self::Status => CancelFailure::Status,
+            Self::Query { .. } | Self::Seed { .. } => CancelFailure::Query,
+            Self::Status | Self::AddLearner { .. } => CancelFailure::Status,
         }
     }
 }
@@ -504,6 +579,8 @@ impl CancelFailure {
 }
 
 pub(crate) enum Response {
+    Seed(Box<crate::raft::transport::seeds::SourceSeed>),
+    Learner(LearnerReceipt),
     Command(CommandReceipt),
     Query(QueryResult),
     Status(CellStatus),

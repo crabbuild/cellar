@@ -576,6 +576,94 @@ impl NamespaceCatalog {
         })
     }
 
+    /// Resume a joined member or establish that a first seed is still legal.
+    /// A permanent claim with missing local stable state is never reset.
+    pub(crate) async fn resume_joined(
+        &self,
+        birth: &GroupBirth,
+        log: &ReplicaLog,
+        member: MemberId,
+    ) -> Result<Option<BootstrapPermit>, CatalogError> {
+        self.require_mode(NamespaceMode::Raft)?;
+        self.check_birth(birth)?;
+        if birth
+            .voters
+            .iter()
+            .chain(&birth.learners)
+            .any(|m| m.member == member)
+        {
+            return Err(CatalogError::Conflict("joined member is initial"));
+        }
+        let expected = BootstrapClaim {
+            scope: birth.scope.clone(),
+            member,
+            disk: log.limits().disk,
+            birth_digest: birth.digest,
+        };
+        let key = self.claim_key(birth, member);
+        let remote = self.read_claim(&key, birth).await?;
+        if remote.as_ref().is_some_and(|claim| claim != &expected) {
+            return Err(CatalogError::Conflict("permanent joined claim"));
+        }
+        let local = match log.group(&birth.scope) {
+            Ok(local) => local,
+            Err(LogError::NotFound) if remote.is_none() => return Ok(None),
+            Err(LogError::NotFound) => return Err(CatalogError::LostStableState),
+            Err(error) => return Err(CatalogError::Log(error)),
+        };
+        let mut initial = ::raft::prelude::ConfState::default();
+        initial.set_voters(birth.voters.iter().map(|m| m.member.get()).collect());
+        initial.set_learners(birth.learners.iter().map(|m| m.member.get()).collect());
+        let valid = {
+            let cache = local.read().map_err(CatalogError::Log)?;
+            local.birth_digest == birth.digest
+                && local.identity().member == member
+                && cache
+                    .membership
+                    .same_birth(&super::member_state::GroupMembership::initial(&initial))
+                && cache.membership.permits(local.identity())
+                && cache
+                    .membership
+                    .joined(member)
+                    .map_err(CatalogError::Log)?
+                    .is_some()
+                && cache
+                    .conf_state
+                    .voters
+                    .iter()
+                    .chain(&cache.conf_state.voters_outgoing)
+                    .chain(&cache.conf_state.learners)
+                    .chain(&cache.conf_state.learners_next)
+                    .any(|id| *id == member.get())
+        };
+        if !valid {
+            return Err(CatalogError::Conflict("joined stable state"));
+        }
+        let payload = wire::Claim {
+            root_digest: self.root_digest,
+            scope: WireScope::from(&birth.scope),
+            member: member.get(),
+            disk: expected.disk.bytes(),
+            birth_digest: birth.digest,
+        };
+        let bytes = wire::encode(wire::CLAIM, &payload, self.inner.limit)?;
+        let observed = self.inner.create_and_observe(&key, &bytes).await?;
+        if observed != bytes {
+            return Err(CatalogError::Conflict("permanent joined claim"));
+        }
+        let confirmed = self
+            .read_claim(&key, birth)
+            .await?
+            .ok_or(CatalogError::Unconfirmed)?;
+        expected
+            .reconcile(Some(&expected), Some(&confirmed))
+            .map_err(|_| CatalogError::LostStableState)?;
+        Ok(Some(BootstrapPermit {
+            local,
+            birth: birth.clone(),
+        }))
+    }
+
     async fn read_claim(
         &self,
         key: &Path,

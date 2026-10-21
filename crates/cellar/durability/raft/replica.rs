@@ -196,6 +196,8 @@ impl Replica {
         let cache = self.log.read()?;
         let is_leader = self.node.raft.state == StateRole::Leader;
         Ok(GroupStatus {
+            membership_revision: cache.membership.revision(),
+            member_high_water: cache.membership.high_water(),
             replica: self.identity().clone(),
             term: Term::new(self.node.raft.term),
             leader: (self.node.raft.leader_id != 0).then_some(self.node.raft.leader_id),

@@ -111,6 +111,8 @@ pub struct AcceptedProposal {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct GroupStatus {
+    pub membership_revision: LogIndex,
+    pub member_high_water: u64,
     pub replica: ReplicaIdentity,
     pub term: Term,
     pub leader: Option<u64>,

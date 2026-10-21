@@ -146,7 +146,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn root_refuses_protocol_without_member_bindings() {
+    fn root_refuses_earlier_protocols() {
         let config = NamespaceConfig::new(
             ClusterId::new([1; 16]).unwrap(),
             NamespaceId::new([2; 16]).unwrap(),
@@ -155,13 +155,15 @@ mod tests {
         );
         let mut root = Root::new(&config, "test".into());
         root.validate().unwrap();
-        root.protocol_digest = Sha256::digest(b"cellar-raft-ltx-1").into();
-        let encoded = encode(ROOT, &root, 64 * 1024).unwrap();
-        let decoded: Root = decode(ROOT, &encoded, 64 * 1024).unwrap();
-        assert!(matches!(
-            decoded.validate(),
-            Err(CatalogError::Corrupt("namespace schema/protocol"))
-        ));
+        for protocol in ["cellar-raft-ltx-1", "cellar-raft-ltx-1/members-1"] {
+            root.protocol_digest = Sha256::digest(protocol.as_bytes()).into();
+            let encoded = encode(ROOT, &root, 64 * 1024).unwrap();
+            let decoded: Root = decode(ROOT, &encoded, 64 * 1024).unwrap();
+            assert!(matches!(
+                decoded.validate(),
+                Err(CatalogError::Corrupt("namespace schema/protocol"))
+            ));
+        }
     }
 }
 

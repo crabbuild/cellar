@@ -26,6 +26,7 @@ use std::sync::{
 use std::time::Duration;
 use tokio::sync::{oneshot, Semaphore};
 
+#[derive(Clone)]
 pub(crate) struct CellStorage {
     pub directory: PathBuf,
     pub host: LtxHost,
@@ -50,6 +51,14 @@ impl ImageView {
 }
 
 pub(crate) enum Action {
+    SealSeed {
+        received: Box<super::transport::snapshots::ReceivedSeed>,
+        storage: CellStorage,
+    },
+    CaptureSeed {
+        limits: SnapshotLimits,
+        reservation: SourceReservation,
+    },
     Initialize {
         group: GroupLog,
         class: Arc<RaftClass>,
@@ -108,6 +117,7 @@ pub(crate) enum Action {
 }
 
 pub(crate) enum Value {
+    Seeded(Box<super::snapshot::PreparedSeed>),
     Initialized(Option<ImageView>),
     Staged(StageOutcome),
     Submitted,
@@ -342,6 +352,27 @@ impl Pool {
         scope: &GroupScope,
         action: Action,
     ) -> Result<Value, ExecutionError> {
+        if let Action::SealSeed { received, storage } = action {
+            if cells.contains_key(scope) || cells.len() >= max {
+                return Err(ExecutionError::Invalid("seed cell owner"));
+            }
+            let images = GenerationStore::open(
+                storage.directory.join("images"),
+                storage.host.filesystem(),
+                storage.images,
+            )
+            .map_err(super::execution::storage)?;
+            // Caller verified an absent stable group and absent permanent claim.
+            // Orphan files from a pre-fence attempt confer no authority.
+            images.retain_only(&[]).map_err(super::execution::storage)?;
+            images
+                .reclaim(storage.images.max_generations)
+                .map_err(super::execution::storage)?;
+            let seed = received
+                .finish(&images)
+                .map_err(super::execution::storage)?;
+            return Ok(Value::Seeded(Box::new(seed)));
+        }
         if let Action::Initialize {
             group,
             class,
@@ -433,7 +464,9 @@ impl Cell {
 
     fn run(&mut self, action: Action) -> Result<Value, ExecutionError> {
         match action {
-            Action::Initialize { .. } => Err(ExecutionError::Invalid("duplicate initialization")),
+            Action::SealSeed { .. } | Action::Initialize { .. } => {
+                Err(ExecutionError::Invalid("duplicate initialization"))
+            }
             Action::Stage {
                 identity,
                 status,
@@ -578,6 +611,28 @@ impl Cell {
                     .transpose()
                     .map_err(super::execution::storage)?;
                 Ok(Value::ArchiveCut(cut.map(Box::new)))
+            }
+            Action::CaptureSeed {
+                limits,
+                reservation,
+            } => {
+                let package = match self
+                    .applier
+                    .queryable()
+                    .map_err(super::execution::storage)?
+                {
+                    Some(image) => SnapshotPackage::capture(&self.group, image, limits),
+                    None => SnapshotPackage::capture_empty(
+                        &self.group,
+                        self.class.schema_digest(),
+                        limits,
+                    ),
+                }
+                .map_err(super::execution::storage)?;
+                Ok(Value::SnapshotSource {
+                    package: Box::new(package),
+                    reservation,
+                })
             }
             Action::CaptureCheckpoint {
                 limits,

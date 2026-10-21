@@ -46,10 +46,19 @@ pub(crate) enum Phase {
     Executing,
 }
 
+pub(crate) enum ReadOperation {
+    Query {
+        contract: OperationContract,
+        input: Vec<u8>,
+    },
+    Seed {
+        target: cellar_logic::consensus::ReplicaIdentity,
+    },
+}
+
 pub(crate) struct PendingRead {
     pub request: Request,
-    pub contract: OperationContract,
-    pub input: Vec<u8>,
+    pub operation: ReadOperation,
     pub minimum: Option<Minimum>,
     pub phase: Phase,
     pub source_deadline: Option<u64>,
@@ -69,6 +78,32 @@ impl PendingRead {
         options: &QueryOptions,
         minimum: Option<CommittedVersion>,
     ) -> Self {
+        Self::with_options(
+            request,
+            ReadOperation::Query { contract, input },
+            options,
+            minimum,
+        )
+    }
+
+    pub fn seed(request: Request, target: cellar_logic::consensus::ReplicaIdentity) -> Self {
+        Self::with_options(
+            request,
+            ReadOperation::Seed { target },
+            &QueryOptions {
+                consistency: QueryConsistency::Linearizable,
+                ..Default::default()
+            },
+            None,
+        )
+    }
+
+    fn with_options(
+        request: Request,
+        operation: ReadOperation,
+        options: &QueryOptions,
+        minimum: Option<CommittedVersion>,
+    ) -> Self {
         let (phase, minimum) = match options.consistency {
             QueryConsistency::Linearizable => (Phase::StartBarrier, None),
             QueryConsistency::AtLeast(_) => (Phase::Image, minimum.map(Minimum::Version)),
@@ -79,8 +114,7 @@ impl PendingRead {
         };
         Self {
             request,
-            contract,
-            input,
+            operation,
             minimum,
             phase,
             source_deadline: None,

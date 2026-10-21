@@ -4,6 +4,7 @@
 use super::*;
 use crate::raft::completion::ApplyTicket;
 use crate::raft::snapshot::{PreparedSnapshot, SnapshotDownload, SnapshotLimits, SnapshotPackage};
+use cellar_logic::consensus::MemberId;
 use sha2::{Digest, Sha256};
 use std::sync::{atomic::AtomicBool, Weak};
 
@@ -47,6 +48,14 @@ impl Drop for ActiveSource {
 }
 
 impl SnapshotSource {
+    pub(crate) fn targets(&self, scope: &GroupScope, member: MemberId) -> bool {
+        self.0.peer.replica.scope == *scope && self.0.peer.replica.member == member
+    }
+
+    pub(crate) fn cancel(self) {
+        self.0.finished.store(true, Ordering::Release);
+    }
+
     pub fn id(&self) -> u64 {
         self.0.id
     }
@@ -89,6 +98,7 @@ struct Pull {
     route: Route,
     snapshot: [u8; 32],
     transfer: String,
+    lease: String,
     offset: String,
     length: usize,
 }
@@ -250,6 +260,7 @@ impl RaftTransport {
             auth: &state.auth,
             exporter: &exporter,
             options: &state.options,
+            max_body: state.options.snapshot_chunk_bytes,
         };
         while offset < total {
             if !state.current_route(scope, &route, &peer) {
@@ -262,6 +273,7 @@ impl RaftTransport {
                 route: wire_route.clone(),
                 snapshot: ticket.entry_digest(),
                 transfer: transfer.clone(),
+                lease: "0".into(),
                 offset: offset.to_string(),
                 length,
             };
@@ -312,6 +324,18 @@ impl RaftTransport {
 }
 
 impl State {
+    pub(super) fn finish_seed_source(&self, id: u64) {
+        if let Ok(source) = self.snapshot_source.lock() {
+            if let Some(source) = source
+                .as_ref()
+                .and_then(Weak::upgrade)
+                .filter(|source| source.id == id)
+            {
+                source.finished.store(true, Ordering::Release);
+            }
+        }
+    }
+
     fn snapshot_peer(
         &self,
         scope: &GroupScope,
@@ -390,6 +414,7 @@ impl State {
                 auth: &self.auth,
                 exporter,
                 options: &self.options,
+                max_body: self.options.snapshot_chunk_bytes,
             };
             let request: Pull = wire.decode(REQUEST_MAGIC, REQUEST_PURPOSE, &head, None)?;
             let pool = self.authorize_route(&request.route)?;
@@ -404,6 +429,9 @@ impl State {
             if selected
                 .as_ref()
                 .is_some_and(|old| !Arc::ptr_eq(&old.source, &lease))
+                || lease.finished.load(Ordering::Acquire)
+                || (frame::decimal(&request.lease)? != 0
+                    && frame::decimal(&request.lease)? != lease.id)
                 || lease.peer.replica != recipient
                 || source
                     != *self
@@ -471,14 +499,15 @@ fn snapshot_digest(snapshot: &::raft::prelude::Snapshot) -> Result<[u8; 32], Tra
     .into())
 }
 
-struct Wire<'a> {
-    auth: &'a PeerAuth,
-    exporter: &'a [u8; 32],
-    options: &'a TransportOptions,
+pub(super) struct Wire<'a> {
+    pub(super) auth: &'a PeerAuth,
+    pub(super) exporter: &'a [u8; 32],
+    pub(super) options: &'a TransportOptions,
+    pub(super) max_body: usize,
 }
 
 impl Wire<'_> {
-    fn encode<T: Serialize>(
+    pub(super) fn encode<T: Serialize>(
         &self,
         magic: &[u8; 4],
         purpose: &[u8],
@@ -489,7 +518,7 @@ impl Wire<'_> {
         let header = serde_json::to_vec(value).map_err(|_| TransportError::Protocol)?;
         if header.is_empty()
             || header.len() > self.options.max_header_bytes
-            || body.len() > self.options.snapshot_chunk_bytes
+            || body.len() > self.max_body
         {
             return Err(TransportError::Limit);
         }
@@ -509,7 +538,7 @@ impl Wire<'_> {
         })
     }
 
-    fn decode<T: for<'de> Deserialize<'de>>(
+    pub(super) fn decode<T: for<'de> Deserialize<'de>>(
         &self,
         magic: &[u8; 4],
         purpose: &[u8],
@@ -530,7 +559,7 @@ impl Wire<'_> {
     }
 }
 
-async fn read_bulk_head<S: AsyncRead + Unpin>(
+pub(super) async fn read_bulk_head<S: AsyncRead + Unpin>(
     stream: &mut S,
     prefix: Option<[u8; frame::PREFIX]>,
     magic: &[u8; 4],
@@ -572,4 +601,143 @@ async fn read_bulk_head<S: AsyncRead + Unpin>(
         tag,
         payload_len: payload_len as usize,
     })
+}
+
+pub(crate) struct ReceivedSeed {
+    download: crate::raft::snapshot::SeedDownload,
+    reservation: Permit,
+}
+
+impl ReceivedSeed {
+    pub(crate) fn finish(
+        self,
+        images: &cellar_ltx::generation::GenerationStore,
+    ) -> Result<crate::raft::snapshot::PreparedSeed, crate::raft::snapshot::SnapshotError> {
+        self.download.finish(images, self.reservation)
+    }
+}
+
+impl RaftTransport {
+    pub(crate) async fn fetch_seed(
+        &self,
+        grant: super::seeds::SeedGrant,
+        birth: &crate::raft::catalog::GroupBirth,
+        schema: [u8; 32],
+        limits: SnapshotLimits,
+    ) -> Result<ReceivedSeed, TransportError> {
+        let state = &self.handle.0;
+        if !grant.authorized(&state.runtime.log().owner(), grant.local()) {
+            return Err(TransportError::Identity);
+        }
+        let deadline = grant.deadline();
+        let peer = grant.source().clone();
+        let lease = grant.lease();
+        let digest = snapshot_digest(grant.snapshot())?;
+        let wire_route = Route::new(
+            grant.local(),
+            state.auth.source(),
+            &peer.replica,
+            &peer.label,
+            schema,
+        )?;
+        let mut download = crate::raft::snapshot::SeedDownload::new(grant, birth, schema, limits)
+            .map_err(|e| TransportError::Invalid(e.to_string()))?;
+        let total = download.encoded_length();
+        if total > state.options.max_snapshot_bytes || (total == 0) != (lease == 0) {
+            return Err(TransportError::Limit);
+        }
+        let reservation = state
+            .snapshot_receive_budget
+            .acquire(memory_bound(&state.options))
+            .ok_or(TransportError::Overloaded)?;
+        if total == 0 {
+            return Ok(ReceivedSeed {
+                download,
+                reservation,
+            });
+        }
+        let mut stream = state
+            .seed_io(deadline, async {
+                let tcp = TcpStream::connect(peer.data_address).await?;
+                tcp.set_nodelay(true)?;
+                let name = rustls::pki_types::ServerName::try_from(peer.server_name.clone())
+                    .map_err(|_| TransportError::Identity)?;
+                tokio_rustls::TlsConnector::from(state.tls.client.clone())
+                    .connect(name, tcp)
+                    .await
+                    .map_err(|e| TransportError::Tls(e.to_string()))
+            })
+            .await?;
+        let exporter = stream
+            .get_ref()
+            .1
+            .export_keying_material([0; 32], frame::EXPORT_LABEL, None)
+            .map_err(|e| TransportError::Tls(e.to_string()))?;
+        let wire = Wire {
+            auth: &state.auth,
+            exporter: &exporter,
+            options: &state.options,
+            max_body: state.options.snapshot_chunk_bytes,
+        };
+        let transfer = state
+            .sequence
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| n.checked_add(1))
+            .map_err(|_| TransportError::Closed)?
+            .checked_add(1)
+            .ok_or(TransportError::Closed)?
+            .to_string();
+        let mut offset = 0;
+        while offset < total {
+            let length = (total - offset)
+                .min(state.options.snapshot_chunk_bytes)
+                .min(limits.max_chunk_bytes);
+            let request = Pull {
+                route: wire_route.clone(),
+                snapshot: digest,
+                transfer: transfer.clone(),
+                lease: lease.to_string(),
+                offset: offset.to_string(),
+                length,
+            };
+            let received = state
+                .seed_io(deadline, async {
+                    let request_head =
+                        wire.encode(REQUEST_MAGIC, REQUEST_PURPOSE, &[], &request, &[])?;
+                    write_head(&mut stream, &request_head).await?;
+                    let head =
+                        read_bulk_head(&mut stream, None, RESPONSE_MAGIC, length, &state.options)
+                            .await?;
+                    let response: Chunk = wire.decode(
+                        RESPONSE_MAGIC,
+                        RESPONSE_PURPOSE,
+                        &head,
+                        Some(&request_head.tag),
+                    )?;
+                    if head.payload_len == 0
+                        || response.request != request_head.tag
+                        || response.route != request.route.reversed()
+                        || response.snapshot != request.snapshot
+                        || response.transfer != request.transfer
+                        || response.offset != request.offset
+                    {
+                        return Err(TransportError::Authentication);
+                    }
+                    let mut body = vec![0; head.payload_len];
+                    stream.read_exact(&mut body).await?;
+                    if response.digest != <[u8; 32]>::from(Sha256::digest(&body)) {
+                        return Err(TransportError::Authentication);
+                    }
+                    download
+                        .append(offset, &body)
+                        .map_err(|e| TransportError::Invalid(e.to_string()))?;
+                    Ok(body.len())
+                })
+                .await?;
+            offset += received;
+        }
+        Ok(ReceivedSeed {
+            download,
+            reservation,
+        })
+    }
 }

@@ -25,6 +25,8 @@ use tokio::sync::{mpsc, oneshot, watch, Notify, Semaphore};
 
 #[path = "query_transport.rs"]
 mod queries;
+#[path = "seed_transport.rs"]
+pub(crate) mod seeds;
 #[path = "snapshot_transport.rs"]
 pub(crate) mod snapshots;
 
@@ -112,6 +114,21 @@ impl From<&RaftPeer> for RaftPeerNode {
 }
 
 impl RaftPeerNode {
+    pub(crate) fn validate_endpoint(&self) -> Result<(), TransportError> {
+        if crate::machine::validate_node_name(&self.label).is_err()
+            || rustls::pki_types::ServerName::try_from(self.server_name.clone()).is_err()
+            || self.control_address.port() == 0
+            || self.data_address.port() == 0
+            || self.query_address.port() == 0
+            || self.control_address == self.data_address
+            || self.control_address == self.query_address
+            || self.data_address == self.query_address
+        {
+            return Err(TransportError::Identity);
+        }
+        Ok(())
+    }
+
     fn address(&self, lane: Lane) -> SocketAddr {
         match lane {
             Lane::Control => self.control_address,
@@ -277,6 +294,7 @@ struct State {
     snapshot_source_budget: Arc<Budget>,
     snapshot_receive_budget: Arc<Budget>,
     snapshot_connections: Arc<Semaphore>,
+    seed_metadata: Arc<Budget>,
 }
 
 struct Handle(Arc<State>);
@@ -326,6 +344,10 @@ impl Future for OwnedTask {
 }
 
 impl RaftTransport {
+    pub(crate) fn peer_limit(&self) -> usize {
+        self.handle.0.options.max_peers
+    }
+
     /// All three listeners must be caller-bound. Accepted sockets, deadlines and
     /// workers belong to the runtime's execution domain and join on its shutdown.
     pub async fn start(
@@ -393,6 +415,7 @@ impl RaftTransport {
             snapshot_source_budget: Budget::new(snapshot_memory, 1),
             snapshot_receive_budget: Budget::new(snapshot_memory, 1),
             snapshot_connections: Arc::new(Semaphore::new(1)),
+            seed_metadata: Budget::new(seeds::META_BYTES, 1),
         });
         let service = Self {
             handle: Arc::new(Handle(state.clone())),
@@ -1084,6 +1107,17 @@ impl State {
                 Ok(())
             })
             .await?;
+            if &prefix[..4] == seeds::REQUEST_MAGIC {
+                if lane != Lane::Data || sequence != 0 {
+                    return Err(TransportError::Protocol);
+                }
+                let exporter = stream
+                    .get_ref()
+                    .1
+                    .export_keying_material([0; 32], seeds::EXPORT_LABEL, None)
+                    .map_err(|error| TransportError::Tls(error.to_string()))?;
+                return self.receive_seed(&mut stream, &exporter, prefix).await;
+            }
             if &prefix[..4] == snapshots::REQUEST_MAGIC {
                 if lane != Lane::Data || sequence != 0 {
                     return Err(TransportError::Protocol);

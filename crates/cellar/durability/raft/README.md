@@ -458,11 +458,11 @@ durable checkpoint replaces the old reference; reader/transfer pins continue to
 protect retired bytes. Snapshot encode/download operations belong on the owning
 blocking domain. `host_snapshot.rs` schedules native checkpoints, source captures,
 downloads and publication; `snapshot_transport.rs` supplies member-only bounded
-pulls over separate TLS data connections. Automatic fresh-member recovery,
-quorum-loss refusal and full native-host
-lifecycle qualification remain unfinished. The component process-kill matrix
-covers image sync/rename/directory sync, engine sync/reply and publication. The owning verification
-target is `native_raft_snapshot`; this component does not complete MR-10.
+pulls over separate TLS data connections. Explicit fresh-learner peer seeding is
+implemented below. S3 seeding, automatic placement/repair and the remaining native
+crash matrix are unfinished. The component process-kill matrix covers image
+sync/rename/directory sync, engine sync/reply and publication. The owning
+verification target is `native_raft_snapshot`; this does not complete MR-10.
 
 
 `RaftRuntime::checkpoint` admits metadata and a verified pin into a dedicated
@@ -520,3 +520,46 @@ The component fixture transfers an exact 64-MiB incompressible SQLite database
 and restores its newer archived state after deleting both local node directories.
 It uses the in-memory object-store adapter; it does not qualify physical S3 or
 authorize replacement membership.
+
+
+## Explicit fresh-learner peer seeding
+
+`RaftCellHandle::add_learner` commits a revision-bound `JoiningMember` containing a
+fresh member ID, node ID and disk lineage. The node endpoint must already exist
+in the trusted peer configuration. This administrative API cannot introduce an
+arbitrary endpoint or invoke a business callback. Repeating the same identity
+reconciles a lost receipt; an error or cancellation may follow commitment, so
+reuse the identity and expected revision. The receipt supplies no seeding proof.
+Routes refresh from the synced membership; removed members stop local admission.
+
+Start the target with `RaftCellPlacement::Joining { member, source, source_node }`.
+The existing namespace and immutable birth must match. `seed_transport.rs` uses a
+purpose-separated TLS exporter, a fresh request tag/nonce and exact physical
+routes. `host_seed.rs` waits for an actual safe ReadIndex result and a published
+cut covering it before capturing a source snapshot. A cached configuration or
+available S3 objects cannot replace this live-quorum proof.
+
+The target grant is opaque, bound to its exact local engine owner, process and
+original deadline. One bounded metadata reservation and one receiver body may
+exist per node. Ordered chunks bind the snapshot digest and source lease; transient
+transport failures obtain a fresh grant under the same deadline. A new request
+supersedes the earlier source lease to that learner, whose outstanding stream
+retains its pins until bounded I/O exits. Identity/authentication failures remain
+refusals.
+
+`snapshot_seed.rs` validates the original birth, exact learner binding, included
+configuration and barrier before sealing the physical image. The engine creates
+the mapping, snapshot, current configuration, bindings and applied marker in one
+synced batch, retaining the original birth ConfState. Its HardState starts with
+vote zero; no source vote, leadership or process state is restored. The image
+stays retained across an uncertain engine write.
+
+Only then does the catalog conditionally create and read back the permanent
+member claim, followed by owner-bound runtime attachment. An existing claim with
+missing stable group state refuses startup. Stable joined state can reconcile a
+lost claim response without resetting its log or votes. Normal follower proofs
+still govern queries after attachment.
+
+The internal namespace protocol identity is
+`cellar-raft-ltx-1/members-1/seeds-1`; format markers remain 1. Use a fresh
+experimental namespace/prefix and local state after this hard cutover.

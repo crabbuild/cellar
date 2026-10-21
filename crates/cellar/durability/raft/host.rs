@@ -28,6 +28,10 @@ use std::sync::{
 };
 use tokio::sync::{mpsc, Notify};
 
+#[path = "host_membership.rs"]
+mod membership;
+#[path = "host_seed.rs"]
+mod seed;
 #[path = "host_snapshot.rs"]
 mod snapshots;
 
@@ -146,7 +150,16 @@ pub use super::transport_options::RaftPeerNode;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RaftCellPlacement {
     Replica,
-    QueryRouter { leader_hint: Option<MemberId> },
+    /// Resume a stable joined member or seed a new committed learner from the
+    /// specified trusted peer. A claimed member with lost state is refused.
+    Joining {
+        member: MemberId,
+        source: MemberId,
+        source_node: NodeId,
+    },
+    QueryRouter {
+        leader_hint: Option<MemberId>,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -221,10 +234,13 @@ pub(crate) async fn start(
     let mut cells = BTreeMap::new();
     let mut bindings = BTreeMap::new();
     let mut archive_owner = None;
+    let peer_count = peers.len();
+    let peers: BTreeMap<_, _> = peers.into_iter().map(|peer| (peer.node, peer)).collect();
     let initialized = async {
-        let peer_count = peers.len();
-        let peers: BTreeMap<_, _> = peers.into_iter().map(|p| (p.node, p)).collect();
-        anyhow::ensure!(peer_count == peers.len(), "duplicate peer node");
+        anyhow::ensure!(
+            peer_count == peers.len() && peer_count <= service.transport.peer_limit(),
+            "invalid peer discovery count"
+        );
         let mut grants = BTreeSet::new();
         for origin in origins {
             anyhow::ensure!(
@@ -316,14 +332,12 @@ pub(crate) async fn start(
                 );
                 continue;
             }
-            let permit = namespace.bootstrap_member(&birth, &service.log).await?;
             let scope = birth.scope().clone();
             anyhow::ensure!(
                 !cells.contains_key(&scope)
                     && !bindings.contains_key(&(scope.namespace, scope.cell.clone())),
                 "duplicate registered cell"
             );
-            let group = service.log.group(&scope)?;
             let worker = index % options.blocking_workers;
             let storage = sql::CellStorage {
                 directory: directory
@@ -335,6 +349,90 @@ pub(crate) async fn start(
                 images: options.images,
                 execution: options.execution,
             };
+            let permit = match placement {
+                RaftCellPlacement::Replica => {
+                    namespace.bootstrap_member(&birth, &service.log).await?
+                }
+                RaftCellPlacement::Joining {
+                    member,
+                    source,
+                    source_node,
+                } => {
+                    anyhow::ensure!(
+                        options.enable_snapshots,
+                        "joining requires snapshot recovery"
+                    );
+                    match namespace
+                        .resume_joined(&birth, &service.log, member)
+                        .await?
+                    {
+                        Some(permit) => permit,
+                        None => {
+                            let peer = peers
+                                .get(&source_node)
+                                .ok_or_else(|| anyhow::anyhow!("missing seed source endpoint"))?;
+                            peer.validate_endpoint()?;
+                            let local = service.log.limits();
+                            let identity = ReplicaIdentity {
+                                scope: scope.clone(),
+                                node: local.node,
+                                member,
+                                disk: local.disk,
+                                process: local.process,
+                            };
+                            let source = RaftPeer {
+                                replica: ReplicaIdentity {
+                                    scope: scope.clone(),
+                                    node: peer.node,
+                                    member: source,
+                                    disk: peer.disk,
+                                    process: peer.process,
+                                },
+                                label: peer.label.clone(),
+                                server_name: peer.server_name.clone(),
+                                control_address: peer.control_address,
+                                data_address: peer.data_address,
+                                query_address: peer.query_address,
+                            };
+                            let limits = service
+                                .transport
+                                .snapshot_limits(options.execution.max_image_bytes)?;
+                            let received = service
+                                .transport
+                                .seed_from_peer(
+                                    identity,
+                                    source,
+                                    &birth,
+                                    class.schema_digest(),
+                                    limits,
+                                )
+                                .await?;
+                            let output = pool
+                                .call(
+                                    worker,
+                                    scope.clone(),
+                                    Action::SealSeed {
+                                        received: Box::new(received),
+                                        storage: storage.clone(),
+                                    },
+                                    None,
+                                    None,
+                                )
+                                .await?;
+                            let Value::Seeded(seed) = output.value else {
+                                anyhow::bail!("SQL seed response")
+                            };
+                            service.log.create_seeded(*seed).await?;
+                            namespace
+                                .resume_joined(&birth, &service.log, member)
+                                .await?
+                                .ok_or_else(|| anyhow::anyhow!("seed state missing after fence"))?
+                        }
+                    }
+                }
+                RaftCellPlacement::QueryRouter { .. } => unreachable!("router handled above"),
+            };
+            let group = service.log.group(&scope)?;
             let output = pool
                 .call(
                     worker,
@@ -354,43 +452,14 @@ pub(crate) async fn start(
             let progress = progress(&group, image.as_ref(), LogIndex::new(0))?
                 .ok_or_else(|| anyhow::anyhow!("unverified recovered image"))?;
             let core = CommandState::new(progress, namespace.minimum_durability())?;
-            let mut routes = Vec::new();
-            for member in birth.voters().iter().chain(birth.learners()) {
-                routes.push(if member.node == group.identity().node {
-                    RaftPeer {
-                        replica: group.identity().clone(),
-                        label: label.clone(),
-                        server_name: "localhost".into(),
-                        control_address: service.transport.control_address(),
-                        data_address: service.transport.data_address(),
-                        query_address: service.transport.query_address(),
-                    }
-                } else {
-                    let peer = peers
-                        .get(&member.node)
-                        .ok_or_else(|| anyhow::anyhow!("missing initial peer route"))?;
-                    RaftPeer {
-                        replica: ReplicaIdentity {
-                            scope: scope.clone(),
-                            node: peer.node,
-                            member: member.member,
-                            disk: peer.disk,
-                            process: peer.process,
-                        },
-                        label: peer.label.clone(),
-                        server_name: peer.server_name.clone(),
-                        control_address: peer.control_address,
-                        data_address: peer.data_address,
-                        query_address: peer.query_address,
-                    }
-                });
-            }
-            service.transport.install_group(GroupRoute {
-                scope: scope.clone(),
-                schema_digest: class.schema_digest(),
-                revision: 1,
-                peers: routes,
-            })?;
+            service.transport.install_group(membership::route(
+                &group,
+                &birth,
+                &peers,
+                class.schema_digest(),
+                &label,
+                &service.transport,
+            )?)?;
             bindings.insert(
                 (scope.namespace, scope.cell.clone()),
                 Binding {
@@ -404,6 +473,10 @@ pub(crate) async fn start(
             cells.insert(
                 scope.clone(),
                 Cell {
+                    birth: birth.clone(),
+                    route_revision: group.membership()?.revision(),
+                    configuration: None,
+                    retired: false,
                     archive: namespace.cell_archive(&birth, ltx_host(), options.archive.limits)?,
                     archived: LogIndex::new(0),
                     archive_retry_at: 0,
@@ -506,6 +579,8 @@ pub(crate) async fn start(
         let mut read_nonce = [0; 16];
         rng.fill_bytes(&mut read_nonce);
         let mut driver = Driver {
+            peers,
+            label,
             archive_owner,
             log,
             runtime,
@@ -634,6 +709,10 @@ struct Pending {
 }
 
 struct Cell {
+    birth: GroupBirth,
+    route_revision: LogIndex,
+    configuration: Option<membership::PendingConfiguration>,
+    retired: bool,
     archive: CellArchive,
     archived: LogIndex,
     archive_retry_at: u64,
@@ -667,6 +746,7 @@ enum StatusPurpose {
 }
 
 enum SqlPurpose {
+    Seed(ReadId),
     Checkpoint,
     SnapshotSource(Box<::raft::prelude::Message>),
     SnapshotPrepare(ApplyTicket),
@@ -682,6 +762,10 @@ enum SqlPurpose {
 }
 
 enum Job {
+    Configured {
+        scope: GroupScope,
+        result: Result<AcceptedProposal, RuntimeError>,
+    },
     SnapshotSent {
         lease: u64,
         result: Result<(), super::transport::TransportError>,
@@ -751,6 +835,8 @@ enum Job {
 }
 
 struct Driver {
+    peers: BTreeMap<NodeId, RaftPeerNode>,
+    label: String,
     snapshot_limits: super::snapshot::SnapshotLimits,
     snapshot_source: Option<super::transport::snapshots::SnapshotSource>,
     archive_owner: Option<super::host_archive::Owner>,
@@ -821,7 +907,7 @@ impl Driver {
                 self.finish_read(&id, Err(CommandFailure::Unavailable));
                 continue;
             };
-            if read.expired() || cell.failed {
+            if read.expired() || cell.failed || cell.retired {
                 self.finish_read(&id, Err(CommandFailure::VersionUnavailable));
                 continue;
             }
@@ -878,6 +964,42 @@ impl Driver {
                     if cell.sql_busy || cell.apply.is_some() || cell.publication.is_some() {
                         continue;
                     }
+                    if let super::query::ReadOperation::Seed { target } = &read.operation {
+                        let Some(Minimum::ReadIndex(barrier)) = read.minimum.as_ref() else {
+                            self.finish_read(&id, Err(CommandFailure::CorruptState));
+                            continue;
+                        };
+                        if !seed::valid_target(cell, target, &self.peers) {
+                            self.finish_read(&id, Err(CommandFailure::Unavailable));
+                            continue;
+                        }
+                        let ready = !cell.apply_inflight
+                            && cell.group.read().is_ok_and(|cache| {
+                                cache.applied.position.index >= *barrier
+                                    && cache.applied.image.as_ref()
+                                        == cell.image.as_ref().map(|image| &image.image)
+                            });
+                        if !ready {
+                            continue;
+                        }
+                        let reservation = match self.transport.reserve_snapshot_source() {
+                            Ok(reservation) => reservation,
+                            Err(_) => {
+                                self.finish_read(&id, Err(CommandFailure::Overloaded));
+                                continue;
+                            }
+                        };
+                        read.phase = ReadPhase::Executing;
+                        self.sql(
+                            &scope,
+                            SqlPurpose::Seed(id),
+                            Action::CaptureSeed {
+                                limits: self.snapshot_limits,
+                                reservation,
+                            },
+                        );
+                        continue;
+                    }
                     let Some(image) = cell.image.as_ref() else {
                         continue;
                     };
@@ -905,9 +1027,13 @@ impl Driver {
                         Ok(true) => (),
                     }
                     read.phase = ReadPhase::Executing;
+                    let super::query::ReadOperation::Query { contract, input } = &read.operation
+                    else {
+                        continue;
+                    };
                     let action = Action::Query {
-                        contract: read.contract.clone(),
-                        input: read.input.clone(),
+                        contract: contract.clone(),
+                        input: input.clone(),
                         minimum,
                         control: read.request.control.clone(),
                         source_deadline: read.source_deadline,
@@ -1062,11 +1188,15 @@ impl Driver {
         };
         cell.sql_busy = true;
         let work = match &purpose {
-            SqlPurpose::Query(id) => self.reads.get(id).map(|read| read.request.work.clone()),
+            SqlPurpose::Query(id) | SqlPurpose::Seed(id) => {
+                self.reads.get(id).map(|read| read.request.work.clone())
+            }
             _ => cell.pending.as_ref().map(|p| p.request.work.clone()),
         };
         let cancel = match &purpose {
-            SqlPurpose::Query(id) => self.reads.get(id).map(|read| read.request.control.clone()),
+            SqlPurpose::Query(id) | SqlPurpose::Seed(id) => {
+                self.reads.get(id).map(|read| read.request.control.clone())
+            }
             SqlPurpose::Stage => cell
                 .pending
                 .as_ref()
@@ -1239,7 +1369,10 @@ impl Driver {
         let scope = request.scope.clone();
         let allow_new = matches!(&request.kind, Kind::Command { .. }) && self.archive_admission();
         if self.closing.load(Ordering::Acquire)
-            || self.cells.get(&scope).is_some_and(|cell| cell.failed)
+            || self
+                .cells
+                .get(&scope)
+                .is_some_and(|cell| cell.failed || cell.retired)
         {
             reply(&mut request, Err(CommandFailure::Unavailable));
             return;
@@ -1247,9 +1380,25 @@ impl Driver {
         if request.control.cancelled() {
             return;
         }
+        if matches!(&request.kind, Kind::Seed { .. }) {
+            if let Kind::Seed { target } = std::mem::replace(&mut request.kind, Kind::Status) {
+                self.start_seed(request, target);
+            }
+            return;
+        }
         if matches!(&request.kind, Kind::Query { options, .. } if !matches!(options.routing, client::QueryRouting::Local))
         {
             self.on_routed_query(request);
+            return;
+        }
+        if matches!(&request.kind, Kind::AddLearner { .. }) {
+            if let Kind::AddLearner {
+                member,
+                expected_revision,
+            } = std::mem::replace(&mut request.kind, Kind::Status)
+            {
+                self.add_learner(request, member, expected_revision);
+            }
             return;
         }
         let Some(cell) = self.cells.get_mut(&scope) else {
@@ -1268,6 +1417,9 @@ impl Driver {
             return;
         }
         match std::mem::replace(&mut request.kind, Kind::Status) {
+            Kind::AddLearner { .. } | Kind::Seed { .. } => {
+                reply(&mut request, Err(CommandFailure::UnsupportedCapability))
+            }
             Kind::Status => self.status(&scope, StatusPurpose::Observe(Box::new(request))),
             Kind::Query {
                 contract,
@@ -1407,6 +1559,8 @@ impl Driver {
                     applied: status.applied,
                     checkpoint: status.checkpoint,
                     archived: cell.archived,
+                    membership_revision: status.membership_revision,
+                    member_high_water: status.member_high_water,
                 })
             });
             reply(
@@ -1664,6 +1818,10 @@ impl Driver {
         purpose: SqlPurpose,
         result: Result<sql::Output, ExecutionError>,
     ) {
+        if let SqlPurpose::Seed(id) = purpose {
+            self.seed_sql(scope, id, result);
+            return;
+        }
         if matches!(
             &purpose,
             SqlPurpose::Checkpoint
@@ -2034,6 +2192,7 @@ impl Driver {
     }
 
     fn pump(&mut self) {
+        self.pump_membership();
         self.pump_snapshots();
         for scope in self.applying.clone() {
             let Some(cell) = self.cells.get_mut(&scope) else {
@@ -2198,6 +2357,7 @@ impl Driver {
 
     fn on_job(&mut self, job: Job) {
         match job {
+            Job::Configured { scope, result } => self.configured(scope, result),
             job @ (Job::SnapshotSent { .. }
             | Job::SnapshotFetched { .. }
             | Job::SnapshotAuthorized { .. }
@@ -2367,6 +2527,7 @@ impl Driver {
     async fn shutdown(&mut self) -> Result<client::RaftCloseReport, CommandFailure> {
         self.closing.store(true, Ordering::Release);
         self.snapshot_source.take();
+        self.close_configurations();
         if let Some(owner) = &self.archive_owner {
             let _ = owner.cancellation.send(true);
         }

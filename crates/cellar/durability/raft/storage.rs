@@ -106,6 +106,7 @@ pub struct ReplicaLog {
 }
 
 struct LogHandle {
+    owner: Arc<()>,
     sender: mpsc::SyncSender<Request>,
     domain: crate::asyncrt::DomainToken,
     groups: Catalog,
@@ -153,6 +154,7 @@ struct Request {
 
 enum Work {
     Create(GroupBootstrap, Reply<GroupLog>),
+    Seeded(Box<super::snapshot::PreparedSeed>, Reply<GroupLog>),
     Persist(OperationId, Vec<GroupWrite>, Reply<SyncReceipt>),
     Purge(Reply<()>),
     Close(Reply<()>),
@@ -182,6 +184,10 @@ impl ReplicaLog {
         self.inner.domain.clone()
     }
 
+    pub(crate) fn owner(&self) -> Arc<()> {
+        self.inner.owner.clone()
+    }
+
     pub(crate) fn limits(&self) -> &ReplicaLogOptions {
         &self.inner.options
     }
@@ -203,6 +209,7 @@ impl ReplicaLog {
         let owner = Arc::new(());
         let handle = Self {
             inner: Arc::new(LogHandle {
+                owner: owner.clone(),
                 sender,
                 domain: domain.clone(),
                 groups: groups.clone(),
@@ -283,6 +290,17 @@ impl ReplicaLog {
     pub async fn create_group(&self, bootstrap: GroupBootstrap) -> Result<GroupLog, LogError> {
         bootstrap.configuration()?;
         self.request(4096, |reply| Work::Create(bootstrap, reply))
+            .await
+    }
+
+    pub(crate) async fn create_seeded(
+        &self,
+        seed: super::snapshot::PreparedSeed,
+    ) -> Result<GroupLog, LogError> {
+        if !seed.authorized(&self.inner.owner, seed.local()) {
+            return Err(LogError::WrongIdentity);
+        }
+        self.request(96 * 1024, |reply| Work::Seeded(Box::new(seed), reply))
             .await
     }
 
@@ -701,6 +719,41 @@ impl Worker {
             }
             return Err(LogError::WrongIdentity);
         }
+        self.create_cache(bootstrap, conf.clone(), genesis(conf), None)
+    }
+
+    fn seeded(&mut self, seed: super::snapshot::PreparedSeed) -> Result<GroupLog, LogError> {
+        let identity = ReplicaIdentity {
+            scope: seed.local().scope.clone(),
+            member: seed.local().member,
+            node: self.options.node,
+            disk: self.options.disk,
+            process: self.options.process,
+        };
+        if !seed.authorized(&self.owner, &identity) {
+            return Err(LogError::WrongIdentity);
+        }
+        if self
+            .groups
+            .read()
+            .map_err(|_| LogError::Closed)?
+            .contains_key(&identity.scope)
+        {
+            return Err(LogError::AlreadyExists);
+        }
+        let bootstrap = seed.bootstrap()?;
+        let conf = seed.initial().clone();
+        let cache = seed.cache().map_err(|e| LogError::Invalid(e.to_string()))?;
+        self.create_cache(bootstrap, conf, cache, Some(&seed))
+    }
+
+    fn create_cache(
+        &mut self,
+        bootstrap: GroupBootstrap,
+        conf: ConfState,
+        cache: CachedGroup,
+        seed: Option<&super::snapshot::PreparedSeed>,
+    ) -> Result<GroupLog, LogError> {
         if self.mappings.len() >= self.options.max_groups {
             return Err(LogError::Overloaded);
         }
@@ -717,7 +770,6 @@ impl Worker {
         let key = self.root.next_key;
         let next_key = key.checked_add(1).ok_or(LogError::Overloaded)?;
         let mapping = MappingRecord::new(key, &bootstrap, &conf)?;
-        let cache = genesis(conf);
         cache.validate(self.options.max_entries_per_group)?;
         let bytes = cache.bytes();
         if self
@@ -738,11 +790,18 @@ impl Worker {
                 records::encode(&GroupRecord::from_cache(mapping.clone(), &cache)?)?,
             )
             .map_err(engine_error)?;
+        if let Some(seed) = seed {
+            seed.retain_pending()
+                .map_err(|e| LogError::Io(e.to_string()))?;
+        }
         let previous_key = self.root.next_key;
         self.root.next_key = next_key;
         if let Err(error) = self.fence(&mut batch) {
             self.root.next_key = previous_key;
             return Err(error);
+        }
+        if let Some(seed) = seed {
+            seed.retain().map_err(|e| LogError::Io(e.to_string()))?;
         }
         let handle = self.handle(&mapping, cache)?;
         self.groups
@@ -848,6 +907,15 @@ impl Worker {
             let fatal = match request.work {
                 Work::Create(bootstrap, reply) => {
                     let result = self.create(bootstrap);
+                    let fatal = result.as_ref().err().filter(|error| error.fatal()).cloned();
+                    if fatal.is_some() {
+                        self.closed.store(true, Ordering::Release);
+                    }
+                    let _ = reply.send(result);
+                    fatal
+                }
+                Work::Seeded(seed, reply) => {
+                    let result = self.seeded(*seed);
                     let fatal = result.as_ref().err().filter(|error| error.fatal()).cloned();
                     if fatal.is_some() {
                         self.closed.store(true, Ordering::Release);

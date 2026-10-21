@@ -115,6 +115,24 @@ impl Descriptor {
         snapshot: &Snapshot,
         limits: SnapshotLimits,
     ) -> Result<Self, SnapshotError> {
+        Self::decode_bound(
+            &group.identity().scope,
+            group.birth_digest,
+            &group.membership()?,
+            schema,
+            snapshot,
+            limits,
+        )
+    }
+
+    fn decode_bound(
+        scope: &GroupScope,
+        birth: [u8; 32],
+        initial: &super::member_state::GroupMembership,
+        schema: [u8; 32],
+        snapshot: &Snapshot,
+        limits: SnapshotLimits,
+    ) -> Result<Self, SnapshotError> {
         limits.validate()?;
         if snapshot.compute_size() > 64 * 1024 || snapshot.data.is_empty() {
             return Err(SnapshotError::Limit);
@@ -127,7 +145,7 @@ impl Descriptor {
         descriptor
             .membership
             .validate(metadata.get_conf_state(), metadata.index)?;
-        if !descriptor.membership.same_birth(&group.membership()?) {
+        if !descriptor.membership.same_birth(initial) {
             return Err(SnapshotError::Invalid("snapshot birth members"));
         }
         // Compare the complete protobuf as well as canonical JSON: unknown
@@ -135,8 +153,8 @@ impl Descriptor {
         // outside the digest bound to a runtime ticket.
         let canonical = descriptor.snapshot()?;
         if descriptor.format != 1
-            || descriptor.scope != WireScope::from(&group.identity().scope)
-            || descriptor.birth != group.birth_digest
+            || descriptor.scope != WireScope::from(scope)
+            || descriptor.birth != birth
             || descriptor.schema != schema
             || descriptor.index < 2
             || descriptor.index >= u64::MAX - 2
@@ -493,55 +511,11 @@ impl SnapshotDownload {
     /// Seal on the destination's blocking owner. Exact existing bytes make a
     /// repeated download idempotent; a colliding identity is never overwritten.
     pub fn finish(self, images: &GenerationStore) -> Result<PreparedSnapshot, SnapshotError> {
-        if self.bytes.len() != self.descriptor.encoded_length
-            || <[u8; 32]>::from(Sha256::digest(&self.bytes)) != self.descriptor.encoded_digest
-        {
-            return Err(SnapshotError::Invalid("transfer length/digest"));
-        }
-        let Some(image) = self.descriptor.image.as_ref() else {
-            return Ok(PreparedSnapshot {
-                group: self.group,
-                snapshot: self.snapshot,
-                pin: None,
-                membership: self.descriptor.membership,
-            });
-        };
-        let state = marker_state(image);
-        let decoded = ltx::decode_file_bounded(&self.bytes, self.limits.apply().decode)
-            .map_err(|_| SnapshotError::Invalid("physical LTX"))?;
-        if !decoded.header().is_snapshot()
-            || decoded.header().max_txid != state.txid
-            || decoded.header().page_size != state.page_size
-            || u64::from(decoded.header().commit) * u64::from(state.page_size) != state.length
-            || decoded.trailer().post_apply_checksum != state.checksum
-        {
-            return Err(SnapshotError::Invalid("physical image binding"));
-        }
-        let id = marker_id(image)?;
-        let pin = match images.adopt(id, state) {
-            Ok(pin) => pin,
-            Err(GenerationError::Missing) => images.prepare(
-                id,
-                None,
-                &ImageUpdate {
-                    base: ImageState::empty(state.epoch)
-                        .map_err(|_| SnapshotError::Invalid("image epoch"))?,
-                    result: state,
-                    segments: vec![LtxSegment {
-                        bytes: &self.bytes,
-                        min_txid: TXID(1),
-                        max_txid: state.txid,
-                        page_count: decoded.pages().len(),
-                        decoded_bytes: decoded.decoded_bytes(),
-                    }],
-                },
-            )?,
-            Err(error) => return Err(error.into()),
-        };
+        let pin = seal_image(&self.descriptor, &self.bytes, self.limits, images)?;
         Ok(PreparedSnapshot {
             group: self.group,
             snapshot: self.snapshot,
-            pin: Some(pin),
+            pin,
             membership: self.descriptor.membership,
         })
     }
@@ -720,3 +694,56 @@ fn encode_image(pin: &GenerationPin, limits: SnapshotLimits) -> Result<Vec<u8>, 
     }
     Ok(bytes)
 }
+
+fn seal_image(
+    descriptor: &Descriptor,
+    bytes: &[u8],
+    limits: SnapshotLimits,
+    images: &GenerationStore,
+) -> Result<Option<GenerationPin>, SnapshotError> {
+    if bytes.len() != descriptor.encoded_length
+        || <[u8; 32]>::from(Sha256::digest(bytes)) != descriptor.encoded_digest
+    {
+        return Err(SnapshotError::Invalid("transfer length/digest"));
+    }
+    let Some(image) = descriptor.image.as_ref() else {
+        return Ok(None);
+    };
+    let state = marker_state(image);
+    let decoded = ltx::decode_file_bounded(bytes, limits.apply().decode)
+        .map_err(|_| SnapshotError::Invalid("physical LTX"))?;
+    if !decoded.header().is_snapshot()
+        || decoded.header().max_txid != state.txid
+        || decoded.header().page_size != state.page_size
+        || u64::from(decoded.header().commit) * u64::from(state.page_size) != state.length
+        || decoded.trailer().post_apply_checksum != state.checksum
+    {
+        return Err(SnapshotError::Invalid("physical image binding"));
+    }
+    let id = marker_id(image)?;
+    let pin = match images.adopt(id, state) {
+        Ok(pin) => pin,
+        Err(GenerationError::Missing) => images.prepare(
+            id,
+            None,
+            &ImageUpdate {
+                base: ImageState::empty(state.epoch)
+                    .map_err(|_| SnapshotError::Invalid("image epoch"))?,
+                result: state,
+                segments: vec![LtxSegment {
+                    bytes,
+                    min_txid: TXID(1),
+                    max_txid: state.txid,
+                    page_count: decoded.pages().len(),
+                    decoded_bytes: decoded.decoded_bytes(),
+                }],
+            },
+        )?,
+        Err(error) => return Err(error.into()),
+    };
+    Ok(Some(pin))
+}
+
+#[path = "snapshot_seed.rs"]
+mod seed;
+pub(crate) use seed::{PreparedSeed, SeedDownload};

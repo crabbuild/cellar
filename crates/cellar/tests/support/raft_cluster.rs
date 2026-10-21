@@ -25,6 +25,7 @@ struct Fault {
     stopped: bool,
     hold_response: bool,
     hold_after: Option<usize>,
+    hold_connection: Option<usize>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -70,6 +71,7 @@ async fn forward_responses(
     mut writer: impl AsyncWrite + Unpin,
     mut faults: watch::Receiver<Fault>,
     held: Arc<AtomicUsize>,
+    connection: usize,
 ) -> std::io::Result<()> {
     let mut buffer = [0; 16 * 1024];
     let mut forwarded = 0usize;
@@ -81,7 +83,11 @@ async fn forward_responses(
         let mut offset = 0;
         let mut counted = false;
         while offset < count {
-            let fault = *faults.borrow_and_update();
+            let mut fault = *faults.borrow_and_update();
+            if fault.hold_connection.is_some_and(|held| held != connection) {
+                fault.hold_response = false;
+                fault.hold_after = None;
+            }
             let allowance = if fault.hold_response {
                 0
             } else {
@@ -136,7 +142,7 @@ impl Proxy {
                     done = connections.join_next(), if !connections.is_empty() => { if let Some(done) = done { done?; } }
                     accepted = listener.accept(), if connections.len() < 8 => {
                         let (mut source, _) = accepted?;
-                        attempted.fetch_add(1, Ordering::SeqCst);
+                        let connection=attempted.fetch_add(1, Ordering::SeqCst)+1;
                         if changes.borrow().blocked { continue; }
                         let cut = changes.clone();
                         let held = held.clone();
@@ -157,7 +163,7 @@ impl Proxy {
                                         let (from_target, mut to_target) = target.into_split();
                                         cellar::asyncrt::select! {
                                             _ = tokio::io::copy(&mut from_source, &mut to_target) => (),
-                                            _ = forward_responses(from_target, to_source, cut, held) => (),
+                                            _ = forward_responses(from_target, to_source, cut, held, connection) => (),
                                         }
                                     }
                                 } => (),
@@ -214,6 +220,8 @@ pub struct Cluster {
     #[allow(dead_code)]
     pub store: Arc<dyn object_store::ObjectStore>,
     links: Vec<(usize, usize, Link, Proxy)>,
+    #[allow(dead_code)]
+    standby: Option<(NodeRaftListeners, RaftCellsConfig)>,
     _roots: Vec<tempfile::TempDir>,
 }
 
@@ -245,6 +253,7 @@ impl Cluster {
             host,
             None,
             TransportOptions::default(),
+            false,
         )
         .await
     }
@@ -257,7 +266,16 @@ impl Cluster {
         host: RaftHostOptions,
         transport: TransportOptions,
     ) -> Result<Self> {
-        Self::start_layout(definitions, registrations, tick_ms, host, None, transport).await
+        Self::start_layout(
+            definitions,
+            registrations,
+            tick_ms,
+            host,
+            None,
+            transport,
+            false,
+        )
+        .await
     }
 
     // Some targets only use the three-voter partition fixture.
@@ -276,8 +294,58 @@ impl Cluster {
             host,
             Some(namespaces),
             TransportOptions::default(),
+            false,
         )
         .await
+    }
+
+    #[allow(dead_code)]
+    pub async fn start_with_standby(
+        definitions: &[public_node::Counter],
+        registrations: Vec<RaftCellRegistration>,
+    ) -> Result<Self> {
+        Self::start_layout(
+            definitions,
+            registrations,
+            20,
+            RaftHostOptions::default(),
+            None,
+            TransportOptions {
+                snapshot_chunk_bytes: 64,
+                ..Default::default()
+            },
+            true,
+        )
+        .await
+    }
+
+    #[allow(dead_code)]
+    pub async fn join_standby(
+        &mut self,
+        application: Arc<dyn cellar::sdk::Application>,
+        placement: RaftCellPlacement,
+    ) -> Result<RaftCells> {
+        let (listeners, mut config) = self
+            .standby
+            .take()
+            .ok_or_else(|| anyhow::anyhow!("no standby node"))?;
+        for registration in &mut config.cells {
+            registration.placement = placement;
+        }
+        let service = self.nodes[3]
+            .start_raft_cells(
+                config,
+                RaftCellsServices {
+                    listeners,
+                    tls: public_node::tls()?,
+                    store: self.store.clone(),
+                    application,
+                    versions: public_node::version_keys()?,
+                },
+            )
+            .await?;
+        self.services.push(service.clone());
+        Ok(service)
     }
 
     async fn start_layout(
@@ -287,8 +355,13 @@ impl Cluster {
         host: RaftHostOptions,
         namespaces: Option<&[(ClusterId, NamespaceId)]>,
         transport: TransportOptions,
+        standby_node: bool,
     ) -> Result<Self> {
-        let count = if namespaces.is_some() { 4 } else { 3 };
+        let count = if namespaces.is_some() || standby_node {
+            4
+        } else {
+            3
+        };
         ensure!(definitions.len() == count, "incorrect fixture node count");
         let roots = (0..count)
             .map(|_| tempfile::tempdir())
@@ -347,58 +420,64 @@ impl Cluster {
         }
         let store = Arc::new(object_store::memory::InMemory::new());
         let mut services = Vec::new();
+        let mut standby = None;
         for (i, listeners) in listeners.into_iter().enumerate() {
+            let config = RaftCellsConfig {
+                query_origins: if i < 3 {
+                    namespaces
+                        .unwrap_or(&[])
+                        .iter()
+                        .map(|(cluster, namespace)| NamespaceQueryOrigin {
+                            cluster: *cluster,
+                            namespace: *namespace,
+                            revision: 1,
+                            peer: routes[i][3].clone(),
+                        })
+                        .collect()
+                } else {
+                    vec![]
+                },
+                infrastructure: NodeRaftConfig {
+                    log: ReplicaLogOptions::new(
+                        nodes[i].info().data_dir.join("raft"),
+                        peers[i].node,
+                        peers[i].disk,
+                        peers[i].process,
+                        LogOpenMode::Create,
+                    ),
+                    consensus: RaftRuntimeOptions {
+                        tick_interval_ms: Some(tick_ms),
+                        ..Default::default()
+                    },
+                    transport: transport.clone(),
+                },
+                catalog: CatalogOptions {
+                    prefix: "partition/test".into(),
+                    ..Default::default()
+                },
+                cells: registrations
+                    .iter()
+                    .cloned()
+                    .map(|mut registration| {
+                        if i == 3 {
+                            registration.placement = RaftCellPlacement::QueryRouter {
+                                leader_hint: Some(MemberId::new(1).unwrap()),
+                            };
+                        }
+                        registration
+                    })
+                    .collect(),
+                peers: routes[i].clone(),
+                host: host.clone(),
+            };
+            if i == 3 && standby_node {
+                standby = Some((listeners, config));
+                continue;
+            }
             services.push(
                 nodes[i]
                     .start_raft_cells(
-                        RaftCellsConfig {
-                            query_origins: if i < 3 {
-                                namespaces
-                                    .unwrap_or(&[])
-                                    .iter()
-                                    .map(|(cluster, namespace)| NamespaceQueryOrigin {
-                                        cluster: *cluster,
-                                        namespace: *namespace,
-                                        revision: 1,
-                                        peer: routes[i][3].clone(),
-                                    })
-                                    .collect()
-                            } else {
-                                vec![]
-                            },
-                            infrastructure: NodeRaftConfig {
-                                log: ReplicaLogOptions::new(
-                                    nodes[i].info().data_dir.join("raft"),
-                                    peers[i].node,
-                                    peers[i].disk,
-                                    peers[i].process,
-                                    LogOpenMode::Create,
-                                ),
-                                consensus: RaftRuntimeOptions {
-                                    tick_interval_ms: Some(tick_ms),
-                                    ..Default::default()
-                                },
-                                transport: transport.clone(),
-                            },
-                            catalog: CatalogOptions {
-                                prefix: "partition/test".into(),
-                                ..Default::default()
-                            },
-                            cells: registrations
-                                .iter()
-                                .cloned()
-                                .map(|mut registration| {
-                                    if i == 3 {
-                                        registration.placement = RaftCellPlacement::QueryRouter {
-                                            leader_hint: Some(MemberId::new(1).unwrap()),
-                                        };
-                                    }
-                                    registration
-                                })
-                                .collect(),
-                            peers: routes[i].clone(),
-                            host: host.clone(),
-                        },
+                        config,
                         RaftCellsServices {
                             listeners,
                             tls: public_node::tls()?,
@@ -415,6 +494,7 @@ impl Cluster {
             services,
             store,
             links,
+            standby,
             _roots: roots,
         })
     }
@@ -480,6 +560,21 @@ impl Cluster {
             .await?;
         }
         Ok(())
+    }
+
+    #[allow(dead_code)]
+    pub fn hold_seed_body(&self, source: usize, target: usize) -> Result<Arc<AtomicUsize>> {
+        let proxy = self
+            .links
+            .iter()
+            .find(|(s, t, lane, _)| *s == source && *t == target && *lane == Link::Data)
+            .map(|(_, _, _, p)| p)
+            .ok_or_else(|| anyhow::anyhow!("seed data link missing"))?;
+        proxy.state.send_modify(|fault| {
+            fault.hold_connection = Some(2);
+            fault.hold_after = Some(4096);
+        });
+        Ok(proxy.held_response_bytes.clone())
     }
 
     #[allow(dead_code)]
