@@ -33,10 +33,10 @@ impl Arguments {
         let args = std::env::args().skip(1).collect::<Vec<_>>();
         ensure!(
             args.len() == 3,
-            "usage: python-baseline native|python DIRECTORY primary|recovered"
+            "usage: python-baseline native|python|python-defaults DIRECTORY primary|recovered"
         );
         ensure!(
-            matches!(args[0].as_str(), "native" | "python"),
+            matches!(args[0].as_str(), "native" | "python" | "python-defaults"),
             "invalid host mode"
         );
         ensure!(
@@ -101,11 +101,20 @@ fn python(_arguments: Arguments, _before: Value) -> Result<()> {
 fn python(arguments: Arguments, before: Value) -> Result<()> {
     use cellar_python::{EventKind, Options, PythonRuntime, Source};
     let directory = arguments.directory.clone();
+    let options = Options::default();
+    let limits = json!({
+        "max_invocations": options.max_invocations, "max_body_bytes": options.max_body_bytes,
+        "max_value_bytes": options.max_value_bytes, "max_bridge_bytes": options.max_bridge_bytes,
+        "max_operations": options.max_operations, "max_pending_operations": options.max_pending_operations,
+        "max_batch_operations": options.max_batch_operations, "max_tasks": options.max_tasks,
+        "max_objects": options.max_objects, "shutdown_timeout_ms": options.shutdown_timeout.as_millis(),
+        "poll_interval_ns": options.poll_interval.as_nanos(), "telemetry_interval_ms": options.telemetry_interval.as_millis(),
+    });
     // SAFETY: this executable initializes once on its main thread, before any
     // node or foreign Python caller exists. The owned supervisor joins below.
     let report = unsafe {
         PythonRuntime::run(
-            Options::default(),
+            options,
             Source::new(include_str!("baseline_app.py"), "baseline_app.py")
                 .events([EventKind::Fetch])
                 .cell("Entity"),
@@ -113,7 +122,7 @@ fn python(arguments: Arguments, before: Value) -> Result<()> {
                 let observed = application.clone();
                 let observation: Observation = Arc::new(move || {
                     json!({
-                        "kind":"python", "bridge":observed.bridge_report(), "interpreter":observed.interpreter_snapshot(),
+                        "kind":"python", "bridge":observed.bridge_report(), "interpreter":observed.interpreter_snapshot(), "limits":limits,
                     })
                 });
                 let runtime = tokio::runtime::Builder::new_multi_thread()

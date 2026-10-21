@@ -1591,3 +1591,24 @@ privacy cases; complete workflow qualification is still running. These jobs
 do not qualify the later local prerequisite implementation. P02, measured
 shipping defaults (Q01) and preserved deadline/final-source qualification (Q12)
 remain open; H06 retains its complete packaged/platform qualification gate.
+
+## Shipping-default workload harness checkpoint
+
+The private baseline host now has a separate `python-defaults` mode using the
+actual unchanged Python default options. Its native stateless pool is explicitly
+raised to 256 with no admission wait to isolate the Python invocation cap; all
+effective Python/native fixture limits are recorded. The default-limit driver
+rotates echo, checked durable counters and bounded CPU work at increasing
+concurrency, tests exact/next-byte request bodies, directly observes all 128
+managed invocations held before refusing sixteen excess requests, then requires
+capacity reuse. Every acknowledged counter survives owner kill and local disk
+deletion, followed by a new write and complete combined join.
+
+Conventional and GIL-off free-threaded CPython 3.14.5 smoke runs pass. The latter
+includes concurrency 1/4/16/32; the initial conventional smoke uses 1/4. Both
+exercise the actual default body/invocation caps. Six report CLI tests pass,
+including under `-O`: valid evidence is accepted while corrupted receipts,
+percentiles, saturation observations, native drain and pending operations are
+refused. These smoke runs validate the harness, not capacity or production SLOs.
+Repeated optimized mixed-load measurements and final-source Linux execution
+remain required before closing Q01/Q12. See the [harness guide](../tools/python/baseline.md#shipping-python-defaults).

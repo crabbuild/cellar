@@ -73,6 +73,48 @@ and Python cleanup. Corrupted receipts, published percentiles or incomplete
 drain/cleanup refuse a report. The [recorded development measurements](../../plans/007-embedded-python-baselines.md)
 include raw evidence and its exact scope.
 
+## Shipping Python defaults
+
+`operating_defaults.py` uses the same compiled Python executable in the separate
+`python-defaults` fixture mode. It passes one unchanged `Options::default()` to
+the runtime and records its effective limits. Native stateless admission is
+explicitly raised to twice the Python invocation limit, with zero admission
+wait, so native admission cannot mask Python saturation. Other fixture policies,
+including the five-second handler deadline and private SQLite bucket, are
+recorded. This does not measure an unchanged default native node policy.
+
+```sh
+python3 tools/python/operating_defaults.py \
+  --python-host "gil=$CELLAR_BASELINE_BIN/python-gil" \
+  --python-host "free-threaded=$CELLAR_BASELINE_BIN/python-free-threaded" \
+  --output "$CELLAR_BASELINE_BIN/defaults-evidence" --build-profile lab \
+  --count 40 --concurrency 1 4 16 32 --repetitions 3
+python3 tools/python/operating_defaults_report.py \
+  "$CELLAR_BASELINE_BIN/defaults-evidence/operating-defaults.json"
+python3 tools/python/test_operating_defaults_report.py \
+  "$CELLAR_BASELINE_BIN/defaults-evidence/operating-defaults.json"
+```
+
+Each worker rotates empty echo, one acknowledged durable counter update,
+4,096-byte echo and bounded pure-Python CPU work. Warmup only echoes; measured
+counter updates are sent exactly once and reconciled after owner kill and local
+disk deletion. The body limit is exercised at its exact boundary and one byte
+over. A separate cooperative gate holds exactly `max_invocations` requests with
+65,536-byte bodies. A fresh interpreter snapshot must directly observe the full
+capacity before sixteen excess requests are refused specifically by Python
+invocation admission. Every held request must then succeed, bridge reservations
+must settle, and subsequent work must succeed. This gate exercises suspension
+and pressure; it does not demonstrate parallel CPU execution.
+
+Raw evidence retains attempts, actual limits, latency, throughput, copied-byte
+counters, age-stamped RSS/interpreter samples, recovery receipts and combined
+shutdown. The report checks raw percentiles, the counter ledger, observed
+saturation, refusals and resource conservation before rendering measurements.
+Its CLI regression checks corrupt evidence under both ordinary Python and `-O`.
+Existing configured-limit tests separately cover tasks, objects, mailbox, batch,
+depth and byte exhaustion; this workload does not claim to saturate every limit
+simultaneously or to cap arbitrary Python heap or native-library pools.
+
 ## Interpret the evidence
 
 - This is closed-loop development traffic with client and server sharing a

@@ -98,6 +98,15 @@ pub(super) async fn drive(
     );
     config.maintenance.rebalance = false;
     config.runtime.handler_budget = Duration::from_secs(5);
+    #[cfg(feature = "embed")]
+    if arguments.mode == "python-defaults" {
+        // Isolate Python admission from the native pool's lower default cap.
+        // Python Options remain unchanged; record the native fixture policy.
+        config.runtime.max_stateless_requests =
+            Some(2 * cellar_python::Options::default().max_invocations);
+        config.runtime.admission_wait = Duration::ZERO;
+    }
+    let runtime_policy = config.runtime;
     config.startup.recovery_retry_backoff = Duration::from_secs(3);
     let executor = tokio::runtime::Handle::current();
     let peer_http = reqwest::Client::builder().no_proxy().build()?;
@@ -173,6 +182,9 @@ pub(super) async fn drive(
             "os":std::env::consts::OS, "arch":std::env::consts::ARCH, "cellar_version":env!("CARGO_PKG_VERSION"),
             "lease_ttl_ms":3000, "host_threads":4, "python_poll_interval_ms":if cfg!(feature="embed") {Some(1)} else {None},
             "durability":"bucket", "store":"private SQLite development bucket", "memory_sample_interval_ms":200,
+            "native_max_stateless_requests":runtime_policy.max_stateless_requests,
+            "native_admission_wait_ms":runtime_policy.admission_wait.as_millis(),
+            "handler_budget_ms":runtime_policy.handler_budget.as_millis(), "max_resident":64,
         }))?,
     )?;
     let serving = node.run_until(async move {
