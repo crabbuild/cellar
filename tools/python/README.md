@@ -327,3 +327,28 @@ Run the smoke with `--expect-free-threaded` to require `/health.free_threaded`
 true and `/health.gil_enabled` false after native library work. The SDK workflow
 runs the full test/package/restore/handoff/supervisor matrix independently for
 `3.14` and `3.14t`; reported qualification must name completed runs and versions.
+
+The adapter also checks the loaded library's threading ABI through the opaque
+CPython 3.14 configuration API before initialization or PyO3 object access.
+Matching SOABI text alone cannot make a loader-selected opposite ABI safe:
+conventional and free-threaded Python objects have different layouts. The
+subsequent builtin `sys` check remains an independent check after safe bootstrap.
+
+`qualify_loaded_abi.py` exercises a real opposite-ABI shared library with an
+unbound `python-baseline` executable, independently of inventory-bound byte
+verification. Build the host as in the [baseline guide](baseline.md), then run:
+
+```sh
+python3 tools/python/qualify_loaded_abi.py \
+  --host /absolute/path/python-baseline \
+  --compiled-python /absolute/path/python3.14 \
+  --opposite-python /absolute/path/python3.14t \
+  --output /absolute/new/private/path/loaded-abi
+```
+
+The control must start under its matching library and completely join. The
+wrong-library child must exit normally with the fixed ABI failure before any
+host readiness/complete file; a signal or timeout fails qualification. Linux
+uses an explicit preload; macOS uses a private loader alias. Original runtime
+files are never replaced. Both children are owned and reaped by the tool.
+The CI matrix provisions the opposite pinned runtime separately for this drill.

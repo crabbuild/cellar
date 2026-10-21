@@ -66,14 +66,14 @@ class Connection:
 
 
 class Host:
-    def __init__(self, executable, mode, root, role):
+    def __init__(self, executable, mode, root, role, environment=None):
         self.root = root
         self.role = role
         self.started_ns = time.perf_counter_ns()
         for name in ("ready.json", "complete.json", "native-complete.json"):
             (root / name).unlink(missing_ok=True)
         self.log = (root / f"{role}.log").open("wb")
-        self.process = subprocess.Popen([str(executable), mode, str(root), role], stdout=self.log, stderr=self.log)
+        self.process = subprocess.Popen([str(executable), mode, str(root), role], stdout=self.log, stderr=self.log, env=environment)
         self.ready = None
         self.origin = None
 

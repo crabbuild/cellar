@@ -79,6 +79,7 @@ impl Interpreter {
             );
         }
         let config = Config::new()?;
+        config.validate_threading_abi()?;
         for (name, value) in [
             (c"isolated", 1),
             (c"use_environment", 0),
@@ -211,6 +212,22 @@ impl Config {
         // CPython diagnostics can retain configured paths or import failures.
         // Do not format or retain them in the host's public error chain.
         bail!("CPython initialization failed")
+    }
+
+    fn validate_threading_abi(&self) -> Result<()> {
+        // SAFETY: PyInitConfig is opaque and belongs to the loaded CPython
+        // library. HasOption is callable before initialization and examines no
+        // Python object. In CPython 3.14's PYCONFIG_SPEC (Python/initconfig.c),
+        // enable_gil exists exactly when that library has Py_GIL_DISABLED.
+        // Check before PyO3 attaches: object/refcount layouts differ between
+        // ABIs, so examining sys.abiflags through PyO3 is already too late.
+        let free_threaded =
+            unsafe { ffi::PyInitConfig_HasOption(self.0.as_ptr(), c"enable_gil".as_ptr()) };
+        ensure!(
+            free_threaded == i32::from(build_layout::GIL_DISABLED),
+            "loaded CPython threading ABI differs from the compiled interpreter"
+        );
+        Ok(())
     }
 
     fn integer(&self, name: &CStr, value: u64) -> Result<()> {

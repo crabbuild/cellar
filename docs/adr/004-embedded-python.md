@@ -116,3 +116,11 @@ mutex guards, and concurrent Python error hooks use an explicit lock. Native
 extensions still require the selected interpreter ABI and their own declared
 free-threading compatibility. Tests check actual GIL-disabled execution rather
 than accepting a build which silently enables the GIL during imports.
+
+Loaded threading ABI must be verified before initialization or PyO3 attachment,
+using only opaque C configuration APIs. CPython 3.14 exposes `enable_gil` in its
+configuration specification only for a free-threaded build. This probe refuses
+an opposite loader-selected library without touching ABI-dependent Python
+objects. Checking `sys.abiflags` through PyO3 alone is too late; that builtin
+check remains after safe bootstrap as an additional invariant. Inventory-bound
+hosts additionally verify the actual library bytes before initialization.
