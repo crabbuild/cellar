@@ -3,6 +3,7 @@
 //! These values describe durable identities and physical update envelopes.
 //! Transport, storage and command registration are supplied by the host.
 
+pub(crate) mod admission;
 mod class;
 pub(crate) mod client;
 pub(crate) mod protocol;

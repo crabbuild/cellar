@@ -49,6 +49,14 @@ async fn wait_status(
     .await?
 }
 
+fn two_registrations(schema: [u8; 32]) -> Result<Vec<RaftCellRegistration>> {
+    let first = registration(schema)?;
+    let mut second = first.clone();
+    second.birth.scope.cell = "Counter:two".into();
+    second.birth.scope.group = GroupId::new([10; 16])?;
+    Ok(vec![first, second])
+}
+
 fn registration(schema: [u8; 32]) -> Result<RaftCellRegistration> {
     let mut namespace = NamespaceConfig::new(
         ClusterId::new([1; 16])?,
@@ -340,6 +348,247 @@ async fn node_shutdown_reports_submitted_ambiguity() -> Result<()> {
             }]
     );
     ensure!(matches!(pending.await?, Err(CommandFailure::Ambiguous {command}) if command==id));
+    ensure!(service.close().await? == closed);
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn node_shutdown_reports_parked_archive_unknown() -> Result<()> {
+    let (gate, _entered) = public_node::Gate::new();
+    gate.release();
+    let calls = Arc::new(AtomicUsize::new(0));
+    let definition = public_node::counter(calls.clone(), gate)?;
+    let registrations = two_registrations(definition.schema)?;
+    let root = tempfile::tempdir()?;
+    let store = Arc::new(faults::Store::default());
+    let node = public_node::node(root.path(), definition.application.clone()).await?;
+    let service = public_node::cells_many(
+        &node,
+        definition.application.clone(),
+        store.clone(),
+        registrations.clone(),
+        false,
+        RaftHostOptions::default(),
+        TransportOptions::default(),
+    )
+    .await?;
+    for (index, registration) in registrations.iter().enumerate() {
+        let cell = service.cell(
+            registration.namespace.namespace,
+            &registration.birth.scope.cell,
+        )?;
+        public_node::ready(&cell).await?;
+        let mut options = public_node::options(1)?;
+        options.durability = Durability::S3;
+        cell.command(
+            definition.increment.clone(),
+            (index as i64 + 1).to_be_bytes().to_vec(),
+            options,
+        )
+        .await?;
+        wait_status(&cell, |status| status.command_ready).await?;
+    }
+    let outcome = node.shutdown(ShutdownMode::Preserve).await?;
+    let NodeOutcome::Stopped(report) = outcome else {
+        anyhow::bail!("unexpected stop: {outcome:?}")
+    };
+    let before = report.raft.context("missing first Raft report")?.result?;
+    ensure!(before.groups_total == 2 && before.groups_with_unknown_archive == 0);
+    let node = public_node::node(root.path(), definition.application.clone()).await?;
+    let resumed = public_node::cells(
+        &node,
+        definition.application.clone(),
+        store,
+        registrations[0].clone(),
+        true,
+    )
+    .await?;
+    let cell = resumed.cell(
+        registrations[0].namespace.namespace,
+        &registrations[0].birth.scope.cell,
+    )?;
+    public_node::ready(&cell).await?;
+    ensure!(
+        cell.query(
+            definition.get,
+            vec![],
+            QueryOptions {
+                consistency: QueryConsistency::Linearizable,
+                ..Default::default()
+            }
+        )
+        .await?
+        .result
+            == 1i64.to_be_bytes()
+    );
+    ensure!(matches!(
+        resumed.cell(
+            registrations[1].namespace.namespace,
+            &registrations[1].birth.scope.cell
+        ),
+        Err(CommandFailure::Unavailable)
+    ));
+    let outcome = node.shutdown(ShutdownMode::Preserve).await?;
+    let NodeOutcome::Stopped(report) = outcome else {
+        anyhow::bail!("unexpected stop: {outcome:?}")
+    };
+    let after = report.raft.context("missing second Raft report")?.result?;
+    ensure!(
+        after.groups_total == 2
+            && after.groups.len() == 1
+            && after.omitted_groups == 1
+            && after.groups_with_unknown_archive == 1
+    );
+    ensure!(
+        after.storage_instance == before.storage_instance && calls.load(Ordering::Acquire) == 2
+    );
+    ensure!(service.close().await? == before && resumed.close().await? == after);
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn bounded_resource_pressure() -> Result<()> {
+    let (gate, mut entered) = public_node::Gate::new();
+    let _release = public_node::Release(gate.clone());
+    let calls = Arc::new(AtomicUsize::new(0));
+    let definition = public_node::counter(calls.clone(), gate.clone())?;
+    let registrations = two_registrations(definition.schema)?;
+    let root = tempfile::tempdir()?;
+    let node = public_node::node(root.path(), definition.application.clone()).await?;
+    let service = public_node::cells_many(
+        &node,
+        definition.application.clone(),
+        Arc::new(faults::Store::default()),
+        registrations.clone(),
+        false,
+        RaftHostOptions {
+            max_requests: 4,
+            ..Default::default()
+        },
+        TransportOptions::default(),
+    )
+    .await?;
+    let first = service.cell(
+        registrations[0].namespace.namespace,
+        &registrations[0].birth.scope.cell,
+    )?;
+    let other = service.cell(
+        registrations[1].namespace.namespace,
+        &registrations[1].birth.scope.cell,
+    )?;
+    for cell in [&first, &other] {
+        public_node::ready(cell).await?;
+        cell.command(
+            definition.increment.clone(),
+            1i64.to_be_bytes().to_vec(),
+            public_node::options(1)?,
+        )
+        .await?;
+        wait_status(cell, |status| status.command_ready).await?;
+    }
+    let pending = tokio::spawn(first.command(
+        definition.increment.clone(),
+        2i64.to_be_bytes().to_vec(),
+        public_node::options(2)?,
+    ));
+    tokio::time::timeout(Duration::from_secs(5), entered.recv())
+        .await?
+        .context("writer did not enter")?;
+    // Unpolled replies retain admission permits. These three requests must not
+    // enter SQL behind the held producer or release their permits speculatively.
+    let mut queued = Vec::new();
+    for _ in 0..3 {
+        queued.push(first.command(
+            definition.increment.clone(),
+            3i64.to_be_bytes().to_vec(),
+            public_node::options(3)?,
+        ));
+    }
+    ensure!(matches!(
+        other
+            .query(definition.get.clone(), vec![], QueryOptions::default())
+            .await,
+        Err(CommandFailure::Overloaded)
+    ));
+    let status = wait_status(&other, |status| status.command_ready).await?;
+    ensure!(status.term.get() > 0 && status.leader.is_some());
+    drop(queued.pop());
+    let mut options = public_node::options(1)?;
+    options.id = CommandId::new(ClientId::new([8; 16])?, 1)?;
+    // One free request slot still cannot reserve the private SQL result. The
+    // explicit refusal must discard that private stage without committing it.
+    let before_calls = calls.load(Ordering::Acquire);
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        let refused = other
+            .command(
+                definition.increment.clone(),
+                7i64.to_be_bytes().to_vec(),
+                options.clone(),
+            )
+            .await;
+        ensure!(
+            matches!(refused, Err(CommandFailure::Overloaded)),
+            "result pressure did not refuse the private stage: {refused:?}"
+        );
+        if calls.load(Ordering::Acquire) > before_calls {
+            break;
+        }
+        ensure!(
+            tokio::time::Instant::now() < deadline,
+            "the refused request never reached private execution"
+        );
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    drop(queued);
+    let before = other
+        .query(
+            definition.get.clone(),
+            vec![],
+            QueryOptions {
+                consistency: QueryConsistency::Linearizable,
+                ..Default::default()
+            },
+        )
+        .await?;
+    ensure!(before.result == 1i64.to_be_bytes());
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    let receipt = loop {
+        let result = other
+            .command(
+                definition.increment.clone(),
+                7i64.to_be_bytes().to_vec(),
+                options.clone(),
+            )
+            .await;
+        match result {
+            Ok(receipt) => break receipt,
+            Err(CommandFailure::Overloaded) if tokio::time::Instant::now() < deadline => {
+                tokio::time::sleep(Duration::from_millis(10)).await
+            }
+            Err(error) => return Err(error.into()),
+        }
+    };
+    ensure!(receipt.result == 8i64.to_be_bytes());
+    let read = other
+        .query(
+            definition.get,
+            vec![],
+            QueryOptions {
+                consistency: QueryConsistency::Linearizable,
+                ..Default::default()
+            },
+        )
+        .await?;
+    ensure!(read.result == 8i64.to_be_bytes());
+    gate.release();
+    ensure!(pending.await??.result == 3i64.to_be_bytes());
+    let outcome = node.shutdown(ShutdownMode::Preserve).await?;
+    let NodeOutcome::Stopped(report) = outcome else {
+        anyhow::bail!("unexpected stop: {outcome:?}")
+    };
+    let closed = report.raft.context("missing Raft report")?.result?;
+    ensure!(closed.unfinished.is_empty() && closed.groups_with_unknown_archive == 0);
     ensure!(service.close().await? == closed);
     Ok(())
 }

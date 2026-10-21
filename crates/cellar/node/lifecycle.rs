@@ -69,7 +69,7 @@ impl ShutdownPolicy {
 pub struct ShutdownReport {
     /// Actual registered cell-host closure before the enclosing domain join.
     /// An error or incomplete startup grants no graceful Raft/archive proof.
-    pub raft: Option<crate::application::consensus::RaftNodeShutdownReport>,
+    pub raft: Option<Box<crate::application::consensus::RaftNodeShutdownReport>>,
     pub mode: ShutdownMode,
     pub ingress_drained: bool,
     /// Complete application event drivers, including post-response waitUntil
@@ -201,11 +201,13 @@ mod tests {
     #[test]
     fn cli_refuses_success_for_missing_raft_close_proof() {
         let outcome = NodeOutcome::Stopped(ShutdownReport {
-            raft: Some(crate::application::consensus::RaftNodeShutdownReport {
-                result: Err(crate::application::consensus::CommandFailure::Unavailable),
-                startup_incomplete: true,
-                drain: None,
-            }),
+            raft: Some(Box::new(
+                crate::application::consensus::RaftNodeShutdownReport {
+                    result: Err(crate::application::consensus::CommandFailure::Unavailable),
+                    startup_incomplete: true,
+                    drain: None,
+                },
+            )),
             mode: ShutdownMode::Preserve,
             ingress_drained: true,
             application_work_drained: true,

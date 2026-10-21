@@ -775,7 +775,7 @@ async fn initialize(
         domain: domain.clone(),
         closed: closed.clone(),
         closing: closing.clone(),
-        draining: Arc::new(AtomicBool::new(false)),
+        admission: Arc::new(crate::application::consensus::admission::Admission::default()),
         terminal: terminal.clone(),
         budget: budget.clone(),
         max_input_bytes: options.max_input_bytes,
@@ -3114,13 +3114,24 @@ impl Driver {
             }
             Ok((groups, groups_with_archive_lag))
         })();
-        let groups_total = self.cells.len();
+        let groups_total = self
+            .log
+            .group_count()
+            .map_err(|_| CommandFailure::CorruptState);
+        let attached = self.cells.len();
         self.cells.clear();
         let log = self.log.close().await;
         if runtime.is_err() || sql.is_err() || log.is_err() {
             return Err(CommandFailure::CorruptState);
         }
+        if self.local.admission.is_poisoned() {
+            return Err(CommandFailure::Unavailable);
+        }
         let (groups, groups_with_archive_lag) = observations?;
+        let groups_total = groups_total?;
+        let groups_with_unknown_archive = groups_total
+            .checked_sub(attached)
+            .ok_or(CommandFailure::CorruptState)?;
         let omitted_groups = groups_total - groups.len();
         Ok(client::RaftCloseReport {
             node,
@@ -3129,6 +3140,7 @@ impl Driver {
             groups_total,
             omitted_groups,
             groups_with_archive_lag,
+            groups_with_unknown_archive,
             unfinished,
         })
     }

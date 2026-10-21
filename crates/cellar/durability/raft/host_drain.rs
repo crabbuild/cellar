@@ -29,7 +29,7 @@ pub(super) struct Completed {
 
 impl Driver {
     pub(super) fn start_node_drain(&mut self, mut request: Request) {
-        if !self.local.draining.load(Ordering::Acquire)
+        if !self.local.admission.is_draining()
             || self.closing.load(Ordering::Acquire)
             || self.drain.is_some()
         {
@@ -51,7 +51,15 @@ impl Driver {
         if drain.busy {
             return;
         }
-        let now = self.log.domain().mono_ms().unwrap_or(u64::MAX);
+        let now = match self.log.domain().mono_ms() {
+            Ok(now) => now,
+            Err(_) => {
+                if let Some(mut drain) = self.drain.take() {
+                    reply(&mut drain.request, Err(CommandFailure::Unavailable));
+                }
+                return;
+            }
+        };
         let expired = now >= drain.request.control.deadline() || drain.request.control.cancelled();
         let next = self
             .cells

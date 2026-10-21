@@ -125,8 +125,10 @@ impl Fixture {
         for (index, listeners) in listeners.into_iter().enumerate() {
             let node = fixture.nodes[index].as_ref().context("node")?;
             let peer = &fixture.peers[index];
-            let mut host = RaftHostOptions::default();
-            host.close_report = report_limits;
+            let mut host = RaftHostOptions {
+                close_report: report_limits,
+                ..Default::default()
+            };
             let reservation = host.images.max_bytes;
             host.node_profile = Some(RaftNodeProfile {
                 pool: "native".into(),

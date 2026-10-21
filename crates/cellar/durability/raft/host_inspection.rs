@@ -191,7 +191,7 @@ impl Driver {
             .as_ref()
             .ok_or(CommandFailure::UnsupportedCapability)?
             .clone();
-        profile.draining |= self.local.draining.load(Ordering::Acquire);
+        profile.draining |= self.local.admission.is_draining();
         let groups = self
             .log
             .group_count()

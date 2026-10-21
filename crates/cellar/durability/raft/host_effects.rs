@@ -51,7 +51,7 @@ impl Driver {
             || owner.busy.is_some()
             || now < owner.next_at
             || self.closing.load(Ordering::Acquire)
-            || self.local.draining.load(Ordering::Acquire)
+            || self.local.admission.is_draining()
         {
             return;
         }
@@ -144,7 +144,7 @@ impl Driver {
         {
             return;
         }
-        if self.closing.load(Ordering::Acquire) || self.local.draining.load(Ordering::Acquire) {
+        if self.closing.load(Ordering::Acquire) || self.local.admission.is_draining() {
             self.finish_effect_turn(sequence);
             return;
         }
@@ -217,7 +217,7 @@ impl Driver {
         if let Some(cell) = self.cells.get_mut(&scope) {
             cell.sql_busy = false;
         }
-        if self.closing.load(Ordering::Acquire) || self.local.draining.load(Ordering::Acquire) {
+        if self.closing.load(Ordering::Acquire) || self.local.admission.is_draining() {
             self.finish_effect_turn(sequence);
             return;
         }
@@ -291,13 +291,22 @@ impl Driver {
         // This exact next client sequence comes from committed state, after the
         // host has no previous producer for this group and the runtime reached
         // current-term readiness. It cannot rebind an unresolved old producer.
+        let admission = self.local.admission.clone();
+        let work = {
+            let Ok(registration) = admission.registration(false) else {
+                self.finish_effect_turn(sequence);
+                return;
+            };
+            let work = self.local.work.enter();
+            drop(registration);
+            work
+        };
         let call = local.system_command(contract, input, options.clone());
         let runtime = self.runtime.clone();
         let group = cell.group.clone();
         let domain = self.log.domain();
-        let draining = self.local.draining.clone();
-        let application_work = self.local.work.clone();
         self.jobs.push(Box::pin(async move {
+            let _work = work;
             let _reservation = scan._reservation;
             let result = async {
                 let receipt = call.await?;
@@ -331,14 +340,13 @@ impl Driver {
                         };
                         // Recheck actual current-term authority immediately before
                         // send, then cancel stale waiters during the bounded send.
-                        let _work = application_work.enter();
                         let proof = deliver_owned(
                             DeliveryOwner {
                                 domain: &domain,
                                 runtime: &runtime,
                                 group: &group,
                                 term: receipt.version.position.term,
-                                draining: &draining,
+                                admission: &admission,
                             },
                             request.clone(),
                             sink,
@@ -399,7 +407,7 @@ struct DeliveryOwner<'a> {
     runtime: &'a RaftRuntime,
     group: &'a GroupLog,
     term: Term,
-    draining: &'a AtomicBool,
+    admission: &'a crate::application::consensus::admission::Admission,
 }
 
 async fn deliver_owned(
@@ -413,7 +421,7 @@ async fn deliver_owned(
         runtime,
         group,
         term,
-        draining,
+        admission,
     } = owner;
     let start = domain.mono_ms().map_err(|_| CommandFailure::Unavailable)?;
     let deadline = start
@@ -437,7 +445,7 @@ async fn deliver_owned(
             return Err(CommandFailure::Unavailable);
         }
         if send.is_none() {
-            if draining.load(Ordering::Acquire) {
+            if admission.is_draining() {
                 return Err(CommandFailure::Unavailable);
             }
             send = Some(sink.deliver(request.clone()));

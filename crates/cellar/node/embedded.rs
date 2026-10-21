@@ -630,7 +630,7 @@ impl Node {
                 .await;
                 let raft = owner.services().raft_lifecycle().close().await;
                 if let Ok(NodeOutcome::Stopped(report)) = &mut result {
-                    report.raft = raft;
+                    report.raft = raft.map(Box::new);
                 }
                 result
             }))

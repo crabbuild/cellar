@@ -255,7 +255,7 @@ async fn inspection_revocation_and_process_refresh_cancel_an_admitted_inbound_ca
             domain: state.domain.clone(),
             closed: Arc::new(AtomicBool::new(false)),
             closing: Arc::new(AtomicBool::new(false)),
-            draining: Arc::new(AtomicBool::new(false)),
+            admission: Arc::new(crate::application::consensus::admission::Admission::default()),
             terminal: Arc::new(client::Terminal {
                 result: Mutex::new(None),
                 changed: Notify::new(),

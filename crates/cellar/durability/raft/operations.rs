@@ -62,6 +62,10 @@ pub struct RaftCloseReport {
     pub groups_total: usize,
     pub omitted_groups: usize,
     pub groups_with_archive_lag: usize,
+    /// Recovered durable histories parked without a host registration. Their
+    /// archive coverage is unknown, not zero lag. They count in groups_total
+    /// and omitted_groups; the shared engine still closes their owners.
+    pub groups_with_unknown_archive: usize,
     pub unfinished: Vec<UnfinishedCommand>,
 }
 
@@ -93,7 +97,7 @@ impl RaftNodeShutdownReport {
     pub(crate) fn cli_summary(&self) -> serde_json::Value {
         match &self.result {
             Ok(report) => {
-                serde_json::json!({"owners_closed":true,"startup_incomplete":self.startup_incomplete,"groups":report.groups_total,"omitted_group_details":report.omitted_groups,"groups_with_archive_lag":report.groups_with_archive_lag,"unfinished_commands":report.unfinished.len(),"retain_replica_disks":true,"handoff":self.drain.as_ref().map(|result|match result {Ok(drain)=>serde_json::json!({"groups_examined":drain.groups_examined,"attempts":drain.handoff_attempts,"accepted":drain.handoffs_accepted,"leadership_released":drain.leadership_released,"unavailable_groups":drain.unavailable_groups,"deadline_elapsed":drain.deadline_elapsed}),Err(error)=>serde_json::json!({"error":error.to_string()})})})
+                serde_json::json!({"owners_closed":true,"startup_incomplete":self.startup_incomplete,"groups":report.groups_total,"omitted_group_details":report.omitted_groups,"groups_with_archive_lag":report.groups_with_archive_lag,"groups_with_unknown_archive":report.groups_with_unknown_archive,"unfinished_commands":report.unfinished.len(),"retain_replica_disks":true,"handoff":self.drain.as_ref().map(|result|match result {Ok(drain)=>serde_json::json!({"groups_examined":drain.groups_examined,"attempts":drain.handoff_attempts,"accepted":drain.handoffs_accepted,"leadership_released":drain.leadership_released,"unavailable_groups":drain.unavailable_groups,"deadline_elapsed":drain.deadline_elapsed}),Err(error)=>serde_json::json!({"error":error.to_string()})})})
             }
             Err(error) => {
                 serde_json::json!({"owners_closed":false,"startup_incomplete":self.startup_incomplete,"error":error.to_string(),"retain_replica_disks":true})
@@ -137,13 +141,13 @@ impl NodeLifecycle {
     pub(crate) fn quiesce(&self, budget_ms: Option<u64>) {
         if let Ok(mut state) = self.state.lock() {
             state.sealed = true;
-            if let Some(service) = &state.service {
-                service.begin_node_drain();
+            if let Some(service) = state.service.clone() {
                 if state.deadline.is_none() {
                     state.deadline = budget_ms.and_then(|budget| {
                         service.handle.domain.mono_ms().ok()?.checked_add(budget)
                     });
                 }
+                service.begin_node_drain();
             }
         }
     }

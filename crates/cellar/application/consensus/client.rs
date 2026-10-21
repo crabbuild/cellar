@@ -205,7 +205,7 @@ pub(crate) struct Handle {
     pub domain: crate::asyncrt::DomainToken,
     pub closed: Arc<AtomicBool>,
     pub closing: Arc<AtomicBool>,
-    pub draining: Arc<AtomicBool>,
+    pub admission: Arc<super::admission::Admission>,
     pub terminal: Arc<Terminal>,
     pub budget: Arc<Budget>,
     pub max_input_bytes: usize,
@@ -222,7 +222,9 @@ pub struct RaftCells {
 
 impl RaftCells {
     pub(crate) fn begin_node_drain(&self) {
-        self.handle.draining.store(true, Ordering::Release);
+        // Even a poisoned gate remains sealed. Final physical close reports
+        // its failure after joining all owners, rather than inventing proof.
+        let _ = self.handle.admission.seal();
     }
 
     pub(crate) async fn drain_node(
@@ -333,7 +335,7 @@ impl RaftCells {
     pub fn is_closed(&self) -> bool {
         self.handle.closed.load(Ordering::Acquire)
             || self.handle.closing.load(Ordering::Acquire)
-            || self.handle.draining.load(Ordering::Acquire)
+            || self.handle.admission.is_draining()
             || self.handle.domain.mono_ms().is_err()
     }
 
@@ -342,6 +344,9 @@ impl RaftCells {
             return Err(CommandFailure::UnsupportedCapability);
         }
         if !self.handle.closing.swap(true, Ordering::AcqRel) {
+            // Finish any short registration before signalling physical close.
+            // A poisoned gate must still close/join; the driver reports error.
+            let _ = self.handle.admission.barrier();
             let _ = self.handle.close.send(());
         }
         loop {
@@ -701,7 +706,7 @@ impl RaftCellHandle {
             }
             if self.handle.closed.load(Ordering::Acquire)
                 || self.handle.closing.load(Ordering::Acquire)
-                || self.handle.draining.load(Ordering::Acquire)
+                || self.handle.admission.is_draining()
                     && !matches!(kind, Kind::SystemCommand { .. } | Kind::NodeDrain)
             {
                 return Err(CommandFailure::Unavailable);
@@ -874,6 +879,15 @@ impl RaftCellHandle {
                 .domain
                 .sleep_until(deadline)
                 .map_err(|_| CommandFailure::Unavailable)?;
+            let _registration = self
+                .handle
+                .admission
+                .registration(matches!(kind, Kind::SystemCommand { .. } | Kind::NodeDrain))?;
+            if self.handle.closed.load(Ordering::Acquire)
+                || self.handle.closing.load(Ordering::Acquire)
+            {
+                return Err(CommandFailure::Unavailable);
+            }
             let (budget, sender) = if kind.is_control() {
                 (&self.handle.control_budget, &self.handle.control_requests)
             } else {
