@@ -77,3 +77,9 @@ jobs:
         run: |
           cargo run -p cellar --example python-fastapi-deployment --locked -- \
             "$RUNNER_TEMP/fastapi/package" "$RUNNER_TEMP/fastapi" "$(command -v python)" ${{ matrix.smoke_flags }}
+      - name: Check performance harness correctness
+        run: |
+          python -B examples/python-fastapi/perf.py --cellar "$CARGO_TARGET_DIR/debug/cellar" \
+            --project "$RUNNER_TEMP/fastapi/environment/project.json" \
+            --output "$RUNNER_TEMP/fastapi/perf-smoke" \
+            --concurrency 1 8 --repetitions 1 --read-seconds .5 --writes 32

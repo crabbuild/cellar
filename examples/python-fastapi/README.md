@@ -16,6 +16,7 @@ and `otool`. Follow the [native prerequisite contract](../../tools/python/README
 ```sh
 export PATH="$HOME/.cargo/bin:$HOME/.local/bin:$PATH"
 export RUSTUP_TOOLCHAIN=1.98.1
+export PYTHONDONTWRITEBYTECODE=1
 export CARGO_TARGET_DIR="$HOME/Workspace/crabbuild-target/cellar-your-checkout"
 mkdir -p "$HOME/Workspace"
 export CELLAR_FASTAPI_ROOT="$(mktemp -d "$HOME/Workspace/cellar-fastapi-XXXXXX")"
@@ -152,6 +153,55 @@ or replace running processes. For an update, build with `--version v2`, a new
 prefix and a new output directory, publish/install, then gracefully replace the
 process using the same business namespace. Source/dependency changes require a
 new executable; the live interpreter is never hot-reloaded.
+
+## Measure read/write throughput and latency
+
+Use an optimized host and write generated results outside the source tree.
+With the environment above already packaged, prepare a `lab` profile project:
+
+```sh
+python3 - <<'PY'
+import json, os
+from pathlib import Path
+root = Path(os.environ["CELLAR_FASTAPI_ROOT"])
+project = json.loads((root / "env-v1/project.json").read_text())
+project["profile"] = "lab"
+(root / "perf-project.json").write_text(json.dumps(project, indent=2) + "\n")
+PY
+"$CARGO_TARGET_DIR/debug/cellar" build "$CELLAR_FASTAPI_ROOT/perf-project.json" \
+  --output "$CELLAR_FASTAPI_ROOT/perf-package"
+python3 -B examples/python-fastapi/perf.py \
+  --cellar "$CARGO_TARGET_DIR/debug/cellar" \
+  --project "$CELLAR_FASTAPI_ROOT/perf-project.json" \
+  --output "$CELLAR_FASTAPI_ROOT/perf-results" \
+  --concurrency 1 8 32 --repetitions 2 --read-seconds 8 --writes 512
+```
+
+Building, seeding and correctness verification are excluded from timing. Each
+case starts a fresh server and development bucket, creates 32 read targets and
+512 pending update targets, then measures:
+
+- `read`: repeated GETs against the 32 resident orders for eight seconds.
+- `create`: 512 POSTs with distinct new order IDs, including cell/SQLite creation
+  and ownership acquisition. These are not repeated creation-receipt reads.
+- `update`: 512 PATCHes confirming the pre-created orders with checked version 1.
+
+The client uses persistent HTTP/1.1 connections, submits writes once, records
+every attempt and reads back every acknowledged mutation. The report contains
+successful requests/s, p50/p95/p99 latency, sample counts, errors, process CPU/RSS,
+runtime/build identities and complete shutdown reports. All runs must pass
+correctness and drain checks before `results.json` says `completed: true`.
+If using a conventional Python load generator, check its CPU usage for a client
+bottleneck; free-threaded Python 3.14t can also run this standard-library script.
+
+`report.md` and raw JSON files are generated in the new output directory.
+Add `--keep-serving` to start a fresh server afterward with `/orders/demo` and
+print its URL/PID/stop command. That live server's shutdown is recorded separately
+when stopped. This measures one local application node, four Rust worker threads
+and a private SQLite-backed development bucket on the same machine as the
+client. It does not measure remote S3 latency, replication across machines or
+production capacity. The `lab` profile is optimized with thin LTO, distinct from
+the repository's fat-LTO `release` profile.
 
 ## HTTP integration boundaries
 
