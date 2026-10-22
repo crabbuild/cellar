@@ -923,12 +923,16 @@ coalesces small immutable snapshot/tail payloads into a bounded, indexed object.
 Each cell still physically verifies its own recovery set and conditionally
 publishes its own head. `archive_bundle_group_index` checks two exact histories,
 a lost bundle PUT response, independent post-shutdown restores and corruption
-refusal. This changes the internal protocol identity to include `/bundles-1`;
+refusal. The [archive-bundle evidence](evidence/MR-14-archive-bundle-progress.json)
+also covers independent proofs after one member's head publication fails,
+bounded direct fallback and adversarial index validation. All six required
+MR-14 integration cases now execute; performance acceptance remains open.
+This changes the internal protocol identity to include `/bundles-1`;
 numeric markers remain 1 and earlier experimental roots are refused.
 
 Remaining MR-14 gates include internal timings/byte measurements, matched
-Fleet/bucket baselines, steady-state/density evidence and preliminary Q1 execution. The
-current local scope is at most five nodes; the original six-process Q1 gate
+Fleet/bucket baselines, steady-state/density evidence and preliminary Q1 execution.
+The current local scope is at most five nodes; the original six-process Q1 gate
 remains unqualified. MR-13's remaining management/restore work stays open.
 
 Modify: `crates/cellar/durability/raft/runtime.rs`, `crates/cellar/durability/raft/storage.rs`, `crates/cellar/durability/raft/transport.rs`, `crates/cellar/Cargo.toml`, `tools/perf/README.md`, `crates/cellar/durability/raft/host.rs`.

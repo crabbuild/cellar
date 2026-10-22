@@ -634,8 +634,8 @@ transport/log/per-image hard bounds; this cap is not total process or disk usage
 The producer gathers at most two due cuts from the same namespace. Small snapshot
 and tail uploads can share a content-addressed bundle under the namespace archive
 prefix. A bundle is at most 8 MiB including its bounded index, and also fits each
-member's object limit. The coordinator waits at most 5 ms for a second ready
-payload; lone or large objects use direct publication. Dependencies, manifests
+member's object limit. The coordinator uses a 5 ms coalescing deadline for a
+second ready payload; lone or large objects use direct publication. Dependencies, manifests
 and conditional heads remain separate. Successful cuts with newer backlog become
 eligible immediately; failed attempts retain the configured retry delay.
 

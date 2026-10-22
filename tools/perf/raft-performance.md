@@ -120,7 +120,9 @@ coverage on three embedded nodes, not replacement throughput or an SLO.
 The native archive producer can coalesce snapshot/tail payloads for two cells in
 one bounded object. The bundle index binds each exact history; recovery verifies
 the object and physically replays the selected cell before its independent head
-publication. Native tests cover lost PUT responses and isolated restores. This
+publication. The [native evidence](../../plans/multi-raft/evidence/MR-14-archive-bundle-progress.json)
+covers lost PUT responses, partial head failure, isolated restores and corruption
+refusal; it retains the failing scheduling diagnostic and its repair. This
 requires fresh experimental roots under the `/bundles-1` protocol identity;
 all measurements below retain their original source and format. No batching
 speedup or physical memory improvement has been measured.

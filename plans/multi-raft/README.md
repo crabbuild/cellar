@@ -81,8 +81,12 @@ Its [performance evidence](evidence/MR-14-performance-progress.json) retains bot
 passed functional checks and missed local traffic objectives. Matched Fleet/bucket
 baselines, remaining instrumentation and Q1 density qualification remain open.
 The bounded archive producer now coalesces payloads from two histories while
-keeping independent per-cell physical verification and head publication. The [native repair-load evidence](evidence/MR-14-repair-budget-progress.json)
-checks snapshot reservation bounds while independent commands and follower
+keeping independent per-cell physical verification and head publication. The
+[archive-bundle evidence](evidence/MR-14-archive-bundle-progress.json) records all
+six required MR-14 integration cases, 493 passing cases on the final code,
+a separately pinned 677-case broader matrix and three additional bundle replays.
+These are native functional checks, not a measured batching speedup. The
+[native repair-load evidence](evidence/MR-14-repair-budget-progress.json) checks snapshot reservation bounds while independent commands and follower
 queries continue. MR-15 adds release qualification including the 24-hour
 soak, MR-16 measured density/physical tiers and MR-17 federation.
 

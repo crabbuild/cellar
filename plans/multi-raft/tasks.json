@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "baseline_revision": "48371ee302ee379735622fa2be350a9e5cc76258",
+  "baseline_revision": "e2752d27280db077513af37b7685fceb114196b7",
   "status_values": [
     "TODO",
     "IN_PROGRESS",
@@ -2396,7 +2396,8 @@
       ],
       "evidence": [
         "evidence/MR-14-performance-progress.json",
-        "evidence/MR-14-repair-budget-progress.json"
+        "evidence/MR-14-repair-budget-progress.json",
+        "evidence/MR-14-archive-bundle-progress.json"
       ]
     },
     {
