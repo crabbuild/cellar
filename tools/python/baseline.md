@@ -8,6 +8,13 @@ echo, or a named cell's presence-aware read and checked atomic counter update.
 One sequential client owns each counter, avoiding conflicts that would obscure
 adapter overhead. Successful responses require the normal native output proof.
 
+Durable results include the development bucket's SQLite writes and disk syncs.
+Clones of one store admit writers in FIFO order before starting SQLite write
+transactions, so local writer contention does not rely on busy-handler retries.
+Separate store instances and processes still coordinate through SQLite. This
+backend is for local development; these measurements do not establish production
+object-store throughput or lease-renewal latency.
+
 The default run measures empty and 4,096-byte echo plus durable counters at
 concurrency one and four. Each worker warms its persistent HTTP connection,
 waits at a common measurement barrier, then issues 100 measured requests.

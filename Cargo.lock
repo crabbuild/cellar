@@ -298,6 +298,7 @@ dependencies = [
  "notify",
  "nu-ansi-term",
  "object_store",
+ "parking_lot",
  "parquet",
  "percent-encoding",
  "protobuf",

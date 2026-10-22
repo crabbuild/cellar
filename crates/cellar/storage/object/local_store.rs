@@ -36,6 +36,10 @@ const READ_CHUNK_BYTES: usize = 128 << 10;
 #[derive(Clone, Debug)]
 pub(crate) struct LocalStore {
     database: PathBuf,
+    // Serialize writers from clones before SQLite's busy-handler backoff can
+    // let a stream of new transactions starve an older lease renewal. Other
+    // instances/processes still arbitrate through SQLite's transaction lock.
+    writer: Arc<parking_lot::FairMutex<()>>,
     #[cfg(test)]
     read_gate: Option<Arc<read_tests::ReadGate>>,
     #[cfg(test)]
@@ -66,6 +70,7 @@ impl LocalStore {
         let database = database.as_ref().to_path_buf();
         let store = Self {
             database,
+            writer: Arc::new(parking_lot::FairMutex::new(())),
             #[cfg(test)]
             read_gate: None,
             #[cfg(test)]
@@ -237,6 +242,9 @@ impl LocalStore {
     ) -> object_store::Result<PutResult> {
         let attributes = encode_attributes(&options.attributes)?;
         let modified_ms = crate::asyncrt::wall_ms();
+        // Declare the guard first so the connection (including any rollback
+        // and close-time checkpoint) drops before writer admission reopens.
+        let _writer;
         let mut connection = self.connect()?;
         // The fixture observes a real entered SQLite connection without
         // locking out unrelated metadata/claim I/O while the worker pauses.
@@ -246,6 +254,7 @@ impl LocalStore {
                 gate.wait();
             }
         }
+        _writer = self.writer.lock();
         let transaction = connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(db_error)?;
@@ -471,6 +480,7 @@ impl ObjectStore for LocalStore {
         let store = self.clone();
         let key = location.to_string();
         store_blocking!(move || {
+            let _writer = store.writer.lock();
             store
                 .connect()?
                 .execute("DELETE FROM __sys_local_objects WHERE key = ?1", [key])
