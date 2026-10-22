@@ -357,30 +357,65 @@ pub async fn no_traffic_recovery() -> Result<()> {
 }
 
 pub async fn private_intent() -> Result<()> {
-    let mut fixture = Fixture::start(true).await?;
+    let mut fixture = Fixture::start(true)
+        .await
+        .context("start private alarm fixture")?;
     let result = async {
-        let primary = fixture.leader().await?;
-        let future = fixture.cell(primary)?.command(
-            fixture.definitions[primary].arm.clone(),
-            Fixture::input(0, 9, true),
-            public_node::options(2)?,
-        );
-        tokio::time::timeout(Duration::from_secs(5), fixture.entered.recv())
-            .await?
-            .context("private gate")?;
+        let primary = fixture.leader().await.context("private alarm leader")?;
+        let cell = fixture.cell(primary)?;
+        let contract = fixture.definitions[primary].arm.clone();
+        let input = Fixture::input(0, 9, true);
+        let mut options = public_node::options(2)?;
+        let deadline = tokio::time::Instant::now() + options.timeout;
+        let mut future = Box::pin(cell.command(contract.clone(), input.clone(), options.clone()));
+        // The command is admitted synchronously. An early refusal must remain
+        // visible instead of being reported as a missing private callback. A
+        // readiness observation cannot reserve the SQL owner against background
+        // work. Retry only Overloaded before this fixture's held callback enters;
+        // preserve its identity, retry horizon and original command deadline.
+        let mut refusals = 0;
+        tokio::time::timeout_at(deadline, async {
+            loop {
+                cellar::asyncrt::select! {
+                    entered = fixture.entered.recv() => break entered.context("private alarm gate closed"),
+                    result = &mut future => match result {
+                        Err(CommandFailure::Overloaded) => {
+                            refusals += 1;
+                            tokio::time::sleep_until(
+                                (tokio::time::Instant::now() + Duration::from_millis(10)).min(deadline),
+                            ).await;
+                            options.timeout = deadline.saturating_duration_since(tokio::time::Instant::now());
+                            ensure!(!options.timeout.is_zero(), "private alarm admission deadline elapsed after {refusals} refusals");
+                            future = Box::pin(cell.command(contract.clone(), input.clone(), options.clone()));
+                        }
+                        result => anyhow::bail!("alarm command completed before private intent: {result:?}"),
+                    },
+                }
+            }
+        })
+        .await
+        .context("observe private alarm intent")??;
+        eprintln!("private alarm admission: {refusals} pre-execution refusals");
         tokio::time::sleep(Duration::from_millis(750)).await;
         ensure!(fixture.fired() == 0, "private alarm fired");
         fixture.gate.release();
-        let arm = future.await?;
+        let arm = future.await.context("commit released alarm intent")?;
         tokio::time::sleep(Duration::from_secs(2)).await;
         ensure!(fixture.fired() == 1);
         for index in 0..3 {
-            ensure!(fixture.value(index, arm.version_token.clone()).await? == 9);
+            ensure!(fixture
+                .value(index, arm.version_token.clone())
+                .await
+                .with_context(|| format!("read committed alarm on voter {index}"))?
+                == 9);
         }
         Ok(())
     }
     .await;
-    fixture.close().await?;
+    fixture
+        .close()
+        .await
+        .context("close private alarm fixture")?;
     result
 }
 
