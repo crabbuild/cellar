@@ -173,6 +173,10 @@ pub(super) async fn drive(
         applications,
     )
     .await?;
+    #[cfg(feature = "embed")]
+    let python_poll_interval_ms = Some(cellar_python::Options::default().poll_interval.as_millis());
+    #[cfg(not(feature = "embed"))]
+    let python_poll_interval_ms: Option<u128> = None;
     std::fs::write(
         arguments.directory.join("ready.json"),
         serde_json::to_vec(&json!({
@@ -180,7 +184,7 @@ pub(super) async fn drive(
             "before_runtime":arguments.before_runtime,
             "embed_compiled":cfg!(feature="embed"), "debug_assertions":cfg!(debug_assertions),
             "os":std::env::consts::OS, "arch":std::env::consts::ARCH, "cellar_version":env!("CARGO_PKG_VERSION"),
-            "lease_ttl_ms":3000, "host_threads":4, "python_poll_interval_ms":if cfg!(feature="embed") {Some(1)} else {None},
+            "lease_ttl_ms":3000, "host_threads":4, "python_poll_interval_ms":python_poll_interval_ms,
             "durability":"bucket", "store":"private SQLite development bucket", "memory_sample_interval_ms":200,
             "native_max_stateless_requests":runtime_policy.max_stateless_requests,
             "native_admission_wait_ms":runtime_policy.admission_wait.as_millis(),

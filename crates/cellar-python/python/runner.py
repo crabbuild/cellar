@@ -134,7 +134,27 @@ def _observe_delay(histogram, ns):
 
 async def _serve(module, inbox, interval, shutdown, stats, maximum, max_tasks, telemetry, sample):
     invocations, objects = {}, {}
-    expected_wake = None
+    loop = asyncio.get_running_loop()
+    ready = asyncio.Event()
+    descriptor = inbox.wakeup_fd()
+
+    def readable():
+        try:
+            inbox.drain_wakeup()
+        finally:
+            ready.set()
+
+    def completed(task):
+        ready.set()
+
+    def observe_ready(expected):
+        _observe_delay(stats["interpreter"]["loop_delay"], max(0, time.perf_counter_ns() - expected))
+
+    def deadline_ready(expected):
+        observe_ready(expected)
+        ready.set()
+
+    loop.add_reader(descriptor, readable)
     next_sample = 0
 
     def publish_work(retiring=0):
@@ -145,9 +165,8 @@ async def _serve(module, inbox, interval, shutdown, stats, maximum, max_tasks, t
         sample()
     try:
         while not inbox.done():
+            ready.clear()
             now = time.perf_counter_ns()
-            if expected_wake is not None:
-                _observe_delay(stats["interpreter"]["loop_delay"], max(0, now - expected_wake))
             if any(_failures.values()):
                 stats["runtime_failed"] = True
                 inbox.stop()
@@ -173,6 +192,7 @@ async def _serve(module, inbox, interval, shutdown, stats, maximum, max_tasks, t
                     del context, bridge, payload
                     continue
                 task = asyncio.create_task(_invoke(module, objects, json.loads(payload), bridge, context, stats, maximum))
+                task.add_done_callback(completed)
                 invocations[invocation] = (task, context, bridge)
                 del task, context, bridge, payload
             for invocation, (task, context, bridge) in tuple(invocations.items()):
@@ -199,9 +219,20 @@ async def _serve(module, inbox, interval, shutdown, stats, maximum, max_tasks, t
             if now >= next_sample:
                 publish_work()
                 next_sample = now + int(telemetry * 1_000_000_000)
-            expected_wake = time.perf_counter_ns() + int(interval * 1_000_000_000)
-            await asyncio.sleep(interval)
+            delay = min(interval, max(0, (next_sample - time.perf_counter_ns()) / 1_000_000_000))
+            # This ready-queue checkpoint follows the tasks just started or
+            # resumed above. Detect blocking handlers even when housekeeping
+            # is infrequent, without measuring time spent awaiting host I/O.
+            now = time.perf_counter_ns()
+            loop.call_soon(observe_ready, now)
+            timer = loop.call_later(delay, deadline_ready, now + int(delay * 1_000_000_000))
+            try:
+                await ready.wait()
+            finally:
+                timer.cancel()
     finally:
+        # The runtime retains the descriptor until the loop has removed it.
+        loop.remove_reader(descriptor)
         # Includes child tasks created directly by application code. Awaiting is
         # bounded; Python that blocks the interpreter requires a process watchdog.
         inbox.stop()

@@ -66,8 +66,11 @@ background interpreter failure and default executor shutdown have local coverage
 closure. The real recovery drill removes the original runtime, installs from
 a private bucket and starts the installed host with a cleared environment,
 including numerical native libraries and complete joined shutdown. System
-libraries outside that closure remain platform prerequisites. A bounded 1 ms polling
-bridge is used initially; notification-driven wakeups are deferred.
+libraries outside that closure remain platform prerequisites. The bridge now
+uses coalesced, nonblocking notifications to wake the existing asyncio loop for
+admission, replies, cancellation, retirement and host completion. The native
+invocation still owns every SDK operation. A 250 ms housekeeping timer bounds
+background-failure observation without imposing a per-message polling delay.
 Prepared: 2026-10-19.
 Source baseline: `4008db9d514c53c62989899302d8811db0182a64`.
 

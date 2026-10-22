@@ -66,6 +66,12 @@ Python reports
 its actual ABI/GIL state before/after work and recovery; a free-threaded run must
 remain GIL-off.
 
+The Python host records `Options::default()` housekeeping and telemetry intervals.
+Native readiness notifications wake the Python loop independently of those
+timers. Compare an old polling executable and a new executable as separate
+runtime labels, retaining their binary digests and the source revision for each
+build; a timer value alone does not identify the bridge implementation.
+
 `baseline_report.py` accepts JSON or gzip-compressed JSON. Before rendering it
 checks complete repetitions, raw request/percentile/copy consistency, recovered
 values against the acknowledged command ledger, subsequent writes, and native

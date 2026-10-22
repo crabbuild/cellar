@@ -211,7 +211,7 @@ impl PythonApplication {
             "undeclared Python event {kind}"
         );
         let active = Arc::new(AtomicBool::new(true));
-        let _lifetime = Lifetime(active.clone());
+        let _lifetime = Lifetime(active.clone(), self.runtime.clone());
         let (sender, mut receive) = runtime::channel(self.runtime.options.max_pending_operations);
         let (cancelled, mut cancellation) = tokio::sync::watch::channel(false);
         let invocation = self.runtime.id()?;
@@ -348,11 +348,12 @@ impl PythonApplication {
     }
 }
 
-struct Lifetime(Life);
+struct Lifetime(Life, Arc<Runtime>);
 
 impl Drop for Lifetime {
     fn drop(&mut self) {
         self.0.store(false, Ordering::Release);
+        self.1.notify();
     }
 }
 
@@ -449,6 +450,7 @@ struct PythonCell {
 impl Drop for PythonCell {
     fn drop(&mut self) {
         self.life.store(false, Ordering::Release);
+        self.application.runtime.notify();
     }
 }
 

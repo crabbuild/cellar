@@ -46,6 +46,8 @@ mod routing;
 mod schedule_recovery;
 #[path = "support/schedules.rs"]
 mod schedules;
+#[path = "support/wakeups.rs"]
+mod wakeups;
 #[path = "support/watchdog.rs"]
 mod watchdog;
 
@@ -221,6 +223,9 @@ async fn stop_mode(node: Node, mode: ShutdownMode, monitor: &cellar_python::Stop
 
 fn main() -> Result<()> {
     let mode = std::env::args().nth(1).unwrap_or_default();
+    if mode == "--runtime-wakeups" {
+        return wakeups::child();
+    }
     if mode == "--runtime-privacy" {
         return privacy::child();
     }
@@ -434,6 +439,7 @@ fn main() -> Result<()> {
         return Ok(());
     }
     for mode in [
+        "--runtime-wakeups",
         "--runtime-dependency",
         "--runtime-failure",
         "--runtime-panic",

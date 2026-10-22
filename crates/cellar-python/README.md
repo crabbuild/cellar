@@ -162,9 +162,20 @@ For alarms, persist a business occurrence ID in the same `apply` batch as
 use the persisted identity for the receipt, and commit that receipt with the
 business effect. The example uses a checked durable sequence and retains its
 current intent so a retry with a different delivery deadline still deduplicates.
-The single interpreter polls bridge messages every millisecond by default;
-`poll_interval` controls this latency/idle-CPU tradeoff. This is a first adapter,
-not a throughput-qualified Python service. The bridge report distinguishes queued/peak native bridge bytes, reservation totals and explicit UTF-8 copy bytes; it excludes Python heap, JSON/base64 intermediate allocations and native transport copies.
+The interpreter's asyncio loop wakes on native invocation admission, host
+replies, invocation cancellation, activation retirement and host completion.
+A nonblocking Unix socket pair carries coalesced readiness bytes; it carries no
+request data or SDK authority. Producers never acquire the GIL, call Python or
+wait for the interpreter. SDK operations still execute in their original native
+invocation. Notification failures fail the runtime instead of claiming a clean
+shutdown, and the loop removes its reader before the runtime closes the sockets.
+
+`poll_interval` now bounds housekeeping waits (250 ms by default), rather than
+delaying ordinary requests. The telemetry deadline may shorten that wait. A
+longer housekeeping interval delays observation of background thread/unraisable
+failures and notification-channel faults; it does not delay normal admission,
+replies or native retirement. Throughput and capacity still need qualification
+against the application's workload and fleet. The bridge report distinguishes queued/peak native bridge bytes, reservation totals and explicit UTF-8 copy bytes; it excludes Python heap, JSON/base64 intermediate allocations and native transport copies.
 The managed task factory enforces `max_tasks` even for callbacks with an empty
 context. Shutdown can create up to two explicit supervisor tasks to join existing
 work; the reported peak includes them. These are cooperative resource limits,
@@ -314,8 +325,11 @@ library pools. Handler timing includes host awaits and can overlap across
 concurrent handlers, so its sum is not process elapsed time. The report also
 records whole-process peak RSS and initial/final CPython allocated-block counts.
 These are measurements, not per-cell limits or Python-only memory attribution.
-`loop_delay` measures lateness after the managed pump's scheduled wake, including
-blocking Python, GIL contention and OS scheduling; it cannot isolate one cause.
+`loop_delay` measures ready-queue checkpoint delay and housekeeping timer
+lateness, including blocking Python, GIL contention and OS scheduling; it cannot
+isolate one cause. Checkpoints follow newly started/resumed handlers so a long
+housekeeping interval does not hide short blocking handlers. Time spent awaiting
+host I/O is not counted as event-loop delay.
 The exact bounded histogram layout is available through
 `LatencyReport::upper_bounds_ns()`: inclusive bounds of 1 µs, 10 µs, 100 µs,
 1 ms, 10 ms, 100 ms, 1 s and 10 s, followed by an unbounded bucket. Counts are
@@ -327,7 +341,7 @@ running and pending-reply work, success/failure, delivered replies and separate
 queued/running/undelivered abandonment. Queue wait, native SDK duration, completion
 to reply dequeue and admission to reply dequeue have bounded histograms. Native
 SDK duration includes parsing, validation and host await time; it is not Rust CPU
-time. Reply timing includes encoding and loop polling, and excludes subsequent
+time. Reply timing includes encoding and loop scheduling, and excludes subsequent
 Python future consumption. Dropped native futures retain their duration and
 terminal accounting without calling Python. `Report::complete()` requires zero
 pending work and matching admitted/terminal and started/completed counts; this
