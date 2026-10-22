@@ -4,6 +4,10 @@ use super::execution::{storage, CommandRequest, ExecutionError, ExecutionLimits,
 use cellar_logic::consensus::{ClientId, CommandFailure, Durability};
 use rusqlite::{params, Connection, OptionalExtension};
 
+#[cfg(test)]
+#[path = "receipts_tests.rs"]
+mod tests;
+
 pub(super) fn install(connection: &Connection) -> anyhow::Result<()> {
     connection.execute_batch("CREATE TABLE IF NOT EXISTS __sys_raft_clients (
         client_id BLOB PRIMARY KEY CHECK(typeof(client_id)='blob' AND length(client_id)=16),
