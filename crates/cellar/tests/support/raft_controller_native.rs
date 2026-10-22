@@ -424,6 +424,16 @@ pub async fn no_traffic_repair() -> Result<()> {
             .sum::<usize>(),
         1
     );
+    let performance = fixture.service(primary)?.performance();
+    ensure!(performance.available && !performance.saturated);
+    for name in ["controller_probe", "controller_action"] {
+        let operation = performance
+            .operations
+            .iter()
+            .find(|operation| operation.name == name)
+            .context("controller measurements")?;
+        ensure!(operation.started > 0 && operation.succeeded > 0 && operation.count > 0);
+    }
     fixture.close().await
 }
 

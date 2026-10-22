@@ -270,7 +270,7 @@ def run(args, profile, build, docker, cpus, memory):
               'limitations': ['One local VM and RustFS; no independent failure domains or Amazon S3 qualification.',
                               'No fault/recovery or all-disk-loss restore qualification.',
                               'No matched Fleet/bucket baseline measurement yet.',
-                              'Engine/SQL API timings and bytes are measured; S3/network bytes, controller timings and whole-device I/O attribution remain open.']}
+                              'Engine/SQL and object API work, Raft socket bytes below TLS and controller attempts are measured; SDK-internal retries, TCP retransmissions, physical device I/O and instrumentation overhead remain unqualified.']}
     def save():
         (root / 'report.json').write_text(json.dumps(report, indent=2) + '\n')
     save()

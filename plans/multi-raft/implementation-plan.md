@@ -942,7 +942,13 @@ records 596 Rust cases, 128 Python tooling cases, native snapshot/analyzer
 interoperability and repository checks. This instrumentation has not established
 a measured overhead or speedup.
 
-Remaining MR-14 gates include S3/network bytes, controller timings and whole-device
+Current instrumentation also observes streamed object API reads, conditional PUT
+outcomes and requested/confirmed payload bytes, socket bytes below TLS on all
+three Raft lanes, and controller probe/action attempts. The fixed vocabulary is
+20 counters and 17 operations (413 Prometheus samples). These observations do not
+establish physical device usage, network delivery or completed repair.
+
+Remaining MR-14 gates include instrumentation overhead and whole-device
 attribution, matched Fleet/bucket baselines, steady-state/density evidence and
 preliminary Q1 execution.
 The current local scope is at most five nodes; the original six-process Q1 gate

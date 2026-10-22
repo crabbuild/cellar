@@ -230,7 +230,7 @@ pub struct RaftCells {
 }
 
 impl RaftCells {
-    /// Fixed-cardinality cumulative physical cost observations. Remains readable
+    /// Fixed-cardinality cumulative work and I/O API observations. Remains readable
     /// after close; clock availability and source identity are explicit.
     pub fn performance(&self) -> super::RaftPerformanceSnapshot {
         self.handle.performance.snapshot()

@@ -236,7 +236,7 @@ async fn cluster(groups: usize) -> Result<BTreeSet<String>> {
         ensure!(status == reqwest::StatusCode::OK);
         let observed = service.performance();
         ensure!(observed.available && !observed.saturated && observed.source.len() == 32);
-        ensure!(observed.operations.len() == 11 && observed.counters.len() == 11);
+        ensure!(observed.operations.len() == 17 && observed.counters.len() == 20);
         let mut perf_ids = BTreeSet::new();
         for line in text.lines().filter(|line| !line.starts_with('#') && !line.is_empty()) {
             let mut fields = line.split_whitespace();
@@ -245,7 +245,7 @@ async fn cluster(groups: usize) -> Result<BTreeSet<String>> {
             ensure!(value.is_finite() && value >= 0.0 && fields.next().is_none());
             ensure!(perf_ids.insert(name.to_owned()));
         }
-        ensure!(perf_ids.len() == 266);
+        ensure!(perf_ids.len() == 413);
         let expected = observed.prometheus().lines().filter(|line| !line.starts_with('#') && !line.is_empty()).map(|line| line.split_whitespace().next().unwrap().to_owned()).collect::<BTreeSet<_>>();
         ensure!(perf_ids == expected && perf_ids.is_disjoint(&identities));
         identities.extend(perf_ids);
@@ -253,7 +253,7 @@ async fn cluster(groups: usize) -> Result<BTreeSet<String>> {
         ensure!(status == reqwest::StatusCode::OK && !json.contains("Counter:"));
         let json: serde_json::Value = serde_json::from_str(&json)?;
         ensure!(json["source"] == observed.source && json["available"] == true && json["saturated"] == false);
-        for name in ["engine_file_write_completed_bytes", "sql_prepared_ltx_bytes", "sql_prepared_proposal_bytes"] {
+        for name in ["engine_file_write_completed_bytes", "sql_prepared_ltx_bytes", "sql_prepared_proposal_bytes", "object_get_body_bytes", "object_put_confirmed_bytes"] {
             let value = json["counters"].as_array().context("counters")?.iter().find(|counter| counter["name"] == name).context("measured counter")?;
             ensure!(value["value"].as_str().context("decimal counter")?.parse::<u64>()? > 0);
         }

@@ -494,6 +494,32 @@ async fn saturated_query_peer_refuses_and_expires_queued_work() -> Result<()> {
         }
     })
     .await?;
+    let performance: Vec<_> = fixture
+        .cluster
+        .services
+        .iter()
+        .map(RaftCells::performance)
+        .collect();
+    assert!(performance
+        .iter()
+        .all(|sample| sample.available && !sample.saturated));
+    for lane in ["control", "data", "query"] {
+        for direction in ["read", "write"] {
+            let name = format!("transport_{lane}_{direction}_bytes");
+            let bytes: u64 = performance
+                .iter()
+                .map(|sample| {
+                    sample
+                        .counters
+                        .iter()
+                        .find(|counter| counter.name == name)
+                        .unwrap()
+                        .value
+                })
+                .sum();
+            assert!(bytes > 0, "real TLS traffic missing from {name}");
+        }
+    }
     fixture.close().await
 }
 

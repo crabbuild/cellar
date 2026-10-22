@@ -29,6 +29,8 @@ use tokio::sync::{mpsc, oneshot, watch, Notify, Semaphore};
 mod directory;
 #[path = "inspection_transport.rs"]
 pub(crate) mod inspections;
+#[path = "transport_metrics.rs"]
+mod metrics;
 #[path = "query_transport.rs"]
 mod queries;
 #[path = "transport_resources.rs"]
@@ -286,6 +288,7 @@ impl Registry {
 }
 
 struct State {
+    performance: Arc<super::performance::Registry>,
     domain: DomainToken,
     runtime: RaftRuntime,
     auth: Arc<PeerAuth>,
@@ -397,6 +400,7 @@ impl RaftTransport {
         let (stop, _) = watch::channel(false);
         let snapshot_memory = snapshots::memory_bound(&options);
         let state = Arc::new(State {
+            performance: runtime.log().performance(),
             domain,
             runtime,
             auth,
@@ -1132,6 +1136,7 @@ impl State {
         lane: Lane,
     ) -> Result<(), TransportError> {
         stream.set_nodelay(true)?;
+        let stream = self.observed_socket(stream, lane.into());
         let acceptor = tokio_rustls::TlsAcceptor::from(self.tls.server.clone());
         let mut stream = self
             .bounded(None, async {
@@ -1316,6 +1321,7 @@ impl State {
                         let owner = self.outgoing_connections.acquire(lane);
                         let tcp = TcpStream::connect(pool.peer.address(lane)).await?;
                         tcp.set_nodelay(true)?;
+                        let tcp = self.observed_socket(tcp, lane.into());
                         let name =
                             rustls::pki_types::ServerName::try_from(pool.peer.server_name.clone())
                                 .map_err(|_| TransportError::Identity)?;

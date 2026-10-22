@@ -428,8 +428,11 @@ impl Driver {
             targets,
             memory,
         };
+        let performance = self.local.performance.clone();
         self.jobs.push(Box::pin(async move {
+            let timer = performance.timer(crate::raft::performance::Operation::ControllerProbe);
             let result = action::until_stopped(stop, work.run()).await;
+            timer.finish(result.is_ok());
             Job::Controller(Box::new(Completed::Observed {
                 sequence,
                 epoch,

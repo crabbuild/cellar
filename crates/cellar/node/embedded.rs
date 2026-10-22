@@ -729,7 +729,7 @@ impl Node {
             node: &self.info.node,
             auth: self.raft_auth.clone(),
         }
-        .infrastructure(config, listeners, tls)
+        .infrastructure(config, listeners, tls, None)
         .await
     }
 

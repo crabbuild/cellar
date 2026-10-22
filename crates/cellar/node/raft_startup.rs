@@ -79,10 +79,12 @@ impl Startup<'_> {
             );
             definitions.push(class);
         }
-        let registrations = self
+        let (performance, registrations) = self
             .domain
             .run(async {
-                let catalog = crate::raft::catalog::Catalog::new(services.store, config.catalog)?;
+                let performance = crate::raft::performance::Registry::new(self.domain.clone());
+                let store = crate::raft::object_metrics::wrap(services.store, performance.clone());
+                let catalog = crate::raft::catalog::Catalog::new(store, config.catalog)?;
                 let mut registrations = Vec::new();
                 for (cell, class) in config.cells.into_iter().zip(definitions) {
                     let namespace = match cell.placement {
@@ -132,11 +134,16 @@ impl Startup<'_> {
                         class,
                     });
                 }
-                Ok::<_, anyhow::Error>(registrations)
+                Ok::<_, anyhow::Error>((performance, registrations))
             })
             .await??;
         let service = self
-            .infrastructure(config.infrastructure, services.listeners, services.tls)
+            .infrastructure(
+                config.infrastructure,
+                services.listeners,
+                services.tls,
+                Some(performance),
+            )
             .await?;
         let log = service.log.clone();
         let runtime = service.runtime.clone();
@@ -175,6 +182,7 @@ impl Startup<'_> {
         config: super::NodeRaftConfig,
         listeners: super::NodeRaftListeners,
         tls: crate::application::consensus::verification::RaftTls,
+        performance: Option<Arc<crate::raft::performance::Registry>>,
     ) -> anyhow::Result<super::NodeRaftService> {
         use crate::application::consensus::verification::{RaftRuntime, RaftTransport, ReplicaLog};
         anyhow::ensure!(
@@ -183,7 +191,8 @@ impl Startup<'_> {
         );
         self.domain
             .run(async {
-                let log = ReplicaLog::open(config.log, crate::asyncrt::fs()).await?;
+                let log = ReplicaLog::open_observed(config.log, crate::asyncrt::fs(), performance)
+                    .await?;
                 let (runtime, events) =
                     match RaftRuntime::start_parked(log.clone(), config.consensus).await {
                         Ok(runtime) => runtime,

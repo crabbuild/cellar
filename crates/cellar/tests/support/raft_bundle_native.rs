@@ -171,6 +171,28 @@ pub async fn run() -> Result<()> {
             calls.load(Ordering::Acquire) == 4,
             "S3 retry repeated a business callback"
         );
+        let performance = service.performance();
+        ensure!(performance.available && !performance.saturated);
+        let counter = |name| {
+            performance
+                .counters
+                .iter()
+                .find(|counter| counter.name == name)
+                .unwrap()
+                .value
+        };
+        ensure!(counter("object_put_requested_bytes") > counter("object_put_confirmed_bytes"));
+        ensure!(counter("object_get_body_bytes") > 0);
+        ensure!(
+            performance
+                .operations
+                .iter()
+                .find(|op| op.name == "object_put_create")
+                .unwrap()
+                .failed
+                > 0,
+            "lost bundle PUT reply was incorrectly recorded as a confirmed request"
+        );
         let catalog = Catalog::new(
             store.clone(),
             CatalogOptions {

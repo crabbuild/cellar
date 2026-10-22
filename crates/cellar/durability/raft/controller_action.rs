@@ -83,8 +83,11 @@ impl Driver {
         };
         let options = controller.options.clone();
         controller.busy = Some(sequence);
+        let performance = self.local.performance.clone();
         self.jobs.push(Box::pin(async move {
+            let timer = performance.timer(crate::raft::performance::Operation::ControllerAction);
             let result = until_stopped(stop, execute(local, planned, options)).await;
+            timer.finish(result.is_ok());
             Job::Controller(Box::new(Completed::Acted {
                 sequence,
                 epoch,

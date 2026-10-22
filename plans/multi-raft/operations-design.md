@@ -179,12 +179,12 @@ describes the implemented command-coupled path and its remaining oracles.
 
 ## Performance observations
 
-`RaftCells.performance()` returns bounded cumulative observations for one opened
-engine/host lifetime. `GET /peer/raft/metrics?generation=<generation>&view=performance`
+`RaftCells.performance()` returns bounded cumulative observations from one host
+startup or standalone engine open. `GET /peer/raft/metrics?generation=<generation>&view=performance`
 exports the same observation through existing generation-bound peer authentication;
 append `&format=json` for typed JSON. The default resource view remains unchanged.
-The performance view has 11 counters and 11 operations with 16 duration buckets,
-producing 266 Prometheus samples independent of cell/peer population. Registry
+The performance view has 20 counters and 17 operations with 16 duration buckets,
+producing 413 Prometheus samples independent of cell/peer population. Registry
 storage and scrape work are fixed; no group enumeration, callback or I/O is used.
 
 Each operation has started, succeeded, failed and abandoned counters, plus a
@@ -207,18 +207,38 @@ refusal remains a failed SQL action even if its callback produced a value.
 | `sql_stage_input_bytes` | Input bytes for executed stage attempts, including duplicate checks |
 | `sql_prepared_proposal_bytes`, `sql_prepared_ltx_bytes` | Encoded proposal and contained LTX bytes produced by successful staging, before output-budget admission |
 | `sql_query_input_bytes`, `sql_query_output_bytes` | Inputs to executed query attempts and successful query outputs before output-budget admission |
+| `object_get_body_bytes` | Bytes delivered to the caller by object GET bodies or range reads |
+| `object_put_requested_bytes`, `object_put_confirmed_bytes` | Payload bytes submitted to object PUT calls and payload bytes with successful responses |
+| `transport_{control,data,query}_{read,write}_bytes` | Successful socket I/O below TLS, separately for each Raft lane and direction |
 
 Engine filesystem bytes exclude SQLite image/private work, node metadata outside
 that adapter and transport. They are API bytes, not physical device bytes; neither
 requested nor completed writes prove fsync. Prepared bytes can include proposals
 that never commit. Request ledgers separately count acknowledged business work.
-S3/network bytes, controller timings, whole-device attribution and physical
-instrumentation overhead remain qualification work.
+Object GET timing includes the response body until EOF, an error or drop; HEAD
+and range calls use the same operation. EOF is not an integrity proof. PUT timers
+separate create, conditional update and overwrite. A lost PUT reply counts as
+failed without proving the write did not commit. GET bytes count actual delivered
+chunks; requested PUT bytes include failed attempts, while confirmed bytes require
+a successful response. SDK-internal retries, HTTP overhead and billing are outside
+this boundary. Backend method overrides and preconditions are preserved. Currently
+unused multipart, list, delete, copy, rename and multi-range methods delegate to
+the backend and mark observations unavailable until instrumented.
+
+Transport bytes include TLS handshakes, inspections, snapshots, seeds, queries and
+refused traffic. Socket writes count kernel-accepted bytes, not proven delivery.
+Summing both endpoint directions double-counts transferred data. TCP/IP headers,
+retransmissions, S3 HTTP sockets and public application ingress are excluded.
+Controller probe and action timers cover asynchronous attempts, including failures
+and cancellation. A completed attempt does not establish a completed repair or
+physical backend quiescence. Whole-device attribution and instrumentation overhead
+remain qualification work.
 
 Each operation's outcomes and histogram share a short lock. Cross-operation and
 byte snapshots are not transactional. Poisoned observations set `available=false`;
 overflow saturates and sets `saturated=true`. Observation failures never change a
-business result. `source` is a random engine-open nonce and changes on reopen,
+business result. `source` is a random nonce created before startup catalog I/O
+(or at standalone engine open) and changes on reopen,
 even with a reused configured process identity. JSON u64 values are decimal
 strings, not floating-point numbers. Retained handles can sample after closure;
 a dead owner clock is null and pending durations become unavailable. These

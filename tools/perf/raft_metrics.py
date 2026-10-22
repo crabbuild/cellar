@@ -1,6 +1,6 @@
 """Validate raw owner observations and derive bounded, source-stable deltas.
 
-These are API byte counts and physical operation histograms, not device I/O,
+These are API/socket byte counts and operation histograms, not device I/O,
 business acknowledgements or exact quantiles. Completion windows include work
 started before the window; in-flight counts at both boundaries remain visible.
 """
@@ -8,12 +8,16 @@ import re
 
 OPERATIONS = ('engine_queue', 'engine_file_sync', 'engine_directory_sync', 'engine_persist',
               'sql_queue', 'sql_stage', 'sql_prepare', 'sql_publish', 'sql_query',
-              'sql_archive_capture', 'sql_other')
+              'sql_archive_capture', 'sql_other', 'object_get', 'object_put_create', 'object_put_update',
+              'object_put_overwrite', 'controller_probe', 'controller_action')
 COUNTERS = ('engine_file_read_bytes', 'engine_file_write_requested_bytes',
             'engine_file_write_completed_bytes', 'engine_persist_groups',
             'engine_persist_entries', 'engine_persist_entry_bytes', 'sql_stage_input_bytes',
             'sql_prepared_proposal_bytes', 'sql_prepared_ltx_bytes',
-            'sql_query_input_bytes', 'sql_query_output_bytes')
+            'sql_query_input_bytes', 'sql_query_output_bytes', 'object_get_body_bytes',
+            'object_put_requested_bytes', 'object_put_confirmed_bytes', 'transport_control_read_bytes',
+            'transport_control_write_bytes', 'transport_data_read_bytes', 'transport_data_write_bytes',
+            'transport_query_read_bytes', 'transport_query_write_bytes')
 BOUNDS = (50, 100, 250, 500, 1000, 2500, 5000, 10000, 25000, 50000,
           100000, 250000, 1000000, 5000000, 30000000, None)
 FIELDS = ('started', 'succeeded', 'failed', 'abandoned', 'timing_unavailable', 'count', 'sum_us')

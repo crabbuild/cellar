@@ -1,4 +1,4 @@
-//! Engine-lifetime observations with bounded storage and short lock scopes.
+//! Host/engine-lifetime observations with bounded storage and short lock scopes.
 use crate::application::consensus::{
     RaftDurationBucket, RaftOperationPerformance, RaftPerformanceCounter, RaftPerformanceSnapshot,
 };
@@ -40,9 +40,15 @@ pub(crate) enum Operation {
     SqlQuery,
     SqlArchiveCapture,
     SqlOther,
+    ObjectGet,
+    ObjectPutCreate,
+    ObjectPutUpdate,
+    ObjectPutOverwrite,
+    ControllerProbe,
+    ControllerAction,
 }
 
-const OPERATIONS: [Operation; 11] = [
+const OPERATIONS: [Operation; 17] = [
     Operation::EngineQueue,
     Operation::EngineFileSync,
     Operation::EngineDirectorySync,
@@ -54,6 +60,12 @@ const OPERATIONS: [Operation; 11] = [
     Operation::SqlQuery,
     Operation::SqlArchiveCapture,
     Operation::SqlOther,
+    Operation::ObjectGet,
+    Operation::ObjectPutCreate,
+    Operation::ObjectPutUpdate,
+    Operation::ObjectPutOverwrite,
+    Operation::ControllerProbe,
+    Operation::ControllerAction,
 ];
 
 impl Operation {
@@ -70,6 +82,12 @@ impl Operation {
             Self::SqlQuery => "sql_query",
             Self::SqlArchiveCapture => "sql_archive_capture",
             Self::SqlOther => "sql_other",
+            Self::ObjectGet => "object_get",
+            Self::ObjectPutCreate => "object_put_create",
+            Self::ObjectPutUpdate => "object_put_update",
+            Self::ObjectPutOverwrite => "object_put_overwrite",
+            Self::ControllerProbe => "controller_probe",
+            Self::ControllerAction => "controller_action",
         }
     }
 }
@@ -87,9 +105,18 @@ pub(crate) enum Counter {
     SqlPreparedLtxBytes,
     SqlQueryInputBytes,
     SqlQueryOutputBytes,
+    ObjectReadBytes,
+    ObjectPutRequestedBytes,
+    ObjectPutConfirmedBytes,
+    ControlReadBytes,
+    ControlWriteBytes,
+    DataReadBytes,
+    DataWriteBytes,
+    QueryReadBytes,
+    QueryWriteBytes,
 }
 
-const COUNTERS: [Counter; 11] = [
+const COUNTERS: [Counter; 20] = [
     Counter::EngineReadBytes,
     Counter::EngineWriteRequestedBytes,
     Counter::EngineWriteCompletedBytes,
@@ -101,6 +128,15 @@ const COUNTERS: [Counter; 11] = [
     Counter::SqlPreparedLtxBytes,
     Counter::SqlQueryInputBytes,
     Counter::SqlQueryOutputBytes,
+    Counter::ObjectReadBytes,
+    Counter::ObjectPutRequestedBytes,
+    Counter::ObjectPutConfirmedBytes,
+    Counter::ControlReadBytes,
+    Counter::ControlWriteBytes,
+    Counter::DataReadBytes,
+    Counter::DataWriteBytes,
+    Counter::QueryReadBytes,
+    Counter::QueryWriteBytes,
 ];
 
 impl Counter {
@@ -117,6 +153,15 @@ impl Counter {
             Self::SqlPreparedLtxBytes => "sql_prepared_ltx_bytes",
             Self::SqlQueryInputBytes => "sql_query_input_bytes",
             Self::SqlQueryOutputBytes => "sql_query_output_bytes",
+            Self::ObjectReadBytes => "object_get_body_bytes",
+            Self::ObjectPutRequestedBytes => "object_put_requested_bytes",
+            Self::ObjectPutConfirmedBytes => "object_put_confirmed_bytes",
+            Self::ControlReadBytes => "transport_control_read_bytes",
+            Self::ControlWriteBytes => "transport_control_write_bytes",
+            Self::DataReadBytes => "transport_data_read_bytes",
+            Self::DataWriteBytes => "transport_data_write_bytes",
+            Self::QueryReadBytes => "transport_query_read_bytes",
+            Self::QueryWriteBytes => "transport_query_write_bytes",
         }
     }
 }
@@ -137,8 +182,8 @@ pub(crate) struct Registry {
     source: String,
     available: AtomicBool,
     saturated: AtomicBool,
-    counters: [AtomicU64; 11],
-    operations: [Mutex<Samples>; 11],
+    counters: [AtomicU64; COUNTERS.len()],
+    operations: [Mutex<Samples>; OPERATIONS.len()],
 }
 
 impl Registry {
@@ -154,6 +199,10 @@ impl Registry {
             counters: std::array::from_fn(|_| AtomicU64::new(0)),
             operations: std::array::from_fn(|_| Mutex::new(Samples::default())),
         })
+    }
+
+    pub(crate) fn mark_unavailable(&self) {
+        self.available.store(false, Ordering::Relaxed);
     }
 
     fn add(&self, value: &mut u64, amount: u64) {

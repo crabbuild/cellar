@@ -549,6 +549,7 @@ impl State {
 
     async fn receive_queries(self: Arc<Self>, tcp: TcpStream) -> Result<(), TransportError> {
         tcp.set_nodelay(true)?;
+        let tcp = self.observed_socket(tcp, metrics::Lane::Query);
         let mut stream = self
             .bounded(None, async {
                 tokio_rustls::TlsAcceptor::from(self.tls.server.clone())
@@ -703,6 +704,7 @@ impl State {
                             let owner = self.outgoing_connections.query();
                             let tcp = TcpStream::connect(request.peer.query_address).await?;
                             tcp.set_nodelay(true)?;
+                            let tcp = self.observed_socket(tcp, metrics::Lane::Query);
                             let name = rustls::pki_types::ServerName::try_from(
                                 request.peer.server_name.clone(),
                             )

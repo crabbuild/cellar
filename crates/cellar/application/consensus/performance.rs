@@ -1,4 +1,4 @@
-//! Fixed-size observations of physical Raft work, never durability proofs.
+//! Fixed-size observations of Raft work and I/O APIs, never durability proofs.
 use serde::{Serialize, Serializer};
 
 pub(crate) fn decimal<S: Serializer>(value: &u64, serializer: S) -> Result<S::Ok, S::Error> {
@@ -51,11 +51,12 @@ pub struct RaftOperationPerformance {
     pub buckets: Vec<RaftDurationBucket>,
 }
 
-/// Bounded cumulative observations for one opened engine/host lifetime.
+/// Bounded cumulative observations from one host startup or standalone engine open.
 /// `source` changes on reopen, even if the configured process identity is reused.
 /// Cross-operation samples are not transactional. Unavailable or saturated
 /// samples cannot support a measured delta. Histograms give bucket bounds, not
-/// exact quantiles. Filesystem byte counters are API bytes, not device writes.
+/// exact quantiles. Bytes describe filesystem/object APIs and sockets below TLS,
+/// not device writes or network delivery. Controller timings describe attempts.
 #[derive(Clone, Debug, Serialize)]
 pub struct RaftPerformanceSnapshot {
     pub source: String,

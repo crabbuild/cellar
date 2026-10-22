@@ -205,7 +205,7 @@ impl ReplicaLog {
         self.inner.performance.clone()
     }
 
-    /// Cumulative physical observations for this open engine lifetime.
+    /// Cumulative observations for this engine and its owning host, if present.
     pub fn performance_snapshot(&self) -> crate::application::consensus::RaftPerformanceSnapshot {
         self.inner.performance.snapshot()
     }
@@ -247,11 +247,19 @@ impl ReplicaLog {
         options: ReplicaLogOptions,
         filesystem: Arc<dyn FileSystem>,
     ) -> Result<Self, LogError> {
+        Self::open_observed(options, filesystem, None).await
+    }
+
+    pub(crate) async fn open_observed(
+        options: ReplicaLogOptions,
+        filesystem: Arc<dyn FileSystem>,
+        performance: Option<Arc<Performance>>,
+    ) -> Result<Self, LogError> {
         options.validate()?;
         let domain = crate::asyncrt::services()
             .domain_token()
             .ok_or(LogError::Closed)?;
-        let performance = Performance::new(domain.clone());
+        let performance = performance.unwrap_or_else(|| Performance::new(domain.clone()));
         let (sender, receiver) = mpsc::sync_channel(options.queue_capacity);
         let (ready, wait) = oneshot::channel();
         let groups = Arc::new(RwLock::new(BTreeMap::new()));

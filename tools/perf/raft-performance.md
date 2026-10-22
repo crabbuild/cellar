@@ -98,9 +98,9 @@ sums. JSON counters use decimal strings to preserve integer precision. The
 current analyzer requires these observations; historical runs must use their
 pinned analyzer, and their missing measurements cannot become zero values.
 
-The fixed engine/SQL vocabulary and byte meanings are documented in the
+The fixed engine/SQL, object API, transport and controller vocabulary and byte meanings are documented in the
 [operations design](../../plans/multi-raft/operations-design.md#performance-observations).
-Histograms include all physical outcomes with available timing. Their p50/p95/
+Histograms include all measured outcomes with available timing. Their p50/p95/
 p99/p99.9 values are inclusive bucket upper bounds; null means no samples or a
 quantile in the unbounded final bucket, distinguished by count and buckets.
 They are not the ledger's exact command/query latency quantiles. A completion
@@ -153,8 +153,8 @@ requires fresh experimental roots under the `/bundles-1` protocol identity;
 all measurements below retain their original source and format. No batching
 speedup or physical memory improvement has been measured.
 
-MR-14 remains in progress. Remaining work includes S3/network bytes and controller timings, full-device
-I/O attribution, steady-state and density measurements,
+MR-14 remains in progress. Remaining work includes full-device I/O attribution, instrumentation-overhead,
+steady-state and density measurements,
 and executable Fleet/bucket adapters with matched durability/hardware/workloads.
 `matched_comparison` refuses missing or unequal contract, hardware, workload and
 build-mode records; this guard is not a measured baseline result.
