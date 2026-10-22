@@ -158,7 +158,7 @@ fn child(root: PathBuf, mode: String) -> Result<()> {
                 domain.shutdown().await;
                 opened
             })?;
-        println!("failed Raft binding physically joined before daemon returned");
+        cellar::note!("failed Raft binding physically joined before daemon returned");
     }
     result
 }
@@ -585,7 +585,7 @@ async fn qualify() -> Result<()> {
             "three-voter owner did not join\n{logs}"
         );
     }
-    println!("production Raft CLI qualification passed: directory and registration refusals, failed binding joins, two retained groups, linearizable queries, process restart, semantic closure, startup cancellation, and three daemon processes with two groups over TLS and local follower reads");
+    cellar::note!("production Raft CLI qualification passed: directory and registration refusals, failed binding joins, two retained groups, linearizable queries, process restart, semantic closure, startup cancellation, and three daemon processes with two groups over TLS and local follower reads");
     Ok(())
 }
 
