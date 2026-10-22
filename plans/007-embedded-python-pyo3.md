@@ -555,6 +555,20 @@ qualification of a later revision. The shared release gate requires current
 source/ABI/platform checks and diagnosis of preserved lifecycle failures.
 Component acceptance does not close that reliability gate:
 
+Delivery priorities, in order:
+
+| Priority | Work | Completion gate |
+| --- | --- | --- |
+| P0: release reliability | Diagnose alarm, admission and shutdown failures; preserve failure context and original deadlines | Complete adapter/bootstrap, native lifecycle and installed-package checks pass on the release revision in both threading ABIs; a passing repetition alone does not explain a preserved failure |
+| P1: bounded load | Preserve typed overload through nested and remote calls; measure FastAPI reads and durable mutations with explicit ingress limits | Account for every offered request, distinguish refusal from ambiguous commit, verify acknowledged writes after recovery, and completely join every host |
+| P1: performance | Compare fixed native/Python artifacts under identical workload, resources and durability policy | Repeated comparisons establish throughput and tail latency; isolated CPU savings alone do not justify an application performance claim |
+| P2: deployment qualification | Exercise sustained activation churn, memory/resource stability, backend faults and rolling replacement | The intended deployment meets stated throughput, p99, RPO and RTO targets while preserving acknowledged state and fencing stale work |
+
+Finish P0 and bounded-load behavior before expanding the SDK. General ASGI
+lifespan, WebSockets and streaming remain separate feature work. Preserve
+unsuccessful optimization measurements outside Git and defer candidates whose
+application-level benefit or regression risk remains unresolved.
+
 | Phase | Current assessment | Gate still open |
 | --- | --- | --- |
 | M0 | Bootstrap, invocation pump, authority and cancellation implemented; complete Linux matrix passes in both ABIs at 85cdef4 | No missing feature identified; shared reliability release gate remains |
