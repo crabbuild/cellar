@@ -173,12 +173,19 @@ impl PythonApplication {
         cell: Option<(u64, String, Life)>,
         state: State,
     ) -> Result<Output> {
-        let _permit = self
-            .runtime
-            .permits
-            .clone()
-            .try_acquire_owned()
-            .map_err(|_| anyhow::anyhow!("Python invocation capacity exhausted"))?;
+        let _permit =
+            self.runtime
+                .permits
+                .clone()
+                .try_acquire_owned()
+                .map_err(|error| match error {
+                    tokio::sync::TryAcquireError::NoPermits => {
+                        anyhow::Error::new(cellar::sdk::ApplicationOverloaded)
+                    }
+                    tokio::sync::TryAcquireError::Closed => {
+                        anyhow::anyhow!("Python runtime admission is closed")
+                    }
+                })?;
         let mut body = Vec::new();
         let (kind, payload) = if let Some(batch) = &state.queue {
             (
@@ -334,7 +341,12 @@ impl PythonApplication {
                     reservation,
                 } => {
                     let _reservation = reservation;
-                    ensure!(!failed, "Python handler failed");
+                    if failed {
+                        if payload == "{\"error\":\"Overloaded\"}" {
+                            return Err(cellar::sdk::ApplicationOverloaded.into());
+                        }
+                        anyhow::bail!("Python handler failed");
+                    }
                     let value: Value = serde_json::from_str(&payload).map_err(|_| {
                         anyhow::anyhow!("Python handler completion decoding failed")
                     })?;

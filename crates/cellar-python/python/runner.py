@@ -6,7 +6,7 @@ import resource
 import sys
 import threading
 import time
-from cellar import Batch, Context, Request, Response, Scheduled, _encode_response, _current_invocation
+from cellar import Batch, Context, Overloaded, Request, Response, Scheduled, _encode_response, _current_invocation
 
 _failures = dict(unraisable_errors=0, thread_errors=0)
 # Collection while taking a snapshot can invoke another destructor on the same
@@ -69,6 +69,17 @@ def validate(module, descriptor):
         handlers(cell, events, 3)
 
 
+def _complete_failure(bridge, payload):
+    if bridge.active():
+        try:
+            bridge.complete(payload, True)
+        except (RuntimeError, ValueError, BlockingIOError):
+            # A full mailbox/byte budget or concurrent native retirement can
+            # refuse even a fixed failure. Context cleanup wakes the driver
+            # without needing another queue slot; the runtime remains usable.
+            pass
+
+
 async def _invoke(module, objects, payload, body, bridge, context, stats, maximum):
     token = _current_invocation.set(bridge)
     started = time.perf_counter_ns()
@@ -106,19 +117,16 @@ async def _invoke(module, objects, payload, body, bridge, context, stats, maximu
     except asyncio.CancelledError:
         metrics["handlers_cancelled"] += 1
         raise
+    except Overloaded:
+        metrics["handlers_failed"] += 1
+        # Preserve the category without reading exception text or its claimed
+        # outcome. A parent can commit before a nested admission refusal.
+        _complete_failure(bridge, '{"error":"Overloaded"}')
     except BaseException:
         metrics["handlers_failed"] += 1
         # Exception messages, class names and tracebacks can contain request data
         # or credentials. The public failure carries no application-supplied text.
-        if bridge.active():
-            try:
-                bridge.complete('"Python handler failed"', True)
-            except (RuntimeError, ValueError, BlockingIOError):
-                # A full mailbox/byte budget or concurrent native retirement
-                # can refuse even this fixed failure envelope. Closing below
-                # wakes the native driver without needing another queue slot;
-                # one refused response must not terminate the entire runtime.
-                pass
+        _complete_failure(bridge, '"Python handler failed"')
     finally:
         elapsed = time.perf_counter_ns() - started
         metrics["handler_wall_ns_sum"] += elapsed

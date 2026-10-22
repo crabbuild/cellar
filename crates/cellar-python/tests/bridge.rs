@@ -482,6 +482,8 @@ fn main() -> Result<()> {
         "--runtime-lifetimes-close",
         "--runtime-lifetimes-cancel",
         "--runtime-capacity-invocations",
+        "--runtime-capacity-nested-invocations",
+        "--runtime-capacity-nested-remote",
         "--runtime-capacity-tasks",
         "--runtime-capacity-objects",
         "--runtime-capacity-bytes",
@@ -854,6 +856,8 @@ fn lifecycle_mode(mode: &str) -> Result<()> {
                 | "--runtime-lifetimes-close"
                 | "--runtime-lifetimes-cancel"
                 | "--runtime-capacity-invocations"
+                | "--runtime-capacity-nested-invocations"
+                | "--runtime-capacity-nested-remote"
                 | "--runtime-capacity-tasks"
                 | "--runtime-capacity-objects"
                 | "--runtime-capacity-bytes"

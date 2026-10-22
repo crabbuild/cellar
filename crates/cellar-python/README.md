@@ -129,7 +129,16 @@ separate operations.
 
 `Options` bounds concurrent invocations, request/response bytes, bridge value
 bytes, aggregate native bridge bytes, operations per invocation, operations per atomic batch, live asyncio tasks and resident Python objects. Admission
-fails immediately when full. `max_pending_operations` bounds each invocation's
+fails immediately when full. Top-level handlers and nested Python cell calls
+share `max_invocations`; a suspended caller continues to occupy a slot. Size
+admission for the application's fan-out instead of assuming every slot can
+serve an independent HTTP request. Capacity refusal uses the native SDK's
+`ApplicationOverloaded` contract: public HTTP returns 503 and SDK calls raise
+`Overloaded`, with an `unknown` mutation outcome. A caller may already have
+committed before a nested call was refused. The adapter does not retry it,
+and ownership/output-proof failures still take precedence. Closed runtime
+admission is a lifecycle failure, distinct from capacity exhaustion.
+`max_pending_operations` bounds each invocation's
 operation/completion mailbox (32 entries by default); zero and unsupported
 capacities are refused before bootstrap. The result mailbox holds at most twice
 `max_invocations` replies. Refused sends release their byte reservations.
