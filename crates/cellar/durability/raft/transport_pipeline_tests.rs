@@ -100,7 +100,7 @@ async fn tls_pipeline(invalid_ack: bool) -> anyhow::Result<()> {
                 // Withhold all replies until both complete authenticated frames
                 // arrive. This tests the real sender path, not a timing estimate.
                 for scope in [&first, &second] {
-                    let head = tokio::time::timeout(
+                    let head = crate::asyncrt::timeout(
                         std::time::Duration::from_secs(1),
                         read_head(&mut stream, &state.options, Lane::Control, false),
                     )
@@ -215,10 +215,15 @@ async fn frame_window_drains_replies_with_small_duplex_buffers() -> anyhow::Resu
         }
         Ok::<_, anyhow::Error>(())
     };
-    let (sent, received) = tokio::time::timeout(std::time::Duration::from_secs(2), async {
-        tokio::join!(exchange, receiver)
-    })
-    .await?;
+    let domain = crate::asyncrt::ExecutionDomain::new(tokio::runtime::Handle::current());
+    let result = domain
+        .run(crate::asyncrt::timeout(
+            std::time::Duration::from_secs(2),
+            async { tokio::join!(exchange, receiver) },
+        ))
+        .await;
+    domain.shutdown().await;
+    let (sent, received) = result??;
     received?;
     assert_eq!(sent?, vec![Disposition::Accepted; 16]);
     Ok(())

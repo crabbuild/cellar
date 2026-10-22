@@ -38,6 +38,7 @@ and raft-engine `55bccdea42718ab2b4f90cdd9068da53b6bf4c39`.
 | Batched apply | Accumulates state-machine changes in a shared engine write batch; flushes before reporting apply results. | Cellar's separate SQLite images do not share TiKV's KV batch. Its per-image copy, validation, sync, and marker work can dominate despite a shared Raft log. |
 | Explicit recovery progress | Raftstore v2 disables tablet WAL while tracking flushed apply indices and retaining the history needed to replay missing state. | Cellar's durable applied marker currently names a durable immutable image. Delaying that image's persistence requires separate visible and durable progress, replay retention, and crash/snapshot/GC tests. |
 | Coordinated hibernation | Peer agreement and quorum checks govern leader/group hibernation. | Increasing Cellar's fixture tick interval is a workload tradeoff, not an implementation of TiKV hibernation. |
+| Bounded backup concurrency | Backup workers acquire semaphore permits for scanning batches; optional CPU tuning adjusts the permit count. | Overlap independent archive I/O within a fixed window while retaining the recovery-set byte budget. The proposed four-read window does not implement CPU auto-tuning. |
 
 Pinned primary sources:
 
@@ -49,6 +50,8 @@ Pinned primary sources:
 - [Apply batching](https://github.com/tikv/tikv/blob/b3995dab28308f09cbb7c125bf32f789dbc203fe/components/raftstore/src/store/fsm/apply.rs)
   and [flushed apply progress and recovery](https://github.com/tikv/tikv/blob/b3995dab28308f09cbb7c125bf32f789dbc203fe/components/raftstore-v2/src/operation/ready/apply_trace.rs).
 - [Hibernation state](https://github.com/tikv/tikv/blob/b3995dab28308f09cbb7c125bf32f789dbc203fe/components/raftstore/src/store/hibernate_state.rs).
+- [Backup concurrency permits](https://github.com/tikv/tikv/blob/b3995dab28308f09cbb7c125bf32f789dbc203fe/components/backup/src/softlimit.rs)
+  and [worker admission and optional CPU tuning](https://github.com/tikv/tikv/blob/b3995dab28308f09cbb7c125bf32f789dbc203fe/components/backup/src/endpoint.rs).
 
 ## Ranked hypotheses and experiments
 
@@ -509,6 +512,23 @@ approximately; their nested timings must not be added as independent costs.
 The [sanitized evidence](evidence/tikv-archive-diagnosis.json) preserves identities,
 window results, stage counters and hashes of the ignored raw artifacts.
 
+The measured throughput ceiling is archive-retention admission. One archive
+producer per node must download, validate, replay and publish recovery material
+for its resident replicas. Quorum acknowledgements need not wait for RustFS on
+every write, but new work is refused when this background work leaves too much
+unarchived history. Raising the backlog limit would postpone that refusal;
+it would not establish a higher sustained archive service rate. These counters
+identify the binding admission limit, not RustFS server saturation or the Raft
+algorithm as the cause.
+
+Admission also scans resident groups and their unarchived entries. In the last
+window it averaged 0.64–0.90 ms per invocation, accumulating about 10–12 seconds
+per node over 90 seconds. This is a secondary cost on a single-vCPU node;
+incremental accounting remains a candidate requiring its own correctness and
+performance verification. Latency spikes are not fully attributed: other runs
+overlapped host compilers, and per-cell image publication and shared-log
+persistence retain their durability barriers.
+
 The proposed download window admits at most four object reads per recovery set
 and preserves manifest order. The manifest already bounds aggregate payload
 bytes; reads now compare store metadata with each exact declared object length
@@ -528,6 +548,15 @@ run through their parent cases. Strict affected-target and performance-binary
 Clippy, formatting, layout, dependency policy and documentation checks pass.
 The earlier shutdown-handoff case passes in this matrix; that does not explain
 its previous failure.
+
+The regular `1ac16d1` Linux CI job reached Clippy and rejected two transport-test
+calls to `tokio::time::timeout`. Both now use the execution-domain timeout API;
+the standalone duplex test also owns and shuts down an explicit domain. Its
+two-second bound and frame assertions are unchanged. All three pipeline tests
+and expanded `cargo +1.98.1 clippy --locked -p cellar --all-targets -- -D warnings`
+pass locally. This includes unit-test code missed by the earlier explicit-target
+Clippy command. The first timeout-only edit reproduced a missing-domain panic
+in the duplex test; the final domain-owned version passes.
 
 The `1ac16d1` free-threaded Linux CI job failed
 `public_node_shutdown_drains_alarm_background_before_the_durability_cut` in
