@@ -76,6 +76,45 @@ receipt-checked outbox delivery and immutable Blob dependency closure. Priority 
 is in progress, beginning with Node-owned shutdown and archive-obligation reports.
 Keep each later package's dependency and acceptance gates intact.
 
+### Current execution priorities
+
+The [density observations](evidence/MR-14-density-progress.json) narrow the next
+work to availability and repeatable latency within the authorized five-node
+Colima/RustFS scope. MR-13 and MR-14 remain in progress. This order reflects the
+requested MR-14 focus; it does not waive MR-13's release dependency.
+
+1. **Stabilize control-message delivery under density.** Reproduce the observed
+   outgoing control-queue buildup and leadership churn with a bounded transport
+   test. Evaluate pipelining on the shared peer connection: the current sender
+   waits for each authenticated frame acknowledgement before sending another.
+   Preserve frame order, exact peer/process authorization, bounded reservations,
+   cancellation/joining and per-frame outcomes. Admission acknowledgements must
+   remain distinct from durable Raft responses. Reject the hypothesis if a
+   controlled experiment does not reduce queue delay. Rerun the unchanged
+   150/500/1,500-cell profiles, retaining every failure and control result.
+2. **Finish MR-14's performance acceptance.** Establish repeatable healthy and
+   slow-follower latency before claiming a supported capacity. Complete sustained
+   S3 acknowledgement and equivalent-contract Fleet/bucket fault comparisons.
+   Account for observation overhead and device I/O. Keep Q1's original workload
+   and the 4,096-group bound; the six-process gate exceeds the current local scope.
+3. **Complete MR-13's remaining operator features.** Qualify receipt maintenance
+   through response loss, recurring effects and leadership changes; finish
+   authenticated discovery/management; deliver platform-enforced old-deployment
+   fencing and exact archive restore into a distinct history. Close the retained
+   intermittent findings and run the whole operations matrix.
+4. **Qualify the release (MR-15).** Complete concurrent-history checking,
+   crash/partition/store failure and compatible-binary rollback drills, then the
+   24-hour soak. Publish only the topology, durability and failure envelope that
+   actually passes. Real S3 and independent failure domains need separate evidence.
+5. **Expand scale and federation (MR-16/MR-17).** After release gates pass, qualify
+   density improvements and physical fleet tiers, then home-cluster discovery,
+   source-fenced migration and cross-cluster failure behavior. Local containers
+   do not establish 30/100/1,000-node or million-node support.
+
+The first deliverable is a tested control-path change or a rejected hypothesis
+with a narrower reproducer, followed by the same physical workload comparison.
+No group-limit increase, automatic seed retry or relaxed SLO substitutes for it.
+
 ## Package dependency order
 
 | Task | Result | Dependencies | Release |
@@ -1133,7 +1172,44 @@ two Rust fixture cases and affected all-feature Clippy at `8beeee3`, plus
 formatting/layout, dependency and documentation checks. The source-pinned raw
 capsules independently reanalyze after extraction; failed attempts stay failed.
 
-Remaining MR-14 gates include sustained S3 acknowledgement latency, controlled
+The [kernel and density evidence](evidence/MR-14-density-progress.json) adds
+cgroup v2 CPU, memory/OOM, per-device I/O and PID 1 RSS/thread/FD observations for
+every Cellar node and RustFS. Independent analysis checks exact container/process
+identity, limits, monotone counters and phase-enclosing time windows. Memory
+headroom is a separate result; boundary gauges are not peaks, and cgroup I/O is
+not whole-device attribution. The 500/1,500-cell profiles vary only total seeded
+cells from the 150-cell profile: 30 active cells, 100 ms ticks, 10 offered
+operations/second and Quorum acknowledgements remain fixed.
+
+At source `be5955e`, the 150-cell run completes 1,200/1,200 arrivals at 93 ms p99;
+500 cells complete 1,161/1,200 at 339 ms and miss traffic targets. Both reconcile
+all histories, assigned replicas and archive cuts. The first 1,500-cell attempt
+fails while seeding cell 781 with `NotLeader { leader: None }`; it remains failed.
+Source `4bbab55` adds startup observations without changing native code or retry
+semantics. Its 1,500-cell run initializes every cell, but completes only 904/1,200
+measured arrivals at 2,314 ms p99: 144 generator rejections and 152 server refusals.
+Its final topology scan fails because 355 cells changed leader. Diagnostic
+reconciliation verifies the acknowledged history and all 4,500 replica values;
+this does not convert the failed benchmark into qualification.
+
+Before leadership churn, periodic observations show approximately 4,000 outgoing
+control frames queued per node. Average CPU is about 0.51 core per Cellar node
+with 226–228 MiB lifetime cgroup memory peaks; no OOM occurs. These observations
+motivate a transport experiment, not a proven bottleneck. A subsequent 150-cell
+control completes 1,172/1,200 at 311 ms p99 and misses traffic targets, while its
+history and all 450 replicas reconcile. Shared-host variability and observation
+overhead prevent a sustained-capacity or causal speedup claim.
+
+The final tooling has 161 passing Python cases plus one existing opt-in Docker
+skip; all six physical attempts, including both failed 1,500-cell runs, are
+retained. Extracted capsules independently reproduce analysis and diagnostic
+results. The native executable hash is unchanged from `97d00b4`; earlier Rust
+checks retain their own pins. All owned containers are stopped, recorded empty
+networks removed, volumes preserved and the dedicated Colima profile stopped.
+Other profiles were not mutated.
+
+Remaining MR-14 gates include the observed control-queue/leadership and latency
+failures, sustained S3 acknowledgement latency, controlled
 Fleet/bucket fault baselines and equivalent-contract analysis, instrumentation overhead
 and whole-device attribution, steady-state/density evidence and preliminary Q1
 execution.

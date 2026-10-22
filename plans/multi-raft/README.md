@@ -92,6 +92,14 @@ witnesses. Same-image Quorum/S3 healthy controls meet short-run traffic targets;
 the corresponding pause scenarios miss them while reconciling every history,
 all 450 replicas and archive coverage. Original timing and network-setup failures
 remain recorded. Sustained SLOs, equivalent-contract fault baselines and Q1 stay open.
+The [density evidence](evidence/MR-14-density-progress.json) retains a 500-cell
+latency miss and two failed 1,500-cell attempts: one loses leadership during
+seeding, the next changes leaders during traffic after control queues build up.
+Memory headroom remains ample; a repeated 150-cell control also misses latency,
+so these shared-host observations do not establish sustained capacity.
+The [current execution priorities](implementation-plan.md#current-execution-priorities)
+put control-path stability and reproducible MR-14 results first, then remaining
+MR-13 management/restore, MR-15 release qualification and MR-16/MR-17 expansion.
 The bounded archive producer now coalesces payloads from two histories while
 keeping independent per-cell physical verification and head publication. The
 [archive-bundle evidence](evidence/MR-14-archive-bundle-progress.json) records all
