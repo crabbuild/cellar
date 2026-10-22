@@ -162,7 +162,9 @@ The independent analyzer replays the serialized per-cell transitions and checks
 command sequence, result, scope, durability and query minimums. It reconciles
 every final replica and archive cut with the ledger and recomputes throughput
 and command/query quantiles. This is narrower than the MR-15 concurrent history
-checker. Ambiguous or overlapping per-cell histories refuse reconciliation.
+checker. Overlapping per-cell histories refuse reconciliation. Ambiguous commands
+remain quarantined; only the explicit recovery scenario below can resolve them
+with additional evidence after measurement.
 
 `completed` means the experiment reached its replica/archive checks.
 `traffic_objectives_met` separately records the proposed latency, throughput and
@@ -389,9 +391,9 @@ observed paused. Quorum and Fleet may acknowledge within that window under their
 different output contracts; the checker reports those observations separately.
 It never infers a per-command Fleet proof from aggregate counters.
 
-Raw histories must still reconcile. An ambiguous mutation remains quarantined
-and fails qualification; the runner does not replay it or turn it into a safe
-refusal. Raft requires all assigned replica reads and final archive coverage;
+Raw histories must still reconcile. In `s3-outage` and healthy controls, an
+ambiguous mutation remains quarantined and fails qualification. Raft requires
+all assigned replica reads and final archive coverage;
 the baseline requires matching owner-route state and sequence through all three
 ingresses. Their final observation bounds recovery from the last release within
 the original recovery SLO. This is state convergence, not recovery from lost
@@ -449,6 +451,38 @@ other active Colima profiles recorded in each run. They do not establish a
 causal speedup, sustained capacity, independent failure domains or a common
 cross-adapter service contract. Longer failures with ambiguous outcomes, process
 loss, disk loss, real S3 and Q1 remain open.
+
+### Recovering ambiguous commands after measurement
+
+The separate `s3-recovery` scenario supports Raft S3 and bucket acknowledgements.
+Use the same workload profile and `--fault-profile
+tools/perf/store_recovery_profile.json`. It pauses RustFS for seven seconds,
+starting five seconds into measurement, with a nine-second outer pause bound.
+This exceeds the native five-second and HTTP six-second request budgets. The
+scenario must observe an ambiguous command dispatched during the confirmed pause;
+a run without one cannot qualify this recovery path.
+
+The measured operation ledger remains immutable. A command with an unknown
+outcome quarantines its cell for the rest of measurement. Once measurement ends
+and the store release is observed, the runner submits the original command ID,
+input and retry deadline once, then sends one identical confirming request.
+Both responses must succeed with the same receipt and result, satisfy the
+original durability contract and finish within the original recovery bound.
+The retry deadline is never renewed. Expiry, failed confirmation, changed scope,
+or an inconsistent result stops recovery and retains the partial ledger.
+There is no blind retry loop. The first retry may observe an earlier commit or
+execute a command that was previously absent; the lost response cannot establish
+which happened.
+
+`recovery.jsonl` records both requests and their original identities separately.
+The independent analyzer checks that evidence before appending logical resolutions
+to its state model. It still requires every replica/archive or owner-route check.
+Timeouts, ambiguous outcomes, quarantined-cell rejections and their latency remain
+in the original performance summary. Recovery traffic contributes no measured
+completion or throughput. Bucket output-barrier errors during this explicit
+failure phase remain visible in the report; recovery-phase errors must be zero.
+Healthy and short-outage proof-error requirements remain unchanged. These
+serialized receipt checks do not replace MR-15's concurrent history checker.
 
 ## Comparison rules
 

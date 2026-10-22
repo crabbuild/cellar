@@ -5,6 +5,7 @@ retried. An ambiguous cell is quarantined; it cannot receive a new sequence.
 """
 import concurrent.futures
 import hashlib
+import itertools
 import json
 import math
 import os
@@ -180,19 +181,21 @@ def run_load(profile, phase, seconds, state, ledger, send, run_id, *, clock=time
             'blocked_cells': sorted(blocked)}
 
 
-def reconcile(path):
+def reconcile(path, *, resolutions=()):
     """Replay this runner's per-cell serialized history from durable invocations.
 
     This is deliberately narrower than the MR-15 concurrent linearizability
-    checker. A recorded ambiguity or overlapping per-cell invocation refuses
-    reconciliation rather than guessing a valid history.
+    checker. An ambiguity requires independently verified post-measurement
+    resolution; the original cell remains quarantined until then. Overlapping
+    per-cell invocations always refuse reconciliation.
     """
     states, seeds, pending, busy, seen = {}, {}, {}, set(), set()
+    quarantined = set()
+    recovered = 0
     order = 0
     commands = queries = 0
     with open(path) as stream:
-        for line in stream:
-            event = json.loads(line)
+        for event in itertools.chain((json.loads(line) for line in stream), resolutions):
             order += 1
             if event['order'] != order:
                 raise ValueError('ledger order gap')
@@ -224,14 +227,25 @@ def reconcile(path):
                     raise ValueError('overlapping cell invocation or changed input')
                 busy.add(cell)
                 pending[key] = event
-            elif kind == 'complete':
-                invocation = pending.pop(event['id'])
+            elif kind in ('complete', 'recovered'):
+                if (kind == 'recovered') != (event['id'] in quarantined):
+                    raise ValueError('unexpected logical recovery completion')
+                invocation = pending[event['id']]
                 if invocation['cell'] != cell or invocation['operation'] != event['operation'] or event.get('violation'):
                     raise ValueError('completion identity or recorded violation')
-                busy.remove(cell)
                 current = states[cell]
                 if event['outcome'] == 'ambiguous':
-                    raise ValueError('ambiguous history requires a separate reconciliation drill')
+                    if not resolutions or event['operation'] != 'command' or kind != 'complete':
+                        raise ValueError('ambiguous history requires a separate reconciliation drill')
+                    quarantined.add(event['id'])
+                    continue
+                if kind == 'recovered':
+                    if event['status'] != 200 or event['outcome'] != 'completed':
+                        raise ValueError('recovery did not return an acknowledged result')
+                    quarantined.remove(event['id'])
+                    recovered += 1
+                pending.pop(event['id'])
+                busy.remove(cell)
                 if event['status'] != 200:
                     if event['outcome'] != 'rejected' and not (event['operation'] == 'query' and event['outcome'] == 'failed'):
                         raise ValueError('response outcome mismatch')
@@ -262,7 +276,8 @@ def reconcile(path):
                     queries += 1
             else:
                 raise ValueError('unknown ledger event')
-    if seeds or pending or busy:
+    if seeds or pending or busy or quarantined:
         raise ValueError('incomplete ledger')
     return {'commands_including_seed': commands, 'queries': queries, 'cells': len(states),
+            **({'recovered_commands': recovered} if resolutions else {}),
             'final': {cell: {key: value for key, value in state.items() if key != 'prefixes'} for cell, state in states.items()}}

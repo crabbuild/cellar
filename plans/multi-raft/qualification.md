@@ -109,11 +109,15 @@ exact final replica recovery. The target's concurrent leader/query-follower role
 are reported separately. Both Raft and Fleet/bucket runners also implement the
 shared `s3-outage` RustFS process-pause schedule and healthy controls. Independent
 checks require fresh submitted command witnesses, preserve each acknowledgement
-policy, refuse ambiguous histories and bound final state recovery. The
+policy, refuse unresolved histories and bound final state recovery. The
 [eight-run physical matrix](evidence/MR-14-store-physical-progress.json) reconciles
 all four policies under bounded pauses, while retaining three outage traffic
 misses. It does not make cross-adapter contracts equivalent or qualify longer
-failures with ambiguous outcomes. The runners refuse other unimplemented fault scenarios
+failures with ambiguous outcomes. A separate `s3-recovery` scenario now retains
+timed-out commands in measurement and resolves their original identities after
+measurement, requiring two matching receipts and the unchanged recovery bound.
+It supports Raft S3 and bucket policies; its implementation does not by itself
+establish physical qualification. The runners refuse other unimplemented fault scenarios
 and soak before creating workload resources.
 `tools/perf/raft-performance.md` gives its current executable interface and
 qualification limits. MR-15's concurrent `raft_history.py` checker and complete
@@ -125,8 +129,8 @@ Required runner interface:
 python3 tools/perf/raft_run.py
   --image <verified-image-digest>
   --profile <checked-in-workload.json>
-  --scenario <healthy|slow-follower|leader-loss|minority-partition|disk-stall|s3-outage|snapshot-crash>
-  --fault-profile <checked-in-fault.json>  # required for slow-follower/s3-outage; optional healthy control
+  --scenario <healthy|slow-follower|leader-loss|minority-partition|disk-stall|s3-outage|s3-recovery|snapshot-crash>
+  --fault-profile <checked-in-fault.json>  # required for slow-follower/s3-outage/s3-recovery; optional healthy control
   --output <new-run-directory>
 ```
 

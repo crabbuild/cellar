@@ -7,6 +7,7 @@ from raft_run import decode_json, input_digest, read_json, require, summarize_le
 from raft_workload import reconcile
 from raft_metrics import phases, periodic
 from raft_faults import fault_evidence, validate_scenario
+from workload_recovery import recovery_evidence
 from raft_kernel import analyze as analyze_kernel
 from raft_topology import local_placement, members, verify_topology, verify_resources, verify_populations, verify_traffic
 
@@ -39,7 +40,9 @@ def analyze(root):
             yield rows
     with (root / 'node-samples.jsonl').open() as stream:
         periodic(observations(stream), {row['node']: row['source'] for row in performance['measurement']})
-    history = reconcile(root / 'operations.jsonl')
+    recovery, resolutions = recovery_evidence(root, report)
+    require(recovery == report.get('recovery'), 'recovery differs from raw ledger')
+    history = reconcile(root / 'operations.jsonl', resolutions=resolutions)
     with (root / 'operations.jsonl').open() as stream:
         verify_traffic((decode_json(line) for line in stream), profile)
     require(history['cells'] == profile['cells']['total'], 'missing seeded cells')
@@ -73,7 +76,7 @@ def analyze(root):
     require(kernel == report['kernel'], 'kernel result differs from raw observations')
     require(report['memory_objectives_met'] is all(row['memory_objective_met'] for row in kernel['measurement']), 'memory objective differs from kernel evidence')
     return {'verified': True, 'scope': report['scenario'] + ' serialized workload, assigned three-voter replicas and archive coverage', 'placement': planned,
-            'fault': fault, 'kernel': kernel,
+            'fault': fault, 'kernel': kernel, **({'recovery': recovery} if recovery is not None else {}),
             'commands_including_seed': history['commands_including_seed'], 'queries': history['queries'],
             'replicas': len(seen), 'summary': summary, 'performance': performance, 'limitations': report['limitations']}
 

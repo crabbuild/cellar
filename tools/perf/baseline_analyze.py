@@ -9,9 +9,10 @@ from baseline_run import effective_profile
 from raft_run import decode_json, input_digest, read_json, require, summarize_ledger
 from raft_faults import fault_evidence
 from store_faults import validate_store_scenario
+from workload_recovery import recovery_evidence
 
 
-def proof_delta(samples, mode):
+def proof_delta(samples, mode, *, allow_failed_proofs=False):
     require(set(samples) == {'before', 'after'}, 'missing proof boundary')
     result = {key: 0 for key in ('started', 'bucket', 'fleet', 'errors', 'elapsed_us')}
     for edge in samples.values():
@@ -22,7 +23,7 @@ def proof_delta(samples, mode):
             left, right = before[row['node']][key], row['sample']['output_proofs'][key]
             require(type(left) is int and type(right) is int and 0 <= left <= right, 'invalid or reset proof counter')
             result[key] += right - left
-    require(result['errors'] == 0, 'native output proof failed during measurement')
+    require(allow_failed_proofs or result['errors'] == 0, 'native output proof failed during measurement')
     if mode == 'bucket':
         require(result['fleet'] == 0, 'bucket baseline unexpectedly used Fleet proof')
     return result
@@ -35,7 +36,9 @@ def analyze(root):
     profile = effective_profile(report['source_profile'], report['adapter'])
     validate_store_scenario(report['scenario'], report['fault_profile'], profile)
     require(profile == report['profile'] and input_digest(profile) == report['profile_sha256'], 'altered baseline profile')
-    history = reconcile(root / 'operations.jsonl', report['run_id'], profile['durability'])
+    recovery, resolutions = recovery_evidence(root, report)
+    require(recovery == report.get('recovery'), 'recovery differs from raw ledger')
+    history = reconcile(root / 'operations.jsonl', report['run_id'], profile['durability'], resolutions=resolutions)
     require(history['cells'] == profile['cells']['total'], 'missing seeded cells')
     summary = summarize_ledger(root / 'operations.jsonl', 'measurement', profile['timing']['measurement_seconds'])
     require(summary == report['summary'], 'summary differs from raw ledger')
@@ -52,7 +55,8 @@ def analyze(root):
     require(len(report['cgroups']) == 3 and len({row['node'] for row in report['cgroups']}) == 3, 'missing physical resource evidence')
     for row in report['cgroups']:
         require(row['cpu_max'] == '100000 100000' and row['memory_max'] == 3 * 1024**3 and row['swap_max'] == 0, 'physical cgroup differs')
-    proofs = proof_delta(report['proof_samples']['measurement'], report['adapter'])
+    proofs = proof_delta(report['proof_samples']['measurement'], report['adapter'], allow_failed_proofs=recovery is not None)
+    recovery_proofs = proof_delta(report['proof_samples']['recovery'], report['adapter']) if recovery is not None else None
     # No per-operation source is inferred from aggregate counters. Require the
     # configured Fleet fast path to have actually participated in this run.
     if report['adapter'] == 'fleet':
@@ -60,7 +64,7 @@ def analyze(root):
     fault = fault_evidence(root, report, summarize_ledger, decode_json)
     require(fault == report['fault_result'], 'store fault result differs from raw observations')
     return {'verified': True, 'scope': report['scenario'] + ' serialized workload through native output gates and owner routes',
-            'fault': fault,
+            'fault': fault, **({'recovery': recovery, 'recovery_proof_delta': recovery_proofs} if recovery is not None else {}),
             'commands_including_seed': history['commands_including_seed'], 'queries': history['queries'],
             'owner_route_reads': len(seen), 'summary': summary, 'proof_delta': proofs, 'limitations': report['limitations']}
 

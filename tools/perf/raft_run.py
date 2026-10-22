@@ -17,10 +17,11 @@ import urllib.error
 import urllib.request
 
 from raft import captured_node_limits, port_base, wait_for_placement
-from raft_workload import Ledger, input_digest, model, run_load, reconcile
+from raft_workload import Ledger, input_digest, model, run_load, reconcile, raft_position
 from raft_metrics import phases, samples
 from raft_faults import SlowFollower, fault_evidence, preflight_pause, validate_scenario
 from store_faults import StorePause, is_store_fault
+from workload_recovery import apply_resolutions, recover_commands
 from raft_docker import BoundContainer, discover as discover_fault_engine
 from raft_kernel import capture as capture_kernel, analyze as analyze_kernel
 from raft_topology import local_placement, members, verify_topology, verify_resources, verify_populations, verify_traffic, vm_requirements
@@ -235,7 +236,7 @@ def main():
     parser.add_argument('--image')
     parser.add_argument('--profile', type=Path, required=True)
     parser.add_argument('--profile-name', default='local-q0')
-    parser.add_argument('--scenario', choices=['healthy', 'slow-follower', 'leader-loss', 'minority-partition', 'disk-stall', 's3-outage', 'snapshot-crash'], default='healthy')
+    parser.add_argument('--scenario', choices=['healthy', 'slow-follower', 'leader-loss', 'minority-partition', 'disk-stall', 's3-outage', 's3-recovery', 'snapshot-crash'], default='healthy')
     parser.add_argument('--fault-profile', type=Path)
     parser.add_argument('--output', type=Path)
     parser.add_argument('--context', default='colima-cellar-multi-raft')
@@ -302,7 +303,7 @@ def run(args, profile, build, docker, cpus, memory):
               'fault_profile': args.fault_config, 'fault_profile_sha256': input_digest(args.fault_config),
               'fault_capability': args.fault_capability,
               'fault_engine': args.fault_engine,
-              'runner_sha256': {name: hashlib.sha256((ROOT / 'tools/perf' / name).read_bytes()).hexdigest() for name in ('raft_run.py', 'raft_workload.py', 'raft_analyze.py', 'raft_metrics.py', 'raft_topology.py', 'raft_faults.py', 'store_faults.py', 'raft_docker.py', 'raft_kernel.py', 'raft.py', 'run.py')},
+              'runner_sha256': {name: hashlib.sha256((ROOT / 'tools/perf' / name).read_bytes()).hexdigest() for name in ('raft_run.py', 'raft_workload.py', 'raft_analyze.py', 'raft_metrics.py', 'raft_topology.py', 'raft_faults.py', 'store_faults.py', 'workload_recovery.py', 'raft_docker.py', 'raft_kernel.py', 'raft.py', 'run.py')},
               'capacity': capacity(profile), 'placement': planned, 'vm': {'cpus': cpus, 'memory_bytes': memory},
               'completed': False, 'reconciled': False,
               'limitations': ['One local VM and RustFS; no independent failure domains or Amazon S3 qualification.',
@@ -473,7 +474,13 @@ def run(args, profile, build, docker, cpus, memory):
                 if fault and phase == 'measurement':
                     fault.finish()
                 boundary(phase, 'after')
-                require(not report[phase]['ambiguous'] and not report[phase]['blocked_cells'], 'ambiguous history requires reconciliation before continuing')
+                if not (args.scenario == 's3-recovery' and phase == 'measurement'):
+                    require(not report[phase]['ambiguous'] and not report[phase]['blocked_cells'], 'ambiguous history requires reconciliation before continuing')
+        resolutions = []
+        if args.scenario == 's3-recovery':
+            report['recovery'], resolutions = recover_commands(root, report, send)
+            reconcile(root / 'operations.jsonl', resolutions=resolutions)
+            apply_resolutions(state, resolutions, raft_position)
         report['performance'] = phases(measurements, bool(profile['timing']['warmup_seconds']), node_count)
         report['kernel'] = analyze_kernel(kernel, report)
         report['memory_objectives_met'] = all(row['memory_objective_met'] for row in report['kernel']['measurement'])
@@ -491,7 +498,7 @@ def run(args, profile, build, docker, cpus, memory):
         capture_topology('after')
         report['summary'] = summarize_ledger(root / 'operations.jsonl', 'measurement', profile['timing']['measurement_seconds'])
         require(report['summary']['counts']['offered'] == report['measurement']['offered'], 'offered ledger mismatch')
-        report['history'] = reconcile(root / 'operations.jsonl')
+        report['history'] = reconcile(root / 'operations.jsonl', resolutions=resolutions)
         with (root / 'operations.jsonl').open() as stream:
             verify_traffic((decode_json(line) for line in stream), profile)
         report['fault_result'] = fault_evidence(root, report, summarize_ledger, decode_json)

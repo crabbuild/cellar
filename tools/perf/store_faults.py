@@ -18,7 +18,7 @@ def is_store_fault(config):
     return isinstance(config, dict) and config.get('target') == 'object-store'
 
 
-def validate_store_fault(config, profile):
+def validate_store_fault(config, profile, *, recovery=False):
     require(isinstance(config, dict) and set(config) == {
         'format', 'target', 'pause_ms', 'max_pause_ms', 'interval_ms',
         'start_after_seconds', 'stop_before_seconds', 'max_start_lateness_ms'}, 'invalid store fault fields')
@@ -27,7 +27,15 @@ def validate_store_fault(config, profile):
         if key != 'target':
             require(type(value) is int and 0 <= value <= 3600000, 'invalid store fault integer: ' + key)
     require(10 <= config['pause_ms'] < config['max_pause_ms'] < config['interval_ms'], 'invalid store pause bounds')
-    require(config['max_pause_ms'] < profile['timing']['request_timeout_ms'], 'store pause exceeds request budget')
+    if recovery:
+        require(profile['durability'] in ('s3', 'bucket'), 'recovery drill requires object-store acknowledgements')
+        require(profile['timing']['request_timeout_ms'] + 1000 < config['pause_ms'] < config['max_pause_ms'] <= 60000,
+                'recovery pause must exceed both native and HTTP request budgets')
+        required = (profile['timing']['measurement_seconds'] + profile['slo']['max_recovery_seconds']) * 1000
+        require(profile['timing']['retry_window_ms'] > required + profile['timing']['request_timeout_ms'] + 1000,
+                'original retry window cannot cover the recovery drill')
+    else:
+        require(config['max_pause_ms'] < profile['timing']['request_timeout_ms'], 'store pause exceeds request budget')
     require(profile['read_fraction'] < 1, 'store fault requires write traffic')
     start = config['start_after_seconds']
     end = profile['timing']['measurement_seconds'] - config['stop_before_seconds']
@@ -37,18 +45,18 @@ def validate_store_fault(config, profile):
 
 
 def validate_store_scenario(scenario, config, profile):
-    require(scenario in ('healthy', 's3-outage'), 'unsupported baseline fault capability')
+    require(scenario in ('healthy', 's3-outage', 's3-recovery'), 'unsupported baseline fault capability')
     if config is None:
-        require(scenario == 'healthy', 's3-outage requires a store fault profile')
+        require(scenario == 'healthy', scenario + ' requires a store fault profile')
     else:
-        validate_store_fault(config, profile)
+        validate_store_fault(config, profile, recovery=scenario == 's3-recovery')
 
 
 class StorePause:
     """Join the sole fault owner; inspect ambiguous mutations before cleanup."""
     def __init__(self, root, scenario, config, profile, prefix, run_id, control):
         validate_store_scenario(scenario, config, profile)
-        self.offsets = validate_store_fault(config, profile)
+        self.offsets = validate_store_fault(config, profile, recovery=scenario == 's3-recovery')
         self.scenario, self.config = scenario, config
         self.node, self.run_id = prefix + '-store', run_id
         self.control = control
@@ -80,17 +88,17 @@ class StorePause:
                 requested = time.monotonic()
                 self.record(cycle, 'begin', scheduled_seconds=offset, state=before)
                 try:
-                    if self.scenario == 's3-outage':
+                    if self.scenario != 'healthy':
                         self.control('pause', self.node)
                     during = self.inspect()
-                    require(during['paused'] is (self.scenario == 's3-outage'), 'store pause was not observed')
+                    require(during['paused'] is (self.scenario != 'healthy'), 'store pause was not observed')
                     self.record(cycle, 'held', state=during)
                     require(time.monotonic() + self.config['pause_ms'] / 1000 < requested + self.config['max_pause_ms'] / 1000,
                             'store pause setup exhausted its time budget')
                     if self.stop.wait(self.config['pause_ms'] / 1000):
                         raise ValueError('store pause cancelled')
                     state = self.inspect()
-                    require(state['paused'] is (self.scenario == 's3-outage'), 'store pause changed before release')
+                    require(state['paused'] is (self.scenario != 'healthy'), 'store pause changed before release')
                     self.record(cycle, 'release', state=state)
                 finally:
                     # An unsuccessful pause response does not prove non-mutation.
@@ -131,7 +139,7 @@ def number(value):
     return type(value) in (int, float) and math.isfinite(value)
 
 
-def verify_store_fault(report, events, operations):
+def verify_store_fault(report, events, operations, *, recovery=None):
     """Check request-dispatch windows, not admission or scheduled arrivals.
 
     Receipt/model validation is additionally performed by the caller's history
@@ -141,7 +149,9 @@ def verify_store_fault(report, events, operations):
     config, profile, scenario = report['fault_profile'], report['profile'], report['scenario']
     validate_store_scenario(scenario, config, profile)
     require(report['fault_profile_sha256'] == input_digest(config), 'changed store fault profile')
-    offsets = validate_store_fault(config, profile)
+    offsets = validate_store_fault(config, profile, recovery=scenario == 's3-recovery')
+    resolutions = {row['original_id']: row for row in recovery['resolutions']} if recovery is not None else {}
+    require((recovery is not None) is (scenario == 's3-recovery'), 'missing or undeclared store recovery evidence')
     began = report['measurement']['started_monotonic_seconds']
     require(number(began) and began > 0, 'missing workload clock origin')
     require(len(events) == 4 * len(offsets), 'incomplete store fault schedule')
@@ -151,7 +161,7 @@ def verify_store_fault(report, events, operations):
     for cycle, offset in enumerate(offsets):
         rows = events[cycle * 4:cycle * 4 + 4]
         for n, (row, kind, paused) in enumerate(zip(rows, ('begin', 'held', 'release', 'released'),
-                (False, scenario == 's3-outage', scenario == 's3-outage', False))):
+                (False, scenario != 'healthy', scenario != 'healthy', False))):
             stamp = row['monotonic_seconds']
             require(number(stamp) and stamp >= previous, 'store fault clock changed')
             previous = stamp
@@ -175,7 +185,7 @@ def verify_store_fault(report, events, operations):
     durability = profile['durability']
     require(durability in ('s3', 'quorum', 'bucket', 'fleet-or-bucket'), 'unsupported acknowledgement policy')
     requires_store = durability in ('s3', 'bucket')
-    pending, seen, commands = {}, set(), []
+    pending, seen, commands, ambiguous_witnesses = {}, set(), [], set()
     for event in operations:
         if event.get('phase') != 'measurement' or event['operation'] != 'command':
             continue
@@ -190,8 +200,14 @@ def verify_store_fault(report, events, operations):
             require(event['cell'] == invocation['cell'], 'store witness cell changed')
             invoked, sent, finished = invocation['invoke_seconds'], event['sent_seconds'], event['complete_seconds']
             require(all(number(t) for t in (invoked, sent, finished)) and 0 <= invoked <= sent <= finished, 'invalid store witness clock')
-            require(event['outcome'] != 'ambiguous', 'ambiguous store witness requires a recovery drill')
-            if event['status'] == 200:
+            if event['outcome'] == 'ambiguous':
+                require(key in resolutions, 'ambiguous store witness requires a recovery drill')
+                recovered = resolutions[key]
+                require(recovered['cell'] == invocation['cell'] and recovered['command_id'] == invocation['command_id'], 'recovered witness identity differs')
+                commands.append((began + invoked, began + sent, recovered['first_acknowledged_monotonic_seconds'],
+                                 invocation['cell'], invocation['command_id']))
+                ambiguous_witnesses.add(invocation['command_id'])
+            elif event['status'] == 200:
                 require(event['outcome'] == 'completed' and not event.get('violation')
                         and event['response']['durability'] == durability, 'store witness result differs')
                 commands.append((began + invoked, began + sent, began + finished,
@@ -207,12 +223,15 @@ def verify_store_fault(report, events, operations):
         overlap = [item for item in commands[first:last] if item[1] < release]
         require(overlap, 'no successful new command submitted during store window')
         during = [item for item in overlap if item[2] < release]
-        if scenario == 's3-outage' and requires_store:
+        if scenario != 'healthy' and requires_store:
             require(not during, 'object-store acknowledgement returned while store was paused')
         witnesses.append({'cycle': cycle, 'submitted_during_hold': len(overlap),
                           'acknowledged_during_hold': len(during),
                           'commands': [{'cell': cell, 'command_id': command_id, 'ack_after_release_started': finished >= release}
                                        for _, _, finished, cell, command_id in overlap]})
+    if scenario == 's3-recovery':
+        require(any(command['command_id'] in ambiguous_witnesses for window in witnesses for command in window['commands']),
+                'no ambiguous command was dispatched in the observed store pause')
     recovered = report['store_recovery_verified_monotonic_seconds']
     elapsed = report['measurement']['elapsed_seconds']
     require(number(elapsed) and elapsed >= profile['timing']['measurement_seconds']

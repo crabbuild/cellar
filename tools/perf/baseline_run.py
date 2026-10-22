@@ -24,6 +24,7 @@ from raft_workload import Ledger, model, run_load
 from raft_faults import fault_evidence, preflight_pause
 from raft_docker import BoundContainer, discover as discover_fault_engine
 from store_faults import StorePause, validate_store_scenario
+from workload_recovery import apply_resolutions, recover_commands
 from run import create_bucket
 
 
@@ -51,7 +52,7 @@ def main():
     parser.add_argument('--mode', required=True, choices=['fleet', 'bucket'])
     parser.add_argument('--profile', required=True, type=Path)
     parser.add_argument('--profile-name', default='local-q0')
-    parser.add_argument('--scenario', choices=['healthy', 's3-outage'], default='healthy')
+    parser.add_argument('--scenario', choices=['healthy', 's3-outage', 's3-recovery'], default='healthy')
     parser.add_argument('--fault-profile', type=Path)
     parser.add_argument('--image', required=True)
     parser.add_argument('--output', required=True, type=Path)
@@ -107,7 +108,7 @@ def run(args, source, profile, build, docker, cpus, memory):
               'vm': {'cpus': cpus, 'memory_bytes': memory}, 'scenario': args.scenario,
               'fault_profile': args.fault_config, 'fault_profile_sha256': input_digest(args.fault_config),
               'fault_engine': args.fault_engine, 'fault_capability': args.fault_capability,
-              'runner_sha256': {name: hashlib.sha256((ROOT / 'tools/perf' / name).read_bytes()).hexdigest() for name in ('baseline_run.py', 'baseline_analyze.py', 'baseline_history.py', 'raft_workload.py', 'raft_faults.py', 'store_faults.py', 'raft_docker.py', 'raft_run.py')},
+              'runner_sha256': {name: hashlib.sha256((ROOT / 'tools/perf' / name).read_bytes()).hexdigest() for name in ('baseline_run.py', 'baseline_analyze.py', 'baseline_history.py', 'raft_workload.py', 'raft_faults.py', 'store_faults.py', 'workload_recovery.py', 'raft_docker.py', 'raft_run.py')},
               'completed': False, 'reconciled': False,
               'limitations': ['One local VM and RustFS, without independent failure domains or Amazon S3 validation.',
                               'Fleet races all current follower fsyncs against bucket publication; the response names that policy, not a per-write proof source.',
@@ -221,7 +222,15 @@ def run(args, source, profile, build, docker, cpus, memory):
                 if fault and phase == 'measurement':
                     fault.finish()
                 report['proof_samples'][phase]['after'] = capture()
-                require(not report[phase]['ambiguous'] and not report[phase]['blocked_cells'], 'ambiguous history requires recovery before continuing')
+                if not (args.scenario == 's3-recovery' and phase == 'measurement'):
+                    require(not report[phase]['ambiguous'] and not report[phase]['blocked_cells'], 'ambiguous history requires recovery before continuing')
+        resolutions = []
+        if args.scenario == 's3-recovery':
+            report['proof_samples']['recovery'] = {'before': capture()}
+            report['recovery'], resolutions = recover_commands(root, report, send)
+            report['proof_samples']['recovery']['after'] = capture()
+            reconcile(root / 'operations.jsonl', run_id, profile['durability'], resolutions=resolutions)
+            apply_resolutions(state, resolutions, position)
         reads = []
         for cell, expected in state.items():
             for member in range(3):
@@ -231,7 +240,7 @@ def run(args, source, profile, build, docker, cpus, memory):
         (root / 'owner-reads.json').write_text(json.dumps(reads) + '\n')
         report['store_recovery_verified_monotonic_seconds'] = time.monotonic()
         report['summary'] = summarize_ledger(root / 'operations.jsonl', 'measurement', profile['timing']['measurement_seconds'])
-        report['history'] = reconcile(root / 'operations.jsonl', run_id, profile['durability'])
+        report['history'] = reconcile(root / 'operations.jsonl', run_id, profile['durability'], resolutions=resolutions)
         report['fault_result'] = fault_evidence(root, report, summarize_ledger)
         report['cgroups'] = [{'node': node, 'cpu_max': docker('exec', node, 'cat', '/sys/fs/cgroup/cpu.max'),
             'memory_max': int(docker('exec', node, 'cat', '/sys/fs/cgroup/memory.max')),

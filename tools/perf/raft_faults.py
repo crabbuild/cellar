@@ -87,7 +87,7 @@ def validate_fault(config, profile):
 
 def validate_scenario(scenario, config, profile):
     from store_faults import is_store_fault, validate_store_scenario
-    if scenario == 's3-outage' or is_store_fault(config):
+    if scenario in ('s3-outage', 's3-recovery') or is_store_fault(config):
         return validate_store_scenario(scenario, config, profile)
     require(scenario in ('healthy', 'slow-follower'), 'fault capability not implemented: refuse before creating resources')
     if config is None:
@@ -174,12 +174,12 @@ class SlowFollower:
         self.ledger.close()
 
 
-def verify_fault(report, events, operations):
+def verify_fault(report, events, operations, *, recovery=None):
     """Reject missing injection, wrong scope, fabricated progress or no recovery."""
     scenario, config, profile = report['scenario'], report['fault_profile'], report['profile']
     from store_faults import is_store_fault, verify_store_fault
-    if scenario == 's3-outage' or is_store_fault(config):
-        return verify_store_fault(report, events, operations)
+    if scenario in ('s3-outage', 's3-recovery') or is_store_fault(config):
+        return verify_store_fault(report, events, operations, recovery=recovery)
     validate_scenario(scenario, config, profile)
     require(report['fault_profile_sha256'] == input_digest(config), 'changed fault profile')
     if config is None:
@@ -279,8 +279,11 @@ def verify_fault(report, events, operations):
 def fault_evidence(root, report, summarize, decode=json.loads):
     path = Path(root) / 'faults.jsonl'
     events = [decode(line) for line in path.read_text().splitlines()] if path.exists() else []
+    from workload_recovery import recovery_evidence
+    recovery, _ = recovery_evidence(root, report)
+    require(recovery == report.get('recovery'), 'recovery summary differs from raw observations')
     with (Path(root) / 'operations.jsonl').open() as stream:
-        result = verify_fault(report, events, (decode(line) for line in stream))
+        result = verify_fault(report, events, (decode(line) for line in stream), recovery=recovery)
     if result is not None and 'cohorts' in result:
         result['cohort_summaries'] = {role: summarize(Path(root) / 'operations.jsonl', 'measurement', report['profile']['timing']['measurement_seconds'], cells=set(cells))
                                       for role, cells in result['cohorts'].items() if cells}
