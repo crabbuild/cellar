@@ -165,6 +165,33 @@ class OfferedLoad(unittest.TestCase):
         self.assertEqual(second['generator_rejected'], 3)
         self.assertEqual(state[0]['next_sequence'], 2)
 
+    def test_admission_cannot_change_future_offered_cells_or_operation_mix(self):
+        profile = self.profile()
+        profile['cells'] = {'total': 2, 'active': 2}
+        profile['read_fraction'] = .5
+        profile['skew'] = {'hot_fraction': .5, 'hot_probability': .5}
+        plans = []
+        for delay in (0, .04):
+            state = {cell: copy.deepcopy(self.state()[0]) for cell in range(2)}
+            def send(cell, kind, body, headers):
+                time.sleep(delay)
+                if kind == 'query':
+                    return 200, {'state': state[cell]['state']}
+                next_state, changed = model(state[cell]['state'], body)
+                return 200, {'state': next_state, 'changed': changed, 'durability': 'quorum',
+                    'version_token': 'new', 'index': state[cell]['index']+1}
+            with tempfile.TemporaryDirectory() as directory:
+                path = Path(directory) / 'ledger'
+                ledger = Ledger(path)
+                run_load(profile, 'measurement', .12, state, ledger, send, 'test')
+                ledger.close()
+                events = [json.loads(line) for line in path.read_text().splitlines()]
+                offered = sorted((event for event in events if event['event'] in ('invoke', 'reject')),
+                                 key=lambda event: int(event['id'].split(':')[1]))
+                plans.append([(event['cell'], event['operation']) for event in offered])
+        self.assertEqual(len(plans[0]), 12)
+        self.assertEqual(plans[0], plans[1])
+
     def test_read_timeout_is_counted_without_inventing_mutation_ambiguity(self):
         profile = self.profile()
         profile['read_fraction'] = 1
