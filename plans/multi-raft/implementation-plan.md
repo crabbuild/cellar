@@ -786,10 +786,59 @@ an unexplained parallel outbox callback-count failure and passing isolated
 replays. This does not close the finding, enlarge the frozen parent results or
 complete this milestone.
 
-Safe receipt maintenance, production Raft CLI startup and remaining
-management surfaces, fenced new-history disaster restore and complete operating
-qualification remain required before DONE. The remaining original case is
+Production Raft CLI startup now shares the embedded startup implementation.
+`Host::raft_cells` binds the active compiled application before public ingress,
+requires an explicit persistent `--data-dir`, pins the initial deployment and
+joins failed/cancelled startup. The process qualification includes retained
+state, two groups and three separate TLS-connected daemons; see the
+[CLI contract](operations-design.md#production-cli-startup) and
+[frozen qualification](evidence/MR-13-cli-startup-progress.json): 984 standard
+cases, 15 doctests, the custom process runner, a focused Python watchdog and
+workspace Clippy at `0fa09f1`. This is a partial
+component and does not complete operating qualification.
+
+The [receipt-maintenance component](receipt-maintenance-design.md) now couples
+bounded expired-prefix cleanup to a new command's private transaction and LTX.
+It preserves inclusive retry deadlines, every client floor and latest receipt,
+and refuses live-capacity saturation before business callbacks. The
+[frozen record](evidence/MR-13-receipt-maintenance-progress.json) pins 551 cases,
+15 doctests, Clippy and the integrated daemon process runner to `817a4ed`.
+It also repairs the S3 seed fixture's setup admission race within its original
+deadline. These results do not close the independent CI findings.
+
+Remaining receipt qualification, management surfaces, fenced new-history
+disaster restore and complete operating qualification remain required before DONE. The remaining original case is
 `disaster_old_quorum_fenced`.
+
+Continue the remaining features in this order:
+
+Current execution scope: local Colima containers, up to five Cellar nodes with
+one CPU and 3 GiB memory each, and RustFS as the object store. Use the separate
+`cellar-multi-raft` profile; see `tools/multi-raft/README.md` in the repository.
+The [backend record](evidence/MR-13-local-backend-progress.json) covers seven
+real object-store protocol operations, with zero Cellar nodes launched by that
+component. It does not qualify the later physical fleet or release gates.
+
+1. Finish receipt-maintenance qualification: signed receiver acknowledgement
+   recovery after response loss, alarm/outbox recurrence past the receipt ceiling,
+   follower/archive floor recovery, and cleanup during leadership loss. Preserve
+   promised retry windows, non-reusable floors, latest receiver receipts and
+   unresolved delivery state. The new opportunistic path uses replicated command
+   updates; the old private pruning primitive remains verification-only.
+2. Complete operator discovery and management over the existing authenticated
+   resource/inspection contracts. Carry exact namespace, group, incarnation,
+   process and revision guards into mutations; preserve partial/unknown coverage
+   and original source age. Production startup pins deployments until a separate
+   live rebinding protocol is qualified.
+3. Implement and qualify a real old-deployment fence for the selected deployment
+   platform, then exact per-cell archive selection and restore into a distinct
+   namespace/group/incarnation. Reconcile pending old-origin effects and prove
+   old tokens and a returning partitioned quorum cannot operate on the new
+   history. A stop receipt or caller assertion cannot replace that fence.
+4. Close the outstanding transfer, concurrent fallback and effect callback-count
+   findings, then run the complete operating matrix and disaster drill. Keep
+   physical S3, power-loss, failure-zone and scale evidence separate from local
+   fixture results. MR-14 through MR-17 retain their own release gates.
 
 Modify: `crates/cellar/node/embedded.rs`, `crates/cellar/actor/output_proofs.rs`, `crates/cellar/fleet/management/nodes.rs`, `crates/cellar/fleet/management/routing.rs`, `crates/cellar/cli/cli_options.rs`, `crates/cellar/durability/raft/options.rs`, `crates/cellar/application/consensus/client.rs`, `crates/cellar/application/consensus/mod.rs`, `crates/cellar/durability/raft/effect_delivery.rs`, `crates/cellar/durability/raft/host.rs`, `crates/cellar/durability/raft/host_controller.rs`, `crates/cellar/durability/raft/host_effects.rs`, `crates/cellar/durability/raft/host_inspection.rs`, `crates/cellar/durability/raft/mod.rs`, `crates/cellar/execution/services.rs`, `crates/cellar/node/driver.rs`, `crates/cellar/node/lifecycle.rs`, `crates/cellar/tests/native_raft_membership.rs`, `crates/cellar/tests/support/raft_alarm_native.rs`, `crates/cellar/tests/support/raft_controller_native.rs`, `crates/cellar/tests/support/raft_node.rs`, `crates/cellar/tests/support/raft_outbox_loopback.rs`, `crates/cellar/tests/support/raft_outbox_native.rs`, `crates/cellar/durability/raft/transport_inspection_tests.rs`, `crates/cellar/tests/support/raft_repair_native.rs`, `crates/cellar/fleet/management/mod.rs`, `crates/cellar/fleet/management/operations.rs`, `crates/cellar-admin/tests/console.rs`, `crates/cellar/tests/support/raft_storage_fault.rs`, `crates/cellar/application/consensus/class.rs`, `crates/cellar/durability/raft/query.rs`, `crates/cellar/tests/native_raft_reads.rs`, `crates/cellar/tests/support/raft_cluster.rs`, `crates/cellar/durability/raft/budget.rs`, `crates/cellar/durability/raft/host_sql.rs`, `crates/cellar/node/mod.rs`.
 

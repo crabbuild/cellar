@@ -12,6 +12,9 @@ alarms and receipt-checked outbox/inbox delivery share an owned leader scheduler
 
 | Boundary | Qualification |
 | --- | --- |
+| [MR-13 bounded receipt maintenance](evidence/MR-13-receipt-maintenance-progress.json) | Source `817a4ed`: 551 unit/integration cases across five binaries, 15 doctests, Clippy and the integrated daemon process runner. Expired prefixes, inclusive deadlines, latest receipts, atomic command publication and retained-disk floors; dedicated signed-ack/recurrence/archive-floor checks remain open. |
+| [MR-13 production CLI startup](evidence/MR-13-cli-startup-progress.json) | Source `0fa09f1`: 984 standard cases across 72 binaries with passing cases, 15 doctests, the custom daemon process runner, focused Python watchdog and workspace Clippy. Tests include three actual daemon processes and retained two-group restart. Serial passes do not close the recorded concurrent CI findings. |
+| [Local Colima/RustFS backend](evidence/MR-13-local-backend-progress.json) | Separate profile; digest-pinned RustFS with enforced limits and seven passing S3 protocol operations. No Cellar containers launched by this component. The repository helper in `tools/multi-raft/` targets up to five 1-vCPU/3-GiB nodes and refuses a VM that cannot fit the selected count. |
 | [MR-13 image, connection and aggregate resources](evidence/MR-13-resource-views-progress.json) | Source `37aed98`: 610 passing cases across eight binaries with serial fixtures, 15 doctests and workspace Clippy. Physical image/connection owners, bounded complete role/readiness/lag scans and controller views; 110 fixed samples plus 13 with a controller. A parallel outbox callback-count failure remains open despite passing isolated replays and the serial matrix. |
 | [MR-13 SQL and transport resources](evidence/MR-13-resources-progress.json) | Source `f89c7b4`: 850 unique unit/integration cases across 26 binaries, four SDK doctests and two recovery processes. Physical SQL and actual directional transport budgets; 68 fixed samples with grouped metric families. Prior intermittent findings remain open. |
 | [MR-13 authenticated reservation metrics](evidence/MR-13-metrics-progress.json) | Source `4e25ffa`: 551 cases across six affected binaries, four SDK doctests and two recovery processes. Exactly 14 gauge identities for one versus 32 committed groups; separate scope from the parent result. |
@@ -46,8 +49,9 @@ The [business-feature contract](effects-design.md) describes Blob, alarm, signed
 delivery, receiver receipts and private-system boundaries. Stable definition
 identities permit self/cyclic bindings; immutable namespace admission still checks
 the complete required manifest. All 88 public Node cases and owning Raft/Fleet
-regressions pass at the MR-12 source. Existing receipt bounds still apply without
-automatic pruning, and permanently refused deliveries remain retained.
+regressions pass at the MR-12 source, which predates automatic receipt pruning.
+The later MR-13 component adds bounded opportunistic maintenance; permanently
+refused deliveries remain retained.
 
 Public Node shutdown now seals Raft admission, tracks accepted application work,
 attempts bounded authenticated leadership handoff and joins the registered host.
@@ -57,9 +61,11 @@ known archive lag and explicitly unknown parked histories. The
 retained-disk obligations. Authenticated operator and caller/signal stops share
 the driver. Durable management receipts now include actual Raft closure and the
 original deadline through physical joining; missing startup/closure proof and
-submitted ambiguity cannot yield a complete receipt. Production Raft CLI startup,
-complete resource/lag inspection, receipt maintenance and fenced disaster restore remain
-MR-13 work. Local role/query readiness separates coherent historical images from
+submitted ambiguity cannot yield a complete receipt. Production Raft CLI startup
+shares embedded validation, requires persistent storage and binds the active
+compiled application before ingress. It pins the initial deployment until process
+restart. Remaining management surfaces, receipt qualification, fenced disaster restore
+and complete operating qualification remain MR-13 work. Local role/query readiness separates coherent historical images from
 source freshness; strong reads still obtain a fresh quorum barrier. Physical SDK
 query-reader permits survive waiter cancellation, and fixed-size usage reflects
 actual reservations. An authenticated, process-bound internal endpoint exports

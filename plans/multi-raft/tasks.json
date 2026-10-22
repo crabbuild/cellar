@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "baseline_revision": "37aed98b6aaa6d39f995a853aef1094991dc729b",
+  "baseline_revision": "ded2e1e5fbab469c98ee17f773fa0a65d1274bd8",
   "status_values": [
     "TODO",
     "IN_PROGRESS",
@@ -2017,7 +2017,20 @@
         "crates/cellar/durability/raft/host_leader_load.rs",
         "crates/cellar/durability/raft/host_leader_load_tests.rs",
         "crates/cellar/durability/raft/transport_tests.rs",
-        "crates/cellar/durability/raft/host_archive.rs"
+        "crates/cellar/durability/raft/host_archive.rs",
+        "crates/cellar-python/tests/support/watchdog.rs",
+        "crates/cellar/Cargo.toml",
+        "crates/cellar/README.md",
+        "crates/cellar/cli/daemon.rs",
+        "crates/cellar/execution/domain.rs",
+        "crates/cellar/node/native.rs",
+        "crates/cellar/runtime/generation.rs",
+        "crates/cellar/sdk.rs",
+        "docs/23-cli-reference.md",
+        "crates/cellar/durability/raft/execution.rs",
+        "crates/cellar/durability/raft/receipts.rs",
+        "crates/cellar/tests/native_raft_execution.rs",
+        "crates/cellar/tests/support/raft_seed_crash.rs"
       ],
       "creates": [
         "crates/cellar/durability/raft/operations.rs",
@@ -2041,7 +2054,17 @@
         "crates/cellar/application/consensus/resource_metrics.rs",
         "crates/cellar/application/consensus/resources_tests.rs",
         "crates/cellar/durability/raft/transport_resources.rs",
-        "crates/cellar-ltx/src/generation_accounting.rs"
+        "crates/cellar-ltx/src/generation_accounting.rs",
+        "crates/cellar/node/native_raft.rs",
+        "crates/cellar/node/raft_startup.rs",
+        "crates/cellar/tests/native_raft_daemon.rs",
+        "crates/cellar/durability/raft/receipt_maintenance.rs",
+        "crates/cellar/durability/raft/receipt_maintenance_tests.rs",
+        "crates/cellar/durability/raft/receipts_tests.rs",
+        "plans/multi-raft/receipt-maintenance-design.md",
+        "tools/multi-raft/local.py",
+        "tools/multi-raft/store_probe.py",
+        "tools/multi-raft/README.md"
       ],
       "steps": [
         "Expose explicit limits and metrics for groups, byte queues, apply/archive lag, query pins, snapshot and repair budgets.",

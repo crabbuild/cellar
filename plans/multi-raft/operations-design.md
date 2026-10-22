@@ -173,7 +173,9 @@ I/O. A sample reports resource reservations, not readiness or graceful closure.
 Group detail remains separate through explicitly enabled SDK inspection and
 authenticated peer inspection grants. Enabling resource sampling grants no
 peer-inspection, membership, seeding or query capability. Production CLI
-discovery/management, receipt maintenance and fenced disaster restore remain open.
+discovery/management, receipt-maintenance qualification and fenced disaster restore
+remain open. The [bounded maintenance contract](receipt-maintenance-design.md)
+describes the implemented command-coupled path and its remaining oracles.
 
 ## Drain and leadership handoff
 
