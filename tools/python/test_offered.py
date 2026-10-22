@@ -35,15 +35,24 @@ class Handler(BaseHTTPRequestHandler):
         if self.headers.get("transfer-encoding") is not None:
             raise ValueError("this fixture expects fixed-length request bodies")
         body = self.rfile.read(int(self.headers.get("content-length", "0")))
+        self.respond(body)
+
+    def do_GET(self):
+        self.respond(self.server.reads[self.path])
+
+    def respond(self, body):
         with self.server.lock:
             self.server.received += 1
+            self.server.paths.append((self.command, self.path))
         if self.server.mode == "slow":
             time.sleep(.08)
         if self.server.mode == "timeout":
             time.sleep(.2)
         if self.server.mode == "wrong":
             body += b"invalid trailing byte"
-        code = 307 if self.server.mode == "redirect" else 200
+        if self.server.mode == "error":
+            body = b"x" * 8192
+        code = 307 if self.server.mode == "redirect" else (503 if self.server.mode == "error" else 200)
         self.send_response(code)
         self.send_header("content-length", str(len(body)))
         if code == 307:
@@ -72,16 +81,23 @@ class NativeArrivalTests(unittest.TestCase):
         self.assertEqual(observed_idle(host)["runtime"]["interpreter"]["generation"], 8)
         self.assertEqual(host.calls, 3)
 
-    def run_client(self, mode, *, inflight=16, timeout=500, body_bytes=137):
+    def run_client(self, mode, *, inflight=16, timeout=500, body_bytes=137, reads=False):
         server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         server.mode, server.received, server.lock = mode, 0, threading.Lock()
+        server.paths = []
+        server.reads = {"/orders/first": b'{"id":"first"}', "/orders/second": b'{"id":"second"}'}
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         try:
             with tempfile.TemporaryDirectory() as root:
                 output = Path(root) / "samples.json"
                 command = [str(CLIENT), f"http://127.0.0.1:{server.server_port}",
-                           "100", "500", str(inflight), str(body_bytes), str(timeout), "200", str(output)]
+                           "100", "500", str(inflight), str(0 if reads else body_bytes), str(timeout), "200", str(output)]
+                if reads:
+                    manifest = Path(root) / "reads.json"
+                    manifest.write_text(json.dumps([dict(path=path, expected_body=list(body))
+                                                   for path, body in server.reads.items()]))
+                    command.append(str(manifest))
                 result = subprocess.run(command, capture_output=True, timeout=10)
                 self.assertEqual(result.returncode, 0, result.stderr.decode())
                 report = json.loads(output.read_text())
@@ -91,6 +107,8 @@ class NativeArrivalTests(unittest.TestCase):
                 self.assertGreater(dispatched, 0)
                 with server.lock:
                     self.assertEqual(server.received, dispatched, "redirect or hidden resend")
+                    if reads:
+                        self.assertEqual(set(server.paths), {("GET", path) for path in server.reads})
                 # Existing evidence must be refused before another request.
                 again = subprocess.run(command, capture_output=True, timeout=10)
                 self.assertNotEqual(again.returncode, 0)
@@ -143,10 +161,49 @@ class NativeArrivalTests(unittest.TestCase):
         self.assertGreater(summary["outcomes"].get("body_mismatch", 0), 0)
         self.assertNotIn("success", summary["outcomes"])
 
+    def test_http_failure_details_have_bounded_count_and_size(self):
+        report, summary = self.run_client("error")
+        details = [row["response_prefix"] for row in report["samples"] if "response_prefix" in row]
+        self.assertEqual(len(details), min(16, summary["outcomes"]["http_status"]))
+        self.assertEqual(set(details), {"x" * 1024})
+        self.assertNotIn("success", summary["outcomes"])
+        forged = copy.deepcopy(report)
+        next(row for row in forged["samples"] if "response_prefix" in row)["response_prefix"] += "x"
+        with self.assertRaises(RuntimeError):
+            summarize(forged)
+
     def test_timeouts_remain_failed_attempts(self):
         _, summary = self.run_client("timeout", timeout=50)
         self.assertGreater(summary["outcomes"].get("timeout", 0), 0)
         self.assertNotIn("success", summary["outcomes"])
+
+    def test_read_targets_validate_distinct_response_bodies(self):
+        report, summary = self.run_client("echo", reads=True)
+        self.assertEqual(len(report["workload"]["reads"]), 2)
+        self.assertGreater(summary["outcomes"].get("success", 0), 0)
+        self.assertFalse(set(summary["outcomes"]) - {"success", "client_late", "client_capacity"})
+
+    def test_read_targets_reject_trailing_bytes(self):
+        _, summary = self.run_client("wrong", reads=True)
+        self.assertGreater(summary["outcomes"].get("body_mismatch", 0), 0)
+        self.assertNotIn("success", summary["outcomes"])
+
+    def test_invalid_read_manifest_refuses_before_creating_report(self):
+        valid = {"path": "/orders/one", "expected_body": [1, 2]}
+        invalid = [[], [valid, valid], [dict(valid, path="//external/one")],
+                   [dict(valid, path="/../one")], [dict(valid, path="/one?redirect=1")],
+                   [dict(valid, expected_body=[256])], [dict(valid, unknown=True)],
+                   [dict(valid, expected_body=[0] * 65_537)], [valid] * 65]
+        with tempfile.TemporaryDirectory() as root:
+            manifest, output = Path(root) / "reads.json", Path(root) / "result.json"
+            for targets in invalid:
+                with self.subTest(target_count=len(targets), keys=list(targets[0]) if targets else []):
+                    manifest.write_text(json.dumps(targets))
+                    result = subprocess.run([str(CLIENT), "http://127.0.0.1:9", "1", "1000", "1",
+                                             "0", "100", "1", str(output), str(manifest)],
+                                            capture_output=True, timeout=5)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertFalse(output.exists(), result.stderr.decode())
 
 
 if __name__ == "__main__":

@@ -114,6 +114,9 @@ The client never waits for an admission slot, never sends after the measurement
 window, and disables redirects and automatic retries. In-flight work and total
 samples are bounded; admitted requests drain under their original timeouts.
 An existing output file is refused before traffic starts.
+For diagnosis, at most sixteen HTTP failures retain the first 1,024 response
+bytes as lossy UTF-8. All HTTP statuses and arrival outcomes remain recorded;
+the bounded diagnostic sample does not represent the frequency of each error.
 
 Read `offered.json` outcomes together with both latency distributions: request
 latency starts at dispatch, while scheduled latency includes client dispatch
@@ -130,6 +133,17 @@ to Cellar. These measurements alone do not establish native parity or production
 capacity. `test_offered.py` independently checks real HTTP echo, bounded admission
 under slow responses, timeout/body/status failures, no redirect/resend, output
 preservation and rejection of corrupted timing evidence.
+
+The client also accepts an optional final `READ_TARGETS.json` argument for
+read-only application measurements. It sends GETs, rotating targets by scheduled
+arrival ID, and compares each complete HTTP 200 body with its expected bytes.
+The manifest is an array of `{ "path": "/orders/id", "expected_body": [123, 125] }`;
+paths stay on the supplied private loopback origin. At most 64 distinct paths,
+65,536 bytes per body and 1 MiB of total expected bodies are accepted. Set
+`BODY_BYTES` to zero in this mode. The manifest is copied into the raw workload
+record; response comparison remains streaming and bounded. The
+[FastAPI driver](../../examples/python-fastapi/README.md#independent-arrival-reads)
+seeds real durable orders and captures their expected responses before timing.
 
 The Python host records `Options::default()` housekeeping and telemetry intervals.
 Native readiness notifications wake the Python loop independently of those

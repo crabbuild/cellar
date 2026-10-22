@@ -52,6 +52,7 @@ def summarize(report):
     require(0 <= report["peak_inflight"] <= work["max_inflight"], "unbounded client admission")
     counts, latency, from_schedule, dispatch_delay = Counter(), [], [], []
     successful_in_window = 0
+    failure_details = 0
     for index, sample in enumerate(report["samples"]):
         scheduled = index * 1_000_000_000 // work["rate"]
         require(sample["id"] == index and sample["scheduled_ns"] == scheduled,
@@ -62,6 +63,12 @@ def summarize(report):
         require(outcome in {"success", "client_capacity", "client_late", "timeout",
                             "transport", "http_status", "body_mismatch"}, "unknown outcome")
         counts[outcome] += 1
+        if "response_prefix" in sample:
+            prefix = sample["response_prefix"]
+            failure_details += 1
+            require(outcome == "http_status" and isinstance(prefix, str)
+                    and len(prefix) <= 1024 and failure_details <= 16,
+                    "invalid or unbounded HTTP failure diagnostics")
         if outcome.startswith("client_"):
             require(sample["dispatched_ns"] is None and sample["completed_ns"] is None
                     and sample["status"] is None, "client drop claims a network result")

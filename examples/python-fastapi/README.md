@@ -203,6 +203,42 @@ client. It does not measure remote S3 latency, replication across machines or
 production capacity. The `lab` profile is optimized with thin LTO, distinct from
 the repository's fat-LTO `release` profile.
 
+### Independent-arrival reads
+
+The fixed-concurrency benchmark above waits for replies before sending more
+work. To expose queueing and overload, use the native arrival client with the
+same prepared optimized project:
+
+```sh
+cargo build -p cellar-python --example python-offered-load --profile lab \
+  --no-default-features --locked
+python3 -B tools/python/test_offered.py "$CARGO_TARGET_DIR/lab/examples/python-offered-load"
+python3 -B examples/python-fastapi/offered_perf.py \
+  --client "$CARGO_TARGET_DIR/lab/examples/python-offered-load" --client-profile lab \
+  --cellar "$CARGO_TARGET_DIR/debug/cellar" \
+  --project "gil=$CELLAR_FASTAPI_ROOT/perf-project.json" \
+  --output "$CELLAR_FASTAPI_ROOT/offered-results" \
+  --rates 1000 4000 8000 --duration-ms 5000 --repetitions 2
+```
+
+Add another `--project free-threaded=/absolute/path/other-project.json` to
+compare a separately packaged free-threaded runtime. Runtime order rotates
+between repetitions; each host uses fresh private storage. Preparation sends
+32 order creations once and verifies their receipts through real reads. The
+measurement rotates these 32 read paths, validating exact response bytes and
+EOF. Host executable, inventory, source and client identities are retained;
+runtime/GIL checks and complete combined shutdown are required.
+
+Read `report.md` together with the raw JSON. Every planned arrival is retained,
+including client lateness/capacity drops, timeouts, HTTP failures and corrupt
+responses. Request latency starts at dispatch; scheduled latency also includes
+dispatch delay. Both percentile sets describe successful responses only.
+An experiment marked complete can contain overload and failures; it does not
+mean the offered rate met an application SLO. Warmup and measurement have
+separate client connection pools. The two native client workers share the host
+machine, and timer granularity can group arrivals. These read measurements do
+not qualify write capacity, long-running resource stability or fleet recovery.
+
 ## HTTP integration boundaries
 
 [app.py](app.py) contains an example-only adapter for the
