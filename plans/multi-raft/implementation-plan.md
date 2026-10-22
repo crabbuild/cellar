@@ -947,6 +947,22 @@ outcomes and requested/confirmed payload bytes, socket bytes below TLS on all
 three Raft lanes, and controller probe/action attempts. The fixed vocabulary is
 20 counters and 17 operations (413 Prometheus samples). These observations do not
 establish physical device usage, network delivery or completed repair.
+The [I/O measurement evidence](evidence/MR-14-io-metrics-progress.json) records
+683 passing Rust cases and one failing membership case (`learner_before_promotion`
+returned `Overloaded`). An earlier shutdown-handoff failure is also retained.
+Isolated repetitions passed without a fix, so both findings remain unresolved.
+Clippy, native-only compilation, repository checks and 128 Python cases pass.
+
+[Fresh Colima/RustFS evidence](evidence/MR-14-io-local-progress.json) uses the
+instrumented `/bundles-1` binary on three 1-vCPU/3-GiB nodes and 12 cells. All
+submitted operations, 36 replicas and final archive cuts reconcile in each run.
+Quorum completed 172/200 offered operations (p99 arrival latency 579 ms); S3
+completed 126/200 (p99 1,204 ms). Both miss the proposed traffic objectives.
+Owner metrics include real engine sync, SQL stage/prepare, object GET/PUT and
+socket costs. They do not isolate a critical path or prove a batching speedup.
+The shared Mac had about 10 GiB of swap in use before measurement. Raw logs,
+ledgers and observations retain this confounder and the separate durability
+contracts. The owned profile is stopped; volumes and evidence remain.
 
 Remaining MR-14 gates include instrumentation overhead and whole-device
 attribution, matched Fleet/bucket baselines, steady-state/density evidence and
