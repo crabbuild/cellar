@@ -1,0 +1,364 @@
+{
+  "task_id": "MR-13",
+  "source_revision": "f214ddf37177fccb4ad71e798b0ab29085324bdd",
+  "completion": "partial",
+  "scope": "Integration of CLI, physical resource views and receipt maintenance with main PR95 watchdog recovery and PR96 runtime/transport performance changes. One overlapping watchdog diagnostic kept upstream fetch_json and all upstream qualification assertions.",
+  "parents": {
+    "mr13": "48e9d8c",
+    "main": "fb660b164b3cb0c8f88afcb659473445928a92a2"
+  },
+  "environment": "macOS; physical local SQLite/LTX/Raft Engine and local TLS; fixture object stores. No cellar_internal_tests. These tests are separate from Colima node qualification.",
+  "source_files": [
+    {
+      "path": "Cargo.lock",
+      "sha256": "b9622cfd2713f81591f3cf200ff5a732418ab42e99df46e63c22c06a6d94b105"
+    },
+    {
+      "path": "Cargo.toml",
+      "sha256": "d729a94f75eaf4343ded618193cd09dcc33ec800eba252e31ef57de53d31d129"
+    },
+    {
+      "path": "crates/cellar-python/Cargo.toml",
+      "sha256": "69756da640ecf4ff3e81c71e2ec86a4a77daec2fcaff5ab6e0204db56434a62e"
+    },
+    {
+      "path": "crates/cellar-python/tests/support/watchdog.rs",
+      "sha256": "ff6f4462b49cbdc0c7bbbb9a007056efd86c8e01244b62f6f538696f18d2afa1"
+    },
+    {
+      "path": "crates/cellar/Cargo.toml",
+      "sha256": "e8b3c1d5890bec4271421d8cd143a65009b0b90e43814dc04d2ae5fb24fe8404"
+    },
+    {
+      "path": "crates/cellar/durability/raft/host.rs",
+      "sha256": "389b3752089f2bf98ec5aacc444bb17130e1b457b17712f74a522c98d8c66d8b"
+    },
+    {
+      "path": "crates/cellar/durability/raft/host_archive.rs",
+      "sha256": "9522f89a740747be29a693bb7957510e6c346487290dd03737b0e1626c992525"
+    },
+    {
+      "path": "crates/cellar/durability/raft/host_membership.rs",
+      "sha256": "d939cac5a28437b965cfb1d419b2314d7b206c4c62f8ec2f8aa68338af6adb0e"
+    },
+    {
+      "path": "crates/cellar/durability/raft/replica.rs",
+      "sha256": "a3c2a08189885c531b03625fb9976615fc14a824a99246f8e6edd4f848aab5aa"
+    },
+    {
+      "path": "crates/cellar/durability/raft/runtime.rs",
+      "sha256": "690c1d5ecf1e3c89535da72b4b48367418c014af80fbde38a570e6a6183a3bc5"
+    },
+    {
+      "path": "crates/cellar/durability/raft/runtime_scheduler_tests.rs",
+      "sha256": "b5f83d2c1030891b3fce8fac65a9d9a85ecb1d63113dc707eaf744393044d73b"
+    },
+    {
+      "path": "crates/cellar/durability/raft/transport.rs",
+      "sha256": "4ced63674aacd1b88958e8c94f5feb9aa32846b14ef7bdb95c6451c5a257c4a4"
+    },
+    {
+      "path": "crates/cellar/durability/raft/transport_tests.rs",
+      "sha256": "05fa2df1b247337ddca1f36ae7155e3420cbee13445007f33ec251016ae2850a"
+    },
+    {
+      "path": "crates/cellar/tests/native_raft_runtime.rs",
+      "sha256": "10648acc0c1192dac200e1a8bb1f1106886cfe0e51d5ee2ddb4ab55de22761c6"
+    },
+    {
+      "path": "tools/perf/README.md",
+      "sha256": "ae1bac2be0628e8ab4104cacf3ae69a007adca31fce4205c43de462c7b33c684"
+    },
+    {
+      "path": "tools/perf/analyze_raft.py",
+      "sha256": "9a4b5a694b63c6f1b69a593d0f4f887577eb1c9ce674aede57cd2793540a07d8"
+    },
+    {
+      "path": "tools/perf/raft-README.md",
+      "sha256": "c014c108de9f05735d5a72a48861e76c54120e6728dab6f2acc2285a78bc1c94"
+    },
+    {
+      "path": "tools/perf/raft-results.md",
+      "sha256": "cb843e5e282fa79b31ff43c173bc59e03df271e332545cafac8e45655523a9a0"
+    },
+    {
+      "path": "tools/perf/raft.Dockerfile",
+      "sha256": "00f43f137e9164ed8a1a26859f6b8347f3842c5eb2222ff6d85b4818fc50fd91"
+    },
+    {
+      "path": "tools/perf/raft.py",
+      "sha256": "f92e7f71add95892e37bf8826030fd3cd1550216a20d35dd18ed08ba4c857ee9"
+    },
+    {
+      "path": "tools/perf/raft_node.rs",
+      "sha256": "bf79b3e48b643d646c5e35af8d5654cf4dd50ccc95d49cbe3091804203e52c94"
+    },
+    {
+      "path": "tools/perf/test_raft.py",
+      "sha256": "5b21ff25c38aa16b571723fe00a7b3c5244b8f53b6a0d0792690278360d56c75"
+    }
+  ],
+  "build_environment": {
+    "RUSTUP_TOOLCHAIN": "1.98.1",
+    "CARGO_TARGET_DIR": "$HOME/Workspace/crabbuild-target/cellar-23c7-multi-raft",
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "CARGO_PROFILE_TEST_DEBUG": "0",
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_BUILD_JOBS": "3",
+    "PYO3_PYTHON": "/opt/homebrew/bin/python3.14"
+  },
+  "validation": {
+    "unit_integration_passes": 664,
+    "case_bearing_standard_binaries": 10,
+    "custom_daemon_process_runner": "Passed separately; not added to the standard count.",
+    "doctest_passes": 15,
+    "focused_python_watchdog": "passed",
+    "perf_python_evidence_tests": 8,
+    "workspace_clippy": "all targets/features, -D warnings passed",
+    "test_binaries": [
+      {
+        "label": "unittests lib.rs",
+        "name": "cellar-5130e4987b12c438",
+        "sha256": "c6a40b9da3d560e4bf131e3467d53e2d5208a09e02012bfa7fd5f15f6981bbf4",
+        "passed": 453,
+        "ignored": 0
+      },
+      {
+        "label": "tests/native_raft_archive.rs",
+        "name": "native_raft_archive-34587949dd9c4eee",
+        "sha256": "d47184e41f32f4e59c1362977cf5c2153fe70cc9bb633568ff825571dd86e934",
+        "passed": 29,
+        "ignored": 0
+      },
+      {
+        "label": "tests/native_raft_daemon.rs",
+        "name": "native_raft_daemon-146e3c9154e6e40e",
+        "sha256": "77d38d9dc8f218d6a4965e389280c5f4f8972dffca3f0763aee68ea66dad335a",
+        "passed": null,
+        "ignored": null
+      },
+      {
+        "label": "tests/native_raft_effects.rs",
+        "name": "native_raft_effects-2826f2054695df90",
+        "sha256": "f0184fa229b1c3975806b10457e2c2e43645388afeffd77467db0e0552c1912e",
+        "passed": 16,
+        "ignored": 0
+      },
+      {
+        "label": "tests/native_raft_execution.rs",
+        "name": "native_raft_execution-26dfa458d5062065",
+        "sha256": "623df63c88baa3341fa7f0b2df2e262ef92d0bcf92efd39ef747eb3b0a24d7ce",
+        "passed": 17,
+        "ignored": 2
+      },
+      {
+        "label": "tests/native_raft_host.rs",
+        "name": "native_raft_host-44a5ca74aa18d0ab",
+        "sha256": "4f69f4fbf67da3afc53f9f24fce971104678d2aaf49abc710eaa726e9dd13c84",
+        "passed": 27,
+        "ignored": 0
+      },
+      {
+        "label": "tests/native_raft_membership.rs",
+        "name": "native_raft_membership-dc9f4470578630b5",
+        "sha256": "292f9b25ba678fa8ee95c686f616dc17a6afb7ab3fbb81bcd811445bbfe21817",
+        "passed": 27,
+        "ignored": 1
+      },
+      {
+        "label": "tests/native_raft_operations.rs",
+        "name": "native_raft_operations-8d4c26f163d52c78",
+        "sha256": "702ff1dbeda1f2599ee678e5d75188368ad18655ed858741e6dbe452d8610ad8",
+        "passed": 18,
+        "ignored": 0
+      },
+      {
+        "label": "tests/native_raft_reads.rs",
+        "name": "native_raft_reads-5d7a518469520a57",
+        "sha256": "b9cddf45d1616743bd9964299da94d68dbd7d6ec2ba2b3f552629c560c653d6f",
+        "passed": 20,
+        "ignored": 0
+      },
+      {
+        "label": "tests/native_raft_runtime.rs",
+        "name": "native_raft_runtime-6bfdda35e9afce70",
+        "sha256": "91e630593610235873010d9581df4eafd5174c140b41871941ffb8b6cff808bd",
+        "passed": 15,
+        "ignored": 1
+      },
+      {
+        "label": "tests/native_raft_snapshot.rs",
+        "name": "native_raft_snapshot-7b6305cf53b28b65",
+        "sha256": "b5ef9ec0a99c87e812fe3e7e0d0fc1498688fe3f0bead461554ce3228ac1abff",
+        "passed": 42,
+        "ignored": 2
+      }
+    ],
+    "commands": [
+      {
+        "name": "tests",
+        "argv": [
+          "cargo",
+          "test",
+          "--locked",
+          "-p",
+          "cellar",
+          "--all-features",
+          "--lib",
+          "--test",
+          "native_raft_archive",
+          "--test",
+          "native_raft_daemon",
+          "--test",
+          "native_raft_effects",
+          "--test",
+          "native_raft_execution",
+          "--test",
+          "native_raft_host",
+          "--test",
+          "native_raft_membership",
+          "--test",
+          "native_raft_operations",
+          "--test",
+          "native_raft_reads",
+          "--test",
+          "native_raft_runtime",
+          "--test",
+          "native_raft_snapshot",
+          "--",
+          "--test-threads=1"
+        ],
+        "exit_code": 0,
+        "seconds": 571.856,
+        "log": "/tmp/cellar-mr13-main-integration-tests.log",
+        "sha256": "1999088bf2e5a08a3905f33d6ed7206d7f89f40ea568f9e92d3b3c6a773edb59",
+        "source_revision": "f214ddf37177fccb4ad71e798b0ab29085324bdd"
+      },
+      {
+        "name": "python-watchdog",
+        "argv": [
+          "cargo",
+          "test",
+          "--locked",
+          "-p",
+          "cellar-python",
+          "--features",
+          "embed",
+          "--test",
+          "bridge",
+          "--",
+          "--runtime-watchdog"
+        ],
+        "exit_code": 0,
+        "seconds": 99.272,
+        "log": "/tmp/cellar-mr13-main-integration-python-watchdog.log",
+        "sha256": "d2135086146e1f59d32ab5a9701864db52f1db6550f3638724fc0ac5e7937b4e",
+        "source_revision": "f214ddf37177fccb4ad71e798b0ab29085324bdd"
+      },
+      {
+        "name": "clippy",
+        "argv": [
+          "cargo",
+          "clippy",
+          "--workspace",
+          "--all-targets",
+          "--all-features",
+          "--locked",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "exit_code": 0,
+        "seconds": 59.698,
+        "log": "/tmp/cellar-mr13-main-integration-clippy.log",
+        "sha256": "cb877d096481d5c226f81803213dbb36be503dcef76071854c1064918b86a229",
+        "source_revision": "f214ddf37177fccb4ad71e798b0ab29085324bdd"
+      },
+      {
+        "name": "format",
+        "argv": [
+          "cargo",
+          "format",
+          "--check"
+        ],
+        "exit_code": 0,
+        "seconds": 44.634,
+        "log": "/tmp/cellar-mr13-main-integration-format.log",
+        "sha256": "985c662eb24c0e9be7018957257bd2bcfa7d9fdd1b53e23e5602582c3846c7e8",
+        "source_revision": "f214ddf37177fccb4ad71e798b0ab29085324bdd"
+      },
+      {
+        "name": "layout",
+        "argv": [
+          "cargo",
+          "check-layout"
+        ],
+        "exit_code": 0,
+        "seconds": 0.122,
+        "log": "/tmp/cellar-mr13-main-integration-layout.log",
+        "sha256": "17c44b41cfbb419d4acebdd8a4346873c623a5c702d4bad64b247bb2518270da",
+        "source_revision": "f214ddf37177fccb4ad71e798b0ab29085324bdd"
+      },
+      {
+        "name": "dependencies",
+        "argv": [
+          "python3",
+          "tools/check_native_dependencies.py"
+        ],
+        "exit_code": 0,
+        "seconds": 0.415,
+        "log": "/tmp/cellar-mr13-main-integration-dependencies.log",
+        "sha256": "faf9bdb8df5819a63d590ede5d4a5f43eb4e8b00d8a6f44ccfb36bd8c4c5c238",
+        "source_revision": "f214ddf37177fccb4ad71e798b0ab29085324bdd"
+      },
+      {
+        "name": "docs",
+        "argv": [
+          "python3",
+          "tools/docs/check.py"
+        ],
+        "exit_code": 0,
+        "seconds": 0.081,
+        "log": "/tmp/cellar-mr13-main-integration-docs.log",
+        "sha256": "e7693fab112af17ce1071f3a345f155ff4327d9ae2a4c3b931be4a17aac1bc8b",
+        "source_revision": "f214ddf37177fccb4ad71e798b0ab29085324bdd"
+      },
+      {
+        "name": "perf-tests",
+        "argv": [
+          "python3",
+          "-m",
+          "unittest",
+          "discover",
+          "-s",
+          "tools/perf",
+          "-p",
+          "test_raft.py"
+        ],
+        "exit_code": 0,
+        "seconds": 0.259,
+        "log": "/tmp/cellar-mr13-main-integration-perf-tests.log",
+        "sha256": "a5ee1cb4ab49a30268965813b91e2398ad600fedf02ef76889c9ed935df75b80",
+        "source_revision": "f214ddf37177fccb4ad71e798b0ab29085324bdd"
+      }
+    ],
+    "doctest_argv": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "cellar",
+      "--all-features",
+      "--doc"
+    ],
+    "source_frozen": "Production Rust, examples, manifests and lockfile match f214ddf byte-for-byte after the checks. Later local-harness Python/README changes are separate.",
+    "log": "MR-13-main-integration-validation.log.gz",
+    "log_uncompressed_sha256": "042841f6bfaca2eb70d28e01498a1787cb76bfac92df47ff1a91d5c33d30aee9"
+  },
+  "limits": [
+    "The 984-case CLI and 551-case receipt results retain their original source pins; they are not added to these 664 cases.",
+    "Serial passes do not close the recorded concurrent transfer/read/effect/Fleet event findings.",
+    "Full signed lost-ack/recurrence/archive-floor qualification, remaining management operations and fenced disaster restore remain MR-13 work.",
+    "Physical Colima/RustFS node runs, failure/recovery drills, release/scale/federation gates remain separate."
+  ]
+}

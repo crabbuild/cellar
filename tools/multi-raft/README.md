@@ -62,6 +62,22 @@ backend first; the node harness allocates two CPUs/4 GiB for its own store and
 two CPUs/1 GiB for its load container, requiring an eight-CPU/16-GiB VM. Its
 current topology has three nodes. Five-node placement remains additional work.
 
+Build in that context with a target cache unique to this checkout, then use a
+fresh private run directory. Replace `my-checkout` before running:
+
+```sh
+python3 tools/multi-raft/local.py stop --output /tmp/cellar-raft-local-001
+docker --context colima-cellar-multi-raft build -f tools/perf/raft.Dockerfile \
+  --build-arg TARGET_CACHE_ID=cellar-my-checkout-raft-target \
+  --build-arg SOURCE_REVISION="$(git rev-parse HEAD)" \
+  -t cellar-multi-raft:mr13-local .
+python3 tools/perf/raft.py --context colima-cellar-multi-raft --port-base 19900 \
+  --image cellar-multi-raft:mr13-local --cells-per-primary 2 \
+  --seconds 2 --repeats 1 --concurrency 1 --rates 2 \
+  --output /tmp/cellar-raft-nodes-001
+python3 tools/perf/analyze_raft.py /tmp/cellar-raft-nodes-001
+```
+
 This harness uses embedded SDK startup. Production `NativeDaemon::raft_cells`
 has a separate process qualification; physical CLI/RustFS recovery drills remain
 part of the operating qualification.

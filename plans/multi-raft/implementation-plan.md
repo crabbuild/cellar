@@ -818,6 +818,15 @@ one CPU and 3 GiB memory each, and RustFS as the object store. Use the separate
 The [backend record](evidence/MR-13-local-backend-progress.json) covers seven
 real object-store protocol operations, with zero Cellar nodes launched by that
 component. It does not qualify the later physical fleet or release gates.
+The subsequent [native container smoke](evidence/MR-13-colima-native-progress.json)
+ran three Cellar nodes with enforced one-CPU/3-GiB/no-swap limits: six groups,
+10 acknowledged writes, 18 exact minimum-version replica checks and verified
+RustFS archive coverage for all groups. The initial optional Docker `Tmpfs`
+metadata failure and same-cluster setup continuation remain in its evidence.
+This establishes functional integration, with failure/recovery and five-node
+qualification still required. The [merged-main record](evidence/MR-13-main-integration-progress.json)
+separately qualifies 664 cases, 15 doctests, the daemon process runner, Python
+watchdog and workspace Clippy at `f214ddf`.
 
 1. Finish receipt-maintenance qualification: signed receiver acknowledgement
    recovery after response loss, alarm/outbox recurrence past the receipt ceiling,

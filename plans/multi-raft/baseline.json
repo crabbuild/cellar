@@ -1,8 +1,8 @@
 {
   "format": 1,
   "repository": "https://github.com/crabbuild/cellar",
-  "revision": "ded2e1e5fbab469c98ee17f773fa0a65d1274bd8",
-  "prepared_date": "2026-10-21",
+  "revision": "bff835ccbb325ec1018ec9553f3c201e18cf3efe",
+  "prepared_date": "2026-10-22",
   "files": [
     {
       "path": ".github/workflows/native-sdk.yml",
@@ -14,11 +14,11 @@
     },
     {
       "path": "Cargo.lock",
-      "sha256": "5031773bf8289931bd6bdeb46e646d4aa11dd92e62209b3b6a087b1db1473fdc"
+      "sha256": "b9622cfd2713f81591f3cf200ff5a732418ab42e99df46e63c22c06a6d94b105"
     },
     {
       "path": "Cargo.toml",
-      "sha256": "b0aaf0e32d2a27564d96988a67cdd2c4692cc5aab7db1a820cf02c46164b348f"
+      "sha256": "d729a94f75eaf4343ded618193cd09dcc33ec800eba252e31ef57de53d31d129"
     },
     {
       "path": "Dockerfile",
@@ -110,11 +110,11 @@
     },
     {
       "path": "crates/cellar-python/tests/support/watchdog.rs",
-      "sha256": "94cb88bf419c6a9527e8c52a5a0dab65f2add8e12bb7fe28fb0ea68f305b3830"
+      "sha256": "ff6f4462b49cbdc0c7bbbb9a007056efd86c8e01244b62f6f538696f18d2afa1"
     },
     {
       "path": "crates/cellar/Cargo.toml",
-      "sha256": "bcc52559878b741547a9ae6585a41556fa0d46bdeebead92ef8cff8bdf0be3c9"
+      "sha256": "e8b3c1d5890bec4271421d8cd143a65009b0b90e43814dc04d2ae5fb24fe8404"
     },
     {
       "path": "crates/cellar/README.md",
@@ -302,7 +302,7 @@
     },
     {
       "path": "tools/perf/README.md",
-      "sha256": "783245e8289b793552e8c54872aaec468f16ce87e2abf2d900a149fd99dbe404"
+      "sha256": "ae1bac2be0628e8ab4104cacf3ae69a007adca31fce4205c43de462c7b33c684"
     },
     {
       "path": "tools/perf/faults.py",
