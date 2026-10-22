@@ -203,7 +203,10 @@ failures and notification-channel faults; it does not delay normal admission,
 replies or native retirement. Throughput and capacity still need qualification
 against the application's workload and fleet. The bridge report distinguishes queued/peak native bridge charges, reservation totals and explicit UTF-8/body copy bytes; it excludes Python heap, JSON/base64 intermediate allocations and native transport copies.
 The managed task factory enforces `max_tasks` even for callbacks with an empty
-context. Shutdown can create up to two explicit supervisor tasks to join existing
+context. Each admission scans the live asyncio task registry once, including
+tasks constructed outside the factory. A refused invocation closes its unstarted
+coroutine and context before the pump continues; it never starts the handler.
+Shutdown can create up to two explicit supervisor tasks to join existing
 work; the reported peak includes them. These are cooperative resource limits,
 not isolation from trusted code that constructs raw `asyncio.Task` objects or
 replaces the task factory. Raw application threads and external native pools

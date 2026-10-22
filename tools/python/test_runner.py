@@ -72,18 +72,21 @@ def continuous_arrivals(mode):
             self.stopped = False
             self.issued = self.rejected = self.completed = self.expired = 0
             self.observed = None
-            self.joined = False
+            self.joined = 0
             self.bridges = weakref.WeakSet()
 
         async def occupy_task_slot(self):
             try:
                 await asyncio.Event().wait()
             finally:
-                self.joined = True
+                self.joined += 1
 
         def wakeup_fd(self):
             loop = asyncio.get_running_loop()
-            self.occupied = loop.create_task(self.occupy_task_slot())
+            # Direct Task construction bypasses the managed factory. Admission
+            # must still count those live tasks, not just its own registry.
+            self.occupied = ([asyncio.Task(self.occupy_task_slot(), loop=loop) for _ in range(900)]
+                             if mode == "many-tasks" else [loop.create_task(self.occupy_task_slot())])
             # The stop timer must run despite a continuously replenished inbox.
             loop.call_later(.005, self.checkpoint)
             return self.reader.fileno()
@@ -127,7 +130,7 @@ def continuous_arrivals(mode):
 
     inbox = Inbox()
     try:
-        capacity = 2 if mode == "rejections" else 3
+        capacity = 902 if mode == "many-tasks" else 2 if mode == "rejections" else 3
         report = runner.run(SimpleNamespace(fetch=fetch), inbox, 30, .2, capacity, 16, 30)
         assert not report["runtime_failed"], report
         assert report["pending_tasks"] == report["pending_objects"] == 0, report
@@ -135,6 +138,8 @@ def continuous_arrivals(mode):
         assert inbox.issued == inbox.expired
         if mode == "rejections":
             assert inbox.rejected == inbox.issued and inbox.completed == 0
+            assert report["budget_exhaustions"] == inbox.issued
+            assert report["interpreter"]["handlers_started"] == 0
         else:
             assert inbox.completed > 0
         if mode.startswith("blocking"):
@@ -142,8 +147,8 @@ def continuous_arrivals(mode):
         assert inbox.observed is not None and inbox.issued > inbox.observed > 0, (
             "queued starts require progress between timers without another native wakeup"
         )
-        assert inbox.joined, "stop did not cancel and join the occupied task slot"
-        assert inbox.occupied.done() and inbox.occupied.cancelled()
+        assert inbox.joined == len(inbox.occupied), "stop did not cancel and join every occupied task slot"
+        assert all(task.done() and task.cancelled() for task in inbox.occupied)
         gc.collect()
         assert not inbox.bridges, "the idle or stopped pump retained a rejected invocation"
         print(json.dumps({"rejected": inbox.rejected, "completed": inbox.completed,
@@ -172,6 +177,9 @@ class RunnerScheduling(unittest.TestCase):
 
     def test_blocking_after_first_yield_remains_visible(self):
         self.run_case("blocking-yield")
+
+    def test_admission_counts_tasks_created_outside_the_factory(self):
+        self.run_case("many-tasks")
 
 
 if __name__ == "__main__":

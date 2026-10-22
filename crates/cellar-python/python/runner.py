@@ -15,6 +15,10 @@ _failure_lock = threading.RLock()
 _memory_tracer = None
 
 
+class _TaskCapacity(RuntimeError):
+    """The managed factory refused a coroutine before constructing its task."""
+
+
 def configure_measurement(trace_allocations):
     global _memory_tracer
     if trace_allocations:
@@ -132,7 +136,7 @@ def _observe_delay(histogram, ns):
     histogram["bucket_counts"][index] += 1
 
 
-async def _serve(module, inbox, interval, shutdown, stats, maximum, max_tasks, telemetry, sample):
+async def _serve(module, inbox, interval, shutdown, stats, maximum, telemetry, sample):
     invocations, objects = {}, {}
     loop = asyncio.get_running_loop()
     ready = asyncio.Event()
@@ -188,8 +192,13 @@ async def _serve(module, inbox, interval, shutdown, stats, maximum, max_tasks, t
                 del start
                 payload = json.loads(payload)
                 context = Context(bridge, payload["identity"])
-                if len(asyncio.all_tasks()) >= max_tasks:
-                    stats["budget_exhaustions"] += 1
+                try:
+                    # The managed factory checks all live tasks, including
+                    # application-created ones, immediately before construction.
+                    # Do not scan the same task registry twice per admission.
+                    task = asyncio.create_task(_invoke(module, objects, payload, body, bridge, context, stats, maximum),
+                                               eager_start=True)
+                except _TaskCapacity:
                     token = _current_invocation.set(bridge)
                     try:
                         bridge.complete('"Python task capacity exhausted"', True)
@@ -198,8 +207,6 @@ async def _serve(module, inbox, interval, shutdown, stats, maximum, max_tasks, t
                         _current_invocation.reset(token)
                     del context, bridge, payload, body
                     continue
-                task = asyncio.create_task(_invoke(module, objects, payload, body, bridge, context, stats, maximum),
-                                           eager_start=True)
                 if not task.done():
                     task.add_done_callback(completed)
                 invocations[invocation] = (task, context, bridge)
@@ -318,7 +325,7 @@ def run(module, inbox, interval, shutdown, max_tasks, max_objects, telemetry):
         if count >= max_tasks:
             stats["budget_exhaustions"] += 1
             coroutine.close()
-            raise RuntimeError("Cellar Python task capacity exhausted")
+            raise _TaskCapacity("Cellar Python task capacity exhausted")
         stats["peak_tasks"] = max(stats["peak_tasks"], count + 1)
         return asyncio.Task(coroutine, loop=loop, **kwargs)
 
@@ -331,7 +338,7 @@ def run(module, inbox, interval, shutdown, max_tasks, max_objects, telemetry):
 
     loop.set_exception_handler(exception_handler)
     loop.set_task_factory(task_factory)
-    serving = loop.create_task(_serve(module, inbox, interval, shutdown, stats, max_objects, max_tasks, telemetry, sample))
+    serving = loop.create_task(_serve(module, inbox, interval, shutdown, stats, max_objects, telemetry, sample))
     cleanup_stage = "serve"
     try:
         try:
