@@ -28,6 +28,10 @@ Python support and qualifies all 29 archive cases at `3682454`. A slow-capture
 probe reproduces an admission refusal mislabeled by the old durability test;
 the corrected fixture retains its original deadline and proof/value assertions.
 This focused result does not replace or enlarge earlier qualification counts.
+The full local workspace tests and doctests subsequently passed at `7c8d908`.
+All-target Clippy exposed a unit-test guard-scope warning; the assertion now has
+a lexical block before joined cleanup. Its focused test and full-workspace
+Clippy pass at the `f8f8958` source change, with no lint allowance added.
 
 Each record retains its full source pin, executable/output hashes, failed initial
 diagnostics and original scope. Counts from different sources are not added.

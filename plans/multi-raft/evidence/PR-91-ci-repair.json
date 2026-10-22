@@ -342,5 +342,122 @@
       "source_note": "The corrected test passed with the identical temporary 20ms physical SQL archive-capture delay. Diagnostic only, before final source commit; instrumentation was removed before the pinned 29-case suite."
     }
   ],
-  "limitations": "Focused macOS native archive regression at the pinned source only, not a new full-workspace qualification. The prior 850-case record stays attributed to f89c7b4. Full Linux/Python ABI workflow results are reported through PR91 checks. Earlier transfer/fallback findings and all remaining MR13-17 gates remain open."
+  "limitations": "Focused macOS native archive regression at the pinned source only, not a new full-workspace qualification. The prior 850-case record stays attributed to f89c7b4. Full Linux/Python ABI workflow results are reported through PR91 checks. Earlier transfer/fallback findings and all remaining MR13-17 gates remain open.",
+  "workspace_lint_followup": {
+    "source_revision": "f8f8958c6ef336f5764b463999f543856a3c7a76",
+    "scope": "One test fixture lexical guard scope; assertion and joined cleanup preserved, no lint allowance added.",
+    "diagnosis": "All-target Clippy reports the registry MutexGuard across cleanup awaits despite its explicit drop. An enclosing block ends that guard scope before async cleanup and removes the lint.",
+    "parent_workspace_tests": {
+      "source_revision": "7c8d9088014ef70582b90833ad0ec0bbe09b3b87",
+      "argv": [
+        "cargo",
+        "test",
+        "--workspace",
+        "--all-features",
+        "--lib",
+        "--tests",
+        "--locked",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 2315.62,
+      "output": "evidence/PR-91-ci-repair-workspace-tests-7c8d908.log.gz",
+      "sha256": "3ff98f47f4a7b256c6777c778eb7f722329b4451ce32a27bbadc688a5965e27b",
+      "uncompressed_sha256": "a39b384528bced4bc5a600c9fe9b1014bcf0af9db7dcddb8a386b4aacb09ad9d",
+      "encoding": "gzip"
+    },
+    "parent_workspace_doctests": {
+      "name": "docs",
+      "source_revision": "7c8d9088014ef70582b90833ad0ec0bbe09b3b87",
+      "argv": [
+        "cargo",
+        "test",
+        "--workspace",
+        "--all-features",
+        "--doc",
+        "--locked"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 18.04,
+      "output": "evidence/PR-91-ci-repair-workspace-docs-7c8d908.log",
+      "sha256": "85b3607356cffa4aa7acd318eb518fd03aa8256f592d057d843c03b7636aedc5",
+      "uncompressed_sha256": "85b3607356cffa4aa7acd318eb518fd03aa8256f592d057d843c03b7636aedc5",
+      "encoding": "UTF-8 text"
+    },
+    "parent_workspace_clippy_failure": {
+      "name": "clippy",
+      "source_revision": "7c8d9088014ef70582b90833ad0ec0bbe09b3b87",
+      "argv": [
+        "cargo",
+        "clippy",
+        "--workspace",
+        "--all-targets",
+        "--all-features",
+        "--locked",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 101,
+      "elapsed_seconds": 52.29,
+      "output": "evidence/PR-91-ci-repair-workspace-clippy-before-guard.log",
+      "sha256": "d6f8d527d486cd388a8c00b23f8b5a3420cdf98afd95fbaec4e07bf3e0f92302",
+      "uncompressed_sha256": "d6f8d527d486cd388a8c00b23f8b5a3420cdf98afd95fbaec4e07bf3e0f92302",
+      "encoding": "UTF-8 text"
+    },
+    "followup_checks": [
+      {
+        "argv": [
+          "cargo",
+          "test",
+          "-p",
+          "cellar",
+          "--lib",
+          "--all-features",
+          "--locked",
+          "process_refresh_pins_instance_and_future_route_admission",
+          "--",
+          "--nocapture",
+          "--test-threads=1"
+        ],
+        "exit_code": 0,
+        "tests_passed": 1,
+        "output": "evidence/PR-91-ci-repair-guard-test.log",
+        "sha256": "6d00e66530907363aa1a4fe15b37b566a2a15ba30efd509368f6a4d4ff1f8e5a",
+        "uncompressed_sha256": "6d00e66530907363aa1a4fe15b37b566a2a15ba30efd509368f6a4d4ff1f8e5a",
+        "encoding": "UTF-8 text"
+      },
+      {
+        "argv": [
+          "cargo",
+          "clippy",
+          "--workspace",
+          "--all-targets",
+          "--all-features",
+          "--locked",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "exit_code": 0,
+        "output": "evidence/PR-91-ci-repair-workspace-clippy-scoped-guard.log",
+        "sha256": "1d8d2101c65ded6de9d4e06e26832d4fb666ea25ef916c75343242770ef8c878",
+        "uncompressed_sha256": "1d8d2101c65ded6de9d4e06e26832d4fb666ea25ef916c75343242770ef8c878",
+        "encoding": "UTF-8 text"
+      },
+      {
+        "argv": [
+          "cargo",
+          "format"
+        ],
+        "exit_code": 0,
+        "output": "evidence/PR-91-ci-repair-guard-format.log",
+        "sha256": "98312e6a0d08bd60730357a55dc57453e2b7bcde4be59385e5b62383ea1df5f5",
+        "uncompressed_sha256": "98312e6a0d08bd60730357a55dc57453e2b7bcde4be59385e5b62383ea1df5f5",
+        "encoding": "UTF-8 text"
+      }
+    ],
+    "source_note": "Follow-up checks ran on the uncommitted one-file scope change before f8f8958; checked-in Rust bytes match. Full parent workspace tests/doctests remain attributed to 7c8d908; they are not repinned or counted as a fresh full matrix at this successor. Final Linux CI outcome is tracked on PR91."
+  }
 }
