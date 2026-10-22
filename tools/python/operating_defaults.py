@@ -73,10 +73,12 @@ def mixed(host, concurrency, count, expected, evidence):
                 row, body = request(client, "POST", route, payload, rows, worker=index, ordinal=ordinal, kind=kind)
                 if kind == "counter":
                     value += 1
-                    require(row["status"] == 200 and json.loads(body) == {"value": value}, "wrong counter acknowledgement")
+                    require(row["status"] == 200 and json.loads(body) == {"value": value},
+                            f"wrong counter acknowledgement: expected={value}: {row}: {body[:256]!r}")
                     row.update(value=value, outcome="acknowledged")
                 elif kind == "cpu":
-                    require(row["status"] == 200 and json.loads(body) == {"value": sum((i ^ 7) % 97 for i in range(2000))}, "wrong CPU result")
+                    require(row["status"] == 200 and json.loads(body) == {"value": sum((i ^ 7) % 97 for i in range(2000))},
+                            f"wrong CPU result: {row}: {body[:256]!r}")
                     row["outcome"] = "acknowledged"
                 else:
                     success(row, body, payload)
