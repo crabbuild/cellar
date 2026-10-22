@@ -1,7 +1,7 @@
 {
   "format": 1,
   "repository": "https://github.com/crabbuild/cellar",
-  "revision": "bff835ccbb325ec1018ec9553f3c201e18cf3efe",
+  "revision": "48371ee302ee379735622fa2be350a9e5cc76258",
   "prepared_date": "2026-10-22",
   "files": [
     {
@@ -169,6 +169,10 @@
       "sha256": "b155347bb3631055d7b4379b2ff1bb12cc8113554f848a2046698da5ed448552"
     },
     {
+      "path": "crates/cellar/durability/raft/runtime_scheduler_tests.rs",
+      "sha256": "26056abdf4eacf2e0d0f4985eb4691ae5bf7267ade85679c186e2dca8d24e35f"
+    },
+    {
       "path": "crates/cellar/durability/replication/backend.rs",
       "sha256": "0ee17b424340f24aa01f77ec3ce818e7b4de6dfcab1d72fb4ca308adfb1315a5"
     },
@@ -302,7 +306,7 @@
     },
     {
       "path": "tools/perf/README.md",
-      "sha256": "ae1bac2be0628e8ab4104cacf3ae69a007adca31fce4205c43de462c7b33c684"
+      "sha256": "8dd26e14f6b8eed448519b09d7f909e89de3c90725054271d71060c32a7b4b98"
     },
     {
       "path": "tools/perf/faults.py",
@@ -319,6 +323,14 @@
     {
       "path": "tools/perf/fleetcare.py",
       "sha256": "97c6fd5e56296688c879023b10eb42dc604533399127a9b64a905bbb859a449c"
+    },
+    {
+      "path": "tools/perf/raft.Dockerfile",
+      "sha256": "4f83746ac5d0cbd039ba3fb53f96a08ecd1eb47e8196652b74bb84747012dcec"
+    },
+    {
+      "path": "tools/perf/raft_node.rs",
+      "sha256": "a6fa1babb9cb4d80ac9e879c6426be2b988330c24fd3edd4cf3da149a16169ae"
     },
     {
       "path": "tools/perf/test_build_freshness.py",

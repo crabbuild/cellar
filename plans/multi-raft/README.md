@@ -75,8 +75,13 @@ those same counters with fixed series identities and refuses unavailable samples
 SQL observations follow real work slots and physical worker lifetime. Transport
 observations distinguish directional and auxiliary banks through a weak observer;
 retaining an SDK service cannot retain the joined transport owner.
-MR-14 adds batching/workloads, MR-15 release qualification including
-the 24-hour soak, MR-16 measured density/physical tiers and MR-17 federation.
+MR-14 is in progress with fair shared persistence batches, a native reference
+workload, fixed open-loop arrivals and independent ledger/replica/archive checks.
+Its [performance evidence](evidence/MR-14-performance-progress.json) retains both
+passed functional checks and missed local traffic objectives. Matched Fleet/bucket
+baselines, remaining instrumentation, repair/archive-bundle cases and Q1 density
+qualification remain open. MR-15 adds release qualification including the 24-hour
+soak, MR-16 measured density/physical tiers and MR-17 federation.
 
 Local/in-memory stores, declared zones and small native fixtures do not qualify
 physical S3, power loss, failure zones, production performance/capacity, larger

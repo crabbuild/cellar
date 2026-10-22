@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "baseline_revision": "bff835ccbb325ec1018ec9553f3c201e18cf3efe",
+  "baseline_revision": "48371ee302ee379735622fa2be350a9e5cc76258",
   "status_values": [
     "TODO",
     "IN_PROGRESS",
@@ -2281,7 +2281,10 @@
         "crates/cellar/durability/raft/transport.rs",
         "crates/cellar/Cargo.toml",
         "tools/perf/README.md",
-        "crates/cellar/durability/raft/host.rs"
+        "crates/cellar/durability/raft/host.rs",
+        "crates/cellar/durability/raft/runtime_scheduler_tests.rs",
+        "tools/perf/raft_node.rs",
+        "tools/perf/raft.Dockerfile"
       ],
       "creates": [
         "tools/perf/raft_run.py",
@@ -2378,7 +2381,9 @@
           "--test-threads=1"
         ]
       ],
-      "evidence": []
+      "evidence": [
+        "evidence/MR-14-performance-progress.json"
+      ]
     },
     {
       "id": "MR-15",

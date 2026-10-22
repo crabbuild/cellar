@@ -903,7 +903,12 @@ initialization, 113 queries and all 36 replicas across 12 groups. Its measuremen
 completed 190 of 200 scheduled arrivals, with 10 generator rejections and about
 535 ms p99 arrival-to-response latency. This misses the proposed local traffic
 objectives and does not establish Q0 release qualification or Q1 capacity.
-`tools/perf/raft-performance.md` documents execution, accounting and limits.
+After fixing an arrival-sequence regression, the final Quorum and S3 runs
+reconciled all submitted operations and all replicas, while completing 168/200
+and 133/200 offered arrivals respectively. Both missed their proposed traffic
+objectives. Earlier diagnostics remain in the evidence; no capacity or equivalent
+Fleet/bucket speedup is claimed. `tools/perf/raft-performance.md` documents
+execution, accounting, measured results and limits.
 
 Remaining MR-14 gates include repair budgets under load, mixed-group archive
 bundle indexing, internal timings/byte measurements, matched Fleet/bucket

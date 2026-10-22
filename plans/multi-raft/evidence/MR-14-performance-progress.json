@@ -1,0 +1,537 @@
+{
+  "task_id": "MR-14",
+  "source_revision": "48371ee302ee379735622fa2be350a9e5cc76258",
+  "completion": "partial",
+  "scope": "FIFO shared persistence batching, executable reference workload, fixed open-loop arrival accounting, source/executable freshness, durability comparison refusals, and honest Q1 capacity planning. Local healthy Quorum/S3 measurements only.",
+  "toolchain": "Rust 1.98.1; native tests default test profile, container executable lab profile; Python 3.14.6 on macOS arm64; Linux aarch64 in Colima.",
+  "environment": "Separate cellar-multi-raft profile (8 vCPU / 16 GiB). Three Cellar containers, each 1 vCPU / 3 GiB / no swap; RustFS 2 vCPU / 4 GiB. One physical Mac, one VM failure domain. Generator and durable journal on the host.",
+  "executable_digest": "f5f228712029a8e934fc1d9e1c86e3837a51479f854d3c87d3f934d44e7a0a16",
+  "rust_validation": {
+    "source_revision": "d6e47a2b9882940d1efe7ff1088b1f01f8c932fe",
+    "tests": [
+      {
+        "target": "unittests lib.rs",
+        "passed": 454,
+        "failed": 0,
+        "ignored": 0,
+        "binary_sha256": "718d7aacc474da2541a095d15e8e96354e5204e4d107bd4a1a8cf3146a3c5242"
+      },
+      {
+        "target": "unittests ../../tools/perf/raft_node.rs",
+        "passed": 1,
+        "failed": 0,
+        "ignored": 0,
+        "binary_sha256": "18abc9e18987e2ad054b9f4aef09a52001bf430528c38d0a8d36b79d691ce2bb"
+      },
+      {
+        "target": "tests/native_raft_execution.rs",
+        "passed": 17,
+        "failed": 0,
+        "ignored": 2,
+        "binary_sha256": "d595534a137fbe3bd50ed9a402ecf0999639d7d6360037a2bd55a5348bdcbed0"
+      },
+      {
+        "target": "tests/native_raft_host.rs",
+        "passed": 27,
+        "failed": 0,
+        "ignored": 0,
+        "binary_sha256": "6068f3096fda34df2eb2226ca8cb3cebdaf0adda6235f2fc79449bac0506837b"
+      },
+      {
+        "target": "tests/native_raft_membership.rs",
+        "passed": 27,
+        "failed": 0,
+        "ignored": 1,
+        "binary_sha256": "2cb9e5cb122d59b7a1e769b26d10408d47e239957577a16347791d03b6b5b7b2"
+      },
+      {
+        "target": "tests/native_raft_multigroup.rs",
+        "passed": 4,
+        "failed": 0,
+        "ignored": 1,
+        "binary_sha256": "3ab543b4211359b96e9930b4c7370dd778f7f68953ec916468dbafa94872ed7a"
+      },
+      {
+        "target": "tests/native_raft_reads.rs",
+        "passed": 20,
+        "failed": 0,
+        "ignored": 0,
+        "binary_sha256": "4f31c66fad9de3c752d276b2fba4481bc43c53a242b2a139f8248c0251640e9b"
+      },
+      {
+        "target": "tests/native_raft_runtime.rs",
+        "passed": 15,
+        "failed": 0,
+        "ignored": 1,
+        "binary_sha256": "2c97ed327eefbf0fdbc1a50e2afff81d87fea005ba3c14a80786f3d8297e0844"
+      },
+      {
+        "target": "tests/native_raft_snapshot.rs",
+        "passed": 42,
+        "failed": 0,
+        "ignored": 2,
+        "binary_sha256": "3e02e0b26e1cd7207d6a6a80c13acae77d7b7e44043deb887f8675a635708457"
+      },
+      {
+        "target": "tests/native_raft_storage.rs",
+        "passed": 17,
+        "failed": 0,
+        "ignored": 1,
+        "binary_sha256": "20b13352f83b518a84358defac9b75e924927c8db50a24b1f9593e3352d9cc08"
+      }
+    ],
+    "passed": 624,
+    "log_sha256": "1fe148c1526d9392f49223379ec58f32b35aae55cd76a796e4ad0ff9bde9ef54",
+    "python": "3.14.6",
+    "machine": "arm64",
+    "system": "macOS-26.5.2-arm64-arm-64bit-Mach-O"
+  },
+  "latest_multigroup_validation": {
+    "source_revision": "48371ee302ee379735622fa2be350a9e5cc76258",
+    "passed": 4,
+    "ignored": 1,
+    "note": "Rechecked after strengthening hot-caller panic handling and embedded-input freshness checks; this is a repeat of four cases already included in the 624-case matrix, not four additional cases."
+  },
+  "python_validation": {
+    "source_revision": "48371ee302ee379735622fa2be350a9e5cc76258",
+    "tests": 118,
+    "passed": 117,
+    "skipped": 1,
+    "owning_runner_tests": 18,
+    "skip_reason": "Existing opt-in historical Docker cache test; actual native image builds and complete-source manifest comparison succeeded separately."
+  },
+  "arrival_regression": {
+    "red_revision": "9db71e26eb9c457665eb680c359c69633670b87f",
+    "fix_revision": "c1992ee28bb345d4641156d2f441878581555a41",
+    "observed": "A slow server changed later offered cells and read/write choices because payload RNG draws happened only after generator admission. The fixed scheduler draws the complete offered operation before admission. Original regression failure retained."
+  },
+  "embedded_input_regression": {
+    "red_revision": "53ab0e79b8dddafc9d8c77e2ba9a4fe8ea4b38f2",
+    "fix_revision": "48371ee302ee379735622fa2be350a9e5cc76258",
+    "observed": "The old Rust/Cargo-only manifest missed embedded SQL and protobuf schemas. A failing regression reproduced this omission; the fixed guard fingerprints all copied source files excluding caches, including SQL, proto, C, Python, assets and build recipes."
+  },
+  "complete_input_image_validation": {
+    "image_id": "sha256:313b85b79b50915d2344807822424f17c05c8863a8fc01e476dab46fa3170e80",
+    "binary_sha256": "f5f228712029a8e934fc1d9e1c86e3837a51479f854d3c87d3f934d44e7a0a16",
+    "source_manifest_sha256": "d7fb558b39420cae07f6ea0364184b115bb0525da48987c0d3eac5d95e3f6570",
+    "build_profile": "lab",
+    "source_revision": "48371ee302ee379735622fa2be350a9e5cc76258",
+    "image_revision_label": "48371ee302ee379735622fa2be350a9e5cc76258",
+    "source_file_count": 1168,
+    "manifest_matches_checkout": true,
+    "matches_measurement_executable": true,
+    "examples": [
+      "crates/cellar/application/event_stream/catalog.sql",
+      "crates/cellar/application/event_stream/schema.sql",
+      "crates/cellar/application/queue/schema.sql",
+      "crates/cellar/cli/native_deploy/python_environment/prerequisites/shared_cache.c",
+      "crates/cellar/storage/sqlite/inbox.sql",
+      "crates/cellar/storage/sqlite/outbox.sql",
+      "crates/cellar/storage/sqlite/outbox_control.sql",
+      "vendor/raft-proto/proto/eraftpb.proto"
+    ]
+  },
+  "tests": [
+    {
+      "name": "many_groups_mixed_roles",
+      "result": "passed"
+    },
+    {
+      "name": "hot_group_fairness",
+      "result": "passed"
+    },
+    {
+      "name": "cross_group_batch_crash",
+      "result": "passed"
+    },
+    {
+      "name": "harness_rejects_stale_binary",
+      "result": "passed"
+    }
+  ],
+  "unimplemented_required_cases": [
+    "repair_budget_under_load",
+    "archive_bundle_group_index"
+  ],
+  "commands": [
+    {
+      "argv": [
+        "cargo",
+        "format",
+        "--check"
+      ],
+      "source_revision": "830c81bdb85fb4bac4f340494877b345e3540a97",
+      "exit_code": 0,
+      "output": "evidence/MR-14-validation.json.gz",
+      "log_member": "format"
+    },
+    {
+      "argv": [
+        "cargo",
+        "check-layout"
+      ],
+      "source_revision": "830c81bdb85fb4bac4f340494877b345e3540a97",
+      "exit_code": 0,
+      "output": "evidence/MR-14-validation.json.gz",
+      "log_member": "layout"
+    },
+    {
+      "argv": [
+        "python3",
+        "tools/check_native_dependencies.py"
+      ],
+      "source_revision": "830c81bdb85fb4bac4f340494877b345e3540a97",
+      "exit_code": 0,
+      "output": "evidence/MR-14-validation.json.gz",
+      "log_member": "dependencies"
+    },
+    {
+      "argv": [
+        "python3",
+        "tools/docs/check.py"
+      ],
+      "source_revision": "830c81bdb85fb4bac4f340494877b345e3540a97",
+      "exit_code": 0,
+      "output": "evidence/MR-14-validation.json.gz",
+      "log_member": "docs"
+    },
+    {
+      "argv": [
+        "python3",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "tools/perf",
+        "-p",
+        "test_*.py"
+      ],
+      "source_revision": "830c81bdb85fb4bac4f340494877b345e3540a97",
+      "exit_code": 0,
+      "output": "evidence/MR-14-validation.json.gz",
+      "log_member": "perf-tests"
+    },
+    {
+      "argv": [
+        "python3",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "plans/multi-raft",
+        "-p",
+        "test_plan.py"
+      ],
+      "source_revision": "830c81bdb85fb4bac4f340494877b345e3540a97",
+      "exit_code": 0,
+      "output": "evidence/MR-14-validation.json.gz",
+      "log_member": "plan-tests"
+    },
+    {
+      "argv": [
+        "cargo",
+        "clippy",
+        "-p",
+        "cellar",
+        "--all-targets",
+        "--all-features",
+        "--locked",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "source_revision": "830c81bdb85fb4bac4f340494877b345e3540a97",
+      "exit_code": 0,
+      "output": "evidence/MR-14-validation.json.gz",
+      "log_member": "clippy"
+    },
+    {
+      "argv": [
+        "python3",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "tools/perf",
+        "-p",
+        "test_*.py"
+      ],
+      "source_revision": "48371ee302ee379735622fa2be350a9e5cc76258",
+      "exit_code": 0,
+      "output": "evidence/MR-14-validation.json.gz",
+      "log_member": "perf-tests-latest"
+    },
+    {
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--all-features",
+        "--lib",
+        "--test",
+        "native_raft_multigroup",
+        "--test",
+        "native_raft_runtime",
+        "--test",
+        "native_raft_storage",
+        "--test",
+        "native_raft_host",
+        "--test",
+        "native_raft_membership",
+        "--test",
+        "native_raft_execution",
+        "--test",
+        "native_raft_reads",
+        "--test",
+        "native_raft_snapshot",
+        "--bin",
+        "cellar-perf-raft",
+        "--locked",
+        "--",
+        "--test-threads=1"
+      ],
+      "source_revision": "d6e47a2b9882940d1efe7ff1088b1f01f8c932fe",
+      "exit_code": 0,
+      "output": "evidence/MR-14-validation.json.gz",
+      "log_member": "qualified-rust"
+    },
+    {
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--test",
+        "native_raft_multigroup",
+        "--locked",
+        "--",
+        "--list"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-14-validation.json.gz",
+      "log_member": "multigroup-list"
+    },
+    {
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--test",
+        "native_raft_multigroup",
+        "--locked",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-14-validation.json.gz",
+      "log_member": "multigroup-final"
+    },
+    {
+      "argv": [
+        "python3",
+        "plans/multi-raft/plan.py",
+        "validate"
+      ],
+      "source_revision": "48371ee302ee379735622fa2be350a9e5cc76258",
+      "exit_code": 0,
+      "output": "evidence/MR-14-validation.json.gz",
+      "log_member": "package-validate"
+    },
+    {
+      "argv": [
+        "python3",
+        "plans/multi-raft/plan.py",
+        "preflight"
+      ],
+      "source_revision": "48371ee302ee379735622fa2be350a9e5cc76258",
+      "exit_code": 0,
+      "output": "evidence/MR-14-validation.json.gz",
+      "log_member": "package-preflight"
+    },
+    {
+      "argv": [
+        "python3",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "plans/multi-raft",
+        "-p",
+        "test_plan.py"
+      ],
+      "source_revision": "48371ee302ee379735622fa2be350a9e5cc76258",
+      "exit_code": 0,
+      "output": "evidence/MR-14-validation.json.gz",
+      "log_member": "package-plan-tests"
+    },
+    {
+      "argv": [
+        "python3",
+        "tools/docs/check.py"
+      ],
+      "source_revision": "48371ee302ee379735622fa2be350a9e5cc76258",
+      "exit_code": 0,
+      "output": "evidence/MR-14-validation.json.gz",
+      "log_member": "package-docs"
+    },
+    {
+      "argv": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "source_revision": "48371ee302ee379735622fa2be350a9e5cc76258",
+      "exit_code": 0,
+      "output": "evidence/MR-14-validation.json.gz",
+      "log_member": "package-diff"
+    }
+  ],
+  "runs": [
+    {
+      "run": "mr14-q0-20261022-001",
+      "classification": "earlier diagnostic; workload choices could depend on admission",
+      "runner_revision": null,
+      "completed": true,
+      "reconciled": true,
+      "traffic_objectives_met": false,
+      "durability": "quorum",
+      "offered": 200,
+      "completed_operations": 190,
+      "generator_rejections": 10,
+      "p99_ms": 534.7131250106045,
+      "build": {
+        "image_id": "sha256:5bb5fe6c2ec3aad47e81d6b3ade51275188d9fa4fd4a3a65a737058e780fbb31",
+        "binary_sha256": "f5f228712029a8e934fc1d9e1c86e3837a51479f854d3c87d3f934d44e7a0a16",
+        "source_manifest_sha256": "7406c22a3385c8ee547f5cbe91235f0eeb2140eb30f3702ccd76dae09bd442b2",
+        "build_profile": "lab"
+      },
+      "raw_report_sha256": "d240835f65065b133a9740e872ca7a074ff05624491fe70b448dab55ddb7a986",
+      "raw_ledger_sha256": "c4c411dc5afce0c16e29050aadd51206c7fcdc8039c5f834f48e6167e6953824"
+    },
+    {
+      "run": "mr14-q0-20261022-002",
+      "classification": "earlier diagnostic; workload choices could depend on admission",
+      "runner_revision": null,
+      "completed": true,
+      "reconciled": true,
+      "traffic_objectives_met": true,
+      "durability": "quorum",
+      "offered": 200,
+      "completed_operations": 200,
+      "generator_rejections": 0,
+      "p99_ms": 37.82916698837635,
+      "build": {
+        "image_id": "sha256:9e16235ea6a74c525ddc4d411bf7f58f5c0dc12f84cc4ac60d62d20407c0b980",
+        "binary_sha256": "f5f228712029a8e934fc1d9e1c86e3837a51479f854d3c87d3f934d44e7a0a16",
+        "source_manifest_sha256": "9154f40a75d1220d6b06c1fef89be19d3f522ead92cdeb4ae85cec40ad5d4915",
+        "build_profile": "lab"
+      },
+      "raw_report_sha256": "36ff8d7f2f0407288b50d6fde374013c0496912e5943d4147fa10923107f3306",
+      "raw_ledger_sha256": "4a882726d5a41a6081aac05f354124e244cdf01461d94c2c2c71431b8a0944e5"
+    },
+    {
+      "run": "mr14-q0-20261022-003",
+      "classification": "fixed-arrival measurement",
+      "runner_revision": "c1992ee28bb345d4641156d2f441878581555a41",
+      "completed": true,
+      "reconciled": true,
+      "traffic_objectives_met": false,
+      "durability": "quorum",
+      "offered": 200,
+      "completed_operations": 168,
+      "generator_rejections": 32,
+      "p99_ms": 455.68095799826483,
+      "build": {
+        "image_id": "sha256:9e16235ea6a74c525ddc4d411bf7f58f5c0dc12f84cc4ac60d62d20407c0b980",
+        "binary_sha256": "f5f228712029a8e934fc1d9e1c86e3837a51479f854d3c87d3f934d44e7a0a16",
+        "source_manifest_sha256": "9154f40a75d1220d6b06c1fef89be19d3f522ead92cdeb4ae85cec40ad5d4915",
+        "build_profile": "lab",
+        "source_revision": "c1992ee28bb345d4641156d2f441878581555a41",
+        "working_tree_dirty": false
+      },
+      "raw_report_sha256": "641352ea9d05787b73eb370c7c694ad3600ab4c177f94326681313cfa01fd418",
+      "raw_ledger_sha256": "b7474bf5122c55daa8cf58ad34589aeee34b1c480cafb8bdefc4a3594444f802"
+    },
+    {
+      "run": "mr14-s3-20261022-001",
+      "classification": "earlier diagnostic; workload choices could depend on admission",
+      "runner_revision": null,
+      "completed": true,
+      "reconciled": true,
+      "traffic_objectives_met": false,
+      "durability": "s3",
+      "offered": 200,
+      "completed_operations": 177,
+      "generator_rejections": 23,
+      "p99_ms": 229.8815829912204,
+      "build": {
+        "image_id": "sha256:9e16235ea6a74c525ddc4d411bf7f58f5c0dc12f84cc4ac60d62d20407c0b980",
+        "binary_sha256": "f5f228712029a8e934fc1d9e1c86e3837a51479f854d3c87d3f934d44e7a0a16",
+        "source_manifest_sha256": "9154f40a75d1220d6b06c1fef89be19d3f522ead92cdeb4ae85cec40ad5d4915",
+        "build_profile": "lab"
+      },
+      "raw_report_sha256": "28aa65a4437b56a8b02fde1852c10a3783fff7a4c5f765798fdd8138af5275fc",
+      "raw_ledger_sha256": "9b399391e60e8e08b91b327ce88f660424f4b16342e73fbe3114ba6ced89e61f"
+    },
+    {
+      "run": "mr14-s3-20261022-002",
+      "classification": "fixed-arrival measurement",
+      "runner_revision": "c1992ee28bb345d4641156d2f441878581555a41",
+      "completed": true,
+      "reconciled": true,
+      "traffic_objectives_met": false,
+      "durability": "s3",
+      "offered": 200,
+      "completed_operations": 133,
+      "generator_rejections": 67,
+      "p99_ms": 806.6890409885676,
+      "build": {
+        "image_id": "sha256:9e16235ea6a74c525ddc4d411bf7f58f5c0dc12f84cc4ac60d62d20407c0b980",
+        "binary_sha256": "f5f228712029a8e934fc1d9e1c86e3837a51479f854d3c87d3f934d44e7a0a16",
+        "source_manifest_sha256": "9154f40a75d1220d6b06c1fef89be19d3f522ead92cdeb4ae85cec40ad5d4915",
+        "build_profile": "lab",
+        "source_revision": "c1992ee28bb345d4641156d2f441878581555a41",
+        "working_tree_dirty": false
+      },
+      "raw_report_sha256": "59d7e4dff470e061bf01d5224ca2ae9ec1d0b30034414ee54b557103ecaccbf8",
+      "raw_ledger_sha256": "9085a07887f980925c16374bf587ae958d8847e36f425ac6f58fd60bb121c4a5"
+    }
+  ],
+  "artifacts": [
+    {
+      "path": "evidence/MR-14-local-runs.json.gz",
+      "sha256": "b61563f0f856068b4082d7a701c9e2793c170d18015961b286925a9f82de734f",
+      "bytes": 429614
+    },
+    {
+      "path": "evidence/MR-14-validation.json.gz",
+      "sha256": "5a68bc00d16dedc24b2d6048f846751457176b41f7805d83fc066f56de060ad6",
+      "bytes": 29308
+    }
+  ],
+  "provenance": [
+    "All five deployed native executable hashes match. The final measurement image\u2019s original manifest matches all 880 Rust/manifest/lockfile inputs at c1992ee; captured directly from the retained container.",
+    "The final two runners match source c1992ee exactly and reported a clean checkout. Earlier diagnostic source hashes are retained, including reconstructed first-run Python source bytes checked against their original SHA-256 values.",
+    "Public run evidence was checked against every actual synthetic bearer/access/secret value before packaging; private config and environment inspection output are excluded."
+  ],
+  "capacity": {
+    "q1_processes": 6,
+    "q1_cells": 10000,
+    "voters": 3,
+    "average_replicas_per_process": 5000,
+    "proposed_repair_reserve_fraction": 0.2,
+    "replicas_with_reserve": 6000,
+    "current_host_group_bound": 4096,
+    "qualified": false
+  },
+  "limitations": "MR-14 remains IN_PROGRESS. Final Quorum and S3 traffic objectives both failed; no equivalent speedup or capacity claim. Missing matched Fleet/bucket executions, internal fsync/copy/apply/network/disk/S3/controller metrics, repair and archive-bundle cases, steady-state/density proof, and preliminary Q1 execution. Q1 exceeds the agreed local five-node ceiling. No fault, soak, independent-zone, power-loss, Amazon S3 or disaster-restore qualification. Runtime fixture application markers are stubs; actual SQLite/LTX functional evidence comes from the native container runs. MR-13 management/restore gates remain open.",
+  "host_observation_after_runs": {
+    "physical_memory_bytes": 34359738368,
+    "configured_vm_memory_bytes": 36507222016,
+    "swap_observation": "total = 19456.00M  used = 18071.62M  free = 1384.38M  (encrypted)",
+    "interpretation": "Observed after runs; possible confounder, not proof of the latency cause. The first long client-delay observation was not reproduced in the next diagnostic."
+  },
+  "cleanup": "Stopped the owned Cellar/RustFS containers after preserving evidence, then stopped only cellar-multi-raft to release VM memory. All volumes/run directories remain. Other profiles and the default Docker context were not changed."
+}
