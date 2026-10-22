@@ -26,8 +26,19 @@ pub(super) async fn fetch_and_save(context: Context, url: &str) -> Result<Output
         )
         .await;
     let value = match fetched {
-        Err(error) => json!({"error":error.downcast_ref::<DeliveryError>()
-            .context("fetch refusal was untyped")?.code.as_str()}),
+        Err(error) => {
+            let refusal = error
+                .downcast_ref::<DeliveryError>()
+                .context("fetch refusal was untyped")?;
+            if refusal.code == ErrorCode::Unavailable {
+                // The public message can omit a retained native admission or
+                // transport cause. Keep that bounded chain in this private
+                // fixture's log; response and mutation/replay policy stay intact.
+                let detail: String = format!("{error:#}").chars().take(2_048).collect();
+                eprintln!("event fetch unavailable: {detail}");
+            }
+            json!({"error":refusal.code.as_str()})
+        }
         Ok(None) => json!({"batch":null}),
         Ok(Some(batch)) => {
             let db = context.storage()?;

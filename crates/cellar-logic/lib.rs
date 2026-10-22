@@ -6643,16 +6643,16 @@ impl State {
 
     /// Discard a runtime whose durability could not be proved.
     ///
-    /// The caller has been told its write failed. If the cell stays resident,
-    /// the very next read is served from the same unreplicated memory and
-    /// returns that write anyway -- the node disagreeing with what it just
-    /// told a client. Stopping with [`StopCause::Reset`] keeps no local
-    /// snapshot, so the next activation restores from the bucket.
+    /// The caller has no acknowledgement proof for its write. A resident
+    /// runtime could let the next read reveal the same unproven memory.
+    /// Stopping with [`StopCause::Reset`] keeps no local snapshot, so the next
+    /// activation rechecks ownership and restores durable recovery history.
     ///
     /// Note this is a stop, not a truncation. The restored database is not
     /// invalidated by a failed proof; only this node's unreplicated additions
     /// to it are in doubt, and re-reading durable state is how they are
-    /// discarded.
+    /// excluded when unproven. A write can still survive in recovered durable
+    /// history: reset is not a rollback certificate for the failed caller.
     fn reset_cell(&mut self, id: &str, epoch: Epoch, effects: &mut Vec<Effect>) {
         if !matches!(
             self.cells.get(id).map(|cell| &cell.phase),
@@ -6704,6 +6704,24 @@ impl State {
                     result: Err(RequestError::DurabilityUnproven),
                 });
             }
+        }
+        // A concurrent alarm may still be executing and have no consuming
+        // commit barrier yet. Retire its firing/index before residency ends,
+        // exactly as an unproven alarm barrier above. The retained wake remains
+        // discoverable; a late handler result cannot settle the retired op.
+        let running_alarm = self.cells.get(id).and_then(|cell| match cell.alarm {
+            Some(AlarmState::Firing { op, .. }) => Some(op),
+            _ => None,
+        });
+        if let Some(alarm) = running_alarm {
+            self.alarm_finished(
+                alarm,
+                (id.to_string(), epoch),
+                self.now_ms,
+                self.now_mono_ms,
+                Err(Failure::Ambiguous),
+                effects,
+            );
         }
         // Requests already running against this runtime lose it here, exactly
         // as a fence does. Leaving them in `active_requests` would leave the

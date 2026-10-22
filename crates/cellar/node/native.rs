@@ -91,8 +91,48 @@ impl NativeDaemon {
         Ok(self)
     }
 
+    /// Bind an external runtime inventory to this process. Every admitted
+    /// deployment must declare the same inventory for the running executable.
+    pub fn runtime_inventory(
+        mut self,
+        feature: impl Into<String>,
+        sha256: impl Into<String>,
+    ) -> anyhow::Result<Self> {
+        self.applications = self.applications.runtime_inventory(feature, sha256)?;
+        Ok(self)
+    }
+
     /// Run the production node, without initializing a JavaScript engine.
     pub fn run(self) -> anyhow::Result<()> {
+        self.run_inner(None, None)
+    }
+
+    /// Run until a process signal or the supplied stop future completes, then
+    /// return after joining the host. Unlike `run`, this leaves process exit to
+    /// the caller so embedded runtimes can finish their own shutdown.
+    /// Call outside a Tokio runtime, once per process.
+    pub fn run_until(
+        self,
+        stop: impl std::future::Future<Output = ()> + Send + 'static,
+    ) -> anyhow::Result<()> {
+        self.run_inner(Some(Box::pin(stop)), None)
+    }
+
+    /// Observe the actual joined node outcome, including incomplete drain phases.
+    /// CLI commands which do not start a node do not invoke the observer.
+    pub fn run_until_observed(
+        self,
+        stop: impl std::future::Future<Output = ()> + Send + 'static,
+        observer: impl FnOnce(crate::node_lifecycle::NodeOutcome) + Send + 'static,
+    ) -> anyhow::Result<()> {
+        self.run_inner(Some(Box::pin(stop)), Some(Box::new(observer)))
+    }
+
+    fn run_inner(
+        self,
+        stop: Option<super::HostStop>,
+        observer: Option<super::HostObserver>,
+    ) -> anyhow::Result<()> {
         let arguments: Vec<_> = std::env::args_os().skip(1).collect();
         if arguments
             .first()
@@ -126,7 +166,12 @@ impl NativeDaemon {
         } else {
             self.local_graph
         };
-        super::run_host(Backend::Native(Arc::new(self.applications)), local_graph)
+        super::run_host(
+            Backend::Native(Arc::new(self.applications)),
+            local_graph,
+            stop,
+            observer,
+        )
     }
 }
 
@@ -134,9 +179,54 @@ impl NativeDaemon {
 #[derive(Clone, Default)]
 pub struct CompiledApplications {
     factories: HashMap<(String, String), Arc<ApplicationFactory>>,
+    runtime_inventories: HashMap<String, String>,
 }
 
 impl CompiledApplications {
+    /// Register the immutable runtime identity captured before node startup.
+    /// This is process metadata, not a dynamic runtime loader or an SDK grant.
+    pub fn runtime_inventory(
+        mut self,
+        feature: impl Into<String>,
+        sha256: impl Into<String>,
+    ) -> anyhow::Result<Self> {
+        let feature = feature.into();
+        let sha256 = sha256.into();
+        anyhow::ensure!(
+            feature == crate::protocol::FEATURE_EMBEDDED_PYTHON_V1,
+            "unsupported process runtime inventory"
+        );
+        anyhow::ensure!(
+            sha256.len() == 64
+                && sha256
+                    .bytes()
+                    .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)),
+            "invalid process runtime inventory SHA-256"
+        );
+        anyhow::ensure!(
+            !self.runtime_inventories.contains_key(&feature),
+            "duplicate process runtime inventory"
+        );
+        self.runtime_inventories.insert(feature, sha256);
+        Ok(self)
+    }
+
+    fn validate_runtime_inventory(
+        &self,
+        native: &crate::protocol::NativeDeployment,
+        executable: &crate::protocol::NativeArtifact,
+    ) -> anyhow::Result<()> {
+        let declared = native.python.iter().find(|environment| {
+            environment.target == executable.target
+                && environment.executable_sha256 == executable.sha256
+        });
+        let expected = self
+            .runtime_inventories
+            .get(crate::protocol::FEATURE_EMBEDDED_PYTHON_V1);
+        anyhow::ensure!(declared.map(|environment| &environment.inventory_sha256) == expected, "deployment Python inventory differs from the compiled process; replace the process before admission");
+        Ok(())
+    }
+
     /// Register one script and code version before constructing a generation.
     pub fn register(
         mut self,
@@ -170,6 +260,7 @@ impl CompiledApplications {
         // Validate every registration before invoking any application factory.
         for manifest in std::iter::once(&package.primary).chain(&package.cohosted) {
             let native = manifest.native.as_ref().unwrap();
+            self.validate_runtime_inventory(native, executable)?;
             anyhow::ensure!(
                 native
                     .artifacts
@@ -239,6 +330,7 @@ impl CompiledApplications {
             if let Some(native) = &deployment.native {
                 native.validate()?;
                 let executable = crate::native_deploy::current_executable_identity()?;
+                self.validate_runtime_inventory(native, executable)?;
                 anyhow::ensure!(native.artifacts.iter().any(|a| a == executable),
                     "running executable is not declared for native application {} at code version {} on target {}; install a declared artifact before serving",
                     deployment.script_name, version, executable.target);
@@ -257,7 +349,7 @@ impl CompiledApplications {
                     )
                 })?;
                 application
-                    .validate_configuration(&deployment.options)
+                    .validate_deployment(deployment)
                     .with_context(|| {
                         format!(
                             "validate compiled application {} configuration",
@@ -302,3 +394,7 @@ impl Backend {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "native_tests.rs"]
+mod tests;

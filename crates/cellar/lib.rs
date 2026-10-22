@@ -160,6 +160,9 @@ pub mod native_deploy;
 pub(crate) mod native_worker;
 #[path = "durability/raft/mod.rs"]
 mod raft;
+#[path = "cli/supervise/mod.rs"]
+#[cfg(unix)]
+mod supervise;
 #[path = "runtime/workers/worker.rs"]
 pub mod worker;
 // Retain host interfaces while their remaining native frontends are ported.

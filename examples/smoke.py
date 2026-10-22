@@ -53,7 +53,8 @@ class Host:
         self.child = subprocess.Popen(
             [str(cellar), "dev", str(project), "--no-watch", "--port", "0", "--logs"],
             stdout=self.output, stderr=subprocess.STDOUT,
-            env=dict(os.environ, NO_COLOR="1", CELLAR_TOKIO_THREADS="2", CELLAR_SHUTDOWN_TOTAL_MS="8000", **(extra_env or {})),
+            env={**os.environ, "NO_COLOR": "1", "CELLAR_TOKIO_THREADS": "2",
+                 "CELLAR_SHUTDOWN_TOTAL_MS": "8000", **(extra_env or {})},
         )
 
     def ready(self):

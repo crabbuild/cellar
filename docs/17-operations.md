@@ -15,6 +15,14 @@ under its supervisor. Keep internal ingress protected. Wait for startup recovery
 authority and real readiness, then run an authenticated business read/write
 probe. Capture the effective limits and source revision with the node record.
 
+For an embedded Python host on Unix, the shipped `cellar supervise` command
+provides finite startup/liveness probes, process-group termination and joined,
+bounded restarts. Probe through Python itself so an interpreter stalled by
+application code cannot remain healthy through a Rust-only endpoint. Follow the
+[deployment recipe](../tools/python/README.md#process-supervision)
+and inspect both the supervisor lifecycle and the application's combined drain
+report. A forced stop uses ordinary ownership recovery; it cannot certify drain.
+
 If startup recovery fails, keep traffic out and preserve predecessor logs and
 lease/recovery pointers. Investigate credentials, store/range reads, peer
 reachability, available disk and deadlines. Repeatedly deleting local state or

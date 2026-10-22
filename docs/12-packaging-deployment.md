@@ -35,6 +35,16 @@ prefix. Replace `your_bucket` and `your_region` with your deployment values.
 Custom stores can use `--endpoint URL`. Supply credentials through supported
 providers.
 
+The optional [Python adapter](../crates/cellar-python/README.md) embeds Python
+source and its SDK facade in the executable, so those bytes participate in native
+artifact verification. A `python_environment` declaration also transports the
+verified libpython, standard library, packages and bundled native libraries.
+Build pairs the runtime inventory with the executable; install restores its
+immutable prefix before publishing the host. System libraries outside that
+closure remain OS prerequisites. Changing Python source, registrations or
+inventory requires rebuilding and replacing the process. See the
+[environment workflow](../tools/python/README.md).
+
 ## Running workers and upgrading code
 
 Cellar supplies the worker runtime and fleet coordination inside each application
@@ -97,3 +107,5 @@ and [recovery](18-recovery-backup.md).
 Sources: [builder](../crates/cellar/cli/native_deploy/build.rs),
 [packaging](../crates/cellar/cli/native_deploy/mod.rs),
 [protocol](../crates/cellar/deployment/protocol.rs).
+
+Embedded CPython projects can declare a target-specific `python_environment` inventory/archive. Native build/publish/install verifies and transports the closure using the `embedded-python-v1` feature gate; the installer requires an explicit immutable `--python-root`. Generation admission also checks the process-bound inventory digest. See the [environment workflow](../tools/python/README.md) and [qualification gates](../plans/007-embedded-python-pyo3.md#implementation-milestones-and-acceptance-gates).

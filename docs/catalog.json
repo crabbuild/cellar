@@ -340,6 +340,18 @@
       "category": "Decision"
     },
     {
+      "path": "adr/004-embedded-python.md",
+      "title": "ADR 004 · Embedded Python",
+      "summary": "Trusted CPython, original invocation authority and verified process replacement.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Decision"
+    },
+    {
       "path": "templates/application-brief.md",
       "title": "Application brief template",
       "summary": "Define the domain, workload, correctness and recovery requirements.",

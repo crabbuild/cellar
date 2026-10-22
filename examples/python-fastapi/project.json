@@ -1,0 +1,15 @@
+{
+  "cargo_manifest": "../../Cargo.toml",
+  "package": "cellar-python",
+  "binary": "cellar-python-fastapi",
+  "profile": "dev",
+  "features": ["embed"],
+  "primary": {
+    "script_name": "python-fastapi",
+    "application_version": "v1",
+    "cells": ["Order"],
+    "bindings": [
+      {"type": "durable_object_namespace", "name": "ORDERS", "class_name": "Order"}
+    ]
+  }
+}

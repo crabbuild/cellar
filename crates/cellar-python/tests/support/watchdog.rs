@@ -1,0 +1,320 @@
+//! Disposable owner-death and noncooperative-interpreter drills.
+use super::*;
+use std::{
+    process::{Child, Command},
+    sync::atomic::{AtomicUsize, Ordering},
+    time::Instant,
+};
+
+struct FactoryProbe {
+    application: Arc<PythonApplication>,
+    created: AtomicUsize,
+}
+
+impl Application for FactoryProbe {
+    fn invoke(self: Arc<Self>, context: Context, event: Invocation) -> HandlerFuture<Output> {
+        if matches!(&event, Invocation::Fetch(request) if request.url.ends_with("/native-factory-count"))
+        {
+            return Box::pin(async move {
+                let body = serde_json::to_vec(&self.created.load(Ordering::Acquire))?;
+                Ok(Output::Http(
+                    http::Response::new(
+                        200,
+                        body,
+                        vec![("content-type".into(), "application/json".into())],
+                    )
+                    .into_http(&context)?,
+                ))
+            });
+        }
+        if matches!(&event, Invocation::Fetch(request) if request.url.ends_with("/native-create")) {
+            return Box::pin(async move {
+                let response = context
+                    .namespace("COUNTERS")?
+                    .get_by_name("blocked-factory")
+                    .fetch(
+                        &context,
+                        Request {
+                            url: "http://cell/".into(),
+                            method: "GET".into(),
+                            headers: Vec::new(),
+                            body: Vec::new().into(),
+                            entrypoint: None,
+                        },
+                    )
+                    .await?;
+                Ok(Output::Http(response))
+            });
+        }
+        self.application.clone().invoke(context, event)
+    }
+
+    fn supports_cell(&self, class: &str) -> bool {
+        self.application.supports_cell(class)
+    }
+
+    fn create_cell(&self, context: Context, identity: &CellIdentity) -> Result<Arc<dyn Cell>> {
+        let cell = self.application.create_cell(context, identity)?;
+        self.created.fetch_add(1, Ordering::Release);
+        Ok(cell)
+    }
+
+    fn validate_deployment(&self, deployment: &cellar::fleet::LoadedDeployment) -> Result<()> {
+        self.application.validate_deployment(deployment)
+    }
+}
+
+pub(super) fn child(mode: &str, root: &Path) -> Result<()> {
+    let directory = root.to_path_buf();
+    let recovered = mode == "--owner-recovered";
+    let marker = directory.join("clean-shutdown.json");
+    // Execute the shipped example's actual alarm method without requiring its
+    // unrelated numerical/validation dependencies in this stdlib-only fixture.
+    // The existing fixture owns routing and arms a durable business identity.
+    let source = format!(
+        r#"{}
+import ast
+_example_tree = ast.parse({})
+_example_class = next(node for node in _example_tree.body if isinstance(node, ast.ClassDef) and node.name == "Counter")
+_example_globals = {{"__name__": "qualified_example_alarm"}}
+exec(compile(ast.Module(body=[_example_class], type_ignores=[]), "example_app.py", "exec"), _example_globals)
+_example_alarm = _example_globals["Counter"].alarm
+async def _observed_example_alarm(self, scheduled_ms, ctx):
+    alarm_deliveries.append(scheduled_ms)
+    return await _example_alarm(self, scheduled_ms, ctx)
+Counter.alarm = _observed_example_alarm
+"#,
+        include_str!("../bridge.py"),
+        serde_json::to_string(include_str!("../../../../examples/python/app.py"))?
+    );
+    let report = run(
+        Options::default(),
+        Source::new(source, "bridge.py")
+            .events([EventKind::Fetch])
+            .cell_events("Counter", [EventKind::Fetch, EventKind::Alarm]),
+        move |application, stop| {
+            let runtime = tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(2)
+                .enable_all()
+                .build()?;
+            runtime.block_on(async move {
+                let bucket = cellar::bucket::Bucket::open_dev(&directory.join("objects.sqlite"))?;
+                let application = Arc::new(FactoryProbe {
+                    application,
+                    created: AtomicUsize::new(0),
+                });
+                let (node, url) = start_with(
+                    &directory.join("disk"),
+                    application,
+                    if recovered {
+                        "recovered-python"
+                    } else {
+                        "killed-python"
+                    },
+                    Some(bucket),
+                )
+                .await?;
+                std::fs::write(directory.join("ready"), url)?;
+                let monitor = stop.clone();
+                let outcome = node
+                    .run_until(async move {
+                        stop.clone().cancelled().await;
+                        ShutdownMode::Preserve
+                    })
+                    .await?;
+                monitor.record_node(outcome.clone());
+                // Complete shutdown evidence may only be written after the
+                // joined node outcome and Python loop cleanup have both passed.
+                ensure!(matches!(outcome, NodeOutcome::Stopped(_)));
+                Ok(())
+            })
+        },
+    )?;
+    std::fs::write(marker, serde_json::to_vec(&report)?)?;
+    Ok(())
+}
+
+struct Process(Child);
+
+impl Drop for Process {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+
+fn spawn(mode: &str, root: &Path) -> Result<Process> {
+    let ready = root.join("ready");
+    if ready.exists() {
+        std::fs::remove_file(ready)?;
+    }
+    Ok(Process(
+        Command::new(std::env::current_exe()?)
+            .arg(mode)
+            .arg(root)
+            .spawn()?,
+    ))
+}
+
+async fn ready(process: &mut Process, root: &Path, client: &reqwest::Client) -> Result<String> {
+    let deadline = Instant::now() + Duration::from_secs(15);
+    loop {
+        ensure!(
+            process.0.try_wait()?.is_none(),
+            "owner exited before readiness"
+        );
+        if let Ok(url) = std::fs::read_to_string(root.join("ready")) {
+            if let Ok(response) = client.get(format!("{url}/library")).send().await {
+                if response.status().is_success() {
+                    return Ok(url);
+                }
+            }
+        }
+        ensure!(
+            Instant::now() < deadline,
+            "owner readiness deadline elapsed"
+        );
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+}
+
+pub(super) fn qualify() -> Result<()> {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
+    runtime.block_on(async {
+        for route in ["cpu-loop", "blocked-native"] {
+            let directory = tempfile::tempdir()?;
+            let root = directory.path();
+            let client = reqwest::Client::builder()
+                .timeout(Duration::from_secs(2))
+                .build()?;
+            let mut owner = spawn("--owner-running", root)?;
+            let url = ready(&mut owner, root, &client).await?;
+            let before: Value = client
+                .post(format!("{url}/counter"))
+                .send()
+                .await?
+                .error_for_status()?
+                .json()
+                .await?;
+            ensure!(
+                before["count"] == 1,
+                "write was not acknowledged before kill"
+            );
+            let alarm: i64 = client
+                .post(format!("{url}/durable-alarm-arm"))
+                .send()
+                .await?
+                .error_for_status()?
+                .json()
+                .await?;
+            let armed = Instant::now();
+            // Trigger noncooperation, verify it cannot fabricate a successful
+            // heartbeat or shutdown, then exercise the external hard-stop path.
+            let trigger = client.get(format!("{url}/{route}")).send().await;
+            ensure!(
+                trigger.is_err() || trigger?.status().is_server_error(),
+                "blocking handler unexpectedly completed"
+            );
+            let heartbeat = client.get(format!("{url}/library")).send().await;
+            ensure!(
+                heartbeat.is_err() || heartbeat?.status().is_server_error(),
+                "blocked interpreter answered heartbeat"
+            );
+            // Root routing and the real native cell factory must progress
+            // without borrowing Python, even while its loop/GIL is blocked.
+            let cold = client.get(format!("{url}/native-create")).send().await;
+            ensure!(
+                cold.is_err() || cold?.status().is_server_error(),
+                "blocked Python cell handler unexpectedly completed"
+            );
+            let factories: usize = client
+                .get(format!("{url}/native-factory-count"))
+                .send()
+                .await?
+                .error_for_status()?
+                .json()
+                .await?;
+            ensure!(
+                factories == 2,
+                "native factory waited for blocked Python ({route}): {factories}"
+            );
+            ensure!(
+                owner.0.try_wait()?.is_none(),
+                "noncooperative runtime exited without watchdog"
+            );
+            // Let the acknowledged native alarm become due while Python is
+            // stalled. Its durable intent must survive the owner and disk loss.
+            if let Some(remaining) = Duration::from_millis(11_000).checked_sub(armed.elapsed()) {
+                tokio::time::sleep(remaining).await;
+            }
+            owner.0.kill()?;
+            owner.0.wait()?;
+            ensure!(
+                !root.join("clean-shutdown.json").exists(),
+                "hard kill fabricated clean drain"
+            );
+            // Remove every owner-local SQLite file. Recovery must use the fleet
+            // bucket, rather than accidentally reading the killed owner's disk.
+            std::fs::remove_dir_all(root.join("disk"))?;
+            tokio::time::sleep(Duration::from_millis(1100)).await;
+            let mut recovery = spawn("--owner-recovered", root)?;
+            let url = ready(&mut recovery, root, &client).await?;
+            let recovered: Value = client
+                .post(format!("{url}/counter"))
+                .send()
+                .await?
+                .error_for_status()?
+                .json()
+                .await?;
+            ensure!(
+                recovered["count"] == 2,
+                "{route}: recovery lost acknowledged state: {recovered}"
+            );
+            let expected = json!({"intent":alarm,"receipt":true,"effects":1});
+            let mut observed = Value::Null;
+            tokio::time::timeout(Duration::from_secs(10), async {
+                loop {
+                    let mut state: Value = client
+                        .get(format!("{url}/durable-alarm-state"))
+                        .send()
+                        .await?
+                        .error_for_status()?
+                        .json()
+                        .await?;
+                    observed = state.clone();
+                    let deliveries = state.as_object_mut().context("alarm state object")?
+                        .remove("deliveries").context("alarm delivery timestamps")?;
+                    if state == expected {
+                        ensure!(deliveries.as_array().and_then(|rows|rows.first())
+                            .and_then(Value::as_i64).is_some_and(|delivered|delivered > alarm),
+                            "{route}: native retry did not change the delivery deadline: {deliveries}");
+                        return Ok::<_, anyhow::Error>(());
+                    }
+                    ensure!(
+                        state["intent"] == alarm
+                            && state["effects"].as_u64().is_some_and(|count| count <= 1),
+                        "{route}: recovered alarm lost atomic state or duplicated effects: {state}"
+                    );
+                    tokio::time::sleep(Duration::from_millis(25)).await;
+                }
+            })
+            .await
+            .with_context(|| format!("acknowledged alarm did not recover: {observed}"))??;
+            let mut replay: Value = client
+                .get(format!("{url}/durable-alarm-repeat"))
+                .send()
+                .await?
+                .error_for_status()?
+                .json()
+                .await?;
+            replay.as_object_mut().context("alarm replay object")?.remove("deliveries");
+            ensure!(
+                replay == expected,
+                "{route}: original alarm occurrence replay duplicated effects: {replay}"
+            );
+        }
+        Ok(())
+    })
+}

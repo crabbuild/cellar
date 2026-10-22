@@ -150,6 +150,11 @@ impl Output {
         self.sink.write(|data| writeln!(data, "{line}"))
     }
 
+    /// Publish a lifecycle transition while retaining the long-lived writer.
+    pub(crate) fn flush(&mut self) -> anyhow::Result<()> {
+        self.sink.write(|data| data.flush())
+    }
+
     /// One opaque payload, byte for byte.
     ///
     /// Takes `self`, so nothing can be appended afterwards. That is what

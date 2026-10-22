@@ -7,7 +7,12 @@ use super::types::Query;
 
 const RETAINED: i64 = 256;
 
-pub(super) fn begin(storage: &Storage, expression: &str, mut document: Value) -> Result<i64> {
+pub(super) fn begin(
+    storage: &Storage,
+    expression: &str,
+    mut document: Value,
+    progress: impl FnOnce() -> Result<()>,
+) -> Result<i64> {
     storage.system_sql_schema("CREATE TABLE IF NOT EXISTS __sys_cron_executions (id INTEGER PRIMARY KEY AUTOINCREMENT, expression TEXT NOT NULL, document TEXT NOT NULL);")?;
     storage.transaction_sync(|_| {
         let row = storage
@@ -30,6 +35,7 @@ pub(super) fn begin(storage: &Storage, expression: &str, mut document: Value) ->
             "DELETE FROM __sys_cron_executions WHERE id NOT IN (SELECT id FROM __sys_cron_executions ORDER BY id DESC LIMIT ?)",
             &[RETAINED.into()],
         )?;
+        progress()?;
         Ok(*id)
     })
 }

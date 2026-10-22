@@ -4,9 +4,19 @@
 
 The [multi-Raft delivery package](multi-raft/README.md) specifies consensus-backed
 cells with LTX replication, follower queries and S3 archival. It includes the
-technical design, 17 ordered work packages, 104 proposed test cases, scaling and
+technical design, 17 ordered work packages, 143 required test cases, scaling and
 qualification plans, source drift checks and an executable task inspector.
-The package is a proposal; the Raft runtime has not been implemented.
+MR-01 through MR-12 are implemented at their recorded native boundaries;
+MR-13 is in progress and MR-14 through MR-17 remain open.
+
+## Runtime integration proposals
+
+| Design | Status | Scope |
+| --- | --- | --- |
+| [007: Embedded CPython through PyO3](007-embedded-python-pyo3.md) | Partial; full-plan audit active | Python request and cell handlers, invocation-bound SDK access, atomic storage batches, interpreter lifecycle, packaging and qualification gates |
+
+The optional interpreter adapter is implemented above the native Rust SDK.
+Its Python API sketches are not implemented or runnable examples.
 
 ## Primitive designs
 

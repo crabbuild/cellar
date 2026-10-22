@@ -76,6 +76,14 @@ check-cfg = ["cfg(cellar_internal_tests)", "cfg(cellar_proxy_internals)"]
 [lints.clippy]
 disallowed_macros = "forbid"
 
+[[example]]
+name = "python-package-qualification"
+path = "../../tools/python/install_smoke.rs"
+
+[[example]]
+name = "python-fastapi-deployment"
+path = "../../examples/python-fastapi/deploy.rs"
+
 [dependencies]
 async-trait.workspace = true
 chrono.workspace = true
@@ -122,6 +130,7 @@ serde_json.workspace = true
 sha1.workspace = true
 sha2.workspace = true
 subtle.workspace = true
+tar.workspace = true
 tempfile.workspace = true
 tikv-jemalloc-ctl.workspace = true
 tikv-jemallocator.workspace = true
@@ -141,3 +150,6 @@ nix.workspace = true
 
 [dev-dependencies]
 lz4_flex.workspace = true
+
+[build-dependencies]
+cc.workspace = true

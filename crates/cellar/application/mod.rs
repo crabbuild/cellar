@@ -139,6 +139,13 @@ pub trait Application: Send + Sync + 'static {
         Ok(())
     }
 
+    /// Validate deployment-level event declarations before activation. This
+    /// hook must perform no I/O or cell construction. The default retains the
+    /// existing configuration validator for ordinary native applications.
+    fn validate_deployment(&self, deployment: &crate::fleet::LoadedDeployment) -> Result<()> {
+        self.validate_configuration(&deployment.options)
+    }
+
     fn supports_cell(&self, class: &str) -> bool;
 
     fn create_cell(&self, context: Context, identity: &CellIdentity) -> Result<Arc<dyn Cell>>;
