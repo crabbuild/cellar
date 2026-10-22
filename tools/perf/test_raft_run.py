@@ -12,7 +12,7 @@ from unittest.mock import Mock, patch
 
 from raft_run import (capacity, main, matched_comparison, parse_manifest, read_json,
                       summarize_ledger, validate_profile, verify_image)
-from raft_workload import Ledger, model, run_load
+from raft_workload import Ledger, input_digest, model, run_load
 
 
 class Profiles(unittest.TestCase):
@@ -66,6 +66,31 @@ class Profiles(unittest.TestCase):
                         main()
                     docker.assert_not_called()
                     self.assertFalse(output.exists())
+
+    def test_local_placement_enforces_actual_peak_and_the_five_node_ceiling(self):
+        from raft_topology import local_placement, members, placement, vm_requirements
+        self.assertEqual(members(4, 5), (5, 1, 2))
+        self.assertEqual([row['replica_cells'] for row in placement(3, 5)], [1, 2, 3, 2, 1])
+        for nodes in (3, 4, 5):
+            profile = self.profile()
+            profile['topology']['nodes'] = nodes
+            profile['cells'] = {'total': nodes * 7, 'active': 1}
+            self.assertTrue(all(row['replica_cells'] == 21 and row['leader_cells'] == 7 for row in local_placement(profile)))
+            self.assertEqual(vm_requirements(nodes)['cpus'], nodes + 3)
+        for nodes, cells in ((2, 12), (6, 12), (5, 1), (5, 6827), (3, 4097)):
+            profile = self.profile()
+            profile['topology']['nodes'] = nodes
+            profile['cells'] = {'total': cells, 'active': 1}
+            with self.subTest(nodes=nodes, cells=cells), self.assertRaises(ValueError):
+                local_placement(profile)
+        profile = self.profile()
+        profile['topology']['nodes'] = 5
+        profile['cells'] = {'total': 6826, 'active': 1}
+        self.assertEqual(max(row['replica_cells'] for row in local_placement(profile)), 4096)
+        for nodes in (2, 6, True):
+            with self.assertRaises(ValueError):
+                members(0, nodes)
+
 
 
 class Freshness(unittest.TestCase):
@@ -297,34 +322,108 @@ class HistoryOracle(unittest.TestCase):
 
 
 class IndependentReport(unittest.TestCase):
-    def fixture(self, root):
-        from raft_run import input_digest
-        events = HistoryOracle().events()
-        for event in events:
-            if event['event'] == 'complete':
-                event['latency_ms'] = 10.0
-                event['response']['served_by'] = 1
+    def fixture(self, root, node_count=3):
+        from raft_topology import local_placement, members, vm_requirements
+        from raft_metrics import phases
+        from test_raft_metrics import rows
+        total = 1 if node_count == 3 else node_count
+        events = []
+        for cell in range(total):
+            for event in copy.deepcopy(HistoryOracle().events()):
+                event['cell'] = cell
+                if 'id' in event:
+                    event['id'] = str(cell) + ':' + event['id']
+                if 'response' in event:
+                    event['response']['group'] = 'group-' + str(cell)
+                if event['event'] == 'complete':
+                    event['latency_ms'] = 10.0
+                    event['response']['served_by'] = members(cell, node_count)[1]
+                events.append(event)
         path = root / 'operations.jsonl'
         path.write_text(''.join(json.dumps({**event, 'order': index}) + '\n' for index, event in enumerate(events, 1)))
         profile = Profiles().profile()
-        profile['cells'] = {'total': 1, 'active': 1}
-        profile['arrival']['rate_per_second'] = 1
+        profile['topology']['nodes'] = node_count
+        profile['cells'] = {'total': total, 'active': total}
+        profile['arrival']['rate_per_second'] = total
         profile['timing']['measurement_seconds'] = 2
-        report = {'completed': True, 'reconciled': True, 'profile': profile,
+        planned = local_placement(profile)
+        report = {'completed': True, 'reconciled': True, 'profile': profile, 'prefix': 'fixture',
             'profile_sha256': input_digest(profile), 'summary': summarize_ledger(path, 'measurement', 2),
-            'measurement': {'offered': 2}, 'final_archive': [[200, {'cell': 0, 'archived': 3}]],
-            'cgroups': [{'node': f'node{n}', 'cpu_max': '100000 100000', 'memory_max': 3 * 1024**3, 'swap_max': 0} for n in range(3)],
+            'measurement': {'offered': 2 * total}, 'final_archive': [[200, {'cell': cell, 'archived': 3}] for cell in range(total)],
+            'cgroups': [{'node': f'fixture-node{n}', 'cpu_max': '100000 100000', 'memory_max': 3 * 1024**3, 'swap_max': 0} for n in range(1, node_count + 1)],
+            'placement': planned, 'vm': vm_requirements(node_count),
+            'limits': [{'NanoCpus': 10**9, 'CpusetCpus': str(n), 'Memory': 3 * 1024**3, 'MemorySwap': 3 * 1024**3, 'Tmpfs': {}} for n in range(node_count)],
+            'store_limits': {'NanoCpus': 2 * 10**9, 'CpusetCpus': f'{node_count},{node_count+1}', 'Memory': 4 * 1024**3, 'MemorySwap': 4 * 1024**3, 'Tmpfs': {}},
             'limitations': ['synthetic test evidence']}
-        from test_raft_metrics import rows
-        from raft_metrics import phases
-        measurements = {'measurement': {'before': rows(3), 'after': rows(4)}}
+        def physical(stamp):
+            result = rows(stamp, node_count)
+            for sample, node in zip(result, planned):
+                sample['sample']['resources']['groups'].update(durable_groups=node['replica_cells'], attached_groups=node['replica_cells'], parked_groups=0)
+            return result
+        measurements = {'measurement': {'before': physical(3), 'after': physical(4)}}
         if profile['timing']['warmup_seconds']:
-            measurements['warmup'] = {'before': rows(1), 'after': rows(2)}
+            measurements['warmup'] = {'before': physical(1), 'after': physical(2)}
         (root / 'measurements.json').write_text(json.dumps(measurements))
-        (root / 'node-samples.jsonl').write_text(json.dumps(rows(4)) + '\n')
-        report['performance'] = phases(measurements, bool(profile['timing']['warmup_seconds']))
-        replicas = [{'cell': 0, 'node': n, 'response': {**events[-1]['response'], 'served_by': n}} for n in range(1, 4)]
+        (root / 'node-samples.jsonl').write_text(json.dumps(physical(4)) + '\n')
+        report['performance'] = phases(measurements, bool(profile['timing']['warmup_seconds']), node_count)
+        replicas = []
+        topology = []
+        for cell in range(total):
+            assigned = members(cell, node_count)
+            response = next(event['response'] for event in reversed(events) if event['cell'] == cell)
+            replicas.extend({'cell': cell, 'node': n, 'response': {**response, 'served_by': n}} for n in assigned)
+            for node in range(1, node_count + 1):
+                view = {'cell': cell, 'node': node, 'registered': node in assigned}
+                if node in assigned:
+                    view.update(leader=assigned[0], role='Leader' if node == assigned[0] else 'Voter',
+                                voters=sorted(assigned) if node == assigned[0] else None)
+                topology.append({'cell': cell, 'node': node, 'status': 200, 'response': view})
+        (root / 'topology.json').write_text(json.dumps({'before': topology, 'after': topology}))
         return report, replicas
+
+    def test_four_and_five_node_evidence_covers_only_assigned_replicas(self):
+        from raft_analyze import analyze
+        for nodes in (4, 5):
+            for corrupt in ('valid', 'unassigned_replica', 'missing_node', 'extra_registration', 'wrong_voters', 'wrong_population', 'shared_cpu', 'short_vm', 'wrong_cgroup', 'false_durability', 'false_read_mode'):
+                with self.subTest(nodes=nodes, corrupt=corrupt), tempfile.TemporaryDirectory() as directory:
+                    root = Path(directory)
+                    report, replicas = self.fixture(root, nodes)
+                    if corrupt == 'unassigned_replica':
+                        replicas[0]['node'] = 4
+                        replicas[0]['response']['served_by'] = 4
+                    elif corrupt == 'missing_node':
+                        raw = json.loads((root / 'measurements.json').read_text())
+                        raw['measurement']['after'].pop()
+                        (root / 'measurements.json').write_text(json.dumps(raw))
+                    elif corrupt in ('extra_registration', 'wrong_voters'):
+                        raw = json.loads((root / 'topology.json').read_text())
+                        if corrupt == 'extra_registration':
+                            raw['before'][3]['response']['registered'] = True
+                        else:
+                            raw['before'][0]['response']['voters'] = [1, 2, 4]
+                        (root / 'topology.json').write_text(json.dumps(raw))
+                    elif corrupt == 'wrong_population':
+                        raw = json.loads((root / 'node-samples.jsonl').read_text())
+                        raw[-1]['sample']['resources']['groups']['durable_groups'] += 1
+                        (root / 'node-samples.jsonl').write_text(json.dumps(raw) + '\n')
+                    elif corrupt == 'shared_cpu':
+                        report['limits'][-1]['CpusetCpus'] = '0'
+                    elif corrupt == 'short_vm':
+                        report['vm']['memory_bytes'] -= 1
+                    elif corrupt in ('false_durability', 'false_read_mode'):
+                        report['profile']['durability' if corrupt == 'false_durability' else 'read_consistency'] = 's3' if corrupt == 'false_durability' else 'linearizable'
+                        report['profile_sha256'] = input_digest(report['profile'])
+                    elif corrupt == 'wrong_cgroup':
+                        report['cgroups'][-1]['node'] = 'other-run'
+                    (root / 'report.json').write_text(json.dumps(report))
+                    (root / 'replicas.json').write_text(json.dumps(replicas))
+                    if corrupt == 'valid':
+                        result = analyze(root)
+                        self.assertEqual(result['replicas'], nodes * 3)
+                        self.assertTrue(all(row['leader_cells'] == 1 and row['replica_cells'] == 3 for row in result['placement']))
+                    else:
+                        with self.assertRaises(ValueError):
+                            analyze(root)
 
     def test_report_claims_cannot_override_ledger_or_replica_failures(self):
         from raft_analyze import analyze

@@ -22,10 +22,10 @@ def completed(raw, duration, outcome='succeeded'):
             bucket['count'] = str(int(bucket['count']) + 1)
 
 
-def rows(stamp):
+def rows(stamp, node_count=3):
     return [{'node': node, 'started_ns': stamp * 10 + node, 'finished_ns': stamp * 10 + node + 1,
              'sample': {'performance': observation(str(node) * 32, stamp), 'resources': {'sql': {}, 'groups': {}}}}
-            for node in (1, 2, 3)]
+            for node in range(1, node_count + 1)]
 
 
 class Measurements(unittest.TestCase):

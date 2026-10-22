@@ -19,6 +19,7 @@ import urllib.request
 from raft import captured_node_limits, port_base, wait_for_placement
 from raft_workload import Ledger, input_digest, model, run_load, reconcile
 from raft_metrics import phases, samples
+from raft_topology import local_placement, members, verify_topology, verify_resources, verify_populations, verify_traffic, vm_requirements
 from run import create_bucket
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -224,7 +225,8 @@ def main():
         print(json.dumps(capacity(profile), indent=2))
         return
     require(args.scenario == 'healthy', 'fault capability not implemented: refuse before creating resources')
-    require(profile['topology'] == {'nodes': 3, 'voters': 3, 'failure_domains': 1}, 'local launcher supports three voters in one Colima VM; Q1 needs a separate qualified topology')
+    local_placement(profile)
+    require(args.port_base <= 65535 - profile['topology']['nodes'], 'port base cannot cover all nodes')
     require(capacity(profile)['host_bound_admits_balanced_placement'], 'profile exceeds current host group bound')
     require(sum(profile['timing'][key] for key in ('warmup_seconds', 'measurement_seconds')) * profile['arrival']['rate_per_second'] <= 1000000, 'local ledger analysis bound is one million arrivals')
     require(profile['timing']['soak_seconds'] == 0, 'soak requires fault scheduling and bounded offline history checking')
@@ -241,12 +243,15 @@ def main():
     build['working_tree_dirty'] = bool(subprocess.check_output(['git', '-C', str(ROOT), 'status', '--porcelain'], text=True).strip())
     cpus = int(docker('info', '--format', '{{.NCPU}}'))
     memory = int(docker('info', '--format', '{{.MemTotal}}'))
-    require(cpus >= 6 and memory >= 14 * 1024**3, 'insufficient dedicated VM resources')
+    minimum = vm_requirements(profile['topology']['nodes'])
+    require(cpus >= minimum['cpus'] and memory >= minimum['memory_bytes'], 'insufficient dedicated VM resources')
     require(not docker('ps', '-q', '--filter', f'label={LABEL}'), 'stop the previous owned experiment before starting another')
     run(args, profile, build, docker, cpus, memory)
 
 
 def run(args, profile, build, docker, cpus, memory):
+    node_count = profile['topology']['nodes']
+    planned = local_placement(profile)
     root = args.output.resolve()
     root.mkdir(parents=True, mode=0o700, exist_ok=False)
     config = root / 'config'
@@ -256,18 +261,18 @@ def run(args, profile, build, docker, cpus, memory):
     owner = f'{LABEL}={run_id}'
     token, access, secret = [secrets.token_hex(32) for _ in range(3)]
     (config / 'token').write_text(token)
-    for index in range(1, 4):
+    for index in range(1, node_count + 1):
         (config / f'process{index}').write_bytes(secrets.token_bytes(16))
     for name in ('ca.der', 'server.der', 'key.der'):
         shutil.copyfile(ROOT / 'crates/cellar/transport/tcp/fixtures' / name, config / name)
     for path in config.iterdir():
         path.chmod(0o600)
-    nodes = [f'{prefix}-node{i}' for i in range(1, 4)]
-    bases = [f'http://127.0.0.1:{args.port_base+i}' for i in range(1, 4)]
+    nodes = [f'{prefix}-node{i}' for i in range(1, node_count + 1)]
+    bases = [f'http://127.0.0.1:{args.port_base+i}' for i in range(1, node_count + 1)]
     report = {'format': 1, 'run_id': run_id, 'prefix': prefix, 'context': args.context, 'build': build,
               'profile': profile, 'profile_sha256': input_digest(profile), 'scenario': args.scenario,
-              'runner_sha256': {name: hashlib.sha256((ROOT / 'tools/perf' / name).read_bytes()).hexdigest() for name in ('raft_run.py', 'raft_workload.py', 'raft_analyze.py', 'raft_metrics.py', 'raft.py', 'run.py')},
-              'capacity': capacity(profile), 'vm': {'cpus': cpus, 'memory_bytes': memory},
+              'runner_sha256': {name: hashlib.sha256((ROOT / 'tools/perf' / name).read_bytes()).hexdigest() for name in ('raft_run.py', 'raft_workload.py', 'raft_analyze.py', 'raft_metrics.py', 'raft_topology.py', 'raft.py', 'run.py')},
+              'capacity': capacity(profile), 'placement': planned, 'vm': {'cpus': cpus, 'memory_bytes': memory},
               'completed': False, 'reconciled': False,
               'limitations': ['One local VM and RustFS; no independent failure domains or Amazon S3 qualification.',
                               'No fault/recovery or all-disk-loss restore qualification.',
@@ -291,7 +296,7 @@ def run(args, profile, build, docker, cpus, memory):
         docker('volume', 'create', '--label', owner, prefix + '-store')
         docker('run', '--rm', '--network', 'none', '--label', owner, '-v', prefix + '-store:/data', 'alpine:3.22', 'chown', '10001:10001', '/data')
         docker('run', '-d', '--name', prefix + '-store', '--label', owner, '--network', prefix, '--network-alias', 'rustfs',
-               '--cpus', '2', '--cpuset-cpus', '3,4', '--memory', '4g', '--memory-swap', '4g',
+               '--cpus', '2', '--cpuset-cpus', f'{node_count},{node_count+1}', '--memory', '4g', '--memory-swap', '4g',
                '-p', f'127.0.0.1:{args.port_base}:9000', '-v', prefix + '-store:/data',
                '-e', 'RUSTFS_ACCESS_KEY=' + access, '-e', 'RUSTFS_SECRET_KEY=' + secret,
                '-e', 'RUSTFS_CONSOLE_ENABLE=false', RUSTFS, '/data')
@@ -310,7 +315,7 @@ def run(args, profile, build, docker, cpus, memory):
                    '--cpus', '1', '--cpuset-cpus', str(index-1), '--memory', '3g', '--memory-swap', '3g',
                    '--ulimit', 'nofile=65536:65536', '-p', f'127.0.0.1:{args.port_base+index}:8082',
                    '-v', node + ':/data', '-v', str(config) + ':/config:ro',
-                   '-e', f'RAFT_NODE={index}', '-e', f"RAFT_CELLS={profile['cells']['total']}",
+                   '-e', f'RAFT_NODE={index}', '-e', f'RAFT_NODES={node_count}', '-e', f"RAFT_CELLS={profile['cells']['total']}",
                    '-e', f"RAFT_TICK_MS={profile['tick_ms']}", '-e', 'RAFT_QUEUE_ITEMS=4096',
                    '-e', 'RAFT_WORKLOAD=reference', '-e', f"RAFT_DURABILITY={profile['durability']}",
                    '-e', f'RAFT_NETWORK_PREFIX={network_prefix}',
@@ -318,21 +323,36 @@ def run(args, profile, build, docker, cpus, memory):
         print(f'Created {prefix} in {args.context}; waiting for actual group leadership.', flush=True)
         def balance(cell):
             try:
-                code, state = request(bases[cell % 3], f'/admin/{cell}', token)
+                code, state = request(bases[cell % node_count], f'/admin/{cell}', token)
                 if code != 200:
                     return False
-                if state['leader'] and state['leader'] != cell % 3 + 1:
+                if state['leader'] and state['leader'] != cell % node_count + 1:
                     request(bases[state['leader']-1], f'/admin/{cell}', token, method='POST')
-                return state['ready'] and state['leader'] == cell % 3 + 1
+                return state['ready'] and state['leader'] == cell % node_count + 1
             except (OSError, ValueError):
                 return False
         wait_for_placement(profile['cells']['total'], balance, time.monotonic() + profile['timing']['startup_seconds'], lambda text: print(text, flush=True))
+        topology = {}
+        def capture_topology(edge):
+            rows = []
+            try:
+                for cell in range(profile['cells']['total']):
+                    for node, base in enumerate(bases, 1):
+                        code, view = request(base, f'/admin/{cell}', token)
+                        rows.append({'cell': cell, 'node': node, 'status': code, 'response': view})
+            finally:
+                topology[edge] = rows
+                (root / 'topology.json').write_text(json.dumps(topology) + '\n')
+            verify_topology(rows, profile['cells']['total'], node_count)
+        capture_topology('before')
         report['limits'] = [captured_node_limits(json.loads(docker('inspect', '--format', '{{json .HostConfig}}', node))) for node in nodes]
+        report['store_limits'] = captured_node_limits(json.loads(docker('inspect', '--format', '{{json .HostConfig}}', prefix + '-store')))
+        verify_resources(report, node_count)
         for node, limits in zip(nodes, report['limits']):
             require(limits['NanoCpus'] == 10**9 and limits['Memory'] == 3 * 1024**3 and limits['MemorySwap'] == 3 * 1024**3 and not limits['Tmpfs'], 'resource limit mismatch')
             require(docker('exec', node, 'sha256sum', '/proc/1/exe').split()[0] == build['binary_sha256'], 'deployed executable differs from verified image')
         def send(cell, operation, body, headers, member=None):
-            node = cell % 3 if operation == 'command' else (cell + 1) % 3
+            node = cell % node_count if operation == 'command' else (cell + 1) % node_count
             if member is not None:
                 node = member
             extra = {'x-command-id': headers['command_id'], 'x-retry-until-ms': str(headers['retry_until_ms'])} if operation == 'command' else {
@@ -352,7 +372,7 @@ def run(args, profile, build, docker, cpus, memory):
         def wait_archive():
             began = time.monotonic()
             while True:
-                observations = [request(bases[cell % 3], f'/admin/{cell}', token) for cell in state]
+                observations = [request(bases[cell % node_count], f'/admin/{cell}', token) for cell in state]
                 if all(code == 200 and item['archived'] >= state[cell]['index'] for cell, (code, item) in enumerate(observations)):
                     return observations, time.monotonic() - began
                 require(time.monotonic() - began < profile['slo']['max_archive_lag_seconds'], 'archive drain exceeded declared SLO')
@@ -371,7 +391,8 @@ def run(args, profile, build, docker, cpus, memory):
         def boundary(phase, edge):
             measurements.setdefault(phase, {})[edge] = capture()
             (root / 'measurements.json').write_text(json.dumps(measurements) + '\n')
-            samples(measurements[phase][edge])
+            samples(measurements[phase][edge], node_count)
+            verify_populations(measurements[phase][edge], planned)
 
         def sample():
             try:
@@ -384,7 +405,8 @@ def run(args, profile, build, docker, cpus, memory):
                         observations = capture()
                         internal.write(json.dumps(observations) + '\n')
                         internal.flush()
-                        samples(observations)
+                        samples(observations, node_count)
+                        verify_populations(observations, planned)
                         stop.wait(1)
             except Exception as error:
                 report['sampler_failure'] = str(error)
@@ -397,18 +419,22 @@ def run(args, profile, build, docker, cpus, memory):
                 report[phase] = run_load(profile, phase, seconds, state, ledger, send, run_id)
                 boundary(phase, 'after')
                 require(not report[phase]['ambiguous'] and not report[phase]['blocked_cells'], 'ambiguous history requires reconciliation before continuing')
-        report['performance'] = phases(measurements, bool(profile['timing']['warmup_seconds']))
+        report['performance'] = phases(measurements, bool(profile['timing']['warmup_seconds']), node_count)
         replicas = []
         for cell, expected in state.items():
-            for member in range(3):
+            for ordinal in members(cell, node_count):
+                member = ordinal - 1
                 code, reply = send(cell, 'query', {'consistency': 'at-least'}, {'min_version': expected['version_token']}, member=member)
                 require(code == 200 and reply['state'] == expected['state'] and reply['index'] >= expected['index'] and reply['served_by'] == member+1, 'replica state or version mismatch')
                 replicas.append({'cell': cell, 'node': member+1, 'response': reply})
         (root / 'replicas.json').write_text(json.dumps(replicas) + '\n')
         report['final_archive'], report['final_archive_seconds'] = wait_archive()
+        capture_topology('after')
         report['summary'] = summarize_ledger(root / 'operations.jsonl', 'measurement', profile['timing']['measurement_seconds'])
         require(report['summary']['counts']['offered'] == report['measurement']['offered'], 'offered ledger mismatch')
         report['history'] = reconcile(root / 'operations.jsonl')
+        with (root / 'operations.jsonl').open() as stream:
+            verify_traffic((decode_json(line) for line in stream), profile)
         report['cgroups'] = [{'node': node, 'cpu_max': docker('exec', node, 'cat', '/sys/fs/cgroup/cpu.max'),
             'memory_max': int(docker('exec', node, 'cat', '/sys/fs/cgroup/memory.max')),
             'swap_max': int(docker('exec', node, 'cat', '/sys/fs/cgroup/memory.swap.max')),

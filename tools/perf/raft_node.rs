@@ -51,6 +51,37 @@ fn graph(script: &str) -> DeploymentGraph {
     })
 }
 
+#[derive(Clone, Copy)]
+struct Placement {
+    nodes: u8,
+}
+
+impl Placement {
+    fn new(nodes: u8) -> Result<Self> {
+        ensure!(
+            (3..=5).contains(&nodes),
+            "local topology requires three to five nodes"
+        );
+        Ok(Self { nodes })
+    }
+
+    fn voters(self, cell: usize) -> [u8; 3] {
+        let first = cell % usize::from(self.nodes);
+        std::array::from_fn(|offset| ((first + offset) % usize::from(self.nodes) + 1) as u8)
+    }
+
+    fn local_count(self, total: usize, node: u8) -> Result<usize> {
+        ensure!((1..=self.nodes).contains(&node), "invalid local node");
+        let nodes = usize::from(self.nodes);
+        Ok((0..3)
+            .map(|offset| {
+                let leader = (usize::from(node) - 1 + nodes - offset) % nodes;
+                total / nodes + usize::from(leader < total % nodes)
+            })
+            .sum())
+    }
+}
+
 #[tokio::main(flavor = "multi_thread", worker_threads = 1)]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
@@ -62,9 +93,16 @@ async fn main() -> Result<()> {
     let tick_ms: u64 = std::env::var("RAFT_TICK_MS")
         .unwrap_or_else(|_| "100".into())
         .parse()?;
+    let placement = Placement::new(
+        std::env::var("RAFT_NODES")
+            .unwrap_or_else(|_| "3".into())
+            .parse()?,
+    )?;
+    ensure!((1..=1_000_000).contains(&total), "invalid cell count");
+    let local_count = placement.local_count(total, i)?;
     ensure!(
-        (1..=3).contains(&i) && (1..=4096).contains(&total),
-        "invalid node/cell count"
+        (1..=4096).contains(&local_count),
+        "invalid local replica count"
     );
     let queue_items: usize = std::env::var("RAFT_QUEUE_ITEMS")
         .unwrap_or_else(|_| "256".into())
@@ -87,6 +125,10 @@ async fn main() -> Result<()> {
     let address: std::net::Ipv4Addr = format!("{network}.1").parse()?;
     ensure!(address.is_private(), "private workload network required");
     let primary_only = std::env::var("RAFT_PRIMARY_ONLY").as_deref() == Ok("1");
+    ensure!(
+        !primary_only || placement.nodes == 3,
+        "primary-only fixture requires three nodes"
+    );
     let root = PathBuf::from("/data");
     let secret = std::fs::read_to_string("/config/token")?.trim().to_owned();
     let tls = RaftTls::new(
@@ -207,7 +249,7 @@ async fn main() -> Result<()> {
     )
     .await?;
     let mut peers = Vec::new();
-    for n in 1..=3u8 {
+    for n in 1..=placement.nodes {
         let address = |port| format!("{network}.{}:{port}", n + 10).parse();
         peers.push(RaftPeerNode {
             node: NodeId::new([n; 16])?,
@@ -229,6 +271,7 @@ async fn main() -> Result<()> {
     let mut config = NamespaceConfig::new(cluster, namespace, NamespaceMode::Raft, schema);
     config.voters = VoterPolicy::ThreeVoters;
     let cells = (0..total)
+        .filter(|cell| placement.voters(*cell).contains(&i))
         .map(|c| -> Result<_> {
             let mut group = [5; 16];
             group[..8].copy_from_slice(&(c as u64 + 1).to_be_bytes());
@@ -247,6 +290,7 @@ async fn main() -> Result<()> {
                     voters: peers
                         .iter()
                         .enumerate()
+                        .filter(|(p, _)| placement.voters(c).contains(&(*p as u8 + 1)))
                         .map(|(p, peer)| {
                             Ok(InitialMember {
                                 node: peer.node,
@@ -267,11 +311,11 @@ async fn main() -> Result<()> {
     };
     let peer = &peers[i as usize - 1];
     let mut host = RaftHostOptions {
-        max_groups: total,
+        max_groups: local_count,
         max_requests: 256,
         ..Default::default()
     };
-    host.close_report.max_groups = total;
+    host.close_report.max_groups = local_count;
     let service = node
         .start_raft_cells(
             RaftCellsConfig {
@@ -351,17 +395,32 @@ async fn main() -> Result<()> {
                 let result = async {
                     ensure!(authorized, "unauthorized");
                     ensure!(id < total, "invalid cell");
-                    let cell = service.cell(namespace, &format!("{class_name}:{id}"))?;
+                    let cell = match service.cell(namespace, &format!("{class_name}:{id}")) {
+                        Ok(cell) => cell,
+                        Err(error) => {
+                            ensure!(!transfer && !service.is_closed(), "unavailable registration: {error:?}");
+                            return Ok(serde_json::json!({"cell":id, "node":i, "registered":false}));
+                        }
+                    };
                     let status = cell.status().await.map_err(|e| anyhow::anyhow!("{e:?}"))?;
                     if transfer && status.command_ready {
-                        let target = MemberId::new(if primary_only { 1 } else { (id % 3 + 1) as u64 })?;
+                        let target = MemberId::new(if primary_only { 1 } else { u64::from(placement.voters(id)[0]) })?;
                         if status.leader != Some(target) {
                             cell.transfer_leadership(LeadershipTransfer {target,
                                 expected_term: status.term, expected_revision: status.membership_revision}, Duration::from_secs(5))
                                 .await.map_err(|e| anyhow::anyhow!("{e:?}"))?;
                         }
                     }
-                    Ok::<_,anyhow::Error>(serde_json::json!({"cell":id, "leader":status.leader.map(MemberId::get),
+                    let voters = if status.role == RaftReplicaRole::Leader && !transfer {
+                        let progress = cell.replication_status().await.map_err(|e| anyhow::anyhow!("{e:?}"))?;
+                        ensure!(progress.term == status.term && progress.membership_revision == status.membership_revision
+                            && progress.replica.member.get() == u64::from(i), "changed replication observation");
+                        ensure!(progress.members.iter().all(|member| member.voter), "unexpected learner");
+                        let mut voters: Vec<_> = progress.members.iter().map(|member| member.member.get()).collect();
+                        voters.sort_unstable();
+                        Some(voters)
+                    } else { None };
+                    Ok::<_,anyhow::Error>(serde_json::json!({"cell":id, "node":i, "registered":true, "voters":voters, "leader":status.leader.map(MemberId::get),
                         "ready": status.command_ready, "role":format!("{:?}",status.role),
                         "term":status.term.get(), "committed":status.committed.get(), "applied":status.applied.index.get(), "archived":status.archived.get()}))
                 }.await;
@@ -373,7 +432,7 @@ async fn main() -> Result<()> {
     cellar::note!(
         "raft_perf_ready node={} groups={} tick_ms={} queue_items={} durability={:?} archive=rustfs",
         i,
-        total,
+        local_count,
         tick_ms,
         queue_items,
         durability
@@ -395,4 +454,44 @@ async fn main() -> Result<()> {
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
     cellar::note!("raft_perf_closed {:?}", report);
     Ok(())
+}
+
+#[cfg(test)]
+mod placement_tests {
+    use super::*;
+
+    #[test]
+    fn three_voters_are_balanced_without_registering_other_nodes() -> Result<()> {
+        for nodes in 3..=5 {
+            let placement = Placement::new(nodes)?;
+            for total in [1, 3, 5, 17, 4096, 6825] {
+                let mut actual = vec![0; usize::from(nodes)];
+                for cell in 0..total {
+                    let voters = placement.voters(cell);
+                    assert_eq!(voters[0], (cell % usize::from(nodes) + 1) as u8);
+                    assert_ne!(voters[0], voters[1]);
+                    assert_ne!(voters[0], voters[2]);
+                    assert_ne!(voters[1], voters[2]);
+                    for voter in voters {
+                        actual[usize::from(voter) - 1] += 1;
+                    }
+                }
+                for node in 1..=nodes {
+                    assert_eq!(
+                        placement.local_count(total, node)?,
+                        actual[usize::from(node) - 1]
+                    );
+                }
+                assert_eq!(actual.iter().sum::<usize>(), total * 3);
+            }
+        }
+        let five = Placement::new(5)?;
+        assert_eq!(five.voters(4), [5, 1, 2]);
+        assert_eq!(five.local_count(15, 5)?, 9);
+        assert!(five.local_count(15, 0).is_err());
+        assert!(five.local_count(15, 6).is_err());
+        assert!(Placement::new(2).is_err());
+        assert!(Placement::new(6).is_err());
+        Ok(())
+    }
 }

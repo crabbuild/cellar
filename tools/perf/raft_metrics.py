@@ -116,13 +116,14 @@ def delta(before_raw, after_raw):
             'counters': counters, 'operations': operations}
 
 
-def samples(rows):
-    require(isinstance(rows, list) and len(rows) == 3, 'missing node samples')
+def samples(rows, node_count=3):
+    require(type(node_count) is int and 3 <= node_count <= 5, 'unsupported sampled topology')
+    require(isinstance(rows, list) and len(rows) == node_count, 'missing node samples')
     result, sources = {}, set()
     for row in rows:
         require(set(row) == {'node', 'started_ns', 'finished_ns', 'sample'}, 'invalid sample envelope')
         node = row['node']
-        require(type(node) is int and node in (1, 2, 3) and node not in result, 'invalid or duplicate sampled node')
+        require(type(node) is int and 1 <= node <= node_count and node not in result, 'invalid or duplicate sampled node')
         require(type(row['started_ns']) is int and type(row['finished_ns']) is int
                 and 0 <= row['started_ns'] < row['finished_ns'], 'invalid request interval')
         require(isinstance(row['sample'], dict) and set(row['sample']) == {'resources', 'performance'}, 'invalid node sample')
@@ -135,13 +136,13 @@ def samples(rows):
     return result
 
 
-def phases(raw, warmup):
+def phases(raw, warmup, node_count=3):
     expected = ['warmup', 'measurement'] if warmup else ['measurement']
     require(isinstance(raw, dict) and set(raw) == set(expected), 'missing or unexpected measurement phase')
     result, previous = {}, None
     for phase in expected:
         require(set(raw[phase]) == {'before', 'after'}, 'missing phase boundary')
-        before, after = samples(raw[phase]['before']), samples(raw[phase]['after'])
+        before, after = samples(raw[phase]['before'], node_count), samples(raw[phase]['after'], node_count)
         require(max(row['finished_ns'] for row in before.values()) <= min(row['started_ns'] for row in after.values()),
                 'overlapping phase boundaries')
         if previous is not None:
@@ -150,15 +151,17 @@ def phases(raw, warmup):
             for node in before:
                 delta(previous[node]['sample']['performance'], before[node]['sample']['performance'])
         result[phase] = [{'node': node, 'request_window_ns': [before[node]['started_ns'], after[node]['finished_ns']],
-                          **delta(before[node]['sample']['performance'], after[node]['sample']['performance'])} for node in (1, 2, 3)]
+                          **delta(before[node]['sample']['performance'], after[node]['sample']['performance'])} for node in range(1, node_count + 1)]
         previous = after
     return result
 
 
 def periodic(observations, sources):
+    node_count = len(sources)
+    require(set(sources) == set(range(1, node_count + 1)), 'invalid periodic source nodes')
     previous, count = None, 0
     for raw in observations:
-        current = samples(raw)
+        current = samples(raw, node_count)
         for node, row in current.items():
             require(row['sample']['performance']['source'] == sources[node], 'periodic source differs from phase source')
         if previous is not None:

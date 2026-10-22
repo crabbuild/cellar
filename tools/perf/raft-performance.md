@@ -1,6 +1,6 @@
 # MR-14 performance runner
 
-`raft_run.py` runs a bounded reference workload against three native Cellar
+`raft_run.py` runs a bounded reference workload against three to five native Cellar
 processes in the separate `cellar-multi-raft` Colima profile. Each Cellar process
 has one pinned vCPU, 3 GiB RAM, no swap and a persistent volume. RustFS has two
 CPUs and 4 GiB. The initial generator runs on the host; its durable journal and
@@ -36,13 +36,44 @@ that durability on every command and returns the achieved durability from the
 SDK receipt. Both the online and independent checkers reject a mismatch.
 Quorum and S3 write latency measure different contracts.
 
-Do not run two three-node experiments simultaneously in the same VM. Stop the
+Do not run two experiments simultaneously in the same VM. Stop the
 previous run's exact containers first, preserving its volumes and evidence.
 Each new resource carries `io.cellar.mr14.run=<run-id>`; the report names the
 run, context and prefix. The runner generates fresh private RustFS credentials
 and a private bearer file. It accepts no external bucket or credential options.
 It retains resources on both success and failure. Inspect only the selected
 context and label when stopping a run; never use a global prune command.
+
+## Three-voter placement across up to five nodes
+
+Use `local-five` or `local-five-s3` to run 150 cells with 30 active cells on five
+nodes. Each cell has exactly three voters: its round-robin leader node and the
+next two nodes, wrapping at the end. Each physical node registers only its own
+replicas, and leads some cells while following others. This profile assigns 90
+replicas and 30 leaders per node. It retains the same per-node CPU/memory limits
+and offers 10 operations/second after 30 seconds of warmup for a 120-second
+measurement. Those durations do not by themselves prove steady state.
+
+The dedicated VM must expose at least `nodes + 3` CPUs and `(3 * nodes + 5)` GiB
+of guest-reported total memory. Configure enough VM memory for the guest to expose that
+amount (for example, 22 GiB for five nodes). Node CPU sets are distinct; RustFS
+uses two separate CPUs. Profiles with empty hosts, more than 4,096 actual replicas
+on any host, more than five nodes, or out-of-range published port ranges
+are refused before workload resources are created.
+
+`topology.json` retains complete before/after observations for every cell on
+every node. Unassigned nodes must report no local registration. Leaders report
+the actual runtime voter set; each assigned replica must independently serve its
+own final state. Measurement and periodic samples cover all physical nodes and
+verify the durable/attached group population. The analyzer refuses missing nodes,
+extra replicas, changed placement, shared CPU sets or insufficient VM resources.
+Fresh reports must include this evidence; use the recorded analyzer revision for
+older evidence packages, or create a fresh experiment with the extended runner.
+
+This tests distribution within the agreed local five-node ceiling. Q1 still
+requires six processes and 10,000 three-voter cells; neither the host bound nor
+the Q1 gate is reduced by these profiles. Fleet and bucket reference adapters
+continue to use their separate three-node topology and contracts.
 
 ## Workload and evidence
 
