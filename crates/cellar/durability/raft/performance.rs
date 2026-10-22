@@ -1,0 +1,296 @@
+//! Engine-lifetime observations with bounded storage and short lock scopes.
+use crate::application::consensus::{
+    RaftDurationBucket, RaftOperationPerformance, RaftPerformanceCounter, RaftPerformanceSnapshot,
+};
+use crate::asyncrt::DomainToken;
+use std::sync::{
+    atomic::{AtomicBool, AtomicU64, Ordering},
+    Arc, Mutex,
+};
+
+pub(super) const BOUNDS_US: [u64; 16] = [
+    50,
+    100,
+    250,
+    500,
+    1000,
+    2500,
+    5000,
+    10_000,
+    25_000,
+    50_000,
+    100_000,
+    250_000,
+    1_000_000,
+    5_000_000,
+    30_000_000,
+    u64::MAX,
+];
+
+#[derive(Clone, Copy)]
+pub(crate) enum Operation {
+    EngineQueue,
+    EngineFileSync,
+    EngineDirectorySync,
+    EnginePersist,
+    SqlQueue,
+    SqlStage,
+    SqlPrepare,
+    SqlPublish,
+    SqlQuery,
+    SqlArchiveCapture,
+    SqlOther,
+}
+
+const OPERATIONS: [Operation; 11] = [
+    Operation::EngineQueue,
+    Operation::EngineFileSync,
+    Operation::EngineDirectorySync,
+    Operation::EnginePersist,
+    Operation::SqlQueue,
+    Operation::SqlStage,
+    Operation::SqlPrepare,
+    Operation::SqlPublish,
+    Operation::SqlQuery,
+    Operation::SqlArchiveCapture,
+    Operation::SqlOther,
+];
+
+impl Operation {
+    fn name(self) -> &'static str {
+        match self {
+            Self::EngineQueue => "engine_queue",
+            Self::EngineFileSync => "engine_file_sync",
+            Self::EngineDirectorySync => "engine_directory_sync",
+            Self::EnginePersist => "engine_persist",
+            Self::SqlQueue => "sql_queue",
+            Self::SqlStage => "sql_stage",
+            Self::SqlPrepare => "sql_prepare",
+            Self::SqlPublish => "sql_publish",
+            Self::SqlQuery => "sql_query",
+            Self::SqlArchiveCapture => "sql_archive_capture",
+            Self::SqlOther => "sql_other",
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+pub(crate) enum Counter {
+    EngineReadBytes,
+    EngineWriteRequestedBytes,
+    EngineWriteCompletedBytes,
+    PersistGroups,
+    PersistEntries,
+    PersistEntryBytes,
+    SqlStageInputBytes,
+    SqlPreparedProposalBytes,
+    SqlPreparedLtxBytes,
+    SqlQueryInputBytes,
+    SqlQueryOutputBytes,
+}
+
+const COUNTERS: [Counter; 11] = [
+    Counter::EngineReadBytes,
+    Counter::EngineWriteRequestedBytes,
+    Counter::EngineWriteCompletedBytes,
+    Counter::PersistGroups,
+    Counter::PersistEntries,
+    Counter::PersistEntryBytes,
+    Counter::SqlStageInputBytes,
+    Counter::SqlPreparedProposalBytes,
+    Counter::SqlPreparedLtxBytes,
+    Counter::SqlQueryInputBytes,
+    Counter::SqlQueryOutputBytes,
+];
+
+impl Counter {
+    fn name(self) -> &'static str {
+        match self {
+            Self::EngineReadBytes => "engine_file_read_bytes",
+            Self::EngineWriteRequestedBytes => "engine_file_write_requested_bytes",
+            Self::EngineWriteCompletedBytes => "engine_file_write_completed_bytes",
+            Self::PersistGroups => "engine_persist_groups",
+            Self::PersistEntries => "engine_persist_entries",
+            Self::PersistEntryBytes => "engine_persist_entry_bytes",
+            Self::SqlStageInputBytes => "sql_stage_input_bytes",
+            Self::SqlPreparedProposalBytes => "sql_prepared_proposal_bytes",
+            Self::SqlPreparedLtxBytes => "sql_prepared_ltx_bytes",
+            Self::SqlQueryInputBytes => "sql_query_input_bytes",
+            Self::SqlQueryOutputBytes => "sql_query_output_bytes",
+        }
+    }
+}
+
+#[derive(Default)]
+struct Samples {
+    started: u64,
+    succeeded: u64,
+    failed: u64,
+    abandoned: u64,
+    unavailable: u64,
+    sum: u64,
+    buckets: [u64; 16],
+}
+
+pub(crate) struct Registry {
+    clock: DomainToken,
+    source: String,
+    available: AtomicBool,
+    saturated: AtomicBool,
+    counters: [AtomicU64; 11],
+    operations: [Mutex<Samples>; 11],
+}
+
+impl Registry {
+    pub(crate) fn new(clock: DomainToken) -> Arc<Self> {
+        use rand::RngCore as _;
+        let mut source = [0; 16];
+        crate::asyncrt::rng("raft-performance-source").fill_bytes(&mut source);
+        Arc::new(Self {
+            clock,
+            source: hex::encode(source),
+            available: AtomicBool::new(true),
+            saturated: AtomicBool::new(false),
+            counters: std::array::from_fn(|_| AtomicU64::new(0)),
+            operations: std::array::from_fn(|_| Mutex::new(Samples::default())),
+        })
+    }
+
+    fn add(&self, value: &mut u64, amount: u64) {
+        match value.checked_add(amount) {
+            Some(next) => *value = next,
+            None => {
+                *value = u64::MAX;
+                self.saturated.store(true, Ordering::Relaxed);
+            }
+        }
+    }
+
+    pub(crate) fn increment(&self, counter: Counter, amount: u64) {
+        let _ = self.counters[counter as usize].fetch_update(
+            Ordering::Relaxed,
+            Ordering::Relaxed,
+            |value| {
+                Some(value.checked_add(amount).unwrap_or_else(|| {
+                    self.saturated.store(true, Ordering::Relaxed);
+                    u64::MAX
+                }))
+            },
+        );
+    }
+
+    fn update(&self, operation: Operation, f: impl FnOnce(&mut Samples)) {
+        match self.operations[operation as usize].lock() {
+            Ok(mut sample) => f(&mut sample),
+            Err(_) => self.available.store(false, Ordering::Relaxed),
+        }
+    }
+
+    pub(crate) fn timer(self: &Arc<Self>, operation: Operation) -> Timer {
+        let start = self.clock.mono_us().ok();
+        self.update(operation, |sample| self.add(&mut sample.started, 1));
+        Timer {
+            registry: self.clone(),
+            operation,
+            start,
+            outcome: None,
+        }
+    }
+
+    fn record(&self, operation: Operation, outcome: Option<bool>, elapsed: Option<u64>) {
+        self.update(operation, |sample| {
+            match outcome {
+                Some(true) => self.add(&mut sample.succeeded, 1),
+                Some(false) => self.add(&mut sample.failed, 1),
+                None => self.add(&mut sample.abandoned, 1),
+            };
+            if let Some(us) = elapsed {
+                let bucket = BOUNDS_US.partition_point(|bound| *bound < us);
+                self.add(&mut sample.buckets[bucket], 1);
+                self.add(&mut sample.sum, us);
+            } else {
+                self.add(&mut sample.unavailable, 1);
+            }
+        });
+    }
+
+    pub(crate) fn snapshot(&self) -> RaftPerformanceSnapshot {
+        let sampled_at_us = self.clock.mono_us().ok();
+        let operations = OPERATIONS
+            .iter()
+            .map(|operation| {
+                let sample = match self.operations[*operation as usize].lock() {
+                    Ok(sample) => sample,
+                    Err(poison) => {
+                        self.available.store(false, Ordering::Relaxed);
+                        poison.into_inner()
+                    }
+                };
+                let mut count = 0u64;
+                let buckets = BOUNDS_US
+                    .iter()
+                    .zip(sample.buckets)
+                    .map(|(bound, n)| {
+                        self.add(&mut count, n);
+                        RaftDurationBucket {
+                            upper_us: (*bound != u64::MAX).then_some(*bound),
+                            count,
+                        }
+                    })
+                    .collect();
+                RaftOperationPerformance {
+                    name: operation.name(),
+                    started: sample.started,
+                    succeeded: sample.succeeded,
+                    failed: sample.failed,
+                    abandoned: sample.abandoned,
+                    timing_unavailable: sample.unavailable,
+                    count,
+                    sum_us: sample.sum,
+                    buckets,
+                }
+            })
+            .collect();
+        RaftPerformanceSnapshot {
+            source: self.source.clone(),
+            available: self.available.load(Ordering::Relaxed),
+            saturated: self.saturated.load(Ordering::Relaxed),
+            sampled_at_us,
+            counters: COUNTERS
+                .iter()
+                .map(|counter| RaftPerformanceCounter {
+                    name: counter.name(),
+                    value: self.counters[*counter as usize].load(Ordering::Relaxed),
+                })
+                .collect(),
+            operations,
+        }
+    }
+}
+
+pub(crate) struct Timer {
+    registry: Arc<Registry>,
+    operation: Operation,
+    start: Option<u64>,
+    outcome: Option<bool>,
+}
+
+impl Timer {
+    pub(crate) fn finish(mut self, succeeded: bool) {
+        self.outcome = Some(succeeded);
+    }
+}
+
+impl Drop for Timer {
+    fn drop(&mut self) {
+        let elapsed = self
+            .start
+            .zip(self.registry.clock.mono_us().ok())
+            .and_then(|(start, end)| end.checked_sub(start));
+        self.registry.record(self.operation, self.outcome, elapsed);
+    }
+}
+
+#[cfg(test)]
+#[path = "performance_tests.rs"]
+mod tests;

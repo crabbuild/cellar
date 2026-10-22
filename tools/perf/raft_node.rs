@@ -327,6 +327,18 @@ async fn main() -> Result<()> {
             .map_err(|_| anyhow::anyhow!("poisoned binding"))? = Some(service.clone());
         raft_workload::router(api)
     };
+    let metrics = service.clone();
+    let metrics_secret = secret.clone();
+    let router = router.route("/metrics", axum::routing::get(move |headers: axum::http::HeaderMap| {
+        let metrics = metrics.clone();
+        let secret = metrics_secret.clone();
+        async move {
+            if headers.get("authorization").and_then(|value| value.to_str().ok()) != Some(format!("Bearer {secret}").as_str()) {
+                return (axum::http::StatusCode::UNAUTHORIZED, axum::Json(serde_json::json!({"error":"unauthorized"})));
+            }
+            (axum::http::StatusCode::OK, axum::Json(serde_json::json!({"resources":metrics.resource_usage(), "performance":metrics.performance()})))
+        }
+    }));
     let admin = service.clone();
     let router = router.route("/admin/{id}", axum::routing::any(
         move |axum::extract::Path(id): axum::extract::Path<usize>, request: axum::extract::Request| {
@@ -358,11 +370,12 @@ async fn main() -> Result<()> {
         }));
     let listener = tokio::net::TcpListener::bind("0.0.0.0:8082").await?;
     cellar::note!(
-        "raft_perf_ready node={} groups={} tick_ms={} queue_items={} durability=quorum archive=rustfs",
+        "raft_perf_ready node={} groups={} tick_ms={} queue_items={} durability={:?} archive=rustfs",
         i,
         total,
         tick_ms,
-        queue_items
+        queue_items,
+        durability
     );
     axum::serve(listener, router)
         .with_graceful_shutdown(async {

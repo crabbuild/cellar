@@ -315,6 +315,14 @@ class IndependentReport(unittest.TestCase):
             'measurement': {'offered': 2}, 'final_archive': [[200, {'cell': 0, 'archived': 3}]],
             'cgroups': [{'node': f'node{n}', 'cpu_max': '100000 100000', 'memory_max': 3 * 1024**3, 'swap_max': 0} for n in range(3)],
             'limitations': ['synthetic test evidence']}
+        from test_raft_metrics import rows
+        from raft_metrics import phases
+        measurements = {'measurement': {'before': rows(3), 'after': rows(4)}}
+        if profile['timing']['warmup_seconds']:
+            measurements['warmup'] = {'before': rows(1), 'after': rows(2)}
+        (root / 'measurements.json').write_text(json.dumps(measurements))
+        (root / 'node-samples.jsonl').write_text(json.dumps(rows(4)) + '\n')
+        report['performance'] = phases(measurements, bool(profile['timing']['warmup_seconds']))
         replicas = [{'cell': 0, 'node': n, 'response': {**events[-1]['response'], 'served_by': n}} for n in range(1, 4)]
         return report, replicas
 
@@ -327,6 +335,7 @@ class IndependentReport(unittest.TestCase):
             'inflated_tps': lambda report, replicas: report['summary'].update(completed_per_second=1000),
             'wrong_archive': lambda report, replicas: report['final_archive'][0][1].update(archived=2),
             'uncapped_cpu': lambda report, replicas: report['cgroups'][0].update(cpu_max='max 100000'),
+            'inflated_fsync': lambda report, replicas: report['performance']['measurement'][0]['counters'].update(engine_persist_groups=100),
         }.items():
             with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)

@@ -599,6 +599,10 @@ impl DomainToken {
         Ok(self.owner()?.started_at.elapsed().as_millis() as u64)
     }
 
+    pub(crate) fn mono_us(&self) -> Result<u64, DomainClosed> {
+        Ok(u64::try_from(self.owner()?.started_at.elapsed().as_micros()).unwrap_or(u64::MAX))
+    }
+
     /// Admit file work through the stream's original owner, even when its
     /// consumer polls from another application runtime.
     pub(crate) fn blocking<T, F>(&self, operation: F) -> Result<TaskHandle<T>, DomainClosed>

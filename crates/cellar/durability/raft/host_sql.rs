@@ -9,6 +9,9 @@ use super::completion::{
     ApplyCompletion, ApplyTicket, GroupStatus, RuntimeEvent, RuntimeEventKind,
 };
 use super::execution::*;
+use super::performance::{
+    Counter as MeasuredCounter, Operation as Measured, Registry as Performance,
+};
 use super::snapshot::{PreparedSnapshot, SnapshotCheckpoint, SnapshotLimits, SnapshotPackage};
 use super::transport::snapshots::{ReceivedSnapshot, SourceReservation};
 use crate::application::consensus::client::{AttemptControl, Work};
@@ -172,6 +175,7 @@ pub(crate) struct Output {
 }
 
 struct Request {
+    queued: super::performance::Timer,
     scope: GroupScope,
     action: Action,
     reply: oneshot::Sender<Result<Output, ExecutionError>>,
@@ -181,6 +185,7 @@ struct Request {
 }
 
 pub(crate) struct Pool {
+    performance: Arc<Performance>,
     domain: crate::asyncrt::DomainToken,
     senders: Vec<mpsc::SyncSender<Request>>,
     slots: Vec<Arc<Semaphore>>,
@@ -252,6 +257,7 @@ pub(crate) struct Budgets {
 /// outlive pool shutdown admission; dynamic initialization uses this same port.
 #[derive(Clone)]
 pub(crate) struct Worker {
+    performance: Arc<Performance>,
     domain: crate::asyncrt::DomainToken,
     sender: mpsc::SyncSender<Request>,
     slots: Arc<Semaphore>,
@@ -269,11 +275,13 @@ impl Pool {
         queue: usize,
         max_cells: usize,
         budgets: Budgets,
+        performance: Arc<Performance>,
     ) -> Result<Self, ExecutionError> {
         let stopped = Arc::new(AtomicBool::new(false));
         let running = Arc::new(AtomicUsize::new(0));
         let images = cellar_ltx::generation::GenerationAccounting::default();
         let mut pool = Self {
+            performance: performance.clone(),
             domain: domain.clone(),
             senders: vec![],
             slots: vec![],
@@ -286,6 +294,7 @@ impl Pool {
         for _ in 0..count {
             let (sender, receiver) = mpsc::sync_channel::<Request>(queue);
             let owner = domain.clone();
+            let performance = performance.clone();
             let stopped = stopped.clone();
             let budget = budgets.business.clone();
             let archive_budget = budgets.archive_capture.clone();
@@ -309,6 +318,7 @@ impl Pool {
                             Err(mpsc::RecvTimeoutError::Disconnected) => break Ok(()),
                         };
                         let Request {
+                            queued,
                             scope,
                             action,
                             reply,
@@ -343,6 +353,28 @@ impl Pool {
                         } else {
                             None
                         };
+                        queued.finish(true);
+                        let measured = match &action {
+                            Action::Stage { input, .. } => {
+                                performance.increment(
+                                    MeasuredCounter::SqlStageInputBytes,
+                                    input.len() as u64,
+                                );
+                                Measured::SqlStage
+                            }
+                            Action::Prepare { .. } => Measured::SqlPrepare,
+                            Action::Publish { .. } => Measured::SqlPublish,
+                            Action::Query { input, .. } => {
+                                performance.increment(
+                                    MeasuredCounter::SqlQueryInputBytes,
+                                    input.len() as u64,
+                                );
+                                Measured::SqlQuery
+                            }
+                            Action::CaptureArchive { .. } => Measured::SqlArchiveCapture,
+                            _ => Measured::SqlOther,
+                        };
+                        let timer = performance.timer(measured);
                         let result = Self::execute(
                             &mut cells,
                             max_cells,
@@ -352,6 +384,23 @@ impl Pool {
                             &images,
                         )
                         .and_then(|value| {
+                            match &value {
+                                Value::Staged(StageOutcome::Prepared(prepared)) => {
+                                    performance.increment(
+                                        MeasuredCounter::SqlPreparedProposalBytes,
+                                        prepared.bytes().len() as u64,
+                                    );
+                                    performance.increment(
+                                        MeasuredCounter::SqlPreparedLtxBytes,
+                                        prepared.ltx_bytes,
+                                    );
+                                }
+                                Value::Queried(query) => performance.increment(
+                                    MeasuredCounter::SqlQueryOutputBytes,
+                                    query.result.len() as u64,
+                                ),
+                                _ => (),
+                            }
                             let bytes = value.bytes();
                             let budget = if matches!(&value, Value::ArchiveCut(_)) {
                                 &archive_budget
@@ -386,6 +435,7 @@ impl Pool {
                                 _bytes: permit,
                             })
                         });
+                        timer.finish(result.is_ok());
                         let _ = reply.send(result);
                     };
                     // Keep joining/closing every resource even when one reports an
@@ -439,6 +489,7 @@ impl Pool {
             .cloned()
             .ok_or(ExecutionError::Invalid("SQL worker"))?;
         Ok(Worker {
+            performance: self.performance.clone(),
             domain: self.domain.clone(),
             sender,
             slots: self.slots[worker].clone(),
@@ -581,12 +632,14 @@ impl Worker {
         cancel: Option<Arc<AttemptControl>>,
     ) -> BoxFuture<'static, Result<Output, ExecutionError>> {
         let Worker {
+            performance,
             domain,
             sender,
             slots,
             stopped,
         } = self.clone();
         Box::pin(async move {
+            let queued = performance.timer(Measured::SqlQueue);
             let slot = slots
                 .acquire_owned()
                 .await
@@ -597,6 +650,7 @@ impl Worker {
             let (reply, result) = oneshot::channel();
             sender
                 .try_send(Request {
+                    queued,
                     scope,
                     action,
                     reply,

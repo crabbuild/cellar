@@ -930,8 +930,18 @@ MR-14 integration cases now execute; performance acceptance remains open.
 This changes the internal protocol identity to include `/bundles-1`;
 numeric markers remain 1 and earlier experimental roots are refused.
 
-Remaining MR-14 gates include internal timings/byte measurements, matched
-Fleet/bucket baselines, steady-state/density evidence and preliminary Q1 execution.
+The SDK and authenticated peer endpoint now expose fixed-size engine/SQL physical
+operation outcomes, microsecond histograms and byte counters. Fsync wraps the
+actual engine filesystem; canceled waiters do not finish physical SQL timers.
+The workload runner captures raw phase boundaries and periodic node observations.
+Its analyzer rejects missing data, changed sources, counter resets, saturation and
+impossible histograms; reported internal quantiles are bucket upper bounds.
+Engine API bytes exclude SQLite images, node metadata and physical-device effects.
+This instrumentation has not established a measured overhead or speedup.
+
+Remaining MR-14 gates include S3/network bytes, controller timings and whole-device
+attribution, matched Fleet/bucket baselines, steady-state/density evidence and
+preliminary Q1 execution.
 The current local scope is at most five nodes; the original six-process Q1 gate
 remains unqualified. MR-13's remaining management/restore work stays open.
 

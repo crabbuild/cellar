@@ -1,5 +1,6 @@
 //! Every engine file and directory operation uses the supplied node filesystem.
 
+use super::performance::{Counter, Operation, Registry};
 use cellar_ltx::{FileSystem, HostFile};
 use raft_engine::env::{
     DirectoryEntry, DirectoryLock, DirectoryMetadata, Handle, Permission, WriteExt,
@@ -8,9 +9,10 @@ use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard};
 
-pub(crate) struct EngineFileSystem(pub Arc<dyn FileSystem>);
+pub(crate) struct EngineFileSystem(pub Arc<dyn FileSystem>, pub Arc<Registry>);
 
 pub(crate) struct EngineHandle {
+    performance: Arc<Registry>,
     file: Mutex<HostFile>,
 }
 
@@ -33,7 +35,11 @@ impl Handle for EngineHandle {
     }
 
     fn sync(&self) -> io::Result<()> {
-        self.lock()?.sync_all()
+        let mut file = self.lock()?;
+        let timer = self.performance.timer(Operation::EngineFileSync);
+        let result = file.sync_all();
+        timer.finish(result.is_ok());
+        result
     }
 }
 
@@ -51,6 +57,9 @@ impl Read for EngineCursor {
             return Ok(0);
         }
         let bytes = file.read_exact_at(self.offset, length)?;
+        self.handle
+            .performance
+            .increment(Counter::EngineReadBytes, length as u64);
         buffer[..length].copy_from_slice(&bytes);
         self.offset += length as u64;
         Ok(length)
@@ -63,7 +72,14 @@ impl Write for EngineCursor {
             .offset
             .checked_add(bytes.len() as u64)
             .ok_or_else(|| io::Error::other("Raft file offset overflow"))?;
-        self.handle.lock()?.write_all_at(self.offset, bytes)?;
+        let mut file = self.handle.lock()?;
+        self.handle
+            .performance
+            .increment(Counter::EngineWriteRequestedBytes, bytes.len() as u64);
+        file.write_all_at(self.offset, bytes)?;
+        self.handle
+            .performance
+            .increment(Counter::EngineWriteCompletedBytes, bytes.len() as u64);
         self.offset = next;
         Ok(bytes.len())
     }
@@ -117,6 +133,7 @@ impl raft_engine::env::FileSystem for EngineFileSystem {
 
     fn create<P: AsRef<Path>>(&self, path: P) -> io::Result<Self::Handle> {
         Ok(EngineHandle {
+            performance: self.1.clone(),
             file: Mutex::new(self.0.create_read_write(path.as_ref())?),
         })
     }
@@ -127,6 +144,7 @@ impl raft_engine::env::FileSystem for EngineFileSystem {
             Permission::ReadWrite => self.0.open_read_write(path.as_ref())?,
         };
         Ok(EngineHandle {
+            performance: self.1.clone(),
             file: Mutex::new(file),
         })
     }
@@ -192,6 +210,9 @@ impl raft_engine::env::FileSystem for EngineFileSystem {
     }
 
     fn sync_directory(&self, path: &Path) -> io::Result<()> {
-        self.0.sync_all(path)
+        let timer = self.1.timer(Operation::EngineDirectorySync);
+        let result = self.0.sync_all(path);
+        timer.finish(result.is_ok());
+        result
     }
 }

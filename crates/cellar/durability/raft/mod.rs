@@ -22,6 +22,7 @@ mod manifest;
 pub(crate) mod member_state;
 pub(crate) mod operations;
 pub(crate) mod options;
+pub(crate) mod performance;
 mod query;
 mod query_identity;
 mod query_route;

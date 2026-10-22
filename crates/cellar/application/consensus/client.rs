@@ -200,6 +200,7 @@ pub(crate) struct Terminal {
 }
 
 pub(crate) struct Handle {
+    pub performance: Arc<crate::raft::performance::Registry>,
     pub requests: mailbox::Sender<Request>,
     pub control_requests: mailbox::Sender<Request>,
     pub control_budget: Arc<Budget>,
@@ -229,6 +230,12 @@ pub struct RaftCells {
 }
 
 impl RaftCells {
+    /// Fixed-cardinality cumulative physical cost observations. Remains readable
+    /// after close; clock availability and source identity are explicit.
+    pub fn performance(&self) -> super::RaftPerformanceSnapshot {
+        self.handle.performance.snapshot()
+    }
+
     /// Read actual fixed-size local admission counters without I/O, enumeration
     /// or callbacks. Remains available during drain and after joined closure.
     /// Independent atomic loads can observe concurrent acquisition/release.

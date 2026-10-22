@@ -3,6 +3,9 @@
 use super::cache::{genesis, validate_conf, CachedGroup, GroupLog, GroupWrite, SnapshotChange};
 use super::filesystem::EngineFileSystem;
 use super::options::{LogOpenMode, ReplicaLogOptions};
+use super::performance::{
+    Counter as MeasuredCounter, Operation as Measured, Registry as Performance,
+};
 use super::records::{
     self, GroupRecord, MappingRecord, NodeRecord, RootRecord, GROUP_KEY, ROOT_KEY,
 };
@@ -106,6 +109,7 @@ pub struct ReplicaLog {
 }
 
 struct LogHandle {
+    performance: Arc<Performance>,
     instance: std::sync::OnceLock<cellar_logic::consensus::EngineInstanceId>,
     owner: Arc<()>,
     sender: mpsc::SyncSender<Request>,
@@ -173,6 +177,7 @@ impl Drop for Permit {
 }
 
 struct Request {
+    queued: super::performance::Timer,
     work: Work,
     _permit: Permit,
 }
@@ -196,6 +201,15 @@ impl RuntimeLease {
 }
 
 impl ReplicaLog {
+    pub(crate) fn performance(&self) -> Arc<Performance> {
+        self.inner.performance.clone()
+    }
+
+    /// Cumulative physical observations for this open engine lifetime.
+    pub fn performance_snapshot(&self) -> crate::application::consensus::RaftPerformanceSnapshot {
+        self.inner.performance.snapshot()
+    }
+
     /// Stable engine-creation identity, not a vote or group membership proof.
     pub fn storage_instance(&self) -> Result<cellar_logic::consensus::EngineInstanceId, LogError> {
         self.admit()?;
@@ -237,6 +251,7 @@ impl ReplicaLog {
         let domain = crate::asyncrt::services()
             .domain_token()
             .ok_or(LogError::Closed)?;
+        let performance = Performance::new(domain.clone());
         let (sender, receiver) = mpsc::sync_channel(options.queue_capacity);
         let (ready, wait) = oneshot::channel();
         let groups = Arc::new(RwLock::new(BTreeMap::new()));
@@ -250,6 +265,7 @@ impl ReplicaLog {
         let owner = Arc::new(());
         let handle = Self {
             inner: Arc::new(LogHandle {
+                performance: performance.clone(),
                 instance: std::sync::OnceLock::new(),
                 owner: owner.clone(),
                 sender,
@@ -289,7 +305,14 @@ impl ReplicaLog {
                     }
                 }
                 let _guard = ClosedOnDrop(closed.clone(), terminal.clone());
-                let result = Worker::open(options, filesystem, groups, owner, closed.clone());
+                let result = Worker::open(
+                    options,
+                    filesystem,
+                    groups,
+                    owner,
+                    closed.clone(),
+                    performance,
+                );
                 let mut worker = match result {
                     Ok(worker) => worker,
                     Err(error) => {
@@ -437,6 +460,7 @@ impl ReplicaLog {
         self.inner
             .sender
             .try_send(Request {
+                queued: self.inner.performance.timer(Measured::EngineQueue),
                 work: build(reply),
                 _permit: permit,
             })
@@ -463,6 +487,7 @@ impl MessageExt for EntryCodec {
 }
 
 struct Worker {
+    performance: Arc<Performance>,
     engine: Engine<EngineFileSystem>,
     _directory_lock: HostFileLock,
     options: ReplicaLogOptions,
@@ -481,6 +506,7 @@ impl Worker {
         groups: Catalog,
         owner: Arc<()>,
         closed: Arc<AtomicBool>,
+        performance: Arc<Performance>,
     ) -> Result<Self, LogError> {
         match options.mode {
             LogOpenMode::Create => create_directory_durably(fs.as_ref(), &options.directory)?,
@@ -548,8 +574,11 @@ impl Worker {
             prefill_for_recycle: false,
             ..Default::default()
         };
-        let engine = Engine::open_with_file_system(config, Arc::new(EngineFileSystem(fs.clone())))
-            .map_err(engine_error)?;
+        let engine = Engine::open_with_file_system(
+            config,
+            Arc::new(EngineFileSystem(fs.clone(), performance.clone())),
+        )
+        .map_err(engine_error)?;
         let root = match options.mode {
             LogOpenMode::Create => {
                 let root = RootRecord {
@@ -576,6 +605,7 @@ impl Worker {
             }
         };
         let mut worker = Self {
+            performance,
             engine,
             _directory_lock: directory_lock,
             options,
@@ -921,6 +951,18 @@ impl Worker {
                 .map_err(|_| LogError::Corrupt("cache publication lock poisoned".into()))? = next;
         }
         self.cache_bytes = next_bytes;
+        self.performance
+            .increment(MeasuredCounter::PersistGroups, writes.len() as u64);
+        for write in &writes {
+            self.performance
+                .increment(MeasuredCounter::PersistEntries, write.entries.len() as u64);
+            for entry in &write.entries {
+                self.performance.increment(
+                    MeasuredCounter::PersistEntryBytes,
+                    u64::from(entry.compute_size()),
+                );
+            }
+        }
         Ok(SyncReceipt {
             operation,
             sequence,
@@ -953,6 +995,7 @@ impl Worker {
                 Err(mpsc::RecvTimeoutError::Timeout) => continue,
                 Err(mpsc::RecvTimeoutError::Disconnected) => return Err(LogError::Closed),
             };
+            request.queued.finish(true);
             let fatal = match request.work {
                 Work::NodeFence(reply) => {
                     let result = self.fence(&mut LogBatch::default());
@@ -982,7 +1025,9 @@ impl Worker {
                     fatal
                 }
                 Work::Persist(operation, writes, reply) => {
+                    let timer = self.performance.timer(Measured::EnginePersist);
                     let result = self.persist(operation, writes);
+                    timer.finish(result.is_ok());
                     let fatal = result.as_ref().err().filter(|error| error.fatal()).cloned();
                     if fatal.is_some() {
                         self.closed.store(true, Ordering::Release);

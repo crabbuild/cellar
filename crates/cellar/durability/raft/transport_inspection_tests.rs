@@ -279,6 +279,7 @@ async fn inspection_revocation_and_process_refresh_cancel_an_admitted_inbound_ca
         )?);
         let schema = class.schema_digest();
         let handle = Arc::new(client::Handle {
+            performance: state.runtime.log().performance(),
             requests,
             control_requests,
             control_budget: Budget::new(128 * 1024, 4),

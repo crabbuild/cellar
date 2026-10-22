@@ -372,6 +372,7 @@ async fn initialize(
             archive_capture: archive_capture_budget.clone(),
             query_pins: query_pins.clone(),
         },
+        service.log.performance(),
     )?;
     let mut cells = BTreeMap::new();
     let mut standbys = BTreeMap::new();
@@ -786,6 +787,7 @@ async fn initialize(
         changed: Notify::new(),
     });
     let handle = Arc::new(client::Handle {
+        performance: service.log.performance(),
         requests: sender,
         control_requests: control_sender,
         control_budget: control_budget.clone(),

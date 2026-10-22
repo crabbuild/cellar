@@ -112,6 +112,15 @@ pub async fn run(shutdown_held: bool) -> Result<()> {
                 && images.retained >= 2
                 && images.bytes > 0
         );
+        let query_sample = || {
+            service
+                .performance()
+                .operations
+                .into_iter()
+                .find(|op| op.name == "sql_query")
+                .unwrap()
+        };
+        let before = query_sample();
         let held = tokio::spawn(handles[0].query(
             definition.get.clone(),
             b"hold".to_vec(),
@@ -128,6 +137,14 @@ pub async fn run(shutdown_held: bool) -> Result<()> {
         ensure!(held.await.is_err_and(|error| error.is_cancelled()));
         ensure!(service.resource_usage().query_pins.in_use == 1);
         super::metrics::pin_count(&node, 1).await?;
+        let physical = query_sample();
+        ensure!(physical.started == before.started + 1);
+        ensure!(
+            physical.count == before.count
+                && physical.succeeded == before.succeeded
+                && physical.failed == before.failed
+                && physical.abandoned == before.abandoned
+        );
         let refused = handles[1]
             .query(
                 definition.get.clone(),
@@ -208,6 +225,15 @@ pub async fn run(shutdown_held: bool) -> Result<()> {
         .raft
         .context("missing Raft close observation")?
         .result?;
+    let performance = service.performance();
+    ensure!(performance.available && !performance.saturated);
+    let query = performance
+        .operations
+        .iter()
+        .find(|op| op.name == "sql_query")
+        .context("query measurements")?;
+    ensure!(query.started == query.succeeded + query.failed + query.abandoned);
+    ensure!(query.abandoned == 0 && query.failed > 0);
     let final_usage = service.resource_usage();
     let sql = final_usage.sql.context("missing retained SQL observer")?;
     ensure!(sql.queue_closed && sql.running_workers == 0 && sql.work_reservations == 0);

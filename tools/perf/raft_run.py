@@ -18,6 +18,7 @@ import urllib.request
 
 from raft import captured_node_limits, port_base, wait_for_placement
 from raft_workload import Ledger, input_digest, model, run_load, reconcile
+from raft_metrics import phases, samples
 from run import create_bucket
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -30,15 +31,19 @@ def require(condition, message):
         raise ValueError(message)
 
 
-def read_json(path):
+def decode_json(text):
     def unique(pairs):
         result = {}
         for key, value in pairs:
             require(key not in result, f'duplicate JSON key: {key}')
             result[key] = value
         return result
-    return json.loads(Path(path).read_text(), object_pairs_hook=unique,
+    return json.loads(text, object_pairs_hook=unique,
                       parse_constant=lambda value: (_ for _ in ()).throw(ValueError(f'invalid number: {value}')))
+
+
+def read_json(path):
+    return decode_json(Path(path).read_text())
 
 
 def validate_profile(profile):
@@ -259,13 +264,13 @@ def run(args, profile, build, docker, cpus, memory):
     bases = [f'http://127.0.0.1:{args.port_base+i}' for i in range(1, 4)]
     report = {'format': 1, 'run_id': run_id, 'prefix': prefix, 'context': args.context, 'build': build,
               'profile': profile, 'profile_sha256': input_digest(profile), 'scenario': args.scenario,
-              'runner_sha256': {name: hashlib.sha256((ROOT / 'tools/perf' / name).read_bytes()).hexdigest() for name in ('raft_run.py', 'raft_workload.py', 'raft_analyze.py', 'raft.py', 'run.py')},
+              'runner_sha256': {name: hashlib.sha256((ROOT / 'tools/perf' / name).read_bytes()).hexdigest() for name in ('raft_run.py', 'raft_workload.py', 'raft_analyze.py', 'raft_metrics.py', 'raft.py', 'run.py')},
               'capacity': capacity(profile), 'vm': {'cpus': cpus, 'memory_bytes': memory},
               'completed': False, 'reconciled': False,
               'limitations': ['One local VM and RustFS; no independent failure domains or Amazon S3 qualification.',
                               'No fault/recovery or all-disk-loss restore qualification.',
                               'No matched Fleet/bucket baseline measurement yet.',
-                              'Fsync, logical/LTX/S3 byte and controller timing instrumentation remains required for MR-14.']}
+                              'Engine/SQL API timings and bytes are measured; S3/network bytes, controller timings and whole-device I/O attribution remain open.']}
     def save():
         (root / 'report.json').write_text(json.dumps(report, indent=2) + '\n')
     save()
@@ -351,14 +356,33 @@ def run(args, profile, build, docker, cpus, memory):
                 require(time.monotonic() - began < profile['slo']['max_archive_lag_seconds'], 'archive drain exceeded declared SLO')
                 time.sleep(.5)
         report['initial_archive'], report['initial_archive_seconds'] = wait_archive()
+        def capture():
+            rows = []
+            for node, base in enumerate(bases, 1):
+                began = time.monotonic_ns()
+                code, sample = request(base, '/metrics', token)
+                ended = time.monotonic_ns()
+                require(code == 200, 'node metrics unavailable')
+                rows.append({'node': node, 'started_ns': began, 'finished_ns': ended, 'sample': sample})
+            return rows
+        measurements = {}
+        def boundary(phase, edge):
+            measurements.setdefault(phase, {})[edge] = capture()
+            (root / 'measurements.json').write_text(json.dumps(measurements) + '\n')
+            samples(measurements[phase][edge])
+
         def sample():
             try:
-                with (root / 'resources.jsonl').open('x') as stream:
+                with (root / 'resources.jsonl').open('x') as stream, (root / 'node-samples.jsonl').open('x') as internal:
                     while not stop.is_set():
                         stats = docker('stats', '--no-stream', '--format', '{{json .}}', *nodes, prefix + '-store')
                         for row in stats.splitlines():
                             stream.write(json.dumps({'monotonic': time.monotonic(), 'stats': json.loads(row)}) + '\n')
                         stream.flush()
+                        observations = capture()
+                        internal.write(json.dumps(observations) + '\n')
+                        internal.flush()
+                        samples(observations)
                         stop.wait(1)
             except Exception as error:
                 report['sampler_failure'] = str(error)
@@ -367,8 +391,11 @@ def run(args, profile, build, docker, cpus, memory):
         for phase, seconds in [('warmup', profile['timing']['warmup_seconds']), ('measurement', profile['timing']['measurement_seconds'])]:
             if seconds:
                 print(f'{phase}: {seconds}s, {profile["arrival"]["rate_per_second"]} offered operations/sec', flush=True)
+                boundary(phase, 'before')
                 report[phase] = run_load(profile, phase, seconds, state, ledger, send, run_id)
+                boundary(phase, 'after')
                 require(not report[phase]['ambiguous'] and not report[phase]['blocked_cells'], 'ambiguous history requires reconciliation before continuing')
+        report['performance'] = phases(measurements, bool(profile['timing']['warmup_seconds']))
         replicas = []
         for cell, expected in state.items():
             for member in range(3):
@@ -408,6 +435,7 @@ def run(args, profile, build, docker, cpus, memory):
                 pass
         save()
         print(f'Evidence retained at {root}; containers and volumes retained under {prefix}.', flush=True)
+    require(report['completed'], 'run incomplete; inspect retained report and raw observations')
 
 
 if __name__ == '__main__':

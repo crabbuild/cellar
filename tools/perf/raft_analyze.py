@@ -3,8 +3,9 @@
 import argparse
 import json
 from pathlib import Path
-from raft_run import input_digest, read_json, require, summarize_ledger, validate_profile
+from raft_run import decode_json, input_digest, read_json, require, summarize_ledger, validate_profile
 from raft_workload import reconcile
+from raft_metrics import phases, periodic
 
 
 def analyze(root):
@@ -13,6 +14,10 @@ def analyze(root):
     require(report.get('completed') is True and report.get('reconciled') is True, 'unfinished run')
     profile = validate_profile(report['profile'])
     require(report['profile_sha256'] == input_digest(profile), 'changed workload profile')
+    performance = phases(read_json(root / 'measurements.json'), bool(profile['timing']['warmup_seconds']))
+    require(performance == report.get('performance'), 'performance differs from raw owner samples')
+    with (root / 'node-samples.jsonl').open() as stream:
+        periodic((decode_json(line) for line in stream), {row['node']: row['source'] for row in performance['measurement']})
     history = reconcile(root / 'operations.jsonl')
     require(history['cells'] == profile['cells']['total'], 'missing seeded cells')
     summary = summarize_ledger(root / 'operations.jsonl', 'measurement', profile['timing']['measurement_seconds'])
@@ -41,7 +46,7 @@ def analyze(root):
         require(row['cpu_max'] == '100000 100000' and row['memory_max'] == 3 * 1024**3 and row['swap_max'] == 0, 'physical cgroup differs')
     return {'verified': True, 'scope': 'healthy serialized workload, three local voters and archive coverage',
             'commands_including_seed': history['commands_including_seed'], 'queries': history['queries'],
-            'replicas': len(seen), 'summary': summary, 'limitations': report['limitations']}
+            'replicas': len(seen), 'summary': summary, 'performance': performance, 'limitations': report['limitations']}
 
 
 if __name__ == '__main__':

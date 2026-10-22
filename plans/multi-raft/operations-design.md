@@ -177,6 +177,55 @@ discovery/management, receipt-maintenance qualification and fenced disaster rest
 remain open. The [bounded maintenance contract](receipt-maintenance-design.md)
 describes the implemented command-coupled path and its remaining oracles.
 
+## Performance observations
+
+`RaftCells.performance()` returns bounded cumulative observations for one opened
+engine/host lifetime. `GET /peer/raft/metrics?generation=<generation>&view=performance`
+exports the same observation through existing generation-bound peer authentication;
+append `&format=json` for typed JSON. The default resource view remains unchanged.
+The performance view has 11 counters and 11 operations with 16 duration buckets,
+producing 266 Prometheus samples independent of cell/peer population. Registry
+storage and scrape work are fixed; no group enumeration, callback or I/O is used.
+
+Each operation has started, succeeded, failed and abandoned counters, plus a
+microsecond duration histogram and unavailable-timing count. Abandonment means a
+discarded request, cancellation or unwind; it asserts no rollback. Queue timers
+end on physical dequeue/admission or discard. Physical SQL/engine timers stay
+with their worker when an async waiter cancels. File-sync timers surround the
+actual engine filesystem `sync_all`, excluding lock acquisition; directory sync
+is separate. SQL stage, prepare, publish, query, archive capture and other actions
+have separate histograms. Outcomes describe the measured operation, not a command
+acknowledgement. Successful dequeue is not successful execution. Output-budget
+refusal remains a failed SQL action even if its callback produced a value.
+
+| Counter | Meaning |
+| --- | --- |
+| `engine_file_read_bytes` | Bytes returned by successful engine filesystem reads |
+| `engine_file_write_requested_bytes` | Bytes attempted at the engine write-all API |
+| `engine_file_write_completed_bytes` | Bytes from successful write-all calls; failed partial prefixes are unknown |
+| `engine_persist_groups`, `engine_persist_entries`, `engine_persist_entry_bytes` | Groups, entries and encoded entry bytes in successful shared persistence requests |
+| `sql_stage_input_bytes` | Input bytes for executed stage attempts, including duplicate checks |
+| `sql_prepared_proposal_bytes`, `sql_prepared_ltx_bytes` | Encoded proposal and contained LTX bytes produced by successful staging, before output-budget admission |
+| `sql_query_input_bytes`, `sql_query_output_bytes` | Inputs to executed query attempts and successful query outputs before output-budget admission |
+
+Engine filesystem bytes exclude SQLite image/private work, node metadata outside
+that adapter and transport. They are API bytes, not physical device bytes; neither
+requested nor completed writes prove fsync. Prepared bytes can include proposals
+that never commit. Request ledgers separately count acknowledged business work.
+S3/network bytes, controller timings, whole-device attribution and physical
+instrumentation overhead remain qualification work.
+
+Each operation's outcomes and histogram share a short lock. Cross-operation and
+byte snapshots are not transactional. Poisoned observations set `available=false`;
+overflow saturates and sets `saturated=true`. Observation failures never change a
+business result. `source` is a random engine-open nonce and changes on reopen,
+even with a reused configured process identity. JSON u64 values are decimal
+strings, not floating-point numbers. Retained handles can sample after closure;
+a dead owner clock is null and pending durations become unavailable. These
+samples cannot support benchmark deltas. Prometheus uses only fixed names and
+bucket labels; the nonce is never a metric label. Compare only source-stable raw
+JSON samples and retain both in-flight boundary counts when deriving deltas.
+
 ## Drain and leadership handoff
 
 The existing `ShutdownPolicy.total_ms` supplies one original Node deadline. The

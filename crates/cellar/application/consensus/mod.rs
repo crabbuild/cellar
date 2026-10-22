@@ -6,6 +6,10 @@
 pub(crate) mod admission;
 mod class;
 pub(crate) mod client;
+mod performance;
+pub use performance::{
+    RaftDurationBucket, RaftOperationPerformance, RaftPerformanceCounter, RaftPerformanceSnapshot,
+};
 mod readiness;
 pub use readiness::{RaftQueryReadiness, RaftReplicaRole};
 mod resource_metrics;

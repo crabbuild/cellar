@@ -309,6 +309,7 @@ pub struct CommandAttempt {
 #[derive(Clone)]
 pub struct PreparedCommand {
     bytes: Vec<u8>,
+    pub(crate) ltx_bytes: u64,
     proposal: ProposalId,
     command: Option<CommandId>,
 }
@@ -800,6 +801,11 @@ impl PrivateExecutor {
         });
         self.rebuild_required = false;
         Ok(PreparedCommand {
+            ltx_bytes: update
+                .files
+                .iter()
+                .map(|file| file.bytes.len() as u64)
+                .sum(),
             bytes,
             proposal,
             command,
