@@ -4,6 +4,9 @@ mod automatic;
 #[path = "support/raft_cluster.rs"]
 #[allow(dead_code)]
 mod cluster;
+#[path = "support/raft_catalog_fault.rs"]
+#[allow(dead_code)]
+mod faults;
 #[path = "support/raft_ltx_fault.rs"]
 #[allow(dead_code)]
 mod image_fault;

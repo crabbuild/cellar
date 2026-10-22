@@ -1,10 +1,7 @@
 //! Six actual nodes. All sources use identical advertised physical endpoints;
 //! data cuts leave direct control/inspection connections live.
 #![allow(clippy::disallowed_methods)]
-#[path = "raft_catalog_fault.rs"]
-#[allow(dead_code)]
-mod archive_faults;
-use super::{cluster, public_node};
+use super::{cluster, faults as archive_faults, public_node};
 use anyhow::{ensure, Context as _, Result};
 use cellar::sdk::{
     consensus::*, Node, NodeOutcome, NodeRaftConfig, NodeRaftListeners, ShutdownMode,
