@@ -12,6 +12,7 @@ pub(super) struct Wakeup {
     reader: UnixStream,
     writer: UnixStream,
     pending: AtomicBool,
+    retirements: AtomicBool,
     failed: AtomicBool,
 }
 
@@ -24,6 +25,7 @@ impl Wakeup {
             reader,
             writer,
             pending: AtomicBool::new(false),
+            retirements: AtomicBool::new(false),
             failed: AtomicBool::new(false),
         })
     }
@@ -49,6 +51,22 @@ impl Wakeup {
                 }
             }
         }
+    }
+
+    pub(super) fn retire(&self) {
+        // The caller revokes owner authority before publishing this hint.
+        // Coalesce arbitrarily many retirements without allocating a queue or
+        // scanning every Python object on ordinary admissions and replies.
+        // RMW publication also chains concurrent producers' owner revocations
+        // into the consumer's acquire, even when their notifications coalesce.
+        self.retirements.swap(true, Ordering::AcqRel);
+        self.notify();
+    }
+
+    pub(super) fn take_retirements(&self) -> bool {
+        // Clear BEFORE scanning owners. A retirement racing with that scan
+        // leaves the hint set for another pass, even if its byte coalesces.
+        self.retirements.swap(false, Ordering::AcqRel)
     }
 
     pub(super) fn check(&self) -> io::Result<()> {

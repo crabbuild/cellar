@@ -86,6 +86,35 @@ and Python cleanup. Corrupted receipts, published percentiles or incomplete
 drain/cleanup refuse a report. Keep generated measurements outside the source
 tree with their exact build, runtime and workload scope.
 
+## Resident-cell scaling
+
+`residency.py` measures stateless echo with 0, 64, 512 and 2,048 real resident
+cells by default; `--populations` accepts increasing counts through 4,096. It
+uses the separate `native-resident` and `python-resident` fixture modes with
+4,096 native cell slots and no fleet store, isolating bridge scheduling from
+remote proof and lease latency. All other benchmark modes keep their existing
+fleet configuration and durability checks.
+
+```sh
+python3 tools/python/residency.py \
+  --native-host "$CELLAR_BASELINE_BIN/native" \
+  --python-host "gil=$CELLAR_BASELINE_BIN/python-gil" \
+  --python-host "free-threaded=$CELLAR_BASELINE_BIN/python-free-threaded" \
+  --output "$CELLAR_BASELINE_BIN/residency" --build-profile lab \
+  --populations 0 64 512 2048 4096 --count 200 --warmup 10 \
+  --concurrency 4 --repetitions 3
+```
+
+Population requests check each fresh cell's zero value. Before and after each
+level, the driver verifies the live native cell count and a fresh, idle Python
+object snapshot. Echo responses and raw latency/copy samples are checked through
+the same client as the durable baseline. Complete shutdown must retire exactly
+the populated Python objects; activation churn cannot masquerade as a stable
+population. Runtime order rotates, failed attempts stay in `residency.json`, and
+binary digests, ABI/GIL state, load averages and effective policy are recorded.
+This is a local scheduling measurement, not a durability, recovery, fleet
+capacity or long-running resource qualification.
+
 ## Shipping Python defaults
 
 `operating_defaults.py` uses the same compiled Python executable in the separate

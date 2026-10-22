@@ -208,7 +208,14 @@ async def _serve(module, inbox, interval, shutdown, stats, maximum, max_tasks, t
                 # Registry removal must also release this iteration's strong
                 # references; an empty next iteration cannot overwrite them.
                 del task, context, bridge
-            retiring = [key for key, (_, bridge) in objects.items() if not bridge.owner_active()]
+            # Native owner drops publish a bounded dirty hint after revoking
+            # authority. Consume it before scanning so a concurrent drop is
+            # retained for another pass. _invoke checks authority before object
+            # construction and does not yield before registering the object;
+            # a queued invocation cannot register after consuming its own
+            # retirement hint. SDK calls still check authority individually.
+            retiring = ([key for key, (_, bridge) in objects.items() if not bridge.owner_active()]
+                        if inbox.take_retirements() else [])
             if retiring:
                 # Publish before destructors can block. Rust can observe a stale
                 # snapshot with pending cleanup without acquiring the GIL.

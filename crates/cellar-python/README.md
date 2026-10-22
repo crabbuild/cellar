@@ -169,6 +169,11 @@ request data or SDK authority. Producers never acquire the GIL, call Python or
 wait for the interpreter. SDK operations still execute in their original native
 invocation. Notification failures fail the runtime instead of claiming a clean
 shutdown, and the loop removes its reader before the runtime closes the sockets.
+Native proxy destruction also publishes a coalesced retirement flag. The loop
+scans resident objects only after consuming that flag, so ordinary requests do
+not check every idle cell. Consuming the flag before the scan preserves concurrent
+retirements for another pass. Each SDK operation still checks its native owner
+and invocation authority independently of this cleanup optimization.
 
 `poll_interval` now bounds housekeeping waits (250 ms by default), rather than
 delaying ordinary requests. The telemetry deadline may shorten that wait. A

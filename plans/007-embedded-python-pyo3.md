@@ -279,6 +279,10 @@ loop. Do not silently lose cleanup requests when an ordinary work queue is full.
 The adapter uses a Rust-owned activation liveness flag. Proxy drop revokes that
 flag without entering Python; the loop observes retirement independently of the
 ordinary request mailbox. This requires no Python-specific public `Cell` hook.
+Native drops also set a bounded retirement flag, consumed before the loop scans
+resident objects. Requests and replies alone do not trigger a full owner scan;
+a concurrent drop leaves the flag set for another pass. Operation authority
+checks remain per-call and do not depend on whether cleanup has run.
 The audit separately tracks pending cleanup accounting and retirement races.
 
 ## Atomic storage without Python callbacks inside SQLite transactions
@@ -589,6 +593,15 @@ long-running resource stability, and the intended multi-node storage/failure
 configuration. The [deployment qualification guide](../docs/19-testing-qualification.md)
 describes the broader failure and load matrix. Application throughput and p99
 targets must be stated before declaring that deployment qualified.
+The companion residency harness isolates pump cost with verified native/Python
+resident counts and local-only cells. Its echo measurements and complete cleanup
+checks do not close the fleet storage, durable-load or long-running memory gates.
+The local optimized baseline has reproduced concurrent-write LTX proof timeouts
+and node self-fencing after ambiguous lease renewals. Fleet-only recovery from
+those failed runs retained acknowledged writes; requests with lost responses
+included both committed and uncommitted outcomes. These remain failed workload
+runs. Recovery success does not qualify sustained durable throughput or explain
+the underlying lease/storage stall.
 
 Prioritize delivery and review of the implemented runtime, SDK and packaging,
 then resolve the preserved reliability failures and qualify the intended load

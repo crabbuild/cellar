@@ -450,7 +450,7 @@ struct PythonCell {
 impl Drop for PythonCell {
     fn drop(&mut self) {
         self.life.store(false, Ordering::Release);
-        self.application.runtime.notify();
+        self.application.runtime.retire();
     }
 }
 

@@ -258,6 +258,10 @@ pub(crate) struct Runtime {
 }
 
 impl Runtime {
+    pub(crate) fn retire(&self) {
+        self.wakeup.retire();
+    }
+
     pub(crate) fn notify(&self) {
         self.wakeup.notify();
     }
@@ -320,6 +324,10 @@ type ReplyDelivery = (u64, u64, Py<PyString>);
 
 #[pymethods]
 impl Inbox {
+    fn take_retirements(&self) -> bool {
+        self.runtime.wakeup.take_retirements()
+    }
+
     fn wakeup_fd(&self) -> i32 {
         self.runtime.wakeup.fd()
     }

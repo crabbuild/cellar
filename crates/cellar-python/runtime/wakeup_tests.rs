@@ -20,6 +20,15 @@ fn coalesces_without_blocking_and_rearms_after_drain() {
 
 #[test]
 fn producers_racing_drain_cannot_strand_work() {
+    producers_racing_drain(false);
+}
+
+#[test]
+fn retirements_racing_drain_cannot_strand_work() {
+    producers_racing_drain(true);
+}
+
+fn producers_racing_drain(retirement: bool) {
     let wakeup = Wakeup::new().unwrap();
     let (sender, receiver) = mpsc::channel();
     thread::scope(|scope| {
@@ -29,7 +38,11 @@ fn producers_racing_drain_cannot_strand_work() {
             scope.spawn(move || {
                 for _ in 0..10_000 {
                     sender.send(()).unwrap();
-                    wakeup.notify();
+                    if retirement {
+                        wakeup.retire();
+                    } else {
+                        wakeup.notify();
+                    }
                     thread::yield_now();
                 }
             });
@@ -43,7 +56,9 @@ fn producers_racing_drain_cannot_strand_work() {
             match (&wakeup.reader).read(&mut byte) {
                 Ok(1) => {
                     wakeup.drain().unwrap();
-                    received += receiver.try_iter().count();
+                    if !retirement || wakeup.take_retirements() {
+                        received += receiver.try_iter().count();
+                    }
                 }
                 Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
                     assert!(Instant::now() < deadline, "stranded work: {received}/40000");
@@ -53,6 +68,25 @@ fn producers_racing_drain_cannot_strand_work() {
             }
         }
     });
+}
+
+#[test]
+fn ordinary_wakeups_do_not_require_owner_scans() {
+    let wakeup = Wakeup::new().unwrap();
+    wakeup.notify();
+    wakeup.drain().unwrap();
+    assert!(!wakeup.take_retirements());
+    for _ in 0..100_000 {
+        wakeup.retire();
+    }
+    assert!(wakeup.take_retirements());
+    assert!(!wakeup.take_retirements());
+    // This retirement coalesces with the previous unread byte, but must still
+    // be visible after the consumer has taken the earlier scan's hint.
+    wakeup.retire();
+    wakeup.drain().unwrap();
+    assert!(wakeup.take_retirements());
+    assert!(!wakeup.take_retirements());
 }
 
 #[test]
