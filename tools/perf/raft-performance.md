@@ -82,6 +82,23 @@ checker. Ambiguous or overlapping per-cell histories refuse reconciliation.
 error objectives. Warmup is explicit but does not establish steady state by
 itself. A successful functional run is not a capacity claim.
 
+## Archive replay work
+
+S3 acknowledgement still requires a physically verified recovery set and exact
+conditional head publication. Recovery now replays a bounded chain into one
+private image, preserving the physical check of every intermediate result and
+syncing the final image once. Long histories use multiple batches constrained by
+the destination's existing aggregate apply limits. This removes intermediate
+image copies, syncs, renames and reclamations; it does not skip checksums, digest
+scans, object readback, quorum commitment or the S3 proof gate.
+
+The native `archive_tail_replay_seals_one_private_image` case checks exact restored
+bytes and one publication for 32 tail entries. Separate cases exercise smaller
+batch limits, corrupt intermediate identities, aggregate bounds, peak temporary
+disk admission and process-kill publication cuts. These checks count physical
+work; a deployment latency claim requires a fresh image and retained workload
+measurement under the same resource and durability profile.
+
 ## Fleet and bucket reference adapters
 
 The same image also builds `cellar-perf-baseline`. It uses the production native

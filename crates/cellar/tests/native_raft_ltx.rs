@@ -771,22 +771,24 @@ fn image_sync_before_marker() -> Result<()> {
         faults.events.lock().unwrap().clear();
         faults.mode.store(mode, Ordering::Release);
         let next = image(Some(&initial), "UPDATE counter SET value=8")?;
+        let last = image(Some(&next), "UPDATE counter SET value=9")?;
+        let middle = Cut::new(&initial, &next, 1, false, true);
+        let final_cut = Cut::new(&next, &last, 2, true, true);
+        let mut final_update = final_cut.update();
+        final_update.base = middle.result;
         assert!(store
-            .prepare(
+            .prepare_chain(
                 id(2),
                 Some(&first),
-                &Cut::new(&initial, &next, 1, false, true).update()
+                &[middle.update(), final_update.clone()]
             )
             .is_err());
         assert_eq!(load_marker(directory.path())?.0, id(1));
         assert_eq!(store.usage()?.generations, 1);
         assert_eq!(read(&first)?, initial);
         faults.events.lock().unwrap().clear();
-        let second = store.prepare(
-            id(2),
-            Some(&first),
-            &Cut::new(&initial, &next, 1, false, true).update(),
-        )?;
+        let second = store.prepare_chain(id(2), Some(&first), &[middle.update(), final_update])?;
+        assert_eq!(read(&second)?, last);
         assert_eq!(
             *faults.events.lock().unwrap(),
             ["image-sync", "rename", "directory-sync"]
@@ -815,6 +817,8 @@ fn image_sync_before_marker() -> Result<()> {
         let next = image(Some(&initial), "UPDATE counter SET value=8")?;
         std::fs::write(directory.path().join("source.sqlite"), &initial)?;
         std::fs::write(directory.path().join("next.sqlite"), &next)?;
+        let next = image(Some(&next), "UPDATE counter SET value=9")?;
+        std::fs::write(directory.path().join("last.sqlite"), &next)?;
         let first = store.prepare(
             id(1),
             None,
@@ -902,11 +906,11 @@ fn image_crash_process() -> Result<()> {
     let initial = std::fs::read(root.join("source.sqlite"))?;
     let next = std::fs::read(root.join("next.sqlite"))?;
     faults.mode.store(mode, Ordering::Release);
-    let second = store.prepare(
-        id(2),
-        Some(&first),
-        &Cut::new(&initial, &next, 1, false, true).update(),
-    )?;
+    let last = std::fs::read(root.join("last.sqlite"))?;
+    let middle = Cut::new(&initial, &next, 1, false, true);
+    let final_cut = Cut::new(&next, &last, 2, false, true);
+    let second =
+        store.prepare_chain(id(2), Some(&first), &[middle.update(), final_cut.update()])?;
     save_marker(&root, &second)?;
     if mode == fault::AFTER_MARKER_SYNC {
         faults.pause()?;
@@ -1067,6 +1071,154 @@ fn multi_file_apply_and_optional_checksum_transitions() -> Result<()> {
     let last = store.prepare(id(3), Some(&result), &update)?;
     assert_eq!(read(&last)?, again);
     assert_eq!(last.state().checksum, 0);
+    Ok(())
+}
+
+#[test]
+fn private_image_chain_verifies_intermediate_results_and_preserves_base() -> Result<()> {
+    use fixture::*;
+    for checksums in [false, true] {
+        let directory = tempfile::tempdir()?;
+        let faults = fault::Faults::new(directory.path().join("images"), None);
+        let store = GenerationStore::open(
+            faults.directory.clone(),
+            Arc::new(fault::FaultFileSystem {
+                faults: faults.clone(),
+            }),
+            GenerationLimits::default(),
+        )?;
+        let initial = image(
+            None,
+            "CREATE TABLE counter(value INTEGER);INSERT INTO counter VALUES(7)",
+        )?;
+        let first = store.prepare(
+            id(1),
+            None,
+            &Cut::new(&[], &initial, 0, checksums, true).update(),
+        )?;
+        let grown = image(Some(&initial), "CREATE TABLE payload(value BLOB);INSERT INTO payload VALUES(zeroblob(20000));UPDATE counter SET value=8")?;
+        let shrunk = image(
+            Some(&grown),
+            "DROP TABLE payload;UPDATE counter SET value=9;VACUUM",
+        )?;
+        let grow = Cut::new(&initial, &grown, 1, checksums, false);
+        let shrink = Cut::new(&grown, &shrunk, 2, checksums, true);
+        for corrupt_checksum in [false, true] {
+            let mut updates = [grow.update(), shrink.update()];
+            if corrupt_checksum {
+                updates[0].result.checksum = CHECKSUM_FLAG | (updates[0].result.checksum ^ 1);
+            } else {
+                updates[0].result.digest[0] ^= 1;
+            }
+            // A self-consistent advertised chain and a valid final digest must
+            // not hide a false intermediate physical identity.
+            updates[1].base = updates[0].result;
+            faults.events.lock().unwrap().clear();
+            let error = store
+                .prepare_chain(id(2), Some(&first), &updates)
+                .err()
+                .unwrap();
+            assert!(
+                if corrupt_checksum {
+                    matches!(error, GenerationError::Apply(ApplyError::Checksum))
+                } else {
+                    matches!(error, GenerationError::Apply(ApplyError::ResultDigest))
+                },
+                "unexpected error: {error:?}"
+            );
+            assert!(!faults.events.lock().unwrap().contains(&"image-sync"));
+            assert_eq!(store.usage()?.generations, 1);
+            assert_eq!(read(&first)?, initial);
+        }
+        faults.events.lock().unwrap().clear();
+        let last = store.prepare_chain(id(2), Some(&first), &[grow.update(), shrink.update()])?;
+        assert_eq!(read(&last)?, shrunk);
+        assert_eq!(read(&first)?, initial);
+        assert_eq!(last.state(), shrink.result);
+        assert_eq!(
+            *faults.events.lock().unwrap(),
+            ["image-sync", "rename", "directory-sync"]
+        );
+        assert_eq!(
+            store.usage()?.generations,
+            2,
+            "intermediate image must not escape"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn private_image_chain_admits_aggregate_work_and_peak_disk_before_io() -> Result<()> {
+    use fixture::*;
+    let initial = image(
+        None,
+        "CREATE TABLE counter(value INTEGER);INSERT INTO counter VALUES(7)",
+    )?;
+    let grown = image(
+        Some(&initial),
+        "CREATE TABLE payload(value BLOB);INSERT INTO payload VALUES(zeroblob(20000))",
+    )?;
+    let shrunk = image(Some(&grown), "DROP TABLE payload;VACUUM")?;
+    let first = Cut::new(&[], &initial, 0, true, true);
+    let grow = Cut::new(&initial, &grown, 1, true, true);
+    let shrink = Cut::new(&grown, &shrunk, 2, true, true);
+    let updates = [first.update(), grow.update(), shrink.update()];
+    let encoded: usize = updates
+        .iter()
+        .flat_map(|u| &u.segments)
+        .map(|s| s.bytes.len())
+        .sum();
+    let decoded: u64 = updates
+        .iter()
+        .flat_map(|u| &u.segments)
+        .map(|s| s.decoded_bytes)
+        .sum();
+    let pages: usize = updates
+        .iter()
+        .flat_map(|u| &u.segments)
+        .map(|s| s.page_count)
+        .sum();
+    for boundary in 0..7 {
+        let mut limits = GenerationLimits::default();
+        match boundary {
+            0 => limits.apply.max_files = 2,
+            1 => limits.apply.max_total_encoded_bytes = encoded - 1,
+            2 => limits.apply.max_total_decoded_bytes = decoded - 1,
+            3 => limits.apply.max_total_pages = pages - 1,
+            4 => limits.max_bytes = 2 * grown.len() as u64 - 1,
+            _ => {}
+        }
+        let directory = tempfile::tempdir()?;
+        let faults = fault::Faults::new(directory.path().join("images"), None);
+        let store = GenerationStore::open(
+            faults.directory.clone(),
+            Arc::new(fault::FaultFileSystem {
+                faults: faults.clone(),
+            }),
+            limits,
+        )?;
+        faults.events.lock().unwrap().clear();
+        let mut broken = updates.clone();
+        broken[1].base.digest[0] ^= 1;
+        let chain = match boundary {
+            5 => &[][..],
+            6 => &broken[..],
+            _ => &updates[..],
+        };
+        let error = store.prepare_chain(id(1), None, chain).err().unwrap();
+        match boundary {
+            4 => assert!(matches!(error, GenerationError::Limit)),
+            6 => assert!(matches!(error, GenerationError::Apply(ApplyError::Chain))),
+            _ => assert!(matches!(error, GenerationError::Apply(ApplyError::Limit))),
+        }
+        assert!(
+            faults.events.lock().unwrap().is_empty(),
+            "admission performed I/O"
+        );
+        assert_eq!(store.usage()?.generations, 0);
+        assert_eq!(store.usage()?.bytes, 0);
+    }
     Ok(())
 }
 

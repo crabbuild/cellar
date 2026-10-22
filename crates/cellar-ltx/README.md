@@ -54,6 +54,15 @@ truncation against the resulting SQLite header and full image digest. Published
 images are never patched in place. This first materialized implementation uses
 a full verified copy; it does not require filesystem reflinks.
 
+`GenerationStore::prepare_chain` replays several exact updates into one private
+image. It verifies every intermediate image's digest, SQLite geometry and optional
+rolling checksum before continuing, and seals only the final result. The existing
+file, encoded-byte, decoded-byte and page budgets apply to the whole chain;
+disk admission reserves twice the largest intermediate image, including growth
+that is later truncated. No intermediate pin is exposed. Archive recovery uses
+`limits()` to partition longer histories within the destination's captured limits,
+retiring each previous batch only after its successor is sealed.
+
 File operations use the injected `FileSystem` synchronously on the host's owning
 blocking/execution domain. Publication syncs the complete image, reserves its
 unique final name with exclusive creation, renames over that owned unpublished

@@ -8,6 +8,9 @@ mod cluster;
 #[path = "support/raft_catalog_fault.rs"]
 mod faults;
 #[allow(dead_code)]
+#[path = "support/raft_ltx_fault.rs"]
+mod image_faults;
+#[allow(dead_code)]
 #[path = "support/raft_ltx_fixture.rs"]
 mod images;
 #[path = "support/raft_node.rs"]
@@ -454,6 +457,114 @@ async fn archive_reference_refuses_substitution_and_missing_material() -> Result
         fixture.archive.recovery_set_at(&reference).await,
         Err(ArchiveError::Corrupt("missing archive object"))
     ));
+    fixture.close().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn archive_tail_replay_seals_one_private_image() -> Result<()> {
+    let mut fixture = Fixture::new(ArchiveLimits::default()).await?;
+    let first = fixture.commit(1, vec![]).await?;
+    fixture.publish(first).await?;
+    let mut cut = None;
+    for value in 2..=33 {
+        cut = Some(fixture.commit(value, vec![]).await?);
+    }
+    let set = fixture.publish(cut.context("missing tail")?).await?;
+    ensure!(set.tail_entries() == 32);
+    let directory = tempfile::tempdir()?;
+    let faults = image_faults::Faults::new(directory.path().join("images"), None);
+    let images = GenerationStore::open(
+        faults.directory.clone(),
+        Arc::new(image_faults::FaultFileSystem {
+            faults: faults.clone(),
+        }),
+        GenerationLimits::default(),
+    )?;
+    faults.events.lock().unwrap().clear();
+    let started = std::time::Instant::now();
+    let restored = set.restore(&images, images::id(93))?;
+    let elapsed = started.elapsed();
+    ensure!(
+        restored.state()
+            == fixture
+                .pin
+                .as_ref()
+                .context("missing committed image")?
+                .state()
+    );
+    let bytes = std::fs::read(
+        directory
+            .path()
+            .join("images")
+            .join(format!("{}.sqlite", hex::encode(restored.id().bytes()))),
+    )?;
+    ensure!(bytes == fixture.bytes, "restore changed physical bytes");
+    let events = faults.events.lock().unwrap().clone();
+    let syncs = events
+        .iter()
+        .filter(|event| **event == "image-sync")
+        .count();
+    // Intermediate cuts remain private, but their exact physical checksums and
+    // digests must still be checked before the final immutable image is sealed.
+    ensure!(
+        syncs == 1,
+        "32-entry archive replay sealed {syncs} images in {elapsed:?}: {events:?}"
+    );
+    ensure!(
+        events == ["image-sync", "rename", "directory-sync"],
+        "unexpected publication work: {events:?}"
+    );
+    fixture.close().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn archive_tail_replay_partitions_at_destination_limits() -> Result<()> {
+    let mut fixture = Fixture::new(ArchiveLimits::default()).await?;
+    let first = fixture.commit(1, vec![]).await?;
+    fixture.publish(first).await?;
+    let mut cut = None;
+    for value in 2..=66 {
+        cut = Some(fixture.commit(value, vec![]).await?);
+    }
+    let set = fixture.publish(cut.context("missing tail")?).await?;
+    ensure!(set.tail_entries() == 65);
+    for max_files in [64, 7, 1] {
+        let directory = tempfile::tempdir()?;
+        let faults = image_faults::Faults::new(directory.path().join("images"), None);
+        let mut limits = GenerationLimits::default();
+        limits.apply.max_files = max_files;
+        let images = GenerationStore::open(
+            faults.directory.clone(),
+            Arc::new(image_faults::FaultFileSystem {
+                faults: faults.clone(),
+            }),
+            limits,
+        )?;
+        faults.events.lock().unwrap().clear();
+        let restored = set.restore(&images, images::id(94))?;
+        ensure!(
+            restored.state()
+                == fixture
+                    .pin
+                    .as_ref()
+                    .context("missing committed image")?
+                    .state()
+        );
+        ensure!(images::read(&restored)? == fixture.bytes);
+        let events = faults.events.lock().unwrap().clone();
+        let syncs = events
+            .iter()
+            .filter(|event| **event == "image-sync")
+            .count();
+        ensure!(
+            syncs == 66usize.div_ceil(max_files),
+            "wrong partition count: {syncs}"
+        );
+        ensure!(
+            images.usage()?.generations == 1,
+            "retired batches were not reclaimed"
+        );
+    }
     fixture.close().await
 }
 

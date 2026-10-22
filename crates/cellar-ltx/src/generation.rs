@@ -457,7 +457,28 @@ impl GenerationStore {
         base: Option<&GenerationPin>,
         update: &ImageUpdate<'_>,
     ) -> Result<GenerationPin, GenerationError> {
-        let peak = apply::peak_image_bytes(update, &self.inner.limits.apply)?;
+        self.prepare_chain(id, base, std::slice::from_ref(update))
+    }
+
+    /// Captured physical limits; callers can partition replay without relaxing
+    /// the store's aggregate decode, temporary-image or generation budgets.
+    pub fn limits(&self) -> GenerationLimits {
+        self.inner.limits
+    }
+
+    /// Apply a bounded sequence to one exclusively owned private image. Every
+    /// intermediate result is verified before applying its successor. Only the
+    /// final image is synced and sealed; no intermediate pin can escape. The
+    /// normal apply byte/page/file limits cover the entire sequence, and disk
+    /// admission reserves twice its largest intermediate image.
+    pub fn prepare_chain(
+        &self,
+        id: ImageId,
+        base: Option<&GenerationPin>,
+        updates: &[ImageUpdate<'_>],
+    ) -> Result<GenerationPin, GenerationError> {
+        let peak = apply::peak_chain_bytes(updates, &self.inner.limits.apply)?;
+        let update = updates.first().ok_or(ApplyError::Limit)?;
         if let Some(base) = base {
             if !Arc::ptr_eq(&self.inner, &base.inner) || base.state() != update.base {
                 return Err(GenerationError::Identity);
@@ -510,11 +531,11 @@ impl GenerationStore {
             let mut destination = self.inner.filesystem.create_read_write(&stage)?;
             stage_owned = true;
             let base_path = base.map(|p| self.inner.directory.join(final_name(p.id())));
-            let image = apply::apply_private(
+            let image = apply::apply_private_chain(
                 self.inner.filesystem.as_ref(),
                 base_path.as_deref(),
                 &mut destination,
-                update,
+                updates,
                 &self.inner.limits.apply,
             )?;
             destination.sync_all()?;
