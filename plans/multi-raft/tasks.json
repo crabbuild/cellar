@@ -2231,7 +2231,8 @@
         "evidence/MR-13-readiness-pins-progress.json",
         "evidence/MR-13-metrics-progress.json",
         "evidence/MR-13-resources-progress.json",
-        "evidence/PR-91-ci-repair.json"
+        "evidence/PR-91-ci-repair.json",
+        "evidence/PR-91-fixture-repair.json"
       ]
     },
     {

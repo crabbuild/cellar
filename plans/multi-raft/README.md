@@ -33,6 +33,12 @@ All-target Clippy exposed a unit-test guard-scope warning; the assertion now has
 a lexical block before joined cleanup. Its focused test and full-workspace
 Clippy pass at the `f8f8958` source change, with no lint allowance added.
 
+The subsequent [Linux fixture repair](evidence/PR-91-fixture-repair.json) records
+55 unique native cases at `a128c26`, including the full host and membership
+binaries and 12 lease replays. Controlled archive, late-CAS and initial-image
+probes retain their failing and corrected outputs. Original deadlines, unpolled
+command behavior and proof/lag/leadership assertions remain enforced.
+
 Each record retains its full source pin, executable/output hashes, failed initial
 diagnostics and original scope. Counts from different sources are not added.
 The [business-feature contract](effects-design.md) describes Blob, alarm, signed
