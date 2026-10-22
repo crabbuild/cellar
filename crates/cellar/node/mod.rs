@@ -4919,7 +4919,7 @@ async fn async_main(
                 }
             };
             crate::asyncrt::select! {
-                result = raft.start(&app, data_dir.clone(), node.clone()) => result,
+                result = raft.start(&app, data_dir.clone(), node.clone(), fleet_bucket.is_some()) => result,
                 _ = supplied_stop => Err(anyhow::anyhow!("Raft startup cancelled by host")),
                 _ = sigterm.recv() => Err(anyhow::anyhow!("Raft startup interrupted by SIGTERM")),
                 _ = sigint.recv() => Err(anyhow::anyhow!("Raft startup interrupted by SIGINT")),

@@ -60,7 +60,7 @@ fn child(root: PathBuf, mode: String) -> Result<()> {
                 data_address: data.local_addr()?,
                 query_address: query.local_addr()?,
             };
-            let peers = if ordinal.is_some() {
+            let mut peers = if ordinal.is_some() {
                 std::fs::write(prepared_root.join(format!("peer-{index}.tmp")), serde_json::to_vec(&serde_json::json!({
                     "pid": std::process::id(), "label": peer.label,
                     "control": peer.control_address, "data": peer.data_address, "query": peer.query_address,
@@ -84,6 +84,12 @@ fn child(root: PathBuf, mode: String) -> Result<()> {
                     })
                 }).collect::<Result<Vec<_>>>()?
             } else { vec![peer] };
+            if mode == "missing-peer-auth" {
+                let mut remote = peers[0].clone();
+                remote.node = NodeId::new([42; 16])?;
+                remote.label = "unreachable-fixture-peer".into();
+                peers.push(remote);
+            }
             let cluster = ClusterId::new([1; 16])?;
             let mut config = NamespaceConfig::new(cluster, namespace, NamespaceMode::Raft,
                 if mode == "bad-schema" { [99; 32] } else { class.schema_digest() });
@@ -319,6 +325,10 @@ async fn qualify() -> Result<()> {
     for (mode, expected) in [
         ("missing-app", "absent from the active deployment"),
         ("bad-schema", "mode/schema disagrees"),
+        (
+            "missing-peer-auth",
+            "requires a fleet bucket for shared peer authentication",
+        ),
     ] {
         let root = tempfile::tempdir()?;
         let disk = root.path().join("disk");

@@ -295,6 +295,12 @@ process directory is never selected for a Raft daemon. Configure stable node and
 disk identities, fresh process generations and trusted peer endpoints in the
 application's preparation adapter. TLS and signing secrets belong in its
 credential provider; command-line node flags do not supply consensus authority.
+Remote consensus, query-origin or inspection routes require a configured fleet
+bucket (`--bucket` or the corresponding fleet environment setting). The daemon
+loads its shared peer-authentication key through that existing node boundary.
+The independently supplied Raft catalog store does not configure this key.
+Startup refuses remote routes with a process-local random peer key. TLS remains
+mandatory, and discovering a peer does not grant membership or query authority.
 
 The preparation adapter must choose `LogOpenMode::Create` or `Resume` explicitly.
 For a retained node, use `Resume` with the original node/disk identities, a fresh

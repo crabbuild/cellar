@@ -40,6 +40,7 @@ impl Startup {
         app: &super::AppHandle,
         data_dir: PathBuf,
         node: String,
+        shared_peer_auth: bool,
     ) -> anyhow::Result<()> {
         let application = app
             .runtime
@@ -62,6 +63,27 @@ impl Startup {
             data_dir: data_dir.clone(),
         })
         .await?;
+        let local_node = prepared.config.infrastructure.log.node;
+        let remote_routes = prepared
+            .config
+            .peers
+            .iter()
+            .any(|peer| peer.node != local_node)
+            || prepared
+                .config
+                .query_origins
+                .iter()
+                .any(|origin| origin.peer.node != local_node)
+            || prepared
+                .config
+                .host
+                .inspection_origins
+                .iter()
+                .any(|origin| origin.peer.node != local_node);
+        anyhow::ensure!(
+            !remote_routes || shared_peer_auth,
+            "multi-node Raft CLI startup requires a fleet bucket for shared peer authentication"
+        );
         let services = crate::asyncrt::services();
         let service = super::raft_startup::Startup {
             domain: services

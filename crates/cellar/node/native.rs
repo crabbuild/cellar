@@ -111,7 +111,8 @@ impl NativeDaemon {
     /// on the node executor; `bind` installs the resulting SDK handles in the
     /// application's ingress. A failed preparation or binding refuses startup
     /// and joins acquired work. Require `--data-dir` with a persistent absolute
-    /// directory. Raft-enabled daemons pin their deployment until process restart;
+    /// directory. Remote peer routes require a fleet bucket for shared peer
+    /// authentication. Raft-enabled daemons pin their deployment until process restart;
     /// live deployment reload does not yet rebind Raft definitions safely.
     pub fn raft_cells<F, Fut>(
         mut self,
