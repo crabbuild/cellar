@@ -1,5 +1,13 @@
 # Embedded fleet validation
 
+For the independent consensus-backed workload, use the
+[native multi-Raft Colima/RustFS fixture](raft-README.md). It configures three
+1-vCPU/3-GiB nodes with 500 leaders per node and requires exact replica values
+and committed archive coverage for successful qualification. It supports paced
+request-rate sweeps and independently selects throughput below a p99 latency
+limit. The Fleet harnesses below use a different durability protocol.
+See the [native multi-Raft investigation and measurements](raft-results.md).
+
 ## SQLite operation costs
 
 Use the local storage benchmark to compare SQLite changes before running fleet

@@ -66,6 +66,10 @@ name = "cellar-perf-fault-cells"
 path = "../../tools/perf/fault_cells.rs"
 
 [[bin]]
+name = "cellar-perf-raft"
+path = "../../tools/perf/raft_node.rs"
+
+[[bin]]
 name = "cellar-perf-storage"
 path = "../../tools/perf/storage_operations.rs"
 

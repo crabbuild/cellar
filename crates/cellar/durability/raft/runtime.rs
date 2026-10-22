@@ -19,6 +19,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tokio::sync::{mpsc, oneshot, Notify};
 
+#[cfg(test)]
+#[path = "runtime_scheduler_tests.rs"]
+mod scheduler_tests;
+
 pub(crate) enum GroupAction {
     Campaign,
     ReplicationStatus,
@@ -666,6 +670,7 @@ impl Outbox {
 
 struct Group {
     replica: Replica,
+    scheduled: bool,
     deferred: VecDeque<Request>,
     inbound: Arc<Budget>,
     hints: BTreeMap<u64, PeerHint>,
@@ -698,6 +703,9 @@ struct Worker {
     options: RaftRuntimeOptions,
     groups: BTreeMap<GroupScope, Group>,
     order: VecDeque<GroupScope>,
+    ready_bytes: usize,
+    apply_bytes: usize,
+    pending_reads: usize,
     operations: Operations,
     outbox: Outbox,
     events: mpsc::Sender<RuntimeEvent>,
@@ -729,6 +737,9 @@ impl Worker {
             options,
             groups: BTreeMap::new(),
             order: VecDeque::new(),
+            ready_bytes: 0,
+            apply_bytes: 0,
+            pending_reads: 0,
             operations: Operations::new(),
             outbox,
             events,
@@ -765,6 +776,7 @@ impl Worker {
             scope.clone(),
             Group {
                 replica,
+                scheduled: true,
                 deferred: VecDeque::new(),
                 inbound: Budget::new(
                     (self.options.max_request_bytes / 4).max(self.options.max_message_bytes + 4096),
@@ -790,6 +802,26 @@ impl Worker {
     }
 
     fn dispatch(&mut self, request: Request) {
+        // Status is observational. Other scoped requests may reactivate a
+        // parked replica, but never enqueue a second slot for the same group.
+        let scope = match &request.command {
+            Command::Group { scope, .. }
+            | Command::AdmitStep { scope, .. }
+            | Command::Hint { scope, .. } => Some(scope),
+            Command::Apply(completed) => Some(&completed.ticket.replica().scope),
+            Command::Snapshot(completed) => Some(&completed.ticket.replica().scope),
+            Command::AbortSnapshot(ticket) => Some(&ticket.replica().scope),
+            Command::Checkpoint(checkpoint) => Some(checkpoint.scope()),
+            _ => None,
+        };
+        if let Some(scope) = scope {
+            if let Some(group) = self.groups.get_mut(scope) {
+                if !group.scheduled {
+                    group.scheduled = true;
+                    self.order.push_back(scope.clone());
+                }
+            }
+        }
         if let Command::Group { scope, .. } = &request.command {
             match self.groups.get_mut(scope) {
                 Some(group) if group.failed.is_none() => group.deferred.push_back(request),
@@ -864,24 +896,28 @@ impl Worker {
                     Ok(Response::Unit)
                 }),
             Command::Checkpoint(checkpoint) => {
-                let ready_bytes: usize = self
-                    .groups
-                    .values()
-                    .map(|group| group.replica.ready_bytes)
-                    .sum();
                 if checkpoint.bytes() + 4096
-                    > self.options.max_ready_bytes.saturating_sub(ready_bytes)
+                    > self
+                        .options
+                        .max_ready_bytes
+                        .saturating_sub(self.ready_bytes)
                 {
                     Err(RuntimeError::Overloaded)
                 } else {
                     self.groups
                         .get_mut(checkpoint.scope())
                         .ok_or(RuntimeError::NotFound)
-                        .and_then(|group| match &group.failed {
-                            Some(error) => Err(error.clone()),
-                            None => group
-                                .replica
-                                .execute(GroupAction::Checkpoint(checkpoint), &self.options),
+                        .and_then(|group| {
+                            let before = group.replica.ready_bytes;
+                            let result = match &group.failed {
+                                Some(error) => Err(error.clone()),
+                                None => group
+                                    .replica
+                                    .execute(GroupAction::Checkpoint(checkpoint), &self.options),
+                            };
+                            self.ready_bytes =
+                                self.ready_bytes - before + group.replica.ready_bytes;
+                            result
                         })
                 }
             }
@@ -922,9 +958,7 @@ impl Worker {
                 })
                 .map(|()| Response::Unit),
             Command::Tick => {
-                for group in self.groups.values_mut() {
-                    group.tick = true;
-                }
+                self.tick();
                 Ok(Response::Unit)
             }
             Command::Group { .. } => Err(RuntimeError::Protocol("dispatch state".into())),
@@ -932,23 +966,21 @@ impl Worker {
         let _ = request.reply.send(result);
     }
 
+    fn tick(&mut self) {
+        for (scope, group) in &mut self.groups {
+            group.tick = true;
+            if !group.scheduled && group.failed.is_none() {
+                group.scheduled = true;
+                self.order.push_back(scope.clone());
+            }
+        }
+    }
+
     fn progress(&mut self) -> Result<bool, RuntimeError> {
         let mut made = false;
-        let mut ready_bytes = self
-            .groups
-            .values()
-            .map(|g| g.replica.ready_bytes)
-            .sum::<usize>();
-        let mut apply_bytes = self
-            .groups
-            .values()
-            .map(|g| g.replica.apply_bytes)
-            .sum::<usize>();
-        let mut pending_reads = self
-            .groups
-            .values()
-            .map(|g| g.replica.pending_reads())
-            .sum::<usize>();
+        let mut ready_bytes = self.ready_bytes;
+        let mut apply_bytes = self.apply_bytes;
+        let mut pending_reads = self.pending_reads;
         for _ in 0..self.order.len() {
             let Some(scope) = self.order.pop_front() else {
                 break;
@@ -970,7 +1002,10 @@ impl Worker {
                     group.report_failure = false;
                     made = true;
                 }
-                self.order.push_back(scope);
+                group.scheduled = group.report_failure;
+                if group.scheduled {
+                    self.order.push_back(scope);
+                }
                 continue;
             }
             let old_reads = group.replica.pending_reads();
@@ -1032,8 +1067,19 @@ impl Worker {
             pending_reads = pending_reads - old_reads + group.replica.pending_reads();
             ready_bytes = ready_bytes - old_ready + group.replica.ready_bytes;
             apply_bytes = apply_bytes - old_apply + group.replica.apply_bytes;
-            self.order.push_back(scope);
+            group.scheduled = group.report_failure
+                || (group.failed.is_none()
+                    && (group.tick
+                        || !group.hints.is_empty()
+                        || !group.deferred.is_empty()
+                        || group.replica.has_work()));
+            if group.scheduled {
+                self.order.push_back(scope);
+            }
         }
+        self.ready_bytes = ready_bytes;
+        self.apply_bytes = apply_bytes;
+        self.pending_reads = pending_reads;
         self.order.rotate_left(usize::from(!self.order.is_empty()));
         Ok(made)
     }
@@ -1178,7 +1224,7 @@ impl Worker {
                 request=requests.receiver.recv()=> { match request { Some(request)=>self.dispatch(request),None=>return Ok(()) } }
                 _=stop.notified()=>return Ok(()),
                 result=io=> { self.finish_batch(result)?; }
-                _=timer=> { let now=self.domain.mono_ms().unwrap_or(0); if now>=tick_at { if self.options.tick_interval_ms.is_some() { for group in self.groups.values_mut() { group.tick=true; } } tick_at=now.saturating_add(self.options.tick_interval_ms.unwrap_or(1000)); } }
+                _=timer=> { let now=self.domain.mono_ms().unwrap_or(0); if now>=tick_at { if self.options.tick_interval_ms.is_some() { self.tick(); } tick_at=now.saturating_add(self.options.tick_interval_ms.unwrap_or(1000)); } }
                 _=sender.closed()=>return Ok(()),
                 capacity=sender.reserve(),if !self.outbox.events.is_empty()=> { if capacity.is_err() { return Ok(()); } }
                 _=budget.wake.notified()=>{},

@@ -22,11 +22,41 @@ async fn ready_persistence_order() -> Result<()> {
     let mut cluster = Cluster::new(3, &[10, 11, 12]).await?;
     let release = cluster.hosts[0].gate.arm(fault::HOLD_SYNC);
     cluster.hosts[0].runtime.campaign(&scope(10)).await?;
-    tokio::time::timeout(
-        Duration::from_secs(5),
-        cluster.hosts[0].gate.entered.notified(),
-    )
-    .await?;
+    // Pre-vote does not change durable state. Observe both pre-vote requests
+    // and deliver one grant to reach the actual term/vote write. Do not drain
+    // this node's events after the grant: a leaked vote must fail below.
+    tokio::time::timeout(Duration::from_secs(5), async {
+        let mut grant_from = None;
+        for _ in 0..2 {
+            let event = cluster.hosts[0].events.recv().await.unwrap();
+            let RuntimeEventKind::Message { message, .. } = event.kind else {
+                bail!("expected a pre-vote request before any durable mutation")
+            };
+            assert_eq!(
+                message.get_msg_type(),
+                raft::prelude::MessageType::MsgRequestPreVote
+            );
+            grant_from = Some(message);
+        }
+        let message = grant_from.unwrap();
+        let peer = message.to as usize - 1;
+        cluster.hosts[peer]
+            .runtime
+            .step(&scope(10), message)
+            .await?;
+        let event = cluster.hosts[peer].events.recv().await.unwrap();
+        let RuntimeEventKind::Message { message, .. } = event.kind else {
+            bail!("expected a pre-vote grant without persistence")
+        };
+        assert_eq!(
+            message.get_msg_type(),
+            raft::prelude::MessageType::MsgRequestPreVoteResponse
+        );
+        cluster.hosts[0].runtime.step(&scope(10), message).await?;
+        cluster.hosts[0].gate.entered.notified().await;
+        Ok::<_, anyhow::Error>(())
+    })
+    .await??;
     assert!(
         cluster.hosts[0].events.try_recv().is_err(),
         "messages must wait for the held sync"

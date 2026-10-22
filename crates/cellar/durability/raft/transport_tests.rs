@@ -6,6 +6,123 @@ use crate::raft::storage::ReplicaLog;
 use cellar_logic::consensus::{DiskLineage, ProcessGeneration};
 use cellar_logic::consensus::{GroupId, IncarnationId, MemberId, NodeIdentity};
 
+#[derive(Default)]
+struct FrameWriter {
+    bytes: Vec<u8>,
+    writes: usize,
+    flushes: usize,
+    limit: Option<usize>,
+    pending: bool,
+}
+
+impl AsyncWrite for FrameWriter {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        bytes: &[u8],
+    ) -> Poll<std::io::Result<usize>> {
+        self.as_mut()
+            .poll_write_vectored(cx, &[std::io::IoSlice::new(bytes)])
+    }
+
+    fn poll_write_vectored(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        slices: &[std::io::IoSlice<'_>],
+    ) -> Poll<std::io::Result<usize>> {
+        if self.pending {
+            self.pending = false;
+            cx.waker().wake_by_ref();
+            return Poll::Pending;
+        }
+        self.writes += 1;
+        let mut remaining = self.limit.unwrap_or(usize::MAX);
+        let mut written = 0;
+        for slice in slices {
+            let take = remaining.min(slice.len());
+            self.bytes.extend_from_slice(&slice[..take]);
+            written += take;
+            remaining -= take;
+        }
+        self.pending = true;
+        Poll::Ready(Ok(written))
+    }
+
+    fn is_write_vectored(&self) -> bool {
+        true
+    }
+
+    fn poll_flush(mut self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        self.flushes += 1;
+        Poll::Ready(Ok(()))
+    }
+
+    fn poll_shutdown(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        Poll::Ready(Ok(()))
+    }
+}
+
+#[tokio::test]
+async fn frame_head_coalesces_tls_writes_without_changing_bytes() -> anyhow::Result<()> {
+    let head = FrameHead {
+        prefix: [1; frame::PREFIX],
+        header: vec![2; 113],
+        tag: [3; frame::TAG],
+        payload_len: 0,
+    };
+    let expected = [&head.prefix[..], &head.header, &head.tag].concat();
+    let mut writer = FrameWriter::default();
+    write_head(&mut writer, &head).await?;
+    assert_eq!(writer.bytes, expected);
+    assert_eq!(writer.flushes, 1);
+    assert_eq!(
+        writer.writes, 1,
+        "one frame header should produce one TLS write"
+    );
+    for limit in [1, 7, 23, 101] {
+        let mut writer = FrameWriter {
+            limit: Some(limit),
+            ..Default::default()
+        };
+        write_head(&mut writer, &head).await?;
+        assert_eq!(writer.bytes, expected);
+        assert_eq!(writer.flushes, 1);
+    }
+    let mut writer = FrameWriter {
+        limit: Some(0),
+        ..Default::default()
+    };
+    assert!(matches!(
+        write_head(&mut writer, &head).await,
+        Err(TransportError::Io(_))
+    ));
+    assert_eq!(writer.flushes, 0);
+    Ok(())
+}
+
+#[tokio::test]
+async fn partial_frame_writes_preserve_header_and_body_boundaries() -> anyhow::Result<()> {
+    let body = vec![4; 239];
+    let head = FrameHead {
+        prefix: [1; frame::PREFIX],
+        header: vec![2; 113],
+        tag: [3; frame::TAG],
+        payload_len: body.len(),
+    };
+    let expected = [&head.prefix[..], &head.header, &head.tag, &body].concat();
+    for limit in [1, 7, 23, 101, 4096] {
+        let mut writer = FrameWriter {
+            limit: Some(limit),
+            ..Default::default()
+        };
+        write_frame(&mut writer, &head, &body).await?;
+        assert_eq!(writer.bytes, expected);
+        assert_eq!(writer.flushes, 1);
+        assert_eq!(writer.writes, expected.len().div_ceil(limit));
+    }
+    Ok(())
+}
+
 struct Fixture {
     domain: crate::asyncrt::ExecutionDomain,
     log: ReplicaLog,

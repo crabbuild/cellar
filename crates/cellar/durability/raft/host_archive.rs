@@ -49,6 +49,8 @@ pub(crate) struct Owner {
     pub cancellation: tokio::sync::watch::Sender<bool>,
     pub busy: bool,
     pub cursor: Option<GroupScope>,
+    /// Empty inventory is retried by maintenance, not by every peer frame.
+    pub scan_at: u64,
 }
 
 impl Owner {
@@ -85,6 +87,7 @@ impl Owner {
             cancellation,
             busy: false,
             cursor: None,
+            scan_at: 0,
         })
     }
 }
