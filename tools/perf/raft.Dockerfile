@@ -14,7 +14,11 @@ RUN --mount=type=cache,id=cellar-perf-registry,target=/usr/local/cargo/registry 
     find Cargo.toml Cargo.lock crates examples tools vendor -type f -exec touch {} + && \
     cargo build --profile lab --locked -p cellar --bin cellar-perf-raft && \
     mkdir /out && cp target/lab/cellar-perf-raft /out/
-RUN find Cargo.toml Cargo.lock crates vendor examples tools/perf tools/xtask -type f \( -name '*.rs' -o -name '*.toml' -o -name Cargo.lock \) -print0 | \
+# Include embedded SQL, protobuf, C, assets and build recipes as well as Rust.
+# Match source_manifest() and the context's node_modules/.cellar exclusions.
+RUN find Cargo.toml Cargo.lock crates vendor examples tools/perf tools/xtask \
+    \( -name .git -o -name .cellar -o -name node_modules -o -name __pycache__ \) -prune -o \
+    \( -type f -o -type l \) ! -name '*.pyc' ! -name .DS_Store -print0 | \
     LC_ALL=C sort -z | xargs -0 sha256sum > /out/raft-source.sha256
 FROM debian:bookworm-slim
 ARG SOURCE_REVISION=unspecified

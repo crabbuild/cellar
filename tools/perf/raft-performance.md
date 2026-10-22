@@ -12,7 +12,8 @@ not qualification of independent failure domains or the Q1 topology.
 
 Use the checkout's own target-cache ID. Source and executable checks happen
 before creating the run directory or workload resources. The image must be an
-immutable digest. The builder saves hashes of its Rust/manifests/lockfile input;
+immutable digest. The builder saves hashes of its copied source inputs, including embedded SQL,
+protobuf, C, assets and build recipes, excluding generated caches;
 the runner compares those inputs with the checkout and checks each running
 process's `/proc/1/exe` against the measured executable hash.
 
@@ -121,3 +122,38 @@ Fault scenarios and soak are refused before resource creation until their
 injection and reconciliation capabilities exist. The Q1 six-process run and
 large-fleet gates remain unqualified within the agreed local five-node ceiling.
 MR-13's remaining management/restore gates also remain open.
+
+## Initial local measurements — October 22
+
+Five healthy 12-cell runs retained their complete ledgers and checked every cell
+on every voter. The final two runs use source `c1992ee` and fix offered-operation
+randomness so generator rejection cannot change subsequent cell/operation
+choices. The earlier three are diagnostic observations; they predate that fix.
+All use the same native executable hash and the 1-vCPU/3-GiB node limits.
+
+| Run | Durability | Completed / 200 offered | Generator rejections | Arrival p99 |
+| --- | --- | ---: | ---: | ---: |
+| Diagnostic 1 | Quorum | 190 | 10 | 535 ms |
+| Diagnostic 2 | Quorum | 200 | 0 | 38 ms |
+| Diagnostic 3 | S3 | 177 | 23 | 230 ms |
+| Fixed arrivals 1 | Quorum | 168 | 32 | 456 ms |
+| Fixed arrivals 2 | S3 | 133 | 67 | 807 ms |
+
+Every submitted operation in these runs received a successful response and passed
+reference reconciliation. Rejections count against offered load; they are not
+removed from the error fraction. The final runs both miss their proposed traffic
+objectives. These small measurements do not establish steady state, capacity or
+a performance improvement. Quorum and S3 are different acknowledgement contracts.
+
+Timing in the second diagnostic run did not reproduce the first run's long
+client-side delay: invocation-journal p99 was below 1 ms. The first outlier is
+unresolved. After the final experiments, the host reported 32 GiB physical RAM
+and about 18 GiB of swap in use; its three configured VMs totalled 34 GiB. Those
+are observations after the runs, not proof of their cause. Controlled host
+memory conditions and internal fsync/apply/archive timing are required before
+latency qualification. The owned test profile was stopped after evidence
+capture; its disks and logs remain available.
+
+The portable evidence capsule and source/test pins are recorded in
+`plans/multi-raft/evidence/MR-14-performance-progress.json`. Earlier failed
+objectives are retained alongside later results.

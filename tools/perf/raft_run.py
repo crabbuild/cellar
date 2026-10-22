@@ -100,7 +100,9 @@ def capacity(profile):
 def source_manifest(root=ROOT):
     files = [root / 'Cargo.toml', root / 'Cargo.lock']
     for folder in ('crates', 'vendor', 'examples', 'tools/perf', 'tools/xtask'):
-        files.extend(p for p in (root / folder).rglob('*') if p.is_file() and (p.suffix in ('.rs', '.toml') or p.name == 'Cargo.lock'))
+        files.extend(p for p in (root / folder).rglob('*') if p.is_file()
+                     and not set(p.relative_to(root).parts) & {'.git', '.cellar', 'node_modules', '__pycache__'}
+                     and p.name != '.DS_Store' and p.suffix != '.pyc')
     return {str(p.relative_to(root)): hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(files)}
 
 
