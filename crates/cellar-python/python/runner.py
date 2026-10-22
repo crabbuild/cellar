@@ -180,7 +180,8 @@ async def _serve(module, inbox, interval, shutdown, stats, maximum, max_tasks, t
                 del entry, result
             while (start := inbox.take()) is not None:
                 invocation, payload, bridge = start
-                context = Context(bridge, json.loads(payload)["identity"])
+                payload = json.loads(payload)
+                context = Context(bridge, payload["identity"])
                 if len(asyncio.all_tasks()) >= max_tasks:
                     stats["budget_exhaustions"] += 1
                     token = _current_invocation.set(bridge)
@@ -191,7 +192,7 @@ async def _serve(module, inbox, interval, shutdown, stats, maximum, max_tasks, t
                         _current_invocation.reset(token)
                     del context, bridge, payload
                     continue
-                task = asyncio.create_task(_invoke(module, objects, json.loads(payload), bridge, context, stats, maximum))
+                task = asyncio.create_task(_invoke(module, objects, payload, bridge, context, stats, maximum))
                 task.add_done_callback(completed)
                 invocations[invocation] = (task, context, bridge)
                 del task, context, bridge, payload
