@@ -1326,23 +1326,54 @@ async fn public_multi_group_replication_and_leader_failover() -> Result<()> {
         })
         .await?)
     }
+
+    async fn command_with_backpressure(
+        cell: &RaftCellHandle,
+        contract: OperationContract,
+        input: Vec<u8>,
+        mut options: CommandOptions,
+    ) -> Result<CommandReceipt> {
+        // Readiness is an observation, not a reservation of the SQL owner.
+        // Only explicit pre-submission backpressure may be retried here. Keep
+        // the ID, input, retry window and durability under the original deadline.
+        let deadline = tokio::time::Instant::now() + options.timeout;
+        loop {
+            options.timeout = deadline.saturating_duration_since(tokio::time::Instant::now());
+            ensure!(
+                !options.timeout.is_zero(),
+                "failover command admission remained overloaded through its deadline"
+            );
+            let result = cell
+                .command(contract.clone(), input.clone(), options.clone())
+                .await;
+            if !matches!(result, Err(CommandFailure::Overloaded)) {
+                return Ok(result?);
+            }
+            tokio::time::sleep_until(
+                deadline.min(tokio::time::Instant::now() + Duration::from_millis(5)),
+            )
+            .await;
+        }
+    }
+
+    let original_options = public_node::options(1)?;
     let mut receipts = Vec::new();
     for group in 0..2 {
         let primary = leader(&handles, group, None).await?;
         let value = (group + 1) as i64;
-        let receipt = handles[primary][group]
-            .command(
-                definitions[primary].increment.clone(),
-                value.to_be_bytes().to_vec(),
-                public_node::options(1)?,
+        let receipt = command_with_backpressure(
+            &handles[primary][group],
+            definitions[primary].increment.clone(),
+            value.to_be_bytes().to_vec(),
+            original_options.clone(),
+        )
+        .await
+        .with_context(|| {
+            format!(
+                "initial command in group {group}, leader {primary}, callbacks {}",
+                calls[primary].load(Ordering::SeqCst)
             )
-            .await
-            .with_context(|| {
-                format!(
-                    "initial command in group {group}, leader {primary}, callbacks {}",
-                    calls[primary].load(Ordering::SeqCst)
-                )
-            })?;
+        })?;
         assert_eq!(receipt.result, value.to_be_bytes());
         receipts.push(receipt);
         // The same ID is independent between groups; followers execute no
@@ -1379,16 +1410,18 @@ async fn public_multi_group_replication_and_leader_failover() -> Result<()> {
         .shutdown(ShutdownMode::Preserve)
         .await?;
     let replacement = leader(&handles, 0, Some(failed)).await?;
-    let retry = handles[replacement][0]
-        .command(
-            definitions[replacement].increment.clone(),
-            1_i64.to_be_bytes().to_vec(),
-            public_node::options(1)?,
-        )
-        .await
-        .context("retry after election")?;
+    let retry = command_with_backpressure(
+        &handles[replacement][0],
+        definitions[replacement].increment.clone(),
+        1_i64.to_be_bytes().to_vec(),
+        original_options,
+    )
+    .await
+    .context("retry after election")?;
     assert_eq!(retry.result, receipts[0].result);
     assert_eq!(retry.version, receipts[0].version);
+    assert_eq!(retry.id, receipts[0].id);
+    assert_eq!(retry.durability, receipts[0].durability);
     assert_eq!(
         calls
             .iter()
@@ -1396,14 +1429,14 @@ async fn public_multi_group_replication_and_leader_failover() -> Result<()> {
             .sum::<usize>(),
         2
     );
-    let next = handles[replacement][0]
-        .command(
-            definitions[replacement].increment.clone(),
-            1_i64.to_be_bytes().to_vec(),
-            public_node::options(2)?,
-        )
-        .await
-        .context("new command after election")?;
+    let next = command_with_backpressure(
+        &handles[replacement][0],
+        definitions[replacement].increment.clone(),
+        1_i64.to_be_bytes().to_vec(),
+        public_node::options(2)?,
+    )
+    .await
+    .context("new command after election")?;
     assert_eq!(next.result, 2_i64.to_be_bytes());
     assert_eq!(
         calls
