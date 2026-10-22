@@ -563,7 +563,62 @@ The `1ac16d1` free-threaded Linux CI job failed
 `native_node`: a lease renewal became ambiguous and the watchdog reported
 `NodeLeaseExpired`. This is outside the multi-Raft path and remains recorded as
 an unresolved CI failure. Production-image comparison of the download window
-remains pending; no overall speedup is claimed.
+is recorded below; no overall speedup is claimed.
+
+## Archive-download production comparison
+
+Fresh control (`1ac16d1`) and candidate (`2ee7fd6`) clusters used identical
+three-node resources, 1,500 groups, workload source, 500-ms ticks, 4,096 queue
+items and 512-MiB archive scratch mounts. Source files, image revision labels
+and executable hashes matched each build. Six 60-second windows ran at
+concurrency 3/6/9 and then 9/6/3. No builds, tests or profilers from this checkout
+ran during measurement.
+
+| Build | Repeat | Writers | Accepted writes/sec | Successful-response p99 | Overloads |
+| --- | --- | --- | --- | --- | --- |
+| Control | 1 | 3 | 148.58 | 108.07 ms | 0 |
+| Control | 1 | 6 | 48.99 | 442.67 ms | 0 |
+| Control | 1 | 9 | 151.42 | 207.72 ms | 1,062 |
+| Control | 2 | 9 | 155.02 | 205.63 ms | 1,846 |
+| Control | 2 | 6 | 154.47 | 119.19 ms | 1,065 |
+| Control | 2 | 3 | 169.92 | 42.53 ms | 0 |
+| Candidate | 1 | 3 | 155.62 | 63.51 ms | 0 |
+| Candidate | 1 | 6 | 201.22 | 91.77 ms | 0 |
+| Candidate | 1 | 9 | 152.78 | 201.71 ms | 224 |
+| Candidate | 2 | 9 | 173.85 | 210.39 ms | 0 |
+| Candidate | 2 | 6 | 112.46 | 176.87 ms | 0 |
+| Candidate | 2 | 3 | 72.09 | 164.20 ms | 0 |
+
+Independent receipt analysis verified 51,254 control and 53,618 candidate
+acknowledgements including seed, each against all 4,500 exact replica values
+and all 1,500 archive positions. Both latency budgets select three writers for
+the control (mean 159.25 writes/sec) and six for the candidate (mean 156.84).
+The candidate's six-writer setting has no overloads in either repeat, but its
+throughput varies substantially. Its three-writer average is lower than the
+control's. Total overloads fell from 3,973 to 224; that does not establish an
+increase in qualifying throughput.
+
+Other checkouts' build processes appeared in 64/93 control and 68/89 candidate
+activity samples, including timed traffic. Only the control's final three-writer
+window had no such sampled overlap. This comparison therefore does not prove
+a controlled or repeatable speedup. Final archive catch-up after replica reads
+took 22.17 seconds for the control and 11.24 for the candidate; different pending
+work means these waits are not direct archive service-rate measurements. Peak
+node memory stayed below 1.10 GB and cgroup counters recorded no OOM events.
+
+The [sanitized comparison](evidence/tikv-archive-download-comparison.json) records
+per-window overlap, hashes and exact verification counts. Raw evidence remains
+in `.cellar/raft-perf/1500-tikv-download-control` and
+`.cellar/raft-perf/1500-tikv-download-candidate`. Both clusters are stopped;
+their voter and RustFS volumes, configs and closing logs are retained.
+
+The next measured cost to address is repeated admission accounting. TiKV's
+[entry storage](https://github.com/tikv/tikv/blob/b3995dab28308f09cbb7c125bf32f789dbc203fe/components/raftstore/src/store/entry_storage.rs)
+updates memory deltas on append, truncation and compaction. Cellar can apply the
+same principle to avoid recounting unchanged histories, but admission must
+remain correct after log replacement, snapshots, archive advancement, closure
+and changes to pending reservations. This remains proposed work, not a result
+of the download change.
 
 ## Remaining qualification
 
