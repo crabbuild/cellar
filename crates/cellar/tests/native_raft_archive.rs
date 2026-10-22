@@ -1221,19 +1221,17 @@ async fn retry_strengthens_durability() -> Result<()> {
     )
     .await?;
     let original = native.retry(1, Durability::Quorum).await?;
-    let cell = native.cell()?;
-    let mut options = public_node::options(1)?;
-    options.durability = Durability::S3;
-    let mut stronger = Box::pin(cell.command(
-        native.definition.increment.clone(),
-        1_i64.to_be_bytes().to_vec(),
-        options,
-    ));
+    let retry_timeout = public_node::options(1)?.timeout;
+    // Archive capture can own SQL when the Quorum receipt reaches its caller.
+    // Retry only the fixture's explicit Overloaded admission refusal, while one
+    // original deadline bounds the entire stronger retry, including admission.
+    let mut stronger = Box::pin(async {
+        tokio::time::timeout(retry_timeout, native.retry(1, Durability::S3)).await?
+    });
+    let observed = tokio::time::timeout(std::time::Duration::from_millis(200), &mut stronger).await;
     ensure!(
-        tokio::time::timeout(std::time::Duration::from_millis(200), &mut stronger)
-            .await
-            .is_err(),
-        "stronger retry used only a Quorum proof"
+        observed.is_err(),
+        "stronger retry completed during archive outage: {observed:?}"
     );
     ensure!(native.calls.load(Ordering::SeqCst) == 1);
     store.archive_unavailable.store(false, Ordering::Release);
