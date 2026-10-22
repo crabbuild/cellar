@@ -12,7 +12,7 @@ use cellar_logic::consensus::{GroupScope, LogPosition};
 use cellar_ltx::apply::{ApplyLimits, ImageState, ImageUpdate, LtxSegment};
 use cellar_ltx::generation::{GenerationError, GenerationPin, GenerationStore, ImageId};
 use cellar_ltx::{ltx, LtxHost, TXID};
-use futures_util::TryStreamExt;
+use futures_util::{StreamExt, TryStreamExt};
 use object_store::{path::Path, ObjectStore, PutMode, PutOptions, UpdateVersion};
 use protobuf::Message;
 use serde::{Deserialize, Serialize};
@@ -741,7 +741,7 @@ impl CellArchive {
                     ),
                 )
                 .await;
-            match self.read(&self.key("head"), 4096).await? {
+            match self.read(&self.key("head"), 4096, None).await? {
                 Some((observed, _)) if observed == desired => return Ok(set),
                 Some(_) => continue,
                 None => {
@@ -806,7 +806,7 @@ impl CellArchive {
     async fn load_head_metadata(
         &self,
     ) -> Result<Option<(ArchiveMetadata, Vec<u8>, UpdateVersion)>, ArchiveError> {
-        let Some((bytes, version)) = self.read(&self.key("head"), 4096).await? else {
+        let Some((bytes, version)) = self.read(&self.key("head"), 4096, None).await? else {
             return Ok(None);
         };
         if version.e_tag.is_none() && version.version.is_none() {
@@ -867,16 +867,29 @@ impl CellArchive {
             _retention,
             ..
         } = metadata;
-        let snapshot = self.get_object(&manifest.snapshot.object).await?;
-        let mut tails = Vec::new();
-        for tail in &manifest.tails {
-            let body = self.get_object(&tail.object).await?;
-            tails.push(body);
-        }
-        let mut dependencies = Vec::new();
-        for dependency in &manifest.dependencies {
-            dependencies.push((dependency.clone(), self.get_object(dependency).await?));
-        }
+        // The validated manifest bounds the sum of these exact object lengths.
+        // Reads enforce each declared length before allocating its body. A
+        // small ordered window overlaps I/O without multiplying the set budget
+        // or leaving detached requests behind on error/cancellation.
+        let objects = std::iter::once(&manifest.snapshot.object)
+            .chain(manifest.tails.iter().map(|tail| &tail.object))
+            .chain(manifest.dependencies.iter());
+        let reads = objects
+            .map(|object| self.get_object(object))
+            .collect::<Vec<_>>();
+        let mut bodies = futures_util::stream::iter(reads)
+            .buffered(4)
+            .try_collect::<Vec<_>>()
+            .await?
+            .into_iter();
+        let snapshot = bodies
+            .next()
+            .ok_or(ArchiveError::Corrupt("missing archive snapshot"))?;
+        let tails = bodies
+            .by_ref()
+            .take(manifest.tails.len())
+            .collect::<Vec<_>>();
+        let dependencies = manifest.dependencies.iter().cloned().zip(bodies).collect();
         let scope = self.scope.clone();
         let limits = self.limits;
         self.host
@@ -939,7 +952,10 @@ impl CellArchive {
                 ),
             )
             .await;
-        match self.read(&path, self.limits.max_object_bytes).await? {
+        match self
+            .read(&path, self.limits.max_object_bytes, Some(object.length))
+            .await?
+        {
             Some((observed, _)) => self
                 .host
                 .run_blocking(move || {
@@ -965,7 +981,7 @@ impl CellArchive {
             return Err(ArchiveError::Limit);
         }
         let bytes = self
-            .read(&self.key(&object.name()), limit)
+            .read(&self.key(&object.name()), limit, Some(object.length))
             .await?
             .ok_or(ArchiveError::Corrupt("missing archive object"))?
             .0;
@@ -985,6 +1001,7 @@ impl CellArchive {
         &self,
         path: &Path,
         limit: usize,
+        expected_length: Option<u64>,
     ) -> Result<Option<(Vec<u8>, UpdateVersion)>, ArchiveError> {
         let deadline = self.deadline()?;
         let result = match self.io(deadline, self.store.get(path)).await {
@@ -997,6 +1014,9 @@ impl CellArchive {
             || result.range.end != result.meta.size
         {
             return Err(ArchiveError::Limit);
+        }
+        if expected_length.is_some_and(|length| length != result.meta.size) {
+            return Err(ArchiveError::Corrupt("archive object digest/length"));
         }
         let length = result.meta.size as usize;
         let version = UpdateVersion {

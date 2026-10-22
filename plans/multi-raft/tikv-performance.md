@@ -478,6 +478,64 @@ Linux CI run. Five process helpers are invoked by their parent tests. Strict
 Clippy, formatting, layout, dependency policy, documentation and eight Python
 harness tests passed. The PR remains a draft with these qualification limits.
 
+## Cache-fix verification and archive admission diagnosis
+
+The production cache-fix image at `1ac16d1` completed eight 60-second windows,
+verifying 91,714 acknowledgements including seed against all 4,500 replicas and
+1,500 archive positions. Both three-writer windows had zero errors: 187.49 and
+153.19 writes/sec, with p99 46.70 and 59.46 ms. Higher concurrency had admission
+refusals. Two subsequent 180-second, three-writer windows acknowledged another
+37,126 writes with zero errors: 71.74 writes/sec at 413.84-ms p99, then 134.02 at
+74.63-ms p99. All replicas and archive positions verified 128,840 total writes.
+The cache stall did not recur, but the longer windows do not both meet 200 ms.
+Host compilers overlapped 18/115 main-run and 60/86 sustained-run activity
+samples. These observations do not establish a controlled speedup.
+
+A separate frozen diagnostic build added cumulative timing counters to archive
+downloads, physical replay, publication, admission scanning and shared-log
+persistence. It used the same 1,500 groups and resource limits; production
+sources contain none of its probes. Its three 90-second windows at concurrency
+3/9/12 returned 0/3,384/19,651 overloads. All 4,500 replica values and 1,500 archive
+positions verified. No host compiler appeared in its 71 activity samples.
+
+The refusal counters identify the 4,096 unarchived-entry bound: observed
+refusals crossed 4,097–4,099 entries while the charged byte count was about
+122–127 MB, below the 256-MiB byte bound. As histories grew, download time rose
+from roughly 1 ms per set in the three-writer window to 4.2–5.1 ms in the
+twelve-writer window. Downloads accounted for approximately 33–38% of aggregate
+archive-publication wall time in that last window. Replay, object writes and
+confirmation remained material costs. Cumulative samples bracket window edges
+approximately; their nested timings must not be added as independent costs.
+The [sanitized evidence](evidence/tikv-archive-diagnosis.json) preserves identities,
+window results, stage counters and hashes of the ignored raw artifacts.
+
+The proposed download window admits at most four object reads per recovery set
+and preserves manifest order. The manifest already bounds aggregate payload
+bytes; reads now compare store metadata with each exact declared object length
+before allocating or polling its body. All hash, coverage and physical replay
+checks remain required. No archive admission limit or producer count increases.
+
+Two real recovery-set regressions hold payload reads at the object-store
+boundary. Serial download cannot fill the window; bounded download starts four
+reads, restores all six ordered tails and two dependencies, and releases every
+pending read on cancellation. A third regression reproduces reading a body
+whose advertised length disagrees with its manifest; the proposed change rejects
+it before the first payload chunk while preserving the object-integrity error.
+All three regressions failed before their respective changes and pass afterward.
+Local validation passes 651 cases across the library, archive, directory, effects,
+host, membership, operations, reads and snapshot targets. Three process helpers
+run through their parent cases. Strict affected-target and performance-binary
+Clippy, formatting, layout, dependency policy and documentation checks pass.
+The earlier shutdown-handoff case passes in this matrix; that does not explain
+its previous failure.
+
+The `1ac16d1` free-threaded Linux CI job failed
+`public_node_shutdown_drains_alarm_background_before_the_durability_cut` in
+`native_node`: a lease renewal became ambiguous and the watchdog reported
+`NodeLeaseExpired`. This is outside the multi-Raft path and remains recorded as
+an unresolved CI failure. Production-image comparison of the download window
+remains pending; no overall speedup is claimed.
+
 ## Remaining qualification
 
 - Reproduce and resolve the Linux management-stop admission-seal failure, then

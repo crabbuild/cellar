@@ -636,9 +636,14 @@ lookup remains available under backpressure. Incoming replication also has the
 transport/log/per-image hard bounds; this cap is not total process or disk usage.
 
 Archive captures have an independent budget from command/query output. Reads
-have one 10-second deadline including their stream; failed archive attempts retry
-after 100 ms. Shutdown cancels I/O and joins blocking work, then releases the
-workspace before returning. Startup reclaims verification copies under their
+have one 10-second deadline including their stream. Recovery material uses at
+most four concurrent object reads, collected in manifest order. Each object's
+declared length is checked before body allocation, preserving the validated
+aggregate recovery-set budget. Error or cancellation drops all pending reads;
+digest, coverage and physical replay checks still precede head publication.
+Failed archive attempts retry after 100 ms. Shutdown cancels I/O and joins
+blocking work, then releases the workspace before returning. Startup reclaims
+verification copies under their
 exclusive owner and preserves the authoritative engine image before retiring
 unreferenced application generations. Live pins survive retirement. Capacity
 pressure can defer an already committed apply while retaining its original
