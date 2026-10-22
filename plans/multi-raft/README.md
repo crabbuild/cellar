@@ -97,8 +97,16 @@ latency miss and two failed 1,500-cell attempts: one loses leadership during
 seeding, the next changes leaders during traffic after control queues build up.
 Memory headroom remains ample; a repeated 150-cell control also misses latency,
 so these shared-host observations do not establish sustained capacity.
+The [bounded control-pipeline evidence](evidence/MR-14-pipeline-progress.json)
+adds an eight-frame window on each existing control connection, with seven new
+regressions, 31 passing transport unit cases, 299 passing native Raft cases and
+daemon qualification. Four unchanged density runs reconcile every history and
+replica; the 1,500-cell run has no server refusals or changed leaders. However,
+control queues still fill, the 500/1,500-cell runs miss traffic targets and a
+repeated 150-cell control also misses. Queue bursts and repeatable latency remain
+the immediate work; these observations do not prove a causal speedup.
 The [current execution priorities](implementation-plan.md#current-execution-priorities)
-put control-path stability and reproducible MR-14 results first, then remaining
+put queue/latency diagnosis and reproducible MR-14 results first, then remaining
 MR-13 management/restore, MR-15 release qualification and MR-16/MR-17 expansion.
 The bounded archive producer now coalesces payloads from two histories while
 keeping independent per-cell physical verification and head publication. The

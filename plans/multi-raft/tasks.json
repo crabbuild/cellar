@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "baseline_revision": "4bbab55571c9860e0cf6ddf26cbcbafdc0d81ddc",
+  "baseline_revision": "e788e35554ec2562ad027285af22d082c3d26593",
   "status_values": [
     "TODO",
     "IN_PROGRESS",
@@ -2339,7 +2339,8 @@
         "crates/cellar-ltx/src/apply.rs",
         "crates/cellar-ltx/src/generation.rs",
         "crates/cellar-ltx/README.md",
-        "crates/cellar/tests/native_raft_ltx.rs"
+        "crates/cellar/tests/native_raft_ltx.rs",
+        "crates/cellar/durability/raft/transport_tests.rs"
       ],
       "creates": [
         "tools/perf/raft_run.py",
@@ -2381,7 +2382,9 @@
         "tools/perf/raft_docker.py",
         "tools/perf/test_raft_docker.py",
         "tools/perf/raft_kernel.py",
-        "tools/perf/test_raft_kernel.py"
+        "tools/perf/test_raft_kernel.py",
+        "crates/cellar/durability/raft/transport_send.rs",
+        "crates/cellar/durability/raft/transport_pipeline_tests.rs"
       ],
       "steps": [
         "Optimize shared log batches, pooled transport and fair scheduling while retaining per-group Ready ordering.",
@@ -2491,7 +2494,8 @@
         "evidence/MR-14-five-node-progress.json",
         "evidence/MR-14-wakeup-progress.json",
         "evidence/MR-14-slow-follower-progress.json",
-        "evidence/MR-14-density-progress.json"
+        "evidence/MR-14-density-progress.json",
+        "evidence/MR-14-pipeline-progress.json"
       ]
     },
     {

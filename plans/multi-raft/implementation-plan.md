@@ -78,20 +78,23 @@ Keep each later package's dependency and acceptance gates intact.
 
 ### Current execution priorities
 
-The [density observations](evidence/MR-14-density-progress.json) narrow the next
-work to availability and repeatable latency within the authorized five-node
+The [density observations](evidence/MR-14-density-progress.json) and subsequent
+[bounded control pipelining](evidence/MR-14-pipeline-progress.json) narrow the next
+work to queue bursts and repeatable latency within the authorized five-node
 Colima/RustFS scope. MR-13 and MR-14 remain in progress. This order reflects the
 requested MR-14 focus; it does not waive MR-13's release dependency.
 
-1. **Stabilize control-message delivery under density.** Reproduce the observed
-   outgoing control-queue buildup and leadership churn with a bounded transport
-   test. Evaluate pipelining on the shared peer connection: the current sender
-   waits for each authenticated frame acknowledgement before sending another.
-   Preserve frame order, exact peer/process authorization, bounded reservations,
-   cancellation/joining and per-frame outcomes. Admission acknowledgements must
-   remain distinct from durable Raft responses. Reject the hypothesis if a
-   controlled experiment does not reduce queue delay. Rerun the unchanged
-   150/500/1,500-cell profiles, retaining every failure and control result.
+1. **Resolve control-queue bursts and latency variability.** The sender now
+   pipelines at most eight already-admitted control frames on its existing peer
+   connection. Seven regressions cover ordering, authentication, partial outcomes,
+   stale routes, deadlines, cancellation and bidirectional progress. The unchanged
+   150/500/1,500-cell runs reconcile every history and replica, but queues still
+   approach 4,000 frames per node and the repeated 150-cell control misses traffic
+   targets. Identify whether sender/receiver admission, runtime service, private
+   SQL staging or short CPU pressure drives the remaining delay. Use existing
+   phase observations to build a bounded causal reproducer before another
+   optimization. Aggregate stage latency and mean CPU alone cannot establish
+   the cause. Preserve durability, authentication, budgets and numeric SLOs.
 2. **Finish MR-14's performance acceptance.** Establish repeatable healthy and
    slow-follower latency before claiming a supported capacity. Complete sustained
    S3 acknowledgement and equivalent-contract Fleet/bucket fault comparisons.
@@ -111,8 +114,10 @@ requested MR-14 focus; it does not waive MR-13's release dependency.
    source-fenced migration and cross-cluster failure behavior. Local containers
    do not establish 30/100/1,000-node or million-node support.
 
-The first deliverable is a tested control-path change or a rejected hypothesis
-with a narrower reproducer, followed by the same physical workload comparison.
+The bounded control-path change and physical comparison are delivered. The next
+deliverable is a causal reproducer for the remaining queue/latency burst, followed
+by a focused change and the same physical workload comparison. All misses remain
+in the evidence; one passing short run does not qualify a supported capacity.
 No group-limit increase, automatic seed retry or relaxed SLO substitutes for it.
 
 ## Package dependency order
@@ -1208,8 +1213,48 @@ checks retain their own pins. All owned containers are stopped, recorded empty
 networks removed, volumes preserved and the dedicated Colima profile stopped.
 Other profiles were not mutated.
 
-Remaining MR-14 gates include the observed control-queue/leadership and latency
-failures, sustained S3 acknowledgement latency, controlled
+The [bounded control-pipeline evidence](evidence/MR-14-pipeline-progress.json)
+pins source `e788e35`. Up to eight already-admitted FIFO control frames share the
+existing authenticated connection, without waiting to fill a window. Reads and
+writes progress concurrently under one existing I/O deadline; bulk data stays
+one frame at a time. Each reply retains its exact request, channel and route
+binding. A connection failure preserves only verified earlier admissions and
+fails unresolved frames without replay. Joined shutdown retains physical
+reservations, and admission remains separate from durable Raft responses.
+
+The original sender reproducer times out waiting for a second frame while the
+first reply is withheld. Seven final regression tests cover the bounded window,
+lost and reordered replies, route revocation, timeout, cancellation and one-byte
+duplex buffers. Initial test compilation and bootstrap-index fixture repairs are
+retained with the failing outputs. All 31 transport unit tests, 299 native Raft
+cases across 15 standard targets and the separate daemon process harness pass.
+All-target/all-feature Cellar Clippy, formatting/layout, native dependencies,
+documentation and 161 Python tests pass; one existing opt-in Docker test skips.
+
+The same five-node density profiles run from one new source-pinned image:
+
+| Cells | Attempt | Completed / offered | Overall p99 | Traffic targets |
+| --- | --- | --- | --- | --- |
+| 150 | Initial control | 1,200 / 1,200 | 54 ms | Met |
+| 500 | Density | 1,166 / 1,200 | 332 ms | Missed |
+| 1,500 | Density | 1,071 / 1,200 | 1,774 ms | Missed |
+| 150 | Repeated control | 1,104 / 1,200 | 400 ms | Missed |
+
+Every submitted history, all assigned replicas and archive coverage reconcile;
+memory headroom and exact before/after placement checks pass. Missing completions
+are generator rejections, with no observed server refusals. The 1,500-cell run
+verifies all 4,500 replicas without changed leaders, but measured control queues
+still reach 3,896–4,049 frames per node. Coarse Docker samples show a shorter CPU
+pressure burst that average kernel CPU rates hide. SQL-stage histogram bounds
+identify a delayed phase, not a proven sub-operation or cause. The repeated
+150-cell miss prevents a repeatable latency claim, and these shared-host runs do
+not establish a causal speedup. All four runs independently reanalyze after
+capsule extraction. Exact owned containers are stopped and empty networks
+removed; volumes remain and the dedicated profile is stopped. Other profiles
+were not mutated.
+
+Remaining MR-14 gates include the observed control-queue and latency failures,
+repeatable leadership stability under density, sustained S3 acknowledgement latency, controlled
 Fleet/bucket fault baselines and equivalent-contract analysis, instrumentation overhead
 and whole-device attribution, steady-state/density evidence and preliminary Q1
 execution.
