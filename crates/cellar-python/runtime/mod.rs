@@ -6,7 +6,7 @@ use crate::application::{PythonApplication, Source};
 use anyhow::{ensure, Context as _, Result};
 use pyo3::{
     prelude::*,
-    types::{PyModule, PyString},
+    types::{PyBytes, PyModule, PyString},
 };
 use std::{
     ffi::CString,
@@ -53,6 +53,7 @@ pub struct Options {
     pub max_invocations: usize,
     pub max_body_bytes: usize,
     /// Encoded invocation/result limit; at least 128 bytes for fixed failures.
+    /// Raw invocation bodies count at their base64-equivalent encoded length.
     pub max_value_bytes: usize,
     pub max_bridge_bytes: usize,
     pub max_operations: usize,
@@ -319,7 +320,7 @@ struct Inbox {
     runtime: Arc<Runtime>,
 }
 
-type StartDelivery = (u64, Py<PyString>, Py<InvocationBridge>);
+type StartDelivery = (u64, Py<PyString>, Py<PyBytes>, Py<InvocationBridge>);
 type ReplyDelivery = (u64, u64, Py<PyString>);
 
 #[pymethods]
@@ -374,8 +375,13 @@ impl Inbox {
             );
             let bridge = Py::new(py, start.bridge)?;
             let payload = PyString::new(py, &start.payload).unbind();
-            self.runtime.budget.copied_output(start.payload.len());
-            Ok((start.id, payload, bridge))
+            // Copy on the interpreter thread. No borrowed native buffer or
+            // Python reference crosses back into the invocation's SDK future.
+            let body = PyBytes::new(py, &start.body).unbind();
+            self.runtime
+                .budget
+                .copied_output(start.payload.len() + start.body.len());
+            Ok((start.id, payload, body, bridge))
         })
         .transpose()
     }

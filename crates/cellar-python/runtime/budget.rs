@@ -6,6 +6,8 @@ use std::sync::{
 
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct BridgeReport {
+    /// Outstanding native payload charges. Raw invocation bodies retain their
+    /// base64-equivalent charge, which is at least their owned byte length.
     pub queued_bytes: usize,
     pub peak_queued_bytes: usize,
     /// Sum of successful byte reservations, including later-abandoned work.
@@ -13,7 +15,8 @@ pub struct BridgeReport {
     /// Explicit owned UTF-8 copies from Python: SDK name/payload and completion.
     /// Excludes Python's own codec/UTF-8 caches and native transport copies.
     pub input_copied_bytes: usize,
-    /// Explicit owned UTF-8 copies into Python: invocation and SDK reply payloads.
+    /// Explicit owned UTF-8 and body copies into Python: invocation metadata,
+    /// raw request bodies and SDK reply payloads.
     pub output_copied_bytes: usize,
     pub budget_exhaustions: usize,
     pub pending_reservations: usize,

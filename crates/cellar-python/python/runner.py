@@ -65,7 +65,7 @@ def validate(module, descriptor):
         handlers(cell, events, 3)
 
 
-async def _invoke(module, objects, payload, bridge, context, stats, maximum):
+async def _invoke(module, objects, payload, body, bridge, context, stats, maximum):
     token = _current_invocation.set(bridge)
     started = time.perf_counter_ns()
     metrics = stats["interpreter"]
@@ -86,7 +86,7 @@ async def _invoke(module, objects, payload, bridge, context, stats, maximum):
             target = objects[key][0]
         kind, value = payload["kind"], payload["event"]
         handler = getattr(target, kind)
-        argument = {"fetch": lambda: Request._from_wire(value),
+        argument = {"fetch": lambda: Request._from_wire(value, body),
                     "queue": lambda: Batch(context, value),
                     "scheduled": lambda: Scheduled(context, value),
                     "alarm": lambda: value["scheduled_ms"]}[kind]()
@@ -179,7 +179,7 @@ async def _serve(module, inbox, interval, shutdown, stats, maximum, max_tasks, t
                 # An idle pump may receive no later reply to overwrite entry.
                 del entry, result
             while (start := inbox.take()) is not None:
-                invocation, payload, bridge = start
+                invocation, payload, body, bridge = start
                 payload = json.loads(payload)
                 context = Context(bridge, payload["identity"])
                 if len(asyncio.all_tasks()) >= max_tasks:
@@ -190,12 +190,12 @@ async def _serve(module, inbox, interval, shutdown, stats, maximum, max_tasks, t
                     finally:
                         context._close()
                         _current_invocation.reset(token)
-                    del context, bridge, payload
+                    del context, bridge, payload, body
                     continue
-                task = asyncio.create_task(_invoke(module, objects, payload, bridge, context, stats, maximum))
+                task = asyncio.create_task(_invoke(module, objects, payload, body, bridge, context, stats, maximum))
                 task.add_done_callback(completed)
                 invocations[invocation] = (task, context, bridge)
-                del task, context, bridge, payload
+                del task, context, bridge, payload, body
             for invocation, (task, context, bridge) in tuple(invocations.items()):
                 if not bridge.active() and not task.done():
                     task.cancel()

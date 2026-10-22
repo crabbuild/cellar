@@ -4,7 +4,11 @@ use cellar::sdk::{http::Response, Context, Request};
 use futures_util::StreamExt;
 use serde_json::{json, Value};
 
-pub(crate) async fn request(context: &Context, request: Request, limit: usize) -> Result<Value> {
+pub(crate) async fn request(
+    context: &Context,
+    request: Request,
+    limit: usize,
+) -> Result<(Value, Vec<u8>)> {
     headers(&request.headers)?;
     let mut stream = context.take_body(request.body)?;
     let mut bytes = Vec::new();
@@ -16,9 +20,20 @@ pub(crate) async fn request(context: &Context, request: Request, limit: usize) -
         );
         bytes.extend(chunk);
     }
-    Ok(
-        json!({ "url":request.url, "method":request.method, "headers":request.headers, "body":STANDARD.encode(bytes) }),
-    )
+    Ok((
+        json!({ "url":request.url, "method":request.method, "headers":request.headers, "body":"" }),
+        bytes,
+    ))
+}
+
+/// Preserve encoded-envelope admission while carrying a request body as bytes.
+/// Base64 has no JSON escapes, so its length can be charged without encoding it.
+pub(crate) fn invocation_size(metadata: usize, body: usize) -> Result<usize> {
+    body.checked_add(2)
+        .map(|rounded| rounded / 3)
+        .and_then(|groups| groups.checked_mul(4))
+        .and_then(|encoded| metadata.checked_add(encoded))
+        .context("Python invocation size overflow")
 }
 
 pub(crate) fn input(value: &Value, limit: usize) -> Result<Request> {
@@ -134,6 +149,23 @@ pub(crate) fn queue_body(body: &cellar::sdk::queue::Body) -> Result<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn binary_request_charge_matches_encoded_envelope() {
+        for size in [0, 1, 2, 3, 4, 255, 256, 257, 4095, 4096, 4097] {
+            let body: Vec<u8> = (0..size).map(|byte| byte as u8).collect();
+            let metadata = json!({"url":"http://cell/é", "headers":[["x", "\"\\"]], "body":""});
+            let mut encoded = metadata.clone();
+            encoded["body"] = json!(STANDARD.encode(&body));
+            assert_eq!(
+                invocation_size(serde_json::to_vec(&metadata).unwrap().len(), body.len()).unwrap(),
+                serde_json::to_vec(&encoded).unwrap().len()
+            );
+        }
+        assert!(invocation_size(usize::MAX, 1).is_err());
+        assert!(invocation_size(0, usize::MAX).is_err());
+        assert!(invocation_size(0, usize::MAX / 4 * 3 + 1).is_err());
+    }
 
     #[test]
     fn nested_request_body_and_header_limits_have_exact_boundaries() {

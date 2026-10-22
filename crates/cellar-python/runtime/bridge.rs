@@ -37,6 +37,7 @@ impl Drop for Mutation {
 pub(crate) struct Start {
     pub id: u64,
     pub payload: String,
+    pub body: Vec<u8>,
     pub bridge: InvocationBridge,
     pub reservation: super::Reservation,
 }

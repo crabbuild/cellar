@@ -172,7 +172,7 @@ simultaneously or to cap arbitrary Python heap or native-library pools.
   the Python loop. Their age is recorded. They are neither exact peaks nor
   per-cell heap limits. Interpreter snapshots carry their own age. Allocation
   tracing is disabled.
-- Python copy deltas count explicit owned UTF-8 bridge copies and include
+- Python copy deltas count explicit owned UTF-8 and raw request-body bridge copies and include
   warmup. They exclude Python codec caches, transport, SQLite and other internal
   copies. Native has no Python boundary: its bridge field is `null`, not an
   invented total-copy count. Payload sizes and raw attempts exist for both.

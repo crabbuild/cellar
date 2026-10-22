@@ -133,6 +133,11 @@ fails immediately when full. `max_pending_operations` bounds each invocation's
 operation/completion mailbox (32 entries by default); zero and unsupported
 capacities are refused before bootstrap. The result mailbox holds at most twice
 `max_invocations` replies. Refused sends release their byte reservations.
+HTTP invocation bodies cross into Python as immutable bytes beside the JSON
+metadata. The value and aggregate bridge budgets still charge the complete
+base64-equivalent envelope, preserving admission limits without allocating that
+encoded body. The interpreter copies the body while its native reservation is
+held; queued, refused and cancelled invocations release that reservation normally.
 `max_value_bytes` limits the serialized UTF-8 JSON envelope of an entire atomic
 batch, rather than each row separately. `max_batch_operations` counts checks,
 puts, deletes and an optional alarm decision together. Rejected oversized
@@ -180,7 +185,7 @@ delaying ordinary requests. The telemetry deadline may shorten that wait. A
 longer housekeeping interval delays observation of background thread/unraisable
 failures and notification-channel faults; it does not delay normal admission,
 replies or native retirement. Throughput and capacity still need qualification
-against the application's workload and fleet. The bridge report distinguishes queued/peak native bridge bytes, reservation totals and explicit UTF-8 copy bytes; it excludes Python heap, JSON/base64 intermediate allocations and native transport copies.
+against the application's workload and fleet. The bridge report distinguishes queued/peak native bridge charges, reservation totals and explicit UTF-8/body copy bytes; it excludes Python heap, JSON/base64 intermediate allocations and native transport copies.
 The managed task factory enforces `max_tasks` even for callbacks with an empty
 context. Shutdown can create up to two explicit supervisor tasks to join existing
 work; the reported peak includes them. These are cooperative resource limits,
@@ -354,7 +359,9 @@ does not infer rollback of abandoned mutations.
 
 `reserved_bytes_total` counts successful payload reservations, including later
 abandonment. `input_copied_bytes` and `output_copied_bytes` count explicit owned
-UTF-8 copies across the adapter boundary. Admission checks precede Rust-owned
+UTF-8 and raw request-body copies across the adapter boundary. Invocation body
+charges conservatively include their base64-equivalent length, while copy counters
+record the raw body length actually copied into Python. Admission checks precede Rust-owned
 input copies; SDK operation names are bounded to 64 bytes. These counters exclude
 codec temporaries, Python UTF-8 caches and native transport/library copies. They
 are distinct from allocation bytes.

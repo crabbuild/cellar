@@ -7,6 +7,10 @@ visits = 0
 async def fetch(request, ctx):
     if request.path == "/echo":
         return Response(request.body)
+    if request.path == "/input-envelope":
+        envelope = dict(kind="fetch", event=request._wire(), object=None, identity=None)
+        envelope["class"] = None
+        return Response.json(len(_encode(envelope).encode()))
     if request.path.startswith("/body/"):
         return Response(b"x" * (4096 if request.path.endswith("exact") else 4097))
     if request.path.startswith("/header-count/"):

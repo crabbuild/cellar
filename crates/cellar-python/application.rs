@@ -179,6 +179,7 @@ impl PythonApplication {
             .clone()
             .try_acquire_owned()
             .map_err(|_| anyhow::anyhow!("Python invocation capacity exhausted"))?;
+        let mut body = Vec::new();
         let (kind, payload) = if let Some(batch) = &state.queue {
             (
                 "queue",
@@ -186,10 +187,13 @@ impl PythonApplication {
             )
         } else {
             match event {
-                Invocation::Fetch(request) => (
-                    "fetch",
-                    values::request(&context, request, self.runtime.options.max_body_bytes).await?,
-                ),
+                Invocation::Fetch(request) => {
+                    let (metadata, bytes) =
+                        values::request(&context, request, self.runtime.options.max_body_bytes)
+                            .await?;
+                    body = bytes;
+                    ("fetch", metadata)
+                }
                 Invocation::Alarm { scheduled_ms } => {
                     ("alarm", json!({"scheduled_ms":scheduled_ms}))
                 }
@@ -218,14 +222,16 @@ impl PythonApplication {
         let payload = serde_json::to_string(
             &json!({"kind":kind,"event":payload,"object":object,"class":class,"identity":identity}),
         )?;
+        let charge = values::invocation_size(payload.len(), body.len())?;
         ensure!(
-            payload.len() <= self.runtime.options.max_value_bytes,
+            charge <= self.runtime.options.max_value_bytes,
             "Python invocation exceeds value budget"
         );
         self.runtime.start(Start {
             id: invocation,
-            reservation: self.runtime.budget.reserve(payload.len())?,
+            reservation: self.runtime.budget.reserve(charge)?,
             payload,
+            body,
             bridge: InvocationBridge {
                 sender,
                 active: active.clone(),

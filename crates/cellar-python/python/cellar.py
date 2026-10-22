@@ -133,8 +133,8 @@ class Request:
                     body=base64.b64encode(self.body).decode())
 
     @classmethod
-    def _from_wire(cls, value):
-        return cls(value["url"], value["method"], base64.b64decode(value["body"]), value["headers"])
+    def _from_wire(cls, value, body):
+        return cls(value["url"], value["method"], body, value["headers"])
 
 
 class Response:
