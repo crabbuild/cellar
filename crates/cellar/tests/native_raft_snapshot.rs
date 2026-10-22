@@ -1203,18 +1203,23 @@ async fn native_seed_drill(
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
 async fn native_snapshot_catchup_resumes_follower_reads() -> Result<()> {
-    native_snapshot_drill(false, false).await
+    native_snapshot_drill(false, false, false).await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
 async fn native_snapshot_interrupted_transfer_retries_without_blocking_other_groups() -> Result<()>
 {
-    native_snapshot_drill(true, false).await
+    native_snapshot_drill(true, false, false).await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
 async fn native_snapshot_shutdown_joins_partial_transfer() -> Result<()> {
-    native_snapshot_drill(true, true).await
+    native_snapshot_drill(true, true, false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn native_snapshot_receiver_can_lead_another_group_during_partial_transfer() -> Result<()> {
+    native_snapshot_drill(true, false, true).await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -1501,18 +1506,28 @@ async fn missing_quorum_restore_refused() -> Result<()> {
     cluster.close().await
 }
 
-async fn native_snapshot_drill(interrupt: bool, close_pending: bool) -> Result<()> {
+async fn native_snapshot_drill(
+    interrupt: bool,
+    close_pending: bool,
+    healthy_leader_on_receiver: bool,
+) -> Result<()> {
     use cellar::sdk::consensus::*;
     use std::{
         sync::atomic::{AtomicUsize, Ordering},
         time::Duration,
     };
     let calls: Vec<_> = (0..3).map(|_| Arc::new(AtomicUsize::new(0))).collect();
+    let cell_calls: Vec<_> = (0..3)
+        .map(|_| Arc::new(public_node::CellCalls::default()))
+        .collect();
     let (gate, _entered) = public_node::Gate::new();
     gate.release();
     let definitions = calls
         .iter()
-        .map(|calls| public_node::counter(calls.clone(), gate.clone()))
+        .zip(&cell_calls)
+        .map(|(calls, cells)| {
+            public_node::counter_with_cell_calls(calls.clone(), cells.clone(), gate.clone())
+        })
         .collect::<Result<Vec<_>>>()?;
     let mut namespace = native_snapshot_config();
     namespace.schema_digest = definitions[0].schema;
@@ -1549,7 +1564,8 @@ async fn native_snapshot_drill(interrupt: bool, close_pending: bool) -> Result<(
             ..Default::default()
         },
     )
-    .await?;
+    .await
+    .context("start native snapshot cluster")?;
     let handles = cluster
         .services
         .iter()
@@ -1569,7 +1585,8 @@ async fn native_snapshot_drill(interrupt: bool, close_pending: bool) -> Result<(
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
     })
-    .await?;
+    .await
+    .context("initial snapshot leader")?;
     let follower = (primary + 1) % 3;
     let before = handles[follower]
         .status()
@@ -1616,7 +1633,8 @@ async fn native_snapshot_drill(interrupt: bool, close_pending: bool) -> Result<(
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
     })
-    .await??;
+    .await
+    .context("snapshot checkpoint before healing")??;
     assert_eq!(calls[follower].load(Ordering::SeqCst), 0);
     let before_attempts = cluster.data_attempts(follower);
     let hold = if interrupt {
@@ -1656,22 +1674,37 @@ async fn native_snapshot_drill(interrupt: bool, close_pending: bool) -> Result<(
             .iter()
             .map(|service| service.cell(NamespaceId::new([2; 16]).unwrap(), "Counter:healthy"))
             .collect::<Result<Vec<_>, _>>()?;
+        if healthy_leader_on_receiver {
+            snapshot_fixture_move_healthy_leader(&healthy, follower).await?;
+        }
+        let mut healthy_status = vec![None; healthy.len()];
         let healthy_primary = tokio::time::timeout(Duration::from_secs(10), async {
             loop {
                 for (node, handle) in healthy.iter().enumerate() {
-                    if node != follower
-                        && handle
-                            .status()
-                            .await
-                            .is_ok_and(|status| status.command_ready)
-                    {
+                    let status = handle.status().await.ok();
+                    let ready = status.as_ref().is_some_and(|status| status.command_ready);
+                    healthy_status[node] = status.map(|status| {
+                        (
+                            status.role,
+                            status.leader,
+                            status.term,
+                            status.command_ready,
+                        )
+                    });
+                    // Leadership is per group. The snapshot receiver may
+                    // legitimately lead this independent healthy group.
+                    if ready {
                         return node;
                     }
                 }
                 tokio::time::sleep(Duration::from_millis(10)).await;
             }
         })
-        .await?;
+        .await
+        .with_context(|| format!("healthy group readiness: {healthy_status:?}"))?;
+        if healthy_leader_on_receiver {
+            assert_eq!(healthy_primary, follower);
+        }
         let options = public_node::options(1)?;
         let result = tokio::time::timeout(Duration::from_secs(5), async {
             loop {
@@ -1747,9 +1780,14 @@ async fn native_snapshot_drill(interrupt: bool, close_pending: bool) -> Result<(
     );
     ensure!(status.applied.index >= last.version.position.index);
     assert_eq!(
-        calls[follower].load(Ordering::SeqCst),
+        cell_calls[follower]
+            .lock()
+            .unwrap()
+            .get("Counter:snapshot")
+            .copied()
+            .unwrap_or(0),
         0,
-        "followers must not replay business commands"
+        "snapshot followers must not replay that cell's business commands"
     );
     assert_eq!(
         calls
@@ -1759,6 +1797,51 @@ async fn native_snapshot_drill(interrupt: bool, close_pending: bool) -> Result<(
         if interrupt { 13 } else { 12 }
     );
     cluster.close().await
+}
+
+async fn snapshot_fixture_move_healthy_leader(
+    handles: &[cellar::sdk::consensus::RaftCellHandle],
+    destination: usize,
+) -> Result<()> {
+    use cellar::sdk::consensus::{CommandFailure, LeadershipTransfer};
+    use std::time::Duration;
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            for (node, handle) in handles.iter().enumerate() {
+                let status = handle.status().await?;
+                if !status.command_ready {
+                    continue;
+                }
+                if node == destination {
+                    return Ok::<_, anyhow::Error>(());
+                }
+                match handle
+                    .transfer_leadership(
+                        LeadershipTransfer {
+                            target: MemberId::new(destination as u64 + 1)?,
+                            expected_term: status.term,
+                            expected_revision: status.membership_revision,
+                        },
+                        Duration::from_secs(1),
+                    )
+                    .await
+                {
+                    Ok(())
+                    | Err(
+                        CommandFailure::Unavailable
+                        | CommandFailure::Overloaded
+                        | CommandFailure::NotLeader { .. }
+                        | CommandFailure::CommandConflict,
+                    ) => (),
+                    Err(error) => return Err(error.into()),
+                }
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .context("prepare healthy group leadership on snapshot receiver")?
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

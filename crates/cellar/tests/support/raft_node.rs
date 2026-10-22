@@ -415,7 +415,24 @@ pub struct Counter {
 }
 
 pub fn counter(calls: Arc<std::sync::atomic::AtomicUsize>, gate: Arc<Gate>) -> Result<Counter> {
-    counter_with_class(calls, gate, RaftClass::new("Counter", 1, [21; 32])?)
+    counter_with_class(calls, gate, RaftClass::new("Counter", 1, [21; 32])?, None)
+}
+
+pub type CellCalls = std::sync::Mutex<std::collections::BTreeMap<String, usize>>;
+
+// Shared support also serves targets which only count calls across a node.
+#[allow(dead_code)]
+pub fn counter_with_cell_calls(
+    calls: Arc<std::sync::atomic::AtomicUsize>,
+    cell_calls: Arc<CellCalls>,
+    gate: Arc<Gate>,
+) -> Result<Counter> {
+    counter_with_class(
+        calls,
+        gate,
+        RaftClass::new("Counter", 1, [21; 32])?,
+        Some(cell_calls),
+    )
 }
 
 // This shared fixture also serves targets without archive-capture gates.
@@ -428,6 +445,7 @@ pub fn counter_with_blobs(
         calls,
         gate,
         RaftClass::new("Counter", 1, [21; 32])?.immutable_blobs(RaftBlobLimits::default())?,
+        None,
     )
 }
 
@@ -435,10 +453,14 @@ fn counter_with_class(
     calls: Arc<std::sync::atomic::AtomicUsize>,
     gate: Arc<Gate>,
     class: RaftClass,
+    cell_calls: Option<Arc<CellCalls>>,
 ) -> Result<Counter> {
     let class=class
         .command("Increment",[22;32],move |context,input|{
             calls.fetch_add(1,std::sync::atomic::Ordering::SeqCst);
+            if let Some(counts) = &cell_calls {
+                *counts.lock().unwrap().entry(context.identity().cell.clone()).or_default() += 1;
+            }
             let delta=i64::from_be_bytes(input.try_into()?);
             context.sql().execute_batch("CREATE TABLE IF NOT EXISTS counter(value INTEGER); INSERT INTO counter SELECT 0 WHERE NOT EXISTS(SELECT 1 FROM counter)")?;
             context.sql().execute("UPDATE counter SET value=value+?1",[delta])?;

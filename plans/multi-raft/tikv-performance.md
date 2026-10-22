@@ -1004,12 +1004,53 @@ a two-generation disk budget covers this capacity boundary. Ordinary committed
 image publication still needs its existing image sync and durable Raft marker;
 archive batching changes neither quorum nor S3 acknowledgement requirements.
 
+Before the next comparison, the dedicated benchmark VM's 120-GiB logical
+data disk was relocated to the Workspace volume. A complete independent SHA-256
+read matched the source before switching paths. The VM booted with the same
+8-vCPU/16-GiB configuration, all 164 retained Docker volumes and all 28 image
+entries matched, and the original redundant file was then removed. This freed
+about 100 GiB on the host filesystem without pruning Docker data. Both sides of
+the next comparison must use the new backing location; earlier internal-disk
+timings are not a controlled baseline for that comparison. Shared-host load
+remains part of the measurement conditions.
+
+## Select the healthy group's actual leader in snapshot drills
+
+The fresh Linux SDK job for `b68c086` and the local archive-batching regression
+suite both hit the interrupted-snapshot-transfer deadline. The snapshot drill
+looked for a command-ready leader of `Counter:healthy` while excluding the node
+receiving `Counter:snapshot`. Leadership is per cell, so that node can be the
+healthy group's only legitimate leader after the partition heals.
+
+A deterministic regression transfers the healthy group's leadership onto the
+snapshot receiver while its partial snapshot response is held. Before the fix,
+the fixture expires after ten seconds with that excluded node command-ready and
+both remaining nodes following it. The corrected fixture selects the observed
+healthy leader and still requires a committed command while transfer is held,
+a retry after the snapshot deadline, exact follower data after recovery, and
+zero callback replays for the snapshot cell. Per-cell callback accounting keeps
+that last assertion exact when the same node executes a legitimate command for
+the healthy cell. The total callback assertion remains twelve snapshot commands
+plus one healthy command. No deadlines or production Raft behavior change.
+
+All 210 affected native integration cases pass after the fixture correction,
+including 43 snapshot cases. The 452 library cases also passed against the same
+production code. Six process helpers run through their parent cases. Strict
+all-target Clippy for `cellar` and `cellar-ltx`, the LTX build without default
+features, formatting (799 Rust files), module layout, dependency policy (452
+packages) and documentation checks pass. Fresh Linux qualification is still
+required; the old CI failure is retained rather than represented as a passing
+run. Thirty isolated final repetitions also pass: ten original interrupted
+transfers, ten with the healthy leader forced onto the snapshot receiver, and
+ten shutdowns with a partial transfer held.
+
 ## Remaining qualification
 
-- Reproduce and resolve the Linux management-stop admission-seal failure, then
-  run affected native regressions for the final implementation.
-- Localize and resolve the recurring Linux interrupted-transfer/shutdown
-  snapshot deadlines without relaxing their assertions or skipping the cases.
+- Repeat the Linux management-stop admission-seal qualification; the latest
+  `b68c086` 3.14t job passes this case, but the earlier failure lacks a direct
+  reproducer.
+- Verify the corrected per-cell snapshot leadership drill on fresh Linux SDK
+  jobs, retaining the existing transfer, recovery and shutdown assertions.
 - Record batch occupancy and stage-level I/O evidence on diagnostic runs.
 - Compare fresh baseline and candidate clusters with identical resources,
   durability, cell counts, client partitioning and archive scratch placement.
