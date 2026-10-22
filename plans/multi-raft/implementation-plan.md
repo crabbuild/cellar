@@ -992,9 +992,38 @@ The shared Mac had about 10 GiB of swap in use before measurement. Raw logs,
 ledgers and observations retain this confounder and the separate durability
 contracts. The owned profile is stopped; volumes and evidence remain.
 
-Remaining MR-14 gates include instrumentation overhead and whole-device
-attribution, matched Fleet/bucket baselines, steady-state/density evidence and
-preliminary Q1 execution.
+The [reference-baseline evidence](evidence/MR-14-baseline-progress.json) adds
+executable Fleet and bucket adapters sharing the Raft workload's SQL statements,
+bindings, conditional transitions and open-loop scheduler. Application receipts
+commit with each baseline mutation; exact retries, conditional no-ops and state
+survive a native fresh-owner/empty-directory restore. Six affected Rust cases,
+all-target/all-feature Clippy, repository checks, 137 Python cases with one
+opt-in skip, and 17 plan-tool cases pass at source `efb8328`.
+
+Four sequential runs from one image use three 1-vCPU/3-GiB/no-swap containers,
+12 cells and 200 offered measurement operations. The baseline checkers reconcile
+owner-route histories and the Raft checker verifies all 36 actual replicas and
+archive coverage. These paths have different acknowledgement and read contracts:
+
+| Path | Completed / offered | Arrival p99 | Observation |
+| --- | --- | --- | --- |
+| Fleet | 200 / 200 | 35 ms | 97 Fleet output proofs, no proof errors |
+| Bucket | 200 / 200 | 37 ms | 97 bucket output proofs, no proof errors |
+| Raft Quorum | 199 / 200 | 28 ms | One non-ambiguous `VersionUnavailable` follower query |
+| Raft S3 | 139 / 200 | 859 ms | 61 generator rejections; traffic objectives missed |
+
+The comparison command reruns each analyzer and refuses a throughput ratio for
+these unequal contracts. Fleet races all current follower fsyncs against a bucket
+proof; owner reads do not prove a separate replica. Raft S3 also requires quorum
+commitment and image publication. The shared Mac had about 9.5 GiB swap in use;
+these observations establish neither steady state nor causal improvement over
+older runs. Exact owned containers exited zero and the dedicated profile is
+stopped; volumes and raw evidence remain. Other profiles were not changed.
+
+Remaining MR-14 gates include Raft S3 acknowledgement latency, controlled
+slow-follower baselines and equivalent-contract analysis, instrumentation overhead
+and whole-device attribution, steady-state/density evidence and preliminary Q1
+execution.
 The current local scope is at most five nodes; the original six-process Q1 gate
 remains unqualified. MR-13's remaining management/restore work stays open.
 
