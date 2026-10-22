@@ -41,7 +41,9 @@ jobs:
     if: github.event_name != 'workflow_dispatch' || (inputs.mode != 'consumer-replay' && inputs.mode != 'clock-replay')
     name: Rust framework and SDK (${{ matrix.python }})
     runs-on: ubuntu-22.04
-    timeout-minutes: 90
+    # ABI/package qualification plus serial fleet tests and restart examples
+    # exceed 90 minutes on shared runners; individual test bounds remain intact.
+    timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:
