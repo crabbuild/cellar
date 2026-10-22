@@ -266,10 +266,91 @@ including their group, operation error where available, and admission-close
 location. The measurements retain failed runs; no past timeout or replica
 failure is reclassified by this change.
 
+## Verified container runs for disposable execution
+
+The candidate image
+`sha256:6fdc0369dc06c3b5a1052d6cd2403d12c61706f71c97f7515d401009859c3c74`
+contains the production sources committed at `47615ea`. All 96 recorded inputs
+match its frozen build snapshot. Final validation passes 652 selected Rust
+cases (644 Cellar library/native cases and eight LTX cases), affected-target
+Clippy, formatting, layout, dependency, documentation and eight Python harness
+checks. Six standalone crash helpers run through their parent scenarios.
+
+The eight-window 1,500-group run reconciled 56,460 acknowledgements, including
+seed, against all 4,500 replica values and all 1,500 verified RustFS archive
+positions. The independent analyzer selected three concurrent writers:
+**113.25 writes/sec mean, 106.84 minimum, 141.23-ms worst-window p99**, with
+zero errors in both 60-second windows. Six writers also had zero errors,
+but lower mean throughput and a worst p99 of 255.90 ms. Both 12-writer windows
+and the second nine-writer window had admission refusals and are excluded.
+The observed 179.37 writes/sec at 12 writers is not a qualifying operating point.
+Final archive catch-up took 21.82 seconds after replica checks. No node exceeded
+its 3-GiB limit or recorded an OOM event.
+
+A subsequent 90-second, 12-writer workload concentrated traffic on 30 cells of
+the same 1,500-group cluster. It acknowledged 19,054 additional writes with zero
+errors, then again verified every one of the 4,500 replicas and 1,500 archive
+positions. The previously observed follower scheduling stall did not recur.
+No permanent group-failure event appeared in the sweep's node logs. This does
+not retrospectively explain the distinct earlier permanent `Unavailable` case.
+
+The [sanitized measurement record](evidence/tikv-disposable-progress.json)
+includes image/binary identities, all window results, qualification exclusions
+and hashes of ignored raw artifacts. Unrelated host builds overlapped 58 of
+118 activity samples, limiting timing attribution. A fresh unchanged control
+subsequently passed all replica/archive checks but had one six-writer admission
+refusal; its three-writer windows varied from 98.81 to 37.79 writes/sec, with
+worst p99 357.12 ms. Host builds overlapped 44 of 69 control samples. That control
+used only three/six-writer windows. The matching candidate confirmation then
+failed with one ambiguous response in its final three-writer window. Its first
+three-writer window reached 100.76 writes/sec at 266.79-ms p99; the final one
+reached 68.88 writes/sec at 211.01-ms p99 plus that timeout. Both six-writer
+windows exceeded 500-ms p99 (569.10 and 1,117.60 ms). The original command
+subsequently reconciled using its unchanged identity and original retry deadline;
+all three replicas had already applied its index. The failed measurement remains
+incomplete, and the timeout stage is not yet known.
+These observations establish verified operating points, not a controlled
+speedup or a soak/failure-zone qualification. All stopped clusters retain their
+named durable volumes.
+
+## Phase diagnostic and remaining tail
+
+A temporary instrumented build repeated the same 1,500-group fixture. Its first
+three/six/nine-writer windows had zero errors, but the second nine-writer window
+failed with five ambiguous responses and leader changes. This is a diagnostic
+run, not a qualifying throughput comparison. Instrumentation records every
+completion at least 250 ms long plus one of every 64 completions; these records
+are not an unbiased latency distribution.
+
+All five ambiguous producers spent 5,028–5,539 ms between submission preflight
+and delivery of their committed apply. Image preparation, applied-marker
+completion and publication then took 7–24 ms combined. Their original command
+identities reconciled within their original retry deadlines, and a separate
+read-only audit verified 33,274 writes including reconciliation against all
+4,500 replicas and 1,500 archive positions. The original timed report remains
+failed. By that audit, 16 groups had changed from the requested leader placement.
+
+Other slow completions appeared in different stages across nodes at similar
+times. A VM pressure sampler remained scheduled throughout the five-second
+failure interval; its longest observed sample gap was 342 ms. I/O pressure was
+low during much of that particular interval, so it does not support attributing
+those timeouts to a whole-VM pause or continuous global I/O stall. This narrows
+the next probe to shared-log persistence and transport queue/RPC time. Each peer
+lane currently waits for a frame admission response before sending its next
+frame; whether that serialization causes these tails remains to be measured.
+The failed measurement and tagged probe sources are retained locally under
+`.cellar/raft-perf/1500-tikv-phases` and `tikv-phases-source`.
+
+The standard Linux SDK CI job passed at `47615ea`. Its free-threaded Python
+matrix job failed the native `management_stop_seals_raft_before_joined_receipt`
+case: admission closure was not observed within its 500-ms bound. The original
+assertion remains unchanged; this failure is unresolved and is an additional
+qualification gate.
+
 ## Remaining qualification
 
-- Run native archive, execution, runtime, recovery and resource regressions for
-  the final implementation, including saturation and cancelled work.
+- Reproduce and resolve the Linux management-stop admission-seal failure, then
+  run affected native regressions for the final implementation.
 - Record batch occupancy and stage-level I/O evidence on diagnostic runs.
 - Compare fresh baseline and candidate clusters with identical resources,
   durability, cell counts, client partitioning and archive scratch placement.

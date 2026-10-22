@@ -1,0 +1,363 @@
+{
+  "format": 1,
+  "implementation_commit": "47615ea2dd3d25c10f6e9ce1160876c9682d440d",
+  "base_commit": "fb660b164b3cb0c8f88afcb659473445928a92a2",
+  "image": "sha256:6fdc0369dc06c3b5a1052d6cd2403d12c61706f71c97f7515d401009859c3c74",
+  "binary_sha256": "21c50b66938c8f953371f033a0a5cc22d037cbd2aa3f7b36e881faf562012fdd",
+  "cellar_nodes": 3,
+  "cpu_per_node": 1,
+  "memory_gib_per_node": 3,
+  "groups": 1500,
+  "leaders_per_node": 500,
+  "voters_per_group": 3,
+  "write_durability": "Quorum plus committed-image publication",
+  "archive": "RustFS with independently verified coverage",
+  "tick_ms": 500,
+  "archive_scratch_tmpfs_mib": 512,
+  "windows": [
+    {
+      "repeat": 1,
+      "concurrency": 3,
+      "seconds": 60,
+      "successful_writes": 7184,
+      "tps": 119.66627407653935,
+      "latency_ms": {
+        "p50": 16.246177001448814,
+        "p95": 62.77500400028657,
+        "p99": 108.3017140008451,
+        "max": 886.661896998703
+      },
+      "errors": 0
+    },
+    {
+      "repeat": 1,
+      "concurrency": 6,
+      "seconds": 60,
+      "successful_writes": 5133,
+      "tps": 85.31567120252035,
+      "latency_ms": {
+        "p50": 53.90102800083696,
+        "p95": 148.62044600158697,
+        "p99": 255.89541099907365,
+        "max": 1455.9229100013908
+      },
+      "errors": 0
+    },
+    {
+      "repeat": 1,
+      "concurrency": 9,
+      "seconds": 60,
+      "successful_writes": 7752,
+      "tps": 129.12384036585834,
+      "latency_ms": {
+        "p50": 56.302652999875136,
+        "p95": 152.7497700008098,
+        "p99": 246.95362700003898,
+        "max": 849.2043010010093
+      },
+      "errors": 0
+    },
+    {
+      "repeat": 1,
+      "concurrency": 12,
+      "seconds": 60,
+      "successful_writes": 10773,
+      "tps": 179.3663873018151,
+      "latency_ms": {
+        "p50": 43.6150829991675,
+        "p95": 112.60583200055407,
+        "p99": 171.8926930007001,
+        "max": 340.21346300141886
+      },
+      "errors": 4028
+    },
+    {
+      "repeat": 2,
+      "concurrency": 12,
+      "seconds": 60,
+      "successful_writes": 5547,
+      "tps": 92.3176314135446,
+      "latency_ms": {
+        "p50": 73.57224500083248,
+        "p95": 173.39548399831983,
+        "p99": 269.4391020013427,
+        "max": 1162.9466369995498
+      },
+      "errors": 3945
+    },
+    {
+      "repeat": 2,
+      "concurrency": 9,
+      "seconds": 60,
+      "successful_writes": 5311,
+      "tps": 88.38123152378681,
+      "latency_ms": {
+        "p50": 82.67779300149414,
+        "p95": 221.31051500036847,
+        "p99": 339.2949069966562,
+        "max": 991.4976109976124
+      },
+      "errors": 125
+    },
+    {
+      "repeat": 2,
+      "concurrency": 6,
+      "seconds": 60,
+      "successful_writes": 6840,
+      "tps": 113.9652157628757,
+      "latency_ms": {
+        "p50": 35.450880001008045,
+        "p95": 131.37483399987104,
+        "p99": 203.7449839990586,
+        "max": 1155.2325790034956
+      },
+      "errors": 0
+    },
+    {
+      "repeat": 2,
+      "concurrency": 3,
+      "seconds": 60,
+      "successful_writes": 6420,
+      "tps": 106.83761874614584,
+      "latency_ms": {
+        "p50": 18.553409998276038,
+        "p95": 75.19514399973559,
+        "p99": 141.2307780010451,
+        "max": 932.2411339999235
+      },
+      "errors": 0
+    }
+  ],
+  "selected_under_200_ms": {
+    "concurrency": 3,
+    "offered_rate": 0.0,
+    "mean_tps": 113.2519464113426,
+    "min_tps": 106.83761874614584,
+    "worst_p99_ms": 141.2307780010451,
+    "windows": 2
+  },
+  "acknowledged_writes_including_seed": 56460,
+  "verified_replica_values": 4500,
+  "verified_archive_groups": 1500,
+  "hot_followup": {
+    "completed": true,
+    "cells": 1500,
+    "active_cells": 30,
+    "seconds": 90,
+    "concurrency": 12,
+    "image": "sha256:6fdc0369dc06c3b5a1052d6cd2403d12c61706f71c97f7515d401009859c3c74",
+    "original_run_completed": true,
+    "successful_writes": 19054,
+    "errors": [],
+    "verified_replicas": 4500,
+    "verified_archives": 1500,
+    "archive_wait_seconds": 0.37056950000987854
+  },
+  "host_activity": {
+    "samples": 118,
+    "samples_with_builds": 58
+  },
+  "controlled_speedup_established": false,
+  "limits": [
+    "Synthetic counter workload on one shared Colima VM, not independent failure zones.",
+    "Higher-concurrency windows with admission errors are excluded from operating points.",
+    "Concurrent unrelated host builds limit timing attribution; a fresh control is running."
+  ],
+  "local_evidence_sha256": {
+    "report.json": "cf75d3a15e37e16997dcd9f76cc7ddfd246a7f62078b4d642f89dfc2bbcb3240",
+    "analysis-200.json": "73dc25e06035764df48c65c256967ca2a451c7f64d71b562e94589cc34c3f8db",
+    "analysis-500.json": "f2f87cfd75c09ca62c6dc1bb77684446a3bb6042b84780524786d9094dac4c28",
+    "replica-verification.json": "6f5103a261ac64f213b94a5b69d744c424d1be4df416c591573883ba3793b4f1",
+    "archive-verification.json": "4165ef5a5b3a311e5348e59b7e16852a9666b39a01d3428b7f9d3c889ecdb38e",
+    "hot-followup/report.json": "58d4757ef911da10a88f2d421510a151be32c544cddedfc4f9efa6f9ccf98d6e",
+    "hot-followup/writes.json": "d8f519b2a94782be4009ea9e7179a214ba83d4d66be95e7c6af5b56ac8ab2d7b",
+    "hot-followup/replicas.json": "71f3fdd6e21557c7a749184e04af366928211db4a2932595b1fc94eaf99a161d",
+    "hot-followup/archives.json": "c50b76dcd36c32f0668ee44141ac4ace8fe133ca987b97760b7307a208d7e53e",
+    "write-r1-c3.json": "d0902ce379e4386656297d18072950bedd2628ad7b60ccd8616a17b2b13f69ef",
+    "write-r1-c6.json": "048f3644309e01826788c8be1e7d687f425c41adee4cffd20be5fd154846b243",
+    "write-r1-c9.json": "7a71f44371c1795dd1b2f93a7322542bf8d001d6fe21e5c98465c1c54e86f95f",
+    "write-r1-c12.json": "b6c2d8d920582c5f83cd7b89e536ed626ffd54af0c3dc484f0cf5e72e47cbbcd",
+    "write-r2-c12.json": "d861e94866e542467ce21ca934591628ad261e001aa3908f1e6d6e4f8a547c8c",
+    "write-r2-c9.json": "ab9826f4057542ced6a40f85867769ce1c8ef7a2346f810dc7735254faa4453a",
+    "write-r2-c6.json": "a1a67d082eb79f3552bd429d963a24b7d1eaa95e31d102cd2c90dbdb7acc1197",
+    "write-r2-c3.json": "ff4a1a95cc08adbb47d16ca96fb2d877d9aba9ac8738adc6890b97220cca271e"
+  },
+  "matching_confirmation": {
+    "completed": false,
+    "failure": "non-admission write failure or ambiguity; see raw outcomes",
+    "windows": [
+      {
+        "repeat": 1,
+        "concurrency": 3,
+        "successful_writes": 6076,
+        "tps": 100.75792057011388,
+        "latency_ms": {
+          "p50": 17.730814000969985,
+          "p95": 80.04212599917082,
+          "p99": 266.79308699749527,
+          "max": 773.4125440001662
+        },
+        "error_free": true,
+        "error_count": 0
+      },
+      {
+        "repeat": 1,
+        "concurrency": 6,
+        "successful_writes": 3263,
+        "tps": 54.33569662950119,
+        "latency_ms": {
+          "p50": 79.77918999677058,
+          "p95": 278.5480549973727,
+          "p99": 569.1021579987137,
+          "max": 2662.340356000641
+        },
+        "error_free": true,
+        "error_count": 0
+      },
+      {
+        "repeat": 2,
+        "concurrency": 6,
+        "successful_writes": 3088,
+        "tps": 50.24759021685956,
+        "latency_ms": {
+          "p50": 57.413467999140266,
+          "p95": 382.49341499977163,
+          "p99": 1117.604320999817,
+          "max": 2242.8647370034014
+        },
+        "error_free": true,
+        "error_count": 0
+      },
+      {
+        "repeat": 2,
+        "concurrency": 3,
+        "successful_writes": 4141,
+        "tps": 68.87656208289354,
+        "latency_ms": {
+          "p50": 21.87755799968727,
+          "p95": 94.7336200006248,
+          "p99": 211.01434900265303,
+          "max": 4704.936425001506
+        },
+        "error_free": false,
+        "error_count": 1
+      }
+    ],
+    "reconciliation": "One ambiguous command resolved using its original identity and retry deadline; this does not qualify the timed run.",
+    "raw_report_sha256": "ab20474679ab345064513b4420c2da76eadcd7d161b7d1b7999133ba27c142a0"
+  },
+  "phase_diagnostic": {
+    "image": "sha256:5411def5dafc34118146cfc90248e4bc5a490b946abcf6b36d5344b74adc81a8",
+    "binary_sha256": "82454bcd218fd1fdde940bef829a1da6d123062666bbfd17842700ef770ca5ca",
+    "completed": false,
+    "failure": "non-admission write failure or ambiguity; see raw outcomes",
+    "scope": "Diagnostic only; temporary probes and concurrent host builds; no capacity qualification",
+    "ambiguous_count": 5,
+    "ambiguous_segments": [
+      {
+        "node": 1,
+        "cell": 1080,
+        "total_ms": 5048,
+        "segments_ms": {
+          "before_stage": 0,
+          "staging": 10,
+          "submit_preflight": 0,
+          "submit_to_apply": 5028,
+          "image_prepare": 8,
+          "applied_marker": 1,
+          "publication": 1,
+          "final_proof": 0
+        }
+      },
+      {
+        "node": 1,
+        "cell": 345,
+        "total_ms": 5051,
+        "segments_ms": {
+          "before_stage": 1,
+          "staging": 10,
+          "submit_preflight": 0,
+          "submit_to_apply": 5033,
+          "image_prepare": 6,
+          "applied_marker": 1,
+          "publication": 0,
+          "final_proof": 0
+        }
+      },
+      {
+        "node": 2,
+        "cell": 715,
+        "total_ms": 5571,
+        "segments_ms": {
+          "before_stage": 0,
+          "staging": 8,
+          "submit_preflight": 8,
+          "submit_to_apply": 5538,
+          "image_prepare": 8,
+          "applied_marker": 6,
+          "publication": 3,
+          "final_proof": 0
+        }
+      },
+      {
+        "node": 2,
+        "cell": 1348,
+        "total_ms": 5569,
+        "segments_ms": {
+          "before_stage": 0,
+          "staging": 8,
+          "submit_preflight": 0,
+          "submit_to_apply": 5537,
+          "image_prepare": 10,
+          "applied_marker": 8,
+          "publication": 6,
+          "final_proof": 0
+        }
+      },
+      {
+        "node": 2,
+        "cell": 55,
+        "total_ms": 5573,
+        "segments_ms": {
+          "before_stage": 0,
+          "staging": 10,
+          "submit_preflight": 0,
+          "submit_to_apply": 5539,
+          "image_prepare": 16,
+          "applied_marker": 8,
+          "publication": 0,
+          "final_proof": 0
+        }
+      }
+    ],
+    "error_counts": {
+      "NotLeader": 77,
+      "Ambiguous": 5,
+      "Overloaded": 20
+    },
+    "postfailure_data_audit": {
+      "completed": true,
+      "original_measurement_completed": false,
+      "original_failure": "non-admission write failure or ambiguity; see raw outcomes",
+      "acknowledged_including_reconciliation": 33274,
+      "verified_replicas": 4500,
+      "verified_archives": 1500,
+      "archive_wait_seconds": 0.3608707919920562,
+      "original_placement_matches": 1484,
+      "scope": "Read-only postfailure data reconciliation; original timed run remains failed"
+    },
+    "host_samples": 57,
+    "host_samples_with_builds": 57,
+    "raw_sha256": {
+      "report.json": "51454ecd8356d6fc83650db5748a24ef3b7a6307c33470edbb0fc234d5acb161",
+      "phase-diagnostics/samples.json": "e50859b02095f3ac6ef33d5ea1ea375c3ca9c71adbe61562192edad3a9d5a1a6",
+      "postfailure-data-verification/report.json": "9c10318a2cceb52328eeb29874c9ac584898614e84004411a7ca9e46c4ea314a"
+    }
+  },
+  "ci_at_implementation_commit": {
+    "standard_sdk": "passed",
+    "python_examples": "passed",
+    "free_threaded_sdk": "failed: management_stop_seals_raft_before_joined_receipt did not observe sealed admission within 500 ms; unresolved",
+    "run_id": 39758131994
+  }
+}
