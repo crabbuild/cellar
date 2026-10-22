@@ -32,6 +32,10 @@ def port_base(value):
     return port
 
 
+def captured_node_limits(config):
+    return {key: config[key] for key in ('NanoCpus', 'CpusetCpus', 'Memory', 'MemorySwap', 'Tmpfs')}
+
+
 def command(*args):
     p = subprocess.run(args, capture_output=True, text=True)
     if p.returncode:
@@ -255,7 +259,7 @@ def main():
         report['vm_memory_bytes']=int(docker('info','--format','{{.MemTotal}}'))
         report['limits']=[json.loads(docker('inspect','--format','{{json .HostConfig}}',name)) for name in nodes]
         # Only record resource-related fields: full inspect includes credentials.
-        report['limits']=[{k:r[k] for k in ('NanoCpus','CpusetCpus','Memory','MemorySwap','Tmpfs')} for r in report['limits']]
+        report['limits']=[captured_node_limits(raw) for raw in report['limits']]
         assert all(r['NanoCpus']==1000000000 and r['Memory']==3*1024**3 for r in report['limits'])
         docker('pull','python:3.12-slim')
         log('Balancing real leaders to the requested primary placement...')

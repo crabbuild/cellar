@@ -157,3 +157,29 @@ class IsolationTests(unittest.TestCase):
                 remote.assert_not_called()
             self.assertEqual(report.read_text(), before)
             self.assertEqual(list(Path(directory).iterdir()), [report])
+
+
+class ResourceCaptureTests(unittest.TestCase):
+    def limits(self):
+        return {'NanoCpus': 1_000_000_000, 'CpusetCpus': '0',
+                'Memory': 3 * 1024**3, 'MemorySwap': 3 * 1024**3}
+
+    def test_docker_may_omit_unused_tmpfs(self):
+        from raft import captured_node_limits
+        # Docker 29 omits this optional field for the real volume/bind layout.
+        for extra in ({}, {'Tmpfs': None}):
+            with self.subTest(extra=extra):
+                captured = captured_node_limits({**self.limits(), **extra})
+                self.assertEqual(captured, {**self.limits(), 'Tmpfs': {}})
+
+    def test_required_memory_quota_is_never_defaulted(self):
+        from raft import captured_node_limits
+        raw = {**self.limits(), 'Tmpfs': {}}
+        del raw['Memory']
+        with self.assertRaises(KeyError):
+            captured_node_limits(raw)
+
+    def test_explicit_tmpfs_mount_is_preserved(self):
+        from raft import captured_node_limits
+        raw = {**self.limits(), 'Tmpfs': {'/data/node/raft-cells/archive-verifier': 'rw,size=512m'}}
+        self.assertEqual(captured_node_limits(raw), raw)
