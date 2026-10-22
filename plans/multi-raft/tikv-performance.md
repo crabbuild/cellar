@@ -779,18 +779,84 @@ Validation passes 696 Rust cases: 452 library, 39 archive, 16 directory,
 cases. Strict all-target Clippy, formatting, layout, dependency policy and
 documentation checks pass. The performance Python suite passes 94 cases; its
 opt-in Docker freshness case was not enabled. The frozen-image comparison below
-independently checks source, executable and image identities. Production
-throughput qualification of this change remains pending.
+independently checks source, executable and image identities. The comparisons
+below are complete; sustained throughput qualification remains pending.
 
 The performance runner exposes `--archive-producers`, records the setting and
 refuses to change it during setup continuation. A same-image comparison at one
-and two producers is planned, using six/nine/twelve writers in both orders. The
+and two producers used six/nine/twelve writers in both orders. The
 idle performance VM's disk was expanded from 80 to 120 GiB before either run;
 CPU, memory and node limits remain unchanged. All previous volumes are retained,
 including an explicit check of the preceding accounting comparison's eight
 volumes. The new filesystem has about 44 GiB available. This expansion avoids
 running the comparison near disk exhaustion; it changes the environment from
-earlier measurements and must be reported with the next results.
+earlier measurements and applies to both comparisons below.
+
+## Archive publication concurrency measurements
+
+The frozen production image at `22d7689` completed the one-versus-two-producer
+comparison with all source/image/executable identities verified. Each fresh
+cluster ran six 60-second windows at six/nine/twelve writers and then reverse
+order. One producer verified 83,777 acknowledged writes including seed; two
+verified 81,075. Every run passed all 4,500 exact replica-value and 1,500 archive
+coverage checks. Neither run overlapped builds, tests or profilers from this
+checkout.
+
+| Producers | Best error-free setting across both repeats | Mean writes/sec | Worst-window p99 (ms) | Total overloads across the sweep |
+| --- | --- | --- | --- | --- |
+| 1 | 6 writers | 232.31 | 84.65 | 19,723 |
+| 2 | 12 writers | 243.53 | 149.06 | 0 |
+
+Both the 200-ms and 500-ms analyses select these settings. Two producers removed
+refusals in this sweep, but did not establish a general throughput gain. At six
+writers, two producers averaged about 206 writes/sec versus 232 for one. Other
+checkouts' builds appeared in 26/94 serial and 88/88 parallel activity samples;
+all sampled parallel windows overlapped builds. The serial twelve-writer
+windows had no sampled build process and still returned 7,471/9,272 overloads.
+These results are useful for admission behavior but are not a controlled or
+sustained speedup comparison. The [sanitized comparison](evidence/tikv-archive-producers-comparison.json)
+contains every window, approximate host overlap, sampled CPU use and raw hashes.
+
+Peak node memory was 1.70 GB with one producer and 1.60 GB with two, below the
+3-GiB limits, with no recorded OOM events. Final archive catch-up after replica
+checks took 16.54/11.18 seconds; differing pending work prevents treating those
+waits as comparable archive service rates. Both clusters stopped cleanly and
+all voter/RustFS volumes, receipts and closing logs remain preserved.
+
+A fresh higher-concurrency run used the same image and two producers, with
+twelve/eighteen/twenty-four writers and then reverse order. It verified another
+86,502 acknowledgements including seed against every replica and archive.
+
+| Repeat | Writers | Accepted writes/sec | Successful-response p99 (ms) | Overloads |
+| --- | --- | --- | --- | --- |
+| 1 | 12 | 250.31 | 149.35 | 0 |
+| 1 | 18 | 274.82 | 172.70 | 0 |
+| 1 | 24 | 263.65 | 215.60 | 1,141 |
+| 2 | 24 | 220.74 | 274.05 | 2,852 |
+| 2 | 18 | 198.15 | 165.79 | 6,835 |
+| 2 | 12 | 207.19 | 175.12 | 0 |
+
+Twelve writers remained the only setting passing both repeats, at 228.75 mean
+writes/sec and 175.12-ms worst-window p99 under either latency budget. The first
+eighteen-writer window cannot qualify that setting when its second repeat has
+errors. Other builds appeared in 22/90 host samples, although none appeared in
+the failing second eighteen-writer window's twelve samples. Peak memory was
+1.66 GB without recorded OOM events. This cluster also stopped cleanly with all
+volumes retained. The [higher-load evidence](evidence/tikv-archive-producers-high.json)
+preserves complete measurements and provenance.
+
+The new scheduler resolves cross-cell archive blocking, but higher load still
+reaches admission limits. The publisher currently materializes the previous
+recovery set and then downloads its retained payloads again while verifying the
+extended set. The next experiment should measure eliminating this duplicate
+materialization while preserving the complete final digest/coverage/replay
+proof, including covered-head and snapshot-rotation behavior. History growth,
+physical replay and shared-log/image persistence remain separate candidate
+costs; the new measurements do not fully attribute the remaining ceiling.
+
+The `22d7689` Linux SDK jobs were still running their test/lint step at the last
+observation. The earlier snapshot/management-stop/lease failures remain
+unexplained; local passes do not establish their resolution.
 
 ## Remaining qualification
 
