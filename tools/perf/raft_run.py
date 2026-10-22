@@ -20,6 +20,7 @@ from raft import captured_node_limits, port_base, wait_for_placement
 from raft_workload import Ledger, input_digest, model, run_load, reconcile
 from raft_metrics import phases, samples
 from raft_faults import SlowFollower, fault_evidence, preflight_pause, validate_scenario
+from raft_docker import BoundContainer, discover as discover_fault_engine
 from raft_topology import local_placement, members, verify_topology, verify_resources, verify_populations, verify_traffic, vm_requirements
 from run import create_bucket
 
@@ -250,7 +251,8 @@ def main():
     minimum = vm_requirements(profile['topology']['nodes'])
     require(cpus >= minimum['cpus'] and memory >= minimum['memory_bytes'], 'insufficient dedicated VM resources')
     require(not docker('ps', '-q', '--filter', f'label={LABEL}'), 'stop the previous owned experiment before starting another')
-    args.fault_capability = preflight_pause(docker, args.image) if args.fault_config is not None else None
+    args.fault_engine = discover_fault_engine(docker, args.context) if args.fault_config is not None else None
+    args.fault_capability = preflight_pause(docker, args.image, lambda node, owner: BoundContainer(**args.fault_engine, node=node, owner=owner)) if args.fault_config is not None else None
     run(args, profile, build, docker, cpus, memory)
 
 
@@ -278,7 +280,8 @@ def run(args, profile, build, docker, cpus, memory):
               'profile': profile, 'profile_sha256': input_digest(profile), 'scenario': args.scenario,
               'fault_profile': args.fault_config, 'fault_profile_sha256': input_digest(args.fault_config),
               'fault_capability': args.fault_capability,
-              'runner_sha256': {name: hashlib.sha256((ROOT / 'tools/perf' / name).read_bytes()).hexdigest() for name in ('raft_run.py', 'raft_workload.py', 'raft_analyze.py', 'raft_metrics.py', 'raft_topology.py', 'raft_faults.py', 'raft.py', 'run.py')},
+              'fault_engine': args.fault_engine,
+              'runner_sha256': {name: hashlib.sha256((ROOT / 'tools/perf' / name).read_bytes()).hexdigest() for name in ('raft_run.py', 'raft_workload.py', 'raft_analyze.py', 'raft_metrics.py', 'raft_topology.py', 'raft_faults.py', 'raft_docker.py', 'raft.py', 'run.py')},
               'capacity': capacity(profile), 'placement': planned, 'vm': {'cpus': cpus, 'memory_bytes': memory},
               'completed': False, 'reconciled': False,
               'limitations': ['One local VM and RustFS; no independent failure domains or Amazon S3 qualification.',
@@ -421,8 +424,9 @@ def run(args, profile, build, docker, cpus, memory):
         sampler = threading.Thread(target=sample)
         sampler.start()
         if args.fault_config is not None:
-            fault = SlowFollower(root, args.scenario, args.fault_config, profile, prefix, run_id, docker,
-                                 lambda cell, timeout: request(bases[cell % node_count], f'/admin/{cell}', token, timeout=timeout))
+            control = BoundContainer(**args.fault_engine, node=f"{prefix}-node{args.fault_config['node']}", owner=run_id)
+            fault = SlowFollower(root, args.scenario, args.fault_config, profile, prefix, run_id, control,
+                                 lambda cell, timeout: request(bases[cell % node_count], f'/admin/{cell}', token, timeout=timeout), control.close)
         for phase, seconds in [('warmup', profile['timing']['warmup_seconds']), ('measurement', profile['timing']['measurement_seconds'])]:
             if seconds:
                 print(f'{phase}: {seconds}s, {profile["arrival"]["rate_per_second"]} offered operations/sec', flush=True)

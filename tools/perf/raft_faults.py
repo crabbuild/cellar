@@ -26,23 +26,26 @@ def owned_state(docker, node, run_id, *, allow_stopped=False):
     return state
 
 
-def preflight_pause(docker, image):
+def preflight_pause(docker, image, control_factory=None):
     """Prove freezer support before creating the workload network/store/nodes."""
     require(docker('info', '--format', '{{.OSType}}') == 'linux', 'process pause requires a Linux Docker engine')
     run_id = secrets.token_hex(12)
     node = 'cellar-mr14-preflight-' + run_id
+    control = control_factory(node, run_id) if control_factory else docker
     observed = {}
     created = False
     try:
         docker('run', '-d', '--name', node, '--label', f'{LABEL}={run_id}', '--network', 'none',
                '--cpus', '.1', '--memory', '16m', '--memory-swap', '16m', '--entrypoint', '/bin/sleep', image, '300')
         created = True
-        observed['before'] = owned_state(docker, node, run_id)
+        observed['before'] = owned_state(control, node, run_id)
         require(observed['before']['paused'] is False, 'preflight target already paused')
-        docker('pause', node)
-        observed['held'] = owned_state(docker, node, run_id)
+        control('pause', node)
+        observed['held'] = owned_state(control, node, run_id)
         require(observed['held']['paused'] is True, 'kernel pause capability unavailable')
     finally:
+        if control_factory:
+            control.close()
         # A lost creation/pause reply can still have changed the engine. Match
         # both the unpredictable name and owner before cleanup, including exits.
         filters = ('--filter', f'label={LABEL}={run_id}')
@@ -92,11 +95,12 @@ def validate_scenario(scenario, config, profile):
 
 class SlowFollower:
     """One joined owner; an ambiguous pause still triggers inspected cleanup."""
-    def __init__(self, root, scenario, config, profile, prefix, run_id, docker, probe):
+    def __init__(self, root, scenario, config, profile, prefix, run_id, docker, probe, close_control=None):
         self.probes, self.offsets = validate_fault(config, profile)
         self.scenario, self.config = scenario, config
         self.node = f"{prefix}-node{config['node']}"
         self.run_id, self.docker, self.probe = run_id, docker, probe
+        self.close_control = close_control
         self.ledger = Ledger(Path(root) / 'faults.jsonl')
         self.stop = threading.Event()
         self.thread = None
@@ -162,6 +166,8 @@ class SlowFollower:
         self.stop.set()
         if self.thread:
             self.thread.join()
+        if self.close_control:
+            self.close_control()
         self.ledger.close()
 
 

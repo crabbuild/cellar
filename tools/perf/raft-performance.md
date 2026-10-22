@@ -160,6 +160,12 @@ schedule holds it for 250 ms every second, starting after two seconds and ending
 before the last two seconds. Observed pause duration, including Docker and probe
 work, must remain below 750 ms. The runner proves Linux freezer support using a
 disposable, network-isolated process before creating workload resources.
+Pause/inspection calls use a persistent connection to the selected local Docker
+Engine socket. The controller verifies the exact name and owner label, then binds
+all requests to the immutable container ID. Ambiguous mutations are inspected,
+never blindly retried. Resource creation, final cleanup and log capture use the
+runner's CLI adapter. This avoids repeated CLI startup within each pause window;
+the unchanged timing gate still includes all control and probe overhead.
 
 Use the same profile with `--scenario healthy --fault-profile ...` for a control
 with the same probe schedule and no workload-node pauses. Warmup stays healthy.
