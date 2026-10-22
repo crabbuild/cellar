@@ -9,6 +9,7 @@ use std::ops::Bound::{Excluded, Unbounded};
 pub(super) struct Drain {
     request: Request,
     cursor: Option<GroupScope>,
+    waiting: Option<(GroupScope, u64)>,
     busy: bool,
     report: RaftDrainReport,
 }
@@ -39,6 +40,7 @@ impl Driver {
         self.drain = Some(Drain {
             request,
             cursor: None,
+            waiting: None,
             busy: false,
             report: RaftDrainReport::default(),
         });
@@ -61,34 +63,59 @@ impl Driver {
             }
         };
         let expired = now >= drain.request.control.deadline() || drain.request.control.cancelled();
-        let next = self
-            .cells
-            .range((drain.cursor.as_ref().map_or(Unbounded, Excluded), Unbounded))
-            .next();
-        if expired || next.is_none() {
+        if expired {
             let Some(mut drain) = self.drain.take() else {
                 return;
             };
-            drain.report.deadline_elapsed = expired;
+            drain.report.deadline_elapsed = true;
+            drain.report.unavailable_groups += usize::from(drain.waiting.is_some());
             reply(&mut drain.request, Ok(Response::Drained(drain.report)));
             return;
         }
-        let Some((scope, cell)) = next else {
+        let (scope, deadline) = if let Some(waiting) = drain.waiting.take() {
+            waiting
+        } else {
+            let next = self
+                .cells
+                .range((drain.cursor.as_ref().map_or(Unbounded, Excluded), Unbounded))
+                .next();
+            let Some((scope, _)) = next else {
+                let Some(mut drain) = self.drain.take() else {
+                    return;
+                };
+                reply(&mut drain.request, Ok(Response::Drained(drain.report)));
+                return;
+            };
+            let scope = scope.clone();
+            drain.cursor = Some(scope.clone());
+            drain.report.groups_examined += 1;
+            // Waiting for admitted SQL/apply work and inspecting a successor
+            // share one turn. A busy group cannot renew its shutdown budget.
+            let deadline = drain
+                .request
+                .control
+                .deadline()
+                .min(now.saturating_add(1000));
+            (scope, deadline)
+        };
+        let Some(cell) = self.cells.get(&scope) else {
+            drain.report.unavailable_groups += 1;
             return;
         };
-        let scope = scope.clone();
-        drain.cursor = Some(scope.clone());
-        drain.report.groups_examined += 1;
-        if cell.failed
-            || cell.retired
-            || cell.pending.is_some()
+        if cell.failed || cell.retired || now >= deadline {
+            drain.report.unavailable_groups += 1;
+            return;
+        }
+        if cell.pending.is_some()
             || cell.sql_busy
             || cell.configuration.is_some()
             || cell.incoming.is_some()
             || cell.apply.is_some()
             || cell.publication.is_some()
         {
-            drain.report.unavailable_groups += 1;
+            // Completion jobs and the existing host poll wake this turn.
+            // In particular, a brief archive capture is not a failed group.
+            drain.waiting = Some((scope, deadline));
             return;
         }
         let Some(memory) = self.control_budget.acquire(2 * RESPONSE_RESERVATION) else {
@@ -140,12 +167,6 @@ impl Driver {
         let runtime = self.runtime.clone();
         let transport = self.transport.clone();
         let domain = self.log.domain();
-        // One unresponsive group cannot consume the entire Node budget.
-        let deadline = drain
-            .request
-            .control
-            .deadline()
-            .min(now.saturating_add(1000));
         drain.busy = true;
         self.jobs.push(Box::pin(async move {
             let mut outcome = Outcome::default();
