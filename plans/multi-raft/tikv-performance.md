@@ -846,9 +846,9 @@ volumes retained. The [higher-load evidence](evidence/tikv-archive-producers-hig
 preserves complete measurements and provenance.
 
 The new scheduler resolves cross-cell archive blocking, but higher load still
-reaches admission limits. The publisher currently materializes the previous
+reaches admission limits. The measured publisher materializes the previous
 recovery set and then downloads its retained payloads again while verifying the
-extended set. The next experiment should measure eliminating this duplicate
+extended set. The next experiment targets eliminating this duplicate
 materialization while preserving the complete final digest/coverage/replay
 proof, including covered-head and snapshot-rotation behavior. History growth,
 physical replay and shared-log/image persistence remain separate candidate
@@ -857,6 +857,47 @@ costs; the new measurements do not fully attribute the remaining ceiling.
 The `22d7689` Linux SDK jobs were still running their test/lint step at the last
 observation. The earlier snapshot/management-stop/lease failures remain
 unexplained; local passes do not establish their resolution.
+
+## Avoid duplicate archive materialization
+
+The native archive fixture reproduces redundant reads at the object-store
+boundary: extending a snapshot, three tails and one retained dependency makes
+12 payload reads. One confirmation of the new tail plus a complete read of the
+resulting set requires seven. This exercises actual durable engine cuts, LTX
+entries and physical restoration; it measures object requests rather than
+end-to-end throughput.
+
+The publisher now plans an extension from validated head/manifest metadata.
+The complete resulting set still has every payload downloaded, hashed, decoded
+and physically replayed before conditional head publication. Covered-head
+success continues to require a full material load and replay. Snapshot rotation
+validates the prior material before creating the replacement base, since final
+verification would otherwise omit those prior objects.
+
+The corruption regression covers missing and equal-length corrupt snapshots,
+tails and dependencies across covered heads, extensions and rotations. Review
+also exposed a dependency-reuse case: if a cut supplied a missing prior object's
+bytes, re-uploading it could silently repair the selected history before final
+verification. The added case reproduced this failure in the first candidate.
+The final implementation computes the dependency reference, retains an exact
+existing reference without PUT, and requires final verification to read it.
+New dependencies still use conditional creation and read-back confirmation.
+Failed publications must leave the selected head unchanged; successful recovery
+must restore the exact committed SQL image.
+
+The final read-count regression passes at seven payload reads; a subsequent
+extension that explicitly references the retained dependency uses eight reads
+for the larger set, without re-uploading that dependency. All 601 selected Rust
+cases pass: 452 library, 41 archive, 28 host, 19 operations, 19 runtime and
+42 snapshot cases. Three ignored process helpers run through their parent
+scenarios. This includes the covered/extended/rotated head integrity cases and
+the native SDK quorum, S3-outage, failover and shutdown scenarios.
+Strict all-target Clippy, formatting, module layout, native dependency policy
+and documentation checks also pass on Rust 1.98.1.
+
+The 22d7689 container measurements above predate this change. They cannot
+establish its throughput or latency effect; a fresh frozen-image comparison
+remains required.
 
 ## Remaining qualification
 

@@ -542,45 +542,54 @@ impl CellArchive {
             return Err(ArchiveError::Invalid("archive producer history/schema"));
         }
         for _ in 0..8 {
-            let previous = self.load_head().await?;
-            if let Some((set, _, _)) = &previous {
-                let old = set.manifest.position;
+            let previous = self.load_head_metadata().await?;
+            if let Some((metadata, _, _)) = &previous {
+                let old = metadata.manifest.position;
                 if old.index >= cut.position.index.get() {
                     if old.term < cut.position.term.get()
                         || old.index == cut.position.index.get()
                             && (old.term != cut.position.term.get()
-                                || set.manifest.image != Image::from(cut.image.pin().state())
-                                || set.manifest.snapshot.conf_state != cut.conf_state
-                                || set.manifest.snapshot.membership != cut.membership)
+                                || metadata.manifest.image != Image::from(cut.image.pin().state())
+                                || metadata.manifest.snapshot.conf_state != cut.conf_state
+                                || metadata.manifest.snapshot.membership != cut.membership)
                     {
                         return Err(ArchiveError::Conflict);
                     }
-                    let set = previous
-                        .map(|(set, _, _)| set)
+                    let metadata = previous
+                        .map(|(metadata, _, _)| metadata)
                         .ok_or(ArchiveError::Unconfirmed)?;
-                    return self.verify_set(set, verifier).await;
+                    return self
+                        .verify_set(self.load_material(metadata).await?, verifier)
+                        .await;
                 }
                 if old.term > cut.position.term.get() {
                     return Err(ArchiveError::Conflict);
                 }
             }
-            let tail = previous.as_ref().and_then(|(set, _, _)| {
-                let next = set.manifest.position.index.checked_add(1)?;
+            let tail = previous.as_ref().and_then(|(metadata, _, _)| {
+                let next = metadata.manifest.position.index.checked_add(1)?;
                 let entries: Vec<_> = cut
                     .entries
                     .iter()
                     .filter(|e| e.index >= next)
                     .cloned()
                     .collect();
-                let count = set.entries.len().checked_add(entries.len())?;
+                // Validated metadata is sufficient to plan an extension. Its
+                // complete retained payloads are downloaded, decoded and
+                // physically replayed below before the new head can advance.
+                let count = metadata
+                    .manifest
+                    .tails
+                    .iter()
+                    .try_fold(entries.len(), |count, tail| count.checked_add(tail.entries))?;
                 // Rotate the base before a growing tail makes the complete
                 // recovery set exceed its byte budget. Dependencies retained
                 // by the old base may be released only by this new snapshot.
-                let mut bytes = set.manifest.snapshot.object.length;
-                for tail in &set.manifest.tails {
+                let mut bytes = metadata.manifest.snapshot.object.length;
+                for tail in &metadata.manifest.tails {
                     bytes = bytes.checked_add(tail.object.length)?;
                 }
-                for dependency in &set.manifest.dependencies {
+                for dependency in &metadata.manifest.dependencies {
                     bytes = bytes.checked_add(dependency.length)?;
                 }
                 for entry in &entries {
@@ -597,83 +606,97 @@ impl CellArchive {
                     && entries
                         .iter()
                         .all(|e| e.get_entry_type() == EntryType::EntryNormal)
-                    && set.manifest.snapshot.conf_state == cut.conf_state
-                    && set.manifest.snapshot.membership == cut.membership
-                    && set.manifest.tails.len() < self.limits.max_tails
+                    && metadata.manifest.snapshot.conf_state == cut.conf_state
+                    && metadata.manifest.snapshot.membership == cut.membership
+                    && metadata.manifest.tails.len() < self.limits.max_tails
                     && bytes <= self.limits.max_set_bytes as u64
                     && count <= self.limits.max_entries)
                     .then_some(entries)
             });
-            let mut manifest = if let (Some(entries), Some((set, _, _))) = (tail, &previous) {
-                let first = entries
-                    .first()
-                    .ok_or(ArchiveError::Corrupt("empty archive tail"))?;
-                let last = entries
-                    .last()
-                    .ok_or(ArchiveError::Corrupt("empty archive tail"))?;
-                let first = Position {
-                    index: first.index,
-                    term: first.term,
-                };
-                let last = Position {
-                    index: last.index,
-                    term: last.term,
-                };
-                let count = entries.len();
-                let limits = self.limits;
-                let body = self
-                    .host
-                    .run_blocking(move || encode_tail(&entries, limits))
-                    .await
-                    .map_err(ArchiveError::Worker)??;
-                let object = self
-                    .put_object(ObjectKind::Tail, &body, Some(PositionRange { first, last }))
-                    .await?;
-                let mut manifest = set.manifest.clone();
-                manifest.tails.push(Tail {
-                    first,
-                    last,
-                    entries: count,
-                    object,
+            let mode = previous
+                .as_ref()
+                .map_or(PutMode::Create, |(_, _, version)| {
+                    PutMode::Update(version.clone())
                 });
-                manifest.position = cut.position.into();
-                manifest.image = cut.image.pin().state().into();
-                manifest
-            } else {
-                let input = cut.clone();
-                let limits = self.limits;
-                let body = self
-                    .host
-                    .run_blocking(move || input.snapshot(limits))
-                    .await
-                    .map_err(ArchiveError::Worker)??;
-                let position = cut.position.into();
-                let object = self
-                    .put_object(
-                        ObjectKind::Snapshot,
-                        &body,
-                        Some(PositionRange {
-                            first: position,
-                            last: position,
-                        }),
-                    )
-                    .await?;
-                Manifest {
-                    scope: (&self.scope).into(),
-                    root_digest: self.root,
-                    birth_digest: self.birth,
-                    schema_digest: self.schema,
-                    snapshot: Snapshot {
+            let mut manifest = match (tail, previous) {
+                (Some(entries), Some((metadata, _, _))) => {
+                    let first = entries
+                        .first()
+                        .ok_or(ArchiveError::Corrupt("empty archive tail"))?;
+                    let last = entries
+                        .last()
+                        .ok_or(ArchiveError::Corrupt("empty archive tail"))?;
+                    let first = Position {
+                        index: first.index,
+                        term: first.term,
+                    };
+                    let last = Position {
+                        index: last.index,
+                        term: last.term,
+                    };
+                    let count = entries.len();
+                    let limits = self.limits;
+                    let body = self
+                        .host
+                        .run_blocking(move || encode_tail(&entries, limits))
+                        .await
+                        .map_err(ArchiveError::Worker)??;
+                    let object = self
+                        .put_object(ObjectKind::Tail, &body, Some(PositionRange { first, last }))
+                        .await?;
+                    let mut manifest = metadata.manifest;
+                    manifest.tails.push(Tail {
+                        first,
+                        last,
+                        entries: count,
+                        object,
+                    });
+                    manifest.position = cut.position.into();
+                    manifest.image = cut.image.pin().state().into();
+                    manifest
+                }
+                (_, previous) => {
+                    // A new base omits the old payloads from final verification.
+                    // Preserve refusal of missing/corrupt prior material rather
+                    // than silently repairing an invalid selected head here.
+                    if let Some((metadata, _, _)) = previous {
+                        self.load_material(metadata).await?;
+                    }
+                    let input = cut.clone();
+                    let limits = self.limits;
+                    let body = self
+                        .host
+                        .run_blocking(move || input.snapshot(limits))
+                        .await
+                        .map_err(ArchiveError::Worker)??;
+                    let position = cut.position.into();
+                    let object = self
+                        .put_object(
+                            ObjectKind::Snapshot,
+                            &body,
+                            Some(PositionRange {
+                                first: position,
+                                last: position,
+                            }),
+                        )
+                        .await?;
+                    Manifest {
+                        scope: (&self.scope).into(),
+                        root_digest: self.root,
+                        birth_digest: self.birth,
+                        schema_digest: self.schema,
+                        snapshot: Snapshot {
+                            position: cut.position.into(),
+                            image: cut.image.pin().state().into(),
+                            conf_state: cut.conf_state.clone(),
+                            membership: cut.membership.clone(),
+                            object,
+                        },
+                        tails: Vec::new(),
                         position: cut.position.into(),
                         image: cut.image.pin().state().into(),
-                        conf_state: cut.conf_state.clone(),
-                        membership: cut.membership.clone(),
-                        object,
-                    },
-                    tails: Vec::new(),
-                    position: cut.position.into(),
-                    image: cut.image.pin().state().into(),
-                    dependencies: Vec::new(),
+                        dependencies: Vec::new(),
+                    }
                 }
             };
             let mut dependencies: BTreeMap<_, _> = manifest
@@ -684,14 +707,19 @@ impl CellArchive {
                 .collect();
             for dependency in &cut.dependencies {
                 let object = self
-                    .put_object(ObjectKind::Dependency, &dependency.0, None)
+                    .object_reference(ObjectKind::Dependency, &dependency.0, None)
                     .await?;
-                if dependencies
-                    .insert(object.digest, object.clone())
-                    .is_some_and(|old| old != object)
-                {
-                    return Err(ArchiveError::Conflict);
+                if let Some(old) = dependencies.get(&object.digest) {
+                    if old != &object {
+                        return Err(ArchiveError::Conflict);
+                    }
+                    // Final verification must read the retained object. A new
+                    // PUT here could repair a missing prior dependency and
+                    // hide corruption of the selected recovery history.
+                    continue;
                 }
+                let object = self.put_referenced_object(object, &dependency.0).await?;
+                dependencies.insert(object.digest, object);
             }
             manifest.dependencies = dependencies.into_values().collect();
             manifest.validate(
@@ -726,11 +754,6 @@ impl CellArchive {
                 },
                 4096,
             )?;
-            let mode = previous
-                .as_ref()
-                .map_or(PutMode::Create, |(_, _, version)| {
-                    PutMode::Update(version.clone())
-                });
             let outcome = self
                 .io(
                     self.deadline()?,
@@ -932,15 +955,31 @@ impl CellArchive {
         bytes: &[u8],
         range: Option<PositionRange>,
     ) -> Result<ObjectRef, ArchiveError> {
+        let object = self.object_reference(kind, bytes, range).await?;
+        self.put_referenced_object(object, bytes).await
+    }
+
+    async fn object_reference(
+        &self,
+        kind: ObjectKind,
+        bytes: &[u8],
+        range: Option<PositionRange>,
+    ) -> Result<ObjectRef, ArchiveError> {
         if bytes.len() > self.limits.max_object_bytes {
             return Err(ArchiveError::Limit);
         }
         let owned = bytes.to_vec();
-        let object = self
-            .host
+        self.host
             .run_blocking(move || ObjectRef::new(kind, &owned, range))
             .await
-            .map_err(ArchiveError::Worker)?;
+            .map_err(ArchiveError::Worker)
+    }
+
+    async fn put_referenced_object(
+        &self,
+        object: ObjectRef,
+        bytes: &[u8],
+    ) -> Result<ObjectRef, ArchiveError> {
         let path = self.key(&object.name());
         let result = self
             .io(

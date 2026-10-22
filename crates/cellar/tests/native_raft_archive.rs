@@ -490,6 +490,159 @@ async fn committed_archive_restores_snapshot_and_physical_tail() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn archive_extension_reads_retained_payloads_once() -> Result<()> {
+    let mut fixture = Fixture::new(ArchiveLimits::default()).await?;
+    let first = fixture
+        .commit(7, vec![ArchiveDependency(b"retained dependency".to_vec())])
+        .await?;
+    fixture.publish(first).await?;
+    for value in 8..=10 {
+        let cut = fixture.commit(value, vec![]).await?;
+        fixture.publish(cut).await?;
+    }
+    let cut = fixture.commit(11, vec![]).await?;
+    fixture
+        .store
+        .archive_payload_reads
+        .store(0, Ordering::Release);
+    let set = fixture.publish(cut).await?;
+    ensure!(set.tail_entries() == 4);
+    // The new tail is read back after PUT. Complete final verification then
+    // reads one snapshot, four tails and the retained dependency exactly once.
+    // Reading the old set for planning alone adds five redundant object reads.
+    let reads = fixture.store.archive_payload_reads.load(Ordering::Acquire);
+    ensure!(reads == 7, "archive extension used {reads} payload reads");
+    ensure!(restored(&set, 11)? == fixture.bytes);
+    let selected = fixture
+        .archive
+        .recovery_set()
+        .await?
+        .context("archive head")?;
+    ensure!(selected.reference() == set.reference());
+    ensure!(restored(&selected, 11)? == fixture.bytes);
+    let cut = fixture
+        .commit(12, vec![ArchiveDependency(b"retained dependency".to_vec())])
+        .await?;
+    fixture
+        .store
+        .archive_payload_reads
+        .store(0, Ordering::Release);
+    let set = fixture.publish(cut).await?;
+    let reads = fixture.store.archive_payload_reads.load(Ordering::Acquire);
+    ensure!(
+        reads == 8,
+        "reused dependency added redundant payload reads: {reads}"
+    );
+    ensure!(set.tail_entries() == 5);
+    ensure!(restored(&set, 12)? == fixture.bytes);
+    fixture.close().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn archive_publication_rechecks_prior_payloads_before_head_success() -> Result<()> {
+    for operation in ["covered", "extend", "extend-with-dependency", "rotate"] {
+        let mut fixture = Fixture::new(ArchiveLimits {
+            max_tails: if operation == "rotate" { 1 } else { 32 },
+            ..Default::default()
+        })
+        .await?;
+        let first = fixture
+            .commit(
+                7,
+                vec![ArchiveDependency(b"required prior object".to_vec())],
+            )
+            .await?;
+        fixture.publish(first).await?;
+        let second = fixture.commit(8, vec![]).await?;
+        let previous = fixture.publish(second.clone()).await?;
+        ensure!(previous.tail_entries() == 1);
+        let cut = if operation == "covered" {
+            second
+        } else {
+            let dependencies = if operation == "extend-with-dependency" {
+                vec![ArchiveDependency(b"required prior object".to_vec())]
+            } else {
+                vec![]
+            };
+            fixture.commit(9, dependencies).await?
+        };
+        let objects = fixture.store.list(None).try_collect::<Vec<_>>().await?;
+        let head = objects
+            .iter()
+            .find(|o| o.location.filename() == Some("head"))
+            .context("archive head")?;
+        let head_bytes = fixture
+            .store
+            .inner
+            .get(&head.location)
+            .await?
+            .bytes()
+            .await?;
+        for kind in ["/snapshots/", "/tails/", "/dependencies/"] {
+            let object = objects
+                .iter()
+                .find(|o| o.location.as_ref().contains(kind))
+                .context("prior recovery payload")?;
+            let bytes = fixture
+                .store
+                .inner
+                .get(&object.location)
+                .await?
+                .bytes()
+                .await?;
+            for missing in [true, false] {
+                if missing {
+                    fixture.store.inner.delete(&object.location).await?;
+                } else {
+                    let mut corrupt = bytes.to_vec();
+                    corrupt[0] ^= 0xff;
+                    fixture
+                        .store
+                        .inner
+                        .put(&object.location, corrupt.into())
+                        .await?;
+                }
+                ensure!(
+                    matches!(
+                        fixture.publish(cut.clone()).await,
+                        Err(ArchiveError::Corrupt(_))
+                    ),
+                    "{operation} accepted invalid prior {kind} (missing={missing})"
+                );
+                ensure!(
+                    fixture
+                        .store
+                        .inner
+                        .get(&head.location)
+                        .await?
+                        .bytes()
+                        .await?
+                        == head_bytes,
+                    "{operation} advanced the head with invalid prior {kind}"
+                );
+                fixture
+                    .store
+                    .inner
+                    .put(&object.location, bytes.clone().into())
+                    .await?;
+            }
+        }
+        let set = fixture.publish(cut).await?;
+        ensure!(
+            set.tail_entries()
+                == match operation {
+                    "covered" => 1,
+                    "extend" | "extend-with-dependency" => 2,
+                    _ => 0,
+                }
+        );
+        ensure!(restored(&set, if operation == "covered" { 8 } else { 9 })? == fixture.bytes);
+        fixture.close().await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn archive_never_speculative() -> Result<()> {
     let mut fixture = Fixture::new(ArchiveLimits::default()).await?;
     let first = fixture.commit(7, vec![]).await?;

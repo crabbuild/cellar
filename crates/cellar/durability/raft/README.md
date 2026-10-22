@@ -657,6 +657,11 @@ most four concurrent object reads, collected in manifest order. Each object's
 declared length is checked before body allocation, preserving the validated
 aggregate recovery-set budget. Error or cancellation drops all pending reads;
 digest, coverage and physical replay checks still precede head publication.
+Extending a tail uses validated manifest metadata for planning and downloads
+retained payloads once during complete final verification. Reusing a covering
+head still downloads and physically verifies its material. Snapshot rotation
+also checks the prior payloads before replacing them, preserving refusal of
+missing or corrupt prior history.
 Failed archive attempts retry after 100 ms. Shutdown cancels I/O and joins
 blocking work, then releases the workspace before returning. Startup reclaims
 verification copies under their

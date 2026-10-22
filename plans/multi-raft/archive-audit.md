@@ -25,6 +25,13 @@ position. The pure core receives coherent archived progress and, for an original
 command, an Archived proof naming the same command identity, index/term and
 entry digest already proven Committed, Applied and Queryable.
 
+Tail planning uses the selected manifest's validated lengths, counts and
+coverage; it does not download the prior set separately. Complete final
+verification includes every retained payload. A covering head still requires
+material verification, and snapshot rotation validates the previous payloads
+before replacing their references. Missing or corrupt prior material therefore
+cannot become an acknowledgement or an advanced head through any of these paths.
+
 Quorum output requires commit and durable image publication. S3 output also
 requires the archive proof. A namespace minimum strengthens request options and
 is recorded in the atomic command receipt. Duplicate lookup compares the
