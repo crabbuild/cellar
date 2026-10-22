@@ -1,0 +1,606 @@
+{
+  "format": 1,
+  "scope": "Storage counterfactual and code comparison: fresh node bind volumes on the host internal filesystem for both binaries, RustFS remains on the external VM disk. Candidate then control, two repeats at six, twelve and twenty-four writers. Identical resources, workload, durability and deadlines; no timed mutation retries. Previous external-disk runs remain failed.",
+  "completed": true,
+  "controlled_speedup_established": false,
+  "limitations": [
+    "Sequential shared-host comparison; other workloads and builds continued. These short windows are not a soak or isolated capacity qualification.",
+    "Node data uses persistent host-internal bind volumes through Colima virtiofs. RustFS stays on the external VM disk. Absolute TPS cannot be compared with external-node-disk runs as a code-only improvement.",
+    "The storage preflight verifies file locking, file/directory sync calls, rename and readback. It does not qualify host power-loss behavior."
+  ],
+  "run_order": [
+    "candidate",
+    "control"
+  ],
+  "prior_low_load_comparison": "shared-image-internal-pair.json",
+  "setup_failure_metadata": null,
+  "runs": [
+    {
+      "label": "candidate",
+      "source": {
+        "revision": "12d6e87bd4f2fbfcba9c772b13588c4282f0875d",
+        "tag": "cellar-raft-perf:tikv-shared-image-sync-ios-7da4ddb5",
+        "image": "sha256:55ecf6c1c89451f9e7655a9812dc4b18cbf22b7dce4be063e6258567b0d6bd1f",
+        "binary_sha256": "6c4a669078e20ea710a6059e569c81911019f44e84ea5d9eab916f47fa32a351",
+        "context_sha256": "8933fd716e9c3d7c996980af881456414e00d86f53753ef184dddbc28a78c8f0"
+      },
+      "archive_producers": 2,
+      "analysis": {
+        "200": {
+          "verified": true,
+          "acknowledged_writes_including_seed": 64717,
+          "best_observed_below_limit": {
+            "concurrency": 12,
+            "offered_rate": 0.0,
+            "mean_tps": 186.95777839084747,
+            "min_tps": 183.26389089138797,
+            "worst_p99_ms": 147.74598800067906,
+            "windows": 2
+          }
+        },
+        "500": {
+          "verified": true,
+          "acknowledged_writes_including_seed": 64717,
+          "best_observed_below_limit": {
+            "concurrency": 24,
+            "offered_rate": 0.0,
+            "mean_tps": 192.95814247625793,
+            "min_tps": 188.24560932448188,
+            "worst_p99_ms": 274.37590900080977,
+            "windows": 2
+          }
+        }
+      },
+      "host_activity": {
+        "samples": 99,
+        "compiler_samples": 65,
+        "swap_mib_min": 10370.62,
+        "swap_mib_max": 13359.25,
+        "pageouts_start": 1108733,
+        "pageouts_end": 1182942,
+        "swapins_start": 9297713,
+        "swapins_end": 9489678,
+        "sampling_gaps_over_15_seconds": [],
+        "raw_sha256": "066b1bdc492ef7bd125323111847741c93746589d9135f5f89c37e029272a6c8"
+      },
+      "windows": [
+        {
+          "repeat": 1,
+          "concurrency": 6,
+          "tps": 140.89717961322356,
+          "latency_ms": {
+            "p50": 34.03570299997227,
+            "p95": 90.77133099890489,
+            "p99": 148.61120500063407,
+            "max": 578.9835699997639
+          },
+          "error_rate": 0.0,
+          "errors": 0
+        },
+        {
+          "repeat": 1,
+          "concurrency": 12,
+          "tps": 190.651665890307,
+          "latency_ms": {
+            "p50": 58.014378999359906,
+            "p95": 99.85420300108672,
+            "p99": 140.01968599950487,
+            "max": 246.06246300027124
+          },
+          "error_rate": 0.0,
+          "errors": 0
+        },
+        {
+          "repeat": 1,
+          "concurrency": 24,
+          "tps": 188.24560932448188,
+          "latency_ms": {
+            "p50": 121.1913730003289,
+            "p95": 202.4734639999224,
+            "p99": 274.37590900080977,
+            "max": 940.0137419997918
+          },
+          "error_rate": 0.0,
+          "errors": 0
+        },
+        {
+          "repeat": 2,
+          "concurrency": 24,
+          "tps": 197.67067562803402,
+          "latency_ms": {
+            "p50": 118.68898200009426,
+            "p95": 184.0565799993783,
+            "p99": 229.91099600039888,
+            "max": 559.1817999993509
+          },
+          "error_rate": 0.0,
+          "errors": 0
+        },
+        {
+          "repeat": 2,
+          "concurrency": 12,
+          "tps": 183.26389089138797,
+          "latency_ms": {
+            "p50": 60.73977699998068,
+            "p95": 106.82685299980221,
+            "p99": 147.74598800067906,
+            "max": 493.83854499865265
+          },
+          "error_rate": 0.0,
+          "errors": 0
+        },
+        {
+          "repeat": 2,
+          "concurrency": 6,
+          "tps": 151.76882553810722,
+          "latency_ms": {
+            "p50": 34.04868899997382,
+            "p95": 74.91373199991358,
+            "p99": 124.23918999957095,
+            "max": 287.04580900011933
+          },
+          "error_rate": 0.0,
+          "errors": 0
+        }
+      ],
+      "containers_stopped_volumes_retained": true,
+      "data_backing": {
+        "previous_wrapper_sha256": null,
+        "node_storage": "host internal filesystem through Colima virtiofs bind volumes",
+        "rustfs_storage": "unchanged external VM data disk",
+        "node_volumes": {
+          "cellar-raft-20261022-233536-node1": {
+            "Name": "cellar-raft-20261022-233536-node1",
+            "Driver": "local",
+            "Options": {
+              "device": "/Users/haipingfu/.codex-workspaces/worktrees/ios-7da4ddb5-e7b2-4b8b-bfa7-796196551e64/cellar/.cellar/raft-perf/internal-node-data/cellar-raft-20261022-233536-node1",
+              "o": "bind",
+              "type": "none"
+            }
+          },
+          "cellar-raft-20261022-233536-node2": {
+            "Name": "cellar-raft-20261022-233536-node2",
+            "Driver": "local",
+            "Options": {
+              "device": "/Users/haipingfu/.codex-workspaces/worktrees/ios-7da4ddb5-e7b2-4b8b-bfa7-796196551e64/cellar/.cellar/raft-perf/internal-node-data/cellar-raft-20261022-233536-node2",
+              "o": "bind",
+              "type": "none"
+            }
+          },
+          "cellar-raft-20261022-233536-node3": {
+            "Name": "cellar-raft-20261022-233536-node3",
+            "Driver": "local",
+            "Options": {
+              "device": "/Users/haipingfu/.codex-workspaces/worktrees/ios-7da4ddb5-e7b2-4b8b-bfa7-796196551e64/cellar/.cellar/raft-perf/internal-node-data/cellar-raft-20261022-233536-node3",
+              "o": "bind",
+              "type": "none"
+            }
+          }
+        },
+        "preflight_sha256": "14598b0501fe74fe9048fdc3df005b4de7768d8f56628c0a43947774057eeb9c",
+        "wrapper_sha256": "f29180400d66d3e3b3f6a31a50ce142cebaa459e1044b8098653a93ddf73cfcf"
+      },
+      "run": "1500-tikv-shared-image-internal-high-candidate",
+      "verification": {
+        "verified_replica_values": 4500,
+        "verified_archive_groups": 1500,
+        "write_durability": "Quorum",
+        "placement": {
+          "leaders_per_node": [
+            500,
+            500,
+            500
+          ],
+          "followers_per_node": [
+            1000,
+            1000,
+            1000
+          ]
+        },
+        "cells": 1500,
+        "voters": 3
+      },
+      "settings": {
+        "tick_ms": 500,
+        "queue_items": 4096,
+        "archive_tmpfs_mib": 512,
+        "limits": [
+          {
+            "NanoCpus": 1000000000,
+            "CpusetCpus": "0",
+            "Memory": 3221225472,
+            "MemorySwap": 3221225472,
+            "Tmpfs": {
+              "/data/node/raft-cells/archive-verifier": "rw,noexec,nosuid,nodev,size=512m"
+            }
+          },
+          {
+            "NanoCpus": 1000000000,
+            "CpusetCpus": "1",
+            "Memory": 3221225472,
+            "MemorySwap": 3221225472,
+            "Tmpfs": {
+              "/data/node/raft-cells/archive-verifier": "rw,noexec,nosuid,nodev,size=512m"
+            }
+          },
+          {
+            "NanoCpus": 1000000000,
+            "CpusetCpus": "2",
+            "Memory": 3221225472,
+            "MemorySwap": 3221225472,
+            "Tmpfs": {
+              "/data/node/raft-cells/archive-verifier": "rw,noexec,nosuid,nodev,size=512m"
+            }
+          }
+        ]
+      },
+      "workload_sha256": [
+        "6f27a1ed80cd137646a27ae3677738fc4f864e8c7914f5709592d6c551c3d127"
+      ],
+      "cohort_resource_samples": {
+        "node1": {
+          "samples": 93,
+          "cpu_mean_percent": 67.0510752688172,
+          "cpu_max_percent": 81.93,
+          "last_memory": "390.3MiB / 3GiB"
+        },
+        "node2": {
+          "samples": 93,
+          "cpu_mean_percent": 65.29279569892473,
+          "cpu_max_percent": 85.34,
+          "last_memory": "378.2MiB / 3GiB"
+        },
+        "node3": {
+          "samples": 93,
+          "cpu_mean_percent": 64.82247311827956,
+          "cpu_max_percent": 86.43,
+          "last_memory": "393.6MiB / 3GiB"
+        },
+        "rustfs": {
+          "samples": 93,
+          "cpu_mean_percent": 96.77387096774193,
+          "cpu_max_percent": 143.33,
+          "last_memory": "987.7MiB / 4GiB"
+        }
+      },
+      "shutdown": {
+        "states": {
+          "cellar-raft-20261022-233536-node1": {
+            "Running": false,
+            "ExitCode": 0,
+            "OOMKilled": false,
+            "Error": "",
+            "FinishedAt": "2026-10-22T23:43:54.035043373Z"
+          },
+          "cellar-raft-20261022-233536-node2": {
+            "Running": false,
+            "ExitCode": 0,
+            "OOMKilled": false,
+            "Error": "",
+            "FinishedAt": "2026-10-22T23:43:54.038361841Z"
+          },
+          "cellar-raft-20261022-233536-node3": {
+            "Running": false,
+            "ExitCode": 0,
+            "OOMKilled": false,
+            "Error": "",
+            "FinishedAt": "2026-10-22T23:43:54.063284211Z"
+          },
+          "cellar-raft-20261022-233536-rustfs": {
+            "Running": false,
+            "ExitCode": 0,
+            "OOMKilled": false,
+            "Error": "",
+            "FinishedAt": "2026-10-22T23:43:55.148080851Z"
+          }
+        },
+        "preserved_volumes": [
+          "cellar-raft-20261022-233536-node1",
+          "cellar-raft-20261022-233536-node2",
+          "cellar-raft-20261022-233536-node3",
+          "cellar-raft-20261022-233536-rustfs"
+        ]
+      },
+      "raw_sha256": {
+        "report.json": "8edc63303b88f8550c97aa7e5f482fa296b5fe5f699725aa8a4b871e25bf5fe0",
+        "seed-journal.jsonl": "79ed34ef7b5bcd3d0eec148be91524d3d02504cfe287b836ccc030333fc52277",
+        "replica-verification.json": "088dd72c12095449f47c31d0274aee5b3bf0dce5605e2fe6142e6527328c77cf",
+        "archive-verification.json": "577b75a9672eb2416faf63c4f0803ccbca3c1af97824aa6c9e9e10d478a57cd9",
+        "analysis-200.json": "87d7fc9406d7ba68fc4f86db0ce14756b42405789d61f7abe98a03385dd03f26",
+        "analysis-500.json": "67afa16c8d18952925cd6cde49130840ff86ab5f9adb4b5cdb6f942689ca7702",
+        "resources.jsonl": "fb2c3649eba111697f2dd096659f8cf0b5836e44c35e274056b41d435fd1ac46",
+        "verified-stop/resources.json": "47b075b4e3894c15fc1b4a68696dbd1b2bbee005f713443595158513dcb31c7e"
+      }
+    },
+    {
+      "label": "control",
+      "source": {
+        "revision": "c6aed34d2eaf4267a98e7588dfed43d20e71ff36",
+        "tag": "cellar-raft-perf:tikv-preview-reuse-ios-7da4ddb5",
+        "image": "sha256:80b983ca8ceaa84be106829b4a536579ae1a7c1ba9b69b5c7eb47d21dd759217",
+        "binary_sha256": "a94513ab86e843610f0b416bdd78b6738fd37190aac46fdf4e2440801cb95c54",
+        "context_sha256": "0da97bb14c7cf021185df7821305dcae3787fbbe76ff1d8f6b779c2e0258990b"
+      },
+      "archive_producers": 2,
+      "analysis": {
+        "200": {
+          "verified": true,
+          "acknowledged_writes_including_seed": 63960,
+          "best_observed_below_limit": null
+        },
+        "500": {
+          "verified": true,
+          "acknowledged_writes_including_seed": 63960,
+          "best_observed_below_limit": {
+            "concurrency": 24,
+            "offered_rate": 0.0,
+            "mean_tps": 193.15813043628498,
+            "min_tps": 180.96459103146773,
+            "worst_p99_ms": 395.1111460009997,
+            "windows": 2
+          }
+        }
+      },
+      "host_activity": {
+        "samples": 94,
+        "compiler_samples": 52,
+        "swap_mib_min": 10870.12,
+        "swap_mib_max": 11150.12,
+        "pageouts_start": 1183020,
+        "pageouts_end": 1186841,
+        "swapins_start": 9489825,
+        "swapins_end": 9507874,
+        "sampling_gaps_over_15_seconds": [],
+        "raw_sha256": "a68c6d00f4167b3c83a12e3b74ca6ff8bcea4374f652e96d05be1a9c792b08b1"
+      },
+      "windows": [
+        {
+          "repeat": 1,
+          "concurrency": 6,
+          "tps": 203.53632548090835,
+          "latency_ms": {
+            "p50": 27.43036799984111,
+            "p95": 47.10920000070473,
+            "p99": 59.632201000567875,
+            "max": 392.1945389993198
+          },
+          "error_rate": 0.0,
+          "errors": 0
+        },
+        {
+          "repeat": 1,
+          "concurrency": 12,
+          "tps": 211.91306864957286,
+          "latency_ms": {
+            "p50": 54.13009300173144,
+            "p95": 82.05420700141985,
+            "p99": 100.85466800046561,
+            "max": 436.58499000048323
+          },
+          "error_rate": 0.0,
+          "errors": 0
+        },
+        {
+          "repeat": 1,
+          "concurrency": 24,
+          "tps": 205.35166984110225,
+          "latency_ms": {
+            "p50": 114.57993699877989,
+            "p95": 167.97948900057236,
+            "p99": 195.42747299965413,
+            "max": 252.99822200031485
+          },
+          "error_rate": 0.0,
+          "errors": 0
+        },
+        {
+          "repeat": 2,
+          "concurrency": 24,
+          "tps": 180.96459103146773,
+          "latency_ms": {
+            "p50": 121.87514600009308,
+            "p95": 220.2165269991383,
+            "p99": 395.1111460009997,
+            "max": 644.6747049994883
+          },
+          "error_rate": 0.0,
+          "errors": 0
+        },
+        {
+          "repeat": 2,
+          "concurrency": 12,
+          "tps": 133.75444758702025,
+          "latency_ms": {
+            "p50": 63.41925999913656,
+            "p95": 152.44310699927155,
+            "p99": 413.41133799869567,
+            "max": 3393.668503000299
+          },
+          "error_rate": 0.0,
+          "errors": 0
+        },
+        {
+          "repeat": 2,
+          "concurrency": 6,
+          "tps": 97.29571080117802,
+          "latency_ms": {
+            "p50": 40.05787300047814,
+            "p95": 119.42425899906084,
+            "p99": 601.1119830000098,
+            "max": 2216.4886170012323
+          },
+          "error_rate": 0.0,
+          "errors": 0
+        }
+      ],
+      "containers_stopped_volumes_retained": true,
+      "data_backing": {
+        "previous_wrapper_sha256": null,
+        "node_storage": "host internal filesystem through Colima virtiofs bind volumes",
+        "rustfs_storage": "unchanged external VM data disk",
+        "node_volumes": {
+          "cellar-raft-20261022-234356-node1": {
+            "Name": "cellar-raft-20261022-234356-node1",
+            "Driver": "local",
+            "Options": {
+              "device": "/Users/haipingfu/.codex-workspaces/worktrees/ios-7da4ddb5-e7b2-4b8b-bfa7-796196551e64/cellar/.cellar/raft-perf/internal-node-data/cellar-raft-20261022-234356-node1",
+              "o": "bind",
+              "type": "none"
+            }
+          },
+          "cellar-raft-20261022-234356-node2": {
+            "Name": "cellar-raft-20261022-234356-node2",
+            "Driver": "local",
+            "Options": {
+              "device": "/Users/haipingfu/.codex-workspaces/worktrees/ios-7da4ddb5-e7b2-4b8b-bfa7-796196551e64/cellar/.cellar/raft-perf/internal-node-data/cellar-raft-20261022-234356-node2",
+              "o": "bind",
+              "type": "none"
+            }
+          },
+          "cellar-raft-20261022-234356-node3": {
+            "Name": "cellar-raft-20261022-234356-node3",
+            "Driver": "local",
+            "Options": {
+              "device": "/Users/haipingfu/.codex-workspaces/worktrees/ios-7da4ddb5-e7b2-4b8b-bfa7-796196551e64/cellar/.cellar/raft-perf/internal-node-data/cellar-raft-20261022-234356-node3",
+              "o": "bind",
+              "type": "none"
+            }
+          }
+        },
+        "preflight_sha256": "14598b0501fe74fe9048fdc3df005b4de7768d8f56628c0a43947774057eeb9c",
+        "wrapper_sha256": "f29180400d66d3e3b3f6a31a50ce142cebaa459e1044b8098653a93ddf73cfcf"
+      },
+      "run": "1500-tikv-shared-image-internal-high-control",
+      "verification": {
+        "verified_replica_values": 4500,
+        "verified_archive_groups": 1500,
+        "write_durability": "Quorum",
+        "placement": {
+          "leaders_per_node": [
+            500,
+            500,
+            500
+          ],
+          "followers_per_node": [
+            1000,
+            1000,
+            1000
+          ]
+        },
+        "cells": 1500,
+        "voters": 3
+      },
+      "settings": {
+        "tick_ms": 500,
+        "queue_items": 4096,
+        "archive_tmpfs_mib": 512,
+        "limits": [
+          {
+            "NanoCpus": 1000000000,
+            "CpusetCpus": "0",
+            "Memory": 3221225472,
+            "MemorySwap": 3221225472,
+            "Tmpfs": {
+              "/data/node/raft-cells/archive-verifier": "rw,noexec,nosuid,nodev,size=512m"
+            }
+          },
+          {
+            "NanoCpus": 1000000000,
+            "CpusetCpus": "1",
+            "Memory": 3221225472,
+            "MemorySwap": 3221225472,
+            "Tmpfs": {
+              "/data/node/raft-cells/archive-verifier": "rw,noexec,nosuid,nodev,size=512m"
+            }
+          },
+          {
+            "NanoCpus": 1000000000,
+            "CpusetCpus": "2",
+            "Memory": 3221225472,
+            "MemorySwap": 3221225472,
+            "Tmpfs": {
+              "/data/node/raft-cells/archive-verifier": "rw,noexec,nosuid,nodev,size=512m"
+            }
+          }
+        ]
+      },
+      "workload_sha256": [
+        "6f27a1ed80cd137646a27ae3677738fc4f864e8c7914f5709592d6c551c3d127"
+      ],
+      "cohort_resource_samples": {
+        "node1": {
+          "samples": 93,
+          "cpu_mean_percent": 67.42752688172044,
+          "cpu_max_percent": 82.0,
+          "last_memory": "390.6MiB / 3GiB"
+        },
+        "node2": {
+          "samples": 93,
+          "cpu_mean_percent": 68.99064516129032,
+          "cpu_max_percent": 116.87,
+          "last_memory": "391.9MiB / 3GiB"
+        },
+        "node3": {
+          "samples": 93,
+          "cpu_mean_percent": 69.36462365591397,
+          "cpu_max_percent": 123.95,
+          "last_memory": "375.8MiB / 3GiB"
+        },
+        "rustfs": {
+          "samples": 93,
+          "cpu_mean_percent": 102.06301075268817,
+          "cpu_max_percent": 153.77,
+          "last_memory": "1.309GiB / 4GiB"
+        }
+      },
+      "shutdown": {
+        "states": {
+          "cellar-raft-20261022-234356-node1": {
+            "Running": false,
+            "ExitCode": 0,
+            "OOMKilled": false,
+            "Error": "",
+            "FinishedAt": "2026-10-22T23:51:47.970494555Z"
+          },
+          "cellar-raft-20261022-234356-node2": {
+            "Running": false,
+            "ExitCode": 0,
+            "OOMKilled": false,
+            "Error": "",
+            "FinishedAt": "2026-10-22T23:51:48.50807076Z"
+          },
+          "cellar-raft-20261022-234356-node3": {
+            "Running": false,
+            "ExitCode": 0,
+            "OOMKilled": false,
+            "Error": "",
+            "FinishedAt": "2026-10-22T23:51:48.349177356Z"
+          },
+          "cellar-raft-20261022-234356-rustfs": {
+            "Running": false,
+            "ExitCode": 0,
+            "OOMKilled": false,
+            "Error": "",
+            "FinishedAt": "2026-10-22T23:51:49.992372837Z"
+          }
+        },
+        "preserved_volumes": [
+          "cellar-raft-20261022-234356-node1",
+          "cellar-raft-20261022-234356-node2",
+          "cellar-raft-20261022-234356-node3",
+          "cellar-raft-20261022-234356-rustfs"
+        ]
+      },
+      "raw_sha256": {
+        "report.json": "8d8b29fe109eaa2dbf9707fd62a5b39a8836e7c16435869f5517cdbcf331f6b8",
+        "seed-journal.jsonl": "c3952cc05ed24ba37431891676baae6480b58d1a67d78b90d995a90d2105e68e",
+        "replica-verification.json": "800723b30d185e530e446dcb1111466ddb5db3e5a37f0ad0224751c9d0438774",
+        "archive-verification.json": "e5abe62d7880ab5d7bb77328e03fa2da72d962d093b78ec20bb16fa399749514",
+        "analysis-200.json": "12d43b7db6320500a1cc75ae3c63b8f5f7cd54d34604bee47b86980dd52cb504",
+        "analysis-500.json": "c573f578bdb03366e915a0fac77d462a4c5b9baa2be6dd5c7fec3a1b967b888a",
+        "resources.jsonl": "ae4b138316f1f6d235598303f2d0b8f95962bc7e6f435056a79427a028a48c75",
+        "verified-stop/resources.json": "117e5a40da15e7b012a638995be376aff849d2783420870952199e937326f18e"
+      }
+    }
+  ]
+}

@@ -1282,6 +1282,46 @@ measurement. Its host monitor has a 55.64-second gap overlapping the first windo
 that period cannot support continuous host-pressure attribution. No timed mutation
 was retried. Higher concurrency and reversed image order remain to be measured.
 
+## Higher-concurrency shared-barrier comparison
+
+The [fresh higher-load comparison](evidence/tikv-shared-image-internal-high.json)
+reverses image order: candidate first, then control. Each image ran six 60-second
+windows at 6, 12, 24, 24, 12 and 6 writers, with the same internal node volumes,
+external RustFS storage, limits and durability contract as the preceding pair.
+All twelve windows had zero write errors and no timed mutation retries.
+
+| Image | Writers | TPS in each repeat | Mean TPS | Worst p99 (ms) |
+| --- | --- | --- | --- | --- |
+| Control `c6aed34` | 6 | 203.54 / 97.30 | 150.42 | 601.11 |
+| Control `c6aed34` | 12 | 211.91 / 133.75 | 172.83 | 413.41 |
+| Control `c6aed34` | 24 | 205.35 / 180.96 | 193.16 | 395.11 |
+| Shared barrier `12d6e87` | 6 | 140.90 / 151.77 | 146.33 | 148.61 |
+| Shared barrier `12d6e87` | 12 | 190.65 / 183.26 | 186.96 | 147.75 |
+| Shared barrier `12d6e87` | 24 | 188.25 / 197.67 | 192.96 | 274.38 |
+
+The candidate's best observed setting under 200 ms is twelve writers; no control
+setting passes that ceiling in both repeats. Under 500 ms, both select 24 writers
+at essentially the same 193 TPS, with lower worst-window p99 for the candidate.
+Control has faster individual windows and a slightly higher six-writer mean.
+These mixed results do not establish a general throughput increase. Twelve
+candidate writers retain about 97% of its 24-writer throughput with substantially
+lower tail latency, so that setting is selected for longer confirmation.
+
+The candidate acknowledged 64,717 writes including seed; control acknowledged
+63,960. Each cohort passed all 4,500 replica values and 1,500 RustFS archive
+positions, stopped with zero exit codes and no OOM kills, and retained all four
+volumes. Candidate archive catch-up after measurement took 5.79 seconds.
+Other builds appeared in 65 of 99 candidate samples and 52 of 94 control samples;
+recorded host swap usage and paging also differed. Shared-host conditions still
+prevent an isolated causal estimate. The longer comparison uses two 180-second
+windows at twelve writers per image, control first, and remains pending.
+
+The older `accelerated` baseline image carries revision label `a849cc2`, while
+its later run report names `fb660b1` with a nonempty working diff. Its exact
+relationship to clean current `main` has not been re-established here. It will
+not serve as the final overall baseline without fresh source-provenance proof;
+a clean current-main build is required for that comparison.
+
 ## Remaining qualification
 
 - Repeat the Linux management-stop admission-seal qualification; the latest
