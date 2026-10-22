@@ -244,6 +244,12 @@ harness mode:
 cargo test -p cellar-python --test bridge --features embed --locked -- --runtime-watchdog
 ```
 
+Each scenario prints a `PASS Python watchdog` line only after the recovered
+counter, durable alarm and duplicate-delivery assertions succeed. The bridge
+uses a custom test harness (`harness = false`); a preceding Cargo summary of
+`0 passed` belongs to another test target and does not describe these checks.
+Any bridge failure still exits nonzero and fails `cargo test`.
+
 The bridge harness also pauses both real
 follower append traffic and bucket data writes in a three-node fleet: sync and
 final output wait for proof, actual follower acknowledgements release success

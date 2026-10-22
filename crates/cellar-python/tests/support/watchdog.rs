@@ -383,6 +383,9 @@ pub(super) fn qualify() -> Result<()> {
                 replay == expected,
                 "{route}: original alarm occurrence replay duplicated effects: {replay}"
             );
+            cellar::cli_output::Output::new(cellar::cli_output::Format::Text).line(format_args!(
+                "PASS Python watchdog ({route}): acknowledged state recovered after owner kill and disk deletion; durable alarm applied once and replay deduplicated"
+            ))?;
         }
         Ok(())
     })
