@@ -24,16 +24,16 @@ recovery. The packaged smoke additionally covers Pydantic/native-extension impor
 KV, SQL, queue delivery and cron. These are implementation checks, not broad
 production certification. The design below records the intended full contract.
 
-The complete Linux [push](https://github.com/crabbuild/cellar/actions/runs/39548047580)
+The historical Linux [push](https://github.com/crabbuild/cellar/actions/runs/39548047580)
 and [PR](https://github.com/crabbuild/cellar/actions/runs/39548052722) matrix now
-passes all four push/PR jobs at 85cdef4, covering both threading ABIs, adapter
+passed all four push/PR jobs at 85cdef4, covering both threading ABIs, adapter
 and bootstrap, installed-host prerequisite/refusal, offline recovery,
 replacement, workspace tests/lints, Axum modes and native examples. Each job
-passes native-node 88/88. Subsequent changes are documentation/evidence and
-opt-in diagnostic controls; runtime/test sources, dependencies and all twenty
-main qualification step bodies are unchanged. Remaining release work concerns
-the preserved historical lifecycle failures, whose causes are not established
-by passing repetitions. Operating
+passed native-node 88/88. Those results predate the later Raft and Python bridge
+changes and do not qualify the current source. Both ABI matrices, installed
+artifacts and workload measurements must be checked at the release revision.
+Remaining release work also includes the preserved historical lifecycle
+failures, whose causes are not established by passing repetitions. Operating
 defaults have repeated local measurements and Linux CI workload evidence within
 their stated development scope. Interrupted cron delivery, admission/retirement races and
 native-versus-Python development measurements have been exercised by the shipped harnesses.
@@ -41,8 +41,8 @@ Independent KV, shared-SQL
 and queue matrices now cover cancellation, failed proof, explicit reconciliation,
 backpressure, resource cleanup and preserving restart. The queue producer drill
 also exposed and fixed a native reset race with a still-running alarm. Supported
-macOS ARM64/Linux x86_64 package/runtime qualification is recorded by exact version
-in the audit. Real three-node tests withhold both follower acknowledgements and
+macOS ARM64/Linux x86_64 package/runtime checks use explicit runtime inventories
+and versions. Real three-node tests withhold both follower acknowledgements and
 bucket writes, then release actual follower acknowledgements with bucket writes
 still held. They exercise explicit sync and final output separately and refuse
 success when both proof paths fail. Native-writer conflicts and a stale Python
@@ -544,10 +544,11 @@ or let the adapter fabricate an activation context.
 | M4: packaging | Runtime/source/dependency inventory, verified install and process replacement | Wrong ABI/missing library/tampered source refuses startup; offline deployment; old/new process handoff; runtime artifact recovery; Python example runs from a fresh installation |
 | M5: SDK growth | Additional bindings and optional ASGI/stream adapters | Independent authority, cancellation, backpressure, replay and resource tests for each surface |
 
-Core features span all six phases. The delivery review found no unimplemented
-required surface; optional adapters remain deferred. The shared release gate
-is diagnosis of the preserved historical delivery, consumer-admission and
-clock/replay failures. Component acceptance does not close that reliability gate:
+Core features span all six phases; optional adapters remain deferred. The
+assessments below describe implemented contracts and historical evidence, not
+qualification of a later revision. The shared release gate requires current
+source/ABI/platform checks and diagnosis of preserved lifecycle failures.
+Component acceptance does not close that reliability gate:
 
 | Phase | Current assessment | Gate still open |
 | --- | --- | --- |
@@ -578,8 +579,20 @@ historical lifecycle failure. A bounded native cause diagnostic and opt-in Linux
 fresh-fixture consumer replay mode target the preserved initial admission refusal;
 passing repetitions alone cannot establish its cause.
 
+For production performance qualification, compare the exact native and Python
+artifacts under the same workload, resource limits and durability policy. The
+local [baseline harness](../tools/python/baseline.md) checks responses and
+acknowledged state after owner death, but its closed-loop traffic and private
+SQLite bucket do not establish fleet capacity. Remaining load gates include
+populated resident-cell sets, independent arrival rates, saturation and recovery,
+long-running resource stability, and the intended multi-node storage/failure
+configuration. The [deployment qualification guide](../docs/19-testing-qualification.md)
+describes the broader failure and load matrix. Application throughput and p99
+targets must be stated before declaring that deployment qualified.
+
 Prioritize delivery and review of the implemented runtime, SDK and packaging,
-then resolve the preserved reliability failures before adding more surfaces. A gate closes only with its stated evidence on
+then resolve the preserved reliability failures and qualify the intended load
+before adding more surfaces. A gate closes only with its stated evidence on
 the relevant source, threading ABI and platform; a historical successful CI run
 does not qualify later changes.
 
