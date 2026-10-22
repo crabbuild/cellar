@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "baseline_revision": "64d1620092f1e80f194d7c0aa05e26adf9669f06",
+  "baseline_revision": "1391e94b471b49f0ca8de6432af7b0dbc8e2b564",
   "status_values": [
     "TODO",
     "IN_PROGRESS",
@@ -2502,7 +2502,8 @@
         "evidence/MR-14-density-progress.json",
         "evidence/MR-14-pipeline-progress.json",
         "evidence/MR-14-persistence-progress.json",
-        "evidence/MR-14-store-fault-progress.json"
+        "evidence/MR-14-store-fault-progress.json",
+        "evidence/MR-14-store-physical-progress.json"
       ]
     },
     {

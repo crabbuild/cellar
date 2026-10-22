@@ -102,9 +102,12 @@ requested MR-14 focus; it does not waive MR-13's release dependency.
    slow-follower latency before claiming a supported capacity. Complete sustained
    S3 acknowledgement and equivalent-contract Fleet/bucket fault comparisons.
    Shared RustFS pause scheduling and independent acknowledgement-window checks
-   now execute through both runners. Run their healthy/outage matrix, retain all
-   failed attempts and define any common service contract explicitly before
-   permitting a cross-adapter ratio; current guarantees still differ.
+   now execute through both runners. The eight-run local healthy/outage matrix
+   reconciles across Quorum, S3, Fleet and bucket policies. Retain the S3, Fleet
+   and bucket outage traffic misses, investigate Fleet's delayed owner queries,
+   and extend fault histories through ambiguous outcomes. Define any common
+   service contract explicitly before permitting a cross-adapter ratio;
+   current guarantees still differ.
    Account for observation overhead and device I/O. Keep Q1's original workload
    and the 4,096-group bound; the six-process gate exceeds the current local scope.
 3. **Complete MR-13's remaining operator features.** Qualify receipt maintenance
@@ -124,9 +127,10 @@ requested MR-14 focus; it does not waive MR-13's release dependency.
 The bounded control-path change, physical comparison and native persistence-wait
 improvement are delivered. The
 [shared object-store outage runner](evidence/MR-14-store-fault-progress.json) is implemented;
-physical execution and equivalent-contract comparison remain open. Continue
-fault qualification while
-shared-host contention prevents a controlled latency comparison. The physical
+[its physical matrix](evidence/MR-14-store-physical-progress.json) verifies bounded
+pause behavior and final state across all four policies. Equivalent-contract
+comparison and broader fault qualification remain open. Shared-host observations
+do not establish a controlled latency comparison. The physical
 queue/latency gate still needs causal evidence and the unchanged workload
 comparison. All misses remain in the evidence; one passing short run does not
 qualify a supported capacity.

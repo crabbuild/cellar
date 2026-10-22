@@ -400,11 +400,55 @@ disks. Existing proof-error, resource and traffic gates remain unchanged.
 The shared injection does not make the architectures' authority, retained-copy,
 read or receipt guarantees equal. `compare_runs.py` includes the fault profile
 for every adapter and continues to refuse a throughput ratio when any required
-contract differs. This runner implementation is tested with local Python
-fixtures; physical RustFS execution, timing acceptance and a truly equivalent
-cross-adapter service contract remain open. The
+contract differs. The runner implementation is tested with local Python
+fixtures. The
 [source-pinned harness evidence](../../plans/multi-raft/evidence/MR-14-store-fault-progress.json)
-retains the test results and explicitly records zero physical runs.
+retains those test results and explicitly records zero physical runs in that
+implementation component. The subsequent physical matrix is recorded separately.
+
+### Physical store-outage matrix
+
+The [eight physical runs](../../plans/multi-raft/evidence/MR-14-store-physical-progress.json)
+at source `1391e94` use one fresh image, three 1-vCPU/3-GiB/no-swap Cellar nodes,
+RustFS, 12 active cells, five seconds of warmup and 20 seconds at 10 offered
+operations per second. Each outage has two one-second store pauses within the
+unchanged two-second maximum; healthy controls use the same inspection schedule.
+All submitted histories reconcile, with every assigned Raft replica and final
+archive cut checked, or all three baseline owner routes checked.
+
+| Policy | Healthy completed / offered | Healthy p99 | Outage completed / offered | Outage p99 | New commands acknowledged / submitted during observed pauses |
+| --- | --- | --- | --- | --- | --- |
+| Raft Quorum | 200 / 200 | 29 ms | 200 / 200 | 41 ms | 10 / 10 |
+| Raft S3 | 198 / 200 | 126 ms | 193 / 200 | 942 ms | 0 / 6 |
+| Fleet | 200 / 200 | 67 ms | 196 / 200 | 754 ms | 6 / 6 |
+| Bucket | 200 / 200 | 25 ms | 193 / 200 | 945 ms | 0 / 6 |
+
+All healthy controls and the Quorum outage meet the original short-run traffic
+targets. S3, Fleet and bucket outages miss them; their successful safety and
+state checks do not override those misses. Missing completions are generator
+rejections, with no server refusal, timeout or ambiguous mutation observed.
+Final state checks provide recovery upper bounds of 9.03–9.40 seconds from the
+last release start; those bounds include the rest of the measurement window.
+They are not precise per-cell recovery times.
+
+Fleet's 97 healthy and 93 outage output-proof completions all use its replication
+path, with zero bucket proofs and zero proof errors. Its two long outage queries
+overlap the first pause and account for its latency miss. Their request times
+are about 751 and 842 ms, while invocation journal sync is below 1 ms. This
+locates the delay after journal sync; it does not identify the causal server
+operation. Per-command Fleet proof sources are not inferred from counters.
+
+All eight independent analyzers pass again after extracting the hashed evidence
+capsule. Both S3-versus-bucket comparisons refuse an equivalent-contract ratio.
+All 32 experiment containers stop with exit code zero and no OOM. Their exact
+empty networks are removed, volumes and containers retained, and the dedicated
+profile is stopped. Unrelated profiles remain untouched.
+
+These are short functional observations on a shared Mac, with swap use and
+other active Colima profiles recorded in each run. They do not establish a
+causal speedup, sustained capacity, independent failure domains or a common
+cross-adapter service contract. Longer failures with ambiguous outcomes, process
+loss, disk loss, real S3 and Q1 remain open.
 
 ## Comparison rules
 
