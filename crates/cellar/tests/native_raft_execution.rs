@@ -271,6 +271,73 @@ async fn image_publication_waits_for_engine_marker() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn committed_replay_waits_for_pinned_image_capacity() -> Result<()> {
+    let root = tempfile::tempdir()?;
+    let mut host = Host::open(root.path(), false).await?;
+    host.images = GenerationStore::open(
+        root.path().join("limited-images"),
+        Arc::new(DirectFileSystem),
+        GenerationLimits {
+            max_generations: 2,
+            ..Default::default()
+        },
+    )?;
+    host.applier = ImageApplier::recover(
+        host.log.group(&scope())?,
+        host.images.clone(),
+        host.application_digest,
+        EnvelopeLimits::default(),
+    )?;
+    host.elect().await?;
+    let mut bytes = Vec::new();
+    let mut archive_pin = None;
+    for sequence in 1..=3_u8 {
+        let next = if sequence == 1 {
+            initial()?
+        } else {
+            images::image(Some(&bytes), "UPDATE counter SET value=value+1")?
+        };
+        let cut = images::Cut::new(&bytes, &next, u64::from(sequence - 1), false, true);
+        host.runtime
+            .propose(&scope(), vec![], payload(&cut, sequence)?)
+            .await?;
+        let (ticket, entry) = host.next_apply().await?;
+        if sequence == 3 {
+            // Follower/recovery apply has no local command preview to promote.
+            // The old archive pin plus the public head fill the image store.
+            assert!(matches!(
+                host.applier
+                    .prepare(ticket.clone(), &entry, images::id(sequence)),
+                Err(ImageApplyError::Images(
+                    cellar_ltx::generation::GenerationError::Limit
+                ))
+            ));
+            let status = host.runtime.status(&scope()).await?;
+            assert!(status.committed >= ticket.position().index);
+            assert!(status.applied.index < ticket.position().index && status.awaiting_apply);
+            assert!(matches!(
+                host.applier.publish(&ticket),
+                Err(ImageApplyError::Unpublished)
+            ));
+            assert_eq!(images::read(&host.applier.current().unwrap().pin())?, bytes);
+            drop(archive_pin.take());
+        }
+        let completion = host
+            .applier
+            .prepare(ticket.clone(), &entry, images::id(sequence))?;
+        host.runtime.complete_apply(completion).await?;
+        let published = host.applied(&ticket).await?;
+        assert_eq!(images::read(&published.pin())?, next);
+        if sequence == 1 {
+            archive_pin = Some(published.pin());
+        }
+        bytes = next;
+    }
+    assert_eq!(host.counter()?, 9);
+    host.close().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn apply_recovery_follows_engine_marker() -> Result<()> {
     let root = tempfile::tempdir()?;
     let mut host = Host::open(root.path(), false).await?;

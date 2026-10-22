@@ -25,6 +25,7 @@ pub struct Faults {
     pub collision: AtomicBool,
     pub reads: AtomicUsize,
     pub events: Mutex<Vec<&'static str>>,
+    pub image_seals: Mutex<Vec<PathBuf>>,
     pub signal: Option<PathBuf>,
 }
 
@@ -37,6 +38,7 @@ impl Faults {
             collision: AtomicBool::new(false),
             reads: AtomicUsize::new(0),
             events: Mutex::new(Vec::new()),
+            image_seals: Mutex::new(Vec::new()),
             signal,
         })
     }
@@ -122,6 +124,11 @@ impl HostFileIo for File {
             }
             self.inner.sync_all()?;
             self.faults.event("image-sync");
+            self.faults
+                .image_seals
+                .lock()
+                .unwrap()
+                .push(self.path.clone());
             return Ok(());
         }
         self.inner.sync_all()
@@ -216,6 +223,10 @@ impl FileSystem for FaultFileSystem {
 
     fn remove_dir_all(&self, path: &Path) -> io::Result<()> {
         DirectFileSystem.remove_dir_all(path)
+    }
+
+    fn remove_dir_batch(&self, path: &Path, limit: usize) -> io::Result<bool> {
+        DirectFileSystem.remove_dir_batch(path, limit)
     }
 
     fn create_dir_all(&self, path: &Path) -> io::Result<()> {

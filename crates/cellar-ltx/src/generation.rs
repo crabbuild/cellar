@@ -374,6 +374,13 @@ impl GenerationStore {
         self.inner.limits.apply
     }
 
+    /// Whether this pin belongs to this exact open directory owner. Logical
+    /// image IDs and digests alone do not establish local file ownership.
+    /// This does not select the image as an authoritative retained reference.
+    pub fn owns(&self, pin: &GenerationPin) -> bool {
+        Arc::ptr_eq(&self.inner, &pin.inner)
+    }
+
     /// Build a new image from an exact pinned base. The returned image is fully
     /// fsynced and immutable. The host must separately persist its Raft apply
     /// marker before publishing this pin to readers or settling a command.

@@ -1,0 +1,290 @@
+{
+  "status": "failed_shared_host_comparisons",
+  "disk_backing": "external Workspace volume; ext4 inside dedicated Colima VM",
+  "durability": "unchanged quorum plus committed image publication; RustFS catch-up verified separately",
+  "runs": [
+    {
+      "label": "control",
+      "revision": "b68c0868275f3fab5a334737052c245ade531da2",
+      "image": "sha256:497a1c8db0c2e76a6b9b503bb54ab2ba5ccc6bac1f8495ca5d482b2d7464b663",
+      "binary_sha256": "9595daf1226fd1f4436f62f05ec892ff62a8bbbed0f246b7b0109b179990cd67",
+      "completed": false,
+      "failure": "non-admission write failure or ambiguity; see raw outcomes",
+      "cells": 1500,
+      "voters": 3,
+      "archive_producers": 2,
+      "windows": [
+        {
+          "repeat": 1,
+          "concurrency": 12,
+          "tps": 42.06672827616972,
+          "latency_ms": {
+            "p50": 179.1686420001497,
+            "p95": 548.908449999999,
+            "p99": 1481.2736270000642,
+            "max": 4838.11105399991
+          },
+          "error_rate": 0.006286836935166994,
+          "errors": 16
+        }
+      ],
+      "resources": {
+        "node1": {
+          "samples": 17,
+          "cpu_mean_percent": 24.854705882352942,
+          "cpu_max_percent": 36.87,
+          "last_memory": "208.3MiB / 3GiB",
+          "last_block_io": "406kB / 319MB"
+        },
+        "node2": {
+          "samples": 17,
+          "cpu_mean_percent": 24.651764705882353,
+          "cpu_max_percent": 33.3,
+          "last_memory": "207.6MiB / 3GiB",
+          "last_block_io": "250kB / 319MB"
+        },
+        "node3": {
+          "samples": 17,
+          "cpu_mean_percent": 24.42705882352941,
+          "cpu_max_percent": 33.5,
+          "last_memory": "207.9MiB / 3GiB",
+          "last_block_io": "258kB / 318MB"
+        },
+        "rustfs": {
+          "samples": 17,
+          "cpu_mean_percent": 41.114117647058826,
+          "cpu_max_percent": 150.16,
+          "last_memory": "493.7MiB / 4GiB",
+          "last_block_io": "112MB / 453MB"
+        }
+      },
+      "host": {
+        "samples": 40,
+        "with_other_builds": 31,
+        "swap_used_mib_min": 9818.75,
+        "swap_used_mib_max": 11284.31,
+        "page_size": 16384,
+        "vm_page_counter_deltas": {
+          "Pageouts": 4165,
+          "Swapins": 6737,
+          "Swapouts": 95332
+        }
+      },
+      "container_cleanup": {
+        "original_timed_run_remains_failed": true,
+        "states": {
+          "cellar-raft-20261022-201632-node1": {
+            "Running": false,
+            "ExitCode": 0,
+            "OOMKilled": false,
+            "Error": "",
+            "FinishedAt": "2026-10-22T20:28:19.726646076Z"
+          },
+          "cellar-raft-20261022-201632-node2": {
+            "Running": false,
+            "ExitCode": 0,
+            "OOMKilled": false,
+            "Error": "",
+            "FinishedAt": "2026-10-22T20:28:19.731749865Z"
+          },
+          "cellar-raft-20261022-201632-node3": {
+            "Running": false,
+            "ExitCode": 0,
+            "OOMKilled": false,
+            "Error": "",
+            "FinishedAt": "2026-10-22T20:28:19.733045031Z"
+          },
+          "cellar-raft-20261022-201632-rustfs": {
+            "Running": false,
+            "ExitCode": 0,
+            "OOMKilled": false,
+            "Error": "",
+            "FinishedAt": "2026-10-22T20:28:22.424799761Z"
+          }
+        },
+        "preserved_volumes": [
+          "cellar-raft-20261022-201632-node1",
+          "cellar-raft-20261022-201632-node2",
+          "cellar-raft-20261022-201632-node3",
+          "cellar-raft-20261022-201632-rustfs"
+        ]
+      },
+      "postfailure_verification": {
+        "completed": true,
+        "original_measurement_completed": false,
+        "original_failure": "non-admission write failure or ambiguity; see raw outcomes",
+        "acknowledged_including_reconciliation": 4045,
+        "verified_replicas": 4500,
+        "verified_archives": 1500,
+        "archive_wait_seconds": 0.7594015409995336,
+        "original_placement_matches": 1500,
+        "scope": "Read-only postfailure data reconciliation; original timed run remains failed"
+      }
+    },
+    {
+      "label": "candidate",
+      "revision": "1ba6a3a16f320f06eabd15e59e087d4f10d37eac",
+      "image": "sha256:8474daa69fe38c290b021830a536b3a4e2388c507a97c4c114f1e1928885e5ed",
+      "binary_sha256": "17abeffea0b5db55be72896eab385e6ced383ebc7e14e22c05176de06c04f4ca",
+      "completed": false,
+      "failure": "non-admission write failure or ambiguity; see raw outcomes",
+      "cells": 1500,
+      "voters": 3,
+      "archive_producers": 2,
+      "windows": [
+        {
+          "repeat": 1,
+          "concurrency": 3,
+          "tps": 15.279826749143119,
+          "latency_ms": {
+            "p50": 164.40115299974423,
+            "p95": 619.304939000358,
+            "p99": 973.8743729999442,
+            "max": 2317.838090999885
+          },
+          "error_rate": 0.0,
+          "errors": 0
+        },
+        {
+          "repeat": 1,
+          "concurrency": 6,
+          "tps": 34.436624143795676,
+          "latency_ms": {
+            "p50": 128.0525669999406,
+            "p95": 596.6946919998009,
+            "p99": 854.3672369996784,
+            "max": 1129.1082889997597
+          },
+          "error_rate": 0.0,
+          "errors": 0
+        },
+        {
+          "repeat": 1,
+          "concurrency": 9,
+          "tps": 45.09896496599216,
+          "latency_ms": {
+            "p50": 175.28145500000392,
+            "p95": 373.05691299980026,
+            "p99": 737.2772409999016,
+            "max": 1226.1324269998113
+          },
+          "error_rate": 0.0,
+          "errors": 0
+        },
+        {
+          "repeat": 2,
+          "concurrency": 9,
+          "tps": 28.551234944127582,
+          "latency_ms": {
+            "p50": 187.85266799977762,
+            "p95": 562.5266299998657,
+            "p99": 1629.252673999872,
+            "max": 4929.408446999787
+          },
+          "error_rate": 0.011720831113478956,
+          "errors": 22
+        }
+      ],
+      "resources": {
+        "node1": {
+          "samples": 65,
+          "cpu_mean_percent": 22.70323076923077,
+          "cpu_max_percent": 36.53,
+          "last_memory": "220MiB / 3GiB",
+          "last_block_io": "1.34MB / 629MB"
+        },
+        "node2": {
+          "samples": 65,
+          "cpu_mean_percent": 22.014153846153846,
+          "cpu_max_percent": 43.58,
+          "last_memory": "220.5MiB / 3GiB",
+          "last_block_io": "999kB / 631MB"
+        },
+        "node3": {
+          "samples": 65,
+          "cpu_mean_percent": 21.983076923076922,
+          "cpu_max_percent": 36.43,
+          "last_memory": "220MiB / 3GiB",
+          "last_block_io": "2.52MB / 633MB"
+        },
+        "rustfs": {
+          "samples": 65,
+          "cpu_mean_percent": 29.735846153846154,
+          "cpu_max_percent": 76.37,
+          "last_memory": "492MiB / 4GiB",
+          "last_block_io": "14.7MB / 859MB"
+        }
+      },
+      "host": {
+        "samples": 89,
+        "with_other_builds": 74,
+        "swap_used_mib_min": 11673.56,
+        "swap_used_mib_max": 12073.56,
+        "page_size": 16384,
+        "vm_page_counter_deltas": {
+          "Pageouts": 2375,
+          "Swapins": 26481,
+          "Swapouts": 0
+        }
+      },
+      "container_cleanup": {
+        "states": {
+          "cellar-raft-20261022-203734-node1": {
+            "Running": false,
+            "ExitCode": 0,
+            "OOMKilled": false,
+            "Error": "",
+            "FinishedAt": "2026-10-22T20:52:19.702317166Z"
+          },
+          "cellar-raft-20261022-203734-node2": {
+            "Running": false,
+            "ExitCode": 0,
+            "OOMKilled": false,
+            "Error": "",
+            "FinishedAt": "2026-10-22T20:52:19.698281071Z"
+          },
+          "cellar-raft-20261022-203734-node3": {
+            "Running": false,
+            "ExitCode": 0,
+            "OOMKilled": false,
+            "Error": "",
+            "FinishedAt": "2026-10-22T20:52:19.695951338Z"
+          },
+          "cellar-raft-20261022-203734-rustfs": {
+            "Running": false,
+            "ExitCode": 0,
+            "OOMKilled": false,
+            "Error": "",
+            "FinishedAt": "2026-10-22T20:52:20.821211308Z"
+          }
+        },
+        "preserved_volumes": [
+          "cellar-raft-20261022-203734-node1",
+          "cellar-raft-20261022-203734-node2",
+          "cellar-raft-20261022-203734-node3",
+          "cellar-raft-20261022-203734-rustfs"
+        ],
+        "original_timed_run_remains_failed": true,
+        "expired_mutations_not_retried": 22
+      },
+      "postfailure_verification": {
+        "original_timed_run_remains_failed": true,
+        "expired_requests": 22,
+        "retries_issued": 0,
+        "acknowledged_writes": 9057,
+        "readable_replicas": 4500,
+        "exact_acknowledged_unambiguous_replicas": 4434,
+        "extra_increment_distribution": {
+          "1": 63,
+          "0": 3
+        },
+        "failures": [],
+        "archive_covers_acknowledged": 1500,
+        "archive_covers_observed_applied": 1500,
+        "original_placement_matches": 1500,
+        "finished_unix": 1792702305.783016,
+        "scope": "Read-only evidence; expired ambiguous identities were not replayed or classified as acknowledged."
+      }
+    }
+  ]
+}

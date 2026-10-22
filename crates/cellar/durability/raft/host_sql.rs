@@ -728,14 +728,14 @@ impl Cell {
                     return Err(ExecutionError::Invalid("apply event"));
                 };
                 Ok(Value::Prepared(
-                    self.applier.prepare(ticket.clone(), entry, image).map_err(
-                        |error| match error {
+                    self.applier
+                        .prepare_private(ticket.clone(), entry, image, self.private.as_mut())
+                        .map_err(|error| match error {
                             super::apply::ImageApplyError::Images(
                                 cellar_ltx::generation::GenerationError::Limit,
                             ) => ExecutionError::Refused(CommandFailure::Overloaded),
                             error => super::execution::storage(error),
-                        },
-                    )?,
+                        })?,
                 ))
             }
             Action::Publish { ticket } => {

@@ -1044,6 +1044,81 @@ run. Thirty isolated final repetitions also pass: ten original interrupted
 transfers, ten with the healthy leader forced onto the snapshot receiver, and
 ten shutdowns with a partial transfer held.
 
+## Shared-host measurements after disk relocation
+
+[Recorded failure evidence](evidence/tikv-replay-shared-host-failures.json)
+retains both incomplete experiments on the external VM disk. The control's first
+12-writer window reached 42.07 writes/sec with p99 1,481 ms and sixteen ambiguous
+outcomes. All sixteen original requests were reconciled within their original
+deadlines; all 4,500 replicas and 1,500 archive positions then matched. This does
+not turn the failed timed window into a successful result.
+
+A separate candidate-first experiment lowered concurrency to 3, 6 and 9. Its
+first windows reached 15.28, 34.44 and 45.10 writes/sec with p99 974, 854 and 737 ms.
+The reverse-order nine-writer repeat reached 28.55 writes/sec and p99 1,629 ms,
+with 21 ambiguous outcomes and one unavailable response. The control half was
+not run after this failure. All original retry deadlines had expired before
+reconciliation, so no mutations were replayed. A read-only scan found all
+4,500 replicas available: the 21 ambiguous cells each had one extra increment
+on all three replicas, while the unavailable request had none. All 1,500
+archives covered the observed applied positions. These observations are not
+recovered receipts for the expired identities, and the original run remains
+failed. Both failed cohorts stopped cleanly; their volumes remain preserved.
+
+Candidate node CPU averaged 22–23%, with final memory around 220 MiB per node.
+The host monitor observed other builds in 74 of 89 samples and 26,481 additional
+16-KiB swap-in pages. These are shared-host results, not an isolated capacity
+limit. Separate interleaved filesystem probes measured a complete 4-KiB image
+seal at mean 2.50 ms / p99 6.87 ms on the external ext4 VM disk, compared with
+0.57 / 1.01 ms on an internal-host virtiofs path. A write-plus-fsync probe also
+favored the internal path. Neither probe attributes the entire multi-second
+write tail, and no filesystem or durability settings were changed afterward.
+Earlier internal-disk throughput numbers cannot serve as a controlled baseline
+for these runs. Archive replay batching has a proven operation-count reduction,
+but no end-to-end performance gain is established by these experiments.
+
+## Reuse an exact sealed leader preview for committed apply
+
+A real Node/SDK regression issues eight counter commands, waits for S3 proof,
+and counts physical seals only in that cell's image directory. Before the change,
+the eight commands require sixteen seals: one before proposal and another during
+committed apply. With preview transfer, they require eight. Restart recovers all
+eight original receipts and the exact counter without executing callbacks again.
+This proves less physical work; container throughput and latency still need a
+fresh comparison.
+
+`PrivateExecutor` records the complete encoded update digest and exact base/result
+states only after physical preview verification. `ImageApplier` validates the
+existing durable ticket, committed entry, applied head, schema and base before
+accepting the preview. Reuse also requires submission and the same replica and
+open generation-store owner. A mismatch leaves the private pin intact and follows
+ordinary physical replay. The transfer removes the pin from private retirement
+ownership; publication and acknowledgement still wait for the durable apply
+marker. Followers and recovery keep their physical verifier. The binding test
+covers changed payload bytes, base/result states and a foreign store containing
+the same image ID and bytes, and confirms transferred retention survives private
+owner teardown.
+
+The original archive-pressure drill assumed that a third leader write must
+allocate a fourth generation after commitment. That assumption no longer holds
+for an exact preview: the updated Node test requires quorum publication while
+the old archive pin is held, then S3 catch-up without callback replay after its
+release. A separate real RawNode/raft-engine/ImageApplier test fills a two-image
+store with a pinned old generation and the current head. A committed replay with
+no preview must return capacity pressure, preserve its original ticket and public
+image, refuse publication, and finish only after the old pin is released. This
+retains the committed-replay backpressure boundary instead of requiring the
+optimized leader to allocate duplicate bytes.
+
+[Local validation](evidence/tikv-preview-reuse-validation.json) passes 713 distinct
+Rust cases: 453 library and 260 native integration cases across eleven binaries.
+Seven process helpers execute through their parent scenarios. Strict all-target,
+all-feature Clippy for `cellar` and `cellar-ltx`, the LTX library build without
+default features, formatting (801 Rust files), module layout, dependency policy
+and documentation checks pass. The earlier archive-pressure failure is preserved
+with the successful checks. Container comparison and fresh Linux qualification
+are still required.
+
 ## Remaining qualification
 
 - Repeat the Linux management-stop admission-seal qualification; the latest

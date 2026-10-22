@@ -2316,7 +2316,7 @@ async fn archive_io_deadline_retries_without_reexecuting() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn archive_pin_pressure_defers_committed_apply_without_corruption() -> Result<()> {
+async fn exact_leader_preview_publishes_under_archive_pin_pressure() -> Result<()> {
     let store = Arc::new(faults::Store::default());
     store.archive_hang.store(true, Ordering::Release);
     let mut options = RaftHostOptions::default();
@@ -2342,37 +2342,38 @@ async fn archive_pin_pressure_defers_committed_apply_without_corruption() -> Res
         .await
         .context("commit second pressure image")?;
     let cell = native.cell()?;
-    let mut third = Box::pin(cell.command(
-        native.definition.increment.clone(),
-        1_i64.to_be_bytes().to_vec(),
-        public_node::options(3)?,
-    ));
-    tokio::time::timeout(std::time::Duration::from_secs(5), async {
-        loop {
-            if cell
-                .status()
-                .await
-                .is_ok_and(|status| status.committed > status.applied.index)
-            {
-                break;
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-        }
-    })
+    let request = public_node::options(3)?;
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        cell.command(
+            native.definition.increment.clone(),
+            1_i64.to_be_bytes().to_vec(),
+            request.clone(),
+        ),
+    )
     .await
-    .context("third command did not reach commit ahead of apply")?;
-    ensure!(
-        tokio::time::timeout(std::time::Duration::from_millis(200), &mut third)
-            .await
-            .is_err(),
-        "image capacity was treated as corruption or acknowledged before apply"
-    );
+    .context("sealed preview did not publish while the archive pin was held")??;
+    ensure!(result.result == 3_i64.to_be_bytes());
+    ensure!(cell.status().await?.applied.index >= result.version.position.index);
+    ensure!(store.archive_hang.load(Ordering::Acquire));
+    ensure!(native.calls.load(Ordering::SeqCst) == 3);
+    // Three retained generations cover the old archive pin, current image and
+    // next preview. Applying the exact preview needs no fourth generation.
     store.archive_hang.store(false, Ordering::Release);
     store.archive_resume.notify_waiters();
-    let result = tokio::time::timeout(std::time::Duration::from_secs(5), third)
-        .await
-        .context("third command did not publish after archive release")??;
-    ensure!(result.result == 3_i64.to_be_bytes());
+    let mut archived = request;
+    archived.durability = Durability::S3;
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        cell.command(
+            native.definition.increment.clone(),
+            1_i64.to_be_bytes().to_vec(),
+            archived,
+        ),
+    )
+    .await
+    .context("archive did not catch up after releasing its old pin")??;
+    ensure!(result.result == 3_i64.to_be_bytes() && result.durability == Durability::S3);
     ensure!(native.calls.load(Ordering::SeqCst) == 3);
     native.close().await
 }

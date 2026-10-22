@@ -247,9 +247,10 @@ the runtime tests use an explicitly separate application stub.
 
 `ImageApplier` supplies this physical verifier for committed data entries. It
 checks the complete replica/ticket/entry identity against the durable committed
-apply head, decodes the scoped application envelope and applies its exact LTX
-base/result through `GenerationStore`. Preparation returns a runtime completion,
-not a readable image pin. `publish` releases a `PublishedImage` only after the
+apply head, decodes the scoped application envelope and proves its exact LTX
+base/result through `GenerationStore`, either by replay or by transferring the
+matching sealed private preview described below. Preparation returns a runtime
+completion, not a readable image pin. `publish` releases a `PublishedImage` only after the
 engine's synced marker names that exact prepared generation. A delayed event
 can be reconciled against the durable cache; later protocol-only entries may
 cover the same image. Recovery adopts both the applied image and the independent
@@ -295,10 +296,16 @@ only an expired contiguous prefix; its client floor remains after receipt remova
 
 After local commit, capture includes every intervening complete LTX file. Bounds
 are checked before reading/decompressing; SQLite's frozen logical image supplies
-the mandatory result digest. A separate retained preview generation verifies the
-entire physical apply before proposal submission. This correctness-first path
-materializes both a preview and the eventual committed generation; its cost is
-part of release qualification, not a performance claim.
+the mandatory result digest. A retained preview generation verifies and seals
+the entire physical apply before proposal submission. The SQL owner can transfer
+that exact generation to committed apply after validating the durable ticket,
+entry, schema and current base. Reuse additionally requires the original replica,
+submitted proposal, complete encoded payload digest, exact base/result states and
+the same open image-store owner. A mismatch keeps the preview private and uses
+ordinary physical replay, as followers and recovery do. The transfer removes the
+pin from private cleanup ownership; the durable applied marker and publication
+still precede acknowledgement. Reusing a sealed preview removes one copy, replay
+and seal on the leader path without relaxing a persistence barrier.
 
 `mark_submitted` runs before awaiting the runtime. A lost response or cancelled
 waiter keeps the single command slot occupied. Abandoning that submission needs
