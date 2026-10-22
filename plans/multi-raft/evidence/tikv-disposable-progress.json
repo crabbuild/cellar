@@ -504,5 +504,180 @@
     "python_harness_cases": 8,
     "performance_comparison": "pending",
     "ci_failure": "Original Linux management-stop admission closure timeout remains unexplained; local serial case passed without weakening its assertion."
+  },
+  "transport_pipeline_run": {
+    "implementation_commit": "05d4c377040afdd04acc3bc8a191133bdc1caeba",
+    "image": "sha256:376db854807e3514e395cb2a6b16467b89c5e818eb3a48c63ce9604bc91e8678",
+    "binary_sha256": "af2d6dd716487b48e64627ea129c46218d49569b109749cd57f11b462cfa0be7",
+    "completed": false,
+    "failure": "replica verification node=1 cell=988: 503 Unavailable",
+    "acknowledged_writes_including_seed": 53577,
+    "windows": [
+      {
+        "repeat": 1,
+        "concurrency": 3,
+        "successful_writes": 9236,
+        "tps": 153.83561980384357,
+        "latency_ms": {
+          "p50": 15.51134300098056,
+          "p95": 40.73493400210282,
+          "p99": 75.19046099696425,
+          "max": 677.1563589973084
+        },
+        "errors": 0
+      },
+      {
+        "repeat": 1,
+        "concurrency": 6,
+        "successful_writes": 6550,
+        "tps": 109.12271922654794,
+        "latency_ms": {
+          "p50": 40.66130799765233,
+          "p95": 123.00114800018491,
+          "p99": 233.57049100013683,
+          "max": 1221.7282480014546
+        },
+        "errors": 0
+      },
+      {
+        "repeat": 1,
+        "concurrency": 9,
+        "successful_writes": 7302,
+        "tps": 121.58938870441837,
+        "latency_ms": {
+          "p50": 55.89554999824031,
+          "p95": 177.92156499854173,
+          "p99": 281.294575001084,
+          "max": 1418.3970670019335
+        },
+        "errors": 0
+      },
+      {
+        "repeat": 1,
+        "concurrency": 12,
+        "successful_writes": 5482,
+        "tps": 91.21476812106307,
+        "latency_ms": {
+          "p50": 111.58902999886777,
+          "p95": 249.63650700010476,
+          "p99": 429.4327040006465,
+          "max": 1954.3480840002303
+        },
+        "errors": 0
+      },
+      {
+        "repeat": 2,
+        "concurrency": 12,
+        "successful_writes": 9220,
+        "tps": 153.52362943547655,
+        "latency_ms": {
+          "p50": 43.33469999983208,
+          "p95": 108.23170900039258,
+          "p99": 208.80359999864595,
+          "max": 838.1401369988453
+        },
+        "errors": 7002
+      },
+      {
+        "repeat": 2,
+        "concurrency": 9,
+        "successful_writes": 3127,
+        "tps": 51.93876546788795,
+        "latency_ms": {
+          "p50": 54.45184999916819,
+          "p95": 447.3350090011081,
+          "p99": 758.5767179989489,
+          "max": 1553.8408899992646
+        },
+        "errors": 3113
+      },
+      {
+        "repeat": 2,
+        "concurrency": 6,
+        "successful_writes": 7298,
+        "tps": 121.53762225122786,
+        "latency_ms": {
+          "p50": 32.82370300075854,
+          "p95": 86.01476599869784,
+          "p99": 198.139058000379,
+          "max": 970.6650110019837
+        },
+        "errors": 2673
+      },
+      {
+        "repeat": 2,
+        "concurrency": 3,
+        "successful_writes": 3862,
+        "tps": 64.33896088607216,
+        "latency_ms": {
+          "p50": 35.19619500002591,
+          "p95": 108.39257799671032,
+          "p99": 218.93307600112166,
+          "max": 662.778513997182
+        },
+        "errors": 0
+      }
+    ],
+    "postfailure_verified_replicas": 4499,
+    "postfailure_failed_replicas": [
+      {
+        "node": 1,
+        "cell": 988,
+        "status": 503
+      }
+    ],
+    "postfailure_verified_archives": 1500,
+    "failure_origin": "Raft durable apply completion returned Overloaded; the host permanently closed this group admission.",
+    "qualification": "Failed replica verification; no operating point or speedup is qualified by this run.",
+    "host_activity": {
+      "samples": 113,
+      "samples_with_builds": 103
+    },
+    "raw_sha256": {
+      "report.json": "f1399b280bf0c690897b8118fff203fab82630cb2f7c8a255f494e3ae00ea8f7",
+      "postfailure-data-verification/report.json": "5d42c44b7ecdcc50fb696c3bc2692d3e0b10b103bca171c2b299b3d6763d9955",
+      "postfailure-data-verification/replicas.json": "b3eddaf4b45c89e48e3a266f8e8a2efbbc80129190f802be541c3765b6c983b5",
+      "postfailure-archive-verification.json": "6990f3b1ff87fb0119d2f98a5aee542b4720690d60a85dc80a7a90a5ecaa6266",
+      "write-r2-c3.json": "d8abf2aa7251e6aa43e5e697aa6be199e9b2e5bc7b4f3aca8da3e153e5d4c73f",
+      "write-r1-c9.json": "df58ed68f100e053fc6604afc1783a38ce4da25c7b7e431f8e0ba0999d5b7023",
+      "write-r2-c9.json": "8c5c0a66997d63c4d10c718f7efa8ae5319988d6f39bcbbaac782845ae371c2e",
+      "write-r1-c3.json": "83b4ef4167a808e7e672d6e9bd34ce8b572d17d9d99762757236eb2037cc3c29",
+      "write-r1-c12.json": "3ccc9dbe7ea7baa30a063c83ad9fef5dcb81e3238a673007080437a401875427",
+      "write-r2-c6.json": "ccbbf67c2b2d41f9295502892bb7c1b7dc5dab18950ae343c99da25b67f16472",
+      "write-r2-c12.json": "8db7b39867650663ce29e018674e68dd76de04862dc593af4c5cd29c469bacbe",
+      "write-r1-c6.json": "e6e960970f1380dfb3c51a4ef3dfbd06640f6e37d490d8d36c6952d0b85e45c1"
+    }
+  },
+  "completion_admission_validation": {
+    "cases": {
+      "library": 445,
+      "host": 27,
+      "operations": 19,
+      "runtime": 19,
+      "transport": 14,
+      "membership": 27,
+      "snapshot": 42
+    },
+    "total_passed": 593,
+    "standalone_process_helpers": 5,
+    "reproducer_before": "17 actual physical apply completions: first eight succeeded, remaining nine returned Overloaded.",
+    "regressions": [
+      "completed_apply_burst_waits_for_reserved_capacity",
+      "cancelling_completion_capacity_waiter_releases_its_place",
+      "runtime_close_wakes_completion_capacity_waiters"
+    ],
+    "initial_test_correction": "The first shutdown-test version incorrectly required already-admitted requests to return Closed. Unsubmitted waiters must return Closed immediately; previously admitted requests may report admission or Closed.",
+    "strict_clippy": true,
+    "format_layout_dependency_docs": true,
+    "python_harness_cases": 8,
+    "full_cluster_revalidation": "pending",
+    "raw_sha256": {
+      "apply-completion-before.log": "49189fe694f3ba388385121dea04ab5e2e67f2b97c46ed8a962e8d05ab29e0ae",
+      "apply-completion-after.log": "6db65bb87973f34b5a9aa687950985a67d9393c469a09b5890db2e6c944d98e4",
+      "apply-completion-runtime-tests.log": "bf3f661897f051b5aa84d4d6bd5b48e9eb15f8f6c4a8ac61d6174e78dfba409a",
+      "apply-completion-native-tests.log": "308da4ad89e1388800e7d162b45c16291a86f37a0ce2215df71cd58fa7a6df10",
+      "apply-completion-recovery-tests.log": "385911af3d18aef2b976991dca468d98ae1451ad5c69ebe9bccd273bde368bd5",
+      "apply-completion-clippy.log": "71c651da232a10ad7cb2de1076b9b3847a9322b297e8d4894ebf6eaa5b49855f"
+    }
   }
 }

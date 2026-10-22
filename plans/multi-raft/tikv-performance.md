@@ -385,6 +385,41 @@ Clippy, module layout, dependency policy, documentation and eight Python harness
 cases pass. The previously failing management-stop case passes locally; the
 Linux CI failure remains unexplained. A fresh end-to-end comparison is pending.
 
+## Completion admission failure under load
+
+The production pipeline image at `05d4c37`
+(`sha256:376db854807e3514e395cb2a6b16467b89c5e818eb3a48c63ce9604bc91e8678`)
+completed eight 60-second windows, but failed final replica verification.
+It acknowledged 53,577 writes including seed. The second twelve/nine/six-writer
+windows also returned 7,002/3,113/2,673 admission refusals. The independent
+postfailure scan verified 4,499 replica values; node 1, cell 988 remained
+`Unavailable`. All 1,500 RustFS archive positions covered acknowledged writes.
+The leader and other follower of cell 988 both applied index 46. This run
+qualifies no operating point or speedup, regardless of its faster windows.
+
+The permanent failure log now identifies the origin: `complete_apply` returned
+`Overloaded`, and the host failed the group. The runtime reserves eight slots
+for apply/snapshot completions independently of ordinary work, but its immediate
+admission still refuses a ninth simultaneous completion. This is already-issued
+physical apply work, not an optional new command. Losing its completion leaves
+the host unable to publish its committed image.
+
+`completed_apply_burst_waits_for_reserved_capacity` prepares seventeen actual
+committed apply tickets and fsynced fixture images, then polls their completions
+in one current-thread turn before the runtime worker runs. Before the fix, the
+first eight succeed and the remaining nine return `Overloaded`. The proposed
+change retains excess tickets/images in their existing caller futures and waits
+for reserved capacity. The queue remains eight slots; no retry of an admitted
+completion or durability relaxation is introduced. Shutdown wakes unsubmitted
+waiters, while every accepted ticket still crosses validation and the marker
+persistence barrier before publication. The burst reproducer passes after the
+change, as do cancellation and shutdown regressions. Final validation passes
+593 Rust cases: 445 library, 27 host, 19 operations, 19 runtime, 14 transport,
+27 membership and 42 snapshot. Five standalone process helpers run through
+their parent scenarios. Strict Clippy, formatting, layout, dependency policy,
+documentation and eight Python harness cases pass. Full-cluster revalidation
+and a controlled throughput comparison remain pending.
+
 ## Remaining qualification
 
 - Reproduce and resolve the Linux management-stop admission-seal failure, then

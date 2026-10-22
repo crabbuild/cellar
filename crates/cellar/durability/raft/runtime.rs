@@ -321,17 +321,37 @@ impl RaftRuntime {
                 .map_err(|e| RuntimeError::Invalid(e.to_string()))?,
             _ => (),
         }
-        let budget = if matches!(
+        let completion = matches!(
             &command,
             Command::Apply(_) | Command::Snapshot(_) | Command::AbortSnapshot(_)
-        ) {
+        );
+        let budget = if completion {
             &self.inner.completions
         } else if matches!(&command, Command::Hint { .. }) {
             &self.inner.hints
         } else {
             &self.inner.budget
         };
-        let permit = budget.acquire(bytes).ok_or(RuntimeError::Overloaded)?;
+        let permit = if completion {
+            // These callers own physical work already issued by this runtime.
+            // Keep its ticket/image at the caller until a reserved slot opens;
+            // refusing a burst here would strand committed apply permanently.
+            loop {
+                let wake = budget.wake.notified();
+                tokio::pin!(wake);
+                wake.as_mut().enable();
+                self.admit()?;
+                if let Some(permit) = budget.acquire(bytes) {
+                    break permit;
+                }
+                crate::asyncrt::select! {
+                    _ = wake => (),
+                    _ = self.inner.terminal.wait() => return Err(RuntimeError::Closed),
+                }
+            }
+        } else {
+            budget.acquire(bytes).ok_or(RuntimeError::Overloaded)?
+        };
         let (reply, wait) = oneshot::channel();
         self.inner
             .sender
@@ -544,10 +564,14 @@ impl RaftRuntime {
             .map(|_| ())
     }
 
+    /// Wait for reserved completion capacity while retaining the physical
+    /// image and ticket. Success admits the marker; `Applied` proves its sync.
     pub async fn complete_apply(&self, completed: ApplyCompletion) -> Result<(), RuntimeError> {
         self.call(4096, Command::Apply(completed)).await.map(|_| ())
     }
 
+    /// Wait for reserved completion capacity before install authorization.
+    /// The installed event still follows the required persistence barrier.
     pub async fn complete_snapshot(
         &self,
         completed: SnapshotCompletion,
@@ -565,6 +589,7 @@ impl RaftRuntime {
     /// The older physical apply keeps its existing ticket until it completes.
     /// After `complete_snapshot` is accepted, cancellation is refused; a stale
     /// completion error does not prove install failure. Join its final outcome.
+    /// This call waits for reserved completion capacity before admission.
     pub async fn abort_snapshot(&self, ticket: ApplyTicket) -> Result<(), RuntimeError> {
         self.call(4096, Command::AbortSnapshot(ticket))
             .await
@@ -634,6 +659,7 @@ impl RaftRuntime {
     /// waiter never abandons shutdown. This is not a fleet drain.
     pub async fn close(&self) -> Result<(), RuntimeError> {
         self.inner.closing.store(true, Ordering::Release);
+        self.inner.completions.wake.notify_waiters();
         self.inner.stop.notify_one();
         self.inner.terminal.wait().await
     }
