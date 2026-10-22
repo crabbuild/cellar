@@ -964,8 +964,22 @@ native tests verify waiting, cancellation before execution and an exactly-once
 retry; the original scenario passes 60 repetitions in one process. Final source
 validation passes 671 Rust cases, Clippy, native-only compilation, repository
 checks, 128 Python cases and 17 plan-tool cases. This resolves the learner
-admission finding; the independent shutdown-handoff finding remains open.
+admission finding; the independent shutdown-handoff finding remained open at
+that revision.
 No throughput or capacity claim follows from this change.
+
+The [handoff evidence](evidence/MR-14-handoff-progress.json) subsequently reproduces
+the shutdown failure: a healthy leader was skipped solely because an archive
+capture occupied its SQL worker. The current group now retains its original
+one-second handoff turn while SQL finishes. Waiting, inspection and transfer share
+that budget, capped by the original Node deadline. Native regressions hold the
+actual archive image read, verify handoff after release and bounded refusal under
+a continued stall, then verify successor writes. The original scenario passes
+80 repetitions. The broad matrix passes 690 Rust cases at `9e51538`; after a
+test-module import cleanup, 47 affected cases and all-target/all-feature Clippy
+pass at `b6e6f79`. Source pins, initial failures and full logs remain separate.
+This resolves the recorded handoff finding; earlier MR-13 findings and the
+performance acceptance gates retain their separate status.
 
 [Fresh Colima/RustFS evidence](evidence/MR-14-io-local-progress.json) uses the
 instrumented `/bundles-1` binary on three 1-vCPU/3-GiB nodes and 12 cells. All
