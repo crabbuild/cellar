@@ -99,8 +99,11 @@ async fn hot_group_fairness() -> Result<()> {
     // retained work. No accepted proposal is claimed to be a committed result.
     flood.abort_all();
     while let Some(result) = flood.join_next().await {
-        if let Ok(result) = result {
-            assert!(result.is_ok() || matches!(result, Err(RuntimeError::Overloaded)));
+        match result {
+            Ok(result) => {
+                assert!(result.is_ok() || matches!(result, Err(RuntimeError::Overloaded)))
+            }
+            Err(error) => ensure!(error.is_cancelled(), "hot caller panicked: {error}"),
         }
     }
     cluster.close().await
