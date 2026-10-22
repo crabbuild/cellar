@@ -33,6 +33,11 @@ use tokio::sync::{mpsc, Notify};
 #[path = "host_startup_tests.rs"]
 mod startup_tests;
 
+#[cfg(test)]
+#[path = "../../tests/support/raft_storage_fault.rs"]
+#[allow(dead_code)]
+mod storage_fault;
+
 #[path = "host_admission.rs"]
 mod admission;
 
@@ -995,6 +1000,7 @@ struct Cell {
     retired: bool,
     archive: CellArchive,
     archived: LogIndex,
+    archive_retained: admission::Retained,
     archive_retry_at: u64,
     group: GroupLog,
     schema_digest: [u8; 32],

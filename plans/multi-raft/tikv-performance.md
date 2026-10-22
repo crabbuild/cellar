@@ -615,15 +615,76 @@ their voter and RustFS volumes, configs and closing logs are retained.
 The next measured cost to address is repeated admission accounting. TiKV's
 [entry storage](https://github.com/tikv/tikv/blob/b3995dab28308f09cbb7c125bf32f789dbc203fe/components/raftstore/src/store/entry_storage.rs)
 updates memory deltas on append, truncation and compaction. Cellar can apply the
-same principle to avoid recounting unchanged histories, but admission must
-remain correct after log replacement, snapshots, archive advancement, closure
-and changes to pending reservations. This remains proposed work, not a result
-of the download change.
+same principle to avoid recounting unchanged histories. The following change
+addresses that cost separately from the download window.
+
+## Reuse of unchanged admission accounting
+
+Admission previously reacquired each resident group's log cache and walked its
+unarchived entries on every check. Per-group observations now reuse the byte and
+entry totals while cache identity, persisted revision and archive position match.
+This is revision-based reuse, not TiKV's exact memory-delta implementation.
+The node still visits its resident groups and recalculates pending reservation
+charges; the optimization removes repeated cache locking and history walks for
+unchanged groups.
+
+The storage worker publishes the successful sync sequence with each changed
+cache while holding that cache's write lock. A failed sync cannot advance this
+revision. Observations retain the cache identity to prevent an address reused
+by another group/open from matching, and check closure and poisoning before
+using cached totals. If publication races a recount, retaining the earlier
+observed revision forces another recount on the next call. Append replacement,
+applied-image changes, compaction and snapshot installation all use the same
+publication boundary. Archive progress is checked independently.
+
+Five regressions exercise real raft-engine groups. A second lookup of unchanged
+history must complete while a blocking worker holds the cache write lock; before
+reuse it waits on that lock and fails the test. The other cases compare exact
+byte and entry totals with a full recount through suffix replacement, rejected
+committed-history replacement, image changes, checkpoint/install, archive
+advancement/regression, reopening and two groups in one persisted batch. A
+filesystem gate verifies old accounting during stalled sync and refusal after
+failed sync; poisoning and closure also refuse cached observations. All five
+pass after the change. Existing SDK reservation and cancellation scenarios are
+included in the broader validation being run.
+
+A temporary diagnostic used 1,500 real engine groups with 32 retained entries
+each, applied index 33 and archive index 31: initially 3,000 unarchived entries,
+below the admission cap. Across 100 paired rounds, alternating order, a full
+recount averaged 912.23 µs and reuse averaged 49.11 µs. With one different group
+persisted before each round, the corresponding means were 1,039.43 and 65.26 µs.
+Every pair had identical byte and entry totals. Persistence was outside the timed
+region. This local macOS debug-build result measures accounting cost, not SDK
+throughput or container latency. The [stage evidence](evidence/tikv-admission-accounting-stage.json)
+records fixture constraints, source hashes and raw artifact hashes. The corrected
+probe asserts that archive position does not exceed applied progress; an earlier
+probe without coherent applied progress is excluded. Instrumentation is removed
+from production and test sources; its source and output remain in the ignored
+diagnosis directory.
+
+The affected suite passes 692 cases: 451 library, 36 archive, 16 directory,
+16 effects, 28 host, 27 membership, 19 operations, 21 reads, 19 runtime,
+42 snapshot and 17 storage. Five ignored process helpers run through their
+parent cases. Clippy first detected two unit-test modules independently loading
+the same filesystem fault fixture. Moving that fixture to their shared parent
+resolved the duplicate module; all 12 host unit tests and strict all-target
+Clippy pass afterward. Formatting, module layout, dependency policy and
+documentation checks pass. Production-image comparison of accounting reuse is
+pending; the end-to-end performance objective remains open.
+
+The regular Linux SDK job at `2ee7fd6` failed both
+`native_snapshot_interrupted_transfer_retries_without_blocking_other_groups`
+and `native_snapshot_shutdown_joins_partial_transfer` with generic elapsed
+deadlines (40 passed, two failed). This repeats earlier Linux snapshot failures;
+the latest local 42-case snapshot pass does not explain them. The free-threaded
+job advanced beyond its test/lint step and is still running at this observation.
 
 ## Remaining qualification
 
 - Reproduce and resolve the Linux management-stop admission-seal failure, then
   run affected native regressions for the final implementation.
+- Localize and resolve the recurring Linux interrupted-transfer/shutdown
+  snapshot deadlines without relaxing their assertions or skipping the cases.
 - Record batch occupancy and stage-level I/O evidence on diagnostic runs.
 - Compare fresh baseline and candidate clusters with identical resources,
   durability, cell counts, client partitioning and archive scratch placement.

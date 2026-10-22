@@ -1,5 +1,78 @@
 //! Retained history refuses new work; temporary reservations defer callbacks.
 use super::{Driver, Phase};
+use crate::raft::{
+    cache::{CachedGroup, GroupLog},
+    storage::LogError,
+};
+use cellar_logic::consensus::LogIndex;
+use std::sync::{Arc, RwLock};
+
+#[cfg(test)]
+#[path = "host_admission_tests.rs"]
+mod tests;
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct Usage {
+    bytes: u64,
+    entries: u64,
+}
+
+#[derive(Default)]
+pub(super) struct Retained {
+    observed: Option<Observation>,
+}
+
+struct Observation {
+    cache: Arc<RwLock<CachedGroup>>,
+    revision: u64,
+    archived: LogIndex,
+    usage: Usage,
+}
+
+impl Retained {
+    fn observe(&mut self, group: &GroupLog, archived: LogIndex) -> Result<Usage, LogError> {
+        let revision = group.cache_revision()?;
+        if let Some(observed) = &self.observed {
+            if Arc::ptr_eq(&observed.cache, &group.cache)
+                && observed.revision == revision
+                && observed.archived == archived
+            {
+                return Ok(observed.usage);
+            }
+        }
+        let cache = group.read()?;
+        let mut usage = Usage::default();
+        if cache.applied.position.index > archived {
+            if let Some(image) = &cache.applied.image {
+                usage.bytes = image.length;
+            }
+        }
+        for (_, entry) in cache
+            .entries
+            .range(archived.get().max(1).saturating_add(1)..)
+        {
+            usage.bytes = usage
+                .bytes
+                .saturating_add(u64::from(protobuf::Message::compute_size(entry)) + 128);
+            if entry.get_entry_type() == ::raft::prelude::EntryType::EntryNormal
+                && !entry.data.is_empty()
+            {
+                usage.entries = usage.entries.saturating_add(1);
+            }
+        }
+        // A concurrent publication may give us a newer cache than `revision`.
+        // Keeping the earlier revision is conservative: the next observation
+        // recounts it. The strong cache identity also prevents address reuse
+        // from matching an observation retained from a different group/open.
+        self.observed = Some(Observation {
+            cache: group.cache.clone(),
+            revision,
+            archived,
+            usage,
+        });
+        Ok(usage)
+    }
+}
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum Decision {
@@ -9,7 +82,7 @@ pub(super) enum Decision {
 }
 
 impl Driver {
-    pub(super) fn archive_admission(&self) -> Decision {
+    pub(super) fn archive_admission(&mut self) -> Decision {
         let reservation = self
             .options
             .execution
@@ -21,25 +94,12 @@ impl Driver {
         let mut entries = 1u64;
         let mut reserved_bytes = 0u64;
         let mut reserved_entries = 0u64;
-        for cell in self.cells.values() {
-            let Ok(cache) = cell.group.read() else {
+        for cell in self.cells.values_mut() {
+            let Ok(usage) = cell.archive_retained.observe(&cell.group, cell.archived) else {
                 return Decision::Refused;
             };
-            let after = cell.archived.get().max(1);
-            if cache.applied.position.index > cell.archived {
-                if let Some(image) = &cache.applied.image {
-                    bytes = bytes.saturating_add(image.length);
-                }
-            }
-            for (_, entry) in cache.entries.range(after.saturating_add(1)..) {
-                bytes =
-                    bytes.saturating_add(u64::from(protobuf::Message::compute_size(entry)) + 128);
-                if entry.get_entry_type() == ::raft::prelude::EntryType::EntryNormal
-                    && !entry.data.is_empty()
-                {
-                    entries = entries.saturating_add(1);
-                }
-            }
+            bytes = bytes.saturating_add(usage.bytes);
+            entries = entries.saturating_add(usage.entries);
             if let Some(pending) = cell.pending.as_ref().filter(|pending| pending.allow_new) {
                 reserved_bytes =
                     reserved_bytes.saturating_add(pending.archive_bytes.unwrap_or(reservation));

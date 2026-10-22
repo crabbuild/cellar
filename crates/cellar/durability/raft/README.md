@@ -635,6 +635,13 @@ data-bearing entries. Protocol entries consume bytes too. Existing duplicate
 lookup remains available under backpressure. Incoming replication also has the
 transport/log/per-image hard bounds; this cap is not total process or disk usage.
 
+Retained log/image charges are reused for the same group cache, durable cache
+revision and archive position. Storage publishes the revision under its cache
+write lock after a successful sync; append, replacement, apply and snapshot
+changes therefore invalidate prior accounting. Each admission still checks
+closure, cache poisoning and current pending reservations. This avoids walking
+unchanged histories while preserving the existing admission decisions.
+
 Archive captures have an independent budget from command/query output. Reads
 have one 10-second deadline including their stream. Recovery material uses at
 most four concurrent object reads, collected in manifest order. Each object's

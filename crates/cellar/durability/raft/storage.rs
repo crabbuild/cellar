@@ -13,7 +13,7 @@ use protobuf::Message;
 use raft_engine::{Command, Engine, LogBatch, MessageExt, ReadableSize, RecoveryMode};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{mpsc, Arc, Mutex, RwLock};
 use std::time::Duration;
 use tokio::sync::{oneshot, Notify};
@@ -745,6 +745,7 @@ impl Worker {
             owner: self.owner.clone(),
             closed: self.closed.clone(),
             cache: Arc::new(RwLock::new(cache)),
+            cache_revision: Arc::new(AtomicU64::new(self.root.sequence)),
         })
     }
 
@@ -937,11 +938,20 @@ impl Worker {
         // No cache write lock is held during engine I/O. Readers may continue
         // to observe the previous durable prefix while a sync is stalled.
         for (write, next) in writes.iter().zip(candidates) {
-            *write
+            let mut cache = write
                 .group
                 .cache
                 .write()
-                .map_err(|_| LogError::Corrupt("cache publication lock poisoned".into()))? = next;
+                .map_err(|_| LogError::Corrupt("cache publication lock poisoned".into()))?;
+            *cache = next;
+            // Publish invalidation while still holding the cache write lock.
+            // A reader observing this revision can only acquire the new cache;
+            // an older revision observed before this publication is refreshed
+            // on its next lookup. Failed syncs never advance the revision.
+            write
+                .group
+                .cache_revision
+                .store(sequence, Ordering::Release);
         }
         self.cache_bytes = next_bytes;
         self.cache_usage.store(self.cache_bytes, Ordering::Release);

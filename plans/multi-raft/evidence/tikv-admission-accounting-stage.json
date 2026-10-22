@@ -1,0 +1,75 @@
+{
+  "format": 1,
+  "diagnostic_only": true,
+  "end_to_end_performance_claim": false,
+  "fixture": {
+    "groups": 1500,
+    "retained_entries_per_group": 32,
+    "initial_unarchived_entries": 3000,
+    "initial_applied_index": 33,
+    "initial_archived_index": 31,
+    "rounds_per_condition": 100,
+    "order": "alternating full scan and cached count per round",
+    "changed_condition": "persist one new entry on a different group before each round; persistence excluded from timing",
+    "equality": "byte and entry totals equal after every full and cached pass"
+  },
+  "provenance": {
+    "base_commit": "a8de6d64b9d667f15d65646ae54ddb7035284a61",
+    "rust_toolchain": "1.98.1",
+    "profile": "debug",
+    "probe_sha256": "c24b377756909da46aea59b2f8f778c77eb99ea5540bee22ca6d0186424f9ca4",
+    "source_files": {
+      "crates/cellar/durability/raft/cache.rs": "b0d5b7ae2334784d0da0c63bd250ac5e16d50900d17a10554c8426f5b9204e74",
+      "crates/cellar/durability/raft/storage.rs": "3158745573ff12c1f5ba378d6bb51bf5190064e890a8946cda750ae013a8b23c",
+      "crates/cellar/durability/raft/host.rs": "aae084e318bfac0a5753c8abdb743efcf27d9a83a44bddd42def1acacc0f2d42",
+      "crates/cellar/durability/raft/host_admission.rs": "e471daac86b9e3ed203f056a37cdbbad2bcbac1d75a8db0269be19d9b185765e",
+      "crates/cellar/durability/raft/host_standby.rs": "7861d6fb85e764246793e29f593fd4ab3a1cc6a7eb7b4a72d3b6b40d2f11b86a",
+      "crates/cellar/durability/raft/host_admission_tests.rs": "dee0dcb2137b8b98e7a17ab738ebb599673f25f310a537f12bf50684969b80f3"
+    },
+    "raw_log_sha256": "c0f33185fba8402eff80a0e78fa56e2eca63dfd9fc9498898ef92bc027e75cfb"
+  },
+  "summary": [
+    {
+      "one_group_changed_before_check": false,
+      "cached_counts": false,
+      "samples": 100,
+      "mean_us": 912.23,
+      "median_us": 905.0,
+      "min_us": 851,
+      "max_us": 1214
+    },
+    {
+      "one_group_changed_before_check": false,
+      "cached_counts": true,
+      "samples": 100,
+      "mean_us": 49.11,
+      "median_us": 48.0,
+      "min_us": 45,
+      "max_us": 70
+    },
+    {
+      "one_group_changed_before_check": true,
+      "cached_counts": false,
+      "samples": 100,
+      "mean_us": 1039.43,
+      "median_us": 1020.5,
+      "min_us": 906,
+      "max_us": 1872
+    },
+    {
+      "one_group_changed_before_check": true,
+      "cached_counts": true,
+      "samples": 100,
+      "mean_us": 65.26,
+      "median_us": 54.0,
+      "min_us": 48,
+      "max_us": 323
+    }
+  ],
+  "raw_samples_sha256": "569aa2802cd623365154044567048c67707c1bce35d6ac226073d5383f3e8007",
+  "limitations": [
+    "Local macOS debug build, not the Colima workload.",
+    "Measures accounting over real engine caches, not SQL or network throughput.",
+    "The first probe used archive progress above applied state and is excluded; the recorded probe asserts archived <= applied."
+  ]
+}
