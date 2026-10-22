@@ -11,7 +11,8 @@ pub use readiness::{RaftQueryReadiness, RaftReplicaRole};
 mod resource_metrics;
 mod resources;
 pub use resources::{
-    RaftBudgetUsage, RaftQueryPinUsage, RaftResourceUsage, RaftSqlUsage, RaftTransportBanks,
+    RaftBudgetUsage, RaftConnectionReservations, RaftControllerResources, RaftGroupResources,
+    RaftImageUsage, RaftQueryPinUsage, RaftResourceUsage, RaftSqlUsage, RaftTransportBanks,
     RaftTransportResources,
 };
 pub(crate) mod protocol;

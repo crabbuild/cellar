@@ -72,6 +72,16 @@ image and directory lock; bounded reclamation syncs deletion before refunding
 capacity. Default admission allows 64 generations and 512 MiB, reserving twice
 the largest intermediate image while an update is in progress.
 
+`GenerationStore::open_observed` attaches a `GenerationAccounting` observer to
+the same physical owner. Its constant-size snapshot reports open stores,
+generations, charged bytes, retained/busy images and aggregate capacities without
+I/O or directory enumeration. Pins retain the registration after store handles
+drop; reclamation refunds only synced deletion. Quarantine, poison or accounting
+overflow makes that observer unavailable for its remaining lifetime. Closing a
+store removes its reservations, but does not delete its durable image files;
+these observations do not inventory closed directories or grant reclamation
+authority. The ordinary `open` path does not enable accounting.
+
 After recovery adopts the complete authoritative reference set, `retain_only`
 retires the other inventory without selecting files by age or name. Every
 supplied reference must already be adopted; validation finishes before any

@@ -106,7 +106,7 @@ fn samples(text: &str) -> Result<BTreeSet<String>> {
             "duplicate or malformed sample"
         );
     }
-    ensure!(identities.len() == 68);
+    ensure!(identities.len() == 110);
     for identity in &identities {
         ensure!(
             identity.starts_with("cellar_raft_")
@@ -199,13 +199,26 @@ async fn cluster(groups: usize) -> Result<BTreeSet<String>> {
             .await?;
         }
         ensure!(calls.load(Ordering::SeqCst) == groups);
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                if service.resource_usage().groups.is_some_and(|sample| {
+                    sample.attached_groups == groups
+                        && sample.coherent_images == groups
+                        && sample.historical_queries == groups
+                }) {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await?;
         let (status, text) = fetch(&node, &query, 11).await?;
         ensure!(status == reqwest::StatusCode::OK);
         let identities = samples(&text)?;
         let (status, json) = fetch(&node, &format!("{query}&format=json"), 11).await?;
         ensure!(status == reqwest::StatusCode::OK && !json.contains("Counter:"));
         let json: serde_json::Value = serde_json::from_str(&json)?;
-        ensure!(json.as_object().context("resource object")?.len() == 6);
+        ensure!(json.as_object().context("resource object")?.len() == 9);
         let actual = serde_json::to_value(service.resource_usage())?;
         for budget in ["business", "control", "archive_capture"] {
             for capacity in ["max_bytes", "max_items"] {

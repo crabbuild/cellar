@@ -427,6 +427,11 @@ async fn saturated_query_peer_refuses_and_expires_queued_work() -> Result<()> {
         .context("target transport observer")?;
     assert!(source_usage.outgoing.query.items > 0 && source_usage.outgoing.query.bytes > 0);
     assert!(target_usage.incoming.query.items > 0 && target_usage.incoming.query.bytes > 0);
+    assert!(source_usage.outgoing_connections.query > 0);
+    assert!(target_usage.incoming_connections.query > 0);
+    assert!(
+        target_usage.incoming_connections.query <= target_usage.incoming_connection_limits.query
+    );
     assert!(source_usage.outgoing.query.bytes <= source_usage.outgoing.query.max_bytes);
     assert!(target_usage.incoming.query.bytes <= target_usage.incoming.query.max_bytes);
     let queued: Vec<_> = (0..64)

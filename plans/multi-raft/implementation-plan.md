@@ -776,8 +776,14 @@ work. One and 32 committed groups expose the same 68 samples. A strengthened HTT
 oracle rejects the prior encoder's interleaved metric families; the grouped
 replacement passes. The prior transfer/fallback findings remain open.
 
-Complete image/connection/lag/controller views and bounded aggregate role
-sampling, safe receipt maintenance, production Raft CLI startup and remaining
+The next operations component extends passive resources with physical image
+retention accounting, incoming/outgoing connection owners, complete bounded
+role/readiness/lag scans, and age-bearing controller activity. See the
+[resource contract](operations-design.md#physical-query-reader-admission).
+Its qualification is recorded separately from the frozen parent results above;
+it does not complete this milestone.
+
+Safe receipt maintenance, production Raft CLI startup and remaining
 management surfaces, fenced new-history disaster restore and complete operating
 qualification remain required before DONE. The remaining original case is
 `disaster_old_quorum_fenced`.

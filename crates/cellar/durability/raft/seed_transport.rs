@@ -385,6 +385,7 @@ impl RaftTransport {
             timeout_ms: remaining.min(state.options.snapshot_timeout_ms),
             kind,
         };
+        let _connection = state.outgoing_connections.acquire(Lane::Data);
         let mut stream = state
             .seed_process_io(&process, deadline, async {
                 let tcp = TcpStream::connect(source.data_address).await?;

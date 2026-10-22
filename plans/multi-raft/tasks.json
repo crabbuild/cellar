@@ -2010,7 +2010,14 @@
         "crates/cellar/tests/support/raft_cluster.rs",
         "crates/cellar/durability/raft/budget.rs",
         "crates/cellar/durability/raft/host_sql.rs",
-        "crates/cellar/node/mod.rs"
+        "crates/cellar/node/mod.rs",
+        "crates/cellar-ltx/README.md",
+        "crates/cellar-ltx/src/lib.rs",
+        "crates/cellar-ltx/src/generation.rs",
+        "crates/cellar/durability/raft/host_leader_load.rs",
+        "crates/cellar/durability/raft/host_leader_load_tests.rs",
+        "crates/cellar/durability/raft/transport_tests.rs",
+        "crates/cellar/durability/raft/host_archive.rs"
       ],
       "creates": [
         "crates/cellar/durability/raft/operations.rs",
@@ -2033,7 +2040,8 @@
         "crates/cellar/tests/support/raft_metrics_native.rs",
         "crates/cellar/application/consensus/resource_metrics.rs",
         "crates/cellar/application/consensus/resources_tests.rs",
-        "crates/cellar/durability/raft/transport_resources.rs"
+        "crates/cellar/durability/raft/transport_resources.rs",
+        "crates/cellar-ltx/src/generation_accounting.rs"
       ],
       "steps": [
         "Expose explicit limits and metrics for groups, byte queues, apply/archive lag, query pins, snapshot and repair budgets.",

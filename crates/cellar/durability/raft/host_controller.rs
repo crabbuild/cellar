@@ -252,6 +252,31 @@ impl Controller {
 }
 
 impl Driver {
+    pub(super) fn publish_controller_resources(&self) {
+        let sample = self.controller.as_ref().and_then(|controller| {
+            Some((
+                self.log.domain().mono_ms().ok()?,
+                crate::application::consensus::RaftControllerResources {
+                    enabled: controller.status.enabled,
+                    recovering: controller.status.recovering,
+                    busy: controller.busy.is_some(),
+                    metadata: crate::application::consensus::RaftBudgetUsage::capture(
+                        &controller.memory,
+                    ),
+                    probe_rounds: controller.status.probe_rounds,
+                    repair_requests: controller.status.repair_requests,
+                    activation_requests: controller.status.activation_requests,
+                    transfer_attempts: controller.status.transfer_attempts,
+                    completed_repairs: controller.status.completed_repairs,
+                    sample_age_ms: 0,
+                },
+            ))
+        });
+        if let Ok(mut source) = self.local.controller.lock() {
+            *source = sample;
+        }
+    }
+
     pub(super) fn controller_control(&mut self, mut request: Request, enabled: Option<bool>) {
         let result = (|| {
             let controller = self

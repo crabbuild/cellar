@@ -98,6 +98,16 @@ pub async fn run(shutdown_held: bool) -> Result<()> {
             .await?;
         }
         // The first and second registrations have distinct physical SQL workers.
+        let images = service
+            .resource_usage()
+            .images
+            .context("image accounting unavailable")?;
+        ensure!(
+            images.stores == 3
+                && images.generations >= 2
+                && images.retained >= 2
+                && images.bytes > 0
+        );
         let held = tokio::spawn(handles[0].query(
             definition.get.clone(),
             b"hold".to_vec(),
@@ -174,7 +184,8 @@ pub async fn run(shutdown_held: bool) -> Result<()> {
         let still_owned = tokio::time::timeout(Duration::from_millis(100), &mut stop)
             .await
             .is_err();
-        Some((still_owned, service.resource_usage().query_pins.in_use))
+        let usage = service.resource_usage();
+        Some((still_owned, usage.query_pins.in_use, usage.images))
     } else {
         None
     };
@@ -182,8 +193,9 @@ pub async fn run(shutdown_held: bool) -> Result<()> {
     gate.release();
     let joined = tokio::time::timeout(Duration::from_secs(15), stop).await??;
     result?;
-    if let Some((still_owned, pins)) = held_observation {
+    if let Some((still_owned, pins, images)) = held_observation {
         ensure!(still_owned && pins == 1);
+        ensure!(images.context("held image accounting")?.stores > 0);
     }
     let NodeOutcome::Stopped(report) = joined else {
         anyhow::bail!("unexpected stop: {joined:?}")
@@ -195,6 +207,12 @@ pub async fn run(shutdown_held: bool) -> Result<()> {
     let final_usage = service.resource_usage();
     let sql = final_usage.sql.context("missing retained SQL observer")?;
     ensure!(sql.queue_closed && sql.running_workers == 0 && sql.work_reservations == 0);
+    let images = final_usage
+        .images
+        .context("joined image accounting unavailable")?;
+    ensure!(
+        images.stores == 0 && images.generations == 0 && images.bytes == 0 && images.max_bytes == 0
+    );
     ensure!(
         final_usage.transport.is_none(),
         "retained SDK handle kept the transport owner alive"

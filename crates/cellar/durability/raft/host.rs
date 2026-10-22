@@ -48,6 +48,7 @@ mod inspection;
 mod load;
 #[path = "host_readiness.rs"]
 mod readiness;
+pub(crate) use load::GroupResourceObserver;
 pub use load::RaftInspectionScanOptions;
 #[path = "host_membership.rs"]
 mod membership;
@@ -67,7 +68,8 @@ pub struct RaftHostOptions {
     pub effects: Option<super::effects::RaftEffectOptions>,
     /// Opt in to bounded automatic repair and optional leadership balancing.
     pub controller: Option<RaftControllerOptions>,
-    /// Bounded complete node-wide status scans when inspection is enabled.
+    /// Bounded complete node-wide resource scans. Peer inspection still requires
+    /// its independent explicit profile and grants.
     pub inspection_scan: RaftInspectionScanOptions,
     /// Explicit inbound metadata permissions. Discovery and query grants do not
     /// enable inspection. Each peer must match the configured trusted endpoint.
@@ -749,6 +751,7 @@ async fn initialize(
                 ltx_host(),
                 ImageId::new(nonce)?,
                 options.images.apply,
+                pool.image_accounting(),
             )
             .await?;
             for cell in cells.values_mut() {
@@ -793,6 +796,8 @@ async fn initialize(
         archive_capture_budget,
         query_pins,
         sql: Some(pool.resource_observer()),
+        groups: load::GroupResourceObserver::default(),
+        controller: Mutex::new(None),
         transport: service.transport.resource_observer(),
         max_input_bytes: options.max_input_bytes,
         bindings,
@@ -839,10 +844,7 @@ async fn initialize(
                 .controller
                 .as_ref()
                 .map(|options| controller::Controller::new(options.clone(), &local)),
-            leader_load: options
-                .node_profile
-                .as_ref()
-                .map(|_| load::Scanner::new(options.inspection_scan.clone())),
+            leader_load: Some(load::Scanner::new(options.inspection_scan.clone())),
             directory: node_directory,
             peers,
             label,
@@ -2753,6 +2755,7 @@ impl Driver {
         self.pump_reads();
         self.pump_leader_load();
         self.pump_controller();
+        self.publish_controller_resources();
         self.pump_effects();
         self.pump_node_drain();
     }

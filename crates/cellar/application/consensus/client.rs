@@ -213,6 +213,8 @@ pub(crate) struct Handle {
     pub archive_capture_budget: Arc<Budget>,
     pub query_pins: Arc<Budget>,
     pub sql: Option<crate::raft::SqlResourceObserver>,
+    pub groups: crate::raft::host::GroupResourceObserver,
+    pub controller: Mutex<Option<(u64, super::RaftControllerResources)>>,
     pub transport: crate::raft::transport::ResourceObserver,
     pub max_input_bytes: usize,
     pub bindings: BTreeMap<(NamespaceId, String), Binding>,
@@ -240,7 +242,24 @@ impl RaftCells {
                 limit: self.handle.query_pins.capacity().1,
             },
             sql: self.handle.sql.as_ref().and_then(|sql| sql.capture()),
+            images: self
+                .handle
+                .sql
+                .as_ref()
+                .and_then(|sql| sql.images())
+                .map(Into::into),
             transport: self.handle.transport.capture(),
+            controller: self.handle.controller.lock().ok().and_then(|source| {
+                let (at, mut sample) = (*source)?;
+                sample.sample_age_ms = self.handle.domain.mono_ms().ok()?.checked_sub(at)?;
+                Some(sample)
+            }),
+            groups: self
+                .handle
+                .domain
+                .mono_ms()
+                .ok()
+                .and_then(|now| self.handle.groups.capture(now)),
         }
     }
 

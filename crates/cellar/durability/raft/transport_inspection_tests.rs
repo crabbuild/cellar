@@ -44,6 +44,16 @@ async fn inspection_grants_stay_separate_and_revoked_across_process_refresh() ->
         peer: trusted.clone(),
     };
     fixture.transport.grant_inspection_origin(grant.clone())?;
+    let resources = fixture.transport.resource_observer().capture().unwrap();
+    assert_eq!(resources.incoming_connections.control, 0);
+    assert_eq!(
+        resources.incoming_connection_limits.control,
+        TransportOptions::default().max_connections_per_lane + inspections::SLOTS
+    );
+    assert_eq!(
+        resources.incoming_connection_limits.data,
+        TransportOptions::default().max_connections_per_lane
+    );
     let old = state.registry.lock().unwrap().inspection_origins[&key].clone();
     fixture
         .transport
@@ -108,6 +118,17 @@ async fn inspection_owns_bounded_sockets_through_cancel_refresh_and_shutdown() -
     let held_first = within(&fixture, listener.accept()).await??;
     let held_second = within(&fixture, listener.accept()).await??;
     assert_eq!(fixture.transport.usage().inspection_items, 2);
+    assert_eq!(
+        fixture
+            .transport
+            .resource_observer()
+            .capture()
+            .unwrap()
+            .outgoing_connections
+            .control,
+        2,
+        "physical TLS handshakes own the observed outgoing connections"
+    );
     drop(first);
     within(&fixture, async {
         while fixture.transport.usage().inspection_items != 1 {
@@ -130,6 +151,16 @@ async fn inspection_owns_bounded_sockets_through_cancel_refresh_and_shutdown() -
         Err(InspectionError::StalePeer)
     ));
     assert_eq!(fixture.transport.usage().inspection_items, 0);
+    assert_eq!(
+        fixture
+            .transport
+            .resource_observer()
+            .capture()
+            .unwrap()
+            .outgoing_connections
+            .control,
+        0
+    );
     // Retain a caller while its new target withholds the entire TLS response.
     let current_listener = TcpListener::bind("127.0.0.1:0").await?;
     // A new publication must represent another actual process, rather than
@@ -264,6 +295,8 @@ async fn inspection_revocation_and_process_refresh_cancel_an_admitted_inbound_ca
             archive_capture_budget: Budget::new(4096, 1),
             query_pins: Budget::new(0, 1),
             sql: None,
+            groups: crate::raft::host::GroupResourceObserver::default(),
+            controller: Mutex::new(None),
             transport: fixture.transport.resource_observer(),
             max_input_bytes: 4096,
             bindings: BTreeMap::from([(

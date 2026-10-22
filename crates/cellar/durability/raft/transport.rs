@@ -312,7 +312,10 @@ struct State {
     inspection_metadata: Arc<Budget>,
     inspection_enabled: AtomicBool,
     control_connections: Arc<Semaphore>,
+    data_connections: Arc<Semaphore>,
+    query_connections: Arc<Semaphore>,
     consensus_connections: Arc<Semaphore>,
+    outgoing_connections: resources::Connections,
 }
 
 struct Handle(Arc<State>);
@@ -432,7 +435,10 @@ impl RaftTransport {
             refused: AtomicU64::new(0),
             failed: AtomicU64::new(0),
             control_connections: Arc::new(Semaphore::new(options.max_connections_per_lane)),
+            data_connections: Arc::new(Semaphore::new(options.max_connections_per_lane)),
+            query_connections: Arc::new(Semaphore::new(options.max_connections_per_lane)),
             consensus_connections: Arc::new(Semaphore::new(options.max_connections_per_lane)),
+            outgoing_connections: resources::Connections::default(),
             inspection_metadata: Budget::new(
                 inspections::META_BYTES * inspections::SLOTS,
                 inspections::SLOTS,
@@ -1090,7 +1096,7 @@ impl State {
         let slots = if lane == Lane::Control {
             self.control_connections.clone()
         } else {
-            Arc::new(Semaphore::new(self.options.max_connections_per_lane))
+            self.data_connections.clone()
         };
         let mut stop = self.stop.subscribe();
         loop {
@@ -1306,6 +1312,7 @@ impl State {
                         return Err(TransportError::StalePeer);
                     }
                     if connection.is_none() {
+                        let owner = self.outgoing_connections.acquire(lane);
                         let tcp = TcpStream::connect(pool.peer.address(lane)).await?;
                         tcp.set_nodelay(true)?;
                         let name =
@@ -1320,9 +1327,10 @@ impl State {
                             .1
                             .export_keying_material([0; 32], frame::EXPORT_LABEL, None)
                             .map_err(|e| TransportError::Tls(e.to_string()))?;
-                        connection = Some((tls, exporter));
+                        connection = Some((tls, exporter, owner));
                     }
-                    let (stream, exporter) = connection.as_mut().ok_or(TransportError::Closed)?;
+                    let (stream, exporter, _owner) =
+                        connection.as_mut().ok_or(TransportError::Closed)?;
                     let head = frame::request_head(
                         &self.auth,
                         exporter,

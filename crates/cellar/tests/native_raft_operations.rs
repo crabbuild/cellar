@@ -491,6 +491,29 @@ async fn node_shutdown_reports_parked_archive_unknown() -> Result<()> {
         ),
         Err(CommandFailure::Unavailable)
     ));
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            if let Some(sample) = resumed.resource_usage().groups {
+                ensure!(
+                    sample.durable_groups == 2
+                        && sample.attached_groups == 1
+                        && sample.parked_groups == 1
+                );
+                ensure!(
+                    sample.leaders
+                        + sample.voters
+                        + sample.learners
+                        + sample.removed
+                        + sample.unknown
+                        == 1
+                );
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        Ok::<_, anyhow::Error>(())
+    })
+    .await??;
     let outcome = node.shutdown(ShutdownMode::Preserve).await?;
     let NodeOutcome::Stopped(report) = outcome else {
         anyhow::bail!("unexpected stop: {outcome:?}")

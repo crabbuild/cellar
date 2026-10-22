@@ -20,6 +20,108 @@ fn checksum(pages: &[(u32, Vec<u8>)]) -> u64 {
 }
 
 #[test]
+fn image_accounting_follows_pins_references_and_synced_reclamation() -> Result<()> {
+    use cellar_ltx::generation::{GenerationAccounting, GenerationResources};
+    let root = tempfile::tempdir()?;
+    let accounting = GenerationAccounting::default();
+    let faults = fault::Faults::new(root.path().join("images"), None);
+    let store = GenerationStore::open_observed(
+        faults.directory.clone(),
+        Arc::new(fault::FaultFileSystem {
+            faults: faults.clone(),
+        }),
+        GenerationLimits::default(),
+        &accounting,
+    )?;
+    let initial = fixture::image(
+        None,
+        "CREATE TABLE counter(value INTEGER);INSERT INTO counter VALUES(7)",
+    )?;
+    let cut = fixture::Cut::new(&[], &initial, 0, false, true);
+    let pin = store.prepare(fixture::id(1), None, &cut.update())?;
+    assert!(pin.retain_reference(1, 1)?);
+    store.retire(pin.id())?;
+    let usage = accounting.snapshot().unwrap();
+    assert_eq!(
+        (usage.stores, usage.generations, usage.retained, usage.busy),
+        (1, 1, 1, 0)
+    );
+    assert_eq!(usage.bytes, store.usage()?.bytes);
+    assert!(usage.bytes > 0);
+    assert!(pin.release_reference(1, 1)?);
+    assert_eq!(accounting.snapshot().unwrap().retained, 0);
+    assert_eq!(
+        store.reclaim(1)?.files,
+        0,
+        "a physical pin still protects the file"
+    );
+    assert_eq!(accounting.snapshot().unwrap().bytes, usage.bytes);
+    let state = pin.state();
+    drop(store);
+    assert_eq!(
+        accounting.snapshot().unwrap().stores,
+        1,
+        "the pin owns the directory registration"
+    );
+    drop(pin);
+    assert_eq!(accounting.snapshot(), Some(GenerationResources::default()));
+    let recovered = GenerationStore::open_observed(
+        faults.directory.clone(),
+        Arc::new(fault::FaultFileSystem {
+            faults: faults.clone(),
+        }),
+        GenerationLimits::default(),
+        &accounting,
+    )?;
+    assert_eq!(
+        accounting.snapshot().unwrap().bytes,
+        usage.bytes,
+        "closing a store did not delete durable files"
+    );
+    let pin = recovered.adopt(fixture::id(1), state)?;
+    recovered.retire(pin.id())?;
+    drop(pin);
+    assert_eq!(recovered.reclaim(1)?.files, 1);
+    assert_eq!(accounting.snapshot().unwrap().bytes, 0);
+    drop(recovered);
+    assert_eq!(accounting.snapshot(), Some(GenerationResources::default()));
+    Ok(())
+}
+
+#[test]
+fn image_accounting_quarantine_never_becomes_measured_zero() -> Result<()> {
+    use cellar_ltx::generation::GenerationAccounting;
+    let root = tempfile::tempdir()?;
+    let accounting = GenerationAccounting::default();
+    let faults = fault::Faults::new(root.path().join("images"), None);
+    let store = GenerationStore::open_observed(
+        faults.directory.clone(),
+        Arc::new(fault::FaultFileSystem {
+            faults: faults.clone(),
+        }),
+        GenerationLimits::default(),
+        &accounting,
+    )?;
+    let initial = fixture::image(None, "CREATE TABLE counter(value INTEGER)")?;
+    let cut = fixture::Cut::new(&[], &initial, 0, false, true);
+    let pin = store.prepare(fixture::id(1), None, &cut.update())?;
+    store.retire(pin.id())?;
+    drop(pin);
+    faults.mode.store(
+        fault::FAIL_DIRECTORY_SYNC,
+        std::sync::atomic::Ordering::Release,
+    );
+    assert!(store.reclaim(1).is_err());
+    assert!(accounting.snapshot().is_none());
+    drop(store);
+    assert!(
+        accounting.snapshot().is_none(),
+        "closing an uncertain owner cannot repair its observation"
+    );
+    Ok(())
+}
+
+#[test]
 fn monotonic_generation_reference_survives_retirement_without_io() -> Result<()> {
     let root = tempfile::tempdir()?;
     let faults = fault::Faults::new(root.path().join("images"), None);

@@ -343,6 +343,27 @@ pub async fn no_traffic_repair() -> Result<()> {
     })
     .await??;
     fixture.enable(false).await?;
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            if let Some(usage) = fixture.service(primary)?.resource_usage().controller {
+                if !usage.enabled && usage.probe_rounds > 0 {
+                    ensure!(
+                        usage.metadata.max_bytes > 0
+                            && usage.metadata.bytes <= usage.metadata.max_bytes
+                    );
+                    let text = fixture.service(primary)?.resource_usage().prometheus();
+                    ensure!(
+                        text.contains("cellar_raft_controller_sample_available 1\n")
+                            && text.contains("cellar_raft_controller_enabled 0\n")
+                    );
+                    break;
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        Ok::<_, anyhow::Error>(())
+    })
+    .await??;
     let before = fixture
         .service(primary)?
         .controller_status()

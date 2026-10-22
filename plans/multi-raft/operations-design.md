@@ -106,15 +106,55 @@ Registry task, peer and route counts require only bounded scalar reads; no route
 enumeration occurs. Admission/failure counters use decimal strings in JSON to
 preserve every `u64` value. None of these counters supplies acknowledgement proof.
 
+Connection observations include accepted TCP/TLS handshakes and idle pooled
+connections, not just frames with byte reservations. Incoming control, data and
+query counts read their actual independent semaphores and expose each lane's
+capacity. Control includes its separately reserved inspection slots after those
+are enabled. Outgoing counts follow physical TCP/TLS owners through pooling, errors,
+cancellation, snapshot/seed downloads and peer inspection. Their limits remain
+the existing peer/operation admission bounds; the exporter adds no connection
+quota or new admission policy.
+
 The transport observer is weak and cannot keep its transport/engine alive after
 Node joining. Missing/poisoned sources are `None` in the SDK and `null` in JSON;
 Prometheus emits an availability gauge and omits their unavailable values. A
 retained SQL observer owns only bounded semaphore/counter metadata; joined worker
-counts and work reservations reach measured zero with its queue closed. Image
-retention, lag, connection concurrency and controller views remain open.
+counts and work reservations reach measured zero with its queue closed.
 
-`RaftResourceUsage.prometheus()` emits 68 samples when SQL and transport sources
-are available, using fixed budget, lane and direction vocabularies. Cell, group,
+Image accounting reports stores, generations, charged bytes, retained images,
+busy image operations and the aggregate capacities of currently open stores,
+including the shared archive verification workspace and incoming seed stores.
+The store updates scalar totals while releasing its state lock; physical pins
+retain the registration with their directory owner. Reclamation refunds bytes
+only after durable deletion. Failed/quarantined accounting stays unavailable
+for that observer's lifetime, including after the uncertain owner closes.
+Observers retain no directory, image or pin. Measured zero open stores after
+joined closure does not mean that closed directories contain no durable files.
+This is reservation accounting, not a disk inventory or deletion authority.
+
+Every host uses the existing bounded `inspection_scan` policy for aggregate
+observations, independently of peer inspection permissions. A batch requests at
+most `groups_per_batch` runtime statuses (1 through 16); one complete cycle
+retains its original deadline. Only a full, ordered, identity-checked population
+publishes role, readiness, activity and apply/archive lag totals. An invalid
+contribution or overflow discards the cycle. Partial or failed cycles never
+refresh an earlier complete sample. Its age starts at cycle start; population
+changes or activation invalidate the cached view. Parked durable histories have
+an explicit count and unknown archive coverage. No partial zero hides them.
+Size the batch/timeout policy for the configured group count: an unfinished
+cycle cannot provide totals even if individual groups are serving.
+
+The group view is a sequence of local observations, not a simultaneous healthy
+snapshot. Readiness can change after capture. Apply lag measures committed
+minus applied Raft entries; archive lag uses the last locally verified archive
+coverage and can overstate lag if another publisher advanced. No scrape performs
+runtime requests or group enumeration. The configured controller separately
+publishes enabled/recovering/busy state, its actual metadata bank and attempt
+counters with a monotonic source age; unavailable/unconfigured sources are null.
+
+`RaftResourceUsage.prometheus()` emits 110 samples when SQL, image, complete group
+and transport sources are available, plus 13 with a configured controller,
+using fixed budget, lane and direction vocabularies. Cell, group,
 member, process, peer and node identities never enter a label. Samples of each
 metric family are contiguous, with a single preceding type declaration. Each
 budget reports actual bytes/items and capacities; unavailable sources never
@@ -133,7 +173,7 @@ I/O. A sample reports resource reservations, not readiness or graceful closure.
 Group detail remains separate through explicitly enabled SDK inspection and
 authenticated peer inspection grants. Enabling resource sampling grants no
 peer-inspection, membership, seeding or query capability. Production CLI
-discovery/management and the remaining complete resource/lag views remain open.
+discovery/management, receipt maintenance and fenced disaster restore remain open.
 
 ## Drain and leadership handoff
 

@@ -81,6 +81,80 @@ impl Fixture {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn connection_resources_count_handshakes_until_physical_exit() -> anyhow::Result<()> {
+    let fixture = Fixture::start(
+        TransportOptions {
+            max_connections_per_lane: 1,
+            ..Default::default()
+        },
+        vec![],
+    )
+    .await?;
+    let observer = fixture.transport.resource_observer();
+    let result = fixture
+        .domain
+        .run(async {
+            let control = TcpStream::connect(fixture.transport.control_address()).await?;
+            let data = TcpStream::connect(fixture.transport.data_address()).await?;
+            let query = TcpStream::connect(fixture.transport.query_address()).await?;
+            // No TLS bytes are sent. These own real sockets while awaiting TLS,
+            // despite having no authenticated frame or byte-bank reservation.
+            crate::asyncrt::timeout(std::time::Duration::from_secs(2), async {
+                loop {
+                    let usage = observer.capture().unwrap();
+                    if usage.incoming_connections
+                        == (crate::application::consensus::RaftConnectionReservations {
+                            control: 1,
+                            data: 1,
+                            query: 1,
+                        })
+                    {
+                        assert_eq!(
+                            usage.incoming_connection_limits,
+                            crate::application::consensus::RaftConnectionReservations {
+                                control: 1,
+                                data: 1,
+                                query: 1
+                            }
+                        );
+                        assert_eq!(
+                            usage.incoming.control.items
+                                + usage.incoming.data.items
+                                + usage.incoming.query.items,
+                            0
+                        );
+                        break;
+                    }
+                    crate::asyncrt::sleep(std::time::Duration::from_millis(1)).await;
+                }
+            })
+            .await?;
+            drop((control, data, query));
+            crate::asyncrt::timeout(std::time::Duration::from_secs(2), async {
+                loop {
+                    let usage = observer.capture().unwrap();
+                    if usage.incoming_connections
+                        == (crate::application::consensus::RaftConnectionReservations {
+                            control: 0,
+                            data: 0,
+                            query: 0,
+                        })
+                    {
+                        break;
+                    }
+                    crate::asyncrt::sleep(std::time::Duration::from_millis(1)).await;
+                }
+            })
+            .await?;
+            Ok::<_, anyhow::Error>(())
+        })
+        .await?;
+    fixture.close().await?;
+    assert!(observer.capture().is_none());
+    result
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn poisoned_registry_still_waits_for_resource_owners() -> anyhow::Result<()> {
     let fixture = Fixture::start(TransportOptions::default(), vec![]).await?;
     let (release, wait) = oneshot::channel();

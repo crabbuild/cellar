@@ -57,6 +57,7 @@ impl Owner {
         host: cellar_ltx::LtxHost,
         nonce: ImageId,
         mut apply: cellar_ltx::apply::ApplyLimits,
+        accounting: cellar_ltx::generation::GenerationAccounting,
     ) -> anyhow::Result<Self> {
         let filesystem = host.filesystem();
         let verifier = host
@@ -68,8 +69,9 @@ impl Owner {
                     max_generations: 4,
                     max_bytes: 512 * 1024 * 1024,
                 };
-                let images = GenerationStore::open(directory, filesystem, limits)
-                    .map_err(ArchiveError::Images)?;
+                let images =
+                    GenerationStore::open_observed(directory, filesystem, limits, &accounting)
+                        .map_err(ArchiveError::Images)?;
                 // This directory contains verification copies only, never an
                 // engine marker or the only acknowledged application image.
                 images.retain_only(&[]).map_err(ArchiveError::Images)?;
