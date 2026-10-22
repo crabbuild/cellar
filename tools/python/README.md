@@ -250,6 +250,13 @@ uses a custom test harness (`harness = false`); a preceding Cargo summary of
 `0 passed` belongs to another test target and does not describe these checks.
 Any bridge failure still exits nonzero and fails `cargo test`.
 
+To isolate the main HTTP/storage/lifecycle contract after the subprocess drills,
+run `cargo test -p cellar-python --test bridge --features embed --locked -- --runtime-contract`.
+This runs the same contract and assertions as the full suite, including restart
+and owner handoff. Expected JSON responses check HTTP status and retain the
+failing URL; fleet write errors also identify the lifecycle stage. This mode
+does not replace the full suite or retry failed mutations.
+
 The bridge harness also pauses both real
 follower append traffic and bucket data writes in a three-node fleet: sync and
 final output wait for proof, actual follower acknowledgements release success

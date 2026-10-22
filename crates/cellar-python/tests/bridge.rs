@@ -223,6 +223,9 @@ async fn stop_mode(node: Node, mode: ShutdownMode, monitor: &cellar_python::Stop
 
 fn main() -> Result<()> {
     let mode = std::env::args().nth(1).unwrap_or_default();
+    if mode == "--runtime-contract" {
+        return contract();
+    }
     if mode == "--runtime-wakeups" {
         return wakeups::child();
     }
@@ -489,6 +492,10 @@ fn main() -> Result<()> {
         lifecycle_mode(mode)?;
     }
     watchdog::qualify()?;
+    contract()
+}
+
+fn contract() -> Result<()> {
     let directory = tempfile::tempdir()?;
     let report = run(
         Options {
@@ -536,8 +543,8 @@ fn main() -> Result<()> {
                 .await?;
                 let scoped = context_isolation(&client, &url, &other_url).await;
                 stop(other, &monitor).await?;
-                scoped?;
-                host_await_progress(&client, &url, &application).await?;
+                scoped.context("cross-domain context isolation")?;
+                host_await_progress(&client, &url, &application).await.context("host-await progress")?;
                 let parallel: Value = client.get(format!("{url}/parallel-python")).send().await?
                     .error_for_status()?.json().await?;
                 let free_threaded = pyo3::Python::attach(|py| -> pyo3::PyResult<bool> {
@@ -569,21 +576,16 @@ fn main() -> Result<()> {
                 ).await?;
                 let conflict = native_writer::qualify(&client, &writer_url).await;
                 stop(writer_node, &monitor).await?;
-                conflict?;
+                conflict.context("native writer conflict")?;
                 let call = |path: &str| client.get(format!("{url}{path}"));
                 ensure!(
-                    call("/threadpool")
-                        .send()
-                        .await?
-                        .json::<String>()
-                        .await?
-                        .len()
+                    response_json::<String>(call("/threadpool").send().await?).await?.len()
                         == 64
                 );
-                ensure!(call("/library").send().await?.json::<String>().await?.len() == 64);
-                ensure!(call("/constructor-failure").send().await?.json::<bool>().await?);
-                ensure!(call("/codec").send().await?.json::<bool>().await?);
-                ensure!(call("/task-budget").send().await?.json::<bool>().await?);
+                ensure!(response_json::<String>(call("/library").send().await?).await?.len() == 64);
+                ensure!(response_json::<bool>(call("/constructor-failure").send().await?).await?);
+                ensure!(response_json::<bool>(call("/codec").send().await?).await?);
+                ensure!(response_json::<bool>(call("/task-budget").send().await?).await?);
                 let repeated = call("/headers")
                     .header("x-repeated", "one")
                     .header("x-repeated", "two")
@@ -607,16 +609,16 @@ fn main() -> Result<()> {
                     .await?
                     .status()
                     .is_server_error());
-                ensure!(call("/duplicate-alarm").send().await?.json::<u32>().await? == 1);
-                ensure!(call("/generator").send().await?.json::<bool>().await?);
+                ensure!(response_json::<u32>(call("/duplicate-alarm").send().await?).await? == 1);
+                ensure!(response_json::<bool>(call("/generator").send().await?).await?);
                 ensure!(call("/atomic").send().await?.error_for_status().context("atomic storage")?.json::<bool>().await?);
                 ensure!(call("/batch-validation").send().await?.error_for_status().context("batch validation")?.json::<bool>().await?);
                 ensure!(call("/protocol-validation").send().await?.error_for_status().context("protocol validation")?.json::<bool>().await?);
-                ensure!(call("/unawaited").send().await?.json::<bool>().await?);
-                ensure!(call("/late").send().await?.json::<Value>().await?.is_null());
-                ensure!(call("/budget").send().await?.json::<bool>().await?);
-                ensure!(call("/expire").send().await?.json::<bool>().await?);
-                ensure!(call("/expire").send().await?.json::<String>().await? == "ContextExpired");
+                ensure!(response_json::<bool>(call("/unawaited").send().await?).await?);
+                ensure!(response_json::<Value>(call("/late").send().await?).await?.is_null());
+                ensure!(response_json::<bool>(call("/budget").send().await?).await?);
+                ensure!(response_json::<bool>(call("/expire").send().await?).await?);
+                ensure!(response_json::<String>(call("/expire").send().await?).await? == "ContextExpired");
                 let bytes = vec![0, 128, 255, 42];
                 ensure!(
                     client
@@ -646,18 +648,14 @@ fn main() -> Result<()> {
                 ensure!(call("/oversize").send().await?.status().is_server_error());
                 ensure!(call("/cancel").send().await?.status().is_server_error());
                 // Failure, cancellation and body limits must not poison later turns.
-                let result: Value = client
-                    .post(format!("{url}/counter"))
-                    .send()
-                    .await?
-                    .json()
-                    .await?;
+                let result: Value = response_json(client.post(format!("{url}/counter")).send().await?)
+                    .await.context("counter after cancellation")?;
                 ensure!(result == json!({"count":1,"alarms":0,"name":"one"}));
                 call("/alarm").send().await?.error_for_status()?;
                 let mut fired = false;
                 for _ in 0..40 {
                     tokio::time::sleep(Duration::from_millis(50)).await;
-                    if call("/counter").send().await?.json::<Value>().await?["alarms"] == 1 {
+                    if response_json::<Value>(call("/counter").send().await?).await?["alarms"] == 1 {
                         fired = true;
                         break;
                     }
@@ -665,12 +663,8 @@ fn main() -> Result<()> {
                 ensure!(fired, "alarm did not execute in Python");
                 stop(node, &monitor).await?;
                 let (node, url) = start(directory.path(), application.clone()).await?;
-                let after: Value = client
-                    .get(format!("{url}/counter"))
-                    .send()
-                    .await?
-                    .json()
-                    .await?;
+                let after: Value = response_json(client.get(format!("{url}/counter")).send().await?)
+                    .await.context("counter after restart")?;
                 ensure!(
                     after == json!({"count":1,"alarms":1,"name":"one"}),
                     "restart lost state: {after}"
@@ -685,12 +679,8 @@ fn main() -> Result<()> {
                     Some(bucket.clone()),
                 )
                 .await?;
-                let first: Value = client
-                    .post(format!("{a_url}/counter"))
-                    .send()
-                    .await?
-                    .json()
-                    .await?;
+                let first: Value = response_json(client.post(format!("{a_url}/counter")).send().await?)
+                    .await.context("first fleet write")?;
                 ensure!(first["count"] == 1, "first fleet write: {first}");
                 let (b, b_url) = start_with(
                     &directory.path().join("b"),
@@ -699,20 +689,12 @@ fn main() -> Result<()> {
                     Some(bucket),
                 )
                 .await?;
-                let remote: Value = client
-                    .post(format!("{b_url}/counter"))
-                    .send()
-                    .await?
-                    .json()
-                    .await?;
+                let remote: Value = response_json(client.post(format!("{b_url}/counter")).send().await?)
+                    .await.context("remote owner write")?;
                 ensure!(remote["count"] == 2, "remote owner routing: {remote}");
                 stop_mode(a, ShutdownMode::Handoff, &monitor).await?;
-                let recovered: Value = client
-                    .post(format!("{b_url}/counter"))
-                    .send()
-                    .await?
-                    .json()
-                    .await?;
+                let recovered: Value = response_json(client.post(format!("{b_url}/counter")).send().await?)
+                    .await.context("owner recovery write")?;
                 ensure!(
                     recovered["count"] == 3,
                     "owner recovery lost acknowledged write: {recovered}"
@@ -909,6 +891,18 @@ where
     // SAFETY: this standalone harness owns process initialization on main. Each
     // lifecycle scenario has its own process; no foreign Python API is called.
     unsafe { PythonRuntime::run(options, source, host) }
+}
+
+// These fixture endpoints promise JSON on success. Preserve the failing URL
+// and HTTP status without dumping application payloads or retrying mutations.
+async fn response_json<T: serde::de::DeserializeOwned>(response: reqwest::Response) -> Result<T> {
+    let url = response.url().clone();
+    let status = response.status();
+    response
+        .error_for_status()?
+        .json()
+        .await
+        .with_context(|| format!("decode JSON from {url} (HTTP {status})"))
 }
 
 async fn context_isolation(client: &reqwest::Client, holder: &str, other: &str) -> Result<()> {
