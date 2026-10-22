@@ -2520,6 +2520,12 @@ impl Driver {
                 cell.image = Some(view);
                 cell.apply_inflight = false;
                 cell.apply_ticket = None;
+                // New durable work invalidates an earlier empty inventory.
+                // Keep per-cell failure backoff and the single producer; only
+                // idle scanning should wait for the maintenance interval.
+                if let Some(owner) = &mut self.archive_owner {
+                    owner.scan_at = 0;
+                }
                 if let Ok(Some(progress)) =
                     progress(&cell.group, cell.image.as_ref(), cell.archived)
                 {
@@ -2619,6 +2625,11 @@ impl Driver {
                             })
                     });
                     if protocol && ticket.replica() == cell.group.identity() {
+                        if cell.image.is_some() {
+                            if let Some(owner) = &mut self.archive_owner {
+                                owner.scan_at = 0;
+                            }
+                        }
                     } else if cell.apply_ticket.as_ref() == Some(ticket) {
                         cell.publication = Some(ticket.clone());
                         self.applying.insert(scope);
@@ -2954,6 +2965,18 @@ impl Driver {
                         {
                             if cell.core.observe_progress(progress).is_ok() {
                                 cell.archived = position.index;
+                                // The confirmed cut resolves this wait. Re-run
+                                // the normal fresh authority/output checks now;
+                                // it is not itself permission to send a result.
+                                if let Some(pending) = cell.pending.as_mut() {
+                                    if pending.phase == Phase::AwaitFinish
+                                        && pending.result.as_ref().is_some_and(|receipt| {
+                                            receipt.position().index <= cell.archived
+                                        })
+                                    {
+                                        pending.phase = Phase::Finish;
+                                    }
+                                }
                             }
                         }
                     }

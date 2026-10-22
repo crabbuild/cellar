@@ -2,6 +2,8 @@
 //! The scheduler fixture's application markers are stubs. The repair-load
 //! fixture and container runner exercise actual native SQLite/LTX publication.
 #![allow(clippy::disallowed_methods)]
+#[path = "support/raft_archive_wakeup.rs"]
+mod archive_wakeup;
 #[path = "support/raft_background_admission.rs"]
 mod background_admission;
 #[allow(dead_code)]
@@ -34,6 +36,11 @@ use cellar_ltx::DirectFileSystem;
 use fixture::*;
 use raft::{prelude::Entry, GetEntriesContext, Storage};
 use std::{path::Path, sync::Arc, time::Duration};
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn archived_progress_wakes_commands_without_maintenance_poll() -> Result<()> {
+    archive_wakeup::run().await
+}
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn background_sql_admits_one_pending_command() -> Result<()> {
