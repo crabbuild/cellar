@@ -914,7 +914,8 @@ The native `repair_budget_under_load` case exercises two compacted, lagging cell
 competing for the receive budget while a third cell completes 24 commands and 24
 AtLeast follower queries. It holds real TLS snapshot responses, checks node-wide
 reservation bounds, restores distinct per-cell histories and requires physical
-reservation release. This qualifies bounded native catch-up under that workload,
+reservation release. Its [source-pinned evidence](evidence/MR-14-repair-budget-progress.json)
+qualifies bounded native catch-up under that workload,
 not physical-node density, new-member replacement throughput or an SLO.
 
 Remaining MR-14 gates include mixed-group archive bundle indexing, internal

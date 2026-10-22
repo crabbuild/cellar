@@ -2383,7 +2383,8 @@
         ]
       ],
       "evidence": [
-        "evidence/MR-14-performance-progress.json"
+        "evidence/MR-14-performance-progress.json",
+        "evidence/MR-14-repair-budget-progress.json"
       ]
     },
     {

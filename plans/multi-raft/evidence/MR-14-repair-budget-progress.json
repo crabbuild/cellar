@@ -1,0 +1,210 @@
+{
+  "task_id": "MR-14",
+  "source_revision": "a8b1fd0623227d6086dfe09a7f9cf251ca4f7e26",
+  "completion": "partial",
+  "scope": "Native snapshot catch-up reservation bounds under concurrent independent-cell traffic; five MR-14 integration cases now implemented.",
+  "environment": "Three embedded native nodes inside one test process on macOS arm64, four Tokio worker threads, separate physical SQLite/Raft-Engine directories and real TLS TCP links. The object-store catalog uses InMemory. No Colima profile was started for this case; container CPU/RAM limits do not apply to this native test.",
+  "toolchain": "Rust 1.98.1; locked dependencies; default test profile with debuginfo disabled; all features enabled for the full target and Clippy.",
+  "lockfile_sha256": "b9622cfd2713f81591f3cf200ff5a732418ab42e99df46e63c22c06a6d94b105",
+  "test_executable_sha256": "bdf1f4ee22b613b29f3db8b7832195676abad8af97e8592b586992930458c65d",
+  "tests": [
+    {
+      "name": "many_groups_mixed_roles",
+      "result": "passed"
+    },
+    {
+      "name": "hot_group_fairness",
+      "result": "passed"
+    },
+    {
+      "name": "cross_group_batch_crash",
+      "result": "passed"
+    },
+    {
+      "name": "harness_rejects_stale_binary",
+      "result": "passed"
+    },
+    {
+      "name": "repair_budget_under_load",
+      "result": "passed"
+    }
+  ],
+  "ignored": [
+    {
+      "name": "batch_crash_child",
+      "reason": "Process helper invoked by cross_group_batch_crash; ignored only during direct enumeration."
+    }
+  ],
+  "repair_observations": {
+    "repair_cells": 2,
+    "repair_commands_per_cell": 12,
+    "restored_values": [
+      12,
+      24
+    ],
+    "healthy_commands_during_hold": 24,
+    "at_least_follower_queries_during_hold": 24,
+    "healthy_final_value": 168,
+    "budget_samples": 666,
+    "snapshot_receive_items_each_sample": 1,
+    "snapshot_source_items_per_node_limit": 1,
+    "snapshot_receive_items_per_node_limit": 1,
+    "snapshot_source_capacity_ceiling_bytes": 402653184,
+    "snapshot_receive_capacity_ceiling_bytes": 671088640,
+    "checks": [
+      "Real TLS response bytes retained while the snapshot receive reservation stays active.",
+      "At least one source reservation remains active throughout the traffic window.",
+      "Every sampled source/receive/seed/business/control/archive byte/item reservation and SQL work reservation stays within its owner capacity.",
+      "Neither incomplete transfer advances the follower checkpoint before release.",
+      "Both repairs install beyond the compacted prefix and serve their distinct acknowledged histories after release.",
+      "Source and receive reservations return to zero before close; follower business callbacks remain zero; exactly 48 business callbacks execute in total.",
+      "Fixture shutdown joins node, transport and proxy owners with no unfinished producers."
+    ]
+  },
+  "commands": [
+    {
+      "name": "all",
+      "source_revision": "a8b1fd0623227d6086dfe09a7f9cf251ca4f7e26",
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--all-features",
+        "--test",
+        "native_raft_multigroup",
+        "--locked",
+        "--",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-14-repair-budget-validation.json.gz",
+      "log_member": "all"
+    },
+    {
+      "name": "list",
+      "source_revision": "a8b1fd0623227d6086dfe09a7f9cf251ca4f7e26",
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--test",
+        "native_raft_multigroup",
+        "--locked",
+        "--",
+        "--list"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-14-repair-budget-validation.json.gz",
+      "log_member": "list"
+    },
+    {
+      "name": "clippy",
+      "source_revision": "a8b1fd0623227d6086dfe09a7f9cf251ca4f7e26",
+      "argv": [
+        "cargo",
+        "clippy",
+        "-p",
+        "cellar",
+        "--test",
+        "native_raft_multigroup",
+        "--all-features",
+        "--locked",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-14-repair-budget-validation.json.gz",
+      "log_member": "clippy"
+    },
+    {
+      "name": "format",
+      "source_revision": "a8b1fd0623227d6086dfe09a7f9cf251ca4f7e26",
+      "argv": [
+        "cargo",
+        "format",
+        "--check"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-14-repair-budget-validation.json.gz",
+      "log_member": "format"
+    },
+    {
+      "name": "layout",
+      "source_revision": "a8b1fd0623227d6086dfe09a7f9cf251ca4f7e26",
+      "argv": [
+        "cargo",
+        "check-layout"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-14-repair-budget-validation.json.gz",
+      "log_member": "layout"
+    },
+    {
+      "name": "validate",
+      "source_revision": "a8b1fd0623227d6086dfe09a7f9cf251ca4f7e26",
+      "argv": [
+        "python3",
+        "plans/multi-raft/plan.py",
+        "validate"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-14-repair-budget-validation.json.gz",
+      "log_member": "validate"
+    },
+    {
+      "name": "preflight",
+      "source_revision": "a8b1fd0623227d6086dfe09a7f9cf251ca4f7e26",
+      "argv": [
+        "python3",
+        "plans/multi-raft/plan.py",
+        "preflight"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-14-repair-budget-validation.json.gz",
+      "log_member": "preflight"
+    },
+    {
+      "name": "plan-tests",
+      "source_revision": "a8b1fd0623227d6086dfe09a7f9cf251ca4f7e26",
+      "argv": [
+        "python3",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "plans/multi-raft",
+        "-p",
+        "test_plan.py"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-14-repair-budget-validation.json.gz",
+      "log_member": "plan-tests"
+    },
+    {
+      "name": "docs",
+      "source_revision": "a8b1fd0623227d6086dfe09a7f9cf251ca4f7e26",
+      "argv": [
+        "python3",
+        "tools/docs/check.py"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-14-repair-budget-validation.json.gz",
+      "log_member": "docs"
+    }
+  ],
+  "artifacts": [
+    {
+      "path": "evidence/MR-14-repair-budget-validation.json.gz",
+      "sha256": "6e1fe7618fab6bfae4f9d198c595b3c0cd6ef9d1c5e8b8565651d91dd0f6a7ad",
+      "bytes": 3345
+    }
+  ],
+  "unimplemented_required_cases": [
+    "archive_bundle_group_index"
+  ],
+  "limitations": "This is bounded existing-member snapshot catch-up under a small native workload, not physical peak RSS, new-member replacement throughput, an SLO, density or physical failure-domain qualification. Earlier container measurements and their missed objectives remain unchanged. MR-14 still lacks mixed-group archive bundles, matched Fleet/bucket runs, complete timing/byte/controller instrumentation, steady-state/density evidence and preliminary Q1 execution. The six-process Q1 gate remains outside the agreed five-node local scope. MR-13 and MR-15 through MR-17 remain open."
+}
