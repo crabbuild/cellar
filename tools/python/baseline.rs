@@ -65,6 +65,12 @@ fn memory() -> Value {
 
 fn main() -> Result<()> {
     let arguments = Arguments::parse()?;
+    tracing_subscriber::fmt()
+        .with_env_filter("cellar::actor=warn,cellar::daemon::embedded=warn")
+        .with_ansi(false)
+        .with_writer(std::io::stderr)
+        .try_init()
+        .map_err(|error| anyhow::anyhow!("baseline tracing: {error}"))?;
     let before = arguments.before_runtime.clone();
     if arguments.mode == "native" {
         ensure!(

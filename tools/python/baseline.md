@@ -15,6 +15,13 @@ Three repetitions rotate runtime order. Every response is checked. Raw request
 attempts, latencies, p50/p95/p99/max and achieved closed-loop requests per second
 are retained in `baseline.json`. Errors retain attempted commands with unknown
 outcomes and fail the run; no mutation is resent.
+The first worker failure remains the reported cause even when other workers
+abort afterward. Failed attempts retain their exception type and message. Before
+killing a still-running failed fixture, cleanup allows two seconds for its final
+diagnostics, then records the process status and whether cleanup killed it in
+`primary-exit.json` or `recovered-exit.json`. This grace period is outside the
+measurement and changes no request or durability deadline. Native fence warnings
+are included in the host log.
 
 After each workload the driver kills and reaps the owner, verifies it produced
 no clean report, deletes every owner-local cell file, waits out its 3,000 ms

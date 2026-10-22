@@ -78,7 +78,9 @@ jobs:
       - name: Test native Python prerequisite capture
         run: python3 tools/python/test_native_prerequisites.py
       - name: Test Python qualification guards
-        run: python3 tools/python/test_qualification_guards.py
+        run: |
+          python3 tools/python/test_qualification_guards.py
+          python3 tools/python/test_baseline.py
       - name: Test Cloudflare benchmark peer relay
         run: |
           npm ci --ignore-scripts --prefix tools/perf/cloudflare
