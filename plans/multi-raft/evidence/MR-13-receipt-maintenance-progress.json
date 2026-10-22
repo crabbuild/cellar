@@ -1,0 +1,198 @@
+{
+  "task_id": "MR-13",
+  "source_revision": "817a4ed1e8da217de057d6af3f0a9f40e6d21a51",
+  "completion": "partial",
+  "scope": "Bounded opportunistic receipt-prefix cleanup in the new-command transaction; inclusive retry deadlines; latest-client receipt protection; atomic publication and retained-disk restart. Includes a separate S3 seed crash setup admission repair. MR-13 remains IN_PROGRESS.",
+  "build_environment": {
+    "RUSTUP_TOOLCHAIN": "1.98.1",
+    "CARGO_TARGET_DIR": "$HOME/Workspace/crabbuild-target/cellar-mr13-receipts",
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "CARGO_PROFILE_TEST_DEBUG": "0",
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_BUILD_JOBS": "2"
+  },
+  "environment": "macOS; physical SQLite/LTX/Raft Engine; local TLS; in-memory/persistent fixture object stores. No physical S3 or Colima Cellar-node qualification in this record. No cellar_internal_tests.",
+  "source_files": [
+    {
+      "path": "crates/cellar/application/consensus/mod.rs",
+      "sha256": "2043f828f2f821a8227a8185b433666229e32b34190b0db8d69751157a69a218"
+    },
+    {
+      "path": "crates/cellar/durability/raft/execution.rs",
+      "sha256": "91df519c6c8e18fbe59aec37d048bbd3d6063226c4b6ec3bd55293a5f6fefd7e"
+    },
+    {
+      "path": "crates/cellar/durability/raft/mod.rs",
+      "sha256": "3f555c9adb9bb8d4c484f3fce31ed50b87431c0b07455f21aa4fa109e2494487"
+    },
+    {
+      "path": "crates/cellar/durability/raft/receipts.rs",
+      "sha256": "1be245e24099ab1b2f47b551c08f219d18b3a1448baf152b6f249df181c9eb31"
+    },
+    {
+      "path": "crates/cellar/durability/raft/receipts_tests.rs",
+      "sha256": "0b6714ac06d1f7f16a9631f72ec1d9b33d128d0e5a7e3b683824a262cc5a7839"
+    },
+    {
+      "path": "crates/cellar/durability/raft/receipt_maintenance.rs",
+      "sha256": "1bc74307a3ffcb91a8d9e53ffbe452d4ffde0ad11c7e1f5b3b665c64fb525003"
+    },
+    {
+      "path": "crates/cellar/durability/raft/receipt_maintenance_tests.rs",
+      "sha256": "67f20118e48aff6b0731dcd03e50217dcdbd6cc74f0f607ddd06be732eec016a"
+    },
+    {
+      "path": "crates/cellar/tests/native_raft_execution.rs",
+      "sha256": "fc67ca19391c740cc618abd670954d1e2b732233f6635a96a1bdb85195e88dda"
+    },
+    {
+      "path": "crates/cellar/tests/support/raft_seed_crash.rs",
+      "sha256": "5fd137f5ede2d077d3c52da92608d329d63f9ed903d761dd04f697a979a1acfd"
+    },
+    {
+      "path": "plans/multi-raft/receipt-maintenance-design.md",
+      "sha256": "e63cdfc79544d0d56843014a7db88644e95047fb15866d470ebf94b605e42a9e"
+    }
+  ],
+  "validation": {
+    "unit_integration_passes": 551,
+    "doctest_passes": 15,
+    "binaries": [
+      {
+        "name": "cellar-debae692237b72f0",
+        "sha256": "42edade7a312d81d8981dc9116ed76afc9dd739f700eeef569141e28106d01e8",
+        "passed": 449,
+        "ignored_child_helpers": 0
+      },
+      {
+        "name": "native_raft_effects-f1996714c7e4495a",
+        "sha256": "19f1885726c0088ab8dfb27713f3c0597bccd40586e8090b18a1129765554014",
+        "passed": 16,
+        "ignored_child_helpers": 0
+      },
+      {
+        "name": "native_raft_execution-8148fdc997c272af",
+        "sha256": "c93263ff8175af3bcf1f01e34848f09592af0e66fb5578beb2df082152309f45",
+        "passed": 17,
+        "ignored_child_helpers": 2
+      },
+      {
+        "name": "native_raft_host-83bc31023d3e1462",
+        "sha256": "69e8b71823a179fdc2520b05b6ad55ff9996900aa9cb765ce5ff6122cc2df1df",
+        "passed": 27,
+        "ignored_child_helpers": 0
+      },
+      {
+        "name": "native_raft_snapshot-59d90688d153cb6d",
+        "sha256": "e0fda5e077fff12e0226e4895ac4023ece1e10d81e2a5b5d46d557588b0da967",
+        "passed": 42,
+        "ignored_child_helpers": 2
+      }
+    ],
+    "checks": [
+      "cellar all-target/all-feature Clippy -D warnings",
+      "workspace cargo format --check",
+      "cargo check-layout",
+      "native dependency check",
+      "documentation check"
+    ],
+    "source_frozen": "git diff --quiet 817a4ed -- crates examples Cargo.toml Cargo.lock passed after final tests. Source-file hashes preserve the exact component.",
+    "log": "MR-13-receipt-maintenance-validation.log.gz",
+    "log_uncompressed_sha256": "2391cff54287b9c0cb400b821dd47637ca619303b3099dcb42cce99685821692",
+    "input_logs": [
+      {
+        "name": "cellar-mr13-receipt-deadline-red.log",
+        "sha256": "07e919a8e76521580e610cbc72b8ad711716729e5f9014048825eb91befee8a9"
+      },
+      {
+        "name": "cellar-mr13-receipt-deadline-probe.log",
+        "sha256": "ec97fde47e19c95ff2f267467512ec1f1ba7efdb8d459dfa251dcadbabb1355f"
+      },
+      {
+        "name": "cellar-mr13-receipt-qualified-tests.log",
+        "sha256": "fc1d9eb19a46b10f28ea0bc881dff826ce5a15af37e8ac2eef222cbdc9bda5e2"
+      },
+      {
+        "name": "cellar-mr13-receipt-qualified-snapshot.log",
+        "sha256": "6f788a47e544aa24328eaaaee61a6556f6379040b08664dbb2d9b37ba2a5616a"
+      },
+      {
+        "name": "cellar-mr13-receipt-qualified-doc.log",
+        "sha256": "8c82f05dd9a5babe2a04d7b6d8c2f65e507c27332b93e2e9520f72b1d07f11d7"
+      },
+      {
+        "name": "cellar-mr13-receipt-clippy-final.log",
+        "sha256": "4b70266cfc0e1d0ba3757f9ec654078ff0e0efd6f739359358bd16b5a9b1a95b"
+      },
+      {
+        "name": "cellar-mr13-receipt-format-final.log",
+        "sha256": "06766310ad0e530fd5ffd8b11c503f4aec4cda7963d7a19a9ae4cdda663cc512"
+      },
+      {
+        "name": "cellar-mr13-receipt-layout-final.log",
+        "sha256": "5e8512bbfc9e389780136b77cd5f1814c2fe14c956f8460c196aa3af0f8f5ffd"
+      },
+      {
+        "name": "cellar-mr13-receipt-dependencies-final.log",
+        "sha256": "bb6ce74bc3067de8595c69fccdda01faf3be0a564eb5bde54fae281ee37c597c"
+      },
+      {
+        "name": "cellar-mr13-receipt-docs-final.log",
+        "sha256": "e7693fab112af17ce1071f3a345f155ff4327d9ae2a4c3b931be4a17aac1bc8b"
+      },
+      {
+        "name": "cellar-mr13-seed-context-replay-1.log",
+        "sha256": "cc3891a80612f0851d5a85cb9cee47b1bb5958f186517a4824777726f19110c4"
+      },
+      {
+        "name": "cellar-mr13-seed-busy-probe.log",
+        "sha256": "98535899652bfffaa0a375b264da9c2ddbdc0b21f493b209b1a913ae49bb7d66"
+      },
+      {
+        "name": "cellar-mr13-seed-archive-setup-green.log",
+        "sha256": "5183e27a85f5fe617a54eb0534785a0cb5f86a400ee299bf0649cb82fdc61b27"
+      },
+      {
+        "name": "cellar-mr13-seed-archive-setup-replay-1.log",
+        "sha256": "3bb05e05abd0d9cc437666d570413af8f009d36ce434efd48ceefc0dc09521cf"
+      },
+      {
+        "name": "cellar-mr13-seed-archive-setup-replay-2.log",
+        "sha256": "aae5c5c6460513030692199978ed216e191533748032766065e30f481b2fb4b1"
+      },
+      {
+        "name": "cellar-mr13-seed-archive-setup-replay-3.log",
+        "sha256": "969b6c7822b00529dafc1c4cf7744b1b9719aab9b85f0275879edd5a75cd2bab"
+      },
+      {
+        "name": "cellar-mr13-seed-archive-setup-replay-4.log",
+        "sha256": "57416ded902e884fb5be97346e012986bd115875a3039f37b568680a434342cc"
+      },
+      {
+        "name": "cellar-mr13-seed-archive-setup-replay-5.log",
+        "sha256": "e7d799cb78e21acfa5c879cae248e2660652ca1555ff234fdabacf0f612142f4"
+      }
+    ]
+  },
+  "initial_failures": [
+    {
+      "case": "retry_deadline_is_inclusive",
+      "test_only_revision": "4546bba693e2715b44b51834e7d0006e6a57ebb0",
+      "finding": "Explicit pruning admitted deletion at retry_until == now although command admission accepts that deadline. Original red retained; fixed comparison protects equality and u64::MAX."
+    },
+    {
+      "case": "native_s3_seed_crash_matrix",
+      "finding": "CI and local fixture refused its second S3 command before the intended seed fault. A targeted probe confirmed pending=false and sql_busy=true after adding the learner. Setup now waits for the actual learner-configuration archive cut within the original second-command deadline; no command retry or deadline extension. All eight crash cuts, retained values, claim checks and restart assertions remain.",
+      "fixed_focused_runs": 6,
+      "full_snapshot_suite_passed": true,
+      "related_ci": "https://github.com/crabbuild/cellar/actions/runs/39723210500/job/119641168626"
+    }
+  ],
+  "limits": [
+    "Automatic cleanup is opportunistic on new commands near the receipt ceiling, not an idle maintenance sweep.",
+    "Every client identity/floor and latest receipt is retained. Latest-only saturation still safely refuses new commands.",
+    "Signed lost-inbox-ack retention under cleanup, recurrence beyond the receipt ceiling, full replica/archive floor recovery and leadership-loss cleanup still require dedicated qualification.",
+    "Prior transfer, concurrent fallback and effect callback-count findings remain open. Additional 3.14t CI reports include Fleet event recovery/drain failures and nonmember follower reads; serial passes do not close them.",
+    "Management completion, verified deployment fencing, new-history disaster restore and MR-14 through MR-17 remain open."
+  ]
+}
