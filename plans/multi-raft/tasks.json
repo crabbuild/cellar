@@ -2284,7 +2284,16 @@
         "crates/cellar/durability/raft/host.rs",
         "crates/cellar/durability/raft/runtime_scheduler_tests.rs",
         "tools/perf/raft_node.rs",
-        "tools/perf/raft.Dockerfile"
+        "tools/perf/raft.Dockerfile",
+        "crates/cellar/application/consensus/protocol.rs",
+        "crates/cellar/durability/raft/archive.rs",
+        "crates/cellar/durability/raft/catalog.rs",
+        "crates/cellar/durability/raft/catalog_wire.rs",
+        "crates/cellar/durability/raft/host_archive.rs",
+        "crates/cellar/durability/raft/manifest.rs",
+        "crates/cellar/tests/native_raft_archive.rs",
+        "crates/cellar/tests/support/raft_catalog_fault.rs",
+        "crates/cellar/tests/support/raft_resources_native.rs"
       ],
       "creates": [
         "tools/perf/raft_run.py",
@@ -2295,7 +2304,10 @@
         "tools/perf/raft_workload.py",
         "tools/perf/raft_analyze.py",
         "tools/perf/raft-performance.md",
-        "crates/cellar/tests/support/raft_repair_load.rs"
+        "crates/cellar/tests/support/raft_repair_load.rs",
+        "crates/cellar/durability/raft/archive_bundle.rs",
+        "crates/cellar/durability/raft/archive_bundle_tests.rs",
+        "crates/cellar/tests/support/raft_bundle_native.rs"
       ],
       "steps": [
         "Optimize shared log batches, pooled transport and fair scheduling while retaining per-group Ready ordering.",

@@ -117,8 +117,15 @@ queries. It samples actual node-wide reservations, checks both distinct restored
 histories and waits for physical reservation release. This is bounded catch-up
 coverage on three embedded nodes, not replacement throughput or an SLO.
 
-MR-14 remains in progress. Remaining work includes exact mixed-group archive
-bundle indexing, all required internal
+The native archive producer can coalesce snapshot/tail payloads for two cells in
+one bounded object. The bundle index binds each exact history; recovery verifies
+the object and physically replays the selected cell before its independent head
+publication. Native tests cover lost PUT responses and isolated restores. This
+requires fresh experimental roots under the `/bundles-1` protocol identity;
+all measurements below retain their original source and format. No batching
+speedup or physical memory improvement has been measured.
+
+MR-14 remains in progress. Remaining work includes all required internal
 latency/byte/controller measurements, steady-state and density measurements,
 and executable Fleet/bucket adapters with matched durability/hardware/workloads.
 `matched_comparison` refuses missing or unequal contract, hardware, workload and

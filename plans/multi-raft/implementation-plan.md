@@ -918,9 +918,16 @@ reservation release. Its [source-pinned evidence](evidence/MR-14-repair-budget-p
 qualifies bounded native catch-up under that workload,
 not physical-node density, new-member replacement throughput or an SLO.
 
-Remaining MR-14 gates include mixed-group archive bundle indexing, internal
-timings/byte measurements, matched Fleet/bucket
-baselines, steady-state/density evidence and preliminary Q1 execution. The
+The native archive producer gathers at most two due cuts from one namespace and
+coalesces small immutable snapshot/tail payloads into a bounded, indexed object.
+Each cell still physically verifies its own recovery set and conditionally
+publishes its own head. `archive_bundle_group_index` checks two exact histories,
+a lost bundle PUT response, independent post-shutdown restores and corruption
+refusal. This changes the internal protocol identity to include `/bundles-1`;
+numeric markers remain 1 and earlier experimental roots are refused.
+
+Remaining MR-14 gates include internal timings/byte measurements, matched
+Fleet/bucket baselines, steady-state/density evidence and preliminary Q1 execution. The
 current local scope is at most five nodes; the original six-process Q1 gate
 remains unqualified. MR-13's remaining management/restore work stays open.
 

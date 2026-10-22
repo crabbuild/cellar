@@ -312,6 +312,7 @@ impl NamespaceCatalog {
                 hex::encode(birth.scope.group.bytes()),
                 hex::encode(birth.scope.incarnation.bytes())
             ),
+            format!("{}/archives/bundles", self.data_prefix),
             birth,
             self.root_digest,
             self.config.schema_digest,

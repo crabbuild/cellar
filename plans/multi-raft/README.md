@@ -79,8 +79,9 @@ MR-14 is in progress with fair shared persistence batches, a native reference
 workload, fixed open-loop arrivals and independent ledger/replica/archive checks.
 Its [performance evidence](evidence/MR-14-performance-progress.json) retains both
 passed functional checks and missed local traffic objectives. Matched Fleet/bucket
-baselines, remaining instrumentation, archive-bundle indexing and Q1 density
-qualification remain open. The [native repair-load evidence](evidence/MR-14-repair-budget-progress.json)
+baselines, remaining instrumentation and Q1 density qualification remain open.
+The bounded archive producer now coalesces payloads from two histories while
+keeping independent per-cell physical verification and head publication. The [native repair-load evidence](evidence/MR-14-repair-budget-progress.json)
 checks snapshot reservation bounds while independent commands and follower
 queries continue. MR-15 adds release qualification including the 24-hour
 soak, MR-16 measured density/physical tiers and MR-17 federation.
@@ -92,7 +93,7 @@ of cells require measured qualification. Millions of physical nodes are not a
 single-cluster promise. All original packages remain in scope.
 
 The internal namespace identity is
-`cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1/nodes-1`; numeric markers remain 1.
+`cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1/nodes-1/bundles-1`; numeric markers remain 1.
 Class capability/system contracts also enter the immutable application digest.
 Use fresh compatible experimental namespaces/prefixes for hard cutovers; there
 is no compatibility reader or state migration.

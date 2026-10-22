@@ -201,7 +201,8 @@ The marker-1 Cellar envelope starts with ASCII `CLRF`, big-endian u32 marker 1,
 big-endian u32 header length and big-endian u64 payload length. A bounded UTF-8
 JSON header follows, then concatenated raw LTX files and a SHA-256 digest of the
 entire preceding frame, including its prefix. The required protocol digest is
-SHA-256 of UTF-8 `cellar-raft-ltx-1`. A bounded file table records offsets,
+SHA-256 of UTF-8 `cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1/nodes-1/bundles-1`. Numeric format markers remain 1; earlier experimental roots are refused.
+A bounded file table records offsets,
 lengths, TXID ranges, page counts and decoded page bytes;
 entries partition the payload exactly and form one contiguous ordered chain.
 Use decimal strings for 64-bit fields in the JSON header; reject duplicate keys,

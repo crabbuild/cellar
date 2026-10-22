@@ -2,6 +2,14 @@
 //! The scheduler fixture's application markers are stubs. The repair-load
 //! fixture and container runner exercise actual native SQLite/LTX publication.
 #![allow(clippy::disallowed_methods)]
+#[allow(dead_code)]
+#[path = "support/raft_catalog_fault.rs"]
+mod bundle_faults;
+#[allow(dead_code)]
+#[path = "support/raft_ltx_fixture.rs"]
+mod bundle_images;
+#[path = "support/raft_bundle_native.rs"]
+mod bundles;
 #[path = "support/raft_storage_fault.rs"]
 mod fault;
 #[allow(dead_code)] // Shared fixture also serves snapshot, peer-fault and lifecycle targets.
@@ -28,6 +36,11 @@ use std::{path::Path, sync::Arc, time::Duration};
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn repair_budget_under_load() -> Result<()> {
     repair_load::run().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn archive_bundle_group_index() -> Result<()> {
+    bundles::run().await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

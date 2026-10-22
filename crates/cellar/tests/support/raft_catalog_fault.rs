@@ -13,7 +13,9 @@ pub struct Store {
     pub fail_after: AtomicBool,
     pub fail_read: AtomicBool,
     pub fail_confirmation: AtomicBool,
+    pub fail_head_before: AtomicBool,
     pub fail_head_after: AtomicBool,
+    pub fail_bundle_after: AtomicBool,
     pub fail_head_confirmation: AtomicBool,
     pub fail_join_claim_before: AtomicBool,
     pub fail_join_claim_after: AtomicBool,
@@ -123,7 +125,15 @@ impl ObjectStore for Store {
         if joining_claim && self.fail_join_claim_before.swap(false, Ordering::AcqRel) {
             return Err(failure());
         }
+        if path.filename() == Some("head") && self.fail_head_before.swap(false, Ordering::AcqRel) {
+            return Err(failure());
+        }
         let result = self.inner.put_opts(path, payload, options).await?;
+        if path.as_ref().contains("/archives/bundles/")
+            && self.fail_bundle_after.swap(false, Ordering::AcqRel)
+        {
+            return Err(failure());
+        }
         if joining_claim
             && self
                 .fail_join_claim_confirmation
@@ -190,7 +200,7 @@ impl ObjectStore for Store {
         }
         self.archive_fault(path).await?;
         if path.as_ref().contains("/archives/")
-            && ["/snapshots/", "/tails/", "/dependencies/"]
+            && ["/snapshots/", "/tails/", "/dependencies/", "/bundles/"]
                 .iter()
                 .any(|part| path.as_ref().contains(part))
         {

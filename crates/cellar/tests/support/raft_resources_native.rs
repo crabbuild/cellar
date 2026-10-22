@@ -79,7 +79,11 @@ pub async fn run(shutdown_held: bool) -> Result<()> {
                 }
         );
         ensure!(initial.business.max_items == 128 && initial.control.max_items == 16);
-        ensure!(initial.archive_capture.max_items == 1 && initial.archive_capture.max_bytes > 0);
+        ensure!(
+            initial.archive_capture.max_items == 2
+                && initial.archive_capture.max_bytes
+                    == 2 * ArchiveLimits::default().max_capture_bytes
+        );
         let mut written = Vec::new();
         for handle in &handles {
             public_node::ready(handle).await?;

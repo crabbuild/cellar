@@ -51,9 +51,12 @@ struct Fixture {
 
 impl Fixture {
     async fn new(limits: ArchiveLimits) -> Result<Self> {
+        Self::new_group(limits, Arc::new(faults::Store::default()), 7).await
+    }
+
+    async fn new_group(limits: ArchiveLimits, store: Arc<faults::Store>, id: u8) -> Result<Self> {
         let root = tempfile::tempdir()?;
         let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
-        let store = Arc::new(faults::Store::default());
         let catalog = Catalog::new(
             store.clone(),
             CatalogOptions {
@@ -74,8 +77,8 @@ impl Fixture {
                 scope: GroupScope {
                     cluster: ClusterId::new([1; 16])?,
                     namespace: NamespaceId::new([2; 16])?,
-                    cell: "Counter:7".into(),
-                    group: GroupId::new([7; 16])?,
+                    cell: format!("Counter:{id}"),
+                    group: GroupId::new([id; 16])?,
                     incarnation: IncarnationId::new([3; 16])?,
                 },
                 voters: vec![InitialMember {
@@ -1728,4 +1731,76 @@ async fn unpolled_s3_waiter_cannot_receive_success_after_deadline() -> Result<()
     ensure!(native.retry(1, Durability::S3).await?.durability == Durability::S3);
     ensure!(native.calls.load(Ordering::SeqCst) == 1);
     native.close().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn archive_bundle_partial_head_failure_keeps_proofs_independent() -> Result<()> {
+    let store = Arc::new(faults::Store::default());
+    let mut a = Fixture::new_group(ArchiveLimits::default(), store.clone(), 7).await?;
+    let mut b = Fixture::new_group(ArchiveLimits::default(), store.clone(), 8).await?;
+    let cuts = [a.commit(17, vec![]).await?, b.commit(29, vec![]).await?];
+    let archives = [a.archive.clone(), b.archive.clone()];
+    let scopes = [a.birth.scope().clone(), b.birth.scope().clone()];
+    store.fail_head_before.store(true, Ordering::Release);
+    let results = CellArchive::publish_batch(
+        archives.iter().cloned().zip(cuts.iter().cloned()).collect(),
+        &a.verifier,
+    )
+    .await?;
+    ensure!(results.len() == 2 && results.iter().filter(|result| result.is_ok()).count() == 1);
+    ensure!(!store.fail_head_before.load(Ordering::Acquire));
+    for (index, result) in results.into_iter().enumerate() {
+        let selected = archives[index].recovery_set().await?;
+        match result {
+            Ok(set) => {
+                ensure!(set.scope() == &scopes[index] && set.position() == cuts[index].position());
+                ensure!(selected.is_some(), "successful member has no own head");
+                restored(&set, [17, 29][index])?;
+            }
+            Err(_) => {
+                ensure!(selected.is_none(), "failed member borrowed the other head");
+                restored(
+                    &archives[index]
+                        .publish(cuts[index].clone(), &a.verifier)
+                        .await?,
+                    [17, 29][index],
+                )?;
+            }
+        }
+    }
+    let objects = store.inner.list(None).try_collect::<Vec<_>>().await?;
+    ensure!(
+        objects
+            .iter()
+            .filter(|object| object.location.as_ref().contains("/archives/bundles/"))
+            .count()
+            == 1
+    );
+    // Reject invalid batches before any member can publish.
+    let before = objects.len();
+    ensure!(CellArchive::publish_batch(
+        vec![
+            (archives[0].clone(), cuts[0].clone()),
+            (archives[0].clone(), cuts[0].clone())
+        ],
+        &a.verifier
+    )
+    .await
+    .is_err());
+    let mut foreign = Fixture::new(ArchiveLimits::default()).await?;
+    let foreign_cut = foreign.commit(31, vec![]).await?;
+    ensure!(CellArchive::publish_batch(
+        vec![
+            (archives[0].clone(), cuts[0].clone()),
+            (foreign.archive.clone(), foreign_cut)
+        ],
+        &a.verifier
+    )
+    .await
+    .is_err());
+    ensure!(store.inner.list(None).try_collect::<Vec<_>>().await?.len() == before);
+    ensure!(foreign.archive.recovery_set().await?.is_none());
+    foreign.close().await?;
+    a.close().await?;
+    b.close().await
 }
