@@ -89,6 +89,30 @@ class Freshness(unittest.TestCase):
         docker = Mock(side_effect=['sha256:' + digest, digest + '  crates/new.rs\n', binary + '  /usr/local/bin/cellar-perf-raft'])
         self.assertEqual(verify_image('sha256:' + digest, docker, {'crates/new.rs': digest})['binary_sha256'], binary)
 
+    def test_embedded_and_generated_inputs_participate_in_freshness(self):
+        from raft_run import source_manifest
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for name in ('Cargo.toml', 'Cargo.lock', 'crates/app/schema.sql',
+                         'vendor/parser/wire.proto', 'examples/app/native.c',
+                         'tools/perf/driver.py', 'tools/xtask/template.html'):
+                path = root / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text('original')
+            before = source_manifest(root)
+            (root / 'crates/app/schema.sql').write_text('changed schema')
+            after_sql = source_manifest(root)
+            self.assertNotEqual(before, after_sql)
+            (root / 'vendor/parser/wire.proto').write_text('changed protocol')
+            self.assertNotEqual(after_sql, source_manifest(root))
+            self.assertIn('examples/app/native.c', before)
+            self.assertIn('tools/xtask/template.html', before)
+            self.assertIn('tools/perf/driver.py', before)
+            cache = root / 'tools/perf/__pycache__/generated.pyc'
+            cache.parent.mkdir()
+            cache.write_bytes(b'cache')
+            self.assertNotIn('tools/perf/__pycache__/generated.pyc', source_manifest(root))
+
     def test_duplicate_manifest_path_is_refused(self):
         with self.assertRaises(ValueError):
             parse_manifest(('a' * 64 + '  crates/source.rs\n') * 2)
