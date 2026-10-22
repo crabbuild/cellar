@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "baseline_revision": "f8f8958c6ef336f5764b463999f543856a3c7a76",
+  "baseline_revision": "37aed98b6aaa6d39f995a853aef1094991dc729b",
   "status_values": [
     "TODO",
     "IN_PROGRESS",
@@ -2240,7 +2240,8 @@
         "evidence/MR-13-metrics-progress.json",
         "evidence/MR-13-resources-progress.json",
         "evidence/PR-91-ci-repair.json",
-        "evidence/PR-91-fixture-repair.json"
+        "evidence/PR-91-fixture-repair.json",
+        "evidence/MR-13-resource-views-progress.json"
       ]
     },
     {

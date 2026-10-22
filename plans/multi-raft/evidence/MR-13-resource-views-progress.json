@@ -1,0 +1,300 @@
+{
+  "task_id": "MR-13",
+  "source_revision": "37aed98b6aaa6d39f995a853aef1094991dc729b",
+  "completion": "partial",
+  "scope": "Physical image and connection ownership, complete bounded role/readiness/activity/lag observations, passive controller resources, and fixed-cardinality authenticated SDK/HTTP export. MR-13 remains IN_PROGRESS.",
+  "toolchain": "rustc 1.98.1 (48a229cea 2026-09-01)",
+  "environment": "macOS; native Rust Node/SDK, physical SQLite/LTX/Raft Engine and local TLS. Conditional in-memory archive fixture; no physical S3, deployment fence or scale qualification. No cellar_internal_tests.",
+  "build_environment": {
+    "RUSTUP_TOOLCHAIN": "1.98.1",
+    "CARGO_TARGET_DIR": "$HOME/Workspace/crabbuild-target/cellar-23c7-multi-raft",
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "CARGO_PROFILE_TEST_DEBUG": "0",
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_BUILD_JOBS": "3",
+    "PYO3_PYTHON": "/opt/homebrew/bin/python3.14"
+  },
+  "source_files": [
+    {
+      "path": "crates/cellar-ltx/src/generation.rs",
+      "sha256": "e6dfd835ff68b795ed44b7dc73d8d0933c33287ed1007750a877e51235937435"
+    },
+    {
+      "path": "crates/cellar-ltx/src/generation_accounting.rs",
+      "sha256": "6ea91465308b897e7c82e590b2e6d21608367fc62275d6687af5125876543b1c"
+    },
+    {
+      "path": "crates/cellar-ltx/src/lib.rs",
+      "sha256": "60366b5ed6bd5d1e196bbec54b4505ff72627d1c7d5352578c1cdc882980a115"
+    },
+    {
+      "path": "crates/cellar/application/consensus/client.rs",
+      "sha256": "d10babcab8f35b6ff2101de3466e81d6aa2fc5a5abf68a0724b109ea975d1baa"
+    },
+    {
+      "path": "crates/cellar/application/consensus/mod.rs",
+      "sha256": "84b09e0a153a3a5e9167d5c9896cba0d5e4ccbe72b3a7c233943a170c2b488ba"
+    },
+    {
+      "path": "crates/cellar/application/consensus/resource_metrics.rs",
+      "sha256": "9fda533f24ea015a125c87491940b0c2042de6b874038c27a436d9066a4a92b7"
+    },
+    {
+      "path": "crates/cellar/application/consensus/resources.rs",
+      "sha256": "1768223fcc88ab30e8662771d66dc886a5ac7c1ffca1e00f133aebf9c6ca3a87"
+    },
+    {
+      "path": "crates/cellar/application/consensus/resources_tests.rs",
+      "sha256": "b4c0044c1bf36b4819b8711780bda08dde78bec37eec4abc42ffafd91271a078"
+    },
+    {
+      "path": "crates/cellar/durability/raft/host.rs",
+      "sha256": "66f92c6c0fe18b688bccdf34a71d818ed84e1ade5aec5815b5bb5487b643142b"
+    },
+    {
+      "path": "crates/cellar/durability/raft/host_archive.rs",
+      "sha256": "bbd6c78914c965079806e51eaf2c6fb39548cf9270beeb58046f9c952294d10c"
+    },
+    {
+      "path": "crates/cellar/durability/raft/host_controller.rs",
+      "sha256": "65768689de046df5fa2e08018fd8786d0630ef0152f27ddec5e0592c04529cfc"
+    },
+    {
+      "path": "crates/cellar/durability/raft/host_leader_load.rs",
+      "sha256": "218fd6223b7c5affa23e8581f020463363015ab4c3b93b93bc588e8bf76d9041"
+    },
+    {
+      "path": "crates/cellar/durability/raft/host_leader_load_tests.rs",
+      "sha256": "73eb2e07bf0bf82a44c0eafdb6726e850154cc13878aa0050b891d1d74a84854"
+    },
+    {
+      "path": "crates/cellar/durability/raft/host_sql.rs",
+      "sha256": "5628747ccdb13828b66f7484ae98c68affbc1e174a215c8d35bd41a364fb4834"
+    },
+    {
+      "path": "crates/cellar/durability/raft/inspection_transport.rs",
+      "sha256": "c41bb3d358d2afc14aad6db7f7b59ccae59ce3763a5b7bbdbaa3d871fd90317f"
+    },
+    {
+      "path": "crates/cellar/durability/raft/query_transport.rs",
+      "sha256": "489ab24e860d279974aa946df582b2a2f2207b20afaf0146ffa363ec659837c9"
+    },
+    {
+      "path": "crates/cellar/durability/raft/seed_transport.rs",
+      "sha256": "1719f1b904a89a52b274ff4011b9b9193083fe8bbbb9d6b8625b6eac65a049ac"
+    },
+    {
+      "path": "crates/cellar/durability/raft/snapshot_transport.rs",
+      "sha256": "13f503dd07f4ffe6d617c7306c2a6d2dcced3c9fafe8740eaacc2d4c9082dc4a"
+    },
+    {
+      "path": "crates/cellar/durability/raft/transport.rs",
+      "sha256": "43218546d5b05830b5291e94f9da3284676aae8b132faef05ea2dc6549e91f51"
+    },
+    {
+      "path": "crates/cellar/durability/raft/transport_inspection_tests.rs",
+      "sha256": "2179caca4df72da7127f55c44b3f243eac0dfd9822bcb5e75789cf3200accbee"
+    },
+    {
+      "path": "crates/cellar/durability/raft/transport_resources.rs",
+      "sha256": "8af1b6c2c11d9df3814a1089ab17dbc8c710eac56df7831c502ead03787eb54a"
+    },
+    {
+      "path": "crates/cellar/durability/raft/transport_tests.rs",
+      "sha256": "7c59ac1413ed45c6cf3b2dbec201f8ad1488ab950695bdf21d3ca5a62f19ed9e"
+    },
+    {
+      "path": "crates/cellar/tests/native_raft_ltx.rs",
+      "sha256": "6b2f40ae30b32efd95c133819660c956318e12277659f35bb66d9b57dc3a82db"
+    },
+    {
+      "path": "crates/cellar/tests/native_raft_operations.rs",
+      "sha256": "04d50653dfadb98378269d0d2bbb1e004ed9578d65a67f64dba083f6087dfdff"
+    },
+    {
+      "path": "crates/cellar/tests/native_raft_reads.rs",
+      "sha256": "86047e7ed1d3c199aa30762c6feef45f04ed1c4fcf86ae3ea35c261293a28237"
+    },
+    {
+      "path": "crates/cellar/tests/support/raft_controller_native.rs",
+      "sha256": "5daaec81eaeb381929c475f9cfa713164213e9d0705aa93a81524f3fea8d4ce3"
+    },
+    {
+      "path": "crates/cellar/tests/support/raft_metrics_native.rs",
+      "sha256": "d32c6aead98754594d2413b7ea20dbd54b8b5d749aaa45ad6629210bf9e4ec91"
+    },
+    {
+      "path": "crates/cellar/tests/support/raft_readiness_native.rs",
+      "sha256": "84152896656a320a46c57e97c09c4374a4fd02eb93afdaba320a55d76edf0fe5"
+    },
+    {
+      "path": "crates/cellar/tests/support/raft_resources_native.rs",
+      "sha256": "d7f354ec022a4efc3848730a6ac8b96ed6e3a6f241d4aa9871d31a9f529827af"
+    }
+  ],
+  "test_binaries": [
+    {
+      "target": "lib",
+      "passed": 441,
+      "ignored": 0,
+      "executable_sha256": "7875be9e6539cfdba321b296d5921a6d16d811b6fa7c05345110d5b56761b33c"
+    },
+    {
+      "target": "native_raft_effects",
+      "passed": 16,
+      "ignored": 0,
+      "executable_sha256": "7410c6473b70ccd8b5ade0374d551fbc99a5ee3a98955b70e0ef74e5eb11dad6"
+    },
+    {
+      "target": "native_raft_host",
+      "passed": 27,
+      "ignored": 0,
+      "executable_sha256": "24d4c8be24221be98874fe7a90c280fa9106f5f3a273ba7f138f5b7f98eaba5b"
+    },
+    {
+      "target": "native_raft_ltx",
+      "passed": 19,
+      "ignored": 1,
+      "executable_sha256": "70270677addd34f26da50f814e056331946dc2f518b44d4c5baaaa9b743c1477"
+    },
+    {
+      "target": "native_raft_membership",
+      "passed": 27,
+      "ignored": 1,
+      "executable_sha256": "9a8d7d8c62fb17ffeead42fba2bdc775c04f3b0031f037cd07dff64dde6389e5"
+    },
+    {
+      "target": "native_raft_operations",
+      "passed": 18,
+      "ignored": 0,
+      "executable_sha256": "b911ffd9836537eea7375897997cebc589e7d70f73af39d5e70e7a0add2bdd59"
+    },
+    {
+      "target": "native_raft_reads",
+      "passed": 20,
+      "ignored": 0,
+      "executable_sha256": "cc675bbb5824b5ced4d3096e9e5f1d806b857205c6b8ba364cb3a4fadf0f0f56"
+    },
+    {
+      "target": "native_raft_snapshot",
+      "passed": 42,
+      "ignored": 2,
+      "executable_sha256": "6156f8e863026ec02e4960d5c0003bcd7c53b75909e0622901bbb256256782a9"
+    }
+  ],
+  "serial_passed": 610,
+  "ordinary_selection_ignored_fixture_entrypoints": 4,
+  "doctests_passed": 15,
+  "contracts": [
+    "Image registrations include SQL/seed directories and shared archive verifier; physical pins retain the owner. Observers retain no files, stores or pins. Quarantine stays unavailable. Refund follows synced deletion; closed durable files are not inventoried.",
+    "Incoming connections include TCP/TLS handshakes and per-lane real capacities, including sixteen reserved inspection slots once enabled. Outgoing counts include idle pools, inspection and seed/snapshot transfers until physical exit.",
+    "Every host scans bounded batches under one cycle deadline. Only a complete ordered identity-matched population updates role/readiness/lag totals. Partial, overflow and failed cycles cannot refresh source age; population changes/activation invalidate views. Parked histories have unknown archive coverage.",
+    "Controller bank/activity/counter snapshots carry source age and are unavailable when unconfigured or invalid. Attempt counts do not prove membership or election outcomes.",
+    "One and 32 committed groups expose the same 110 samples; a configured controller adds thirteen. No cell/group/member/node identities enter labels. Scrapes perform no group enumeration, Raft calls, callbacks or I/O.",
+    "JSON u64 image sizes, lag, controller counters and sample ages use decimal strings."
+  ],
+  "known_findings": [
+    {
+      "case": "effect_leadership_race",
+      "source_revision": "37aed98b6aaa6d39f995a853aef1094991dc729b",
+      "result": "unresolved parallel regression finding",
+      "details": "With test-threads=4 and concurrent workspace Clippy, receiver callback count was 3 rather than 1 before intentional source leader shutdown; the test had observed published receiver value 9 with archive output held. This is not proof of three committed effects. One isolated Cargo replay, eight direct executable replays, and the complete serial CI-style matrix pass. Root cause remains unlocalized; no effect code, assertion, retry rule or deadline was changed. A passing replay does not erase the failure.",
+      "output_section": "tests"
+    },
+    {
+      "case": "development incoming control connection capacity",
+      "result": "fixed",
+      "details": "An unpinned intermediate exporter subtracted available inspection-expanded semaphore permits from the ordinary lane capacity and panicked. Source revision records actual lane capacities, serializes expansion/capture through the registry lock, uses checked arithmetic, and covers granted inspection capacity plus held/cancelled handshakes. The red development output has no qualified source pin.",
+      "artifact": "MR-13-resource-views-control-capacity-red.log.gz"
+    },
+    {
+      "result": "prior findings retained",
+      "details": "This scoped component does not close transfer/fallback findings in earlier MR-13 evidence or enlarge prior qualification counts."
+    }
+  ],
+  "validation_bundle": {
+    "path": "MR-13-resource-views-validation.log.gz",
+    "sha256": "56f3ddb8dd47ca13329d3db1625e429d1697b4e67f2d93cff2c568c6ab83e7f9",
+    "uncompressed_sha256": "4f2c0734eddd515065c3054be5561f4f51e9bdb80c8044c27e788c4ccf12df45",
+    "sections": [
+      {
+        "name": "serial",
+        "command": "cargo test --locked -p cellar --lib --test native_raft_ltx --test native_raft_operations --test native_raft_reads --test native_raft_membership --test native_raft_host --test native_raft_snapshot --test native_raft_effects --no-fail-fast -- --test-threads=1",
+        "bytes": 71703,
+        "sha256": "d5b4266e1e44012a6ecf8d5ee16d38686c6fd03b84165e3e2c3d11028e0faaf6",
+        "result": "passed"
+      },
+      {
+        "name": "clippy",
+        "command": "cargo clippy --workspace --all-targets --all-features --locked -- -D warnings",
+        "bytes": 13296,
+        "sha256": "57c36ebe54c253f9dabf9ade0fc502e120dee6bc2e990c46af2bf003a389194a",
+        "result": "passed"
+      },
+      {
+        "name": "doctest",
+        "command": "cargo test --locked -p cellar --doc",
+        "bytes": 14083,
+        "sha256": "4f45aa5d43b7ed9ef75943e7e7a1df8c65de8c3c1d3607f7cc94305161f6e2ff",
+        "result": "passed"
+      },
+      {
+        "name": "format",
+        "command": "cargo format --check",
+        "bytes": 23,
+        "sha256": "86a78d0b4bdd9b16f0bcd7b8ff4ef333c290fc8294f944146a357b08ef00bfce",
+        "result": "passed"
+      },
+      {
+        "name": "layout",
+        "command": "cargo check-layout",
+        "bytes": 41,
+        "sha256": "5e8e0d013e58dfcdb21b016f1cb8bb514154f0d467ba46ddda450f0f680dbff7",
+        "result": "passed"
+      },
+      {
+        "name": "static",
+        "command": "python3 tools/check_native_dependencies.py; python3 tools/docs/check.py; python3 plans/multi-raft/plan.py validate; python3 plans/multi-raft/plan.py preflight; python3 -m unittest discover -s plans/multi-raft -p test_*.py",
+        "bytes": 491,
+        "sha256": "568260c5a72ba96d9e5fec7e46c88477bb313c0c64d57f89404ed13f34eeb9b5",
+        "result": "passed"
+      },
+      {
+        "name": "tests",
+        "command": "same eight-binary selection with --test-threads=4 (concurrent workspace Clippy); one unresolved failure",
+        "bytes": 72499,
+        "sha256": "c58dcb8044feba4e0911442a32d00fa8a5d7a223de3ba15ad958b829bb598aea",
+        "result": "failed"
+      },
+      {
+        "name": "isolated-replay",
+        "command": "exact source-37 effect_leadership_race; single fixture",
+        "bytes": 13349,
+        "sha256": "b2bd22bff15c9bf3dd0686906dbde4fc41e80c8068db8b054adc68cdf41da019",
+        "result": "passed"
+      },
+      {
+        "name": "eight-replays",
+        "command": "exact source-37 effect_leadership_race; single fixture",
+        "bytes": 5072,
+        "sha256": "2095aa96b012fec13eaa1a8f3c1614a532f9cefcbabf33af236b70b255681443",
+        "result": "passed"
+      }
+    ]
+  },
+  "development_negative_bundle": {
+    "path": "MR-13-resource-views-control-capacity-red.log.gz",
+    "sha256": "378440ec3298ea8a205d3c7edf7c2b4f3c34268d5812e3949a9880f1c9435ac4",
+    "uncompressed_sha256": "ecb274b03e9974f76960c6b7f09259c1222e6c42d7294ef267b6f70ccd8e1247"
+  },
+  "remaining": [
+    "Production Raft CLI bootstrap and management surfaces",
+    "Safe receipt maintenance",
+    "Real old-deployment fencing and distinct-history disaster restore with exact per-cell recovery points and old-origin effect reconciliation",
+    "Parallel outbox investigation and complete operating/release qualification"
+  ],
+  "prior_evidence_unchanged": [
+    "MR-13-resources-progress.json",
+    "PR-91-fixture-repair.json"
+  ]
+}

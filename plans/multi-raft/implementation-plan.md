@@ -776,12 +776,15 @@ work. One and 32 committed groups expose the same 68 samples. A strengthened HTT
 oracle rejects the prior encoder's interleaved metric families; the grouped
 replacement passes. The prior transfer/fallback findings remain open.
 
-The next operations component extends passive resources with physical image
+The [resource-view component](evidence/MR-13-resource-views-progress.json) extends passive resources with physical image
 retention accounting, incoming/outgoing connection owners, complete bounded
 role/readiness/lag scans, and age-bearing controller activity. See the
 [resource contract](operations-design.md#physical-query-reader-admission).
-Its qualification is recorded separately from the frozen parent results above;
-it does not complete this milestone.
+At `37aed98`, 610 cases across eight binaries pass with serial fixtures, alongside
+15 doctests, workspace Clippy and repository checks. The scoped record retains
+an unexplained parallel outbox callback-count failure and passing isolated
+replays. This does not close the finding, enlarge the frozen parent results or
+complete this milestone.
 
 Safe receipt maintenance, production Raft CLI startup and remaining
 management surfaces, fenced new-history disaster restore and complete operating
