@@ -201,7 +201,9 @@ The marker-1 Cellar envelope starts with ASCII `CLRF`, big-endian u32 marker 1,
 big-endian u32 header length and big-endian u64 payload length. A bounded UTF-8
 JSON header follows, then concatenated raw LTX files and a SHA-256 digest of the
 entire preceding frame, including its prefix. The required protocol digest is
-SHA-256 of UTF-8 `cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1/nodes-1/bundles-1`. Numeric format markers remain 1; earlier experimental roots are refused.
+SHA-256 of UTF-8
+`cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1/nodes-1/bundles-1`.
+Numeric format markers remain 1; earlier experimental roots are refused.
 A bounded file table records offsets,
 lengths, TXID ranges, page counts and decoded page bytes;
 entries partition the payload exactly and form one contiguous ordered chain.
@@ -424,9 +426,15 @@ Track separate contiguous positions: `persisted`, `committed`, `applied`,
 an independently verified committed prefix and may advance differently from a
 particular follower's applied progress. Never combine unrelated maxima into proof.
 
-Archive immutable objects under group/incarnation-scoped keys including range
-and content digest. Node-wide bundles may combine several groups, with indexed
-ranges and end-to-end checksums. An archive manifest names a full snapshot plus
+Direct immutable objects use group/incarnation-scoped keys including range and
+content digest. The current node producer can coalesce small snapshot/tail
+payloads from two histories in the same namespace into one content-addressed
+bundle under that namespace. The complete bundle is bounded to 8 MiB; its index
+binds both exact histories, ranges and checksums. Reads currently verify the
+complete bounded object before selecting one member, so reduced PUT counts do
+not imply reduced read bytes or better measured performance. Each cell retains
+its independent physical replay and conditional head publication. Dependencies,
+manifests and heads remain separate. An archive manifest names a full snapshot plus
 an ordered covering tail, entry term/index metadata, LTX mappings, configuration
 history needed for reconstruction, schema digest and referenced object dependencies.
 

@@ -432,8 +432,7 @@ pub struct ArchiveRecoverySet {
 impl CellArchive {
     pub(crate) fn new(
         store: Arc<dyn ObjectStore>,
-        prefix: String,
-        bundle_prefix: String,
+        archive_prefix: String,
         birth: &super::catalog::GroupBirth,
         root: [u8; 32],
         schema: [u8; 32],
@@ -455,8 +454,13 @@ impl CellArchive {
         };
         Self {
             store,
-            prefix,
-            bundle_prefix,
+            prefix: format!(
+                "{}/{}/{}",
+                archive_prefix,
+                hex::encode(birth.scope().group.bytes()),
+                hex::encode(birth.scope().incarnation.bytes())
+            ),
+            bundle_prefix: format!("{archive_prefix}/bundles"),
             scope: birth.scope().clone(),
             root,
             birth: birth.digest(),
