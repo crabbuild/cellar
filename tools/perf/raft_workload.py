@@ -131,6 +131,13 @@ def run_load(profile, phase, seconds, state, ledger, send, run_id, *, clock=time
             sleep(max(0, began + scheduled - clock()))
             cell = rng.randrange(hot) if rng.random() < profile['skew']['hot_probability'] else rng.randrange(active)
             operation = 'query' if rng.random() < profile['read_fraction'] else 'command'
+            # Draw the full offered operation before admission. A busy cell or
+            # slow response must not change later RNG draws and workload skew.
+            change = None
+            if operation == 'command':
+                payload = 'x' * rng.choice(profile['write_bytes'])
+                change = {'kind': rng.choice(['transfer', 'set']),
+                          'value': rng.randint(0, 1000000), 'payload': payload}
             item = {'phase': phase, 'id': f'{phase}:{index}', 'cell': cell,
                     'operation': operation, 'scheduled_seconds': scheduled}
             with lock:
@@ -154,9 +161,7 @@ def run_load(profile, phase, seconds, state, ledger, send, run_id, *, clock=time
                 headers['min_version'] = current['version_token']
                 body = {'consistency': profile['read_consistency']}
             else:
-                payload = 'x' * rng.choice(profile['write_bytes'])
-                body = {'kind': rng.choice(['transfer', 'set']), 'expected_revision': current['state']['revision'],
-                        'value': rng.randint(0, 1000000), 'payload': payload}
+                body = {**change, 'expected_revision': current['state']['revision']}
             pending.add(executor.submit(execute, item, headers, body))
             done = {future for future in pending if future.done()}
             for future in done:

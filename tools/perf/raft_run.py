@@ -229,6 +229,8 @@ def main():
         require(result.returncode == 0, f'Docker {command[0]} failed (arguments and environment omitted)')
         return result.stdout.strip()
     build = verify_image(args.image, docker)
+    build['source_revision'] = subprocess.check_output(['git', '-C', str(ROOT), 'rev-parse', 'HEAD'], text=True).strip()
+    build['working_tree_dirty'] = bool(subprocess.check_output(['git', '-C', str(ROOT), 'status', '--porcelain'], text=True).strip())
     cpus = int(docker('info', '--format', '{{.NCPU}}'))
     memory = int(docker('info', '--format', '{{.MemTotal}}'))
     require(cpus >= 6 and memory >= 14 * 1024**3, 'insufficient dedicated VM resources')
