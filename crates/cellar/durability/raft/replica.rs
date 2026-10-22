@@ -191,6 +191,12 @@ impl Replica {
         self.node.has_ready()
     }
 
+    /// Retain a runnable slot while protocol/application work can still advance.
+    /// An idle replica is woken by its next request or the shared tick.
+    pub fn has_work(&self) -> bool {
+        !self.idle() || self.has_ready() || self.ready_bytes != 0 || !self.apply.is_empty()
+    }
+
     pub fn pending_reads(&self) -> usize {
         self.node.raft.read_only.pending_read_count()
     }
@@ -938,13 +944,20 @@ impl Replica {
                         )?,
                         ready: ready.number(),
                     };
-                    if ready.snapshot().is_empty() {
+                    // Heartbeat/read/soft-state-only Ready has no durable
+                    // mutation. Earlier Ready is already synced (one per
+                    // group), so sending these messages needs no new fence.
+                    // Commit-only HardState still goes through persistence.
+                    let unchanged = ready.snapshot().is_empty()
+                        && ready.entries().is_empty()
+                        && ready.hs().is_none();
+                    if ready.snapshot().is_empty() && !unchanged {
                         self.write = Some((key.clone(), ready_write(&self.log, &ready)));
                     }
                     self.phase = Phase::Ready {
                         ready: Box::new(ready),
                         key,
-                        synced: false,
+                        synced: unchanged,
                         snapshot_ticket: None,
                         snapshot_authorized: false,
                         messages_taken: false,

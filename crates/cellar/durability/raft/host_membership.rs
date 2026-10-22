@@ -420,97 +420,106 @@ impl Driver {
 
     pub(super) fn pump_membership(&mut self) {
         for scope in self.cells.keys().cloned().collect::<Vec<_>>() {
-            let Some(cell) = self.cells.get_mut(&scope) else {
-                continue;
-            };
-            if cell.failed || cell.retired {
-                continue;
+            self.reconcile_membership(&scope);
+        }
+    }
+
+    // A request must observe completed configuration work before testing
+    // admission, even between periodic inventory scans.
+    pub(super) fn reconcile_membership(&mut self, scope: &GroupScope) {
+        let Some(cell) = self.cells.get_mut(scope) else {
+            return;
+        };
+        if cell.failed || cell.retired {
+            return;
+        }
+        let observed = cell.group.read().ok().map(|cache| {
+            (
+                cache.membership.revision(),
+                cache
+                    .conf_state
+                    .voters
+                    .iter()
+                    .chain(&cache.conf_state.voters_outgoing)
+                    .chain(&cache.conf_state.learners)
+                    .chain(&cache.conf_state.learners_next)
+                    .any(|member| *member == cell.group.identity().member.get()),
+            )
+        });
+        if observed.is_some_and(|(_, active)| !active) {
+            cell.retired = true;
+            cell.core.close();
+            if let Some(mut pending) = cell.configuration.take() {
+                pending.request.control.cancel();
+                reply(&mut pending.request, Err(CommandFailure::Unavailable));
             }
-            let observed = cell.group.read().ok().map(|cache| {
-                (
-                    cache.membership.revision(),
-                    super::super::member_state::members(&cache.conf_state)
-                        .contains(&cell.group.identity().member.get()),
-                )
-            });
-            if observed.is_some_and(|(_, active)| !active) {
-                cell.retired = true;
-                cell.core.close();
-                if let Some(mut pending) = cell.configuration.take() {
-                    pending.request.control.cancel();
-                    reply(&mut pending.request, Err(CommandFailure::Unavailable));
+            let _ = self.transport.remove_group(scope);
+            self.refuse(scope, CommandFailure::Unavailable);
+            return;
+        }
+        if observed.is_some_and(|(revision, _)| revision != cell.route_revision) {
+            if let Ok(route) = route(
+                &cell.group,
+                &cell.birth,
+                &self.peers,
+                cell.schema_digest,
+                &self.label,
+                &self.transport,
+            ) {
+                let revision = LogIndex::new(route.revision);
+                if self.transport.install_group(route).is_ok() {
+                    cell.route_revision = revision;
                 }
-                let _ = self.transport.remove_group(&scope);
-                self.refuse(&scope, CommandFailure::Unavailable);
-                continue;
             }
-            if observed.is_some_and(|(revision, _)| revision != cell.route_revision) {
-                if let Ok(route) = route(
-                    &cell.group,
-                    &cell.birth,
-                    &self.peers,
-                    cell.schema_digest,
-                    &self.label,
-                    &self.transport,
-                ) {
-                    let revision = LogIndex::new(route.revision);
-                    if self.transport.install_group(route).is_ok() {
-                        cell.route_revision = revision;
+        }
+        let Some(pending) = cell.configuration.as_ref() else {
+            return;
+        };
+        let Some(accepted) = pending.accepted.as_ref() else {
+            return;
+        };
+        let outcome = cell
+            .group
+            .read()
+            .ok()
+            .and_then(|cache| match &pending.goal {
+                Goal::Learner(member) => match cache.membership.joined(member.member) {
+                    Ok(Some((binding, at))) if binding == *member => (cell.route_revision >= at)
+                        .then_some(Ok(Response::Learner(client::LearnerReceipt {
+                            scope: scope.clone(),
+                            member: member.clone(),
+                            joined_at: at,
+                        }))),
+                    Ok(Some(_)) => Some(Err(CommandFailure::CommandConflict)),
+                    _ if cache.applied.position.index >= accepted.position.index => {
+                        Some(Err(CommandFailure::Unavailable))
                     }
-                }
+                    _ => None,
+                },
+                Goal::Repair { plan, phase } => match cache.membership.repair_status() {
+                    Ok(Some(status)) if status.plan == *plan && reached(status.phase, *phase) => {
+                        (cell.route_revision >= status.changed_at)
+                            .then_some(Ok(Response::Repair(Some(status))))
+                    }
+                    Ok(Some(status)) if status.plan != *plan || !status.phase.active() => {
+                        Some(Err(CommandFailure::CommandConflict))
+                    }
+                    Err(_) => Some(Err(CommandFailure::CorruptState)),
+                    _ if cache.applied.position.index >= accepted.position.index => {
+                        Some(Err(CommandFailure::Unavailable))
+                    }
+                    _ => None,
+                },
+            });
+        if let Some(outcome) = outcome {
+            if let Some(mut pending) = cell.configuration.take() {
+                reply(&mut pending.request, outcome);
             }
-            let Some(pending) = cell.configuration.as_ref() else {
-                continue;
-            };
-            let Some(accepted) = pending.accepted.as_ref() else {
-                continue;
-            };
-            let outcome = cell
-                .group
-                .read()
-                .ok()
-                .and_then(|cache| match &pending.goal {
-                    Goal::Learner(member) => match cache.membership.joined(member.member) {
-                        Ok(Some((binding, at))) if binding == *member => (cell.route_revision
-                            >= at)
-                            .then_some(Ok(Response::Learner(client::LearnerReceipt {
-                                scope: scope.clone(),
-                                member: member.clone(),
-                                joined_at: at,
-                            }))),
-                        Ok(Some(_)) => Some(Err(CommandFailure::CommandConflict)),
-                        _ if cache.applied.position.index >= accepted.position.index => {
-                            Some(Err(CommandFailure::Unavailable))
-                        }
-                        _ => None,
-                    },
-                    Goal::Repair { plan, phase } => match cache.membership.repair_status() {
-                        Ok(Some(status))
-                            if status.plan == *plan && reached(status.phase, *phase) =>
-                        {
-                            (cell.route_revision >= status.changed_at)
-                                .then_some(Ok(Response::Repair(Some(status))))
-                        }
-                        Ok(Some(status)) if status.plan != *plan || !status.phase.active() => {
-                            Some(Err(CommandFailure::CommandConflict))
-                        }
-                        Err(_) => Some(Err(CommandFailure::CorruptState)),
-                        _ if cache.applied.position.index >= accepted.position.index => {
-                            Some(Err(CommandFailure::Unavailable))
-                        }
-                        _ => None,
-                    },
-                });
-            if let Some(outcome) = outcome {
-                if let Some(mut pending) = cell.configuration.take() {
-                    reply(&mut pending.request, outcome);
-                }
-            } else if pending.request.control.cancelled() {
-                // The Raft runtime now owns the submitted proposal. Releasing
-                // this waiter never discards it or proves it did not commit.
-                if let Some(mut pending) = cell.configuration.take() {
-                    reply(&mut pending.request, Err(CommandFailure::Unavailable));
-                }
+        } else if pending.request.control.cancelled() {
+            // The Raft runtime now owns the submitted proposal. Releasing
+            // this waiter never discards it or proves it did not commit.
+            if let Some(mut pending) = cell.configuration.take() {
+                reply(&mut pending.request, Err(CommandFailure::Unavailable));
             }
         }
     }

@@ -15,6 +15,7 @@ use protobuf::Message as _;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::future::Future;
+use std::io::IoSlice;
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -1330,9 +1331,7 @@ impl State {
                         request.body.len(),
                         &self.options,
                     )?;
-                    write_head(stream, &head).await?;
-                    stream.write_all(&request.body).await?;
-                    stream.flush().await?;
+                    write_frame(stream, &head, &request.body).await?;
                     let response = read_head(stream, &self.options, lane, true).await?;
                     match response.response(&self.auth, exporter, &request.header, &head.tag)? {
                         Disposition::Accepted => (),
@@ -1453,9 +1452,31 @@ async fn write_head<S: AsyncWrite + Unpin>(
     stream: &mut S,
     head: &FrameHead,
 ) -> Result<(), TransportError> {
-    stream.write_all(&head.prefix).await?;
-    stream.write_all(&head.header).await?;
-    stream.write_all(&head.tag).await?;
+    write_frame(stream, head, &[]).await
+}
+
+async fn write_frame<S: AsyncWrite + Unpin>(
+    stream: &mut S,
+    head: &FrameHead,
+    body: &[u8],
+) -> Result<(), TransportError> {
+    // TLS otherwise seals a separate record for each small write. Vectored
+    // I/O coalesces the frame without copying its bounded payload or changing
+    // the authenticated bytes, frame ordering, or per-frame acknowledgement.
+    let mut slices = [
+        IoSlice::new(&head.prefix),
+        IoSlice::new(&head.header),
+        IoSlice::new(&head.tag),
+        IoSlice::new(body),
+    ];
+    let mut remaining = &mut slices[..];
+    while remaining.iter().any(|slice| !slice.is_empty()) {
+        let written = stream.write_vectored(remaining).await?;
+        if written == 0 {
+            return Err(std::io::Error::from(std::io::ErrorKind::WriteZero).into());
+        }
+        IoSlice::advance_slices(&mut remaining, written);
+    }
     stream.flush().await?;
     Ok(())
 }
