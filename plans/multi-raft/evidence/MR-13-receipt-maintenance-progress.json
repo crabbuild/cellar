@@ -52,6 +52,10 @@
     {
       "path": "plans/multi-raft/receipt-maintenance-design.md",
       "sha256": "e63cdfc79544d0d56843014a7db88644e95047fb15866d470ebf94b605e42a9e"
+    },
+    {
+      "path": "crates/cellar/tests/native_raft_daemon.rs",
+      "sha256": "e7d45b0ae2577f2b23c7660429bea64e4eebf656a1e6cb0b6f3893acae164a10"
     }
   ],
   "validation": {
@@ -98,7 +102,7 @@
     ],
     "source_frozen": "git diff --quiet 817a4ed -- crates examples Cargo.toml Cargo.lock passed after final tests. Source-file hashes preserve the exact component.",
     "log": "MR-13-receipt-maintenance-validation.log.gz",
-    "log_uncompressed_sha256": "2391cff54287b9c0cb400b821dd47637ca619303b3099dcb42cce99685821692",
+    "log_uncompressed_sha256": "5af754d14f17859198d745873f452c9e75e9264649887d0f4e3df55f739644bf",
     "input_logs": [
       {
         "name": "cellar-mr13-receipt-deadline-red.log",
@@ -171,8 +175,18 @@
       {
         "name": "cellar-mr13-seed-archive-setup-replay-5.log",
         "sha256": "e7d799cb78e21acfa5c879cae248e2660652ca1555ff234fdabacf0f612142f4"
+      },
+      {
+        "name": "cellar-mr13-receipt-qualified-daemon.log",
+        "sha256": "a5f34ad0015993628cbbce0560a821940dca8dfe38b439fc1b36a47818ae7cd7"
       }
-    ]
+    ],
+    "native_daemon_process_qualification": {
+      "result": "passed",
+      "scope": "Directory/registration refusals, same-process physical join after failed bind, retained-history restart, two groups, strong queries, joined semantic closure, cancellation, three actual daemon processes over TLS and local follower reads. Separate custom process runner; not added to the 551 unit/integration count.",
+      "executable_sha256": "82562ab7f4867c76b7fd79dd51011865b252f1a69e01e7bfefff841824fea909",
+      "source_revision": "817a4ed1e8da217de057d6af3f0a9f40e6d21a51"
+    }
   },
   "initial_failures": [
     {
