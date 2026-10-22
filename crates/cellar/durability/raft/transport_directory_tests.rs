@@ -399,9 +399,10 @@ async fn process_refresh_pins_instance_and_future_route_admission() -> anyhow::R
         fixture.transport.accept_node_view(impostor, &trusted),
         Err(TransportError::Identity)
     );
-    let r = fixture.transport.handle.0.registry.lock().unwrap();
-    assert_eq!(r.node_views[&trusted.node], current);
-    drop(r);
+    {
+        let r = fixture.transport.handle.0.registry.lock().unwrap();
+        assert_eq!(r.node_views[&trusted.node], current);
+    }
     clone.close().await?;
     publisher.close().await?;
     fixture.close().await
