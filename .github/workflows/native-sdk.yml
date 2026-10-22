@@ -91,6 +91,8 @@ jobs:
         run: cargo test -p cellar-python --features embed --locked -- --test-threads=1
       - name: Verify native and Python baseline harness
         run: |
+          cargo build -p cellar-python --example python-offered-load --no-default-features --locked
+          python tools/python/test_offered.py target/debug/examples/python-offered-load
           cargo build -p cellar-python --example python-baseline --no-default-features --locked
           cp target/debug/examples/python-baseline "$RUNNER_TEMP/baseline-native"
           cargo build -p cellar-python --example python-baseline --features embed --locked
@@ -107,6 +109,21 @@ jobs:
             --python-host "selected=$RUNNER_TEMP/baseline-python" \
             --output "$RUNNER_TEMP/python-residency" --build-profile dev \
             --populations 0 4 --count 3 --warmup 1 --concurrency 2 --repetitions 1
+          python tools/python/offered.py --client target/debug/examples/python-offered-load \
+            --native-host "$RUNNER_TEMP/baseline-native" --python-host "selected=$RUNNER_TEMP/baseline-python" \
+            --output "$RUNNER_TEMP/python-offered" --build-profile dev \
+            --rates 20 --duration-ms 1000 --warmup-ms 250 --max-inflight 8 --max-lag-ms 500 --repetitions 1
+          python - "$RUNNER_TEMP/python-offered/offered.json" <<'PY'
+          import json, sys
+          with open(sys.argv[1]) as source:
+              report = json.load(source)
+          assert report["status"] == "complete"
+          for case in report["cases"]:
+              for phase in case["phases"]:
+                  outcomes = phase["measurement"]["outcomes"]
+                  assert outcomes.get("success", 0) > 0, outcomes
+                  assert not set(outcomes) - {"success", "client_late", "client_capacity"}, outcomes
+          PY
       - name: Qualify actual loaded Python threading ABI
         run: |
           python -m pip install uv==0.11.19

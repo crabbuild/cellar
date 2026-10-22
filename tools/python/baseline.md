@@ -73,6 +73,57 @@ Python reports
 its actual ABI/GIL state before/after work and recovery; a free-threaded run must
 remain GIL-off.
 
+## Independent offered rates
+
+`offered.py` uses a separate native Rust HTTP client to schedule echo requests
+independently of response completion. This exposes queueing and overload that
+the closed-loop client above can hide. Build the hosts as above, then run:
+
+```sh
+cargo build -p cellar-python --example python-offered-load --profile lab \
+  --no-default-features --locked
+python3 tools/python/test_offered.py "$CARGO_TARGET_DIR/lab/examples/python-offered-load"
+python3 tools/python/offered.py \
+  --client "$CARGO_TARGET_DIR/lab/examples/python-offered-load" \
+  --native-host "$CELLAR_BASELINE_BIN/native" \
+  --python-host "free-threaded=$CELLAR_BASELINE_BIN/python-free-threaded" \
+  --output "$CELLAR_BASELINE_BIN/offered" --build-profile lab \
+  --rates 1000 5000 10000 --duration-ms 5000 --warmup-ms 500 \
+  --max-inflight 64 --body-bytes 4096 --timeout-ms 1000 --max-lag-ms 5
+```
+
+The driver rotates host order, verifies each raw arrival record, samples host
+telemetry and requires joined shutdown. Python observations must advance to a
+fresh idle snapshot after each phase; a cached idle sample from during the load
+cannot stand in for completed work. It uses local-only hosts with zero
+resident cells to isolate HTTP adapter cost. Each warmup starts a separate
+client process, so it warms server code but not the measured connection pool.
+It does not replace durable-write, recovery, activation-churn or multi-node
+qualification.
+
+Every planned arrival has an outcome in `measured-RATE.json`: success, client
+capacity, client lateness, timeout, transport error, HTTP status or body mismatch.
+The client never waits for an admission slot, never sends after the measurement
+window, and disables redirects and automatic retries. In-flight work and total
+samples are bounded; admitted requests drain under their original timeouts.
+An existing output file is refused before traffic starts.
+
+Read `offered.json` outcomes together with both latency distributions: request
+latency starts at dispatch, while scheduled latency includes client dispatch
+delay. Both distributions contain successful responses only; drops and failures
+remain in the denominator of the success fraction. The report distinguishes
+successful completions inside the fixed window from throughput including the
+final drain. A completed experiment can contain overload and failed requests.
+Its status is not a pass/fail application SLO.
+
+The two client workers share the host machine. Tokio timer granularity can
+group arrivals, and client admission limits can constrain the experiment.
+Inspect dispatch delay and client drops before attributing a throughput ceiling
+to Cellar. These measurements alone do not establish native parity or production
+capacity. `test_offered.py` independently checks real HTTP echo, bounded admission
+under slow responses, timeout/body/status failures, no redirect/resend, output
+preservation and rejection of corrupted timing evidence.
+
 The Python host records `Options::default()` housekeeping and telemetry intervals.
 Native readiness notifications wake the Python loop independently of those
 timers. Compare an old polling executable and a new executable as separate
