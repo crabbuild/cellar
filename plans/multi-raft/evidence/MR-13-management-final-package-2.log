@@ -1,0 +1,9 @@
+Source: ec312e85f57035974d0b31fc46516f635b9fa4ee with reviewed MR-13 documentation/evidence metadata updates
+Command: ["python3", "plans/multi-raft/plan.py", "validate"]
+{
+  "package_validation": "passed",
+  "tasks": 17,
+  "cases": 141,
+  "source_anchors": 76,
+  "local_links": 123
+}

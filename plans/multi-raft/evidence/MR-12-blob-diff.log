@@ -1,0 +1,3 @@
+Source: 8cfc4bdfe3c8e518b37d2418598b0fb4718bbb3a
+Command: ["git", "diff", "--check"]
+Final metadata/documents rerun.

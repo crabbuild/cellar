@@ -11,8 +11,10 @@ ARG CELLAR_PROFILE=release
 WORKDIR /src
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
+COPY vendor ./vendor
 COPY examples ./examples
 COPY tools/perf ./tools/perf
+COPY tools/xtask ./tools/xtask
 RUN --mount=type=cache,id=cellar-cargo-registry,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,id=cellar-cargo-git,target=/usr/local/cargo/git,sharing=locked \
     --mount=type=cache,id=cellar-target-${TARGETARCH},target=/src/target,sharing=locked \

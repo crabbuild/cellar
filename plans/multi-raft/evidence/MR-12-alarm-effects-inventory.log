@@ -1,0 +1,4 @@
+Source: 5a6b606c21b2ec8848d6f88ce76f783676d61f70
+Command: ["python3", "-c", "import pathlib,re,json; p=pathlib.Path('plans/multi-raft'); names=set(re.findall(r'^(\\S+): test$',(p/'evidence/MR-12-alarm-effects-list.log').read_text(),re.M)); assert len(names)==8; assert {'alarm_no_traffic_recovery','blob_archive_dependency','native_alarm_node_shutdown_joins_owned_timer','native_alarm_requires_scheduler_before_catalog_activation'}<=names; required={c['name'] for t in json.loads((p/'tasks.json').read_text())['tasks'] if t['id']=='MR-12' for c in t['test_cases']}; assert required & names == {'blob_archive_dependency','alarm_no_traffic_recovery'}; print('Eight native effects cases; 2/6 MR-12 requirements present. Four outbox/binding requirements remain open.')"]
+Final metadata/documents rerun.
+Eight native effects cases; 2/6 MR-12 requirements present. Four outbox/binding requirements remain open.

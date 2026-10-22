@@ -1,0 +1,4 @@
+Source: f328ebd6c7da9f6f4c7c60b04c0d67f88a116b58
+Command: ["python3", "tools/docs/check.py"]
+Final metadata/documents rerun.
+Validated 36 documents, 6 crate READMEs, 10 visual guides, 6 flows and 622 local references.

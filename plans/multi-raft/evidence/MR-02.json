@@ -1,0 +1,119 @@
+{
+  "task_id": "MR-02",
+  "source_revision": "fee29d9d9dc8c75992b0ffd652278da2421f8044",
+  "toolchain": "rustc 1.98.1 (48a229cea 2026-09-01)",
+  "executable_digest": "a9b559c936cb8791d3c10423d68a6bb9f96856542ab1f88c350537ad5acc987a",
+  "environment": "macOS-26.5.2-arm64-arm-64bit-Mach-O; actual raft-engine 0.4.2 and injected local filesystem; SIGKILL fixtures; serial integration targets; debug assertions enabled; dev/test debuginfo=0; isolated checkout target directory",
+  "limitations": "Storage-boundary qualification only. Payloads are opaque; SQLite image verification/application, RawNode elections, transport, SDK Raft serving, S3 archival/restore and scale remain unimplemented. Process-kill and injected filesystem failures do not establish physical power-loss or production-infrastructure qualification. One ignored helper is deliberately launched and killed by parent cases. Docker freshness execution was opt-in and skipped. External path builds are verified; publishing adapted registry crates and building Docker images were not performed.",
+  "tests": [
+    {
+      "name": "append_sync_boundary",
+      "result": "passed"
+    },
+    {
+      "name": "birth_sync_retry_reuses_numeric_key",
+      "result": "passed"
+    },
+    {
+      "name": "conflicting_suffix_replaced",
+      "result": "passed"
+    },
+    {
+      "name": "corrupt_storage_refused",
+      "result": "passed"
+    },
+    {
+      "name": "disk_loss_identity",
+      "result": "passed"
+    },
+    {
+      "name": "engine_group_isolation",
+      "result": "passed"
+    },
+    {
+      "name": "interrupted_purge_preserves_group",
+      "result": "passed"
+    },
+    {
+      "name": "snapshot_metadata_survives_process_kill",
+      "result": "passed"
+    },
+    {
+      "name": "storage_budget_and_domain_close",
+      "result": "passed"
+    },
+    {
+      "name": "vote_survives_restart",
+      "result": "passed"
+    }
+  ],
+  "commands": [
+    {
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--test",
+        "native_raft_storage",
+        "--locked",
+        "--",
+        "--list"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-02-list.log"
+    },
+    {
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--test",
+        "native_raft_storage",
+        "--locked",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-02-test.log"
+    }
+  ],
+  "lockfile_digest": "58577499016f9ec0acafcec08b960cec97e53734b55498c95671010376212d23",
+  "additional_checks": [
+    "evidence/MR-02-clippy.log",
+    "evidence/MR-02-format.log",
+    "evidence/MR-02-layout.log",
+    "evidence/MR-02-dependencies.log",
+    "evidence/MR-02-inventory.log",
+    "evidence/MR-02-build.log",
+    "evidence/MR-02-build-fresh.log",
+    "evidence/MR-02-codegen.log",
+    "evidence/MR-02-adapters.log",
+    "evidence/MR-02-xtask.log",
+    "evidence/MR-02-consumer.log",
+    "evidence/MR-02-dev.log",
+    "evidence/MR-02-regressions.log",
+    "evidence/MR-02-perf-tools.log"
+  ],
+  "additional_check_source_revisions": {
+    "MR-02-consumer.log": "33142b04497b74574df0c81d9ad31d00f27ff100",
+    "MR-02-dev.log": "33142b04497b74574df0c81d9ad31d00f27ff100",
+    "MR-02-regressions.log": "33142b04497b74574df0c81d9ad31d00f27ff100",
+    "MR-02-perf-tools.log": "33142b04497b74574df0c81d9ad31d00f27ff100"
+  },
+  "additional_check_results": {
+    "native_dev": "1 passed; real external application rebuilds, restarts and retained state",
+    "native_regressions": "13 passed across native_raft_contract, native_replication and native_storage",
+    "cellar_xtask": "11 passed",
+    "perf_tooling": "87 tests; 1 opt-in Docker test skipped",
+    "dependency_build": "locked build and repeated fresh check passed; generated codec bytes unchanged"
+  },
+  "build_environment": {
+    "RUSTUP_TOOLCHAIN": "1.98.1",
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "CARGO_PROFILE_TEST_DEBUG": "0",
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_BUILD_JOBS": "3"
+  }
+}

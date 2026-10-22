@@ -1,0 +1,17 @@
+(lldb) target create "/Users/haipingfu/Workspace/crabbuild-target/cellar-23c7-multi-raft/debug/deps/native_raft_snapshot-b7cf6f33b7a4b9fe"
+Current executable set to '/Users/haipingfu/Workspace/crabbuild-target/cellar-23c7-multi-raft/debug/deps/native_raft_snapshot-b7cf6f33b7a4b9fe' (arm64).
+(lldb) settings set -- target.run-args  "native_fresh_learner_s3_seed_refuses_missing_quorum" "--exact" "--test-threads=1"
+(lldb) run
+<jemalloc>: option background_thread currently supports pthread only
+
+running 1 test
+test native_fresh_learner_s3_seed_refuses_missing_quorum ... Process 69980 launched: '/Users/haipingfu/Workspace/crabbuild-target/cellar-23c7-multi-raft/debug/deps/native_raft_snapshot-b7cf6f33b7a4b9fe' (arm64)
+Process 69980 stopped
+* thread #2, name = 'native_fresh_learner_s3_seed_refuses_missing_quorum', stop reason = EXC_BAD_ACCESS (code=2, address=0x16fe03fb0)
+    frame #0: 0x0000000100e6a5b4 native_raft_snapshot-b7cf6f33b7a4b9fe`<cellar::raft::transport::State>::seed_process_until::<tokio_rustls::client::TlsStream<tokio::net::tcp::stream::TcpStream>, <cellar::raft::transport::State>::seed_io<tokio_rustls::client::TlsStream<tokio::net::tcp::stream::TcpStream>, <cellar::raft::transport::RaftTransport>::request_seed_authorization::{closure#0}::{closure#4}>::{closure#0}>::{closure#0} + 20
+native_raft_snapshot-b7cf6f33b7a4b9fe`<cellar::raft::transport::State>::seed_process_until::<tokio_rustls::client::TlsStream<tokio::net::tcp::stream::TcpStream>, <cellar::raft::transport::State>::seed_io<tokio_rustls::client::TlsStream<tokio::net::tcp::stream::TcpStream>, <cellar::raft::transport::RaftTransport>::request_seed_authorization::{closure#0}::{closure#4}>::{closure#0}>::{closure#0}:
+->  0x100e6a5b4 <+20>: str    xzr, [sp]
+    0x100e6a5b8 <+24>: cmp    sp, x9
+    0x100e6a5bc <+28>: b.ne   0x100e6a5b0               ; <+16>
+    0x100e6a5c0 <+32>: sub    sp, sp, #0x870
+Target 0: (native_raft_snapshot-b7cf6f33b7a4b9fe) stopped.

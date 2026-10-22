@@ -1,0 +1,10 @@
+Traceback (most recent call last):
+  File "/Users/haipingfu/.codex/worktrees/23c7/cellar/examples/raft-counter/smoke.py", line 106, in <module>
+    run(Path(sys.argv[1]).resolve(), Path(sys.argv[2]).resolve())
+    ~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/haipingfu/.codex/worktrees/23c7/cellar/examples/raft-counter/smoke.py", line 75, in run
+    original = command(1, 7, 7, bases)
+  File "/Users/haipingfu/.codex/worktrees/23c7/cellar/examples/raft-counter/smoke.py", line 69, in command
+    assert status == 503, (status, body)
+           ^^^^^^^^^^^^^
+AssertionError: (400, b'invalid request or unavailable cell')

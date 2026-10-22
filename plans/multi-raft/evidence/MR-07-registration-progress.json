@@ -1,0 +1,299 @@
+{
+  "task_id": "MR-07",
+  "source_revision": "78dd39ab2b98d19672e9cf7b2b48e9fdc810ff96",
+  "scope": "Partial MR-07: restricted compiled class registration, registered private command/read-only query bridge and pure command lifecycle/output ownership. Node-owned scheduling and ingress remain IN_PROGRESS.",
+  "toolchain": "rustc 1.98.1 (48a229cea 2026-09-01)",
+  "executable_digest": "5f294059454a664ffe2f4b716b57706a21f8cccc9ba4c068f4ed1e740b337426",
+  "executables": {
+    "native_raft_host": {
+      "sha256": "5f294059454a664ffe2f4b716b57706a21f8cccc9ba4c068f4ed1e740b337426",
+      "bytes": 23036032
+    },
+    "native_raft_execution": {
+      "sha256": "4961585327bb7e583509fa190d5bc063c7f91c3a11a02e2f047d7f3fadd6bad1",
+      "bytes": 26567136
+    },
+    "raft_command": {
+      "sha256": "54896692e43814002b95abf9606522a24a57c91c12e20f91baef2bedb1f18f68",
+      "bytes": 1165600
+    }
+  },
+  "environment": "macOS-26.5.2-arm64-arm-64bit-Mach-O; real SQLite/WAL capture, LTX generation stores, durable Raft Engine and RawNode integration on one explicit development voter; process restart and retained receipts; conditional in-memory catalog fault cases; dependency-free serial lifecycle tests; isolated checkout target; ordinary integration targets without cellar_internal_tests",
+  "limitations": "Not complete MR-07 and not normal node/SDK command serving. Public class definitions are implemented, but execution/query bridge calls remain through unstable verification interfaces under fixture ownership. Node-owned scheduling, live status/proof dispatch, public command/query handles, native/Axum parity and the counter example are still required. Four planned host cases remain absent. Local image reads make no freshness, minimum-version or linearizability claim. S3 archive/restore, membership repair, production capacity and end-to-end deployment qualification remain pending. Broader regression provenance is stated separately below.",
+  "tests": [
+    {
+      "name": "birth_handle_cannot_cross_catalog_instances",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "catalog_reconciles_lost_create_responses",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "catalog_refuses_corrupt_and_oversized_records",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "competing_bootstrap_disks_cannot_both_join",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "namespace_mode_conflict",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "operation_registration_binds_schema_kind_and_digest",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "parked_bootstrap_requires_stable_claim",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "unconfirmed_claim_keeps_the_group_parked",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "unsupported_factory_refused",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "apply_entry_and_schema_identity_are_bound",
+      "target": "native_raft_execution",
+      "result": "passed"
+    },
+    {
+      "name": "apply_marker_crash_cut",
+      "target": "native_raft_execution",
+      "result": "passed"
+    },
+    {
+      "name": "apply_recovery_follows_engine_marker",
+      "target": "native_raft_execution",
+      "result": "passed"
+    },
+    {
+      "name": "command_failure_and_result_limit_roll_back",
+      "target": "native_raft_execution",
+      "result": "passed"
+    },
+    {
+      "name": "command_transaction_restricts_sql_and_captures_inputs",
+      "target": "native_raft_execution",
+      "result": "passed"
+    },
+    {
+      "name": "conflicting_command_digest",
+      "target": "native_raft_execution",
+      "result": "passed"
+    },
+    {
+      "name": "duplicate_command_receipt",
+      "target": "native_raft_execution",
+      "result": "passed"
+    },
+    {
+      "name": "image_publication_waits_for_engine_marker",
+      "target": "native_raft_execution",
+      "result": "passed"
+    },
+    {
+      "name": "lost_proposal_rebuild",
+      "target": "native_raft_execution",
+      "result": "passed"
+    },
+    {
+      "name": "oversized_delta_atomic_refusal",
+      "target": "native_raft_execution",
+      "result": "passed"
+    },
+    {
+      "name": "private_checkpoint_capture_covers_control_writes",
+      "target": "native_raft_execution",
+      "result": "passed"
+    },
+    {
+      "name": "private_commit_not_visible",
+      "target": "native_raft_execution",
+      "result": "passed"
+    },
+    {
+      "name": "receipt_expiry_floor",
+      "target": "native_raft_execution",
+      "result": "passed"
+    },
+    {
+      "name": "registered_command_uses_exact_image_receipt_and_read_only_query",
+      "target": "native_raft_execution",
+      "result": "passed"
+    },
+    {
+      "name": "submitted_command_recovery",
+      "target": "native_raft_execution",
+      "result": "passed"
+    },
+    {
+      "name": "admission_needs_current_term_and_verified_queryable_progress",
+      "target": "raft_command",
+      "result": "passed"
+    },
+    {
+      "name": "delayed_proofs_cannot_cross_any_authority_or_operation_identity",
+      "target": "raft_command",
+      "result": "passed"
+    },
+    {
+      "name": "namespace_minimum_and_stronger_retry_wait_for_archive",
+      "target": "raft_command",
+      "result": "passed"
+    },
+    {
+      "name": "private_cancellation_waits_for_callback_join_and_discard",
+      "target": "raft_command",
+      "result": "passed"
+    },
+    {
+      "name": "protocol_work_during_a_private_callback_prevents_submission",
+      "target": "raft_command",
+      "result": "passed"
+    },
+    {
+      "name": "result_requires_exact_entry_and_verified_receipt",
+      "target": "raft_command",
+      "result": "passed"
+    },
+    {
+      "name": "retry_uses_the_verified_receipt_cut_without_reproposing_or_relabeling",
+      "target": "raft_command",
+      "result": "passed"
+    },
+    {
+      "name": "revoked_term_never_reactivates_from_a_delayed_status_reply",
+      "target": "raft_command",
+      "result": "passed"
+    },
+    {
+      "name": "submitted_cancellation_retains_producer_and_command_slot",
+      "target": "raft_command",
+      "result": "passed"
+    },
+    {
+      "name": "unresolved_submission_needs_new_term_and_applied_barrier_to_reconcile",
+      "target": "raft_command",
+      "result": "passed"
+    }
+  ],
+  "pending_required_tests": [
+    "fleet_gate_unchanged",
+    "native_axum_command_parity",
+    "raft_gate_exact_receipt",
+    "retained_handle_fenced"
+  ],
+  "commands": [
+    {
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--test",
+        "native_raft_host",
+        "--locked",
+        "--",
+        "--list"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-07-registration-list.log"
+    },
+    {
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--test",
+        "native_raft_execution",
+        "--locked",
+        "--",
+        "--list"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-07-registration-execution-list.log"
+    },
+    {
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar-logic",
+        "--test",
+        "raft_command",
+        "--locked",
+        "--",
+        "--list"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-07-registration-core-list.log"
+    },
+    {
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "-p",
+        "cellar-logic",
+        "--test",
+        "native_raft_host",
+        "--test",
+        "native_raft_execution",
+        "--test",
+        "raft_command",
+        "--locked",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-07-registration-test.log"
+    }
+  ],
+  "additional_checks": [
+    "evidence/MR-07-registration-clippy.log",
+    "evidence/MR-07-registration-core-clippy.log",
+    "evidence/MR-07-registration-regressions.log",
+    "evidence/MR-07-registration-logic-regressions.log",
+    "evidence/MR-07-registration-format.log",
+    "evidence/MR-07-registration-format-check.log",
+    "evidence/MR-07-registration-layout.log",
+    "evidence/MR-07-registration-dependencies.log",
+    "evidence/MR-07-registration-docs.log",
+    "evidence/MR-07-registration-plan-tests.log",
+    "evidence/MR-07-registration-inventory.log"
+  ],
+  "lockfile_digest": "6a0912497882655fe96c11b4073db659d3d40342357448533e70830cd9f1a43b",
+  "build_environment": {
+    "RUSTUP_TOOLCHAIN": "1.98.1",
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "CARGO_PROFILE_TEST_DEBUG": "0",
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_BUILD_JOBS": "3"
+  },
+  "additional_check_results": {
+    "registration": "Registry resolves restricted Raft classes without invoking ordinary mutable factories. Duplicate factory/workflow registration is refused in either order; Fleet deployment configuration refuses a Raft class. Class name, explicit version and definition digest bind schema identity. Operation names, kinds and nonzero digests are validated before callbacks.",
+    "execution": "The registered bridge verifies normalized input digest, schema and operation contract before private callbacks or duplicate receipt lookup. Real SQL business state/result receipts capture/apply once, including a retry after process restart. Private base/rebuild/finish check schema identity as well as the exact physical image. A mislabeled base is refused before changing private state.",
+    "queries": "Callbacks receive the actual pinned image version and the strict read-only SQL facade. UPDATE RETURNING, schema changes, mutating PRAGMA, ATTACH and reads of reserved receipt rows are refused. Query code with mismatched kind, contract or schema cannot execute.",
+    "core": "Ten serial lifecycle cases cover all 13 replica/authority/operation identity mutations, exact entry and business receipt proof, ordered commit/apply/queryable/archive stages, minimum and strengthened durability, protocol work during private callbacks, cancellation before/after submission, permanent revocation within a term, delayed status, new-term reconciliation and exact prior-term retry cuts. These are pure decision tests, not a substitute for the missing node actor.",
+    "regressions": "164 passed: native_node 88, native_log_protocol 7, native_raft_contract 6, native_raft_ltx 15, native_raft_runtime 14, native_raft_storage 10, native_raft_transport 9, native_replication 6, native_runtime 1, native_runtime_policy 6, native_sql 1, native_storage 1. Four ignored child helpers are invoked by parent cases. The pure-core regression run passed 24 cases: event_interleavings 2, routing_cache 12 and the 10 new lifecycle cases (already included among the owning tests).",
+    "provenance": "The 164-case broader run and pure-core regression run preceded the final PrivateExecutor base/schema guard, oversized operation-name refusal and corresponding fixture assertions. Their exercised node/Fleet/runtime/core production paths were unchanged by that refinement. All 34 owning cases (host 9, execution 15, core 10), all list inventories and both Clippy checks were rerun on this final source. A cloned mismatch-fixture image owner initially retained its directory lock across restart; releasing that owner fixed the fixture without changing locking or weakening assertions.",
+    "checks": "Final Cellar library/owning-target and pure-core Clippy with warnings denied, formatting, module layout, dependency policy, docs and 17 planning-tool tests pass. Existing vendored Raft warnings remain in raw logs. Full MR-07 inventory intentionally fails with the four missing cases."
+  }
+}

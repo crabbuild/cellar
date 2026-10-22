@@ -1,0 +1,407 @@
+warning: hiding a lifetime that's elided elsewhere is confusing
+  --> vendor/raft-proto/src/confchange.rs:74:14
+   |
+74 |     fn as_v2(&self) -> Cow<ConfChangeV2>;
+   |              ^^^^^     ^^^^^^^^^^^^^^^^^ the same lifetime is hidden here
+   |              |
+   |              the lifetime is elided here
+   |
+   = help: the same lifetime is referred to in inconsistent ways, making the signature confusing
+   = note: `#[warn(mismatched_lifetime_syntaxes)]` on by default
+help: use `'_` for type paths
+   |
+74 |     fn as_v2(&self) -> Cow<'_, ConfChangeV2>;
+   |                            +++
+
+warning: hiding a lifetime that's elided elsewhere is confusing
+  --> vendor/raft-proto/src/confchange.rs:93:14
+   |
+93 |     fn as_v2(&self) -> Cow<ConfChangeV2> {
+   |              ^^^^^     ^^^^^^^^^^^^^^^^^ the same lifetime is hidden here
+   |              |
+   |              the lifetime is elided here
+   |
+   = help: the same lifetime is referred to in inconsistent ways, making the signature confusing
+help: use `'_` for type paths
+   |
+93 |     fn as_v2(&self) -> Cow<'_, ConfChangeV2> {
+   |                            +++
+
+warning: hiding a lifetime that's elided elsewhere is confusing
+   --> vendor/raft-proto/src/confchange.rs:110:14
+    |
+110 |     fn as_v2(&self) -> Cow<ConfChangeV2> {
+    |              ^^^^^     ^^^^^^^^^^^^^^^^^ the same lifetime is hidden here
+    |              |
+    |              the lifetime is elided here
+    |
+    = help: the same lifetime is referred to in inconsistent ways, making the signature confusing
+help: use `'_` for type paths
+    |
+110 |     fn as_v2(&self) -> Cow<'_, ConfChangeV2> {
+    |                            +++
+
+warning: `raft-proto` (lib) generated 3 warnings (run `cargo fix --lib -p raft-proto` to apply 3 suggestions)
+warning: unused import: `parse_reserved_file_name`
+  --> vendor/raft-engine/src/file_pipe_log/mod.rs:13:18
+   |
+13 | pub use format::{parse_reserved_file_name, FileNameExt};
+   |                  ^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `RecoveryConfig`
+  --> vendor/raft-engine/src/file_pipe_log/mod.rs:16:68
+   |
+16 |     DefaultMachineFactory, DualPipesBuilder as FilePipeLogBuilder, RecoveryConfig, ReplayMachine,
+   |                                                                    ^^^^^^^^^^^^^^
+
+warning: use of deprecated function `protobuf::parse_from_bytes`: Use Message::parse_from_bytes instead
+  --> vendor/raft-engine/src/engine.rs:11:16
+   |
+11 | use protobuf::{parse_from_bytes, Message};
+   |                ^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(deprecated)]` on by default
+
+warning: use of deprecated function `protobuf::parse_from_bytes`: Use Message::parse_from_bytes instead
+   --> vendor/raft-engine/src/engine.rs:602:17
+    |
+602 |         let e = parse_from_bytes(
+    |                 ^^^^^^^^^^^^^^^^
+
+warning: use of deprecated function `protobuf::parse_from_bytes`: Use Message::parse_from_bytes instead
+   --> vendor/raft-engine/src/engine.rs:247:32
+    |
+247 |                 return Ok(Some(parse_from_bytes(&value)?));
+    |                                ^^^^^^^^^^^^^^^^
+
+warning: use of deprecated function `protobuf::parse_from_bytes`: Use Message::parse_from_bytes instead
+   --> vendor/raft-engine/src/engine.rs:276:28
+    |
+276 |             if let Ok(v) = parse_from_bytes(raw_v) {
+    |                            ^^^^^^^^^^^^^^^^
+
+warning: function `lock_file_path` is never used
+   --> vendor/raft-engine/src/file_pipe_log/format.rs:100:15
+    |
+100 | pub(super) fn lock_file_path<P: AsRef<Path>>(dir: P) -> PathBuf {
+    |               ^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: methods `must_rewrite_append_queue`, `must_rewrite_rewrite_queue`, and `must_purge_all_stale` are never used
+   --> vendor/raft-engine/src/purge.rs:135:12
+    |
+ 59 | / impl<P> PurgeManager<P>
+ 60 | | where
+ 61 | |     P: PipeLog,
+    | |_______________- methods in this implementation
+...
+135 |       pub fn must_rewrite_append_queue(
+    |              ^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+162 |       pub fn must_rewrite_rewrite_queue(&self) {
+    |              ^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+172 |       pub fn must_purge_all_stale(&self) {
+    |              ^^^^^^^^^^^^^^^^^^^^
+
+warning: hiding a lifetime that's elided elsewhere is confusing
+   --> vendor/raft-engine/src/log_batch.rs:375:17
+    |
+375 |     pub fn iter(&self) -> std::slice::Iter<LogItem> {
+    |                 ^^^^^     ^^^^^^^^^^^^^^^^^^^^^^^^^ the same lifetime is hidden here
+    |                 |
+    |                 the lifetime is elided here
+    |
+    = help: the same lifetime is referred to in inconsistent ways, making the signature confusing
+    = note: `#[warn(mismatched_lifetime_syntaxes)]` on by default
+help: use `'_` for type paths
+    |
+375 |     pub fn iter(&self) -> std::slice::Iter<'_, LogItem> {
+    |                                            +++
+
+warning: hiding a lifetime that's elided elsewhere is confusing
+   --> vendor/raft-engine/src/log_batch.rs:379:18
+    |
+379 |     pub fn drain(&mut self) -> LogItemDrain {
+    |                  ^^^^^^^^^     ^^^^^^^^^^^^ the same lifetime is hidden here
+    |                  |
+    |                  the lifetime is elided here
+    |
+    = help: the same lifetime is referred to in inconsistent ways, making the signature confusing
+help: use `'_` for type paths
+    |
+379 |     pub fn drain(&mut self) -> LogItemDrain<'_> {
+    |                                            ++++
+
+warning: hiding a lifetime that's elided elsewhere is confusing
+   --> vendor/raft-engine/src/log_batch.rs:881:25
+    |
+881 |     pub(crate) fn drain(&mut self) -> LogItemDrain {
+    |                         ^^^^^^^^^     ^^^^^^^^^^^^ the same lifetime is hidden here
+    |                         |
+    |                         the lifetime is elided here
+    |
+    = help: the same lifetime is referred to in inconsistent ways, making the signature confusing
+help: use `'_` for type paths
+    |
+881 |     pub(crate) fn drain(&mut self) -> LogItemDrain<'_> {
+    |                                                   ++++
+
+warning: `raft-engine` (lib) generated 11 warnings (run `cargo fix --lib -p raft-engine` to apply 5 suggestions)
+warning: unexpected `cfg` condition value: `cargo-clippy`
+   --> vendor/raft/src/lib.rs:478:17
+    |
+478 | #![cfg_attr(not(feature = "cargo-clippy"), allow(unknown_lints))]
+    |                 ^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: expected values for `feature` are: `bytes`, `default`, `default-logger`, `fail`, `failpoints`, `prost-codec`, `protobuf-codec`, `slog-envlogger`, `slog-stdlog`, and `slog-term`
+    = help: consider adding `cargo-clippy` as a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+    = note: `#[warn(unexpected_cfgs)]` on by default
+
+warning: unused import: `ReadState`
+  --> vendor/raft/src/config.rs:17:44
+   |
+17 | pub use super::read_only::{ReadOnlyOption, ReadState};
+   |                                            ^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unexpected `cfg` condition value: `cargo-clippy`
+  --> vendor/raft/src/errors.rs:53:16
+   |
+53 |     #[cfg_attr(feature = "cargo-clippy", allow(clippy::match_same_arms))]
+   |                ^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: expected values for `feature` are: `bytes`, `default`, `default-logger`, `fail`, `failpoints`, `prost-codec`, `protobuf-codec`, `slog-envlogger`, `slog-stdlog`, and `slog-term`
+   = help: consider adding `cargo-clippy` as a feature in `Cargo.toml`
+   = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition value: `cargo-clippy`
+  --> vendor/raft/src/errors.rs:93:16
+   |
+93 |     #[cfg_attr(feature = "cargo-clippy", allow(clippy::match_same_arms))]
+   |                ^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: expected values for `feature` are: `bytes`, `default`, `default-logger`, `fail`, `failpoints`, `prost-codec`, `protobuf-codec`, `slog-envlogger`, `slog-stdlog`, and `slog-term`
+   = help: consider adding `cargo-clippy` as a feature in `Cargo.toml`
+   = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition value: `cargo-clippy`
+   --> vendor/raft/src/raft.rs:935:16
+    |
+935 |     #[cfg_attr(feature = "cargo-clippy", allow(clippy::needless_pass_by_value))]
+    |                ^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: expected values for `feature` are: `bytes`, `default`, `default-logger`, `fail`, `failpoints`, `prost-codec`, `protobuf-codec`, `slog-envlogger`, `slog-stdlog`, and `slog-term`
+    = help: consider adding `cargo-clippy` as a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition value: `cargo-clippy`
+   --> vendor/raft/src/raw_node.rs:385:16
+    |
+385 |     #[cfg_attr(feature = "cargo-clippy", allow(clippy::needless_pass_by_value))]
+    |                ^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: expected values for `feature` are: `bytes`, `default`, `default-logger`, `fail`, `failpoints`, `prost-codec`, `protobuf-codec`, `slog-envlogger`, `slog-stdlog`, and `slog-term`
+    = help: consider adding `cargo-clippy` as a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: variable does not need to be mutable
+    --> vendor/raft/src/raft.rs:1019:19
+     |
+1019 |         for (&id, mut pr) in self.mut_prs().iter_mut() {
+     |                   ----^^
+     |                   |
+     |                   help: remove this `mut`
+     |
+     = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: trait `AssertSend` is never used
+   --> vendor/raft/src/raft.rs:296:7
+    |
+296 | trait AssertSend: Send {}
+    |       ^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: hiding a lifetime that's elided elsewhere is confusing
+  --> vendor/raft/src/confchange/changer.rs:46:25
+   |
+46 |     pub fn new(tracker: &ProgressTracker) -> Changer {
+   |                         ^^^^^^^^^^^^^^^^     ^^^^^^^ the same lifetime is hidden here
+   |                         |
+   |                         the lifetime is elided here
+   |
+   = help: the same lifetime is referred to in inconsistent ways, making the signature confusing
+   = note: `#[warn(mismatched_lifetime_syntaxes)]` on by default
+help: use `'_` for type paths
+   |
+46 |     pub fn new(tracker: &ProgressTracker) -> Changer<'_> {
+   |                                                     ++++
+
+warning: hiding a lifetime that's elided elsewhere is confusing
+   --> vendor/raft/src/confchange/changer.rs:272:23
+    |
+272 |     fn check_and_copy(&self) -> Result<(Configuration, IncrChangeMap)> {
+    |                       ^^^^^                            ^^^^^^^^^^^^^ the same lifetime is hidden here
+    |                       |
+    |                       the lifetime is elided here
+    |
+    = help: the same lifetime is referred to in inconsistent ways, making the signature confusing
+help: use `'_` for type paths
+    |
+272 |     fn check_and_copy(&self) -> Result<(Configuration, IncrChangeMap<'_>)> {
+    |                                                                     ++++
+
+warning: hiding a lifetime that's elided elsewhere is confusing
+   --> vendor/raft/src/raw_node.rs:729:19
+    |
+729 |     pub fn status(&self) -> Status {
+    |                   ^^^^^     ^^^^^^ the same lifetime is hidden here
+    |                   |
+    |                   the lifetime is elided here
+    |
+    = help: the same lifetime is referred to in inconsistent ways, making the signature confusing
+help: use `'_` for type paths
+    |
+729 |     pub fn status(&self) -> Status<'_> {
+    |                                   ++++
+
+warning: `raft` (lib) generated 11 warnings (run `cargo fix --lib -p raft` to apply 5 suggestions)
+   Compiling cellar v0.6.2 (/Users/haipingfu/.codex/worktrees/23c7/cellar/crates/cellar)
+   Compiling cellar-axum v0.6.2 (/Users/haipingfu/.codex/worktrees/23c7/cellar/crates/cellar-axum)
+    Finished `test` profile [unoptimized] target(s) in 47.86s
+     Running unittests lib.rs (/Users/haipingfu/Workspace/crabbuild-target/cellar-23c7-multi-raft/debug/deps/cellar_axum-5ac4411091152d48)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/application.rs (/Users/haipingfu/Workspace/crabbuild-target/cellar-23c7-multi-raft/debug/deps/application-7ff0f6adf4ae5453)
+<jemalloc>: option background_thread currently supports pthread only
+
+running 2 tests
+test middleware_covers_public_and_named_http_entrypoints ... ok
+test non_http_cell_events_reach_the_sdk_delegate ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.70s
+
+     Running tests/builder.rs (/Users/haipingfu/Workspace/crabbuild-target/cellar-23c7-multi-raft/debug/deps/builder-9f7717d9a10475f8)
+<jemalloc>: option background_thread currently supports pthread only
+
+running 2 tests
+test raft_definitions_delegate_without_a_mutable_factory ... ok
+test builder_rejects_missing_factories_duplicate_classes_and_ambiguous_paths ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/durability.rs (/Users/haipingfu/Workspace/crabbuild-target/cellar-23c7-multi-raft/debug/deps/durability-0b62b8115968b5a1)
+<jemalloc>: option background_thread currently supports pthread only
+
+running 2 tests
+test remote_owner_and_handoff_recover_the_same_acknowledged_cell ... ok
+test response_heads_wait_for_real_replication_and_fail_when_proof_fails ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.57s
+
+     Running tests/errors.rs (/Users/haipingfu/Workspace/crabbuild-target/cellar-23c7-multi-raft/debug/deps/errors-3da42144c70e7560)
+<jemalloc>: option background_thread currently supports pthread only
+
+running 1 test
+test forwarding_preserves_framework_overload_classification ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.54s
+
+     Running tests/extractors.rs (/Users/haipingfu/Workspace/crabbuild-target/cellar-23c7-multi-raft/debug/deps/extractors-782b9b2b721f1b63)
+<jemalloc>: option background_thread currently supports pthread only
+
+running 1 test
+test missing_invocation_context_is_a_rejection_in_an_ordinary_axum_router ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/host_parity.rs (/Users/haipingfu/Workspace/crabbuild-target/cellar-23c7-multi-raft/debug/deps/host_parity-515ef297cf728188)
+<jemalloc>: option background_thread currently supports pthread only
+
+running 4 tests
+test namespace_requirements_are_checked_before_node_startup ... ok
+test axum_mounting_preserves_canonical_routes_and_encoded_cell_names ... ok
+test typed_request_extractors_preserve_buffered_and_streamed_bodies_under_both_hosts ... ok
+test identical_handlers_persist_and_recover_through_both_http_hosts ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.90s
+
+     Running tests/lifecycle.rs (/Users/haipingfu/Workspace/crabbuild-target/cellar-23c7-multi-raft/debug/deps/lifecycle-c2fa360ae5e10d58)
+<jemalloc>: option background_thread currently supports pthread only
+
+running 2 tests
+test forced_cancel_and_domain_isolation_are_preserved ... ok
+test an_open_body_is_counted_and_bounded_shutdown_reports_an_incomplete_drain ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.22s
+
+     Running tests/openapi.rs (/Users/haipingfu/Workspace/crabbuild-target/cellar-23c7-multi-raft/debug/deps/openapi-ac9f61a52ecfedda)
+<jemalloc>: option background_thread currently supports pthread only
+
+running 6 tests
+test duplicate_operation_ids_and_conflicting_schemas_are_errors ... ok
+test unresolved_schemas_ambiguous_routes_and_server_declaration_order_are_checked ... ok
+test offline_export_describes_the_same_public_cell_registration ... ok
+test security_metadata_matches_enforced_middleware_and_protects_document_routes ... ok
+test served_document_and_export_agree_under_both_hosts ... ok
+test reload_adopts_handlers_and_the_document_as_one_generation ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.64s
+
+     Running tests/sdk_events.rs (/Users/haipingfu/Workspace/crabbuild-target/cellar-23c7-multi-raft/debug/deps/sdk_events-09610fae14d2b74b)
+<jemalloc>: option background_thread currently supports pthread only
+
+running 1 test
+test rpc_queue_and_workflow_delegate_through_the_existing_sdk_on_both_hosts ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.56s
+
+     Running tests/service.rs (/Users/haipingfu/Workspace/crabbuild-target/cellar-23c7-multi-raft/debug/deps/service-a7dbb9f01e0dd546)
+<jemalloc>: option background_thread currently supports pthread only
+
+running 1 test
+test outer_middleware_can_reject_before_admission_and_closed_clones_return_503 ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.16s
+
+     Running tests/streaming.rs (/Users/haipingfu/Workspace/crabbuild-target/cellar-23c7-multi-raft/debug/deps/streaming-dcc1e3e4f8020836)
+<jemalloc>: option background_thread currently supports pthread only
+
+running 6 tests
+test consumer_drop_cancels_the_producer_and_backpressure_bounds_polling ... ok
+test unsupported_trailers_fail_the_stream_instead_of_disappearing ... ok
+test body_failure_is_not_a_successful_eof ... ok
+test sse_polls_with_event_authority_after_the_response_head ... ok
+test fencing_retires_an_open_sse_producer_before_it_can_acknowledge_a_write ... ok
+test post_head_writes_require_proof_for_each_acknowledging_sse_chunk ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.07s
+
+     Running tests/websocket.rs (/Users/haipingfu/Workspace/crabbuild-target/cellar-23c7-multi-raft/debug/deps/websocket-2bf94735923ee9c2)
+<jemalloc>: option background_thread currently supports pthread only
+
+running 4 tests
+test cell_upgrade_messages_and_close_use_the_existing_transport_on_both_hosts ... ok
+test worker_sockets_and_nested_wait_until_are_owned_until_close ... ok
+test remote_websocket_upgrade_survives_owner_handoff ... ok
+test sdk_binding_upgrades_transfer_without_requiring_network_handshake_headers ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.75s
+
+   Doc-tests cellar_axum
+
+running 2 tests
+test crates/cellar-axum/lib.rs - (line 136) ... ignored
+test crates/cellar-axum/lib.rs - (line 25) - compile ... ok
+
+test result: ok. 1 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.10s
+

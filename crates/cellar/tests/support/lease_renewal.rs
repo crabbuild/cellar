@@ -5,15 +5,23 @@ use futures_util::stream::BoxStream;
 use object_store::{path::Path as ObjectPath, *};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 
-#[derive(Debug)]
 struct RenewalDelay {
     store: Arc<dyn ObjectStore>,
     key: String,
     armed: AtomicBool,
-    maximum_expiry: AtomicU64,
+    maximum_expiry: Arc<AtomicU64>,
     attempts: AtomicUsize,
-    committed: Semaphore,
+    committed: Arc<Semaphore>,
     readbacks: AtomicUsize,
+    held_response: Mutex<Option<cellar::asyncrt::TaskHandle<()>>>,
+}
+
+impl std::fmt::Debug for RenewalDelay {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RenewalDelay")
+            .field("key", &self.key)
+            .finish_non_exhaustive()
+    }
 }
 
 impl std::fmt::Display for RenewalDelay {
@@ -52,16 +60,42 @@ impl ObjectStore for RenewalDelay {
             // reaches the store. No new root exists for the first readback.
             tokio::time::sleep(Duration::from_millis(500)).await;
         }
+        if attempt == Some(1) {
+            // Physical CAS can finish after its caller is cancelled. Keep the
+            // commit observation with that work, and join it before teardown.
+            let store = self.store.clone();
+            let path = path.clone();
+            let maximum_expiry = self.maximum_expiry.clone();
+            let committed = self.committed.clone();
+            let (send, receive) = tokio::sync::oneshot::channel();
+            let task = cellar::asyncrt::try_spawn(async move {
+                let result = store.put_opts(&path, payload, options).await;
+                if result.is_ok() {
+                    if let Some(expiry) = expiry {
+                        maximum_expiry.fetch_max(expiry, Ordering::AcqRel);
+                    }
+                    // Lose the actual store response beyond the old authority.
+                    committed.add_permits(1);
+                    tokio::time::sleep(Duration::from_millis(300)).await;
+                }
+                let _ = send.send(result);
+            })
+            .map_err(|error| object_store::Error::Generic {
+                store: "lease-renewal-fixture",
+                source: Box::new(error),
+            })?;
+            let prior = self.held_response.lock().unwrap().replace(task);
+            assert!(prior.is_none(), "second renewal task was already owned");
+            return receive
+                .await
+                .map_err(|error| object_store::Error::Generic {
+                    store: "lease-renewal-fixture",
+                    source: Box::new(error),
+                })?;
+        }
         let result = self.store.put_opts(path, payload, options).await?;
         if let Some(expiry) = expiry {
             self.maximum_expiry.fetch_max(expiry, Ordering::AcqRel);
-        }
-        if attempt == Some(1) {
-            // The second request really commits. Lose only its response until
-            // after the old authority expires. Native reconciliation must read
-            // these actual bytes/token; this gate supplies no replacement data.
-            self.committed.add_permits(1);
-            tokio::time::sleep(Duration::from_millis(300)).await;
         }
         Ok(result)
     }
@@ -126,10 +160,11 @@ async fn a_late_committed_renewal_keeps_time_for_actual_readback() -> Result<()>
         store: bucket.cas_store.clone(),
         key: format!("{}nodes/lease-budget.json", bucket.prefix),
         armed: AtomicBool::new(false),
-        maximum_expiry: AtomicU64::new(0),
+        maximum_expiry: Arc::new(AtomicU64::new(0)),
         attempts: AtomicUsize::new(0),
-        committed: Semaphore::new(0),
+        committed: Arc::new(Semaphore::new(0)),
         readbacks: AtomicUsize::new(0),
+        held_response: Mutex::new(None),
     });
     bucket.store = fault.clone();
     bucket.cas_store = fault.clone();
@@ -181,6 +216,9 @@ async fn a_late_committed_renewal_keeps_time_for_actual_readback() -> Result<()>
     );
     ensure!(call(&client, &node, reqwest::Method::GET, "/").await? == "budget:1");
     ensure!(call(&client, &node, reqwest::Method::POST, "/").await? == "budget:2");
+    let held_response = { fault.held_response.lock().unwrap().take() }
+        .context("second renewal task was not retained")?;
+    held_response.await.context("join held renewal response")?;
     stopped(node).await?;
     ensure!(
         core.handle().spawn(async { 7 }).await? == 7,

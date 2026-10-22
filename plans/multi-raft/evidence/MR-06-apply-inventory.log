@@ -1,0 +1,8 @@
+{
+  "package_validation": "passed",
+  "tasks": 17,
+  "cases": 104,
+  "source_anchors": 63,
+  "local_links": 39
+}
+Source preflight passed: 63 anchors at baseline c2266dc1818bbd80f653674db93477078cf0e79b.

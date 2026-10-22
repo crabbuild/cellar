@@ -1,0 +1,491 @@
+{
+  "task_id": "MR-07",
+  "source_revision": "67c9f003977594eb58aa2d5e7ce7d866724d02a6",
+  "scope": "Partial MR-07 node-owned registered Quorum command/stale-query serving, callback/producer ownership, public SDK handles and native/Axum counter ingress. All six named cases pass; final mode-isolation and submitted-producer transition audit still required.",
+  "toolchain": "rustc 1.98.1 (48a229cea 2026-09-01)",
+  "executable_digest": "bc39850e3232483c5309831ca0b3662178d2c5e305d67c081eee19ffcdb2923a",
+  "executables": {
+    "native_raft_execution": {
+      "sha256": "56ba4479ac201c715ef4c048a2652343d215aae2d45e440dc3bb6881e59b0b46",
+      "bytes": 26617120
+    },
+    "native_raft_host": {
+      "sha256": "bc39850e3232483c5309831ca0b3662178d2c5e305d67c081eee19ffcdb2923a",
+      "bytes": 126556864
+    },
+    "raft_command": {
+      "sha256": "ed5bca477c9d816ff83c88527aeee807a14db0b25a4d822790610fdb09cee528",
+      "bytes": 1168064
+    },
+    "cellar-raft-counter": {
+      "sha256": "1f334b96ee573b5d1e6a9f2d0e17912b65a1bdd5384c90353691510e16e9aba5",
+      "bytes": 126166768
+    }
+  },
+  "environment": "macOS-26.5.2-arm64-arm-64bit-Mach-O; real SQLite/WAL/LTX, Raft Engine, RawNode and authenticated TLS TCP; three embedded nodes with separate directories/domains in one OS process; two independent three-voter groups; one-voter command crash fixtures; explicit checkout target; no cellar_internal_tests",
+  "limitations": "MR-07 remains IN_PROGRESS pending complete host mode-isolation and submitted-producer partition/retirement audit. The three-node serving fixtures run on one machine/in one process; the executable drill performs two process launches with joined shutdown, not physical power-loss or independent-node OS crash qualification. Query service currently supplies Stale committed-image reads only; strong reads/tokens, S3 archive/restore, snapshot install, membership repair, effects and production capacity/release gates remain later work packages. Directory ownership/join is covered under callback cancellation and forced node closure. Ten consecutive failover repetitions ran after the readiness fix and before formatting-only changes; final owning tests and Clippy were rerun after formatting. Prior broader-suite provenance is recorded per command. Existing vendored warnings remain visible.",
+  "tests": [
+    {
+      "name": "apply_entry_and_schema_identity_are_bound",
+      "target": "native_raft_execution",
+      "result": "passed"
+    },
+    {
+      "name": "apply_marker_crash_cut",
+      "target": "native_raft_execution",
+      "result": "passed"
+    },
+    {
+      "name": "apply_recovery_follows_engine_marker",
+      "target": "native_raft_execution",
+      "result": "passed"
+    },
+    {
+      "name": "command_failure_and_result_limit_roll_back",
+      "target": "native_raft_execution",
+      "result": "passed"
+    },
+    {
+      "name": "command_transaction_restricts_sql_and_captures_inputs",
+      "target": "native_raft_execution",
+      "result": "passed"
+    },
+    {
+      "name": "conflicting_command_digest",
+      "target": "native_raft_execution",
+      "result": "passed"
+    },
+    {
+      "name": "duplicate_command_receipt",
+      "target": "native_raft_execution",
+      "result": "passed"
+    },
+    {
+      "name": "image_publication_waits_for_engine_marker",
+      "target": "native_raft_execution",
+      "result": "passed"
+    },
+    {
+      "name": "lost_proposal_rebuild",
+      "target": "native_raft_execution",
+      "result": "passed"
+    },
+    {
+      "name": "new_term_barrier_retires_uncertain_shadow_without_reusing_it",
+      "target": "native_raft_execution",
+      "result": "passed"
+    },
+    {
+      "name": "oversized_delta_atomic_refusal",
+      "target": "native_raft_execution",
+      "result": "passed"
+    },
+    {
+      "name": "private_checkpoint_capture_covers_control_writes",
+      "target": "native_raft_execution",
+      "result": "passed"
+    },
+    {
+      "name": "private_commit_not_visible",
+      "target": "native_raft_execution",
+      "result": "passed"
+    },
+    {
+      "name": "receipt_expiry_floor",
+      "target": "native_raft_execution",
+      "result": "passed"
+    },
+    {
+      "name": "registered_command_uses_exact_image_receipt_and_read_only_query",
+      "target": "native_raft_execution",
+      "result": "passed"
+    },
+    {
+      "name": "submitted_command_recovery",
+      "target": "native_raft_execution",
+      "result": "passed"
+    },
+    {
+      "name": "birth_handle_cannot_cross_catalog_instances",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "cancelled_private_callback_is_joined_before_its_slot_is_reused",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "catalog_reconciles_lost_create_responses",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "catalog_refuses_corrupt_and_oversized_records",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "competing_bootstrap_disks_cannot_both_join",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "fleet_gate_unchanged",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "namespace_mode_conflict",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "native_axum_command_parity",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "operation_registration_binds_schema_kind_and_digest",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "parked_bootstrap_requires_stable_claim",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "public_multi_group_replication_and_leader_failover",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "raft_gate_exact_receipt",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "registered_callbacks_refuse_captured_sdk_handles",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "retained_handle_fenced",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "unconfirmed_claim_keeps_the_group_parked",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "unpolled_waiter_cannot_submit_after_its_deadline",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "unsupported_factory_refused",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "admission_needs_current_term_and_verified_queryable_progress",
+      "target": "raft_command",
+      "result": "passed"
+    },
+    {
+      "name": "delayed_proofs_cannot_cross_any_authority_or_operation_identity",
+      "target": "raft_command",
+      "result": "passed"
+    },
+    {
+      "name": "follower_retires_old_uncertainty_only_after_a_verified_new_term_cut",
+      "target": "raft_command",
+      "result": "passed"
+    },
+    {
+      "name": "namespace_minimum_and_stronger_retry_wait_for_archive",
+      "target": "raft_command",
+      "result": "passed"
+    },
+    {
+      "name": "private_cancellation_waits_for_callback_join_and_discard",
+      "target": "raft_command",
+      "result": "passed"
+    },
+    {
+      "name": "protocol_work_during_a_private_callback_prevents_submission",
+      "target": "raft_command",
+      "result": "passed"
+    },
+    {
+      "name": "result_requires_exact_entry_and_verified_receipt",
+      "target": "raft_command",
+      "result": "passed"
+    },
+    {
+      "name": "retry_uses_the_verified_receipt_cut_without_reproposing_or_relabeling",
+      "target": "raft_command",
+      "result": "passed"
+    },
+    {
+      "name": "revoked_term_never_reactivates_from_a_delayed_status_reply",
+      "target": "raft_command",
+      "result": "passed"
+    },
+    {
+      "name": "submitted_cancellation_retains_producer_and_command_slot",
+      "target": "raft_command",
+      "result": "passed"
+    },
+    {
+      "name": "unresolved_submission_needs_new_term_and_applied_barrier_to_reconcile",
+      "target": "raft_command",
+      "result": "passed"
+    }
+  ],
+  "commands": [
+    {
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar-axum",
+        "--no-default-features",
+        "--locked"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-07-host-final-axum-default.log",
+      "source_scope": "Before final host Ready-deferral and counter startup-response fixes; affected final owning targets rerun afterward"
+    },
+    {
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar-axum",
+        "--all-features",
+        "--locked"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-07-host-final-axum-all.log",
+      "source_scope": "Before final host Ready-deferral and counter startup-response fixes; affected final owning targets rerun afterward"
+    },
+    {
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--test",
+        "native_storage",
+        "--test",
+        "native_replication",
+        "--test",
+        "native_log_protocol",
+        "--test",
+        "native_actor",
+        "--test",
+        "native_runtime",
+        "--locked",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-07-host-final-regressions.log",
+      "source_scope": "Before final host Ready-deferral and counter startup-response fixes; affected final owning targets rerun afterward"
+    },
+    {
+      "argv": [
+        "python3",
+        "tools/check_native_dependencies.py"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-07-host-final-dependencies.log",
+      "source_scope": "Before final host Ready-deferral and counter startup-response fixes; affected final owning targets rerun afterward"
+    },
+    {
+      "argv": [
+        "python3",
+        "tools/docs/check.py"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-07-host-final-docs.log",
+      "source_scope": "Before final host Ready-deferral and counter startup-response fixes; affected final owning targets rerun afterward"
+    },
+    {
+      "argv": [
+        "python3",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "plans/multi-raft",
+        "-p",
+        "test_*.py"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-07-host-final-plan-tests.log",
+      "source_scope": "Before final host Ready-deferral and counter startup-response fixes; affected final owning targets rerun afterward"
+    },
+    {
+      "argv": [
+        "cargo",
+        "clippy",
+        "-p",
+        "cellar",
+        "-p",
+        "cellar-logic",
+        "-p",
+        "cellar-axum",
+        "--lib",
+        "--bins",
+        "--test",
+        "native_raft_host",
+        "--test",
+        "native_raft_execution",
+        "--test",
+        "raft_command",
+        "--test",
+        "builder",
+        "--locked",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-07-host-qualified-clippy.log",
+      "source_scope": "final Rust source"
+    },
+    {
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "-p",
+        "cellar-logic",
+        "--test",
+        "native_raft_host",
+        "--test",
+        "native_raft_execution",
+        "--test",
+        "raft_command",
+        "--locked",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-07-host-qualified-owning.log",
+      "source_scope": "final Rust source"
+    },
+    {
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--test",
+        "native_raft_host",
+        "--locked",
+        "--",
+        "--list"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-07-host-qualified-host-list.log",
+      "source_scope": "final Rust source"
+    },
+    {
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--test",
+        "native_raft_host",
+        "--locked",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-07-host-qualified-host-run.log",
+      "source_scope": "final Rust source"
+    },
+    {
+      "argv": [
+        "cargo",
+        "format",
+        "--check"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-07-host-qualified-format-check.log",
+      "source_scope": "final Rust source"
+    },
+    {
+      "argv": [
+        "cargo",
+        "check-layout"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-07-host-qualified-layout.log",
+      "source_scope": "final Rust source"
+    },
+    {
+      "argv": [
+        "python3",
+        "examples/raft-counter/smoke.py",
+        "/Users/haipingfu/Workspace/crabbuild-target/cellar-23c7-multi-raft/debug/cellar-raft-counter",
+        "/tmp/cellar-mr07-example-run-4"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-07-host-example-smoke.log",
+      "source_scope": "final Rust source"
+    }
+  ],
+  "results": {
+    "owning_passed": 44,
+    "host_passed": 17,
+    "execution_passed": 16,
+    "core_passed": 11,
+    "ignored_execution_helpers": 2,
+    "axum_default_passed_including_doctest": 27,
+    "axum_all_passed_including_doctest": 33,
+    "ignored_axum_documentation_examples_per_feature_mode": 1,
+    "fleet_regressions_passed": 21,
+    "consecutive_two_group_failover_passes": 10,
+    "executable_restart_drill": "passed both phases; six endpoints, retained result and new writes"
+  },
+  "regression_provenance": "Both Axum feature modes and native_actor/native_log_protocol/native_replication/native_runtime/native_storage passed before the final host Ready-deferral and counter startup-response corrections. Their owning registration/Fleet source did not change afterward. Final Clippy, 44 owning cases, exact 17-case host commands, formatting and layout passed afterward.",
+  "resolved_failures": {
+    "retirement_refusal": "Check the issued identity/cut before progress, preserving StaleCompletion for a mismatched completion.",
+    "submission_preflight": "Keep frozen private state during transient LeaderNotReady; retry status on a bounded tick with the original deadline.",
+    "receipt_preflight": "Duplicate receipt settlement similarly waits through transient protocol Ready work.",
+    "startup_response": "Authenticated requests before handle installation return 503.",
+    "covering_version_oracle": "A reconstructed receipt may return a later verified covering image; require matching history/result and nonregressing index."
+  },
+  "diagnostic_logs": [
+    "evidence/MR-07-host-diagnostic-core-retirement-refusal.log",
+    "evidence/MR-07-host-diagnostic-submission-preflight.log",
+    "evidence/MR-07-host-diagnostic-receipt-preflight.log",
+    "evidence/MR-07-host-diagnostic-startup-response.log",
+    "evidence/MR-07-host-diagnostic-covering-version-oracle.log"
+  ],
+  "failover_repeat_logs": [
+    "evidence/MR-07-host-failover-repeat-0.log",
+    "evidence/MR-07-host-failover-repeat-1.log",
+    "evidence/MR-07-host-failover-repeat-2.log",
+    "evidence/MR-07-host-failover-repeat-3.log",
+    "evidence/MR-07-host-failover-repeat-4.log",
+    "evidence/MR-07-host-failover-repeat-5.log",
+    "evidence/MR-07-host-failover-repeat-6.log",
+    "evidence/MR-07-host-failover-repeat-7.log",
+    "evidence/MR-07-host-failover-repeat-8.log",
+    "evidence/MR-07-host-failover-repeat-9.log"
+  ],
+  "remaining_mr07": [
+    "Audit namespace/Fleet routing isolation against both live host paths, including retained handles and conflicting application registrations.",
+    "Exercise SDK producer ownership under a live three-node partition and newer-term follower retirement; existing pure and executor barrier cases do not establish that whole path."
+  ]
+}

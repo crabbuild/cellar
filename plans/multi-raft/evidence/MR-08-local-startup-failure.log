@@ -1,0 +1,5 @@
+<jemalloc>: option background_thread currently supports pthread only
+cellar local reload scan failed: local reload requires replication
+cellar local reload scan failed: local reload requires replication
+cellar local reload scan failed: local reload requires replication
+Error: Address already in use (os error 48)

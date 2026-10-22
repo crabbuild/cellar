@@ -11,6 +11,7 @@ pub mod blob;
 pub mod cache;
 pub mod cells;
 pub(crate) mod concurrency;
+pub mod consensus;
 pub mod containers;
 pub mod cron;
 pub mod event_stream;
@@ -149,6 +150,22 @@ pub trait Application: Send + Sync + 'static {
 
     fn create_cell(&self, context: Context, identity: &CellIdentity) -> Result<Arc<dyn Cell>>;
 
+    /// Resolve a restricted Raft definition without invoking a mutable cell
+    /// factory. Custom applications opt in explicitly; existing applications
+    /// keep their Fleet dispatch behavior.
+    fn resolve_raft_class(
+        &self,
+        class: &str,
+    ) -> std::result::Result<Arc<consensus::RaftClass>, consensus::RegistrationError> {
+        Err(
+            if self.supports_cell(class) || self.supports_workflow(class) {
+                consensus::RegistrationError::UnsupportedFactory(class.into())
+            } else {
+                consensus::RegistrationError::UnknownClass(class.into())
+            },
+        )
+    }
+
     fn supports_workflow(&self, _class: &str) -> bool {
         false
     }
@@ -184,11 +201,12 @@ type WorkflowHandler = Arc<
         + Sync,
 >;
 
-/// A compiled Rust application's stateless handler and cell factories.
+/// A compiled Rust application's handlers, Fleet factories and Raft definitions.
 pub struct Registry {
     handler: Handler,
     entrypoints: HashMap<String, Handler>,
     cells: HashMap<String, Factory>,
+    raft_classes: HashMap<String, Arc<consensus::RaftClass>>,
     workflows: HashMap<String, WorkflowHandler>,
 }
 
@@ -200,6 +218,7 @@ impl Registry {
             handler: Arc::new(handler),
             entrypoints: HashMap::new(),
             cells: HashMap::new(),
+            raft_classes: HashMap::new(),
             workflows: HashMap::new(),
         }
     }
@@ -247,10 +266,24 @@ impl Registry {
         let class = class.into();
         anyhow::ensure!(!class.is_empty(), "cell class must not be empty");
         anyhow::ensure!(
-            !self.cells.contains_key(&class),
+            !self.cells.contains_key(&class) && !self.raft_classes.contains_key(&class),
             "duplicate native cell class {class}"
         );
         self.cells.insert(class, Arc::new(factory));
+        Ok(self)
+    }
+
+    /// Register synchronous SQL commands and read-only queries. Raft classes
+    /// cannot also have an ordinary `Cell` factory under the same class name.
+    pub fn raft_class(mut self, class: consensus::RaftClass) -> Result<Self> {
+        anyhow::ensure!(
+            !self.cells.contains_key(class.name())
+                && !self.raft_classes.contains_key(class.name())
+                && !self.workflows.contains_key(class.name()),
+            consensus::RegistrationError::Duplicate(class.name().into())
+        );
+        self.raft_classes
+            .insert(class.name().into(), Arc::new(class));
         Ok(self)
     }
 
@@ -269,7 +302,7 @@ impl Registry {
         let class = class.into();
         anyhow::ensure!(!class.is_empty(), "workflow class must not be empty");
         anyhow::ensure!(
-            !self.workflows.contains_key(&class),
+            !self.workflows.contains_key(&class) && !self.raft_classes.contains_key(&class),
             "duplicate native workflow class {class}"
         );
         self.workflows.insert(class, Arc::new(handler));
@@ -278,6 +311,45 @@ impl Registry {
 }
 
 impl Application for Registry {
+    fn validate_configuration(
+        &self,
+        options: &crate::engine_api::WorkerConfigOptions,
+    ) -> Result<()> {
+        for class in options
+            .do_classes
+            .iter()
+            .chain(options.bindings.iter().map(|(_, class)| class))
+            .chain(
+                options
+                    .workflow_bindings
+                    .iter()
+                    .map(|binding| &binding.class),
+            )
+        {
+            anyhow::ensure!(
+                !self.raft_classes.contains_key(class),
+                consensus::RegistrationError::WrongMode {
+                    class: class.clone(),
+                    mode: consensus::NamespaceMode::Fleet,
+                }
+            );
+        }
+        Ok(())
+    }
+
+    fn resolve_raft_class(
+        &self,
+        class: &str,
+    ) -> std::result::Result<Arc<consensus::RaftClass>, consensus::RegistrationError> {
+        self.raft_classes.get(class).cloned().ok_or_else(|| {
+            if self.cells.contains_key(class) || self.workflows.contains_key(class) {
+                consensus::RegistrationError::UnsupportedFactory(class.into())
+            } else {
+                consensus::RegistrationError::UnknownClass(class.into())
+            }
+        })
+    }
+
     fn supports_workflow(&self, class: &str) -> bool {
         self.workflows.contains_key(class)
     }
@@ -324,6 +396,13 @@ impl Application for Registry {
     }
 
     fn create_cell(&self, context: Context, identity: &CellIdentity) -> Result<Arc<dyn Cell>> {
+        anyhow::ensure!(
+            !self.raft_classes.contains_key(&identity.class),
+            consensus::RegistrationError::WrongMode {
+                class: identity.class.clone(),
+                mode: consensus::NamespaceMode::Fleet,
+            }
+        );
         self.cells
             .get(&identity.class)
             .ok_or_else(|| anyhow!("no native factory for {}", identity.class))?(

@@ -4,12 +4,13 @@ ARG TARGET_CACHE_ID
 WORKDIR /src
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
+COPY vendor ./vendor
 COPY examples ./examples
 COPY tools ./tools
 # Archived source can predate cached artifacts; force Cargo to check this snapshot.
 RUN --mount=type=cache,id=cellar-console-registry,target=/usr/local/cargo/registry \
     --mount=type=cache,id=${TARGET_CACHE_ID},target=/src/target \
-    find Cargo.toml Cargo.lock crates examples tools -type f -exec touch {} + && \
+    find Cargo.toml Cargo.lock crates examples tools vendor -type f -exec touch {} + && \
     cargo build --release --locked --jobs 2 -p fleetcare --bin fleetcare-daemon --bin fleetcare-load --bin fleetcare-publish -p cellar-admin --bin cellar-dashboard && \
     mkdir /out && cp target/release/fleetcare-* target/release/cellar-dashboard /out/
 

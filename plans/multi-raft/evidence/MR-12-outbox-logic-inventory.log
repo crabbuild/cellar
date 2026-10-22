@@ -1,0 +1,3 @@
+Source: a28babe1904c1287cb4d1877674bd98a87313700
+Command: ["python3", "-c", "import pathlib; t=pathlib.Path('plans/multi-raft/evidence/MR-12-outbox-logic-list.log').read_text(); assert t.count(': test')==7; print('Seven pure leadership cases listed.')"]
+Seven pure leadership cases listed.

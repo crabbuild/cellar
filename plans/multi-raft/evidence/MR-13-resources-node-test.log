@@ -1,0 +1,372 @@
+Source: f89c7b462032405988ec24cd7e1f02c3476d49aa
+Command: ["cargo", "test", "-p", "cellar", "--test", "native_node", "--locked", "--", "--test-threads=1"]
+warning: hiding a lifetime that's elided elsewhere is confusing
+  --> vendor/raft-proto/src/confchange.rs:74:14
+   |
+74 |     fn as_v2(&self) -> Cow<ConfChangeV2>;
+   |              ^^^^^     ^^^^^^^^^^^^^^^^^ the same lifetime is hidden here
+   |              |
+   |              the lifetime is elided here
+   |
+   = help: the same lifetime is referred to in inconsistent ways, making the signature confusing
+   = note: `#[warn(mismatched_lifetime_syntaxes)]` on by default
+help: use `'_` for type paths
+   |
+74 |     fn as_v2(&self) -> Cow<'_, ConfChangeV2>;
+   |                            +++
+
+warning: hiding a lifetime that's elided elsewhere is confusing
+  --> vendor/raft-proto/src/confchange.rs:93:14
+   |
+93 |     fn as_v2(&self) -> Cow<ConfChangeV2> {
+   |              ^^^^^     ^^^^^^^^^^^^^^^^^ the same lifetime is hidden here
+   |              |
+   |              the lifetime is elided here
+   |
+   = help: the same lifetime is referred to in inconsistent ways, making the signature confusing
+help: use `'_` for type paths
+   |
+93 |     fn as_v2(&self) -> Cow<'_, ConfChangeV2> {
+   |                            +++
+
+warning: hiding a lifetime that's elided elsewhere is confusing
+   --> vendor/raft-proto/src/confchange.rs:110:14
+    |
+110 |     fn as_v2(&self) -> Cow<ConfChangeV2> {
+    |              ^^^^^     ^^^^^^^^^^^^^^^^^ the same lifetime is hidden here
+    |              |
+    |              the lifetime is elided here
+    |
+    = help: the same lifetime is referred to in inconsistent ways, making the signature confusing
+help: use `'_` for type paths
+    |
+110 |     fn as_v2(&self) -> Cow<'_, ConfChangeV2> {
+    |                            +++
+
+warning: `raft-proto` (lib) generated 3 warnings (run `cargo fix --lib -p raft-proto` to apply 3 suggestions)
+warning: unused import: `parse_reserved_file_name`
+  --> vendor/raft-engine/src/file_pipe_log/mod.rs:13:18
+   |
+13 | pub use format::{parse_reserved_file_name, FileNameExt};
+   |                  ^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `RecoveryConfig`
+  --> vendor/raft-engine/src/file_pipe_log/mod.rs:16:68
+   |
+16 |     DefaultMachineFactory, DualPipesBuilder as FilePipeLogBuilder, RecoveryConfig, ReplayMachine,
+   |                                                                    ^^^^^^^^^^^^^^
+
+warning: use of deprecated function `protobuf::parse_from_bytes`: Use Message::parse_from_bytes instead
+  --> vendor/raft-engine/src/engine.rs:11:16
+   |
+11 | use protobuf::{parse_from_bytes, Message};
+   |                ^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(deprecated)]` on by default
+
+warning: use of deprecated function `protobuf::parse_from_bytes`: Use Message::parse_from_bytes instead
+   --> vendor/raft-engine/src/engine.rs:602:17
+    |
+602 |         let e = parse_from_bytes(
+    |                 ^^^^^^^^^^^^^^^^
+
+warning: use of deprecated function `protobuf::parse_from_bytes`: Use Message::parse_from_bytes instead
+   --> vendor/raft-engine/src/engine.rs:247:32
+    |
+247 |                 return Ok(Some(parse_from_bytes(&value)?));
+    |                                ^^^^^^^^^^^^^^^^
+
+warning: use of deprecated function `protobuf::parse_from_bytes`: Use Message::parse_from_bytes instead
+   --> vendor/raft-engine/src/engine.rs:276:28
+    |
+276 |             if let Ok(v) = parse_from_bytes(raw_v) {
+    |                            ^^^^^^^^^^^^^^^^
+
+warning: function `lock_file_path` is never used
+   --> vendor/raft-engine/src/file_pipe_log/format.rs:100:15
+    |
+100 | pub(super) fn lock_file_path<P: AsRef<Path>>(dir: P) -> PathBuf {
+    |               ^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: methods `must_rewrite_append_queue`, `must_rewrite_rewrite_queue`, and `must_purge_all_stale` are never used
+   --> vendor/raft-engine/src/purge.rs:135:12
+    |
+ 59 | / impl<P> PurgeManager<P>
+ 60 | | where
+ 61 | |     P: PipeLog,
+    | |_______________- methods in this implementation
+...
+135 |       pub fn must_rewrite_append_queue(
+    |              ^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+162 |       pub fn must_rewrite_rewrite_queue(&self) {
+    |              ^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+172 |       pub fn must_purge_all_stale(&self) {
+    |              ^^^^^^^^^^^^^^^^^^^^
+
+warning: hiding a lifetime that's elided elsewhere is confusing
+   --> vendor/raft-engine/src/log_batch.rs:375:17
+    |
+375 |     pub fn iter(&self) -> std::slice::Iter<LogItem> {
+    |                 ^^^^^     ^^^^^^^^^^^^^^^^^^^^^^^^^ the same lifetime is hidden here
+    |                 |
+    |                 the lifetime is elided here
+    |
+    = help: the same lifetime is referred to in inconsistent ways, making the signature confusing
+    = note: `#[warn(mismatched_lifetime_syntaxes)]` on by default
+help: use `'_` for type paths
+    |
+375 |     pub fn iter(&self) -> std::slice::Iter<'_, LogItem> {
+    |                                            +++
+
+warning: hiding a lifetime that's elided elsewhere is confusing
+   --> vendor/raft-engine/src/log_batch.rs:379:18
+    |
+379 |     pub fn drain(&mut self) -> LogItemDrain {
+    |                  ^^^^^^^^^     ^^^^^^^^^^^^ the same lifetime is hidden here
+    |                  |
+    |                  the lifetime is elided here
+    |
+    = help: the same lifetime is referred to in inconsistent ways, making the signature confusing
+help: use `'_` for type paths
+    |
+379 |     pub fn drain(&mut self) -> LogItemDrain<'_> {
+    |                                            ++++
+
+warning: hiding a lifetime that's elided elsewhere is confusing
+   --> vendor/raft-engine/src/log_batch.rs:881:25
+    |
+881 |     pub(crate) fn drain(&mut self) -> LogItemDrain {
+    |                         ^^^^^^^^^     ^^^^^^^^^^^^ the same lifetime is hidden here
+    |                         |
+    |                         the lifetime is elided here
+    |
+    = help: the same lifetime is referred to in inconsistent ways, making the signature confusing
+help: use `'_` for type paths
+    |
+881 |     pub(crate) fn drain(&mut self) -> LogItemDrain<'_> {
+    |                                                   ++++
+
+warning: `raft-engine` (lib) generated 11 warnings (run `cargo fix --lib -p raft-engine` to apply 5 suggestions)
+warning: unexpected `cfg` condition value: `cargo-clippy`
+   --> vendor/raft/src/lib.rs:478:17
+    |
+478 | #![cfg_attr(not(feature = "cargo-clippy"), allow(unknown_lints))]
+    |                 ^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: expected values for `feature` are: `bytes`, `default`, `default-logger`, `fail`, `failpoints`, `prost-codec`, `protobuf-codec`, `slog-envlogger`, `slog-stdlog`, and `slog-term`
+    = help: consider adding `cargo-clippy` as a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+    = note: `#[warn(unexpected_cfgs)]` on by default
+
+warning: unused import: `ReadState`
+  --> vendor/raft/src/config.rs:17:44
+   |
+17 | pub use super::read_only::{ReadOnlyOption, ReadState};
+   |                                            ^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unexpected `cfg` condition value: `cargo-clippy`
+  --> vendor/raft/src/errors.rs:53:16
+   |
+53 |     #[cfg_attr(feature = "cargo-clippy", allow(clippy::match_same_arms))]
+   |                ^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: expected values for `feature` are: `bytes`, `default`, `default-logger`, `fail`, `failpoints`, `prost-codec`, `protobuf-codec`, `slog-envlogger`, `slog-stdlog`, and `slog-term`
+   = help: consider adding `cargo-clippy` as a feature in `Cargo.toml`
+   = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition value: `cargo-clippy`
+  --> vendor/raft/src/errors.rs:93:16
+   |
+93 |     #[cfg_attr(feature = "cargo-clippy", allow(clippy::match_same_arms))]
+   |                ^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: expected values for `feature` are: `bytes`, `default`, `default-logger`, `fail`, `failpoints`, `prost-codec`, `protobuf-codec`, `slog-envlogger`, `slog-stdlog`, and `slog-term`
+   = help: consider adding `cargo-clippy` as a feature in `Cargo.toml`
+   = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition value: `cargo-clippy`
+   --> vendor/raft/src/raft.rs:935:16
+    |
+935 |     #[cfg_attr(feature = "cargo-clippy", allow(clippy::needless_pass_by_value))]
+    |                ^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: expected values for `feature` are: `bytes`, `default`, `default-logger`, `fail`, `failpoints`, `prost-codec`, `protobuf-codec`, `slog-envlogger`, `slog-stdlog`, and `slog-term`
+    = help: consider adding `cargo-clippy` as a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition value: `cargo-clippy`
+   --> vendor/raft/src/raw_node.rs:385:16
+    |
+385 |     #[cfg_attr(feature = "cargo-clippy", allow(clippy::needless_pass_by_value))]
+    |                ^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: expected values for `feature` are: `bytes`, `default`, `default-logger`, `fail`, `failpoints`, `prost-codec`, `protobuf-codec`, `slog-envlogger`, `slog-stdlog`, and `slog-term`
+    = help: consider adding `cargo-clippy` as a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: variable does not need to be mutable
+    --> vendor/raft/src/raft.rs:1019:19
+     |
+1019 |         for (&id, mut pr) in self.mut_prs().iter_mut() {
+     |                   ----^^
+     |                   |
+     |                   help: remove this `mut`
+     |
+     = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: trait `AssertSend` is never used
+   --> vendor/raft/src/raft.rs:296:7
+    |
+296 | trait AssertSend: Send {}
+    |       ^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: hiding a lifetime that's elided elsewhere is confusing
+  --> vendor/raft/src/confchange/changer.rs:46:25
+   |
+46 |     pub fn new(tracker: &ProgressTracker) -> Changer {
+   |                         ^^^^^^^^^^^^^^^^     ^^^^^^^ the same lifetime is hidden here
+   |                         |
+   |                         the lifetime is elided here
+   |
+   = help: the same lifetime is referred to in inconsistent ways, making the signature confusing
+   = note: `#[warn(mismatched_lifetime_syntaxes)]` on by default
+help: use `'_` for type paths
+   |
+46 |     pub fn new(tracker: &ProgressTracker) -> Changer<'_> {
+   |                                                     ++++
+
+warning: hiding a lifetime that's elided elsewhere is confusing
+   --> vendor/raft/src/confchange/changer.rs:272:23
+    |
+272 |     fn check_and_copy(&self) -> Result<(Configuration, IncrChangeMap)> {
+    |                       ^^^^^                            ^^^^^^^^^^^^^ the same lifetime is hidden here
+    |                       |
+    |                       the lifetime is elided here
+    |
+    = help: the same lifetime is referred to in inconsistent ways, making the signature confusing
+help: use `'_` for type paths
+    |
+272 |     fn check_and_copy(&self) -> Result<(Configuration, IncrChangeMap<'_>)> {
+    |                                                                     ++++
+
+warning: hiding a lifetime that's elided elsewhere is confusing
+   --> vendor/raft/src/raw_node.rs:729:19
+    |
+729 |     pub fn status(&self) -> Status {
+    |                   ^^^^^     ^^^^^^ the same lifetime is hidden here
+    |                   |
+    |                   the lifetime is elided here
+    |
+    = help: the same lifetime is referred to in inconsistent ways, making the signature confusing
+help: use `'_` for type paths
+    |
+729 |     pub fn status(&self) -> Status<'_> {
+    |                                   ++++
+
+warning: `raft` (lib) generated 11 warnings (run `cargo fix --lib -p raft` to apply 5 suggestions)
+    Finished `test` profile [unoptimized] target(s) in 0.23s
+     Running tests/native_node.rs (/Users/haipingfu/Workspace/crabbuild-target/cellar-23c7-multi-raft/debug/deps/native_node-120cde84c437b25c)
+<jemalloc>: option background_thread currently supports pthread only
+
+running 88 tests
+test cancelled_bootstrap_observation_does_not_consume_the_only_host_blocking_worker ... ok
+test cancelled_bootstrap_retains_directory_until_started_application_factory_has_joined ... ok
+test conclusively_lost_fleet_proof_cannot_install_a_successor ... ok
+test embedded_node_joins_raft_service_with_retained_handles ... ok
+test explicit_public_node_policy_ignores_invalid_process_configuration ... ok
+test factory_entry_observation_keeps_its_deadline_for_queued_notifications ... ok
+test failed_predecessor_recovery_preserves_the_predecessor_generation_and_releases_the_directory ... ok
+test full_node_admits_cold_cells_past_a_covered_alarm ... ok
+test management_authentication_generation_and_host_capabilities_are_enforced ... ok
+test management_crons_report_pending_until_embedded_host_adopts ... ok
+test management_resource_writes_survive_forced_owner_closure ... ok
+test management_resource_writes_survive_owner_handoff ... ok
+test management_stop_receipts_distinguish_draining_joined_and_incomplete_work ... ok
+test node_assets::embedded_nodes_keep_asset_caches_and_shutdown_independent ... ok
+test node_events::catalog_inventory_pages_tombstones_and_recovers_owner_handoff ... ok
+test node_events::console_event_adapters_use_signed_owner_routes_and_guarded_receipts ... ok
+test node_events::event_clock_retention::clock_retention_bounded_expiry_survives_rollback_and_owner_handoff ... ok
+test node_events::event_clock_retention::clock_retention_required_checkpoint_survives_expiry_rollback_and_handoff ... ok
+test node_events::event_consumer_overlap::overlapping_consumers_deduplicate_before_current_ack ... ok
+test node_events::event_consumer_overlap::overlapping_consumers_preserve_next_lease_after_current_ack ... ok
+test node_events::event_consumer_takeover::running_consumer_cannot_accept_after_fenced_takeover ... ok
+test node_events::event_consumer_takeover::running_consumer_receipt_and_effect_cannot_commit_after_fenced_takeover ... ok
+test node_events::event_fetch_reply::lost_proven_fetch_recovers_exact_lease_after_owner_handoff ... ok
+test node_events::event_late_reply::delayed_proven_ack_survives_destination_fencing_without_consuming_the_next_lease ... ok
+test node_events::event_late_reply::late_proven_append_reply_cannot_settle_a_fenced_source_successor ... ok
+test node_events::event_late_reply::operator_retry_ignores_prior_generation_append_acceptance ... ok
+test node_events::event_late_reply::operator_retry_ignores_prior_generation_append_refusal ... ok
+test node_events::event_metrics_export_tracks_real_work_and_keeps_hosts_isolated ... ok
+test node_events::event_owner_outage::storage_isolated_event_owner_expires_and_recovers_before_replay ... ok
+test node_events::event_refusal_clock::cold_follower_audit_survives_one_read_deadline_without_receipt_replay ... ok
+test node_events::event_refusal_clock::foreign_root_loss_during_recovery_refuses_takeover_until_claimed_metadata_returns ... ok
+test node_events::event_refusal_clock::foreign_root_replacement_during_recovery_refuses_takeover_until_claimed_metadata_returns ... ok
+test node_events::event_refusal_clock::live_foreign_recovery_resumes_after_missing_claimed_metadata_returns ... ok
+test node_events::event_refusal_clock::live_foreign_recovery_resumes_after_replaced_claimed_metadata_returns ... ok
+test node_events::event_refusal_clock::missing_destination_lease_refuses_admission_until_proof_metadata_returns ... ok
+test node_events::event_refusal_clock::refused_clock_bucket_proof_survives_rollback_and_forced_owner_loss ... ok
+test node_events::event_refusal_clock::refused_clock_cold_followers_recover_before_any_receipt_replay ... ok
+test node_events::event_refusal_clock::refused_clock_follower_proof_survives_rollback_without_owner_disk_or_upload ... ok
+test node_events::event_refusal_clock::root_loss_after_lineage_capture_refuses_boot_until_original_proof_returns ... ok
+test node_events::event_refusal_clock::root_loss_after_recovery_refuses_lease_install_until_sealed_metadata_returns ... ok
+test node_events::event_refusal_clock::root_loss_during_recovery_refuses_boot_until_claimed_metadata_returns ... ok
+test node_events::event_refusal_clock::root_replacement_after_lineage_capture_refuses_boot_until_original_proof_returns ... ok
+test node_events::event_refusal_clock::root_replacement_after_recovery_refuses_lease_install_until_sealed_metadata_returns ... ok
+test node_events::event_refusal_clock::root_replacement_during_recovery_refuses_boot_until_claimed_metadata_returns ... ok
+test node_events::event_refusal_clock::same_name_restart_cannot_recover_from_a_fresh_lineage_after_root_loss ... ok
+test node_events::event_root_read::claimed_root_cut_holds_concurrent_original_responses ... ok
+test node_events::event_running_owner::running_source_poll_cannot_write_commit_or_reply_after_fenced_takeover ... ok
+test node_events::event_settlement_race::settlement_race_ack_replay_and_extension_preserve_next_lease ... ok
+test node_events::event_settlement_race::settlement_race_expiry_replacement_refuses_old_ack_and_extension ... ok
+test node_events::event_settlement_race::settlement_race_reset_invalidates_pending_ack_and_extension ... ok
+test node_events::event_unproven_ack::unproven_ack_cannot_escape_its_gate_and_recovers_the_original_lease ... ok
+test node_events::event_unproven_clock::unproven_clock_refusal_cannot_escape_and_does_not_revoke_the_original_lease ... ok
+test node_events::lost_proven_append_and_ack_replies_preserve_exact_acceptance_and_effects ... ok
+test node_events::named_bindings_resolve_grants_and_pin_uuid_across_recreation ... ok
+test node_events::node_activates_declarations_checks_adoption_and_processes_redelivery ... ok
+test node_events::node_refuses_unsupported_storage_and_peer_protocol_before_admission ... ok
+test node_events::peer_reply_fault::binary_upgrades_forward_prefetched_bytes_and_eof ... ok
+test node_events::peer_reply_fault::bodyless_abort_response_keeps_next_message_framing_intact ... ok
+test node_events::peer_reply_fault::controlled_destination_closure_preserves_framing_failures ... ok
+test node_events::peer_reply_fault::destination_reset_requires_an_explicit_shutdown_cut ... ok
+test node_events::peer_reply_fault::log_upgrade_relays_binary_bytes_and_joins_both_directions ... ok
+test node_events::peer_reply_fault::log_upgrades_preserve_buffered_binary_bytes_and_half_closes ... ok
+test node_events::peer_reply_fault::outer_tunnel_keeps_http_fault_capture_after_upgrade ... ok
+test node_events::removed_source_class_recovers_delivery_and_control_without_application_code ... ok
+test node_events::retirement_operator_coordinates_or_forces_and_recovers_terminal_receipts ... ok
+test node_events::source_destruction_fences_suspended_turns_retained_handles_and_preserves_live_watermarks ... ok
+test node_events::source_destruction_requires_retired_destinations_and_recovers_closed_admission ... ok
+test node_events::source_inventory_preserves_observed_watermarks_seals_and_owner_handoff ... ok
+test node_events::source_operator_routes_to_owner_replays_receipts_and_recovers_handoff ... ok
+test node_events::stream_operator_routes_controls_preserves_receipts_and_checks_revocation ... ok
+test node_events::subscription_inventory_pages_tombstones_and_recovers_owner_handoff ... ok
+test node_http::embedded_hosts_capture_http_clients_and_separate_deadlines ... ok
+test progressing_background_extends_the_stall_window_but_not_the_absolute_node_deadline ... ok
+test progressing_background_keeps_the_fleet_drain_token_renewed ... ok
+test public_node_applies_lifted_limits_to_cell_storage ... ok
+test public_node_deadline_reports_background_work_before_forced_retirement ... ok
+test public_node_renews_short_authority_while_its_host_worker_is_blocked ... ok
+test public_node_reports_expired_authority_after_its_executor_resumes ... ok
+test public_node_reports_missing_and_replaced_lease_authority ... ok
+test public_node_shutdown_drains_alarm_background_before_the_durability_cut ... ok
+test public_node_shutdown_drains_nested_background_across_generations_and_isolates_hosts ... ok
+test public_nodes_adopt_compiled_generations_and_force_close_without_process_exit ... ok
+test public_nodes_drain_admitted_writes_isolate_fleets_and_leave_caller_executors_running ... ok
+test remote_workflow_deletion_preserves_gated_handler_completion ... ok
+test replacement_public_node_recovers_predecessor_before_replacing_its_lease ... ok
+test signed_cron_history_forwards_without_arming_and_refuses_other_protocols ... ok
+test slow_predecessor_recovery_still_refuses_missing_witness ... ok
+test timed_out_predecessor_recovery_preserves_generation_and_releases_directory ... ok
+
+test result: ok. 88 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 638.81s
+

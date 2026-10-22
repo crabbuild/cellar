@@ -579,6 +579,17 @@ impl PaginatedListStore for UnpaginatedStore {
 }
 
 impl Bucket {
+    /// Supply Raft catalog/archive I/O through this bucket's scoped conditional
+    /// backend. CAS retries stay disabled; the archive reconciles ambiguous
+    /// outcomes by reading exact keys. The returned store adds this bucket's
+    /// prefix, so `CatalogOptions::prefix` is relative to that scope.
+    pub fn raft_store(&self) -> Arc<dyn ObjectStore> {
+        Arc::new(object_store::prefix::PrefixStore::new(
+            self.cas_store.clone(),
+            self.prefix.clone(),
+        ))
+    }
+
     /// Use application-owned ordinary, conditional-write, and paginated
     /// clients. Conditional writes must preserve ambiguous outcomes: configure
     /// their client with retries disabled and provider-enforced PutMode support.

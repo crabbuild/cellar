@@ -1,0 +1,3 @@
+Source revision: 9fac03a5b3771d51bb081bbc52b97645454174ec
+Command: ["git", "diff", "--check"]
+

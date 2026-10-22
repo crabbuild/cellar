@@ -1,0 +1,5 @@
+Source revision: a5619f3d522fd942372c520f02a52945fd0ec7b5
+Command: ["cargo", "check", "-p", "cellar-ltx", "--all-features", "--locked"]
+
+    Checking cellar-ltx v0.0.0 (/Users/haipingfu/.codex/worktrees/23c7/cellar/crates/cellar-ltx)
+    Finished `dev` profile [unoptimized] target(s) in 1.36s

@@ -13,6 +13,8 @@
 //! Ported from litestream@v0.5.11 litestream.go:18-203 and
 //! ltx@v0.5.2 ltx.go:66-145.
 
+pub mod apply;
+mod bounded_ltx;
 pub mod bundle;
 pub mod client;
 mod codec;
@@ -20,6 +22,8 @@ pub mod compaction_level;
 pub mod compactor;
 pub mod db;
 pub mod error;
+pub mod generation;
+mod generation_vfs;
 pub mod host;
 pub mod ltx;
 mod lz4_block;
@@ -54,7 +58,7 @@ pub mod internal {
 pub use error::{new_ltx_error, Error, LTXError, Result};
 pub use host::{
     DirectFileSystem, FileSystem, HostDirEntry, HostDirIterator, HostFile, HostFileIo,
-    HostMetadata, HostTaskError, LtxHost,
+    HostFileLock, HostMetadata, HostTaskError, LtxHost,
 };
 
 /// A SQLite database managed for replication (WAL-mode checkpoint takeover plus

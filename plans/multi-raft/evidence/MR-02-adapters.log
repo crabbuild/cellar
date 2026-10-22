@@ -1,0 +1,16 @@
+raft 0.7.0: adaptations match UPSTREAM.json; license retained
+  Cargo.toml: 561c9868ed301634a88a2daa3be8beb60fe4f19d2f7dc1e726d1ed6a9eadc6e3
+  registry archive SHA-256: f12688b23a649902762d4c11d854d73c49c9b93138f2de16403ef9f571ad5bae
+raft-proto 0.7.0: adaptations match UPSTREAM.json; license retained
+  Cargo.toml: c4d11204a3e4614ddf268347688bbd6db43c3c6c047e871c30ecefc722636522
+  build.rs: 175930c510e96fdc3412c91820d309a63f2fa0fc5c4f2728e2018f89d8893a9b
+  src/lib.rs: 4c7ff51124b1eea7e8409192195e3056c7e1a6d5a45a1d54b687e0a393fe4672
+  registry archive SHA-256: fb6884896294f553e8d5cfbdb55080b9f5f2f43394afff59c9f077e0f4b46d6b
+raft-engine 0.4.2: adaptations match UPSTREAM.json; license retained
+  src/engine.rs: dc67823084d8bb1a4d9d50cc6b46e5b4e677fc466ad1b7645570482cf5d236d7
+  src/env/mod.rs: 09d9f7acafeef7807df9880d4ef02c683a2e8a51c03fcff1b784a7ff8a6ea38a
+  src/file_pipe_log/log_file.rs: 0663839c1b0e853015b1d17671e1358d8aadf5c396cdbeffa45c8f93fee39177
+  src/file_pipe_log/pipe.rs: 26da24b2f47c1611f058eb4a500912162d651833960f09fb640751fd97fc18ba
+  src/file_pipe_log/pipe_builder.rs: c5eeca44e351a7620752a9ecc6dde5a877b1bdcb6b873fb0f06b4d4da2b054e8
+  registry archive SHA-256: 1213c3a24e3fee8afcc74b2be08c4081adde96f092e0fc1c607abb3e16ae722e
+Raft consensus Rust sources match the published 0.7.0 crate byte for byte.

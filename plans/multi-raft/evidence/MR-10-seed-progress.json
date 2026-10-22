@@ -1,0 +1,1488 @@
+{
+  "task_id": "MR-10",
+  "source_revision": "fcaa793854a1ee17236b8276a5efd35e505eaa37",
+  "scope": "Explicit native learner admission and peer seeding; MR-10 remains IN_PROGRESS. Revision-bound administrative admission refreshes committed routes from preconfigured trusted endpoints. A purpose-separated authenticated TLS RPC requires a fresh safe ReadIndex and a published included cut. Opaque grants bind the target engine owner, process and original deadline. Ordered lease-bound body transfer retries with fresh grants after transport loss. A physically sealed image precedes atomic group/snapshot/configuration/binding/applied initialization with vote zero; permanent claims precede owner-bound attachment. Claimed blank identities and missing quorum are refused.",
+  "toolchain": "rustc 1.98.1 (48a229cea 2026-09-01)",
+  "executable_digest": "743442f959abb9080d6d39604d581865a2f4de73cbf6e63dec5ae80167f9b997",
+  "executables": {
+    "native_raft_snapshot": {
+      "sha256": "743442f959abb9080d6d39604d581865a2f4de73cbf6e63dec5ae80167f9b997",
+      "bytes": 129250368
+    },
+    "native_raft_archive": {
+      "sha256": "e15d9a3f2e916f0aeda22654077e5a2f682fc90a8b8575dda83b47370d31ba0a",
+      "bytes": 130530576
+    },
+    "native_raft_execution": {
+      "sha256": "b8a3cad42353d69b72442eca6f874c31af4cb34a4d86e9f78603dc478bbf49d8",
+      "bytes": 27297104
+    },
+    "native_raft_host": {
+      "sha256": "8cc41bacd566868f96663f0e1c36518b1be4ab7a4c26f048243607a439dbe9a7",
+      "bytes": 132226912
+    },
+    "native_raft_ltx": {
+      "sha256": "c5be78e4d1957459019d43aee5c2eae2437faa976ca3aba71963252f96e7cc89",
+      "bytes": 10696608
+    },
+    "native_raft_reads": {
+      "sha256": "aad493d2753a4a777814c9bd1b7d2e99933b4709267cf4ceff89a3c4726f2ce1",
+      "bytes": 129192448
+    },
+    "native_raft_runtime": {
+      "sha256": "4f423961e3da743999b7d7ea2659ad57672919f500c77129a0733a618fcb9431",
+      "bytes": 22579824
+    },
+    "native_raft_storage": {
+      "sha256": "7649776ef3ab994b021c76d1788dfb6fec48a2f429051dc5b4a2101d6e83c43e",
+      "bytes": 19288944
+    },
+    "native_raft_transport": {
+      "sha256": "b99db796bfee22cad4b53bee501ddfe0a4e05b73bd9911cd6138ae3e51eb21be",
+      "bytes": 31167952
+    },
+    "native_raft_contract": {
+      "sha256": "22023d9f1505319f2382effd4be4592f2baf24a1c72ccc494f9298b8a0c11a5b",
+      "bytes": 2725632
+    },
+    "cellar_lib": {
+      "sha256": "626d227af17b78bbbdf337e32306665809a4bbba22f2d8736f84b55e2c42d5eb",
+      "bytes": 134136656
+    },
+    "native_node": {
+      "sha256": "d3e3c8bbe1f1d6502e4bcfbff5ec9366093b230f2bbb3a5326d4647b1503c004",
+      "bytes": 146652976
+    }
+  },
+  "environment": "macOS-26.5.2-arm64-arm-64bit-Mach-O; real SQLite/LTX/Raft Engine and RawNodes; native four-node TLS learner admission and peer seeding from a follower; partial-body timeout/retry with small chunks; subsequent leader command and learner query; engine/image/binding reopen with vote zero; claimed blank refusal; S3-acknowledged data with missing live quorum leaves no new group or claim; existing seven snapshot process-kill cuts and owning regressions; no cellar_internal_tests",
+  "build_environment": {
+    "RUSTUP_TOOLCHAIN": "1.98.1",
+    "CARGO_TARGET_DIR": "/Users/haipingfu/Workspace/crabbuild-target/cellar-23c7-multi-raft",
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "CARGO_PROFILE_TEST_DEBUG": "0",
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_BUILD_JOBS": "3"
+  },
+  "limitations": "This does not complete MR-10 or the 17-package goal. Native S3 seed selection/install, full native joined-node restart/crash qualification and the remaining recovery fault matrix are still open. Trusted physical endpoints are preconfigured; this is explicit learner admission, without automatic placement, promotion or repair. The stable joined-state drill reopens the real engine and ImageApplier; it does not claim a complete public Node restart/replacement controller. The internal protocol identity cellar-raft-ltx-1/members-1/seeds-1 refuses earlier checksum-valid namespace roots; format markers remain 1, with no compatibility reader or migration. Use a fresh experimental namespace/prefix and local state. Object storage is in-memory. Current Node coverage is the affected Raft lifecycle case; earlier 304-case/88-Node evidence remains a separate historical source qualification. Seven ignored child entry points run through owning parents and are excluded. No physical S3, power loss, zones, production performance/capacity, larger-scale tiers, federation or complete release qualification is claimed. Existing vendored warnings remain visible.",
+  "tests": [
+    {
+      "name": "checkpoint_completion_loss_still_retains_durable_image",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "checkpoint_failed_sync_preserves_prospective_recovery_image",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "checkpoint_handoff_survives_newer_apply_late_retirement_and_restart",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "checkpoint_refuses_material_from_reopened_engine",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "compacted_boundary_term",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "empty_configuration_snapshot_installs_then_applies_first_ltx",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "empty_snapshot_refuses_data_and_cannot_erase_committed_image",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "maximum_image_retained_snapshot_and_archive_roundtrip",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "missing_quorum_restore_refused",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "native_fresh_learner_seed_refuses_missing_quorum",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "native_fresh_learner_seed_requires_committed_binding_and_resumes_reads",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "native_fresh_learner_seed_retries_partial_body_with_fresh_grant",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "native_snapshot_admission_refuses_insufficient_restore_capacity",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "native_snapshot_catchup_resumes_follower_reads",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "native_snapshot_interrupted_transfer_retries_without_blocking_other_groups",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "native_snapshot_shutdown_joins_partial_transfer",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "restart_committed_replay",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "retained_checkpoint_capture_never_substitutes_newer_state",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "retained_empty_checkpoint_has_no_image_or_payload",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "snapshot_abort_joins_older_apply_and_allows_retry",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "snapshot_abort_preserves_vote_and_committed_image",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "snapshot_abort_sync_failure_refuses_progress_and_recovers_prefix",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "snapshot_download_bounds_and_incomplete_refusal",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "snapshot_install_crash_matrix",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "snapshot_limits_require_full_encoded_image_capacity",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "snapshot_member_binding_and_retirement_survive_restart",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "snapshot_old_reader",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "snapshot_reference_survives_newer_head_and_restart",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "snapshot_refuses_rebound_binding_and_lost_id_watermark",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "snapshot_runtime_installs_physical_image_with_exact_ticket",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "snapshot_same_cut_cannot_name_an_unrelated_applied_image",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "snapshot_same_cut_requires_member_binding_marker",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "snapshot_wrong_history",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "archive_capture_refuses_unrelated_newer_marker",
+      "target": "native_raft_archive",
+      "result": "passed"
+    },
+    {
+      "name": "archive_close_releases_workspace_before_returning",
+      "target": "native_raft_archive",
+      "result": "passed"
+    },
+    {
+      "name": "archive_commands_reclaim_generations_with_small_disk_admission",
+      "target": "native_raft_archive",
+      "result": "passed"
+    },
+    {
+      "name": "archive_cut_pins_retired_image_during_outage",
+      "target": "native_raft_archive",
+      "result": "passed"
+    },
+    {
+      "name": "archive_head_lost_response_and_confirmation",
+      "target": "native_raft_archive",
+      "result": "passed"
+    },
+    {
+      "name": "archive_head_monotonic",
+      "target": "native_raft_archive",
+      "result": "passed"
+    },
+    {
+      "name": "archive_io_deadline_retries_without_reexecuting",
+      "target": "native_raft_archive",
+      "result": "passed"
+    },
+    {
+      "name": "archive_never_speculative",
+      "target": "native_raft_archive",
+      "result": "passed"
+    },
+    {
+      "name": "archive_noop_tail_and_exact_configuration_checkpoint",
+      "target": "native_raft_archive",
+      "result": "passed"
+    },
+    {
+      "name": "archive_pin_pressure_defers_committed_apply_without_corruption",
+      "target": "native_raft_archive",
+      "result": "passed"
+    },
+    {
+      "name": "archive_reconciles_lost_put_response",
+      "target": "native_raft_archive",
+      "result": "passed"
+    },
+    {
+      "name": "archive_refuses_different_engine_birth",
+      "target": "native_raft_archive",
+      "result": "passed"
+    },
+    {
+      "name": "archive_refuses_foreign_birth_and_noncanonical_head",
+      "target": "native_raft_archive",
+      "result": "passed"
+    },
+    {
+      "name": "archive_refuses_member_binding_birth_mismatch",
+      "target": "native_raft_archive",
+      "result": "passed"
+    },
+    {
+      "name": "archive_replay_failure_never_publishes_head",
+      "target": "native_raft_archive",
+      "result": "passed"
+    },
+    {
+      "name": "archive_shutdown_joins_hung_store_without_acknowledging",
+      "target": "native_raft_archive",
+      "result": "passed"
+    },
+    {
+      "name": "archive_tail_limit_establishes_new_snapshot",
+      "target": "native_raft_archive",
+      "result": "passed"
+    },
+    {
+      "name": "archive_verifies_every_dependency_and_object",
+      "target": "native_raft_archive",
+      "result": "passed"
+    },
+    {
+      "name": "bucket_archive_store_preserves_prefix_and_conditional_writes",
+      "target": "native_raft_archive",
+      "result": "passed"
+    },
+    {
+      "name": "committed_archive_restores_snapshot_and_physical_tail",
+      "target": "native_raft_archive",
+      "result": "passed"
+    },
+    {
+      "name": "quorum_s3_outage",
+      "target": "native_raft_archive",
+      "result": "passed"
+    },
+    {
+      "name": "retention_preserves_only_copy",
+      "target": "native_raft_archive",
+      "result": "passed"
+    },
+    {
+      "name": "retry_strengthens_durability",
+      "target": "native_raft_archive",
+      "result": "passed"
+    },
+    {
+      "name": "s3_ack_complete_restore_set",
+      "target": "native_raft_archive",
+      "result": "passed"
+    },
+    {
+      "name": "s3_three_voter_failover_restores_only_committed_commands",
+      "target": "native_raft_archive",
+      "result": "passed"
+    },
+    {
+      "name": "s3_timeout_ambiguous",
+      "target": "native_raft_archive",
+      "result": "passed"
+    },
+    {
+      "name": "unpolled_s3_waiter_cannot_receive_success_after_deadline",
+      "target": "native_raft_archive",
+      "result": "passed"
+    },
+    {
+      "name": "apply_entry_and_schema_identity_are_bound",
+      "target": "native_raft_execution",
+      "result": "passed"
+    },
+    {
+      "name": "apply_marker_crash_cut",
+      "target": "native_raft_execution",
+      "result": "passed"
+    },
+    {
+      "name": "apply_recovery_follows_engine_marker",
+      "target": "native_raft_execution",
+      "result": "passed"
+    },
+    {
+      "name": "command_failure_and_result_limit_roll_back",
+      "target": "native_raft_execution",
+      "result": "passed"
+    },
+    {
+      "name": "command_transaction_restricts_sql_and_captures_inputs",
+      "target": "native_raft_execution",
+      "result": "passed"
+    },
+    {
+      "name": "conflicting_command_digest",
+      "target": "native_raft_execution",
+      "result": "passed"
+    },
+    {
+      "name": "duplicate_command_receipt",
+      "target": "native_raft_execution",
+      "result": "passed"
+    },
+    {
+      "name": "image_publication_waits_for_engine_marker",
+      "target": "native_raft_execution",
+      "result": "passed"
+    },
+    {
+      "name": "lost_proposal_rebuild",
+      "target": "native_raft_execution",
+      "result": "passed"
+    },
+    {
+      "name": "new_term_barrier_retires_uncertain_shadow_without_reusing_it",
+      "target": "native_raft_execution",
+      "result": "passed"
+    },
+    {
+      "name": "oversized_delta_atomic_refusal",
+      "target": "native_raft_execution",
+      "result": "passed"
+    },
+    {
+      "name": "private_checkpoint_capture_covers_control_writes",
+      "target": "native_raft_execution",
+      "result": "passed"
+    },
+    {
+      "name": "private_commit_not_visible",
+      "target": "native_raft_execution",
+      "result": "passed"
+    },
+    {
+      "name": "receipt_expiry_floor",
+      "target": "native_raft_execution",
+      "result": "passed"
+    },
+    {
+      "name": "registered_command_uses_exact_image_receipt_and_read_only_query",
+      "target": "native_raft_execution",
+      "result": "passed"
+    },
+    {
+      "name": "submitted_command_recovery",
+      "target": "native_raft_execution",
+      "result": "passed"
+    },
+    {
+      "name": "birth_handle_cannot_cross_catalog_instances",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "cancelled_private_callback_is_joined_before_its_slot_is_reused",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "catalog_reconciles_lost_create_responses",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "catalog_refuses_corrupt_and_oversized_records",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "command_manifest_binds_voting_compatibility_without_query_requirements",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "competing_bootstrap_disks_cannot_both_join",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "fleet_gate_unchanged",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "live_mode_admission_refuses_conflicts_before_mutable_execution",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "namespace_mode_conflict",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "native_axum_command_parity",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "native_axum_nonmember_query_router_parity",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "operation_registration_binds_schema_kind_and_digest",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "parked_bootstrap_requires_stable_claim",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "public_multi_group_replication_and_leader_failover",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "query_router_requires_existing_namespace_and_birth",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "raft_gate_exact_receipt",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "registered_callbacks_refuse_captured_sdk_handles",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "retained_handle_fenced",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "snapshot_capacity_refused_before_member_storage_opens",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "submitted_partition_retains_producer_until_follower_barrier",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "unconfirmed_claim_keeps_the_group_parked",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "unpolled_waiter_cannot_submit_after_its_deadline",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "unsupported_factory_refused",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "bounded_decoder_checks_physical_index_and_snapshot_coverage",
+      "target": "native_raft_ltx",
+      "result": "passed"
+    },
+    {
+      "name": "bounded_decoder_matches_both_ltx_writers",
+      "target": "native_raft_ltx",
+      "result": "passed"
+    },
+    {
+      "name": "bounded_decoder_refuses_expansion_before_decompression",
+      "target": "native_raft_ltx",
+      "result": "passed"
+    },
+    {
+      "name": "bounded_decoder_rejects_mutation_without_panics",
+      "target": "native_raft_ltx",
+      "result": "passed"
+    },
+    {
+      "name": "bounded_decoder_round_trips_real_sqlite_state",
+      "target": "native_raft_ltx",
+      "result": "passed"
+    },
+    {
+      "name": "bounded_image_reclamation",
+      "target": "native_raft_ltx",
+      "result": "passed"
+    },
+    {
+      "name": "image_sync_before_marker",
+      "target": "native_raft_ltx",
+      "result": "passed"
+    },
+    {
+      "name": "immutable_query_uses_injected_filesystem",
+      "target": "native_raft_ltx",
+      "result": "passed"
+    },
+    {
+      "name": "immutable_reader_pinning",
+      "target": "native_raft_ltx",
+      "result": "passed"
+    },
+    {
+      "name": "ltx_checksum_corruption",
+      "target": "native_raft_ltx",
+      "result": "passed"
+    },
+    {
+      "name": "ltx_exact_base",
+      "target": "native_raft_ltx",
+      "result": "passed"
+    },
+    {
+      "name": "ltx_growth_truncation",
+      "target": "native_raft_ltx",
+      "result": "passed"
+    },
+    {
+      "name": "monotonic_generation_reference_survives_retirement_without_io",
+      "target": "native_raft_ltx",
+      "result": "passed"
+    },
+    {
+      "name": "multi_file_apply_and_optional_checksum_transitions",
+      "target": "native_raft_ltx",
+      "result": "passed"
+    },
+    {
+      "name": "query_services_and_directory_ownership_are_independent",
+      "target": "native_raft_ltx",
+      "result": "passed"
+    },
+    {
+      "name": "recovered_inventory_retires_only_after_complete_reference_validation",
+      "target": "native_raft_ltx",
+      "result": "passed"
+    },
+    {
+      "name": "unexpected_final_name_is_never_overwritten",
+      "target": "native_raft_ltx",
+      "result": "passed"
+    },
+    {
+      "name": "completed_unpolled_responses_keep_their_byte_budget",
+      "target": "native_raft_reads",
+      "result": "passed"
+    },
+    {
+      "name": "delayed_tcp_query_reply_cannot_settle_a_later_read",
+      "target": "native_raft_reads",
+      "result": "passed"
+    },
+    {
+      "name": "fallback_preserves_contract",
+      "target": "native_raft_reads",
+      "result": "passed"
+    },
+    {
+      "name": "linearizable_read_barrier",
+      "target": "native_raft_reads",
+      "result": "passed"
+    },
+    {
+      "name": "lost_read_index_response_retries_without_leader_change",
+      "target": "native_raft_reads",
+      "result": "passed"
+    },
+    {
+      "name": "minority_strong_read_refused",
+      "target": "native_raft_reads",
+      "result": "passed"
+    },
+    {
+      "name": "nonmember_router_reads_only_granted_namespaces_without_local_state",
+      "target": "native_raft_reads",
+      "result": "passed"
+    },
+    {
+      "name": "ordinary_context::active_ordinary_context_and_storage_are_refused",
+      "target": "native_raft_reads",
+      "result": "passed"
+    },
+    {
+      "name": "query_token_auth_scope",
+      "target": "native_raft_reads",
+      "result": "passed"
+    },
+    {
+      "name": "query_write_capability_denied",
+      "target": "native_raft_reads",
+      "result": "passed"
+    },
+    {
+      "name": "read_your_writes_follower",
+      "target": "native_raft_reads",
+      "result": "passed"
+    },
+    {
+      "name": "remote_query_wait_cannot_block_its_ltx_catchup",
+      "target": "native_raft_reads",
+      "result": "passed"
+    },
+    {
+      "name": "saturated_query_peer_refuses_and_expires_queued_work",
+      "target": "native_raft_reads",
+      "result": "passed"
+    },
+    {
+      "name": "stale_is_committed_prefix",
+      "target": "native_raft_reads",
+      "result": "passed"
+    },
+    {
+      "name": "unpolled_query_deadline_interrupts_sql_and_joins_work",
+      "target": "native_raft_reads",
+      "result": "passed"
+    },
+    {
+      "name": "version_key_deadline_and_payload_limits",
+      "target": "native_raft_reads",
+      "result": "passed"
+    },
+    {
+      "name": "version_key_rotation_survives_restart_and_ambiguous_catalog_write",
+      "target": "native_raft_reads",
+      "result": "passed"
+    },
+    {
+      "name": "voter_without_query_code_can_route_to_a_compatible_replica",
+      "target": "native_raft_reads",
+      "result": "passed"
+    },
+    {
+      "name": "apply_progress_order",
+      "target": "native_raft_runtime",
+      "result": "passed"
+    },
+    {
+      "name": "current_term_admission_barrier",
+      "target": "native_raft_runtime",
+      "result": "passed"
+    },
+    {
+      "name": "domain_shutdown_joins_consensus_and_log",
+      "target": "native_raft_runtime",
+      "result": "passed"
+    },
+    {
+      "name": "election_randomness_is_explicit",
+      "target": "native_raft_runtime",
+      "result": "passed"
+    },
+    {
+      "name": "failed_engine_closes_with_typed_error",
+      "target": "native_raft_runtime",
+      "result": "passed"
+    },
+    {
+      "name": "light_ready_commit_saved",
+      "target": "native_raft_runtime",
+      "result": "passed"
+    },
+    {
+      "name": "malformed_peer_message_is_refused",
+      "target": "native_raft_runtime",
+      "result": "passed"
+    },
+    {
+      "name": "noop_configuration_progress",
+      "target": "native_raft_runtime",
+      "result": "passed"
+    },
+    {
+      "name": "owned_clock_elects_without_campaign",
+      "target": "native_raft_runtime",
+      "result": "passed"
+    },
+    {
+      "name": "pending_readindex_is_bounded",
+      "target": "native_raft_runtime",
+      "result": "passed"
+    },
+    {
+      "name": "ready_persistence_order",
+      "target": "native_raft_runtime",
+      "result": "passed"
+    },
+    {
+      "name": "runtime_close_fences_full_queue",
+      "target": "native_raft_runtime",
+      "result": "passed"
+    },
+    {
+      "name": "snapshot_requires_verified_install",
+      "target": "native_raft_runtime",
+      "result": "passed"
+    },
+    {
+      "name": "stalled_group_isolation",
+      "target": "native_raft_runtime",
+      "result": "passed"
+    },
+    {
+      "name": "append_sync_boundary",
+      "target": "native_raft_storage",
+      "result": "passed"
+    },
+    {
+      "name": "birth_sync_retry_reuses_numeric_key",
+      "target": "native_raft_storage",
+      "result": "passed"
+    },
+    {
+      "name": "conflicting_suffix_replaced",
+      "target": "native_raft_storage",
+      "result": "passed"
+    },
+    {
+      "name": "corrupt_storage_refused",
+      "target": "native_raft_storage",
+      "result": "passed"
+    },
+    {
+      "name": "disk_loss_identity",
+      "target": "native_raft_storage",
+      "result": "passed"
+    },
+    {
+      "name": "engine_group_isolation",
+      "target": "native_raft_storage",
+      "result": "passed"
+    },
+    {
+      "name": "interrupted_purge_preserves_group",
+      "target": "native_raft_storage",
+      "result": "passed"
+    },
+    {
+      "name": "snapshot_metadata_survives_process_kill",
+      "target": "native_raft_storage",
+      "result": "passed"
+    },
+    {
+      "name": "storage_budget_and_domain_close",
+      "target": "native_raft_storage",
+      "result": "passed"
+    },
+    {
+      "name": "vote_survives_restart",
+      "target": "native_raft_storage",
+      "result": "passed"
+    },
+    {
+      "name": "concurrent_senders_preserve_connection_sequence",
+      "target": "native_raft_transport",
+      "result": "passed"
+    },
+    {
+      "name": "control_progress_while_snapshot_pending",
+      "target": "native_raft_transport",
+      "result": "passed"
+    },
+    {
+      "name": "control_traffic_reserved",
+      "target": "native_raft_transport",
+      "result": "passed"
+    },
+    {
+      "name": "inbound_byte_budget_survives_frame_acknowledgement",
+      "target": "native_raft_transport",
+      "result": "passed"
+    },
+    {
+      "name": "inbound_snapshot_shutdown_preserves_durable_prefix",
+      "target": "native_raft_transport",
+      "result": "passed"
+    },
+    {
+      "name": "one_way_partition",
+      "target": "native_raft_transport",
+      "result": "passed"
+    },
+    {
+      "name": "peer_response_authenticated",
+      "target": "native_raft_transport",
+      "result": "passed"
+    },
+    {
+      "name": "protected_transport_refuses_wrong_hostname_and_plaintext",
+      "target": "native_raft_transport",
+      "result": "passed"
+    },
+    {
+      "name": "sender_hints_do_not_block_other_groups",
+      "target": "native_raft_transport",
+      "result": "passed"
+    },
+    {
+      "name": "snapshot_completion_has_reserved_admission",
+      "target": "native_raft_transport",
+      "result": "passed"
+    },
+    {
+      "name": "stale_incarnation_message",
+      "target": "native_raft_transport",
+      "result": "passed"
+    },
+    {
+      "name": "transport_byte_limits",
+      "target": "native_raft_transport",
+      "result": "passed"
+    },
+    {
+      "name": "transport_owner_and_domain_shutdown",
+      "target": "native_raft_transport",
+      "result": "passed"
+    },
+    {
+      "name": "unknown_group_no_allocation",
+      "target": "native_raft_transport",
+      "result": "passed"
+    },
+    {
+      "name": "birth_retry_identity",
+      "target": "native_raft_contract",
+      "result": "passed"
+    },
+    {
+      "name": "envelope_bounds",
+      "target": "native_raft_contract",
+      "result": "passed"
+    },
+    {
+      "name": "incarnation_token_scope",
+      "target": "native_raft_contract",
+      "result": "passed"
+    },
+    {
+      "name": "late_completion_model",
+      "target": "native_raft_contract",
+      "result": "passed"
+    },
+    {
+      "name": "mode_isolation",
+      "target": "native_raft_contract",
+      "result": "passed"
+    },
+    {
+      "name": "speculative_visibility_model",
+      "target": "native_raft_contract",
+      "result": "passed"
+    },
+    {
+      "name": "raft::catalog_wire::tests::root_refuses_earlier_protocols",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::manifest::tests::archive_configuration_set_order_is_canonical",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::manifest::tests::archive_configuration_unknown_and_duplicate_members_refused",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::member_state::tests::fresh_bindings_require_learner_first",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::member_state::tests::joint_leave_keeps_bindings_until_outgoing_member_retires",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::member_state::tests::retired_ids_and_watermark_survive_serialization",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::member_state::tests::snapshot_successor_refuses_rebinding_resurrection_and_lost_watermark",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::member_state::tests::stale_noncanonical_unknown_and_oversized_intents_refused",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::query_wire::tests::query_origin_binds_node_process_without_voting_identity",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::query_wire::tests::query_wire_binds_channel_request_route_and_payload",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::query_wire::tests::query_wire_failures_remain_typed",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::query_wire::tests::query_wire_preserves_explicit_constraints",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::query_wire::tests::query_wire_refuses_size_replay_and_consensus_domain_confusion",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::transport::tests::poisoned_registry_still_waits_for_resource_owners",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::transport::tests::query_grants_are_scoped_revocable_and_never_voting_authority",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::transport_frame::tests::lane_is_derived_from_actual_message",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::transport_frame::tests::prefix_rejects_large_lengths_before_header_allocation",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::transport_frame::tests::protobuf_preflight_bounds_decoded_entries_and_snapshot_members",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::transport_frame::tests::request_binds_body_prefix_and_channel",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::transport_frame::tests::response_domain_cannot_authenticate_request",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::transport_frame::tests::response_requires_channel_request_and_route",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::transport_frame::tests::strict_header_identity_sequence_and_protocol",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "embedded_node_joins_raft_service_with_retained_handles",
+      "target": "native_node",
+      "result": "passed"
+    }
+  ],
+  "commands": [
+    {
+      "name": "snapshot-list",
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--test",
+        "native_raft_snapshot",
+        "--locked",
+        "--",
+        "--list"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-10-seed-snapshot-list.log",
+      "elapsed_seconds": 52.87,
+      "sha256": "c4f8af37d42a2927d872d9e6589ebd1f01020d819916908f40290025aace899f"
+    },
+    {
+      "name": "contract-list",
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--test",
+        "native_raft_contract",
+        "--locked",
+        "--",
+        "--list"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-10-seed-contract-list.log",
+      "elapsed_seconds": 1.2,
+      "sha256": "9eb5cf40a9fdb22f1206fa5ecd9600a20f360bf9d1454df024d1fc76294ada1c"
+    },
+    {
+      "name": "inventory",
+      "argv": [
+        "python3",
+        "plans/multi-raft/plan.py",
+        "check-list",
+        "MR-10",
+        "plans/multi-raft/evidence/MR-10-seed-snapshot-list.log"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-10-seed-inventory.log",
+      "elapsed_seconds": 0.09,
+      "sha256": "6b9def6ab17dd07d211054bb24d6c1b307335689771cc23ac07e2daa00a0a7cc"
+    },
+    {
+      "name": "snapshot-test",
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--test",
+        "native_raft_snapshot",
+        "--locked",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-10-seed-snapshot-test.log",
+      "elapsed_seconds": 92.49,
+      "sha256": "d11b7b53f9bfe5498f2b99111882a8074ae10c722996b592a36975a2fc7e9488"
+    },
+    {
+      "name": "owning-test",
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--test",
+        "native_raft_archive",
+        "--test",
+        "native_raft_execution",
+        "--test",
+        "native_raft_host",
+        "--test",
+        "native_raft_ltx",
+        "--test",
+        "native_raft_reads",
+        "--test",
+        "native_raft_runtime",
+        "--test",
+        "native_raft_storage",
+        "--test",
+        "native_raft_transport",
+        "--locked",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-10-seed-owning-test.log",
+      "elapsed_seconds": 108.73,
+      "sha256": "de566212cd3030805398aa12dad5e5897f7d34c1feae09df05470467cac5d9ff"
+    },
+    {
+      "name": "contract-test",
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--test",
+        "native_raft_contract",
+        "--locked",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-10-seed-contract-test.log",
+      "elapsed_seconds": 0.58,
+      "sha256": "16e14f9a635f6111fa5025f87407f927d210035cd9a6d8a756dae75273d3dffc"
+    },
+    {
+      "name": "lib-test",
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--lib",
+        "--locked",
+        "--",
+        "raft::",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-10-seed-lib-test.log",
+      "elapsed_seconds": 51.66,
+      "sha256": "15a8573b3ef97e558f840cdf7551665bfda79906178b46dcf44eba09490916f5"
+    },
+    {
+      "name": "node-raft",
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--test",
+        "native_node",
+        "--locked",
+        "--",
+        "embedded_node_joins_raft_service_with_retained_handles",
+        "--exact",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-10-seed-node-raft.log",
+      "elapsed_seconds": 11.01,
+      "sha256": "55345910e4d93f6ff6b5c2b3919df932d65a64f96f56868341fd8241c1359f66"
+    },
+    {
+      "name": "clippy",
+      "argv": [
+        "cargo",
+        "clippy",
+        "-p",
+        "cellar",
+        "--lib",
+        "--test",
+        "native_raft_snapshot",
+        "--test",
+        "native_raft_archive",
+        "--test",
+        "native_raft_execution",
+        "--test",
+        "native_raft_host",
+        "--test",
+        "native_raft_ltx",
+        "--test",
+        "native_raft_reads",
+        "--test",
+        "native_raft_runtime",
+        "--test",
+        "native_raft_storage",
+        "--test",
+        "native_raft_transport",
+        "--test",
+        "native_raft_contract",
+        "--test",
+        "native_node",
+        "--locked",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-10-seed-clippy.log",
+      "elapsed_seconds": 5.79,
+      "sha256": "01b3c1d6a2431c2df3a376c073e52b7093a7415e9fb871f0ac311d372534920e"
+    },
+    {
+      "name": "ltx-no-default",
+      "argv": [
+        "cargo",
+        "check",
+        "-p",
+        "cellar-ltx",
+        "--no-default-features",
+        "--locked"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-10-seed-ltx-no-default.log",
+      "elapsed_seconds": 0.24,
+      "sha256": "9fc421ed67059e4bbfdf0c9d845ca8881cf54160900303c15a174093f88bec36"
+    },
+    {
+      "name": "ltx-all",
+      "argv": [
+        "cargo",
+        "check",
+        "-p",
+        "cellar-ltx",
+        "--all-features",
+        "--locked"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-10-seed-ltx-all.log",
+      "elapsed_seconds": 0.17,
+      "sha256": "a5152291a457ce5ddc38883bb059674bd548789ad906c5e786146c6becc3e3dc"
+    },
+    {
+      "name": "ltx-clippy-no-default",
+      "argv": [
+        "cargo",
+        "clippy",
+        "-p",
+        "cellar-ltx",
+        "--no-default-features",
+        "--locked",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-10-seed-ltx-clippy-no-default.log",
+      "elapsed_seconds": 0.21,
+      "sha256": "447894b313134666908596d6da1b62ce298bd5dcd8c9f6413408d68fd8f17d9a"
+    },
+    {
+      "name": "ltx-clippy-all",
+      "argv": [
+        "cargo",
+        "clippy",
+        "-p",
+        "cellar-ltx",
+        "--all-features",
+        "--locked",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-10-seed-ltx-clippy-all.log",
+      "elapsed_seconds": 0.16,
+      "sha256": "a7f8ff2dfe29589c28a88bde76910a2fd64105daa4ca2a59519a3da5d5e36792"
+    },
+    {
+      "name": "format",
+      "argv": [
+        "cargo",
+        "format",
+        "--check"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-10-seed-format.log",
+      "elapsed_seconds": 36.38,
+      "sha256": "6ebcb413c66d5d650df9d57f386ac927806157d31e9c76e74d3aa20a946bf883"
+    },
+    {
+      "name": "layout",
+      "argv": [
+        "cargo",
+        "check-layout"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-10-seed-layout.log",
+      "elapsed_seconds": 0.13,
+      "sha256": "8f1fc30030f4a14f1a12ada0f079ffc347eceb6daaef32213e403655abdc20d3"
+    },
+    {
+      "name": "dependencies",
+      "argv": [
+        "python3",
+        "tools/check_native_dependencies.py"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-10-seed-dependencies.log",
+      "elapsed_seconds": 0.23,
+      "sha256": "a1bb18445c2e3f839f73661a1c7074477e885c258c5fa476df307aa05f3833c4"
+    },
+    {
+      "name": "docs",
+      "argv": [
+        "python3",
+        "tools/docs/check.py"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-10-seed-docs.log",
+      "elapsed_seconds": 0.07,
+      "sha256": "9a3383974445a8932cbe5dfab38b3ce5949ce1472104bee89e007fe5add8a3f7"
+    },
+    {
+      "name": "plan",
+      "argv": [
+        "python3",
+        "plans/multi-raft/plan.py",
+        "validate"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-10-seed-plan.log",
+      "elapsed_seconds": 0.08,
+      "sha256": "1f2ad407160327cc92218da7d0fcdb2720f33a4afac9f86d1ae58ebc8e3fc63d"
+    },
+    {
+      "name": "plan-tests",
+      "argv": [
+        "python3",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "plans/multi-raft",
+        "-p",
+        "test_*.py"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-10-seed-plan-tests.log",
+      "elapsed_seconds": 0.12,
+      "sha256": "2b8d75293c10e0744daa5ae11117918567de23bc7279f5912d57ad45fe039922"
+    },
+    {
+      "name": "preflight",
+      "argv": [
+        "python3",
+        "plans/multi-raft/plan.py",
+        "preflight"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-10-seed-preflight.log",
+      "elapsed_seconds": 0.09,
+      "sha256": "6a5c6d6fff7537cf2941f8d00112b9e7843e8d803a5e7bd01ee64d85e8aaa590"
+    },
+    {
+      "name": "diff",
+      "argv": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-10-seed-diff.log",
+      "elapsed_seconds": 0.02,
+      "sha256": "b0a8f6648dabe45d45ac9a432e606c4e2bded2db5073462d525355b52f1f5d13"
+    }
+  ],
+  "ignored_child_entrypoints": [
+    {
+      "name": "snapshot_process_fixture",
+      "target": "native_raft_snapshot"
+    },
+    {
+      "name": "apply_crash_process",
+      "target": "native_raft_execution"
+    },
+    {
+      "name": "private_crash_process",
+      "target": "native_raft_execution"
+    },
+    {
+      "name": "image_crash_process",
+      "target": "native_raft_ltx"
+    },
+    {
+      "name": "runtime_process_fixture",
+      "target": "native_raft_runtime"
+    },
+    {
+      "name": "storage_process_fixture",
+      "target": "native_raft_storage"
+    },
+    {
+      "name": "raft_transport_process",
+      "target": "native_raft_transport"
+    }
+  ],
+  "counts": {
+    "rust_passed": 201,
+    "by_target": {
+      "native_raft_snapshot": 33,
+      "native_raft_archive": 27,
+      "native_raft_execution": 16,
+      "native_raft_host": 23,
+      "native_raft_ltx": 17,
+      "native_raft_reads": 18,
+      "native_raft_runtime": 14,
+      "native_raft_storage": 10,
+      "native_raft_transport": 14,
+      "native_raft_contract": 6,
+      "cellar_lib": 22,
+      "native_node": 1
+    },
+    "successful_commands": 21,
+    "required_snapshot_inventory_cases": 23,
+    "planning_cases": 17,
+    "snapshot_process_kill_cuts": 7,
+    "ignored_child_entrypoints": 7
+  }
+}

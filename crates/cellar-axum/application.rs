@@ -95,6 +95,13 @@ impl Application for AxumApplication {
         self.delegate.supports_cell(class)
     }
 
+    fn resolve_raft_class(
+        &self,
+        class: &str,
+    ) -> std::result::Result<Arc<cellar::sdk::RaftClass>, cellar::sdk::RegistrationError> {
+        self.delegate.resolve_raft_class(class)
+    }
+
     fn create_cell(&self, context: Context, identity: &CellIdentity) -> Result<Arc<dyn Cell>> {
         self.delegate.create_cell(context, identity)
     }

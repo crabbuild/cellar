@@ -22,6 +22,14 @@ name = "cellar-native-counter"
 path = "../../examples/native-counter/main.rs"
 
 [[bin]]
+name = "cellar-raft-counter"
+path = "../../examples/raft-counter/main.rs"
+
+[[bin]]
+name = "cellar-raft-effects"
+path = "../../examples/raft-effects/main.rs"
+
+[[bin]]
 name = "cellar-native-websocket"
 path = "../../examples/native-websocket/main.rs"
 
@@ -108,6 +116,10 @@ object_store = { workspace = true, features = ["aws", "azure", "gcp"] }
 parquet.workspace = true
 percent-encoding.workspace = true
 rand.workspace = true
+raft.workspace = true
+raft-engine.workspace = true
+protobuf.workspace = true
+slog.workspace = true
 regex.workspace = true
 reqwest = { workspace = true, features = ["rustls-tls", "stream", "json"] }
 rusqlite = { workspace = true, features = ["backup", "blob", "bundled", "hooks", "serialize"] }

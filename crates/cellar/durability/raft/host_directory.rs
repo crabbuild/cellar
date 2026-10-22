@@ -1,0 +1,240 @@
+//! Owned exact-key discovery. Directory observations refresh endpoints only;
+//! existing quorum authority survives missing metadata or an object-store outage.
+use super::*;
+use std::time::Duration;
+
+#[derive(Clone, Debug)]
+pub struct RaftNodeDirectoryOptions {
+    /// Independent host timer interval; no application traffic is required.
+    pub poll_ms: u64,
+    /// Original deadline shared by every operation in one discovery batch.
+    pub timeout_ms: u64,
+    /// At most this many bounded node records are observed concurrently.
+    pub batch_nodes: usize,
+}
+
+impl Default for RaftNodeDirectoryOptions {
+    fn default() -> Self {
+        Self {
+            poll_ms: 250,
+            timeout_ms: 5000,
+            batch_nodes: 4,
+        }
+    }
+}
+
+impl RaftNodeDirectoryOptions {
+    pub(super) fn validate(&self) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            (10..=60_000).contains(&self.poll_ms)
+                && (1..=60_000).contains(&self.timeout_ms)
+                && (1..=8).contains(&self.batch_nodes),
+            "invalid node directory bounds"
+        );
+        Ok(())
+    }
+}
+
+pub(super) struct Directory {
+    options: RaftNodeDirectoryOptions,
+    registrations: Vec<NodeRegistration>,
+    trusted: Vec<RaftPeerNode>,
+    namespace: usize,
+    node: usize,
+    next_at: u64,
+    busy: bool,
+    own_revision: u64,
+}
+
+fn remaining(domain: &crate::asyncrt::DomainToken, deadline: u64) -> anyhow::Result<Duration> {
+    let millis = deadline
+        .checked_sub(domain.mono_ms()?)
+        .filter(|ms| *ms > 0)
+        .ok_or_else(|| anyhow::anyhow!("node directory original deadline"))?;
+    Ok(Duration::from_millis(millis))
+}
+
+pub(super) async fn prepare(
+    options: Option<&RaftNodeDirectoryOptions>,
+    cells: &[Registration],
+    peers: &BTreeMap<NodeId, RaftPeerNode>,
+    service: &crate::daemon::NodeRaftService,
+    label: &str,
+) -> anyhow::Result<Option<Directory>> {
+    let Some(options) = options else {
+        return Ok(None);
+    };
+    options.validate()?;
+    anyhow::ensure!(
+        cells
+            .iter()
+            .any(|cell| !matches!(cell.placement, RaftCellPlacement::QueryRouter { .. })),
+        "node directory requires stable replica or standby storage"
+    );
+    let local = service.log.limits();
+    let own = peers
+        .get(&local.node)
+        .ok_or_else(|| anyhow::anyhow!("node directory requires an explicit self endpoint"))?;
+    anyhow::ensure!(
+        own.node == local.node
+            && own.disk == local.disk
+            && own.process == local.process
+            && own.label == label,
+        "node directory self endpoint disagrees with engine owner"
+    );
+    for peer in peers.values() {
+        peer.validate_endpoint()?;
+    }
+    let mut namespaces = BTreeMap::new();
+    for cell in cells {
+        cell.namespace
+            .require_mode(cellar_logic::NamespaceMode::Raft)?;
+        anyhow::ensure!(
+            cell.namespace.config().schema_digest == cell.class.schema_digest(),
+            "registered schema disagrees with namespace"
+        );
+        namespaces
+            .entry(cell.namespace.config().cluster)
+            .or_insert_with(|| cell.namespace.clone());
+    }
+    let domain = service.log.domain();
+    let deadline = domain.mono_ms()?.saturating_add(options.timeout_ms);
+    let mut registrations = Vec::with_capacity(namespaces.len());
+    let mut own_revision = 0;
+    for namespace in namespaces.into_values() {
+        let registration = namespace
+            .register_node_storage(&service.log, remaining(&domain, deadline)?)
+            .await?;
+        let publication = registration
+            .publication(own.clone(), remaining(&domain, deadline)?)
+            .await?;
+        let view = publication.publish(remaining(&domain, deadline)?).await?;
+        own_revision = own_revision.max(view.revision());
+        service.transport.accept_node_view(view, own)?;
+        registrations.push(registration);
+    }
+    Ok(Some(Directory {
+        options: options.clone(),
+        registrations,
+        trusted: peers.values().cloned().collect(),
+        namespace: 0,
+        node: 0,
+        next_at: domain.mono_ms()?,
+        busy: false,
+        own_revision,
+    }))
+}
+
+enum DiscoveryError {
+    Catalog(CatalogError),
+    Transport(super::super::transport::TransportError),
+}
+
+struct PeerObservation {
+    trusted: RaftPeerNode,
+    result: Result<Option<NodeView>, DiscoveryError>,
+}
+
+pub(super) struct Observation(Vec<PeerObservation>);
+
+impl Driver {
+    pub(super) fn pump_directory(&mut self) {
+        let Some(directory) = self.directory.as_mut() else {
+            return;
+        };
+        let Ok(now) = self.log.domain().mono_ms() else {
+            return;
+        };
+        if directory.busy || now < directory.next_at {
+            return;
+        }
+        directory.busy = true;
+        directory.next_at = now.saturating_add(directory.options.poll_ms);
+        let deadline = now.saturating_add(directory.options.timeout_ms);
+        let count = directory.options.batch_nodes.min(
+            directory
+                .registrations
+                .len()
+                .saturating_mul(directory.trusted.len()),
+        );
+        let mut batch = Vec::with_capacity(count);
+        for _ in 0..count {
+            batch.push((
+                directory.registrations[directory.namespace].clone(),
+                directory.trusted[directory.node].clone(),
+            ));
+            directory.node += 1;
+            if directory.node == directory.trusted.len() {
+                directory.node = 0;
+                directory.namespace = (directory.namespace + 1) % directory.registrations.len();
+            }
+        }
+        let transport = self.transport.clone();
+        let domain = self.log.domain();
+        self.jobs.push(Box::pin(async move {
+            let observations =
+                futures_util::future::join_all(batch.into_iter().map(|(registration, trusted)| {
+                    let transport = transport.clone();
+                    let domain = domain.clone();
+                    async move {
+                        let result = transport
+                            .seed_control_until(deadline, async {
+                                let timeout = remaining(&domain, deadline).map_err(|_| {
+                                    super::super::transport::TransportError::Timeout
+                                })?;
+                                Ok(registration.observe_node(&trusted, timeout).await)
+                            })
+                            .await
+                            .map_err(DiscoveryError::Transport)
+                            .and_then(|result| result.map_err(DiscoveryError::Catalog));
+                        PeerObservation { trusted, result }
+                    }
+                }))
+                .await;
+            Job::Directory(Box::new(Observation(observations)))
+        }));
+    }
+
+    pub(super) fn on_directory(&mut self, observation: Observation) {
+        if let Some(directory) = self.directory.as_mut() {
+            directory.busy = false;
+        }
+        for observation in observation.0 {
+            let view = match observation.result {
+                Ok(Some(view)) => view,
+                // No observation supplies authority or invalidates a live
+                // quorum. Keep the last accepted routes and retry boundedly.
+                Ok(None) => continue,
+                Err(DiscoveryError::Catalog(error)) => {
+                    tracing::debug!(node = ?observation.trusted.node, %error, "Raft node directory observation refused");
+                    continue;
+                }
+                Err(DiscoveryError::Transport(error)) => {
+                    tracing::debug!(node = ?observation.trusted.node, %error, "Raft node directory observation cancelled");
+                    continue;
+                }
+            };
+            let peer = view.peer().clone();
+            let local = self.log.limits();
+            let newer_boot = self.directory.as_ref().is_some_and(|directory| {
+                peer.process != local.process && view.revision() > directory.own_revision
+            });
+            if peer.node == local.node
+                && (newer_boot || self.log.storage_instance().ok() != Some(view.storage_instance()))
+            {
+                // The shared closing flag immediately fences retained handles;
+                // the host loop then joins every owned service and physical job.
+                self.closing.store(true, Ordering::Release);
+                return;
+            }
+            match self.transport.accept_node_view(view, &observation.trusted) {
+                Ok(()) => {
+                    self.peers.insert(peer.node, peer);
+                }
+                Err(error) => {
+                    tracing::debug!(node = ?peer.node, %error, "Raft node process refresh refused")
+                }
+            }
+        }
+    }
+}

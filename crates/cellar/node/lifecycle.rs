@@ -67,6 +67,9 @@ impl ShutdownPolicy {
 /// These flags do not assert completion of untracked application work.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ShutdownReport {
+    /// Actual registered cell-host closure before the enclosing domain join.
+    /// An error or incomplete startup grants no graceful Raft/archive proof.
+    pub raft: Option<Box<crate::application::consensus::RaftNodeShutdownReport>>,
     pub mode: ShutdownMode,
     pub ingress_drained: bool,
     /// Complete application event drivers, including post-response waitUntil
@@ -113,7 +116,8 @@ impl NodeOutcome {
     pub(crate) fn cli_report(&self) -> serde_json::Value {
         use serde_json::json;
         match self {
-            Self::Stopped(r) => json!({
+            Self::Stopped(r) => {
+                let mut value = json!({
                 "event": "daemon_node_stopped", "outcome": "stopped",
                 "mode": match r.mode { ShutdownMode::Handoff => "handoff", ShutdownMode::Preserve => "preserve" },
                 "ingress_drained": r.ingress_drained,
@@ -123,7 +127,12 @@ impl NodeOutcome {
                 "log_quiesced": r.log_quiesced, "local_durability_closed": r.local_durability_closed,
                 "clean_reload_prepared": r.clean_reload_prepared,
                 "drain_timed_out": r.drain_timed_out, "deadline_elapsed": r.deadline_elapsed,
-            }),
+                });
+                if let Some(raft) = &r.raft {
+                    value["raft"] = raft.cli_summary();
+                }
+                value
+            }
             Self::Fenced { code, reason } => json!({
                 "event": "daemon_node_stopped", "outcome": "fenced", "fence_code": code,
                 "reason": match reason {
@@ -145,6 +154,14 @@ impl NodeOutcome {
     /// Only the command-line adapter translates outcomes to process exits.
     pub(crate) fn cli_exit_code(&self) -> i32 {
         match self {
+            Self::Stopped(report)
+                if report
+                    .raft
+                    .as_ref()
+                    .is_some_and(|raft| raft.startup_incomplete || raft.result.is_err()) =>
+            {
+                3
+            }
             Self::Stopped(_) => 0,
             Self::Fenced { code, .. } => *code,
             Self::Cancelled | Self::CoreFailed { .. } | Self::ReplicationFailed { .. } => 3,
@@ -159,6 +176,7 @@ mod tests {
     #[test]
     fn cli_report_preserves_incomplete_shutdown() {
         let report = NodeOutcome::Stopped(ShutdownReport {
+            raft: None,
             mode: ShutdownMode::Preserve,
             ingress_drained: true,
             application_work_drained: false,
@@ -177,6 +195,36 @@ mod tests {
         assert_eq!(report["pending_dispatches"], 3);
         assert_eq!(report["application_work_drained"], false);
         assert_eq!(report["deadline_elapsed"], true);
+        assert!(report.get("raft").is_none());
+    }
+
+    #[test]
+    fn cli_refuses_success_for_missing_raft_close_proof() {
+        let outcome = NodeOutcome::Stopped(ShutdownReport {
+            raft: Some(Box::new(
+                crate::application::consensus::RaftNodeShutdownReport {
+                    result: Err(crate::application::consensus::CommandFailure::Unavailable),
+                    startup_incomplete: true,
+                    drain: None,
+                },
+            )),
+            mode: ShutdownMode::Preserve,
+            ingress_drained: true,
+            application_work_drained: true,
+            pending_application_events: 0,
+            cells_drained: true,
+            pending_dispatches: 0,
+            log_quiesced: true,
+            local_durability_closed: true,
+            clean_reload_prepared: false,
+            drain_timed_out: false,
+            deadline_elapsed: false,
+        });
+        assert_eq!(outcome.cli_exit_code(), 3);
+        let value = outcome.cli_report();
+        assert_eq!(value["raft"]["owners_closed"], false);
+        assert_eq!(value["raft"]["startup_incomplete"], true);
+        assert_eq!(value["raft"]["retain_replica_disks"], true);
     }
 
     #[test]

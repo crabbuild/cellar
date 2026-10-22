@@ -1,0 +1,4 @@
+Source: cc93ccf96bda3c48caf57d1f59d7d3bcd1a4a355
+Command: ["python3", "-c", "import json,pathlib,re\np=pathlib.Path('plans/multi-raft'); text=(p/'evidence/MR-11-list.log').read_text(); tasks=json.loads((p/'tasks.json').read_text())['tasks']; required={c['name'] for t in tasks if t['id']=='MR-11' for c in t['test_cases']}; listed=set(re.findall(r'^(\\S+): test$',text,re.M)); assert required<=listed,(required-listed); assert 'raft::host::load::tests::partial_and_failed_scans_never_refresh_or_replace_a_complete_sample' in listed; print('All seven MR-11 requirements and bounded load scanner are listed.')"]
+Final metadata/documents rerun.
+All seven MR-11 requirements and bounded load scanner are listed.

@@ -1,0 +1,41 @@
+<jemalloc>: option background_thread currently supports pthread only
+
+running 1 test
+test node_shutdown_reports_submitted_ambiguity ... cellar local reload scan failed: local reload requires replication
+Error: consensus operation failed: Overloaded
+
+Stack backtrace:
+   0: <std::backtrace::Backtrace>::create
+   1: <std::backtrace::Backtrace>::capture
+   2: <anyhow::Error as core::convert::From<cellar_logic::consensus::CommandFailure>>::from
+   3: <core::result::Result<cellar_logic::consensus::LogPosition, anyhow::Error> as core::ops::try_trait::FromResidual<core::result::Result<core::convert::Infallible, cellar_logic::consensus::CommandFailure>>>::from_residual
+   4: native_raft_operations::node_shutdown_reports_submitted_ambiguity::{closure#0}::{closure#0}
+   5: <tokio::time::timeout::Timeout<native_raft_operations::node_shutdown_reports_submitted_ambiguity::{closure#0}::{closure#0}> as core::future::future::Future>::poll
+   6: native_raft_operations::node_shutdown_reports_submitted_ambiguity::{closure#0}
+   7: <core::pin::Pin<&mut dyn core::future::future::Future<Output = core::result::Result<(), anyhow::Error>>> as core::future::future::Future>::poll
+   8: <tokio::runtime::park::CachedParkThread>::block_on::<core::pin::Pin<&mut dyn core::future::future::Future<Output = core::result::Result<(), anyhow::Error>>>>::{closure#0}
+   9: <tokio::runtime::park::CachedParkThread>::block_on::<core::pin::Pin<&mut dyn core::future::future::Future<Output = core::result::Result<(), anyhow::Error>>>>
+  10: <tokio::runtime::context::blocking::BlockingRegionGuard>::block_on::<core::pin::Pin<&mut dyn core::future::future::Future<Output = core::result::Result<(), anyhow::Error>>>>
+  11: <tokio::runtime::scheduler::multi_thread::MultiThread>::block_on::<core::pin::Pin<&mut dyn core::future::future::Future<Output = core::result::Result<(), anyhow::Error>>>>::{closure#0}
+  12: tokio::runtime::context::runtime::enter_runtime::<<tokio::runtime::scheduler::multi_thread::MultiThread>::block_on<core::pin::Pin<&mut dyn core::future::future::Future<Output = core::result::Result<(), anyhow::Error>>>>::{closure#0}, core::result::Result<(), anyhow::Error>>
+  13: <tokio::runtime::scheduler::multi_thread::MultiThread>::block_on::<core::pin::Pin<&mut dyn core::future::future::Future<Output = core::result::Result<(), anyhow::Error>>>>
+  14: <tokio::runtime::runtime::Runtime>::block_on_inner::<core::pin::Pin<&mut dyn core::future::future::Future<Output = core::result::Result<(), anyhow::Error>>>>
+  15: <tokio::runtime::runtime::Runtime>::block_on::<core::pin::Pin<&mut dyn core::future::future::Future<Output = core::result::Result<(), anyhow::Error>>>>
+  16: native_raft_operations::node_shutdown_reports_submitted_ambiguity
+  17: native_raft_operations::node_shutdown_reports_submitted_ambiguity::{closure#0}
+  18: <native_raft_operations::node_shutdown_reports_submitted_ambiguity::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+  19: test::__rust_begin_short_backtrace::<core::result::Result<(), alloc::string::String>, fn() -> core::result::Result<(), alloc::string::String>>
+  20: test::run_test::{closure#0}
+  21: std::sys::backtrace::__rust_begin_short_backtrace::<test::run_test::{closure#1}, ()>
+  22: <std::thread::lifecycle::spawn_unchecked<test::run_test::{closure#1}, ()>::{closure#1} as core::ops::function::FnOnce<()>>::call_once::{shim:vtable#0}
+  23: <std::sys::thread::unix::Thread>::new::thread_start
+  24: __pthread_cond_wait
+FAILED
+
+failures:
+
+failures:
+    node_shutdown_reports_submitted_ambiguity
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4 filtered out; finished in 0.63s
+

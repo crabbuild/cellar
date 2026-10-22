@@ -62,6 +62,7 @@ mod event_state;
 mod event_wait;
 mod ingress;
 pub(crate) mod operations;
+mod raft_metrics;
 mod source_operator;
 mod stream_operator;
 mod wake_discovery;
@@ -72,6 +73,33 @@ pub use ingress::{IngressBody, IngressHandle, IngressResponse};
 mod native;
 use native::Backend;
 pub use native::{CompiledApplications, NativeDaemon};
+
+/// Explicit configuration for the node's shared Raft infrastructure. Cell
+/// registration and namespace routing remain separate application contracts.
+pub struct NodeRaftConfig {
+    pub log: crate::application::consensus::ReplicaLogOptions,
+    pub consensus: crate::application::consensus::RaftRuntimeOptions,
+    pub transport: crate::application::consensus::TransportOptions,
+}
+
+/// Caller-bound peer endpoints with independent control, data and query capacity.
+pub struct NodeRaftListeners {
+    pub control: tokio::net::TcpListener,
+    pub data: tokio::net::TcpListener,
+    pub query: tokio::net::TcpListener,
+}
+
+/// Infrastructure handles owned by the embedded node's execution domain. The
+/// host dispatcher consumes events, routes messages and supplies verified image
+/// completions. Transport admission itself is never a write acknowledgement.
+/// Recovered groups remain parked until catalog/bootstrap admission attaches them.
+#[doc(hidden)]
+pub struct NodeRaftService {
+    pub log: crate::application::consensus::verification::ReplicaLog,
+    pub runtime: crate::application::consensus::verification::RaftRuntime,
+    pub events: crate::application::consensus::verification::RuntimeEvents,
+    pub transport: crate::application::consensus::verification::RaftTransport,
+}
 
 /// Let an admitted HTTP request finish, then close the transport even when a
 /// response stream or a client keep-alive does not settle. The semantic drain
@@ -3230,6 +3258,7 @@ async fn handle_internal(
     let evict_scope = path.strip_prefix("/evict/");
     let result = match path.as_str() {
         "/event-metrics" if app.runtime.is_some() => event_metrics::handle(&app, request).await,
+        "/peer/raft/metrics" => raft_metrics::handle(&app, request).await,
         "/peer/probe" => internal_probe(request, app).await,
         "/peer/management" => management::handle(request, app, shutdown).await,
         "/peer/handoff" => internal_handoff(request, app).await,

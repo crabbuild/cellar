@@ -1,0 +1,3 @@
+Rust source: f89c7b462032405988ec24cd7e1f02c3476d49aa
+Scope: documentation/evidence successor; all frozen Rust/manifests/smoke unchanged
+Command: ["git", "diff", "--check"]

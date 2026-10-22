@@ -183,6 +183,9 @@
 //! }
 //! ```
 pub use crate::actor::{Actor, ActorIdentity, ActorOptions, ActorServices};
+pub use crate::application::consensus::{
+    CommandContext, OperationContract, OperationKind, QueryContext, RaftClass, RegistrationError,
+};
 pub use crate::application::limits::{
     BlobLimits, CellLimits, KvLimits, SqlLimits, SqliteLimits, WorkflowLimits,
 };
@@ -197,7 +200,8 @@ pub use crate::daemon::NativeDaemon as Host;
 #[cfg(not(cellar_internal_tests))]
 pub use crate::daemon::{
     ExternalNodeServices, IngressBody, IngressHandle, IngressResponse, Node, NodeConfig, NodeFleet,
-    NodeInfo, NodeMaintenancePolicy, NodeServices, NodeStartupPolicy,
+    NodeInfo, NodeMaintenancePolicy, NodeRaftConfig, NodeRaftListeners, NodeRaftService,
+    NodeServices, NodeStartupPolicy,
 };
 pub use crate::event_metrics::{EventBucket, EventCounter, EventHistogram, EventMetricsSnapshot};
 pub use crate::generation::DeploymentGraph;

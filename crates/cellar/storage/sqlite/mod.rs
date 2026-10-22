@@ -16,11 +16,16 @@ use std::ops::Bound;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
+mod command;
+pub(crate) use command::CommandDatabase;
+pub use command::{CommandInputs, CommandTransaction};
 mod console;
 mod event_schema;
 #[cfg(test)]
 mod identity_tests;
+mod immutable;
 pub(crate) mod inbox;
+pub use immutable::{open_immutable_generation, ImmutableQuery, ImmutableQueryOptions};
 pub(crate) mod outbox;
 pub(crate) mod outbox_control;
 #[cfg(test)]

@@ -1,0 +1,38 @@
+<jemalloc>: option background_thread currently supports pthread only
+
+running 20 tests
+test query_token_auth_scope ... ok
+test ordinary_context::active_ordinary_context_and_storage_are_refused ... ok
+test completed_unpolled_responses_keep_their_byte_budget ... ok
+test fallback_preserves_contract ... FAILED
+test query_write_capability_denied ... ok
+test minority_strong_read_refused ... ok
+test version_key_deadline_and_payload_limits ... ok
+test version_key_rotation_survives_restart_and_ambiguous_catalog_write ... ok
+test lost_read_index_response_retries_without_leader_change ... ok
+test native_readiness_distinguishes_historical_and_recent_source ... ok
+test delayed_tcp_query_reply_cannot_settle_a_later_read ... ok
+test native_readiness_reports_voters_learners_and_empty_image ... ok
+test read_your_writes_follower ... ok
+test remote_query_wait_cannot_block_its_ltx_catchup ... ok
+test stale_is_committed_prefix ... ok
+test linearizable_read_barrier ... ok
+test nonmember_router_reads_only_granted_namespaces_without_local_state ... ok
+test unpolled_query_deadline_interrupts_sql_and_joins_work ... ok
+test saturated_query_peer_refuses_and_expires_queued_work ... ok
+test voter_without_query_code_can_route_to_a_compatible_replica ... ok
+
+failures:
+
+---- fallback_preserves_contract stdout ----
+cellar local reload scan failed: local reload requires replication
+cellar local reload scan failed: local reload requires replication
+cellar local reload scan failed: local reload requires replication
+Error: consensus operation failed: VersionUnavailable
+
+
+failures:
+    fallback_preserves_contract
+
+test result: FAILED. 19 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 7.87s
+

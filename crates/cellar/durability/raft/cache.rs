@@ -1,0 +1,592 @@
+//! Durable storage views. Raft reads these bounded caches without disk I/O.
+
+use super::member_state::GroupMembership;
+use super::storage::LogError;
+use ::raft::prelude::{ConfState, Entry, EntryType, HardState, Snapshot};
+use ::raft::{GetEntriesContext, RaftState, Storage, StorageError};
+use cellar_logic::consensus::{LogIndex, LogPosition, ReplicaIdentity, Term};
+use protobuf::Message as _;
+use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, RwLock, RwLockReadGuard};
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CommittedImage {
+    pub name: String,
+    pub digest: [u8; 32],
+    pub length: u64,
+    pub ltx_epoch: u64,
+    pub txid: u64,
+    pub checksum: u64,
+    pub page_size: u32,
+}
+
+impl CommittedImage {
+    pub(crate) fn validate(&self) -> Result<(), LogError> {
+        if self.name.is_empty()
+            || self.name.len() > 128
+            || self.name == "."
+            || self.name == ".."
+            || !self
+                .name
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || b"-_.".contains(&byte))
+            || self.length > 64 * 1024 * 1024
+            || self.ltx_epoch == 0
+            || !cellar_ltx::ltx::is_valid_page_size(self.page_size)
+        {
+            return Err(LogError::Invalid("invalid committed image marker".into()));
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DurableApply {
+    pub position: LogPosition,
+    /// None denotes the canonical empty state before the schema command.
+    pub image: Option<CommittedImage>,
+}
+
+#[derive(Clone, Debug)]
+pub enum SnapshotChange {
+    /// A verified local snapshot; retain entries beyond its included index.
+    Checkpoint(Snapshot),
+    /// A verified incoming snapshot and its already durable state image.
+    Install {
+        snapshot: Snapshot,
+        applied: DurableApply,
+    },
+}
+
+#[derive(Clone)]
+pub struct GroupWrite {
+    pub group: GroupLog,
+    pub entries: Vec<Entry>,
+    pub hard_state: Option<HardState>,
+    pub conf_state: Option<ConfState>,
+    pub membership: Option<GroupMembership>,
+    pub applied: Option<DurableApply>,
+    pub snapshot: Option<SnapshotChange>,
+}
+
+impl GroupWrite {
+    pub fn new(group: &GroupLog) -> Self {
+        Self {
+            group: group.clone(),
+            entries: Vec::new(),
+            hard_state: None,
+            conf_state: None,
+            membership: None,
+            applied: None,
+            snapshot: None,
+        }
+    }
+
+    pub(crate) fn estimated_bytes(&self) -> Result<usize, LogError> {
+        let mut bytes = 1024_usize;
+        for entry in &self.entries {
+            bytes = bytes
+                .checked_add(entry.compute_size() as usize + 128)
+                .ok_or(LogError::Overloaded)?;
+        }
+        if let Some(snapshot) = &self.snapshot {
+            let snapshot = match snapshot {
+                SnapshotChange::Checkpoint(s) | SnapshotChange::Install { snapshot: s, .. } => s,
+            };
+            if snapshot.compute_size() > 64 * 1024 {
+                return Err(LogError::Overloaded);
+            }
+            bytes = bytes
+                .checked_add(snapshot.compute_size() as usize)
+                .ok_or(LogError::Overloaded)?;
+        }
+        if let Some(conf) = &self.conf_state {
+            if conf.compute_size() > 16 * 1024 {
+                return Err(LogError::Overloaded);
+            }
+            bytes = bytes
+                .checked_add(conf.compute_size() as usize)
+                .ok_or(LogError::Overloaded)?;
+        }
+        if let Some(membership) = &self.membership {
+            bytes = bytes
+                .checked_add(membership.reserved_bytes())
+                .ok_or(LogError::Overloaded)?;
+        }
+        Ok(bytes)
+    }
+}
+
+#[derive(Clone)]
+pub struct GroupLog {
+    pub(crate) key: u64,
+    pub(crate) birth_digest: [u8; 32],
+    pub(crate) identity: ReplicaIdentity,
+    pub(crate) owner: Arc<()>,
+    pub(crate) closed: Arc<AtomicBool>,
+    pub(crate) cache: Arc<RwLock<CachedGroup>>,
+}
+
+impl std::fmt::Debug for GroupLog {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("GroupLog")
+            .field("key", &self.key)
+            .field("identity", &self.identity)
+            .finish()
+    }
+}
+
+impl GroupLog {
+    pub fn identity(&self) -> &ReplicaIdentity {
+        &self.identity
+    }
+
+    pub fn numeric_key(&self) -> u64 {
+        self.key
+    }
+
+    pub fn applied(&self) -> Result<DurableApply, LogError> {
+        Ok(self.read()?.applied.clone())
+    }
+
+    /// Last synced bindings for this group history. This observation alone is
+    /// neither a fresh-member seeding capability nor proof of live quorum.
+    pub fn membership(&self) -> Result<GroupMembership, LogError> {
+        Ok(self.read()?.membership.clone())
+    }
+
+    pub(crate) fn read(&self) -> Result<RwLockReadGuard<'_, CachedGroup>, LogError> {
+        if self.closed.load(Ordering::Acquire) {
+            return Err(LogError::Closed);
+        }
+        self.cache.read().map_err(|_| {
+            self.closed.store(true, Ordering::Release);
+            LogError::Corrupt("Raft cache lock poisoned".into())
+        })
+    }
+}
+
+fn raft_error(error: LogError) -> ::raft::Error {
+    ::raft::Error::Store(StorageError::Other(Box::new(error)))
+}
+
+/// Mechanical Raft lookups may finish against the last durable cache while an
+/// engine closes. This private view cannot establish an application proof.
+#[derive(Clone)]
+pub(crate) struct ConsensusStorage {
+    cache: Arc<RwLock<CachedGroup>>,
+    closed: Arc<AtomicBool>,
+}
+
+impl ConsensusStorage {
+    fn read(&self) -> Result<RwLockReadGuard<'_, CachedGroup>, LogError> {
+        self.cache.read().map_err(|_| {
+            self.closed.store(true, Ordering::Release);
+            LogError::Corrupt("Raft cache lock poisoned".into())
+        })
+    }
+}
+
+impl GroupLog {
+    pub(crate) fn consensus_storage(&self) -> ConsensusStorage {
+        ConsensusStorage {
+            cache: self.cache.clone(),
+            closed: self.closed.clone(),
+        }
+    }
+
+    fn checked_storage(&self) -> ::raft::Result<ConsensusStorage> {
+        drop(self.read().map_err(raft_error)?);
+        Ok(self.consensus_storage())
+    }
+}
+
+impl Storage for GroupLog {
+    fn initial_state(&self) -> ::raft::Result<RaftState> {
+        self.checked_storage()?.initial_state()
+    }
+
+    fn entries(
+        &self,
+        low: u64,
+        high: u64,
+        max_size: impl Into<Option<u64>>,
+        context: GetEntriesContext,
+    ) -> ::raft::Result<Vec<Entry>> {
+        self.checked_storage()?
+            .entries(low, high, max_size, context)
+    }
+
+    fn term(&self, index: u64) -> ::raft::Result<u64> {
+        self.checked_storage()?.term(index)
+    }
+
+    fn first_index(&self) -> ::raft::Result<u64> {
+        self.checked_storage()?.first_index()
+    }
+
+    fn last_index(&self) -> ::raft::Result<u64> {
+        self.checked_storage()?.last_index()
+    }
+
+    fn snapshot(&self, request_index: u64, to: u64) -> ::raft::Result<Snapshot> {
+        self.checked_storage()?.snapshot(request_index, to)
+    }
+}
+
+impl Storage for ConsensusStorage {
+    fn initial_state(&self) -> ::raft::Result<RaftState> {
+        let cache = self.read().map_err(raft_error)?;
+        Ok(RaftState::new(
+            cache.hard_state.clone(),
+            cache.conf_state.clone(),
+        ))
+    }
+
+    fn entries(
+        &self,
+        low: u64,
+        high: u64,
+        max_size: impl Into<Option<u64>>,
+        _context: GetEntriesContext,
+    ) -> ::raft::Result<Vec<Entry>> {
+        let cache = self.read().map_err(raft_error)?;
+        if low < cache.first_index() {
+            return Err(StorageError::Compacted.into());
+        }
+        if low > high || high > cache.last_index().saturating_add(1) {
+            return Err(StorageError::Unavailable.into());
+        }
+        let maximum = max_size.into().unwrap_or(u64::MAX);
+        let mut bytes = 0_u64;
+        let mut entries = Vec::new();
+        for (_, entry) in cache.entries.range(low..high) {
+            let next = bytes.saturating_add(entry.compute_size() as u64);
+            if !entries.is_empty() && next > maximum {
+                break;
+            }
+            entries.push(entry.clone());
+            bytes = next;
+        }
+        Ok(entries)
+    }
+
+    fn term(&self, index: u64) -> ::raft::Result<u64> {
+        let cache = self.read().map_err(raft_error)?;
+        if index < cache.snapshot.get_metadata().index {
+            return Err(StorageError::Compacted.into());
+        }
+        cache
+            .term(index)
+            .ok_or_else(|| StorageError::Unavailable.into())
+    }
+
+    fn first_index(&self) -> ::raft::Result<u64> {
+        Ok(self.read().map_err(raft_error)?.first_index())
+    }
+
+    fn last_index(&self) -> ::raft::Result<u64> {
+        Ok(self.read().map_err(raft_error)?.last_index())
+    }
+
+    fn snapshot(&self, request_index: u64, _to: u64) -> ::raft::Result<Snapshot> {
+        let cache = self.read().map_err(raft_error)?;
+        if cache.snapshot.get_metadata().index < request_index {
+            return Err(StorageError::SnapshotTemporarilyUnavailable.into());
+        }
+        Ok(cache.snapshot.clone())
+    }
+}
+
+#[derive(Clone)]
+pub(crate) struct CachedGroup {
+    pub hard_state: HardState,
+    pub conf_state: ConfState,
+    pub membership: GroupMembership,
+    pub snapshot: Snapshot,
+    pub entries: BTreeMap<u64, Entry>,
+    pub applied: DurableApply,
+}
+
+impl CachedGroup {
+    pub fn first_index(&self) -> u64 {
+        self.snapshot.get_metadata().index + 1
+    }
+
+    pub fn last_index(&self) -> u64 {
+        self.entries
+            .last_key_value()
+            .map_or(self.snapshot.get_metadata().index, |(&index, _)| index)
+    }
+
+    pub fn term(&self, index: u64) -> Option<u64> {
+        if index == self.snapshot.get_metadata().index {
+            return Some(self.snapshot.get_metadata().term);
+        }
+        self.entries.get(&index).map(|entry| entry.term)
+    }
+
+    pub fn bytes(&self) -> usize {
+        1024 + self.membership.reserved_bytes()
+            + self.snapshot.compute_size() as usize
+            + self.conf_state.compute_size() as usize
+            + self
+                .entries
+                .values()
+                .map(|entry| entry.compute_size() as usize + 128)
+                .sum::<usize>()
+    }
+
+    pub fn validate(&self, max_entries: usize) -> Result<(), LogError> {
+        validate_conf(&self.conf_state)?;
+        self.membership
+            .validate(&self.conf_state, self.applied.position.index.get())
+            .map_err(|error| LogError::Corrupt(error.to_string()))?;
+        validate_conf(self.snapshot.get_metadata().get_conf_state())?;
+        let metadata = self.snapshot.get_metadata();
+        if metadata.index == 0
+            || metadata.term == 0
+            || metadata.index == u64::MAX
+            || self.snapshot.compute_size() > 64 * 1024
+            || self.entries.len() > max_entries
+            || self.hard_state.term < metadata.term
+            || self.hard_state.commit < metadata.index
+            || self.hard_state.commit > self.last_index()
+            || self.applied.position.index.get() < metadata.index
+            || self.applied.position.index.get() > self.hard_state.commit
+            || self.term(self.applied.position.index.get())
+                != Some(self.applied.position.term.get())
+        {
+            return Err(LogError::Corrupt("incoherent Raft checkpoint".into()));
+        }
+        let mut previous_index = metadata.index;
+        let mut previous_term = metadata.term;
+        for (&index, entry) in &self.entries {
+            if previous_index.checked_add(1) != Some(index)
+                || index != entry.index
+                || index == u64::MAX
+                || entry.term < previous_term
+                || entry.term > self.hard_state.term
+            {
+                return Err(LogError::Corrupt("noncontiguous Raft log".into()));
+            }
+            previous_index = index;
+            previous_term = entry.term;
+        }
+        if let Some(image) = &self.applied.image {
+            image.validate()?;
+        }
+        Ok(())
+    }
+
+    pub fn changed(&self, write: &GroupWrite, max_entries: usize) -> Result<Self, LogError> {
+        let mut next = self.clone();
+        if let Some(change) = &write.snapshot {
+            let snapshot = match change {
+                SnapshotChange::Checkpoint(s) | SnapshotChange::Install { snapshot: s, .. } => s,
+            };
+            let metadata = snapshot.get_metadata();
+            if metadata.index < self.snapshot.get_metadata().index
+                || metadata.index == u64::MAX
+                || (metadata.index == self.snapshot.get_metadata().index
+                    && snapshot != &self.snapshot)
+            {
+                return Err(LogError::Invalid("conflicting or stale snapshot".into()));
+            }
+            match change {
+                SnapshotChange::Checkpoint(_) => {
+                    if metadata.index > self.applied.position.index.get()
+                        || self.term(metadata.index) != Some(metadata.term)
+                    {
+                        return Err(LogError::Invalid("unapplied local snapshot".into()));
+                    }
+                    next.entries = next.entries.split_off(&(metadata.index + 1));
+                }
+                SnapshotChange::Install { applied, .. } => {
+                    if metadata.index < self.hard_state.commit
+                        || applied.position.index.get() != metadata.index
+                        || applied.position.term.get() != metadata.term
+                        || applied.position.index < self.applied.position.index
+                        || (self.applied.image.is_some() && applied.image.is_none())
+                        || (applied.position.index == self.applied.position.index
+                            && applied != &self.applied)
+                    {
+                        return Err(LogError::Invalid("invalid snapshot install marker".into()));
+                    }
+                    next.entries.clear();
+                    next.applied = applied.clone();
+                    next.conf_state = metadata.get_conf_state().clone();
+                }
+            }
+            next.snapshot = snapshot.clone();
+        }
+        let mut previous = None;
+        for entry in &write.entries {
+            if entry.index < next.first_index()
+                || entry.index == u64::MAX
+                || entry.term == 0
+                || previous.is_some_and(|last: u64| last.checked_add(1) != Some(entry.index))
+            {
+                return Err(LogError::Invalid("invalid Raft append range".into()));
+            }
+            previous = Some(entry.index);
+            if entry.index <= self.hard_state.commit
+                && self.entries.get(&entry.index) != Some(entry)
+            {
+                return Err(LogError::Invalid(
+                    "attempt to replace committed history".into(),
+                ));
+            }
+        }
+        if let Some(first) = write.entries.first() {
+            if first.index > next.last_index() + 1 {
+                return Err(LogError::Invalid("Raft append gap".into()));
+            }
+            // Even an identical committed prefix must not truncate committed
+            // entries that the incoming shorter slice did not include.
+            let replacement_end = write.entries.last().map_or(0, |entry| entry.index);
+            if replacement_end < self.hard_state.commit {
+                return Err(LogError::Invalid(
+                    "append would truncate the committed suffix".into(),
+                ));
+            }
+            next.entries.split_off(&first.index);
+            next.entries.extend(
+                write
+                    .entries
+                    .iter()
+                    .map(|entry| (entry.index, entry.clone())),
+            );
+        }
+        if let Some(hard) = &write.hard_state {
+            if hard.term < self.hard_state.term
+                || hard.commit < self.hard_state.commit
+                || (hard.term == self.hard_state.term
+                    && self.hard_state.vote != 0
+                    && hard.vote != self.hard_state.vote)
+            {
+                return Err(LogError::Invalid("term, vote or commit regression".into()));
+            }
+            next.hard_state = hard.clone();
+        }
+        if let Some(applied) = &write.applied {
+            if applied.position.index < next.applied.position.index
+                || (next.applied.image.is_some() && applied.image.is_none())
+                || (applied.position.index == next.applied.position.index
+                    && applied != &next.applied)
+            {
+                return Err(LogError::Invalid("apply marker regression".into()));
+            }
+            next.applied = applied.clone();
+        }
+        if let Some(conf) = &write.conf_state {
+            if next.applied.position.index <= self.applied.position.index
+                && conf != &self.conf_state
+            {
+                return Err(LogError::Invalid(
+                    "configuration change lacks applied progress".into(),
+                ));
+            }
+            next.conf_state = conf.clone();
+        }
+        if let Some(membership) = &write.membership {
+            if write.conf_state.is_none()
+                && !matches!(&write.snapshot, Some(SnapshotChange::Install { .. }))
+            {
+                return Err(LogError::Invalid(
+                    "member binding lacks configuration or install".into(),
+                ));
+            }
+            membership.succeeds(&self.membership)?;
+            next.membership = membership.clone();
+        }
+        if (next.conf_state != self.conf_state && write.membership.is_none())
+            || (write.conf_state.is_some()
+                && (write.membership.is_none()
+                    || next.membership.revision() != next.applied.position.index))
+        {
+            return Err(LogError::Invalid(
+                "configuration lacks exact member binding marker".into(),
+            ));
+        }
+        if next.applied.position.index > self.applied.position.index
+            && write.conf_state.is_none()
+            && next
+                .entries
+                .range(self.applied.position.index.get() + 1..=next.applied.position.index.get())
+                .any(|(_, entry)| entry.get_entry_type() != EntryType::EntryNormal)
+        {
+            return Err(LogError::Invalid(
+                "applied configuration lacks ConfState".into(),
+            ));
+        }
+        next.validate(max_entries)
+            .map_err(|error| LogError::Invalid(error.to_string()))?;
+        Ok(next)
+    }
+}
+
+pub(crate) fn validate_conf(conf: &ConfState) -> Result<(), LogError> {
+    let lists = [
+        &conf.voters,
+        &conf.voters_outgoing,
+        &conf.learners,
+        &conf.learners_next,
+    ];
+    if conf.voters.is_empty() || lists.iter().map(|list| list.len()).sum::<usize>() > 128 {
+        return Err(LogError::Corrupt("invalid Raft configuration size".into()));
+    }
+    for list in lists {
+        let mut unique = std::collections::BTreeSet::new();
+        if list
+            .iter()
+            .any(|&member| member == 0 || !unique.insert(member))
+        {
+            return Err(LogError::Corrupt("duplicate or zero Raft member".into()));
+        }
+    }
+    if conf
+        .learners
+        .iter()
+        .any(|id| conf.voters.contains(id) || conf.voters_outgoing.contains(id))
+        || conf.learners_next.iter().any(|id| {
+            !conf.voters_outgoing.contains(id)
+                || conf.voters.contains(id)
+                || conf.learners.contains(id)
+        })
+        || (conf.voters_outgoing.is_empty() && (conf.auto_leave || !conf.learners_next.is_empty()))
+    {
+        return Err(LogError::Corrupt("invalid joint Raft configuration".into()));
+    }
+    Ok(())
+}
+
+pub(crate) fn genesis(conf_state: ConfState) -> CachedGroup {
+    let mut snapshot = Snapshot::default();
+    snapshot.mut_metadata().index = 1;
+    snapshot.mut_metadata().term = 1;
+    snapshot.mut_metadata().set_conf_state(conf_state.clone());
+    let hard_state = HardState {
+        term: 1,
+        commit: 1,
+        ..Default::default()
+    };
+    CachedGroup {
+        hard_state,
+        membership: GroupMembership::initial(&conf_state),
+        conf_state,
+        snapshot,
+        entries: BTreeMap::new(),
+        applied: DurableApply {
+            position: LogPosition {
+                index: LogIndex::new(1),
+                term: Term::new(1),
+            },
+            image: None,
+        },
+    }
+}

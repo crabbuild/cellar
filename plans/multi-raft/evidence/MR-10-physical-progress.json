@@ -1,0 +1,1411 @@
+{
+  "task_id": "MR-10",
+  "source_revision": "24410fb754b055078255ccf5d595c0893f0d1b0e",
+  "scope": "Physical snapshot component progress only; MR-10 remains IN_PROGRESS. Exact committed source cuts, canonical full-history/birth/schema/configuration descriptors, bounded ordered transfer assembly and physical sealing; exact runtime install tickets and durable marker publication; coherent independent snapshot/applied references with bounded startup inventory reconciliation. Actual peer RPC scheduling and authorized native member recovery are unfinished.",
+  "toolchain": "rustc 1.98.1 (48a229cea 2026-09-01)",
+  "executable_digest": "5da9096698763516c9e4012450afd1820309e1d14aee33246bc015e9de9db64d",
+  "executables": {
+    "native_raft_snapshot": {
+      "sha256": "5da9096698763516c9e4012450afd1820309e1d14aee33246bc015e9de9db64d",
+      "bytes": 24798848
+    },
+    "native_raft_archive": {
+      "sha256": "d0aff5a8e8847f00d56969b8e320d90078fc73250b6f5604b5d002bfc3b5000e",
+      "bytes": 128965904
+    },
+    "native_raft_execution": {
+      "sha256": "86bcb8135a96f048857bff12707520fee4f058740fb691712fa145abca83ecef",
+      "bytes": 26774096
+    },
+    "native_raft_host": {
+      "sha256": "04673f643647e5cf3c65136d6a217c20e0cbcb80b889d3f3666db985d2229839",
+      "bytes": 130702704
+    },
+    "native_raft_ltx": {
+      "sha256": "cb25847a7e42528b16277bdd248d2a61ccdbe55e22ab36461d4695b94b75619a",
+      "bytes": 10609504
+    },
+    "native_raft_reads": {
+      "sha256": "b13c166d26c79bc3a261517d43e2d3e78ab4f7034cb42145c7e3a06ec43e0c18",
+      "bytes": 127647808
+    },
+    "native_raft_runtime": {
+      "sha256": "8c3d547f1694f46febc9be88943c083f059882b63fe447c318a37145cb74ad88",
+      "bytes": 21905664
+    },
+    "native_raft_storage": {
+      "sha256": "65ce65974d76ff4f5b9f8903c1888ac82afd5033d56f04191c652b402012d677",
+      "bytes": 18785232
+    },
+    "native_node": {
+      "sha256": "21e9a94a3220a0ce4e47bfe63d54b4a74f1db4b2df45219c9a50330b7e1d7917",
+      "bytes": 145852160
+    }
+  },
+  "environment": "macOS-26.5.2-arm64-arm-64bit-Mach-O; real SQLite/LTX and Raft Engine; actual RawNodes with manually delivered messages and bounded physical snapshot chunks; process-kill children at seven image/engine/publication cuts; production native Node regression fixtures; checkout-specific target; no cellar_internal_tests",
+  "build_environment": {
+    "RUSTUP_TOOLCHAIN": "1.98.1",
+    "CARGO_TARGET_DIR": "/Users/haipingfu/Workspace/crabbuild-target/cellar-23c7-multi-raft",
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "CARGO_PROFILE_TEST_DEBUG": "0",
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_BUILD_JOBS": "3"
+  },
+  "limitations": "This evidence does not complete MR-10 or the original 17-package goal. Node-owned checkpoint scheduling serialized with Ready, empty/configuration-only snapshot support, authenticated bounded peer transfer RPCs, native host snapshot handling, transfer/cancellation/shutdown ownership, image capacity constraints and authorized fresh-member S3/peer seeding remain unfinished. The native host still refuses unsupported incoming snapshots. missing_quorum_restore_refused is not implemented in this owning target; existing minority/archive tests do not substitute for native recovery qualification. Checkpoint fixtures persist source snapshots while data publication is quiesced and before starting RawNodes; direct cache mutation racing live Ready or source-image retirement is not qualified. The native checkpoint retention handoff remains unfinished. Materialized SQL-only images are supported; external Blob/effect dependency closure remains unsupported until MR-12. Seven process-kill cuts establish coherent recovery, not power-loss durability or every production RPC acknowledgement boundary. There is no physical S3, zones, production scale/performance or full release qualification. Six ignored child entry points are invoked by their owning parents and excluded from case counts. Existing vendored warnings remain visible.",
+  "tests": [
+    {
+      "name": "compacted_boundary_term",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "restart_committed_replay",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "snapshot_download_bounds_and_incomplete_refusal",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "snapshot_install_crash_matrix",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "snapshot_old_reader",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "snapshot_reference_survives_newer_head_and_restart",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "snapshot_runtime_installs_physical_image_with_exact_ticket",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "snapshot_same_cut_cannot_name_an_unrelated_applied_image",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "snapshot_wrong_history",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "archive_capture_refuses_unrelated_newer_marker",
+      "target": "native_raft_archive",
+      "result": "passed"
+    },
+    {
+      "name": "archive_close_releases_workspace_before_returning",
+      "target": "native_raft_archive",
+      "result": "passed"
+    },
+    {
+      "name": "archive_commands_reclaim_generations_with_small_disk_admission",
+      "target": "native_raft_archive",
+      "result": "passed"
+    },
+    {
+      "name": "archive_cut_pins_retired_image_during_outage",
+      "target": "native_raft_archive",
+      "result": "passed"
+    },
+    {
+      "name": "archive_head_lost_response_and_confirmation",
+      "target": "native_raft_archive",
+      "result": "passed"
+    },
+    {
+      "name": "archive_head_monotonic",
+      "target": "native_raft_archive",
+      "result": "passed"
+    },
+    {
+      "name": "archive_io_deadline_retries_without_reexecuting",
+      "target": "native_raft_archive",
+      "result": "passed"
+    },
+    {
+      "name": "archive_never_speculative",
+      "target": "native_raft_archive",
+      "result": "passed"
+    },
+    {
+      "name": "archive_noop_tail_and_exact_configuration_checkpoint",
+      "target": "native_raft_archive",
+      "result": "passed"
+    },
+    {
+      "name": "archive_pin_pressure_defers_committed_apply_without_corruption",
+      "target": "native_raft_archive",
+      "result": "passed"
+    },
+    {
+      "name": "archive_reconciles_lost_put_response",
+      "target": "native_raft_archive",
+      "result": "passed"
+    },
+    {
+      "name": "archive_refuses_different_engine_birth",
+      "target": "native_raft_archive",
+      "result": "passed"
+    },
+    {
+      "name": "archive_refuses_foreign_birth_and_noncanonical_head",
+      "target": "native_raft_archive",
+      "result": "passed"
+    },
+    {
+      "name": "archive_replay_failure_never_publishes_head",
+      "target": "native_raft_archive",
+      "result": "passed"
+    },
+    {
+      "name": "archive_shutdown_joins_hung_store_without_acknowledging",
+      "target": "native_raft_archive",
+      "result": "passed"
+    },
+    {
+      "name": "archive_tail_limit_establishes_new_snapshot",
+      "target": "native_raft_archive",
+      "result": "passed"
+    },
+    {
+      "name": "archive_verifies_every_dependency_and_object",
+      "target": "native_raft_archive",
+      "result": "passed"
+    },
+    {
+      "name": "bucket_archive_store_preserves_prefix_and_conditional_writes",
+      "target": "native_raft_archive",
+      "result": "passed"
+    },
+    {
+      "name": "committed_archive_restores_snapshot_and_physical_tail",
+      "target": "native_raft_archive",
+      "result": "passed"
+    },
+    {
+      "name": "quorum_s3_outage",
+      "target": "native_raft_archive",
+      "result": "passed"
+    },
+    {
+      "name": "retention_preserves_only_copy",
+      "target": "native_raft_archive",
+      "result": "passed"
+    },
+    {
+      "name": "retry_strengthens_durability",
+      "target": "native_raft_archive",
+      "result": "passed"
+    },
+    {
+      "name": "s3_ack_complete_restore_set",
+      "target": "native_raft_archive",
+      "result": "passed"
+    },
+    {
+      "name": "s3_three_voter_failover_restores_only_committed_commands",
+      "target": "native_raft_archive",
+      "result": "passed"
+    },
+    {
+      "name": "s3_timeout_ambiguous",
+      "target": "native_raft_archive",
+      "result": "passed"
+    },
+    {
+      "name": "unpolled_s3_waiter_cannot_receive_success_after_deadline",
+      "target": "native_raft_archive",
+      "result": "passed"
+    },
+    {
+      "name": "apply_entry_and_schema_identity_are_bound",
+      "target": "native_raft_execution",
+      "result": "passed"
+    },
+    {
+      "name": "apply_marker_crash_cut",
+      "target": "native_raft_execution",
+      "result": "passed"
+    },
+    {
+      "name": "apply_recovery_follows_engine_marker",
+      "target": "native_raft_execution",
+      "result": "passed"
+    },
+    {
+      "name": "command_failure_and_result_limit_roll_back",
+      "target": "native_raft_execution",
+      "result": "passed"
+    },
+    {
+      "name": "command_transaction_restricts_sql_and_captures_inputs",
+      "target": "native_raft_execution",
+      "result": "passed"
+    },
+    {
+      "name": "conflicting_command_digest",
+      "target": "native_raft_execution",
+      "result": "passed"
+    },
+    {
+      "name": "duplicate_command_receipt",
+      "target": "native_raft_execution",
+      "result": "passed"
+    },
+    {
+      "name": "image_publication_waits_for_engine_marker",
+      "target": "native_raft_execution",
+      "result": "passed"
+    },
+    {
+      "name": "lost_proposal_rebuild",
+      "target": "native_raft_execution",
+      "result": "passed"
+    },
+    {
+      "name": "new_term_barrier_retires_uncertain_shadow_without_reusing_it",
+      "target": "native_raft_execution",
+      "result": "passed"
+    },
+    {
+      "name": "oversized_delta_atomic_refusal",
+      "target": "native_raft_execution",
+      "result": "passed"
+    },
+    {
+      "name": "private_checkpoint_capture_covers_control_writes",
+      "target": "native_raft_execution",
+      "result": "passed"
+    },
+    {
+      "name": "private_commit_not_visible",
+      "target": "native_raft_execution",
+      "result": "passed"
+    },
+    {
+      "name": "receipt_expiry_floor",
+      "target": "native_raft_execution",
+      "result": "passed"
+    },
+    {
+      "name": "registered_command_uses_exact_image_receipt_and_read_only_query",
+      "target": "native_raft_execution",
+      "result": "passed"
+    },
+    {
+      "name": "submitted_command_recovery",
+      "target": "native_raft_execution",
+      "result": "passed"
+    },
+    {
+      "name": "birth_handle_cannot_cross_catalog_instances",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "cancelled_private_callback_is_joined_before_its_slot_is_reused",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "catalog_reconciles_lost_create_responses",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "catalog_refuses_corrupt_and_oversized_records",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "command_manifest_binds_voting_compatibility_without_query_requirements",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "competing_bootstrap_disks_cannot_both_join",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "fleet_gate_unchanged",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "live_mode_admission_refuses_conflicts_before_mutable_execution",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "namespace_mode_conflict",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "native_axum_command_parity",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "native_axum_nonmember_query_router_parity",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "operation_registration_binds_schema_kind_and_digest",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "parked_bootstrap_requires_stable_claim",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "public_multi_group_replication_and_leader_failover",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "query_router_requires_existing_namespace_and_birth",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "raft_gate_exact_receipt",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "registered_callbacks_refuse_captured_sdk_handles",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "retained_handle_fenced",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "submitted_partition_retains_producer_until_follower_barrier",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "unconfirmed_claim_keeps_the_group_parked",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "unpolled_waiter_cannot_submit_after_its_deadline",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "unsupported_factory_refused",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "bounded_decoder_checks_physical_index_and_snapshot_coverage",
+      "target": "native_raft_ltx",
+      "result": "passed"
+    },
+    {
+      "name": "bounded_decoder_matches_both_ltx_writers",
+      "target": "native_raft_ltx",
+      "result": "passed"
+    },
+    {
+      "name": "bounded_decoder_refuses_expansion_before_decompression",
+      "target": "native_raft_ltx",
+      "result": "passed"
+    },
+    {
+      "name": "bounded_decoder_rejects_mutation_without_panics",
+      "target": "native_raft_ltx",
+      "result": "passed"
+    },
+    {
+      "name": "bounded_decoder_round_trips_real_sqlite_state",
+      "target": "native_raft_ltx",
+      "result": "passed"
+    },
+    {
+      "name": "bounded_image_reclamation",
+      "target": "native_raft_ltx",
+      "result": "passed"
+    },
+    {
+      "name": "image_sync_before_marker",
+      "target": "native_raft_ltx",
+      "result": "passed"
+    },
+    {
+      "name": "immutable_query_uses_injected_filesystem",
+      "target": "native_raft_ltx",
+      "result": "passed"
+    },
+    {
+      "name": "immutable_reader_pinning",
+      "target": "native_raft_ltx",
+      "result": "passed"
+    },
+    {
+      "name": "ltx_checksum_corruption",
+      "target": "native_raft_ltx",
+      "result": "passed"
+    },
+    {
+      "name": "ltx_exact_base",
+      "target": "native_raft_ltx",
+      "result": "passed"
+    },
+    {
+      "name": "ltx_growth_truncation",
+      "target": "native_raft_ltx",
+      "result": "passed"
+    },
+    {
+      "name": "multi_file_apply_and_optional_checksum_transitions",
+      "target": "native_raft_ltx",
+      "result": "passed"
+    },
+    {
+      "name": "query_services_and_directory_ownership_are_independent",
+      "target": "native_raft_ltx",
+      "result": "passed"
+    },
+    {
+      "name": "recovered_inventory_retires_only_after_complete_reference_validation",
+      "target": "native_raft_ltx",
+      "result": "passed"
+    },
+    {
+      "name": "unexpected_final_name_is_never_overwritten",
+      "target": "native_raft_ltx",
+      "result": "passed"
+    },
+    {
+      "name": "completed_unpolled_responses_keep_their_byte_budget",
+      "target": "native_raft_reads",
+      "result": "passed"
+    },
+    {
+      "name": "delayed_tcp_query_reply_cannot_settle_a_later_read",
+      "target": "native_raft_reads",
+      "result": "passed"
+    },
+    {
+      "name": "fallback_preserves_contract",
+      "target": "native_raft_reads",
+      "result": "passed"
+    },
+    {
+      "name": "linearizable_read_barrier",
+      "target": "native_raft_reads",
+      "result": "passed"
+    },
+    {
+      "name": "minority_strong_read_refused",
+      "target": "native_raft_reads",
+      "result": "passed"
+    },
+    {
+      "name": "nonmember_router_reads_only_granted_namespaces_without_local_state",
+      "target": "native_raft_reads",
+      "result": "passed"
+    },
+    {
+      "name": "ordinary_context::active_ordinary_context_and_storage_are_refused",
+      "target": "native_raft_reads",
+      "result": "passed"
+    },
+    {
+      "name": "query_token_auth_scope",
+      "target": "native_raft_reads",
+      "result": "passed"
+    },
+    {
+      "name": "query_write_capability_denied",
+      "target": "native_raft_reads",
+      "result": "passed"
+    },
+    {
+      "name": "read_your_writes_follower",
+      "target": "native_raft_reads",
+      "result": "passed"
+    },
+    {
+      "name": "remote_query_wait_cannot_block_its_ltx_catchup",
+      "target": "native_raft_reads",
+      "result": "passed"
+    },
+    {
+      "name": "saturated_query_peer_refuses_and_expires_queued_work",
+      "target": "native_raft_reads",
+      "result": "passed"
+    },
+    {
+      "name": "stale_is_committed_prefix",
+      "target": "native_raft_reads",
+      "result": "passed"
+    },
+    {
+      "name": "unpolled_query_deadline_interrupts_sql_and_joins_work",
+      "target": "native_raft_reads",
+      "result": "passed"
+    },
+    {
+      "name": "version_key_deadline_and_payload_limits",
+      "target": "native_raft_reads",
+      "result": "passed"
+    },
+    {
+      "name": "version_key_rotation_survives_restart_and_ambiguous_catalog_write",
+      "target": "native_raft_reads",
+      "result": "passed"
+    },
+    {
+      "name": "voter_without_query_code_can_route_to_a_compatible_replica",
+      "target": "native_raft_reads",
+      "result": "passed"
+    },
+    {
+      "name": "apply_progress_order",
+      "target": "native_raft_runtime",
+      "result": "passed"
+    },
+    {
+      "name": "current_term_admission_barrier",
+      "target": "native_raft_runtime",
+      "result": "passed"
+    },
+    {
+      "name": "domain_shutdown_joins_consensus_and_log",
+      "target": "native_raft_runtime",
+      "result": "passed"
+    },
+    {
+      "name": "election_randomness_is_explicit",
+      "target": "native_raft_runtime",
+      "result": "passed"
+    },
+    {
+      "name": "failed_engine_closes_with_typed_error",
+      "target": "native_raft_runtime",
+      "result": "passed"
+    },
+    {
+      "name": "light_ready_commit_saved",
+      "target": "native_raft_runtime",
+      "result": "passed"
+    },
+    {
+      "name": "malformed_peer_message_is_refused",
+      "target": "native_raft_runtime",
+      "result": "passed"
+    },
+    {
+      "name": "noop_configuration_progress",
+      "target": "native_raft_runtime",
+      "result": "passed"
+    },
+    {
+      "name": "owned_clock_elects_without_campaign",
+      "target": "native_raft_runtime",
+      "result": "passed"
+    },
+    {
+      "name": "pending_readindex_is_bounded",
+      "target": "native_raft_runtime",
+      "result": "passed"
+    },
+    {
+      "name": "ready_persistence_order",
+      "target": "native_raft_runtime",
+      "result": "passed"
+    },
+    {
+      "name": "runtime_close_fences_full_queue",
+      "target": "native_raft_runtime",
+      "result": "passed"
+    },
+    {
+      "name": "snapshot_requires_verified_install",
+      "target": "native_raft_runtime",
+      "result": "passed"
+    },
+    {
+      "name": "stalled_group_isolation",
+      "target": "native_raft_runtime",
+      "result": "passed"
+    },
+    {
+      "name": "append_sync_boundary",
+      "target": "native_raft_storage",
+      "result": "passed"
+    },
+    {
+      "name": "birth_sync_retry_reuses_numeric_key",
+      "target": "native_raft_storage",
+      "result": "passed"
+    },
+    {
+      "name": "conflicting_suffix_replaced",
+      "target": "native_raft_storage",
+      "result": "passed"
+    },
+    {
+      "name": "corrupt_storage_refused",
+      "target": "native_raft_storage",
+      "result": "passed"
+    },
+    {
+      "name": "disk_loss_identity",
+      "target": "native_raft_storage",
+      "result": "passed"
+    },
+    {
+      "name": "engine_group_isolation",
+      "target": "native_raft_storage",
+      "result": "passed"
+    },
+    {
+      "name": "interrupted_purge_preserves_group",
+      "target": "native_raft_storage",
+      "result": "passed"
+    },
+    {
+      "name": "snapshot_metadata_survives_process_kill",
+      "target": "native_raft_storage",
+      "result": "passed"
+    },
+    {
+      "name": "storage_budget_and_domain_close",
+      "target": "native_raft_storage",
+      "result": "passed"
+    },
+    {
+      "name": "vote_survives_restart",
+      "target": "native_raft_storage",
+      "result": "passed"
+    },
+    {
+      "name": "cancelled_bootstrap_observation_does_not_consume_the_only_host_blocking_worker",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "cancelled_bootstrap_retains_directory_until_started_application_factory_has_joined",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "conclusively_lost_fleet_proof_cannot_install_a_successor",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "embedded_node_joins_raft_service_with_retained_handles",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "explicit_public_node_policy_ignores_invalid_process_configuration",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "factory_entry_observation_keeps_its_deadline_for_queued_notifications",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "failed_predecessor_recovery_preserves_the_predecessor_generation_and_releases_the_directory",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "full_node_admits_cold_cells_past_a_covered_alarm",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "management_authentication_generation_and_host_capabilities_are_enforced",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "management_crons_report_pending_until_embedded_host_adopts",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "management_resource_writes_survive_forced_owner_closure",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "management_resource_writes_survive_owner_handoff",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "management_stop_receipts_distinguish_draining_joined_and_incomplete_work",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_assets::embedded_nodes_keep_asset_caches_and_shutdown_independent",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::catalog_inventory_pages_tombstones_and_recovers_owner_handoff",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::console_event_adapters_use_signed_owner_routes_and_guarded_receipts",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::event_clock_retention::clock_retention_bounded_expiry_survives_rollback_and_owner_handoff",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::event_clock_retention::clock_retention_required_checkpoint_survives_expiry_rollback_and_handoff",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::event_consumer_overlap::overlapping_consumers_deduplicate_before_current_ack",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::event_consumer_overlap::overlapping_consumers_preserve_next_lease_after_current_ack",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::event_consumer_takeover::running_consumer_cannot_accept_after_fenced_takeover",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::event_consumer_takeover::running_consumer_receipt_and_effect_cannot_commit_after_fenced_takeover",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::event_fetch_reply::lost_proven_fetch_recovers_exact_lease_after_owner_handoff",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::event_late_reply::delayed_proven_ack_survives_destination_fencing_without_consuming_the_next_lease",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::event_late_reply::late_proven_append_reply_cannot_settle_a_fenced_source_successor",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::event_late_reply::operator_retry_ignores_prior_generation_append_acceptance",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::event_late_reply::operator_retry_ignores_prior_generation_append_refusal",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::event_metrics_export_tracks_real_work_and_keeps_hosts_isolated",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::event_owner_outage::storage_isolated_event_owner_expires_and_recovers_before_replay",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::event_refusal_clock::cold_follower_audit_survives_one_read_deadline_without_receipt_replay",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::event_refusal_clock::foreign_root_loss_during_recovery_refuses_takeover_until_claimed_metadata_returns",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::event_refusal_clock::foreign_root_replacement_during_recovery_refuses_takeover_until_claimed_metadata_returns",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::event_refusal_clock::live_foreign_recovery_resumes_after_missing_claimed_metadata_returns",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::event_refusal_clock::live_foreign_recovery_resumes_after_replaced_claimed_metadata_returns",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::event_refusal_clock::missing_destination_lease_refuses_admission_until_proof_metadata_returns",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::event_refusal_clock::refused_clock_bucket_proof_survives_rollback_and_forced_owner_loss",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::event_refusal_clock::refused_clock_cold_followers_recover_before_any_receipt_replay",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::event_refusal_clock::refused_clock_follower_proof_survives_rollback_without_owner_disk_or_upload",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::event_refusal_clock::root_loss_after_lineage_capture_refuses_boot_until_original_proof_returns",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::event_refusal_clock::root_loss_after_recovery_refuses_lease_install_until_sealed_metadata_returns",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::event_refusal_clock::root_loss_during_recovery_refuses_boot_until_claimed_metadata_returns",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::event_refusal_clock::root_replacement_after_lineage_capture_refuses_boot_until_original_proof_returns",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::event_refusal_clock::root_replacement_after_recovery_refuses_lease_install_until_sealed_metadata_returns",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::event_refusal_clock::root_replacement_during_recovery_refuses_boot_until_claimed_metadata_returns",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::event_refusal_clock::same_name_restart_cannot_recover_from_a_fresh_lineage_after_root_loss",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::event_root_read::claimed_root_cut_holds_concurrent_original_responses",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::event_running_owner::running_source_poll_cannot_write_commit_or_reply_after_fenced_takeover",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::event_settlement_race::settlement_race_ack_replay_and_extension_preserve_next_lease",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::event_settlement_race::settlement_race_expiry_replacement_refuses_old_ack_and_extension",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::event_settlement_race::settlement_race_reset_invalidates_pending_ack_and_extension",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::event_unproven_ack::unproven_ack_cannot_escape_its_gate_and_recovers_the_original_lease",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::event_unproven_clock::unproven_clock_refusal_cannot_escape_and_does_not_revoke_the_original_lease",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::lost_proven_append_and_ack_replies_preserve_exact_acceptance_and_effects",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::named_bindings_resolve_grants_and_pin_uuid_across_recreation",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::node_activates_declarations_checks_adoption_and_processes_redelivery",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::node_refuses_unsupported_storage_and_peer_protocol_before_admission",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::peer_reply_fault::binary_upgrades_forward_prefetched_bytes_and_eof",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::peer_reply_fault::bodyless_abort_response_keeps_next_message_framing_intact",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::peer_reply_fault::controlled_destination_closure_preserves_framing_failures",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::peer_reply_fault::destination_reset_requires_an_explicit_shutdown_cut",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::peer_reply_fault::log_upgrade_relays_binary_bytes_and_joins_both_directions",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::peer_reply_fault::log_upgrades_preserve_buffered_binary_bytes_and_half_closes",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::peer_reply_fault::outer_tunnel_keeps_http_fault_capture_after_upgrade",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::removed_source_class_recovers_delivery_and_control_without_application_code",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::retirement_operator_coordinates_or_forces_and_recovers_terminal_receipts",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::source_destruction_fences_suspended_turns_retained_handles_and_preserves_live_watermarks",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::source_destruction_requires_retired_destinations_and_recovers_closed_admission",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::source_inventory_preserves_observed_watermarks_seals_and_owner_handoff",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::source_operator_routes_to_owner_replays_receipts_and_recovers_handoff",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::stream_operator_routes_controls_preserves_receipts_and_checks_revocation",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::subscription_inventory_pages_tombstones_and_recovers_owner_handoff",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_http::embedded_hosts_capture_http_clients_and_separate_deadlines",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "progressing_background_extends_the_stall_window_but_not_the_absolute_node_deadline",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "progressing_background_keeps_the_fleet_drain_token_renewed",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "public_node_applies_lifted_limits_to_cell_storage",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "public_node_deadline_reports_background_work_before_forced_retirement",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "public_node_renews_short_authority_while_its_host_worker_is_blocked",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "public_node_reports_expired_authority_after_its_executor_resumes",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "public_node_reports_missing_and_replaced_lease_authority",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "public_node_shutdown_drains_alarm_background_before_the_durability_cut",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "public_node_shutdown_drains_nested_background_across_generations_and_isolates_hosts",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "public_nodes_adopt_compiled_generations_and_force_close_without_process_exit",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "public_nodes_drain_admitted_writes_isolate_fleets_and_leave_caller_executors_running",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "remote_workflow_deletion_preserves_gated_handler_completion",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "replacement_public_node_recovers_predecessor_before_replacing_its_lease",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "signed_cron_history_forwards_without_arming_and_refuses_other_protocols",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "slow_predecessor_recovery_still_refuses_missing_witness",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "timed_out_predecessor_recovery_preserves_generation_and_releases_directory",
+      "target": "native_node",
+      "result": "passed"
+    }
+  ],
+  "commands": [
+    {
+      "name": "snapshot-list",
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--test",
+        "native_raft_snapshot",
+        "--locked",
+        "--",
+        "--list"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-10-physical-snapshot-list.log",
+      "elapsed_seconds": 0.7,
+      "sha256": "2af1d9135737c27e35a18583d8824b8d175dbf8b0db6e03a22bac654fbc5fabd"
+    },
+    {
+      "name": "snapshot-test",
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--test",
+        "native_raft_snapshot",
+        "--locked",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-10-physical-snapshot-test.log",
+      "elapsed_seconds": 1.96,
+      "sha256": "dd4c21e54403e5cbbdd2afb169149c680317cc493ba1694abc3e6b2347e4a4b9"
+    },
+    {
+      "name": "owning-test",
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--test",
+        "native_raft_archive",
+        "--test",
+        "native_raft_execution",
+        "--test",
+        "native_raft_host",
+        "--test",
+        "native_raft_ltx",
+        "--test",
+        "native_raft_reads",
+        "--test",
+        "native_raft_runtime",
+        "--test",
+        "native_raft_storage",
+        "--locked",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-10-physical-owning-test.log",
+      "elapsed_seconds": 93.8,
+      "sha256": "7b554b45932d0832ad638c7a7918fac421358bf86a720ad84b824c76801cebe1"
+    },
+    {
+      "name": "node-test",
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--test",
+        "native_node",
+        "--locked",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-10-physical-node-test.log",
+      "elapsed_seconds": 649.64,
+      "sha256": "22e07374e7b7da664185a023bc254ce1429479424df94f2f0c3c9097e937225a"
+    },
+    {
+      "name": "clippy",
+      "argv": [
+        "cargo",
+        "clippy",
+        "-p",
+        "cellar",
+        "--lib",
+        "--test",
+        "native_raft_snapshot",
+        "--test",
+        "native_raft_archive",
+        "--test",
+        "native_raft_execution",
+        "--test",
+        "native_raft_host",
+        "--test",
+        "native_raft_ltx",
+        "--test",
+        "native_raft_reads",
+        "--test",
+        "native_raft_runtime",
+        "--test",
+        "native_raft_storage",
+        "--test",
+        "native_node",
+        "--locked",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-10-physical-clippy.log",
+      "elapsed_seconds": 7.0,
+      "sha256": "d9bac978a394c026753ed110f2a19a6e95476618f78c348f4def8ec814671fb1"
+    },
+    {
+      "name": "format",
+      "argv": [
+        "cargo",
+        "format",
+        "--check"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-10-physical-format.log",
+      "elapsed_seconds": 35.38,
+      "sha256": "db1d1e3df45c46f1e39781b1d771af178e0f5ea1c1369076a040f6f04f2c2e5e"
+    },
+    {
+      "name": "layout",
+      "argv": [
+        "cargo",
+        "check-layout"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-10-physical-layout.log",
+      "elapsed_seconds": 0.13,
+      "sha256": "8dcb8057d77b6365fb769b21442af58e8b8f353935ccdc83c726f9765f8cc4b5"
+    },
+    {
+      "name": "dependencies",
+      "argv": [
+        "python3",
+        "tools/check_native_dependencies.py"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-10-physical-dependencies.log",
+      "elapsed_seconds": 0.27,
+      "sha256": "573ee0bd679271eaa2b00c106e70124fcec3648fbfcb0b73dc07129c28963dba"
+    },
+    {
+      "name": "docs",
+      "argv": [
+        "python3",
+        "tools/docs/check.py"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-10-physical-docs.log",
+      "elapsed_seconds": 0.08,
+      "sha256": "32bd9e2f14b0d0fa13ca19f1760d01f42da7061ba26843f9453142172b444271"
+    },
+    {
+      "name": "plan",
+      "argv": [
+        "python3",
+        "plans/multi-raft/plan.py",
+        "validate"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-10-physical-plan.log",
+      "elapsed_seconds": 0.09,
+      "sha256": "a5fb6c9ca5a27373f90f8d1729c2d850cfbea25a2f1c539d33dccd79a1d0cf99"
+    },
+    {
+      "name": "plan-tests",
+      "argv": [
+        "python3",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "plans/multi-raft",
+        "-p",
+        "test_*.py"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-10-physical-plan-tests.log",
+      "elapsed_seconds": 0.12,
+      "sha256": "bcf3ce8a6ddde1e74975feb97ac266121f34e06031677719a71d0c181efd92ab"
+    },
+    {
+      "name": "preflight",
+      "argv": [
+        "python3",
+        "plans/multi-raft/plan.py",
+        "preflight"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-10-physical-preflight.log",
+      "elapsed_seconds": 0.1,
+      "sha256": "2ffb8fcab3d8e0559f2d5386175b5848887b5d10412c1208ef1749e63f15e355"
+    },
+    {
+      "name": "diff",
+      "argv": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-10-physical-diff.log",
+      "elapsed_seconds": 0.02,
+      "sha256": "8db8524dab0c5c18d0edf40396028cf5aa88fe5e0f29470750b920e355651f83"
+    }
+  ],
+  "ignored_child_entrypoints": [
+    {
+      "name": "snapshot_process_fixture",
+      "target": "native_raft_snapshot"
+    },
+    {
+      "name": "apply_crash_process",
+      "target": "native_raft_execution"
+    },
+    {
+      "name": "private_crash_process",
+      "target": "native_raft_execution"
+    },
+    {
+      "name": "image_crash_process",
+      "target": "native_raft_ltx"
+    },
+    {
+      "name": "runtime_process_fixture",
+      "target": "native_raft_runtime"
+    },
+    {
+      "name": "storage_process_fixture",
+      "target": "native_raft_storage"
+    }
+  ],
+  "counts": {
+    "rust_owning_passed": 218,
+    "by_target": {
+      "native_raft_snapshot": 9,
+      "native_raft_archive": 26,
+      "native_raft_execution": 16,
+      "native_raft_host": 22,
+      "native_raft_ltx": 16,
+      "native_raft_reads": 17,
+      "native_raft_runtime": 14,
+      "native_raft_storage": 10,
+      "native_node": 88
+    },
+    "ignored_child_entrypoints": 6,
+    "successful_commands": 13,
+    "snapshot_process_kill_cuts": 7,
+    "planning_cases": 17
+  }
+}

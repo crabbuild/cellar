@@ -1,0 +1,8 @@
+{"source_revision": "2298fd442f0b867695b564527a66b61684aff2c2", "argv": ["python3", "plans/multi-raft/plan.py", "validate"]}
+{
+  "package_validation": "passed",
+  "tasks": 17,
+  "cases": 104,
+  "source_anchors": 68,
+  "local_links": 62
+}

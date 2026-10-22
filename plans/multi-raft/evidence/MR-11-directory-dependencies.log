@@ -1,0 +1,3 @@
+Source: 79a46b7d8d7af7ed9f8c26c3989b6026ff785d88
+Command: ["python3", "tools/check_native_dependencies.py"]
+Cellar workspace (all features): 439 reachable packages; no JavaScript engine

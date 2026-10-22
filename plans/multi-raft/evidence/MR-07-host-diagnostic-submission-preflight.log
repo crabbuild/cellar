@@ -1,0 +1,19 @@
+<jemalloc>: option background_thread currently supports pthread only
+
+running 1 test
+cellar local reload scan failed: local reload requires replication
+cellar local reload scan failed: local reload requires replication
+cellar local reload scan failed: local reload requires replication
+Error: initial command in group 0, leader 2, callbacks 1
+
+Caused by:
+    consensus operation failed: Unavailable
+test public_multi_group_replication_and_leader_failover ... FAILED
+
+failures:
+
+failures:
+    public_multi_group_replication_and_leader_failover
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 16 filtered out; finished in 1.51s
+

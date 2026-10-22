@@ -1,0 +1,463 @@
+{
+  "task_id": "MR-13",
+  "source_revision": "3682454514e272e41e0610a422852450f85aee93",
+  "completion": "partial",
+  "scope": "PR91 merge integration and focused archive-test race repair; not complete MR13 or release qualification.",
+  "merge": {
+    "main_revision": "bc540b6",
+    "merge_commit": "3dcdb41cab38cac4c8d051afe56d5963394f2870",
+    "conflicts": [
+      "Cargo.lock",
+      "crates/cellar/lib.rs",
+      "plans/README.md"
+    ],
+    "resolution": "Retain Raft and upstream embedded-Python modules, pinned dependencies (including both heck versions), qualification workflows and plan indexes."
+  },
+  "original_ci": {
+    "source_revision": "ae0fba2a1ff372dd1372db5283a5836f0a650013",
+    "url": "https://github.com/crabbuild/cellar/actions/runs/39692484818",
+    "result": "failure",
+    "case": "retry_strengthens_durability"
+  },
+  "diagnosis": "A controlled physical archive-capture delay reproduces the old assertion with a legitimate Overloaded admission refusal. It does not return a Quorum success. The original CI log omitted the returned SDK result; this controlled reproduction establishes the test race rather than attributing an unobserved exact SDK value to the CI run.",
+  "fix": "Use the existing Overloaded-only fixture retry inside the original five-second deadline. Preserve the outage wait, S3 proof, original version/result, single business callback and restart assertions. Include the actual value in unexpected early-result failures.",
+  "tests": [
+    {
+      "target": "native_raft_archive",
+      "name": "archive_capture_refuses_unrelated_newer_marker",
+      "result": "passed"
+    },
+    {
+      "target": "native_raft_archive",
+      "name": "archive_close_releases_workspace_before_returning",
+      "result": "passed"
+    },
+    {
+      "target": "native_raft_archive",
+      "name": "archive_commands_reclaim_generations_with_small_disk_admission",
+      "result": "passed"
+    },
+    {
+      "target": "native_raft_archive",
+      "name": "archive_cut_pins_retired_image_during_outage",
+      "result": "passed"
+    },
+    {
+      "target": "native_raft_archive",
+      "name": "archive_head_lost_response_and_confirmation",
+      "result": "passed"
+    },
+    {
+      "target": "native_raft_archive",
+      "name": "archive_head_monotonic",
+      "result": "passed"
+    },
+    {
+      "target": "native_raft_archive",
+      "name": "archive_io_deadline_retries_without_reexecuting",
+      "result": "passed"
+    },
+    {
+      "target": "native_raft_archive",
+      "name": "archive_never_speculative",
+      "result": "passed"
+    },
+    {
+      "target": "native_raft_archive",
+      "name": "archive_noop_tail_and_exact_configuration_checkpoint",
+      "result": "passed"
+    },
+    {
+      "target": "native_raft_archive",
+      "name": "archive_pin_pressure_defers_committed_apply_without_corruption",
+      "result": "passed"
+    },
+    {
+      "target": "native_raft_archive",
+      "name": "archive_reconciles_lost_put_response",
+      "result": "passed"
+    },
+    {
+      "target": "native_raft_archive",
+      "name": "archive_reference_refuses_substitution_and_missing_material",
+      "result": "passed"
+    },
+    {
+      "target": "native_raft_archive",
+      "name": "archive_reference_stays_exact_after_head_advance",
+      "result": "passed"
+    },
+    {
+      "target": "native_raft_archive",
+      "name": "archive_refuses_different_engine_birth",
+      "result": "passed"
+    },
+    {
+      "target": "native_raft_archive",
+      "name": "archive_refuses_foreign_birth_and_noncanonical_head",
+      "result": "passed"
+    },
+    {
+      "target": "native_raft_archive",
+      "name": "archive_refuses_member_binding_birth_mismatch",
+      "result": "passed"
+    },
+    {
+      "target": "native_raft_archive",
+      "name": "archive_replay_failure_never_publishes_head",
+      "result": "passed"
+    },
+    {
+      "target": "native_raft_archive",
+      "name": "archive_shutdown_joins_hung_store_without_acknowledging",
+      "result": "passed"
+    },
+    {
+      "target": "native_raft_archive",
+      "name": "archive_tail_limit_establishes_new_snapshot",
+      "result": "passed"
+    },
+    {
+      "target": "native_raft_archive",
+      "name": "archive_verifies_every_dependency_and_object",
+      "result": "passed"
+    },
+    {
+      "target": "native_raft_archive",
+      "name": "bucket_archive_store_preserves_prefix_and_conditional_writes",
+      "result": "passed"
+    },
+    {
+      "target": "native_raft_archive",
+      "name": "committed_archive_restores_snapshot_and_physical_tail",
+      "result": "passed"
+    },
+    {
+      "target": "native_raft_archive",
+      "name": "quorum_s3_outage",
+      "result": "passed"
+    },
+    {
+      "target": "native_raft_archive",
+      "name": "retention_preserves_only_copy",
+      "result": "passed"
+    },
+    {
+      "target": "native_raft_archive",
+      "name": "retry_strengthens_durability",
+      "result": "passed"
+    },
+    {
+      "target": "native_raft_archive",
+      "name": "s3_ack_complete_restore_set",
+      "result": "passed"
+    },
+    {
+      "target": "native_raft_archive",
+      "name": "s3_three_voter_failover_restores_only_committed_commands",
+      "result": "passed"
+    },
+    {
+      "target": "native_raft_archive",
+      "name": "s3_timeout_ambiguous",
+      "result": "passed"
+    },
+    {
+      "target": "native_raft_archive",
+      "name": "unpolled_s3_waiter_cannot_receive_success_after_deadline",
+      "result": "passed"
+    }
+  ],
+  "counts": {
+    "rust_passed": 29,
+    "test_binaries": 1,
+    "successful_commands": 10
+  },
+  "commands": [
+    {
+      "name": "archive",
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--test",
+        "native_raft_archive",
+        "--all-features",
+        "--locked",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "source_revision": "3682454514e272e41e0610a422852450f85aee93",
+      "output": "evidence/PR-91-ci-repair-archive.log",
+      "sha256": "7f1037c479ce6556f4a45e6ae3e240881ea29ba4e045ccb00574d399f1973db4",
+      "elapsed_seconds": 27.15
+    },
+    {
+      "name": "clippy",
+      "argv": [
+        "cargo",
+        "clippy",
+        "-p",
+        "cellar",
+        "--lib",
+        "--test",
+        "native_raft_archive",
+        "--all-features",
+        "--locked",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "source_revision": "3682454514e272e41e0610a422852450f85aee93",
+      "output": "evidence/PR-91-ci-repair-clippy.log",
+      "sha256": "dc304a686aa15da359f542c250149b0d3e9df226f14f06aefe246d89eef0b231",
+      "elapsed_seconds": 0.3
+    },
+    {
+      "name": "format",
+      "argv": [
+        "cargo",
+        "format",
+        "--check"
+      ],
+      "exit_code": 0,
+      "source_revision": "3682454514e272e41e0610a422852450f85aee93",
+      "output": "evidence/PR-91-ci-repair-format.log",
+      "sha256": "dca709d42018c92931301369372c1bb677b347f75598389da0865591daed9179",
+      "elapsed_seconds": 39.55
+    },
+    {
+      "name": "layout",
+      "argv": [
+        "cargo",
+        "check-layout"
+      ],
+      "exit_code": 0,
+      "source_revision": "3682454514e272e41e0610a422852450f85aee93",
+      "output": "evidence/PR-91-ci-repair-layout.log",
+      "sha256": "3defe991ce526879594dc7001ce5426865bdc1350885e02ff75f0b922feb959d",
+      "elapsed_seconds": 0.11
+    },
+    {
+      "name": "dependencies",
+      "argv": [
+        "python3",
+        "tools/check_native_dependencies.py"
+      ],
+      "exit_code": 0,
+      "source_revision": "3682454514e272e41e0610a422852450f85aee93",
+      "output": "evidence/PR-91-ci-repair-dependencies.log",
+      "sha256": "e42cb7300af1670f7a73140ec0e1357f6e382e092ac0de48a31353dedc7bf6c5",
+      "elapsed_seconds": 0.24
+    },
+    {
+      "name": "docs",
+      "argv": [
+        "python3",
+        "tools/docs/check.py"
+      ],
+      "exit_code": 0,
+      "source_revision": "3682454514e272e41e0610a422852450f85aee93",
+      "output": "evidence/PR-91-ci-repair-docs.log",
+      "sha256": "ffb4c51e4f62c6c6881a7a5f57ad603cef6d6fc20ce1d87b3f675334335256f4",
+      "elapsed_seconds": 0.07
+    },
+    {
+      "name": "plan",
+      "argv": [
+        "python3",
+        "plans/multi-raft/plan.py",
+        "validate"
+      ],
+      "exit_code": 0,
+      "source_revision": "3682454514e272e41e0610a422852450f85aee93",
+      "output": "evidence/PR-91-ci-repair-plan.log",
+      "sha256": "21c8c01705a5c19212e4cedb5c92f90bc97c7ff6c89b463a1658ea296e86a7e0",
+      "elapsed_seconds": 0.1
+    },
+    {
+      "name": "plan-tests",
+      "argv": [
+        "python3",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "plans/multi-raft",
+        "-p",
+        "test_*.py"
+      ],
+      "exit_code": 0,
+      "source_revision": "3682454514e272e41e0610a422852450f85aee93",
+      "output": "evidence/PR-91-ci-repair-plan-tests.log",
+      "sha256": "725ad8a0636057d3ccef178f1c9daa0979241c7c3bcb9ca48f8af4d3399e43c7",
+      "elapsed_seconds": 0.12
+    },
+    {
+      "name": "preflight",
+      "argv": [
+        "python3",
+        "plans/multi-raft/plan.py",
+        "preflight"
+      ],
+      "exit_code": 0,
+      "source_revision": "3682454514e272e41e0610a422852450f85aee93",
+      "output": "evidence/PR-91-ci-repair-preflight.log",
+      "sha256": "2d5d9d8366fbc3c45188aef04ae4fe40edfd65dc29e85cb9cf9b9011a89c599c",
+      "elapsed_seconds": 0.1
+    },
+    {
+      "name": "diff",
+      "argv": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "exit_code": 0,
+      "source_revision": "3682454514e272e41e0610a422852450f85aee93",
+      "output": "evidence/PR-91-ci-repair-diff.log",
+      "sha256": "f6858786a211bdb7484ec2ce922170b39bea51cc328578d849346c59abf306db",
+      "elapsed_seconds": 0.02
+    }
+  ],
+  "diagnostics": [
+    {
+      "output": "evidence/PR-91-ci-repair-linux-failure.log.gz",
+      "sha256": "4a40be6d61e245d0192f78326575d02ffb119cb0e70c38e71e4879a06f733475",
+      "source_note": "Original GitHub failed-step log at ae0fba2; retry_strengthens_durability failed with its old generic assertion. This log did not retain the early SDK result.",
+      "uncompressed_sha256": "168549e9fd10c8d2683d9450f3d2c2faf599a99b979c23dc672ce939b1d9b1de",
+      "encoding": "gzip; lossless original GitHub failed-step text"
+    },
+    {
+      "output": "evidence/PR-91-ci-repair-capture-red.log",
+      "sha256": "5d9e77619e321a80701264b0c85aa9799a8373455898caca3ec66383b432a0a6",
+      "source_note": "Uncommitted merge of ae0fba2 and bc540b6 with improved error context and a temporary 20ms physical SQL archive-capture delay. The old direct-attempt test failed with Ok(Err(Overloaded)). Diagnostic only; production delay and old test were restored after completion."
+    },
+    {
+      "output": "evidence/PR-91-ci-repair-capture-fixed.log",
+      "sha256": "26d8ca6b6b74e5cc74f4f25f01eb3cbd6298860662e7343203b1bbedacf0d7ae",
+      "source_note": "The corrected test passed with the identical temporary 20ms physical SQL archive-capture delay. Diagnostic only, before final source commit; instrumentation was removed before the pinned 29-case suite."
+    }
+  ],
+  "limitations": "Focused macOS native archive regression at the pinned source only, not a new full-workspace qualification. The prior 850-case record stays attributed to f89c7b4. Full Linux/Python ABI workflow results are reported through PR91 checks. Earlier transfer/fallback findings and all remaining MR13-17 gates remain open.",
+  "workspace_lint_followup": {
+    "source_revision": "f8f8958c6ef336f5764b463999f543856a3c7a76",
+    "scope": "One test fixture lexical guard scope; assertion and joined cleanup preserved, no lint allowance added.",
+    "diagnosis": "All-target Clippy reports the registry MutexGuard across cleanup awaits despite its explicit drop. An enclosing block ends that guard scope before async cleanup and removes the lint.",
+    "parent_workspace_tests": {
+      "source_revision": "7c8d9088014ef70582b90833ad0ec0bbe09b3b87",
+      "argv": [
+        "cargo",
+        "test",
+        "--workspace",
+        "--all-features",
+        "--lib",
+        "--tests",
+        "--locked",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 2315.62,
+      "output": "evidence/PR-91-ci-repair-workspace-tests-7c8d908.log.gz",
+      "sha256": "3ff98f47f4a7b256c6777c778eb7f722329b4451ce32a27bbadc688a5965e27b",
+      "uncompressed_sha256": "a39b384528bced4bc5a600c9fe9b1014bcf0af9db7dcddb8a386b4aacb09ad9d",
+      "encoding": "gzip"
+    },
+    "parent_workspace_doctests": {
+      "name": "docs",
+      "source_revision": "7c8d9088014ef70582b90833ad0ec0bbe09b3b87",
+      "argv": [
+        "cargo",
+        "test",
+        "--workspace",
+        "--all-features",
+        "--doc",
+        "--locked"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 18.04,
+      "output": "evidence/PR-91-ci-repair-workspace-docs-7c8d908.log",
+      "sha256": "85b3607356cffa4aa7acd318eb518fd03aa8256f592d057d843c03b7636aedc5",
+      "uncompressed_sha256": "85b3607356cffa4aa7acd318eb518fd03aa8256f592d057d843c03b7636aedc5",
+      "encoding": "UTF-8 text"
+    },
+    "parent_workspace_clippy_failure": {
+      "name": "clippy",
+      "source_revision": "7c8d9088014ef70582b90833ad0ec0bbe09b3b87",
+      "argv": [
+        "cargo",
+        "clippy",
+        "--workspace",
+        "--all-targets",
+        "--all-features",
+        "--locked",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 101,
+      "elapsed_seconds": 52.29,
+      "output": "evidence/PR-91-ci-repair-workspace-clippy-before-guard.log",
+      "sha256": "d6f8d527d486cd388a8c00b23f8b5a3420cdf98afd95fbaec4e07bf3e0f92302",
+      "uncompressed_sha256": "d6f8d527d486cd388a8c00b23f8b5a3420cdf98afd95fbaec4e07bf3e0f92302",
+      "encoding": "UTF-8 text"
+    },
+    "followup_checks": [
+      {
+        "argv": [
+          "cargo",
+          "test",
+          "-p",
+          "cellar",
+          "--lib",
+          "--all-features",
+          "--locked",
+          "process_refresh_pins_instance_and_future_route_admission",
+          "--",
+          "--nocapture",
+          "--test-threads=1"
+        ],
+        "exit_code": 0,
+        "tests_passed": 1,
+        "output": "evidence/PR-91-ci-repair-guard-test.log",
+        "sha256": "6d00e66530907363aa1a4fe15b37b566a2a15ba30efd509368f6a4d4ff1f8e5a",
+        "uncompressed_sha256": "6d00e66530907363aa1a4fe15b37b566a2a15ba30efd509368f6a4d4ff1f8e5a",
+        "encoding": "UTF-8 text"
+      },
+      {
+        "argv": [
+          "cargo",
+          "clippy",
+          "--workspace",
+          "--all-targets",
+          "--all-features",
+          "--locked",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "exit_code": 0,
+        "output": "evidence/PR-91-ci-repair-workspace-clippy-scoped-guard.log",
+        "sha256": "1d8d2101c65ded6de9d4e06e26832d4fb666ea25ef916c75343242770ef8c878",
+        "uncompressed_sha256": "1d8d2101c65ded6de9d4e06e26832d4fb666ea25ef916c75343242770ef8c878",
+        "encoding": "UTF-8 text"
+      },
+      {
+        "argv": [
+          "cargo",
+          "format"
+        ],
+        "exit_code": 0,
+        "output": "evidence/PR-91-ci-repair-guard-format.log",
+        "sha256": "98312e6a0d08bd60730357a55dc57453e2b7bcde4be59385e5b62383ea1df5f5",
+        "uncompressed_sha256": "98312e6a0d08bd60730357a55dc57453e2b7bcde4be59385e5b62383ea1df5f5",
+        "encoding": "UTF-8 text"
+      }
+    ],
+    "source_note": "Follow-up checks ran on the uncommitted one-file scope change before f8f8958; checked-in Rust bytes match. Full parent workspace tests/doctests remain attributed to 7c8d908; they are not repinned or counted as a fresh full matrix at this successor. Final Linux CI outcome is tracked on PR91."
+  }
+}

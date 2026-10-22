@@ -18,6 +18,14 @@ pub type WebSocketId = u64;
 pub type OpId = u64;
 pub type Epoch = u64;
 
+/// The immutable authority protocol selected when a namespace is created.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum NamespaceMode {
+    #[default]
+    Fleet,
+    Raft,
+}
+
 /// One runtime that this node can currently serve locally.
 ///
 /// Presence is a read-only projection of the decision core, not a second

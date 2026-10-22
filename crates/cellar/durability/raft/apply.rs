@@ -1,0 +1,477 @@
+//! Physical images become public only after the matching engine marker is durable.
+//! This owner handles committed data entries; protocol no-ops/configuration changes
+//! remain in the runtime and preserve the image. It grants no leader eligibility.
+
+use super::cache::{CommittedImage, GroupLog};
+use super::completion::{ApplyCompletion, ApplyTicket};
+use super::storage::LogError;
+use crate::application::consensus::{CellUpdate, EnvelopeLimits, LtxImage, ProtocolError};
+use ::raft::prelude::{Entry, EntryType};
+use cellar_logic::consensus::{GroupScope, LogPosition, ProposalId};
+use cellar_ltx::apply::{ImageState, ImageUpdate, LtxSegment};
+use cellar_ltx::generation::{GenerationError, GenerationPin, GenerationStore, ImageId};
+use cellar_ltx::{ltx, TXID};
+use protobuf::Message as _;
+use sha2::{Digest, Sha256};
+use std::fmt;
+
+#[derive(Debug)]
+pub enum ImageApplyError {
+    Invalid(&'static str),
+    Busy,
+    Unpublished,
+    Log(LogError),
+    Envelope(ProtocolError),
+    Images(GenerationError),
+    Snapshot(Box<super::snapshot::SnapshotError>),
+}
+
+impl fmt::Display for ImageApplyError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "Raft image application: {self:?}")
+    }
+}
+
+impl std::error::Error for ImageApplyError {}
+
+/// An image covered by an observed durable engine marker. This does not prove
+/// a particular read consistency, schema compatibility or command output gate.
+#[derive(Clone)]
+pub struct PublishedImage {
+    pin: GenerationPin,
+    position: LogPosition,
+    scope: GroupScope,
+    proposal: Option<ProposalId>,
+    application_digest: [u8; 32],
+}
+
+impl PublishedImage {
+    pub fn scope(&self) -> &GroupScope {
+        &self.scope
+    }
+
+    pub fn proposal(&self) -> Option<ProposalId> {
+        self.proposal
+    }
+
+    pub fn pin(&self) -> GenerationPin {
+        self.pin.clone()
+    }
+
+    pub fn position(&self) -> LogPosition {
+        self.position
+    }
+
+    pub fn application_digest(&self) -> [u8; 32] {
+        self.application_digest
+    }
+}
+
+struct Pending {
+    ticket: ApplyTicket,
+    pin: GenerationPin,
+    marker: CommittedImage,
+    proposal: ProposalId,
+}
+
+pub struct ImageApplier {
+    group: GroupLog,
+    images: GenerationStore,
+    application_digest: [u8; 32],
+    limits: EnvelopeLimits,
+    current: Option<PublishedImage>,
+    snapshot_pin: Option<GenerationPin>,
+    pending: Option<Pending>,
+}
+
+impl ImageApplier {
+    /// Run on the host's blocking execution domain, with the group's exclusively
+    /// owned image store. Recovered directory inventory never selects the head.
+    pub fn recover(
+        group: GroupLog,
+        images: GenerationStore,
+        application_digest: [u8; 32],
+        limits: EnvelopeLimits,
+    ) -> Result<Self, ImageApplyError> {
+        limits.validate().map_err(ImageApplyError::Envelope)?;
+        let snapshot_pin = super::recovery::snapshot_pin(&group, &images, application_digest)
+            .map_err(|error| ImageApplyError::Snapshot(Box::new(error)))?;
+        let applied = group.applied().map_err(ImageApplyError::Log)?;
+        let current = applied
+            .image
+            .as_ref()
+            .map(|marker| {
+                let id = marker_id(marker)?;
+                let pin = images
+                    .adopt(id, marker_state(marker))
+                    .map_err(ImageApplyError::Images)?;
+                Ok::<_, ImageApplyError>(PublishedImage {
+                    pin,
+                    position: applied.position,
+                    scope: group.identity().scope.clone(),
+                    proposal: None,
+                    application_digest,
+                })
+            })
+            .transpose()?;
+        let applier = Self {
+            group,
+            images,
+            application_digest,
+            limits,
+            current,
+            snapshot_pin,
+            pending: None,
+        };
+        // Both marker families are authoritative. Validate/adopt all of them
+        // before retiring any inventory; a bad snapshot must fail closed.
+        applier
+            .images
+            .retain_only(&applier.retained_images())
+            .map_err(ImageApplyError::Images)?;
+        applier
+            .images
+            .reclaim(4096)
+            .map_err(ImageApplyError::Images)?;
+        Ok(applier)
+    }
+
+    pub fn current(&self) -> Option<PublishedImage> {
+        self.current.clone()
+    }
+
+    fn retained_images(&self) -> Vec<ImageId> {
+        self.current
+            .iter()
+            .map(|image| image.pin.id())
+            .chain(self.snapshot_pin.iter().map(GenerationPin::id))
+            .collect()
+    }
+
+    /// Reconcile only an already durable checkpoint. Keep its separate image
+    /// reference even after newer applied images replace the public head.
+    pub fn refresh_snapshot(&mut self) -> Result<(), ImageApplyError> {
+        let next =
+            super::recovery::snapshot_pin(&self.group, &self.images, self.application_digest)
+                .map_err(|error| ImageApplyError::Snapshot(Box::new(error)))?;
+        let old = std::mem::replace(&mut self.snapshot_pin, next);
+        if let Some(old) = old {
+            let id = old.id();
+            if self
+                .current
+                .as_ref()
+                .is_none_or(|image| image.pin.id() != id)
+                && self
+                    .snapshot_pin
+                    .as_ref()
+                    .is_none_or(|image| image.id() != id)
+            {
+                self.images.retire(id).map_err(ImageApplyError::Images)?;
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn publish_snapshot(
+        &mut self,
+        group: &GroupLog,
+        snapshot: &::raft::prelude::Snapshot,
+        pin: GenerationPin,
+    ) -> Result<PublishedImage, ImageApplyError> {
+        if self.pending.is_some() {
+            return Err(ImageApplyError::Busy);
+        }
+        let position = {
+            let cache = self.group.read().map_err(ImageApplyError::Log)?;
+            if group.identity() != self.group.identity()
+                || cache.snapshot != *snapshot
+                || cache.applied.image.as_ref() != Some(&marker(&pin))
+                || cache.applied.position.index.get() < snapshot.get_metadata().index
+            {
+                return Err(ImageApplyError::Unpublished);
+            }
+            cache.applied.position
+        };
+        // Prove that the bytes are in this applier's directory even if a caller
+        // supplied a pin from another store with the same logical identity.
+        let pin = self
+            .images
+            .adopt(pin.id(), pin.state())
+            .map_err(ImageApplyError::Images)?;
+        self.refresh_snapshot()?;
+        let head = PublishedImage {
+            pin,
+            position,
+            scope: self.group.identity().scope.clone(),
+            proposal: None,
+            application_digest: self.application_digest,
+        };
+        let previous = self.current.replace(head.clone());
+        if let Some(previous) = previous {
+            if previous.pin.id() != head.pin.id()
+                && self
+                    .snapshot_pin
+                    .as_ref()
+                    .is_none_or(|pin| pin.id() != previous.pin.id())
+            {
+                self.images
+                    .retire(previous.pin.id())
+                    .map_err(ImageApplyError::Images)?;
+            }
+        }
+        self.images.reclaim(8).map_err(ImageApplyError::Images)?;
+        Ok(head)
+    }
+
+    pub(crate) fn publish_empty_snapshot(
+        &mut self,
+        group: &GroupLog,
+        snapshot: &::raft::prelude::Snapshot,
+    ) -> Result<(), ImageApplyError> {
+        if self.pending.is_some() || self.current.is_some() {
+            return Err(ImageApplyError::Busy);
+        }
+        {
+            let cache = self.group.read().map_err(ImageApplyError::Log)?;
+            if group.identity() != self.group.identity()
+                || cache.snapshot != *snapshot
+                || cache.applied.image.is_some()
+                || cache.applied.position.index.get() < snapshot.get_metadata().index
+            {
+                return Err(ImageApplyError::Unpublished);
+            }
+        }
+        self.refresh_snapshot()
+    }
+
+    /// Capture the exact durable cut covered by this pin. Protocol-only entries
+    /// may advance the marker while preserving the image. An unrelated newer
+    /// marker cannot relabel the old generation or satisfy a read barrier.
+    pub(crate) fn queryable(&self) -> Result<Option<PublishedImage>, ImageApplyError> {
+        let Some(mut image) = self.current() else {
+            return Ok(None);
+        };
+        let cache = self.group.read().map_err(ImageApplyError::Log)?;
+        let applied = &cache.applied;
+        if applied.image.as_ref() != Some(&marker(&image.pin))
+            || applied.position.index < image.position.index
+            || applied.position.term < image.position.term
+            || (applied.position.index == image.position.index
+                && applied.position.term != image.position.term)
+            || applied.position.index.get() > cache.hard_state.commit
+        {
+            return Ok(None);
+        }
+        image.position = applied.position;
+        Ok(Some(image))
+    }
+
+    /// Return only a runtime completion, never the prepared generation's pin.
+    /// The caller submits it to the runtime and waits for durable application.
+    pub fn prepare(
+        &mut self,
+        ticket: ApplyTicket,
+        entry: &Entry,
+        id: ImageId,
+    ) -> Result<ApplyCompletion, ImageApplyError> {
+        if self.pending.is_some() {
+            return Err(ImageApplyError::Busy);
+        }
+        if ticket.replica() != self.group.identity()
+            || entry.get_entry_type() != EntryType::EntryNormal
+            || entry.data.is_empty()
+            || entry.index != ticket.position().index.get()
+            || entry.term != ticket.position().term.get()
+        {
+            return Err(ImageApplyError::Invalid("apply ticket/entry identity"));
+        }
+        {
+            let cache = self.group.read().map_err(ImageApplyError::Log)?;
+            if cache.entries.get(&entry.index) != Some(entry) {
+                return Err(ImageApplyError::Invalid("apply ticket/entry identity"));
+            }
+            if cache.applied.position.index.get().checked_add(1) != Some(entry.index)
+                || cache.hard_state.commit < entry.index
+                || cache.applied.image != self.current.as_ref().map(|head| marker(&head.pin))
+            {
+                return Err(ImageApplyError::Invalid("committed apply head"));
+            }
+        }
+        // Equality with the bounded durable entry precedes serialization, so
+        // an unrelated caller-supplied Entry cannot cause an unbounded copy.
+        if <[u8; 32]>::from(Sha256::digest(
+            entry
+                .write_to_bytes()
+                .map_err(|_| ImageApplyError::Invalid("entry encoding"))?,
+        )) != ticket.entry_digest()
+        {
+            return Err(ImageApplyError::Invalid("apply ticket/entry identity"));
+        }
+        let update =
+            CellUpdate::decode(&entry.data, self.limits).map_err(ImageApplyError::Envelope)?;
+        if update.scope != ticket.replica().scope
+            || update.application_digest != self.application_digest
+        {
+            return Err(ImageApplyError::Invalid("group/schema identity"));
+        }
+        let base = match &self.current {
+            Some(current) => current.pin.state(),
+            None => ImageState::empty(update.base.epoch)
+                .map_err(|_| ImageApplyError::Invalid("empty base"))?,
+        };
+        if image_position(base) != update.base {
+            return Err(ImageApplyError::Invalid("exact LTX base"));
+        }
+        let last = update
+            .files
+            .last()
+            .ok_or(ImageApplyError::Invalid("empty chain"))?;
+        let header = ltx::Header::parse(&last.bytes)
+            .map_err(|_| ImageApplyError::Invalid("last LTX header"))?;
+        let result = ImageState {
+            epoch: update.result.epoch,
+            txid: TXID(update.result.txid),
+            checksum: update.result.checksum,
+            digest: update.result.image_digest,
+            page_size: header.page_size,
+            length: header.commit as u64 * header.page_size as u64,
+        };
+        marker_for(id, result)
+            .validate()
+            .map_err(ImageApplyError::Log)?;
+        let segments = update
+            .files
+            .iter()
+            .map(|file| {
+                Ok(LtxSegment {
+                    bytes: &file.bytes,
+                    min_txid: TXID(file.min_txid),
+                    max_txid: TXID(file.max_txid),
+                    page_count: usize::try_from(file.page_count)
+                        .map_err(|_| ImageApplyError::Invalid("page count"))?,
+                    decoded_bytes: file.decoded_bytes,
+                })
+            })
+            .collect::<Result<Vec<_>, ImageApplyError>>()?;
+        self.images.reclaim(8).map_err(ImageApplyError::Images)?;
+        let pin = self
+            .images
+            .prepare(
+                id,
+                self.current.as_ref().map(|h| &h.pin),
+                &ImageUpdate {
+                    base,
+                    result,
+                    segments,
+                },
+            )
+            .map_err(ImageApplyError::Images)?;
+        let image = marker(&pin);
+        self.pending = Some(Pending {
+            ticket: ticket.clone(),
+            pin,
+            marker: image.clone(),
+            proposal: update.proposal,
+        });
+        Ok(ApplyCompletion { ticket, image })
+    }
+
+    /// Call after `Applied`, or while reconciling a lost event. A successful
+    /// `complete_apply` call is not sufficient: the cache changes only after sync.
+    pub fn publish(&mut self, ticket: &ApplyTicket) -> Result<PublishedImage, ImageApplyError> {
+        self.refresh_snapshot()?;
+        let pending = self.pending.as_ref().ok_or(ImageApplyError::Unpublished)?;
+        if pending.ticket != *ticket {
+            return Err(ImageApplyError::Invalid("pending ticket"));
+        }
+        let applied = self.group.applied().map_err(ImageApplyError::Log)?;
+        // Later protocol-only entries may already have advanced this cache.
+        // They must still name this exact image, never a maximum from another cut.
+        if applied.position.index < ticket.position().index
+            || applied.position.term < ticket.position().term
+            || applied.image.as_ref() != Some(&pending.marker)
+        {
+            return Err(ImageApplyError::Unpublished);
+        }
+        let head = PublishedImage {
+            application_digest: self.application_digest,
+            pin: pending.pin.clone(),
+            position: ticket.position(),
+            scope: self.group.identity().scope.clone(),
+            proposal: Some(pending.proposal),
+        };
+        let previous = self.current.replace(head.clone());
+        self.pending = None;
+        // The new engine marker is already durable. The latest complete image
+        // can establish a full archive cut; old reader/archive pins protect any
+        // older bytes still in use while retirement permits bounded reclamation.
+        if let Some(previous) = previous {
+            if previous.pin.id() != head.pin.id()
+                && self
+                    .snapshot_pin
+                    .as_ref()
+                    .is_none_or(|pin| pin.id() != previous.pin.id())
+            {
+                self.images
+                    .retire(previous.pin.id())
+                    .map_err(ImageApplyError::Images)?;
+            }
+        }
+        self.images.reclaim(8).map_err(ImageApplyError::Images)?;
+        Ok(head)
+    }
+}
+
+pub(crate) fn image_position(state: ImageState) -> LtxImage {
+    LtxImage {
+        epoch: state.epoch,
+        txid: state.txid.0,
+        checksum: state.checksum,
+        image_digest: state.digest,
+    }
+}
+
+pub(crate) fn marker(pin: &GenerationPin) -> CommittedImage {
+    marker_for(pin.id(), pin.state())
+}
+
+fn marker_for(id: ImageId, state: ImageState) -> CommittedImage {
+    CommittedImage {
+        name: format!("{}.sqlite", hex::encode(id.bytes())),
+        digest: state.digest,
+        length: state.length,
+        ltx_epoch: state.epoch,
+        txid: state.txid.0,
+        checksum: state.checksum,
+        page_size: state.page_size,
+    }
+}
+
+pub(crate) fn marker_state(marker: &CommittedImage) -> ImageState {
+    ImageState {
+        epoch: marker.ltx_epoch,
+        txid: TXID(marker.txid),
+        checksum: marker.checksum,
+        page_size: marker.page_size,
+        length: marker.length,
+        digest: marker.digest,
+    }
+}
+
+pub(crate) fn marker_id(marker: &CommittedImage) -> Result<ImageId, ImageApplyError> {
+    let name = marker
+        .name
+        .strip_suffix(".sqlite")
+        .ok_or(ImageApplyError::Invalid("image marker name"))?;
+    let mut bytes = [0; 16];
+    if name.len() != 32
+        || !name
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    {
+        return Err(ImageApplyError::Invalid("image marker name"));
+    }
+    hex::decode_to_slice(name, &mut bytes)
+        .map_err(|_| ImageApplyError::Invalid("image marker name"))?;
+    ImageId::new(bytes).map_err(ImageApplyError::Images)
+}

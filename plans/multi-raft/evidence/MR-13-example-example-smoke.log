@@ -1,0 +1,3 @@
+Source: 275c45d93da4e73e2180f5b0f2f930613b4fcea5
+Command: ["python3", "examples/raft-effects/smoke.py", "/Users/haipingfu/Workspace/crabbuild-target/cellar-23c7-multi-raft/debug/cellar-raft-effects", "/tmp/cellar-23c7-mr13-shutdown-qualified-275c45d", "crates/cellar/transport/tcp/fixtures/ca.der", "crates/cellar/transport/tcp/fixtures/server.der", "crates/cellar/transport/tcp/fixtures/key.der"]
+Two producer/receiver runs passed; executable sha256=a753292e12810cfe976c3ae75e1bf13e2c18643abbfc7efb4ce1efe03e2cc625; logs=/private/tmp/cellar-23c7-mr13-shutdown-qualified-275c45d

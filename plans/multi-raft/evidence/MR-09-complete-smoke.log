@@ -1,0 +1,5 @@
+{"source_revision": "2298fd442f0b867695b564527a66b61684aff2c2", "argv": ["python3", "examples/raft-counter/smoke.py", "/Users/haipingfu/Workspace/crabbuild-target/cellar-23c7-multi-raft/debug/cellar-raft-counter", "/tmp/cellar-mr09-drill-2298fd442f0b"]}
+late startup failure joined owners; resuming the same disks
+phase 0: six HTTP endpoints verify strong remote reads and cell-scoped tokens; joined shutdown
+phase 1: six HTTP endpoints verify strong remote reads and cell-scoped tokens; joined shutdown
+retained command receipt and subsequent writes survived a three-node restart

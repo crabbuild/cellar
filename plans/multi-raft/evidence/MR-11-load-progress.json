@@ -1,0 +1,701 @@
+{
+  "task_id": "MR-11",
+  "source_revision": "6dd95193b30c3020d6f4b2543c7ae454a2c5f4e0",
+  "scope": "Complete node-wide leadership observations through bounded batches on the existing host/runtime. Population and initialization fences, exact status identities, one original whole-scan deadline, no publication of partial counts and no timestamp refresh after failure. Cached ages begin before the first batch and remote RPC ages include the full request duration. Automatic balancing remains unimplemented.",
+  "toolchain": "rustc 1.98.1 (48a229cea 2026-09-01)",
+  "build_environment": {
+    "RUSTUP_TOOLCHAIN": "1.98.1",
+    "CARGO_TARGET_DIR": "/Users/haipingfu/Workspace/crabbuild-target/cellar-23c7-multi-raft",
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "CARGO_PROFILE_TEST_DEBUG": "0",
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_BUILD_JOBS": "3"
+  },
+  "executable_digest": "f31d644b6a163a05793673fb9bc2e73dde1ee074b587aac87c7704270f7fb833",
+  "environment": "macOS real native Node/SDK/RawNode/Raft Engine/SQLite/LTX/TLS with conditional in-memory object stores; four actual nodes, three voters and a dormant standby across two histories, one group per scan batch, two real committed commands and exactly two business callbacks. Three private aggregation/failure cases use typed status samples. No cellar_internal_tests.",
+  "limitations": "Component qualification only. All 91 unique Rust cases across three binaries and all 13 focused checks pass at this source: 48 Raft library, 27 host and 16 directory cases. The three new private cases cover partial/failed scans, original sample age, changed populations, old sequence completions, wrong status identities, ordering/cardinality and deadline refusal; a complete empty attached set may report a real zero. The new four-node case verifies every node-wide count across two histories while sampling one group per batch, including the dormant node, without executing additional business callbacks. Profile-disabled hosts do not start this scanner. This focused run does not repeat the separate 231-case/19-check record at ec21635, whose full 42 snapshot and 19 membership cases retain their own pin, or the earlier all-88 public Node regression. Missing/old samples remain ineligible for any future controller until freshness is checked; load supplies no read, quorum, membership or transfer authority. Capacity is declared, not measured. Owned automatic repair, six-node no-business-traffic recovery and automatic balancing remain required. MR-11 remains IN_PROGRESS and MR-12 through MR-17 remain TODO. No physical S3, power-loss, real failure-zone, production performance/capacity, larger tier, federation or complete release qualification is claimed. Existing vendored warnings remain visible.",
+  "executables": {
+    "cellar_lib": {
+      "sha256": "bb75e1b9517c7f4d4706dce0c38c86f4a47fbdc2f48d2dd6b82ace8bb56cf3cc",
+      "bytes": 142562944
+    },
+    "native_raft_directory": {
+      "sha256": "f31d644b6a163a05793673fb9bc2e73dde1ee074b587aac87c7704270f7fb833",
+      "bytes": 131243072
+    },
+    "native_raft_host": {
+      "sha256": "07e3a2c5c4154c9a5593faa6390577935cb5dec43913d90425902eae40ae5a00",
+      "bytes": 135516144
+    }
+  },
+  "tests": [
+    {
+      "name": "raft::catalog_wire::tests::root_refuses_earlier_protocols",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::host::load::tests::partial_and_failed_scans_never_refresh_or_replace_a_complete_sample",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::host::load::tests::population_change_and_old_batches_cannot_complete_a_new_scan",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::host::load::tests::scan_refuses_deadline_identity_order_and_cardinality_errors",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::host::startup_tests::failed_preflight_joins_infrastructure_with_retained_handles",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::inspection_wire::tests::inspection_refuses_missing_nulls_and_conflicting_identity_or_progress",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::inspection_wire::tests::inspection_round_trip_preserves_durable_and_visible_cuts",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::mailbox::tests::receiver_does_not_retain_its_producers",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::mailbox::tests::receiver_teardown_joins_an_admitted_late_sender",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::manifest::tests::archive_configuration_set_order_is_canonical",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::manifest::tests::archive_configuration_unknown_and_duplicate_members_refused",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::member_state::repairs::tests::aborted_learner_consumes_identity_before_another_plan",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::member_state::repairs::tests::completed_plan_retains_receipt_without_blocking_later_manual_configuration",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::member_state::repairs::tests::explicit_joint_plan_retains_outgoing_members_until_finish",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::member_state::repairs::tests::maximum_repair_membership_fits_completion_metadata_bound",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::member_state::repairs::tests::omitted_nullable_repair_fields_are_not_a_current_record",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::member_state::repairs::tests::repair_intent_refuses_payload_rebinding_and_configuration_substitution",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::member_state::repairs::tests::repair_plan_serializes_and_requires_the_original_phase",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::member_state::tests::fresh_bindings_require_learner_first",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::member_state::tests::joint_leave_keeps_bindings_until_outgoing_member_retires",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::member_state::tests::retired_ids_and_watermark_survive_serialization",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::member_state::tests::snapshot_successor_refuses_rebinding_resurrection_and_lost_watermark",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::member_state::tests::stale_noncanonical_unknown_and_oversized_intents_refused",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::query_wire::tests::query_origin_binds_node_process_without_voting_identity",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::query_wire::tests::query_wire_binds_channel_request_route_and_payload",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::query_wire::tests::query_wire_failures_remain_typed",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::query_wire::tests::query_wire_preserves_explicit_constraints",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::query_wire::tests::query_wire_refuses_size_replay_and_consensus_domain_confusion",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::transport::inspections::tests::authenticated_body_cannot_cross_history_or_physical_owner",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::transport::inspections::tests::inspection_mac_rejects_other_purposes_channels_and_request_replay",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::transport::inspections::tests::inspection_physical_route_rejects_unscoped_and_zero_identities",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::transport::inspections::tests::only_a_direct_failed_dial_is_unreachable",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::transport::tests::directory::inspection::inspection_deadline_and_missing_discovery_never_report_failed_tcp",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::transport::tests::directory::inspection::inspection_grants_stay_separate_and_revoked_across_process_refresh",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::transport::tests::directory::inspection::inspection_owns_bounded_sockets_through_cancel_refresh_and_shutdown",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::transport::tests::directory::inspection::inspection_revocation_and_process_refresh_cancel_an_admitted_inbound_call",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::transport::tests::directory::process_observation_and_seed_epochs_have_fixed_node_limits",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::transport::tests::directory::process_refresh_is_atomic_across_routes_grants_and_capacity",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::transport::tests::directory::process_refresh_pins_instance_and_future_route_admission",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::transport::tests::poisoned_registry_still_waits_for_resource_owners",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::transport::tests::query_grants_are_scoped_revocable_and_never_voting_authority",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::transport_frame::tests::lane_is_derived_from_actual_message",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::transport_frame::tests::prefix_rejects_large_lengths_before_header_allocation",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::transport_frame::tests::protobuf_preflight_bounds_decoded_entries_and_snapshot_members",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::transport_frame::tests::request_binds_body_prefix_and_channel",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::transport_frame::tests::response_domain_cannot_authenticate_request",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::transport_frame::tests::response_requires_channel_request_and_route",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::transport_frame::tests::strict_header_identity_sequence_and_protocol",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "directory_deadline_does_not_publish_without_fence",
+      "target": "native_raft_directory",
+      "result": "passed"
+    },
+    {
+      "name": "directory_late_closed_owner_cannot_replace_new_process",
+      "target": "native_raft_directory",
+      "result": "passed"
+    },
+    {
+      "name": "directory_missing_view_restarts_above_old_revision",
+      "target": "native_raft_directory",
+      "result": "passed"
+    },
+    {
+      "name": "directory_pin_reconciles_lost_create_and_confirmation",
+      "target": "native_raft_directory",
+      "result": "passed"
+    },
+    {
+      "name": "directory_pin_refuses_new_engine_and_changed_disk",
+      "target": "native_raft_directory",
+      "result": "passed"
+    },
+    {
+      "name": "directory_pin_shared_by_namespaces_has_no_group_authority",
+      "target": "native_raft_directory",
+      "result": "passed"
+    },
+    {
+      "name": "directory_publication_retry_and_restart_order",
+      "target": "native_raft_directory",
+      "result": "passed"
+    },
+    {
+      "name": "directory_reused_process_and_conflicting_attempt_refused",
+      "target": "native_raft_directory",
+      "result": "passed"
+    },
+    {
+      "name": "directory_scope_trust_corruption_and_bounds",
+      "target": "native_raft_directory",
+      "result": "passed"
+    },
+    {
+      "name": "native::inspection::native_complete_node_load_scan_covers_every_registered_history",
+      "target": "native_raft_directory",
+      "result": "passed"
+    },
+    {
+      "name": "native::inspection::native_peer_inspection_binds_member_and_dormant_physical_state",
+      "target": "native_raft_directory",
+      "result": "passed"
+    },
+    {
+      "name": "native::inspection::native_peer_inspection_refreshes_process_and_joins_retained_waiters",
+      "target": "native_raft_directory",
+      "result": "passed"
+    },
+    {
+      "name": "native::native_directory_outage_preserves_cached_quorum_routes",
+      "target": "native_raft_directory",
+      "result": "passed"
+    },
+    {
+      "name": "native::native_directory_shutdown_joins_paused_metadata",
+      "target": "native_raft_directory",
+      "result": "passed"
+    },
+    {
+      "name": "native::native_self_view_ignores_old_revision_and_joins_superseded_host",
+      "target": "native_raft_directory",
+      "result": "passed"
+    },
+    {
+      "name": "native::native_timer_refreshes_restarted_process_across_cell_groups",
+      "target": "native_raft_directory",
+      "result": "passed"
+    },
+    {
+      "name": "birth_handle_cannot_cross_catalog_instances",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "cancelled_private_callback_is_joined_before_its_slot_is_reused",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "catalog_reconciles_lost_create_responses",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "catalog_refuses_corrupt_and_oversized_records",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "command_manifest_binds_voting_compatibility_without_query_requirements",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "competing_bootstrap_disks_cannot_both_join",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "control_capacity_survives_unpolled_business_waiters",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "fleet_gate_unchanged",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "inspection::member_inspection_preserves_published_cut_while_callback_is_private",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "inspection::standby_inspection_creates_no_member_or_group",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "live_mode_admission_refuses_conflicts_before_mutable_execution",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "namespace_mode_conflict",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "native_axum_command_parity",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "native_axum_nonmember_query_router_parity",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "operation_registration_binds_schema_kind_and_digest",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "parked_bootstrap_requires_stable_claim",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "public_multi_group_replication_and_leader_failover",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "query_router_requires_existing_namespace_and_birth",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "raft_gate_exact_receipt",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "registered_callbacks_refuse_captured_sdk_handles",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "retained_handle_fenced",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "snapshot_capacity_refused_before_member_storage_opens",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "standby_storage_pin_refuses_recreated_node_before_member_claim",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "submitted_partition_retains_producer_until_follower_barrier",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "unconfirmed_claim_keeps_the_group_parked",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "unpolled_waiter_cannot_submit_after_its_deadline",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "unsupported_factory_refused",
+      "target": "native_raft_host",
+      "result": "passed"
+    }
+  ],
+  "commands": [
+    {
+      "name": "list",
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--lib",
+        "--test",
+        "native_raft_host",
+        "--test",
+        "native_raft_directory",
+        "--locked",
+        "--",
+        "--list"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-11-load-list.log",
+      "elapsed_seconds": 0.29,
+      "sha256": "e961bbf327ac415ea991298ef9c858f945ee1f714d5b920a796c2f21d2558996"
+    },
+    {
+      "name": "inventory",
+      "argv": [
+        "python3",
+        "-c",
+        "from pathlib import Path\ns=Path('plans/multi-raft/evidence/MR-11-load-list.log').read_text()\nassert s.count('raft::host::load::tests::')==3\nassert 'native::inspection::native_complete_node_load_scan_covers_every_registered_history: test' in s\nprint('Three scan failure/aggregation cases and one actual node-wide case listed. Automatic MR-11 gates remain open.')"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-11-load-inventory.log",
+      "elapsed_seconds": 0.02,
+      "sha256": "80d93956573ba276a3d60423a56ccd7d934bf877efe0f83252f7e86eac2fd5f4"
+    },
+    {
+      "name": "lib-test",
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--lib",
+        "--locked",
+        "--",
+        "raft::",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-11-load-lib-test.log",
+      "elapsed_seconds": 1.55,
+      "sha256": "93870161d81e5071323ac20aefb22d67f0c7502ffaec627f91b3ab483fd500a5"
+    },
+    {
+      "name": "owning-test",
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--test",
+        "native_raft_host",
+        "--test",
+        "native_raft_directory",
+        "--locked",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-11-load-owning-test.log",
+      "elapsed_seconds": 46.27,
+      "sha256": "f110fcab9fe5b75e2202d6d3c015edc166f482e38b3b9b8c4cbe072974f1903f"
+    },
+    {
+      "name": "clippy",
+      "argv": [
+        "cargo",
+        "clippy",
+        "-p",
+        "cellar",
+        "--lib",
+        "--test",
+        "native_raft_host",
+        "--test",
+        "native_raft_directory",
+        "--locked",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-11-load-clippy.log",
+      "elapsed_seconds": 0.29,
+      "sha256": "fc14080ae75982418f2118b6f4f82143499069f08a4e821f04387efea04595fc"
+    },
+    {
+      "name": "format",
+      "argv": [
+        "cargo",
+        "format",
+        "--check"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-11-load-format.log",
+      "elapsed_seconds": 34.67,
+      "sha256": "032664926d69e5d269281eca9f5f12232b8adbcb407459a7106e3740a72fdaf2"
+    },
+    {
+      "name": "layout",
+      "argv": [
+        "cargo",
+        "check-layout"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-11-load-layout.log",
+      "elapsed_seconds": 0.1,
+      "sha256": "8a2da6913dc2adbccd7f33c374a422e453a48e5ca83c40e5d58ee85c6b0ae9a2"
+    },
+    {
+      "name": "dependencies",
+      "argv": [
+        "python3",
+        "tools/check_native_dependencies.py"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-11-load-dependencies.log",
+      "elapsed_seconds": 0.22,
+      "sha256": "3bd4e6464c6c12993fed68867690d5967f17a5d13477ce5540596868acca9acc"
+    },
+    {
+      "name": "docs",
+      "argv": [
+        "python3",
+        "tools/docs/check.py"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-11-load-docs.log",
+      "elapsed_seconds": 0.06,
+      "sha256": "90608c384cbdd2a45429b909d14f881146ed5a702c52035ddb117cd1f7a0316b"
+    },
+    {
+      "name": "plan",
+      "argv": [
+        "python3",
+        "plans/multi-raft/plan.py",
+        "validate"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-11-load-plan.log",
+      "elapsed_seconds": 0.09,
+      "sha256": "ac50626a553e648a6c5edfce63b4da464796c70fd1add03a6538fd907971a936"
+    },
+    {
+      "name": "plan-tests",
+      "argv": [
+        "python3",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "plans/multi-raft",
+        "-p",
+        "test_*.py"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-11-load-plan-tests.log",
+      "elapsed_seconds": 0.12,
+      "sha256": "ce3724c72fca6f8391b958675ac1a19df47d07e7360c4e8ac21a0d7ced030d9a"
+    },
+    {
+      "name": "preflight",
+      "argv": [
+        "python3",
+        "plans/multi-raft/plan.py",
+        "preflight"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-11-load-preflight.log",
+      "elapsed_seconds": 0.1,
+      "sha256": "49d36cff27678b8dd9a572887b0fb95f15ac53b72cc29cf6582dd792ca3faef0"
+    },
+    {
+      "name": "diff",
+      "argv": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-11-load-diff.log",
+      "elapsed_seconds": 0.02,
+      "sha256": "ff8ebbe290eeabe86dc14c71dbb632b12a6bbe03dd21ed949399ced97403a879"
+    }
+  ],
+  "ignored_child_entrypoints": [],
+  "prior_peer_inspection": "evidence/MR-11-peer-progress.json",
+  "counts": {
+    "rust_passed": 91,
+    "by_target": {
+      "cellar_lib": 48,
+      "native_raft_directory": 16,
+      "native_raft_host": 27
+    },
+    "successful_commands": 13,
+    "format_checked_files": 673,
+    "planning_cases": 17,
+    "source_anchors": 71,
+    "node_load_native_cases": 1,
+    "scan_aggregation_unit_cases": 3,
+    "membership_required_remaining": [
+      "automatic_no_traffic_repair",
+      "leader_balance_with_lag"
+    ]
+  }
+}

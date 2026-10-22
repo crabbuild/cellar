@@ -1,0 +1,4 @@
+Source: 6dd95193b30c3020d6f4b2543c7ae454a2c5f4e0
+Command: ["python3", "-c", "from pathlib import Path\ns=Path('plans/multi-raft/evidence/MR-11-load-list.log').read_text()\nassert s.count('raft::host::load::tests::')==3\nassert 'native::inspection::native_complete_node_load_scan_covers_every_registered_history: test' in s\nprint('Three scan failure/aggregation cases and one actual node-wide case listed. Automatic MR-11 gates remain open.')"]
+Final metadata/documents rerun.
+Three scan failure/aggregation cases and one actual node-wide case listed. Automatic MR-11 gates remain open.

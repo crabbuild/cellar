@@ -47,6 +47,7 @@ async-trait.workspace = true
 futures-util.workspace = true
 lz4_flex.workspace = true
 crc-fast.workspace = true
+sha2.workspace = true
 ureq = "3.4.0"
 http = "1"
 percent-encoding = "2"

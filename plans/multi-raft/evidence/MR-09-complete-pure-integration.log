@@ -1,0 +1,19 @@
+{"source_revision": "2298fd442f0b867695b564527a66b61684aff2c2", "argv": ["cargo", "test", "-p", "cellar-logic", "--test", "raft_command", "--locked", "--", "--test-threads=1"]}
+    Finished `test` profile [unoptimized] target(s) in 0.06s
+     Running tests/raft_command.rs (/Users/haipingfu/Workspace/crabbuild-target/cellar-23c7-multi-raft/debug/deps/raft_command-50e8ef0c45a04b1a)
+
+running 11 tests
+test admission_needs_current_term_and_verified_queryable_progress ... ok
+test delayed_proofs_cannot_cross_any_authority_or_operation_identity ... ok
+test follower_retires_old_uncertainty_only_after_a_verified_new_term_cut ... ok
+test namespace_minimum_and_stronger_retry_wait_for_archive ... ok
+test private_cancellation_waits_for_callback_join_and_discard ... ok
+test protocol_work_during_a_private_callback_prevents_submission ... ok
+test result_requires_exact_entry_and_verified_receipt ... ok
+test retry_uses_the_verified_receipt_cut_without_reproposing_or_relabeling ... ok
+test revoked_term_never_reactivates_from_a_delayed_status_reply ... ok
+test submitted_cancellation_retains_producer_and_command_slot ... ok
+test unresolved_submission_needs_new_term_and_applied_barrier_to_reconcile ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

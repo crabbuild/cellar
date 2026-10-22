@@ -1,0 +1,2 @@
+# Preserve Cargo's exact output, including its terminating blank line.
+*.log whitespace=-blank-at-eof

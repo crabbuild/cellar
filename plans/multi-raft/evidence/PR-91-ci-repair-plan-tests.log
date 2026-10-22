@@ -1,0 +1,7 @@
+Rust source: 3682454514e272e41e0610a422852450f85aee93
+Command: ["python3", "-m", "unittest", "discover", "-s", "plans/multi-raft", "-p", "test_*.py"]
+.................
+----------------------------------------------------------------------
+Ran 17 tests in 0.075s
+
+OK

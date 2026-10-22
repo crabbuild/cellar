@@ -1,0 +1,4 @@
+late startup failure joined owners; resuming the same disks
+phase 0: six HTTP endpoints verify strong remote reads and cell-scoped tokens; joined shutdown
+phase 1: six HTTP endpoints verify strong remote reads and cell-scoped tokens; joined shutdown
+retained command receipt and subsequent writes survived a three-node restart

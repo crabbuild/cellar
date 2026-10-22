@@ -1,0 +1,2 @@
+Source: ec312e85f57035974d0b31fc46516f635b9fa4ee with reviewed MR-13 documentation/evidence metadata updates
+Command: ["git", "diff", "--check"]

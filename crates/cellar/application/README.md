@@ -16,6 +16,7 @@ The implementation lives here, alongside the runtime adapters that execute it.
 | `workflow/` | Durable steps, retries, checkpointed byte outputs and progress subscriptions |
 | `cron/` | Scheduled occurrences and execution history |
 | `limits.rs` | Resource budgets, validation and execution-domain lookup |
+| `consensus/` | Restricted compiled Raft command/query definitions and replication contracts |
 
 Use the SDK facade for application code:
 
@@ -48,6 +49,20 @@ retain records for replay and independent subscriptions. See the
 [event delivery guide](../../../docs/26-event-delivery.md) and
 [runnable example](../../../examples/durable-streams/README.md) for publication,
 consumption, retries and their durability boundaries.
+
+`Registry::raft_class` registers a `RaftClass` separately from mutable `Cell`
+factories and workflows. Synchronous commands receive a borrowed transaction
+and captured inputs; queries receive only a pinned read-only image. Operation
+kind and contract digest are checked before callbacks. The namespace identity
+also binds required command names/digests, while query compatibility is checked
+per request. `Node::start_raft_cells` connects these definitions to node-owned producers and
+bounded `RaftCellHandle` commands, stale queries, receipts and closure. A returned
+future is admitted immediately; its deadline and cancellation cannot discard a
+submitted producer. Native HTTP and Axum can call those same handles; see the
+[Raft counter](../../../examples/raft-counter/README.md). S3 archive and stronger
+read-consistency requests are refused until their work packages are implemented.
+The full delivery status is recorded in
+[MR-07](../../../plans/multi-raft/implementation-plan.md).
 
 Within each component, private modules separate values, codecs and validation
 from runtime operations. Pass clocks and budgets explicitly to value helpers;

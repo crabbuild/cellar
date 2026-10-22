@@ -1,0 +1,4 @@
+Source revision: fcaa793854a1ee17236b8276a5efd35e505eaa37
+Command: ["python3", "plans/multi-raft/plan.py", "check-list", "MR-10", "plans/multi-raft/evidence/MR-10-seed-snapshot-list.log"]
+
+Listed test inventory passed: 23 required cases. Test execution is still required.

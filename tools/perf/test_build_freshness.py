@@ -53,7 +53,7 @@ class BuildFreshnessTests(unittest.TestCase):
                     (path / "Cargo.toml").write_text(manifest)
                     lock += f'[[package]]\nname="{name}"\nversion="0.1.0"\n'
                 (context / "Cargo.lock").write_text(lock)
-                for path in ["tools/perf", "tools/xtask"]:
+                for path in ["tools/perf", "tools/xtask", "vendor"]:
                     (context / path).mkdir(parents=True)
                     (context / path / ".keep").touch()
                 # Use BuildKit's built-in frontend; resolving the optional

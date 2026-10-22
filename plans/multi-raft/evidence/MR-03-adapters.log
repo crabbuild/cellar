@@ -1,0 +1,51 @@
+raft 0.7.0 adaptations match UPSTREAM.json:
+Cargo.toml: 561c9868ed301634a88a2daa3be8beb60fe4f19d2f7dc1e726d1ed6a9eadc6e3
+src/raft.rs: 53de0ebae7a0023da48e543ca55ade047e3f824aaaa6f3ef62dd6042997864db
+src/raw_node.rs: e5df948991862ed11524a2c992bbf6fd06418b19ed895bbd41b0b3b2f7e033e5
+Published archive SHA-256: f12688b23a649902762d4c11d854d73c49c9b93138f2de16403ef9f571ad5bae
+The manifest selects the attributed protobuf adapter. Source changes add an explicit election seed constructor; default constructors retain their original RNG path.
+--- published/src/raft.rs
++++ vendor/raft/src/raft.rs
+@@ -1,0 +2 @@
++// Modified for Cellar: accept the owning host's election RNG seed.
+@@ -27 +28 @@
+-use rand::{self, Rng};
++use rand::{self, Rng, SeedableRng};
+@@ -251,0 +253,2 @@
++    // Cellar adapter: a host-seeded stream avoids hidden process RNG decisions.
++    election_rng: Option<rand::rngs::StdRng>,
+@@ -327,0 +331,7 @@
++        Self::new_with_election_seed(c, store, logger, None)
++    }
++
++    /// Cellar adapter: preserve the election algorithm with an explicit RNG seed.
++    pub fn new_with_election_seed(
++        c: &Config, store: T, logger: &Logger, seed: Option<[u8; 32]>,
++    ) -> Result<Self> {
+@@ -361,0 +372 @@
++                election_rng: seed.map(rand::rngs::StdRng::from_seed),
+@@ -2809,2 +2820,5 @@
+-        let timeout =
+-            rand::thread_rng().gen_range(self.min_election_timeout..self.max_election_timeout);
++        let range = self.min_election_timeout..self.max_election_timeout;
++        let timeout = match self.election_rng.as_mut() {
++            Some(rng) => rng.gen_range(range),
++            None => rand::thread_rng().gen_range(range),
++        };
+
+--- published/src/raw_node.rs
++++ vendor/raft/src/raw_node.rs
+@@ -1,0 +2 @@
++// Modified for Cellar: accept the owning host's election RNG seed.
+@@ -302,0 +304,7 @@
++        Self::new_with_election_seed(config, store, logger, None)
++    }
++
++    /// Cellar adapter: use the owning host's seed for election randomness.
++    pub fn new_with_election_seed(
++        config: &Config, store: T, logger: &Logger, seed: Option<[u8; 32]>,
++    ) -> Result<Self> {
+@@ -304 +312 @@
+-        let r = Raft::new(config, store, logger)?;
++        let r = Raft::new_with_election_seed(config, store, logger, seed)?;
+

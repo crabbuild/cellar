@@ -4,13 +4,14 @@ ARG TARGET_CACHE_ID=cellar-embedded-perf-target
 WORKDIR /src
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
+COPY vendor ./vendor
 COPY examples ./examples
 COPY tools/perf ./tools/perf
 COPY tools/xtask ./tools/xtask
 # Archived source can predate cached artifacts; force Cargo to check this snapshot.
 RUN --mount=type=cache,id=cellar-perf-registry,target=/usr/local/cargo/registry \
     --mount=type=cache,id=${TARGET_CACHE_ID},target=/src/target \
-    find Cargo.toml Cargo.lock crates examples tools -type f -exec touch {} + && \
+    find Cargo.toml Cargo.lock crates examples tools vendor -type f -exec touch {} + && \
     cargo build --release --locked -p cellar --bin cellar-perf-cells --bin cellar-perf-load --bin cellar-perf-fault-cells && \
     mkdir /out && cp target/release/cellar-perf-cells target/release/cellar-perf-load target/release/cellar-perf-fault-cells /out/
 FROM debian:bookworm-slim

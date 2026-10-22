@@ -1,0 +1,4 @@
+Source revision: 4c7e52a808f0aa5744620237b06b30323ea8af10
+Command: ["cargo", "clippy", "-p", "cellar-logic", "--lib", "--locked", "--", "-D", "warnings"]
+
+    Finished `dev` profile [unoptimized] target(s) in 0.13s

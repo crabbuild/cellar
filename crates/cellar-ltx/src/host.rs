@@ -39,6 +39,9 @@ pub struct HostDirEntry {
 /// that failed; implementations must not first materialize the directory.
 pub type HostDirIterator = Box<dyn Iterator<Item = io::Result<HostDirEntry>> + Send>;
 
+/// Retains an exclusive OS/virtual-filesystem lock until its owner drops it.
+pub type HostFileLock = Box<dyn Send + Sync>;
+
 /// The operations on one open injected file.
 pub trait HostFileIo: Send {
     fn write_all(&mut self, bytes: &[u8]) -> io::Result<()>;
@@ -50,6 +53,20 @@ pub trait HostFileIo: Send {
     /// The file's current length, from the open handle (an `fstat`, not a
     /// path walk).
     fn file_len(&mut self) -> io::Result<u64>;
+
+    fn write_all_at(&mut self, _offset: u64, _bytes: &[u8]) -> io::Result<()> {
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "random writes are unsupported",
+        ))
+    }
+
+    fn set_len(&mut self, _length: u64) -> io::Result<()> {
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "file truncation is unsupported",
+        ))
+    }
 }
 
 /// One open file owned by an injected filesystem.
@@ -58,6 +75,14 @@ pub struct HostFile {
 }
 
 impl HostFile {
+    pub fn write_all_at(&mut self, offset: u64, bytes: &[u8]) -> io::Result<()> {
+        self.inner.write_all_at(offset, bytes)
+    }
+
+    pub fn set_len(&mut self, length: u64) -> io::Result<()> {
+        self.inner.set_len(length)
+    }
+
     pub fn write_all(&mut self, bytes: &[u8]) -> io::Result<()> {
         self.inner.write_all(bytes)
     }
@@ -83,6 +108,28 @@ impl HostFile {
 
 /// The complete local-file surface used by cellar and the LTX engine.
 pub trait FileSystem: Send + Sync {
+    /// Create a new read/write file without replacing existing data.
+    fn create_read_write(&self, _path: &Path) -> io::Result<HostFile> {
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "read/write creation is unsupported",
+        ))
+    }
+
+    fn open_read_write(&self, _path: &Path) -> io::Result<HostFile> {
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "read/write open is unsupported",
+        ))
+    }
+
+    fn lock_file(&self, _path: &Path) -> io::Result<HostFileLock> {
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "exclusive file locks are unsupported",
+        ))
+    }
+
     /// Opens an anonymous read/write scratch file. The handle owns its storage,
     /// so cancellation and process exit cannot leave a compaction scratch file.
     /// Custom filesystems must implement this to compact oversized sources.
@@ -153,6 +200,52 @@ pub trait FileSystem: Send + Sync {
     }
 }
 
+/// Create each missing directory and durably publish its parent entry. A child
+/// directory fsync alone does not make a newly created ancestor recoverable.
+pub fn create_dir_all_durable(filesystem: &dyn FileSystem, path: &Path) -> io::Result<()> {
+    if !path.is_absolute() || path.components().take(129).count() > 128 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "bounded absolute directory required",
+        ));
+    }
+    let mut missing = Vec::new();
+    let mut current = path;
+    loop {
+        match filesystem.metadata(current) {
+            Ok(metadata) if metadata.is_dir => break,
+            Ok(_) => {
+                return Err(io::Error::new(
+                    io::ErrorKind::NotADirectory,
+                    "image ancestor is not a directory",
+                ))
+            }
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                missing.push(current.to_path_buf())
+            }
+            Err(error) => return Err(error),
+        }
+        current = current.parent().ok_or_else(|| {
+            io::Error::new(io::ErrorKind::InvalidInput, "missing filesystem root")
+        })?;
+    }
+    for directory in missing.iter().rev() {
+        filesystem.create_dir_all(directory)?;
+        filesystem.sync_all(directory)?;
+        if let Some(parent) = directory.parent() {
+            filesystem.sync_all(parent)?;
+        }
+    }
+    // A directory may have been created by the caller just before this open.
+    // Existence alone is not evidence that any ancestor entry was synced.
+    let mut current = Some(path);
+    while let Some(directory) = current {
+        filesystem.sync_all(directory)?;
+        current = directory.parent();
+    }
+    Ok(())
+}
+
 /// The telemetry-only microsecond clock for the capture ledger
 /// (`db::SyncTiming`). Nothing branches on these values — they exist so
 /// the closed-book attribution ledger can sum — so deterministic
@@ -193,6 +286,16 @@ struct DirectFile {
 
 #[allow(clippy::disallowed_methods)]
 impl HostFileIo for DirectFile {
+    fn write_all_at(&mut self, offset: u64, bytes: &[u8]) -> io::Result<()> {
+        use std::io::{Seek as _, SeekFrom, Write as _};
+        self.file.seek(SeekFrom::Start(offset))?;
+        self.file.write_all(bytes)
+    }
+
+    fn set_len(&mut self, length: u64) -> io::Result<()> {
+        self.file.set_len(length)
+    }
+
     fn write_all(&mut self, bytes: &[u8]) -> io::Result<()> {
         std::io::Write::write_all(&mut self.file, bytes)
     }
@@ -216,6 +319,36 @@ impl HostFileIo for DirectFile {
 
 #[allow(clippy::disallowed_methods)]
 impl FileSystem for DirectFileSystem {
+    fn create_read_write(&self, path: &Path) -> io::Result<HostFile> {
+        Ok(HostFile::from_io(DirectFile {
+            file: std::fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create_new(true)
+                .open(path)?,
+        }))
+    }
+
+    fn open_read_write(&self, path: &Path) -> io::Result<HostFile> {
+        Ok(HostFile::from_io(DirectFile {
+            file: std::fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open(path)?,
+        }))
+    }
+
+    fn lock_file(&self, path: &Path) -> io::Result<HostFileLock> {
+        let file = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(path)?;
+        file.try_lock().map_err(io::Error::from)?;
+        Ok(Box::new(file))
+    }
+
     fn temporary_file(&self, directory: Option<&Path>) -> io::Result<HostFile> {
         let file = match directory {
             Some(directory) => tempfile::tempfile_in(directory)?,

@@ -14,6 +14,8 @@ use crate::error::{Error, Result};
 use crate::{Checksum, Pos, CHECKSUM_FLAG, TXID};
 use std::time::SystemTime;
 
+pub use crate::bounded_ltx::{decode_file_bounded, BoundedLtx, DecodeError, DecodeLimits};
+
 // ── Constants (ltx@v0.5.2 ltx.go:18-55) ──────────────────────────────────────
 
 /// First 4 bytes of every LTX file.
@@ -504,6 +506,25 @@ pub fn encode_file_v0_5_2(
     post_apply_checksum: Checksum,
 ) -> Result<Vec<u8>> {
     encode_file_with_mode(header, pages, post_apply_checksum, true)
+}
+
+/// Conservative byte bound for a complete v0.5.2 block snapshot. Include the
+/// compressor's worst case, page framing, three ten-byte index varints per page,
+/// the terminators, index length and trailer. Partial final pages round upward.
+pub fn full_snapshot_bound(image_bytes: u64, page_size: u32) -> Option<usize> {
+    if !is_valid_page_size(page_size) {
+        return None;
+    }
+    let pages = image_bytes.div_ceil(u64::from(page_size));
+    if pages > u64::from(u32::MAX) {
+        return None;
+    }
+    let page = crate::lz4_block::compress_bound(page_size as usize) as u64
+        + PAGE_HEADER_SIZE as u64
+        + 4
+        + 30;
+    let framing = HEADER_SIZE + PAGE_HEADER_SIZE + 1 + 8 + TRAILER_SIZE;
+    usize::try_from(pages.checked_mul(page)?.checked_add(framing as u64)?).ok()
 }
 
 fn encode_file_with_mode(

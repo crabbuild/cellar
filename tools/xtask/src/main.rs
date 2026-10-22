@@ -63,7 +63,9 @@ fn rust_sources(root: &Path) -> Result<Vec<String>> {
         String::from_utf8(inventory.stdout).context("Rust source paths must be UTF-8")?;
     let mut paths: Vec<_> = inventory
         .split('\0')
-        .filter(|path| !path.is_empty())
+        // Third-party sources retain their upstream formatting and module
+        // layout. Their Cellar integration is checked through host tests.
+        .filter(|path| !path.is_empty() && !path.starts_with("vendor/"))
         .map(str::to_owned)
         .collect();
     paths.sort_unstable();

@@ -1,0 +1,4 @@
+Source: a28babe1904c1287cb4d1877674bd98a87313700
+Command: ["python3", "plans/multi-raft/plan.py", "preflight"]
+Final metadata/documents rerun.
+Source preflight passed: 71 anchors at baseline a28babe1904c1287cb4d1877674bd98a87313700.

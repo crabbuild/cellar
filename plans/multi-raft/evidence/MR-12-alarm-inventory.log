@@ -1,0 +1,5 @@
+Source: 5a6b606c21b2ec8848d6f88ce76f783676d61f70
+Command: ["python3", "-c", "import pathlib,re,json; p=pathlib.Path('plans/multi-raft'); s=(p/'evidence/MR-12-alarm-list.log').read_text(); names=set(re.findall(r'^(\\S+): test$',s,re.M)); new={n for n in names if n.startswith('raft::effects::blob::tests::')}; assert len(new)==2; assert {'automatic_no_traffic_repair','leader_balance_with_lag'}<=names; print('Both new Blob unit cases and automatic membership regressions listed.')\nassert all(('Running tests/'+target+'.rs') in s for target in ['native_raft_execution','native_raft_ltx','native_raft_storage'])\nprint('Owning execution/LTX/storage regression targets listed.')"]
+Final metadata/documents rerun.
+Both new Blob unit cases and automatic membership regressions listed.
+Owning execution/LTX/storage regression targets listed.

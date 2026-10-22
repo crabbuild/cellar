@@ -1,0 +1,23 @@
+<jemalloc>: option background_thread currently supports pthread only
+
+running 1 test
+cellar local reload scan failed: local reload requires replication
+cellar local reload scan failed: local reload requires replication
+cellar local reload scan failed: local reload requires replication
+cellar local reload scan failed: local reload requires replication
+[DEBUG-readiness] pending=false incoming=false authority=false protocol=false awaiting_apply=false awaiting_ready=false persisted=2 committed=1 applied=1
+[DEBUG-readiness] pending=false incoming=false authority=false protocol=false awaiting_apply=false awaiting_ready=true persisted=2 committed=1 applied=1
+[DEBUG-readiness] pending=false incoming=false authority=false protocol=false awaiting_apply=false awaiting_ready=true persisted=2 committed=2 applied=1
+[DEBUG-readiness] pending=false incoming=false authority=true protocol=true awaiting_apply=false awaiting_ready=false persisted=2 committed=2 applied=2
+[DEBUG-readiness] pending=false incoming=false authority=true protocol=true awaiting_apply=false awaiting_ready=false persisted=2 committed=2 applied=2
+[DEBUG-readiness] pending=false incoming=false authority=true protocol=false awaiting_apply=false awaiting_ready=true persisted=3 committed=3 applied=3
+Error: published replica 0, initial leader 0: CellStatus { role: Leader, queries: RaftQueryReadiness { registered_queries: true, coherent_image: true, historical: true, recent_source: true, source_age_ms: Some(0), source_timeout_ms: 2000 }, leader: Some(MemberId(1)), term: Term(2), command_ready: false, version: Some(CommittedVersion { scope: GroupScope { cluster: ClusterId([1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]), namespace: NamespaceId([2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2]), cell: "Counter:one", group: GroupId([3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3]), incarnation: IncarnationId([4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4]) }, position: LogPosition { index: LogIndex(3), term: Term(2) } }), persisted: LogIndex(3), committed: LogIndex(3), applied: LogPosition { index: LogIndex(3), term: Term(2) }, checkpoint: LogPosition { index: LogIndex(1), term: Term(1) }, archived: LogIndex(0), membership_revision: LogIndex(1), member_high_water: 4 }
+test native_readiness_reports_voters_learners_and_empty_image ... FAILED
+
+failures:
+
+failures:
+    native_readiness_reports_voters_learners_and_empty_image
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 19 filtered out; finished in 1.36s
+

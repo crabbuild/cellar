@@ -1,0 +1,18 @@
+    Finished `test` profile [unoptimized] target(s) in 0.06s
+     Running unittests src/main.rs (/Users/haipingfu/Workspace/crabbuild-target/cellar-23c7-multi-raft/debug/deps/cellar_xtask-32d078239c2a024f)
+
+running 11 tests
+test layout::tests::leaf_with_test_only_directory_is_rejected ... ok
+test layout::tests::similar_names_and_other_components_do_not_conflict ... ok
+test layout::tests::leaf_tests_and_component_tests_are_valid ... ok
+test layout::tests::production_children_also_require_directory_entry_point ... ok
+test spacing::tests::strings_and_macro_bodies_remain_verbatim ... ok
+test spacing::tests::crlf_is_preserved_and_invalid_rust_is_rejected ... ok
+test spacing::tests::groups_skips_nested_items_and_trait_methods_are_respected ... ok
+test spacing::tests::attributes_docs_and_comments_stay_attached ... ok
+test tests::ignored_sources_and_deleted_tracked_files_are_excluded ... ok
+test tests::layout_checks_new_sources_and_excludes_deleted_and_ignored_children ... ok
+test tests::check_is_read_only_and_apply_is_idempotent ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.17s
+

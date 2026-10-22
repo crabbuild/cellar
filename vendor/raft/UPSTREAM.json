@@ -1,0 +1,18 @@
+{
+  "crate": "raft",
+  "version": "0.7.0",
+  "license": "Apache-2.0",
+  "upstream_vcs": {
+    "git": {
+      "sha1": "10c6e9db6792b85c81784e44fc278f895d5f0ab0"
+    },
+    "path_in_vcs": ""
+  },
+  "registry_checksum": "f12688b23a649902762d4c11d854d73c49c9b93138f2de16403ef9f571ad5bae",
+  "patch_scope": "Direct raft-proto adapter path and an explicit host-seeded election RNG constructor. Election, voting, log and membership algorithms are retained; default upstream constructors preserve their RNG behavior.",
+  "patched_files": [
+    "Cargo.toml",
+    "src/raft.rs",
+    "src/raw_node.rs"
+  ]
+}

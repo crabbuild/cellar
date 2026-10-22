@@ -158,6 +158,8 @@ pub mod memory;
 pub mod native_deploy;
 #[path = "runtime/workers/native/mod.rs"]
 pub(crate) mod native_worker;
+#[path = "durability/raft/mod.rs"]
+mod raft;
 #[path = "cli/supervise/mod.rs"]
 #[cfg(unix)]
 mod supervise;

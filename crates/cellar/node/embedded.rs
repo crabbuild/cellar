@@ -305,6 +305,7 @@ pub struct ExternalNodeServices {
 }
 
 struct StartupServices {
+    filesystem: Arc<dyn cellar_ltx::FileSystem>,
     wall_clock: Option<Arc<crate::asyncrt::WallClock>>,
     http_client: Option<crate::http_policy::HttpClientFactory>,
     host_executor: tokio::runtime::Handle,
@@ -324,6 +325,7 @@ struct StartupServices {
 impl StartupServices {
     fn native(services: NodeServices) -> anyhow::Result<Self> {
         Ok(Self {
+            filesystem: Arc::new(cellar_ltx::DirectFileSystem),
             wall_clock: services.wall_clock,
             http_client: services.http_client,
             public_address: services.listener.local_addr()?,
@@ -346,6 +348,7 @@ impl StartupServices {
         receiver: mpsc::UnboundedReceiver<super::ingress::IngressCall>,
     ) -> Self {
         Self {
+            filesystem: Arc::new(cellar_ltx::DirectFileSystem),
             wall_clock: services.wall_clock,
             http_client: services.http_client,
             public_address: services.public_address,
@@ -382,6 +385,7 @@ pub struct NodeInfo {
 /// supervisor keeps joining on the supplied executor. Keep that executor alive.
 pub struct Node {
     domain: Arc<ExecutionDomain>,
+    raft_auth: Arc<PeerAuth>,
     app: AppHandle,
     info: NodeInfo,
     command: mpsc::UnboundedSender<ShutdownMode>,
@@ -488,6 +492,22 @@ impl Node {
         .await
     }
 
+    /// Start with caller-owned durability I/O captured by this node's execution
+    /// domain. File/rename/directory sync semantics must match `FileSystem`.
+    /// Directory ownership locks and application SQLite execution continue to
+    /// use host OS paths; the provider must address those same local files.
+    pub async fn start_with_filesystem(
+        config: NodeConfig,
+        services: NodeServices,
+        graph: DeploymentGraph,
+        applications: CompiledApplications,
+        filesystem: Arc<dyn cellar_ltx::FileSystem>,
+    ) -> anyhow::Result<Self> {
+        let mut services = StartupServices::native(services)?;
+        services.filesystem = filesystem;
+        Self::start_with_services(config, services, graph, applications).await
+    }
+
     /// Start the same production engine without a Cellar-owned public listener.
     /// The returned ingress handle is ready only after recovery and startup.
     /// Keep the caller's executors and public transport alive until node shutdown
@@ -528,13 +548,15 @@ impl Node {
         applications: CompiledApplications,
     ) -> anyhow::Result<Self> {
         config.validate(&services)?;
+        let raft_auth = services.peer_auth.clone();
         let (directory, data_dir) = NodeDirectory::acquire(&config.data_dir)?;
         config.data_dir = data_dir;
         let generation_max_age = config.generation_max_age;
-        let domain = Arc::new(match services.wall_clock.clone() {
-            Some(clock) => ExecutionDomain::with_wall_clock(services.host_executor.clone(), clock),
-            None => ExecutionDomain::new(services.host_executor.clone()),
-        });
+        let domain = Arc::new(ExecutionDomain::with_filesystem(
+            services.host_executor.clone(),
+            services.filesystem.clone(),
+            services.wall_clock.clone(),
+        ));
         let mut startup_guard = CloseOnDrop(Some(domain.clone()));
         config.actor.resume_generation = domain
             .run(async {
@@ -644,6 +666,7 @@ impl Node {
         startup_guard.0 = None;
         Ok(Self {
             domain,
+            raft_auth,
             app,
             info,
             command,
@@ -655,6 +678,223 @@ impl Node {
 
     pub fn info(&self) -> &NodeInfo {
         &self.info
+    }
+
+    /// Start registered Raft cells on this node's executor. Namespace roots and
+    /// permanent member claims precede voting; the node owns command producers
+    /// and joins SQLite work even when client handles or waiters survive.
+    pub async fn start_raft_cells(
+        &self,
+        config: crate::application::consensus::RaftCellsConfig,
+        services: crate::application::consensus::RaftCellsServices,
+    ) -> anyhow::Result<crate::application::consensus::RaftCells> {
+        anyhow::ensure!(
+            !self.is_closed() && !self.app.is_draining(),
+            "node is closing"
+        );
+        let starting = self.domain.services().raft_lifecycle().begin()?;
+        match self.start_raft_cells_inner(config, services).await {
+            Ok(service) => match starting.install(service.clone()) {
+                Ok(()) => Ok(service),
+                Err(error) => {
+                    let _ = service.close().await;
+                    Err(error.into())
+                }
+            },
+            Err(error) => {
+                starting.failed();
+                Err(error)
+            }
+        }
+    }
+
+    async fn start_raft_cells_inner(
+        &self,
+        config: crate::application::consensus::RaftCellsConfig,
+        services: crate::application::consensus::RaftCellsServices,
+    ) -> anyhow::Result<crate::application::consensus::RaftCells> {
+        use crate::application::consensus::{RaftCellPlacement, RegistrationError};
+        config.host.validate()?;
+        config.infrastructure.transport.validate()?;
+        config
+            .infrastructure
+            .transport
+            .snapshot_limits(config.host.execution.max_image_bytes)?;
+        anyhow::ensure!(
+            !config.cells.is_empty() && config.cells.len() <= config.host.max_groups,
+            "invalid registered Raft cell count"
+        );
+        let mut definitions = Vec::new();
+        for cell in &config.cells {
+            anyhow::ensure!(
+                !services.application.supports_cell(&cell.class)
+                    && !services.application.supports_workflow(&cell.class),
+                RegistrationError::UnsupportedFactory(cell.class.clone())
+            );
+            let class = services.application.resolve_raft_class(&cell.class)?;
+            class.validate_host(&config.host)?;
+            anyhow::ensure!(
+                cell.namespace.mode == cellar_logic::NamespaceMode::Raft
+                    && cell.namespace.schema_digest == class.schema_digest(),
+                "Raft namespace mode/schema disagrees with registration"
+            );
+            anyhow::ensure!(
+                cellar_logic::cell::valid_cell_scope(&cell.birth.scope.cell)
+                    && cell
+                        .birth
+                        .scope
+                        .cell
+                        .split_once(':')
+                        .is_some_and(|(name, _)| name == class.name()),
+                "Raft cell scope must name its registered class"
+            );
+            definitions.push(class);
+        }
+        let registrations = self
+            .domain
+            .run(async {
+                let catalog = crate::raft::catalog::Catalog::new(services.store, config.catalog)?;
+                let mut registrations = Vec::new();
+                for (cell, class) in config.cells.into_iter().zip(definitions) {
+                    let namespace = match cell.placement {
+                        RaftCellPlacement::Replica => {
+                            catalog.open_namespace(cell.namespace).await?
+                        }
+                        RaftCellPlacement::QueryRouter { .. }
+                        | RaftCellPlacement::Standby
+                        | RaftCellPlacement::Joining { .. }
+                        | RaftCellPlacement::JoiningFromS3 { .. } => {
+                            catalog.existing_namespace(cell.namespace).await?
+                        }
+                    };
+                    let now_ms = u64::try_from(crate::asyncrt::wall_ms())?;
+                    namespace
+                        .require_version_keys(&services.versions, now_ms)
+                        .await?;
+                    let birth = match cell.placement {
+                        RaftCellPlacement::Replica => namespace.resolve_birth(cell.birth).await?,
+                        RaftCellPlacement::QueryRouter { .. }
+                        | RaftCellPlacement::Standby
+                        | RaftCellPlacement::Joining { .. }
+                        | RaftCellPlacement::JoiningFromS3 { .. } => {
+                            let mut expected = cell.birth;
+                            expected.voters.sort_by_key(|member| member.member);
+                            expected.learners.sort_by_key(|member| member.member);
+                            let birth =
+                                namespace
+                                    .birth(&expected.scope.cell)
+                                    .await?
+                                    .ok_or_else(|| {
+                                        anyhow::anyhow!("existing member/route birth missing")
+                                    })?;
+                            anyhow::ensure!(
+                                birth.scope() == &expected.scope
+                                    && birth.voters() == expected.voters.as_slice()
+                                    && birth.learners() == expected.learners.as_slice(),
+                                "member/route disagrees with existing birth"
+                            );
+                            birth
+                        }
+                    };
+                    registrations.push(crate::raft::host::Registration {
+                        placement: cell.placement,
+                        namespace,
+                        birth,
+                        class,
+                    });
+                }
+                Ok::<_, anyhow::Error>(registrations)
+            })
+            .await??;
+        let service = self
+            .start_raft_service(config.infrastructure, services.listeners, services.tls)
+            .await?;
+        let log = service.log.clone();
+        let runtime = service.runtime.clone();
+        let transport = service.transport.clone();
+        let result = self
+            .domain
+            .run(crate::raft::host::start(
+                service,
+                crate::raft::host::Registrations {
+                    cells: registrations,
+                    peers: config.peers,
+                    origins: config.query_origins,
+                },
+                self.info.data_dir.join("raft-cells"),
+                self.info.node.clone(),
+                config.host,
+                services.versions,
+            ))
+            .await;
+        let result = match result {
+            Ok(result) => result,
+            Err(error) => Err(error.into()),
+        };
+        if result.is_err() {
+            // Domain entry/cancellation can fail before the host's owned
+            // startup guard runs. Join the infrastructure here as well.
+            let _ = runtime.close().await;
+            transport.close().await;
+            let _ = log.close().await;
+        }
+        result
+    }
+
+    /// Start opt-in Raft infrastructure on this node's existing executor and
+    /// injected filesystem. It does not change Fleet routing or register Raft
+    /// cell handlers. The caller owns event dispatch and listener configuration.
+    /// All groups, including recovered ones, start parked. Reconcile catalog
+    /// birth/member claims before attaching them through a bootstrap permit.
+    #[doc(hidden)]
+    pub async fn start_raft_service(
+        &self,
+        config: super::NodeRaftConfig,
+        listeners: super::NodeRaftListeners,
+        tls: crate::application::consensus::verification::RaftTls,
+    ) -> anyhow::Result<super::NodeRaftService> {
+        use crate::application::consensus::verification::{RaftRuntime, RaftTransport, ReplicaLog};
+        anyhow::ensure!(
+            config.log.directory == self.info.data_dir.join("raft"),
+            "Raft log must use this node's raft directory"
+        );
+        self.domain
+            .run(async {
+                let log = ReplicaLog::open(config.log, crate::asyncrt::fs()).await?;
+                let (runtime, events) =
+                    match RaftRuntime::start_parked(log.clone(), config.consensus).await {
+                        Ok(runtime) => runtime,
+                        Err(error) => {
+                            let _ = log.close().await;
+                            return Err(anyhow::Error::new(error));
+                        }
+                    };
+                let transport = match RaftTransport::start(
+                    runtime.clone(),
+                    self.raft_auth.clone(),
+                    tls,
+                    listeners.control,
+                    listeners.data,
+                    listeners.query,
+                    config.transport,
+                )
+                .await
+                {
+                    Ok(transport) => transport,
+                    Err(error) => {
+                        let _ = runtime.close().await;
+                        let _ = log.close().await;
+                        return Err(anyhow::Error::new(error));
+                    }
+                };
+                Ok(super::NodeRaftService {
+                    log,
+                    runtime,
+                    events,
+                    transport,
+                })
+            })
+            .await?
     }
 
     pub fn services(&self) -> Arc<HostServices> {

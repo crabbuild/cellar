@@ -1,0 +1,9 @@
+Source: 67845126e241252ec575f0ea2a5ebe2fd06a37de
+Command: ["python3", "examples/raft-effects/smoke.py", "/Users/haipingfu/Workspace/crabbuild-target/cellar-23c7-multi-raft/debug/cellar-raft-effects", "/tmp/cellar-23c7-mr13-shutdown-qualified-6784512", "crates/cellar/transport/tcp/fixtures/ca.der", "crates/cellar/transport/tcp/fixtures/server.der", "crates/cellar/transport/tcp/fixtures/key.der"]
+Traceback (most recent call last):
+  File "/Users/haipingfu/.codex/worktrees/23c7/cellar/examples/raft-effects/smoke.py", line 56, in <module>
+    main()
+    ~~~~^^
+  File "/Users/haipingfu/.codex/worktrees/23c7/cellar/examples/raft-effects/smoke.py", line 42, in main
+    raise RuntimeError(f"drill failed ({result.returncode}); inspect {log}")
+RuntimeError: drill failed (1); inspect /private/tmp/cellar-23c7-mr13-shutdown-qualified-6784512/run-1.log

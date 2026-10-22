@@ -1,0 +1,107 @@
+{
+  "task_id": "MR-07",
+  "source_revision": "cff6a84ee446d5538f519eed5cea243be7931ea9",
+  "scope": "Partial MR-07: immutable namespace/birth catalog, one-time initial-member admission and parked node startup. Public SDK/actor integration remains IN_PROGRESS.",
+  "toolchain": "rustc 1.98.1 (48a229cea 2026-09-01)",
+  "executable_digest": "40cb21e9793e04d27c62066924c6e7581e5ad7fe7506ca2933d487df6d75df0e",
+  "environment": "macOS-26.5.2-arm64-arm-64bit-Mach-O; actual conditional InMemory object-store operations with yielded interleavings and lost-response faults; real local Raft Engines/RawNodes, explicit parked startup; single-voter development roots for runtime cases and three-voter roots for placement/catalog cases; serial ordinary integration targets; isolated checkout target; debug assertions enabled; debuginfo=0",
+  "limitations": "Partial MR-07 catalog/bootstrap qualification only. The catalog is available through the unstable verification interfaces; SDK class registration, actor-owned command lifecycle/output gating, ordinary-factory mode checks, native/Axum command parity and the counter example remain required. Five planned MR-07 cases are still missing. Normal embedded infrastructure now starts parked, but does not automatically perform catalog reconciliation or SDK routing. The direct trusted RaftRuntime::start path remains available for verification/embedding. Restart currently rereads permanent claims; durable local catalog confirmations and snapshot/join recovery remain recovery-controller work. Live S3/provider behavior, public multi-node command serving, power-loss, production performance and scale are not qualified.",
+  "tests": [
+    {
+      "name": "birth_handle_cannot_cross_catalog_instances",
+      "result": "passed"
+    },
+    {
+      "name": "catalog_reconciles_lost_create_responses",
+      "result": "passed"
+    },
+    {
+      "name": "catalog_refuses_corrupt_and_oversized_records",
+      "result": "passed"
+    },
+    {
+      "name": "competing_bootstrap_disks_cannot_both_join",
+      "result": "passed"
+    },
+    {
+      "name": "namespace_mode_conflict",
+      "result": "passed"
+    },
+    {
+      "name": "parked_bootstrap_requires_stable_claim",
+      "result": "passed"
+    },
+    {
+      "name": "unconfirmed_claim_keeps_the_group_parked",
+      "result": "passed"
+    }
+  ],
+  "pending_required_tests": [
+    "raft_gate_exact_receipt",
+    "fleet_gate_unchanged",
+    "retained_handle_fenced",
+    "native_axum_command_parity",
+    "unsupported_factory_refused"
+  ],
+  "commands": [
+    {
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--test",
+        "native_raft_host",
+        "--locked",
+        "--",
+        "--list"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-07-catalog-list.log"
+    },
+    {
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--test",
+        "native_raft_host",
+        "--locked",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-07-catalog-test.log"
+    }
+  ],
+  "lockfile_digest": "6a0912497882655fe96c11b4073db659d3d40342357448533e70830cd9f1a43b",
+  "additional_checks": [
+    "evidence/MR-07-catalog-clippy.log",
+    "evidence/MR-07-catalog-regressions.log",
+    "evidence/MR-07-catalog-embedded.log",
+    "evidence/MR-07-catalog-format.log",
+    "evidence/MR-07-catalog-format-check.log",
+    "evidence/MR-07-catalog-layout.log",
+    "evidence/MR-07-catalog-dependencies.log",
+    "evidence/MR-07-catalog-docs.log",
+    "evidence/MR-07-catalog-plan-tests.log",
+    "evidence/MR-07-catalog-inventory.log"
+  ],
+  "additional_check_results": {
+    "mode_birth": "Conditional namespace roots refuse conflicting mode/schema/cluster/durability/voter policy. Raft data has a disjoint prefix. Concurrent cell creators follow one immutable winning birth. Permanent group-ID reservations reject reuse across cells and namespaces; all catalog mutations use Create, never overwrite fallback.",
+    "claims": "Local stable genesis precedes the claim write. An existing remote claim with missing local state refuses blank initialization, including a new directory carrying the old lineage. Competing disk lineages cannot both obtain one member. Exact engine-owner permits fence an earlier process/engine; birth handles cannot cross catalog instances.",
+    "faults": "Lost create responses reconcile by reading canonical objects. A failed confirmation read returns no permit even after local genesis and claim write; 30 ticks cannot make a parked group vote or emit messages. Retry uses the same local identity and immutable claim.",
+    "bounds": "Canonical marker-1 records enforce domain, length, payload and SHA-256 integrity. Bounded full-object streams reject corrupt or oversized catalog records; no listing is needed for admission.",
+    "regressions": "82 passed: native_log_protocol (7), native_raft_contract (6), native_raft_execution (14), native_raft_ltx (15), native_raft_runtime (14), native_raft_storage (10), native_raft_transport (9), native_replication (6), native_storage (1). Six ignored child helpers are invoked by their parents. The run preceded the final catalog-only global group-ID reservation refinement and Rustdoc-only changes; unaffected runtime/host code was identical, and the full catalog target/Clippy were rerun afterward.",
+    "embedded": "The actual embedded_node_joins_raft_service_with_retained_handles case passed with parked startup; 87 unrelated native_node cases were filtered out, not claimed as rerun.",
+    "checks": "Final catalog tests and Cellar library/catalog-target Clippy with warnings denied pass. Formatting, layout, dependency policy, documentation and all 17 planning-tool cases pass. Existing vendored Raft warnings remain in raw logs."
+  },
+  "build_environment": {
+    "RUSTUP_TOOLCHAIN": "1.98.1",
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "CARGO_PROFILE_TEST_DEBUG": "0",
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_BUILD_JOBS": "3"
+  }
+}

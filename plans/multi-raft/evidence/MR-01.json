@@ -1,0 +1,74 @@
+{
+  "task_id": "MR-01",
+  "source_revision": "ed81efa8c3ea68d9f69996e83b9be2574c0ec435",
+  "toolchain": "rustc 1.98.1 (48a229cea 2026-09-01)",
+  "executable_digest": "792892d99791413a22d88fde07bdfd53f535d342a298be78ac39d770b7041cb4",
+  "environment": "macOS-26.5.2-arm64-arm-64bit-Mach-O; serial integration target; debug assertions enabled; dev/test debuginfo=0; isolated checkout target directory",
+  "limitations": "MR-01 pure authority/output contracts and update framing only. No real Raft quorum, persistence fault qualification, peer transport, SQLite replica application, SDK serving, S3 archival or scale qualification is claimed. Actual decoded LTX page bounds are an MR-05 requirement.",
+  "tests": [
+    {
+      "name": "birth_retry_identity",
+      "result": "passed"
+    },
+    {
+      "name": "envelope_bounds",
+      "result": "passed"
+    },
+    {
+      "name": "incarnation_token_scope",
+      "result": "passed"
+    },
+    {
+      "name": "late_completion_model",
+      "result": "passed"
+    },
+    {
+      "name": "mode_isolation",
+      "result": "passed"
+    },
+    {
+      "name": "speculative_visibility_model",
+      "result": "passed"
+    }
+  ],
+  "commands": [
+    {
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--test",
+        "native_raft_contract",
+        "--locked",
+        "--",
+        "--list"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-01-list.log"
+    },
+    {
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--test",
+        "native_raft_contract",
+        "--locked",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-01-test.log"
+    }
+  ],
+  "lockfile_digest": "f20decca1b76e9088ffffe4ec2a7715906be5118e8cb17737b3c956faf47db93",
+  "additional_checks": [
+    "evidence/MR-01-clippy.log",
+    "evidence/MR-01-format.log",
+    "evidence/MR-01-layout.log",
+    "evidence/MR-01-dependencies.log",
+    "evidence/MR-01-inventory.log"
+  ]
+}

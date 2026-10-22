@@ -1,0 +1,7 @@
+Source: 79a46b7d8d7af7ed9f8c26c3989b6026ff785d88; final metadata validation
+Command: ["python3", "-m", "unittest", "discover", "-s", "plans/multi-raft", "-p", "test_*.py"]
+.................
+----------------------------------------------------------------------
+Ran 17 tests in 0.068s
+
+OK

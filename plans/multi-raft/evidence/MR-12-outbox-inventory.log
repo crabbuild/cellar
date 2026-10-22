@@ -1,0 +1,4 @@
+Source: a28babe1904c1287cb4d1877674bd98a87313700
+Command: ["python3", "-c", "import pathlib,re; s=pathlib.Path('plans/multi-raft/evidence/MR-12-outbox-list.log').read_text(); n=set(re.findall(r'^(\\S+): test$',s,re.M)); assert len([x for x in n if x.startswith('raft::effects::delivery::tests::')])==5; assert len([x for x in n if x.startswith('raft::effects::blob::tests::')])==2; assert {'automatic_no_traffic_repair','leader_balance_with_lag'}<=n; assert all('Running tests/'+t+'.rs' in s for t in ['native_raft_execution','native_raft_ltx','native_raft_storage','native_node']); print('Five delivery and two Blob unit cases; owning Raft/Node targets listed.')"]
+Final metadata/documents rerun.
+Five delivery and two Blob unit cases; owning Raft/Node targets listed.

@@ -1,0 +1,3 @@
+Source: 79a46b7d8d7af7ed9f8c26c3989b6026ff785d88
+Command: ["python3", "plans/multi-raft/plan.py", "check-list", "MR-10", "plans/multi-raft/evidence/MR-11-directory-snapshot-list.log"]
+Listed test inventory passed: 32 required cases. Test execution is still required.

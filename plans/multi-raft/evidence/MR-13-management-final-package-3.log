@@ -1,0 +1,7 @@
+Source: ec312e85f57035974d0b31fc46516f635b9fa4ee with reviewed MR-13 documentation/evidence metadata updates
+Command: ["python3", "-m", "unittest", "discover", "-s", "plans/multi-raft", "-p", "test_*.py"]
+.................
+----------------------------------------------------------------------
+Ran 17 tests in 0.085s
+
+OK

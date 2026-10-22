@@ -1,0 +1,2 @@
+{"source_revision": "2298fd442f0b867695b564527a66b61684aff2c2", "argv": ["python3", "plans/multi-raft/plan.py", "check-list", "MR-09", "plans/multi-raft/evidence/MR-09-complete-archive-list.log"]}
+Listed test inventory passed: 7 required cases. Test execution is still required.

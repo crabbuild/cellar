@@ -1,0 +1,8 @@
+Source revision: fcaa793854a1ee17236b8276a5efd35e505eaa37
+Command: ["python3", "-m", "unittest", "discover", "-s", "plans/multi-raft", "-p", "test_*.py"]
+
+.................
+----------------------------------------------------------------------
+Ran 17 tests in 0.061s
+
+OK

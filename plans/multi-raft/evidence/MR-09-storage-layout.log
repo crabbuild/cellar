@@ -1,0 +1,2 @@
+{"source_revision": "122a1c7b9a50af74bf9a8c6ab1efa781986661e3", "argv": ["cargo", "check-layout"]}
+Checked module layout for 625 Rust files

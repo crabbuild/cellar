@@ -414,7 +414,7 @@ def verify_image_sources(metadata):
         if hashlib.sha256(result.stdout).hexdigest() != digest:
             raise RuntimeError(f"image measuring source does not match checkout: {name}")
     subprocess.run(["git", "diff", "--exit-code", image_revision, metadata["revision"], "--",
-                    "crates", "Cargo.toml", "Cargo.lock"], capture_output=True, check=True)
+                    "crates", "vendor", "Cargo.toml", "Cargo.lock"], capture_output=True, check=True)
 
 
 def audit_run(root):

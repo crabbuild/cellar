@@ -1,0 +1,1244 @@
+{
+  "task_id": "MR-13",
+  "source_revision": "a128c26cc2014056f0b9e40c64e3c37225497d44",
+  "completion": "partial",
+  "scope": "Follow-up PR91 Linux CI fixture repair; not milestone completion, performance qualification or a new pooled full-workspace result.",
+  "source_files": [
+    {
+      "path": "crates/cellar/tests/native_raft_host.rs",
+      "sha256": "8058b65bbe29c82644a0883413bde83716293bf9dff9e189708ffabe47b0b6d1"
+    },
+    {
+      "path": "crates/cellar/tests/support/lease_renewal.rs",
+      "sha256": "1f873a4527ae926bf8a5a80d4bd215ca275de2bb2e65368618c603252dc1c127"
+    },
+    {
+      "path": "crates/cellar/tests/support/raft_controller_native.rs",
+      "sha256": "eee6fbb3780154d0e46b12e7fe29f7722b7c90b6ea1654ef792633bda37f0f54"
+    },
+    {
+      "path": "crates/cellar/tests/support/raft_inspection_native.rs",
+      "sha256": "b30ca8f34bfe50237c4e709d52db5c36ecbce4f7375c7c8c112ea2adcc2fc104"
+    },
+    {
+      "path": "crates/cellar/tests/support/raft_node.rs",
+      "sha256": "e69b33780efbecbb83a51145b8cfc8274918f4361340ba189a1f081592b58c97"
+    },
+    {
+      "path": "crates/cellar/tests/support/raft_standby_native.rs",
+      "sha256": "f1dca1401e7d0e7b01aafea51120d7adfc809fecf7c05e78389a4109a0c33455"
+    }
+  ],
+  "original_ci": [
+    {
+      "source_revision": "1fdab4387a688601c37cbf17bf0936f05ea02560",
+      "url": "https://github.com/crabbuild/cellar/actions/runs/39706363690/job/119587384621",
+      "result": "failure",
+      "cases": [
+        "inspection::member_inspection_preserves_published_cut_while_callback_is_private"
+      ],
+      "output_artifact": "linux-failures",
+      "output_section": "119587384621"
+    },
+    {
+      "source_revision": "1fdab4387a688601c37cbf17bf0936f05ea02560",
+      "url": "https://github.com/crabbuild/cellar/actions/runs/39706363690/job/119587384522",
+      "result": "failure",
+      "cases": [
+        "cancelled_private_callback_is_joined_before_its_slot_is_reused",
+        "retained_handle_fenced"
+      ],
+      "output_artifact": "linux-failures",
+      "output_section": "119587384522"
+    },
+    {
+      "source_revision": "1fdab4387a688601c37cbf17bf0936f05ea02560",
+      "url": "https://github.com/crabbuild/cellar/actions/runs/39706368504/job/119587404113",
+      "result": "failure",
+      "cases": [
+        "leader_balance_with_lag",
+        "registered_standby_s3_activation_and_restart"
+      ],
+      "output_artifact": "linux-failures",
+      "output_section": "119587404113"
+    },
+    {
+      "source_revision": "1fdab4387a688601c37cbf17bf0936f05ea02560",
+      "url": "https://github.com/crabbuild/cellar/actions/runs/39706368504/job/119587404276",
+      "result": "failure",
+      "cases": [
+        "lease_renewal::a_late_committed_renewal_keeps_time_for_actual_readback"
+      ],
+      "output_artifact": "linux-failures",
+      "output_section": "119587404276"
+    }
+  ],
+  "diagnoses": [
+    {
+      "problem": "Quorum seed receipt overlaps archive capture before an unpolled held command.",
+      "proof": "Unmodified inspection timeout and outcome diagnostic establish refusal before callback. Same20ms capture delay fails old inspection/standby call sites and passes the corrected six-case matrix. Original Linux callback-timeout logs did not print actual SDK outcomes.",
+      "fix": "Four gate fixtures prepare initial state with S3 proof, preserving unpolled futures and original deadlines. Standby writes retry only Overloaded with identical IDs/input/durability and decreasing remaining timeout under one original deadline."
+    },
+    {
+      "problem": "Lease fixture commit notification is discarded with the cancelled CAS caller while physical work can complete.",
+      "proof": "Two120ms late-CAS controls explicitly record physical applied=true while original fixture times out and node continues renewing; both pass when commit observation stays with owned work. This is a controlled explanation, not an unobserved exact physical latency attributed to Linux.",
+      "fix": "Keep second actual CAS, commit signal and held300ms response in a retained execution-domain task and join it before teardown. Preserve first500ms response loss,900ms lease, actual readback, full-TTL liveness and mutation assertions."
+    },
+    {
+      "problem": "Balance fixture cuts a voter before establishing its initial published image.",
+      "proof": "A controlled3s initial data delay reproduces observed=None and the original strict older-image assertion; identical delay passes with all-voter initial-image reads. Original Linux assertion did not print actual publication.",
+      "fix": "Prove the seed image on all three voters before the existing data cut. Preserve strict lag, eligible leader, cooldown and catch-up assertions."
+    }
+  ],
+  "tests": [
+    {
+      "target": "native_raft_host",
+      "name": "birth_handle_cannot_cross_catalog_instances",
+      "result": "passed"
+    },
+    {
+      "target": "native_raft_host",
+      "name": "cancelled_private_callback_is_joined_before_its_slot_is_reused",
+      "result": "passed"
+    },
+    {
+      "target": "native_raft_host",
+      "name": "catalog_reconciles_lost_create_responses",
+      "result": "passed"
+    },
+    {
+      "target": "native_raft_host",
+      "name": "catalog_refuses_corrupt_and_oversized_records",
+      "result": "passed"
+    },
+    {
+      "target": "native_raft_host",
+      "name": "command_manifest_binds_voting_compatibility_without_query_requirements",
+      "result": "passed"
+    },
+    {
+      "target": "native_raft_host",
+      "name": "competing_bootstrap_disks_cannot_both_join",
+      "result": "passed"
+    },
+    {
+      "target": "native_raft_host",
+      "name": "control_capacity_survives_unpolled_business_waiters",
+      "result": "passed"
+    },
+    {
+      "target": "native_raft_host",
+      "name": "fleet_gate_unchanged",
+      "result": "passed"
+    },
+    {
+      "target": "native_raft_host",
+      "name": "inspection::member_inspection_preserves_published_cut_while_callback_is_private",
+      "result": "passed"
+    },
+    {
+      "target": "native_raft_host",
+      "name": "inspection::standby_inspection_creates_no_member_or_group",
+      "result": "passed"
+    },
+    {
+      "target": "native_raft_host",
+      "name": "live_mode_admission_refuses_conflicts_before_mutable_execution",
+      "result": "passed"
+    },
+    {
+      "target": "native_raft_host",
+      "name": "namespace_mode_conflict",
+      "result": "passed"
+    },
+    {
+      "target": "native_raft_host",
+      "name": "native_axum_command_parity",
+      "result": "passed"
+    },
+    {
+      "target": "native_raft_host",
+      "name": "native_axum_nonmember_query_router_parity",
+      "result": "passed"
+    },
+    {
+      "target": "native_raft_host",
+      "name": "operation_registration_binds_schema_kind_and_digest",
+      "result": "passed"
+    },
+    {
+      "target": "native_raft_host",
+      "name": "parked_bootstrap_requires_stable_claim",
+      "result": "passed"
+    },
+    {
+      "target": "native_raft_host",
+      "name": "public_multi_group_replication_and_leader_failover",
+      "result": "passed"
+    },
+    {
+      "target": "native_raft_host",
+      "name": "query_router_requires_existing_namespace_and_birth",
+      "result": "passed"
+    },
+    {
+      "target": "native_raft_host",
+      "name": "raft_gate_exact_receipt",
+      "result": "passed"
+    },
+    {
+      "target": "native_raft_host",
+      "name": "registered_callbacks_refuse_captured_sdk_handles",
+      "result": "passed"
+    },
+    {
+      "target": "native_raft_host",
+      "name": "retained_handle_fenced",
+      "result": "passed"
+    },
+    {
+      "target": "native_raft_host",
+      "name": "snapshot_capacity_refused_before_member_storage_opens",
+      "result": "passed"
+    },
+    {
+      "target": "native_raft_host",
+      "name": "standby_storage_pin_refuses_recreated_node_before_member_claim",
+      "result": "passed"
+    },
+    {
+      "target": "native_raft_host",
+      "name": "submitted_partition_retains_producer_until_follower_barrier",
+      "result": "passed"
+    },
+    {
+      "target": "native_raft_host",
+      "name": "unconfirmed_claim_keeps_the_group_parked",
+      "result": "passed"
+    },
+    {
+      "target": "native_raft_host",
+      "name": "unpolled_waiter_cannot_submit_after_its_deadline",
+      "result": "passed"
+    },
+    {
+      "target": "native_raft_host",
+      "name": "unsupported_factory_refused",
+      "result": "passed"
+    },
+    {
+      "target": "native_raft_membership",
+      "name": "automatic_empty_cell_repair_before_first_command",
+      "result": "passed"
+    },
+    {
+      "target": "native_raft_membership",
+      "name": "automatic_minority_does_not_seed_from_reachable_s3",
+      "result": "passed"
+    },
+    {
+      "target": "native_raft_membership",
+      "name": "automatic_no_traffic_repair",
+      "result": "passed"
+    },
+    {
+      "target": "native_raft_membership",
+      "name": "automatic_plan_recovers_controller_and_leader_loss",
+      "result": "passed"
+    },
+    {
+      "target": "native_raft_membership",
+      "name": "failed_domains_cannot_prove_remaining_voter_diversity",
+      "result": "passed"
+    },
+    {
+      "target": "native_raft_membership",
+      "name": "insufficient_domain_capacity",
+      "result": "passed"
+    },
+    {
+      "target": "native_raft_membership",
+      "name": "joint_configuration_restart",
+      "result": "passed"
+    },
+    {
+      "target": "native_raft_membership",
+      "name": "joint_plan_process_kill_resume",
+      "result": "passed"
+    },
+    {
+      "target": "native_raft_membership",
+      "name": "leader_balance_with_lag",
+      "result": "passed"
+    },
+    {
+      "target": "native_raft_membership",
+      "name": "learner_before_promotion",
+      "result": "passed"
+    },
+    {
+      "target": "native_raft_membership",
+      "name": "minority_cannot_reconfigure",
+      "result": "passed"
+    },
+    {
+      "target": "native_raft_membership",
+      "name": "native_leadership_transfer_checks_progress",
+      "result": "passed"
+    },
+    {
+      "target": "native_raft_membership",
+      "name": "node_shutdown_hands_off_to_published_voter",
+      "result": "passed"
+    },
+    {
+      "target": "native_raft_membership",
+      "name": "node_shutdown_report_bounds_preserve_complete_lag_count",
+      "result": "passed"
+    },
+    {
+      "target": "native_raft_membership",
+      "name": "placement_balances_the_limiting_capacity",
+      "result": "passed"
+    },
+    {
+      "target": "native_raft_membership",
+      "name": "placement_is_deterministic_and_preserves_member_watermark",
+      "result": "passed"
+    },
+    {
+      "target": "native_raft_membership",
+      "name": "placement_keeps_joint_and_pending_plans_serialized",
+      "result": "passed"
+    },
+    {
+      "target": "native_raft_membership",
+      "name": "placement_refuses_duplicate_physical_nodes_and_invalid_policy",
+      "result": "passed"
+    },
+    {
+      "target": "native_raft_membership",
+      "name": "placement_refuses_incompatible_draining_full_and_overflowed_targets",
+      "result": "passed"
+    },
+    {
+      "target": "native_raft_membership",
+      "name": "placement_refuses_invalid_view_and_exhausted_member_ids",
+      "result": "passed"
+    },
+    {
+      "target": "native_raft_membership",
+      "name": "placement_refuses_stale_capacity_and_unconfirmed_failure",
+      "result": "passed"
+    },
+    {
+      "target": "native_raft_membership",
+      "name": "placement_treats_zone_names_within_their_regions",
+      "result": "passed"
+    },
+    {
+      "target": "native_raft_membership",
+      "name": "registered_standby_activation_shutdown_joins",
+      "result": "passed"
+    },
+    {
+      "target": "native_raft_membership",
+      "name": "registered_standby_peer_activation_retains_handles",
+      "result": "passed"
+    },
+    {
+      "target": "native_raft_membership",
+      "name": "registered_standby_refuses_quorumless_s3_activation",
+      "result": "passed"
+    },
+    {
+      "target": "native_raft_membership",
+      "name": "registered_standby_s3_activation_and_restart",
+      "result": "passed"
+    },
+    {
+      "target": "native_raft_membership",
+      "name": "stale_plan_idempotence",
+      "result": "passed"
+    },
+    {
+      "target": "native_node",
+      "name": "lease_renewal::a_late_committed_renewal_keeps_time_for_actual_readback",
+      "result": "passed",
+      "repeated_attempts": 12
+    }
+  ],
+  "counts": {
+    "rust_passed": 55,
+    "test_binaries": 3,
+    "successful_commands": 24,
+    "lease_replays": 12,
+    "ignored_child_entry_points": 1
+  },
+  "commands": [
+    {
+      "name": "format",
+      "argv": [
+        "cargo",
+        "format"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 44.64,
+      "source_revision": "a128c26cc2014056f0b9e40c64e3c37225497d44",
+      "output_artifact": "checks",
+      "output_section": "format",
+      "output_sha256": "98312e6a0d08bd60730357a55dc57453e2b7bcde4be59385e5b62383ea1df5f5"
+    },
+    {
+      "name": "format-check",
+      "argv": [
+        "cargo",
+        "format",
+        "--check"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 44.15,
+      "source_revision": "a128c26cc2014056f0b9e40c64e3c37225497d44",
+      "output_artifact": "checks",
+      "output_section": "format-check",
+      "output_sha256": "12e1f4df3ba2d783863e8d4777f53bb27334b4638d9e9eaec0f2cb552bc7c53b"
+    },
+    {
+      "name": "layout",
+      "argv": [
+        "cargo",
+        "check-layout"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 0.13,
+      "source_revision": "a128c26cc2014056f0b9e40c64e3c37225497d44",
+      "output_artifact": "checks",
+      "output_section": "layout",
+      "output_sha256": "03b6b37fba432dfb835705110222ebdba8ec3665a08459d453a575805d0f0324"
+    },
+    {
+      "name": "dependencies",
+      "argv": [
+        "python3",
+        "tools/check_native_dependencies.py"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 0.28,
+      "source_revision": "a128c26cc2014056f0b9e40c64e3c37225497d44",
+      "output_artifact": "checks",
+      "output_section": "dependencies",
+      "output_sha256": "bb6ce74bc3067de8595c69fccdda01faf3be0a564eb5bde54fae281ee37c597c"
+    },
+    {
+      "name": "docs",
+      "argv": [
+        "python3",
+        "tools/docs/check.py"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 0.09,
+      "source_revision": "a128c26cc2014056f0b9e40c64e3c37225497d44",
+      "output_artifact": "checks",
+      "output_section": "docs",
+      "output_sha256": "fc7c35ef13964a04e099f7026328ae922c45c28f73000cfc736883acace2434f"
+    },
+    {
+      "name": "host",
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--all-features",
+        "--test",
+        "native_raft_host",
+        "--locked",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 52.92,
+      "source_revision": "a128c26cc2014056f0b9e40c64e3c37225497d44",
+      "output_artifact": "checks",
+      "output_section": "host",
+      "output_sha256": "d406930560473aa4f668c2174e05f179e6a387c33cbedda02d057509bb6139fc"
+    },
+    {
+      "name": "membership",
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--all-features",
+        "--test",
+        "native_raft_membership",
+        "--locked",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 85.41,
+      "source_revision": "a128c26cc2014056f0b9e40c64e3c37225497d44",
+      "output_artifact": "checks",
+      "output_section": "membership",
+      "output_sha256": "a605ba1e70fcee23a6ad6759be7f1e4c02af1a94b7b93dc1c3f23c9a47606f96"
+    },
+    {
+      "name": "lease-1",
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--all-features",
+        "--test",
+        "native_node",
+        "--locked",
+        "lease_renewal::a_late_committed_renewal_keeps_time_for_actual_readback",
+        "--",
+        "--exact",
+        "--nocapture"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 24.89,
+      "source_revision": "a128c26cc2014056f0b9e40c64e3c37225497d44",
+      "output_artifact": "checks",
+      "output_section": "lease-1",
+      "output_sha256": "9dbc0d99cff1ef15f35e2d244bb40adc8f63870eb13c9392dd26ae365e74397e"
+    },
+    {
+      "name": "lease-2",
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--all-features",
+        "--test",
+        "native_node",
+        "--locked",
+        "lease_renewal::a_late_committed_renewal_keeps_time_for_actual_readback",
+        "--",
+        "--exact",
+        "--nocapture"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 5.17,
+      "source_revision": "a128c26cc2014056f0b9e40c64e3c37225497d44",
+      "output_artifact": "checks",
+      "output_section": "lease-2",
+      "output_sha256": "486e84f4652b1b332d24c7e9ad4074fe284ee0a34145e4ce5f53688ccb747a33"
+    },
+    {
+      "name": "lease-3",
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--all-features",
+        "--test",
+        "native_node",
+        "--locked",
+        "lease_renewal::a_late_committed_renewal_keeps_time_for_actual_readback",
+        "--",
+        "--exact",
+        "--nocapture"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 5.13,
+      "source_revision": "a128c26cc2014056f0b9e40c64e3c37225497d44",
+      "output_artifact": "checks",
+      "output_section": "lease-3",
+      "output_sha256": "1cea891836a60b55d82942c25d4dac3994b83d9348f7a9ee47f42f9ffdaebf66"
+    },
+    {
+      "name": "lease-4",
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--all-features",
+        "--test",
+        "native_node",
+        "--locked",
+        "lease_renewal::a_late_committed_renewal_keeps_time_for_actual_readback",
+        "--",
+        "--exact",
+        "--nocapture"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 5.16,
+      "source_revision": "a128c26cc2014056f0b9e40c64e3c37225497d44",
+      "output_artifact": "checks",
+      "output_section": "lease-4",
+      "output_sha256": "17271c14476e0a5429778fadcc5fa7449e0e07a9800e66b575f0837a428f838c"
+    },
+    {
+      "name": "lease-5",
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--all-features",
+        "--test",
+        "native_node",
+        "--locked",
+        "lease_renewal::a_late_committed_renewal_keeps_time_for_actual_readback",
+        "--",
+        "--exact",
+        "--nocapture"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 5.13,
+      "source_revision": "a128c26cc2014056f0b9e40c64e3c37225497d44",
+      "output_artifact": "checks",
+      "output_section": "lease-5",
+      "output_sha256": "6b650345983301b4f6e5b6ddca01191668b4659b0ee1eb4ac7bf68e829705e58"
+    },
+    {
+      "name": "lease-6",
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--all-features",
+        "--test",
+        "native_node",
+        "--locked",
+        "lease_renewal::a_late_committed_renewal_keeps_time_for_actual_readback",
+        "--",
+        "--exact",
+        "--nocapture"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 6.08,
+      "source_revision": "a128c26cc2014056f0b9e40c64e3c37225497d44",
+      "output_artifact": "checks",
+      "output_section": "lease-6",
+      "output_sha256": "c8c1b1e0b7b59e17c03fecbac1f96e7a9fc8df0d8d20e176be404d6acda87c94"
+    },
+    {
+      "name": "lease-7",
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--all-features",
+        "--test",
+        "native_node",
+        "--locked",
+        "lease_renewal::a_late_committed_renewal_keeps_time_for_actual_readback",
+        "--",
+        "--exact",
+        "--nocapture"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 5.18,
+      "source_revision": "a128c26cc2014056f0b9e40c64e3c37225497d44",
+      "output_artifact": "checks",
+      "output_section": "lease-7",
+      "output_sha256": "2f892acc1c37987aa1e7ff1bb8b89434d838359c76f66b7061e3dd001bae765f"
+    },
+    {
+      "name": "lease-8",
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--all-features",
+        "--test",
+        "native_node",
+        "--locked",
+        "lease_renewal::a_late_committed_renewal_keeps_time_for_actual_readback",
+        "--",
+        "--exact",
+        "--nocapture"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 5.08,
+      "source_revision": "a128c26cc2014056f0b9e40c64e3c37225497d44",
+      "output_artifact": "checks",
+      "output_section": "lease-8",
+      "output_sha256": "53c8c31d8427ab3596e0d7df1e25aa7cd7e286f3741f4d087e4ab542d46ef796"
+    },
+    {
+      "name": "lease-9",
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--all-features",
+        "--test",
+        "native_node",
+        "--locked",
+        "lease_renewal::a_late_committed_renewal_keeps_time_for_actual_readback",
+        "--",
+        "--exact",
+        "--nocapture"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 5.13,
+      "source_revision": "a128c26cc2014056f0b9e40c64e3c37225497d44",
+      "output_artifact": "checks",
+      "output_section": "lease-9",
+      "output_sha256": "0001382b26d142aa605d20240fc45d9dfe67088b2b42e3969c69e58ba0a04446"
+    },
+    {
+      "name": "lease-10",
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--all-features",
+        "--test",
+        "native_node",
+        "--locked",
+        "lease_renewal::a_late_committed_renewal_keeps_time_for_actual_readback",
+        "--",
+        "--exact",
+        "--nocapture"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 5.08,
+      "source_revision": "a128c26cc2014056f0b9e40c64e3c37225497d44",
+      "output_artifact": "checks",
+      "output_section": "lease-10",
+      "output_sha256": "376d113eb086240579caa3c1f7ab5c96d94db55580fadccdf6febc5d7cea5651"
+    },
+    {
+      "name": "lease-11",
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--all-features",
+        "--test",
+        "native_node",
+        "--locked",
+        "lease_renewal::a_late_committed_renewal_keeps_time_for_actual_readback",
+        "--",
+        "--exact",
+        "--nocapture"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 5.13,
+      "source_revision": "a128c26cc2014056f0b9e40c64e3c37225497d44",
+      "output_artifact": "checks",
+      "output_section": "lease-11",
+      "output_sha256": "ff73e2acea0a1a498cb339d2cd833981a107d338ed519eb9b76cb8a50dfb58e5"
+    },
+    {
+      "name": "lease-12",
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--all-features",
+        "--test",
+        "native_node",
+        "--locked",
+        "lease_renewal::a_late_committed_renewal_keeps_time_for_actual_readback",
+        "--",
+        "--exact",
+        "--nocapture"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 5.13,
+      "source_revision": "a128c26cc2014056f0b9e40c64e3c37225497d44",
+      "output_artifact": "checks",
+      "output_section": "lease-12",
+      "output_sha256": "e5e4a4cbf20812f0784c7f668de7024738ac73dc32b478506f2c4d6a89387237"
+    },
+    {
+      "name": "clippy",
+      "argv": [
+        "cargo",
+        "clippy",
+        "--workspace",
+        "--all-targets",
+        "--all-features",
+        "--locked",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 50.24,
+      "source_revision": "a128c26cc2014056f0b9e40c64e3c37225497d44",
+      "output_artifact": "checks",
+      "output_section": "clippy",
+      "output_sha256": "9a7ac678ad0148a53c9ce6c5eca85c7fe2887475f85fb95611f7329a00d6b761"
+    },
+    {
+      "name": "plan",
+      "argv": [
+        "python3",
+        "plans/multi-raft/plan.py",
+        "validate"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 0.1,
+      "source_revision": "a128c26cc2014056f0b9e40c64e3c37225497d44",
+      "output_artifact": "checks",
+      "output_section": "plan",
+      "output_sha256": "1d7f1fec9702f08a59f300c81284a0f61ccd8ffd7854498ed9669fc5aa85fa4f"
+    },
+    {
+      "name": "preflight",
+      "argv": [
+        "python3",
+        "plans/multi-raft/plan.py",
+        "preflight"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 0.11,
+      "source_revision": "a128c26cc2014056f0b9e40c64e3c37225497d44",
+      "output_artifact": "checks",
+      "output_section": "preflight",
+      "output_sha256": "6193aa698de72c6024f50cb46a977a29a6d0ae6b89419c71ea23f33c179b89cc"
+    },
+    {
+      "name": "plan-tests",
+      "argv": [
+        "python3",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "plans/multi-raft",
+        "-p",
+        "test_plan.py"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 0.13,
+      "source_revision": "a128c26cc2014056f0b9e40c64e3c37225497d44",
+      "output_artifact": "checks",
+      "output_section": "plan-tests",
+      "output_sha256": "49ee8e7845fa1a088fc3c5cd9e804cbf0aa1ffa18097af984d719c739b9f78ae"
+    },
+    {
+      "name": "diff",
+      "argv": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 0.02,
+      "source_revision": "a128c26cc2014056f0b9e40c64e3c37225497d44",
+      "output_artifact": "checks",
+      "output_section": "diff",
+      "output_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "artifacts": [
+    {
+      "id": "checks",
+      "output": "evidence/PR-91-fixtures-checks.log.gz",
+      "sha256": "d72a4845ece353abd06f6319eafab1e8209bd4c4c7761433a436fb511e7af871",
+      "uncompressed_sha256": "515a84f74ebe7d4a8087b30d53babba664a8172a345ba61e8adeb43ba4fb8191",
+      "encoding": "gzip; sections use byte offsets into uncompressed original logs",
+      "sections": [
+        {
+          "name": "format",
+          "offset": 20,
+          "length": 25,
+          "sha256": "98312e6a0d08bd60730357a55dc57453e2b7bcde4be59385e5b62383ea1df5f5",
+          "source_note": "Final six-file test fixture change before source commit; checked-in Rust bytes match a128c26cc2014056f0b9e40c64e3c37225497d44."
+        },
+        {
+          "name": "format-check",
+          "offset": 71,
+          "length": 23,
+          "sha256": "12e1f4df3ba2d783863e8d4777f53bb27334b4638d9e9eaec0f2cb552bc7c53b",
+          "source_note": "Final six-file test fixture change before source commit; checked-in Rust bytes match a128c26cc2014056f0b9e40c64e3c37225497d44."
+        },
+        {
+          "name": "layout",
+          "offset": 114,
+          "length": 41,
+          "sha256": "03b6b37fba432dfb835705110222ebdba8ec3665a08459d453a575805d0f0324",
+          "source_note": "Final six-file test fixture change before source commit; checked-in Rust bytes match a128c26cc2014056f0b9e40c64e3c37225497d44."
+        },
+        {
+          "name": "dependencies",
+          "offset": 181,
+          "length": 78,
+          "sha256": "bb6ce74bc3067de8595c69fccdda01faf3be0a564eb5bde54fae281ee37c597c",
+          "source_note": "Final six-file test fixture change before source commit; checked-in Rust bytes match a128c26cc2014056f0b9e40c64e3c37225497d44."
+        },
+        {
+          "name": "docs",
+          "offset": 277,
+          "length": 93,
+          "sha256": "fc7c35ef13964a04e099f7026328ae922c45c28f73000cfc736883acace2434f",
+          "source_note": "Final six-file test fixture change before source commit; checked-in Rust bytes match a128c26cc2014056f0b9e40c64e3c37225497d44."
+        },
+        {
+          "name": "host",
+          "offset": 388,
+          "length": 14582,
+          "sha256": "d406930560473aa4f668c2174e05f179e6a387c33cbedda02d057509bb6139fc",
+          "source_note": "Final six-file test fixture change before source commit; checked-in Rust bytes match a128c26cc2014056f0b9e40c64e3c37225497d44."
+        },
+        {
+          "name": "membership",
+          "offset": 14994,
+          "length": 14661,
+          "sha256": "a605ba1e70fcee23a6ad6759be7f1e4c02af1a94b7b93dc1c3f23c9a47606f96",
+          "source_note": "Final six-file test fixture change before source commit; checked-in Rust bytes match a128c26cc2014056f0b9e40c64e3c37225497d44."
+        },
+        {
+          "name": "lease-1",
+          "offset": 29676,
+          "length": 21122,
+          "sha256": "9dbc0d99cff1ef15f35e2d244bb40adc8f63870eb13c9392dd26ae365e74397e",
+          "source_note": "Final six-file test fixture change before source commit; checked-in Rust bytes match a128c26cc2014056f0b9e40c64e3c37225497d44."
+        },
+        {
+          "name": "lease-2",
+          "offset": 50819,
+          "length": 19763,
+          "sha256": "486e84f4652b1b332d24c7e9ad4074fe284ee0a34145e4ce5f53688ccb747a33",
+          "source_note": "Final six-file test fixture change before source commit; checked-in Rust bytes match a128c26cc2014056f0b9e40c64e3c37225497d44."
+        },
+        {
+          "name": "lease-3",
+          "offset": 70603,
+          "length": 19763,
+          "sha256": "1cea891836a60b55d82942c25d4dac3994b83d9348f7a9ee47f42f9ffdaebf66",
+          "source_note": "Final six-file test fixture change before source commit; checked-in Rust bytes match a128c26cc2014056f0b9e40c64e3c37225497d44."
+        },
+        {
+          "name": "lease-4",
+          "offset": 90387,
+          "length": 19763,
+          "sha256": "17271c14476e0a5429778fadcc5fa7449e0e07a9800e66b575f0837a428f838c",
+          "source_note": "Final six-file test fixture change before source commit; checked-in Rust bytes match a128c26cc2014056f0b9e40c64e3c37225497d44."
+        },
+        {
+          "name": "lease-5",
+          "offset": 110171,
+          "length": 19763,
+          "sha256": "6b650345983301b4f6e5b6ddca01191668b4659b0ee1eb4ac7bf68e829705e58",
+          "source_note": "Final six-file test fixture change before source commit; checked-in Rust bytes match a128c26cc2014056f0b9e40c64e3c37225497d44."
+        },
+        {
+          "name": "lease-6",
+          "offset": 129955,
+          "length": 21032,
+          "sha256": "c8c1b1e0b7b59e17c03fecbac1f96e7a9fc8df0d8d20e176be404d6acda87c94",
+          "source_note": "Final six-file test fixture change before source commit; checked-in Rust bytes match a128c26cc2014056f0b9e40c64e3c37225497d44."
+        },
+        {
+          "name": "lease-7",
+          "offset": 151008,
+          "length": 19763,
+          "sha256": "2f892acc1c37987aa1e7ff1bb8b89434d838359c76f66b7061e3dd001bae765f",
+          "source_note": "Final six-file test fixture change before source commit; checked-in Rust bytes match a128c26cc2014056f0b9e40c64e3c37225497d44."
+        },
+        {
+          "name": "lease-8",
+          "offset": 170792,
+          "length": 19763,
+          "sha256": "53c8c31d8427ab3596e0d7df1e25aa7cd7e286f3741f4d087e4ab542d46ef796",
+          "source_note": "Final six-file test fixture change before source commit; checked-in Rust bytes match a128c26cc2014056f0b9e40c64e3c37225497d44."
+        },
+        {
+          "name": "lease-9",
+          "offset": 190576,
+          "length": 19763,
+          "sha256": "0001382b26d142aa605d20240fc45d9dfe67088b2b42e3969c69e58ba0a04446",
+          "source_note": "Final six-file test fixture change before source commit; checked-in Rust bytes match a128c26cc2014056f0b9e40c64e3c37225497d44."
+        },
+        {
+          "name": "lease-10",
+          "offset": 210361,
+          "length": 19763,
+          "sha256": "376d113eb086240579caa3c1f7ab5c96d94db55580fadccdf6febc5d7cea5651",
+          "source_note": "Final six-file test fixture change before source commit; checked-in Rust bytes match a128c26cc2014056f0b9e40c64e3c37225497d44."
+        },
+        {
+          "name": "lease-11",
+          "offset": 230146,
+          "length": 19763,
+          "sha256": "ff73e2acea0a1a498cb339d2cd833981a107d338ed519eb9b76cb8a50dfb58e5",
+          "source_note": "Final six-file test fixture change before source commit; checked-in Rust bytes match a128c26cc2014056f0b9e40c64e3c37225497d44."
+        },
+        {
+          "name": "lease-12",
+          "offset": 249931,
+          "length": 19763,
+          "sha256": "e5e4a4cbf20812f0784c7f668de7024738ac73dc32b478506f2c4d6a89387237",
+          "source_note": "Final six-file test fixture change before source commit; checked-in Rust bytes match a128c26cc2014056f0b9e40c64e3c37225497d44."
+        },
+        {
+          "name": "clippy",
+          "offset": 269714,
+          "length": 13242,
+          "sha256": "9a7ac678ad0148a53c9ce6c5eca85c7fe2887475f85fb95611f7329a00d6b761",
+          "source_note": "Final six-file test fixture change before source commit; checked-in Rust bytes match a128c26cc2014056f0b9e40c64e3c37225497d44."
+        },
+        {
+          "name": "plan",
+          "offset": 282974,
+          "length": 114,
+          "sha256": "1d7f1fec9702f08a59f300c81284a0f61ccd8ffd7854498ed9669fc5aa85fa4f",
+          "source_note": "Final six-file test fixture change before source commit; checked-in Rust bytes match a128c26cc2014056f0b9e40c64e3c37225497d44."
+        },
+        {
+          "name": "preflight",
+          "offset": 283111,
+          "length": 90,
+          "sha256": "6193aa698de72c6024f50cb46a977a29a6d0ae6b89419c71ea23f33c179b89cc",
+          "source_note": "Final six-file test fixture change before source commit; checked-in Rust bytes match a128c26cc2014056f0b9e40c64e3c37225497d44."
+        },
+        {
+          "name": "plan-tests",
+          "offset": 283225,
+          "length": 116,
+          "sha256": "49ee8e7845fa1a088fc3c5cd9e804cbf0aa1ffa18097af984d719c739b9f78ae",
+          "source_note": "Final six-file test fixture change before source commit; checked-in Rust bytes match a128c26cc2014056f0b9e40c64e3c37225497d44."
+        },
+        {
+          "name": "diff",
+          "offset": 283359,
+          "length": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "source_note": "Final six-file test fixture change before source commit; checked-in Rust bytes match a128c26cc2014056f0b9e40c64e3c37225497d44."
+        }
+      ]
+    },
+    {
+      "id": "linux-failures",
+      "output": "evidence/PR-91-fixtures-linux-failures.log.gz",
+      "sha256": "7aa658fd812327d5637fdfc2a1085be6d798772f2ce1b94dcbc892c1c746e875",
+      "uncompressed_sha256": "2101fda52a93e3e6b20e5c60f62cd23431099eb00e966792548775141a27e36f",
+      "encoding": "gzip; sections use byte offsets into uncompressed original logs",
+      "sections": [
+        {
+          "name": "119587384621",
+          "offset": 26,
+          "length": 144955,
+          "sha256": "4c3227689bce8f3681272f0134b46378d7ff604c3eb8bb28b215e29a3d8a4991",
+          "source_note": "Exact failed Test and lint step extracted without rewriting from the job log at 1fdab4387a688601c37cbf17bf0936f05ea02560."
+        },
+        {
+          "name": "119587384522",
+          "offset": 145007,
+          "length": 145326,
+          "sha256": "458ebf7ea659a542d78f04ec35fe8de0354c1cdfd1e71cbdb45384f520e068fd",
+          "source_note": "Exact failed Test and lint step extracted without rewriting from the job log at 1fdab4387a688601c37cbf17bf0936f05ea02560."
+        },
+        {
+          "name": "119587404113",
+          "offset": 290359,
+          "length": 150918,
+          "sha256": "94939ad0d17dd422d9595643b78cdf1009e4c3a9f74f3043ee33161ebc507ce1",
+          "source_note": "Exact failed Test and lint step extracted without rewriting from the job log at 1fdab4387a688601c37cbf17bf0936f05ea02560."
+        },
+        {
+          "name": "119587404276",
+          "offset": 441303,
+          "length": 138276,
+          "sha256": "9effa17ac1e4a621544bae008bd491f687615bcff8bbe75b1624869ef66174c2",
+          "source_note": "Exact failed Test and lint step extracted without rewriting from the job log at 1fdab4387a688601c37cbf17bf0936f05ea02560."
+        }
+      ]
+    },
+    {
+      "id": "archive-controls",
+      "output": "evidence/PR-91-fixtures-archive-controls.log.gz",
+      "sha256": "f58c3ac0ebbccdc9084bcd4260569e6f8f249f71e418298ead782c1dc6843888",
+      "uncompressed_sha256": "f5fe15fc9f0c4cb16bbb0d73284b2aa3be8db8336ca2e6178216cd056b68c130",
+      "encoding": "gzip; sections use byte offsets into uncompressed original logs",
+      "sections": [
+        {
+          "name": "unmodified-inspection-timeout",
+          "offset": 43,
+          "length": 13277,
+          "sha256": "a0589736831360fd95674d8bd9fa89b7e8eb366c9ef6c995894fc0f598cec568",
+          "source_note": "Unmodified exact inspection case fails at 1fdab43 on local replay18; preceding17 pass."
+        },
+        {
+          "name": "inspection-observed-refusal",
+          "offset": 13361,
+          "length": 13322,
+          "sha256": "f131e36e1099c7a0444cf3ceef4b6f90c6df92acbbfe5f07d84aadcb9988d902",
+          "source_note": "Temporary outcome-select diagnostic at the original call site catches Err(Overloaded) before callback, calls=1; preceding27 pass. Diagnostic removed."
+        },
+        {
+          "name": "slow-capture-original-inspection",
+          "offset": 26729,
+          "length": 13367,
+          "sha256": "c30ef3096ec61bbb15d0106e3ffa30e1ad4188ea16814ac0fd5281c3e3df1c6e",
+          "source_note": "Original inspection test at 1fdab43, with temporary20ms physical CaptureArchive delay, reproduces callback timeout. Delay removed."
+        },
+        {
+          "name": "slow-capture-original-standby",
+          "offset": 40139,
+          "length": 13575,
+          "sha256": "efa04b556ed1a30af049b18f2287b38493cb7e2cd542590ba8af07d163ec4050",
+          "source_note": "Operation-context diagnostic plus same20ms physical capture delay shows Overloaded on command after joint repair. Final retry was not yet present."
+        },
+        {
+          "name": "slow-capture-original-standby-repeat",
+          "offset": 53764,
+          "length": 13485,
+          "sha256": "3a3a45334756b8e527811f0362105315b76ac20885b81e32a74e40f2af7d1416",
+          "source_note": "Second controlled reproduction of the same post-joint Overloaded refusal."
+        },
+        {
+          "name": "slow-capture-original-standby-restart",
+          "offset": 67300,
+          "length": 13712,
+          "sha256": "7e05bbc3a8ed5d2dd58ab9ade629968ddebafd67aacacab3d390b20f11d08749",
+          "source_note": "An additional controlled run reached restart and failed with an unlabeled Overloaded. It does not identify the exact restart operation; final controlled matrix verifies all original restart assertions."
+        },
+        {
+          "name": "discarded-polling-fixture-lint",
+          "offset": 81056,
+          "length": 16847,
+          "sha256": "0be077c7606a20602782bbf683da56dd60706a5cae1dde599ef14423b6a3e5f0",
+          "source_note": "Discarded early inspection-only polling retry used forbidden Tokio select. Final archived-seed fixture preserves unpolled command behavior and adds no select macro or lint allowance."
+        },
+        {
+          "name": "fixed-registered_standby_s3_activation_and_restart",
+          "offset": 97967,
+          "length": 13601,
+          "sha256": "c496c5a564c4399b6ed0bd152667dfadf4dce2ddf7516db610099c0bd86daa74",
+          "source_note": "Final archived-seed/admission-retry behavior before source commit, with identical temporary20ms physical capture delay. Actual production worker restored before final checks."
+        },
+        {
+          "name": "fixed-registered_standby_peer_activation_retains_handles",
+          "offset": 111638,
+          "length": 13250,
+          "sha256": "8fed768476f91a932b2d1b61208b1093d620b0728e411fe3ebcd5f4ee9613267",
+          "source_note": "Final archived-seed/admission-retry behavior before source commit, with identical temporary20ms physical capture delay. Actual production worker restored before final checks."
+        },
+        {
+          "name": "fixed-inspection::member_inspection_preserves_published_cut_while_callback_is_private",
+          "offset": 124987,
+          "length": 13154,
+          "sha256": "acf73d9508f38d60a1c348492b5e67e2c4b34249fc35e5aef15e7b967d2bca88",
+          "source_note": "Final archived-seed/admission-retry behavior before source commit, with identical temporary20ms physical capture delay. Actual production worker restored before final checks."
+        },
+        {
+          "name": "fixed-cancelled_private_callback_is_joined_before_its_slot_is_reused",
+          "offset": 138223,
+          "length": 13048,
+          "sha256": "aad89f49529ac898fb1df32e1bd44281769132356a91159abc546515a22875d3",
+          "source_note": "Final archived-seed/admission-retry behavior before source commit, with identical temporary20ms physical capture delay. Actual production worker restored before final checks."
+        },
+        {
+          "name": "fixed-retained_handle_fenced",
+          "offset": 151313,
+          "length": 13075,
+          "sha256": "c8f007d0990b035ec7847f3d22f023d05084a6c858f2a91ffb54d403ddcd6936",
+          "source_note": "Final archived-seed/admission-retry behavior before source commit, with identical temporary20ms physical capture delay. Actual production worker restored before final checks."
+        },
+        {
+          "name": "fixed-unpolled_waiter_cannot_submit_after_its_deadline",
+          "offset": 164456,
+          "length": 13034,
+          "sha256": "688015d57bec2564d0146e1a54b1c42459b80dfa155bff0117388977256580d4",
+          "source_note": "Final archived-seed/admission-retry behavior before source commit, with identical temporary20ms physical capture delay. Actual production worker restored before final checks."
+        }
+      ]
+    },
+    {
+      "id": "lease-controls",
+      "output": "evidence/PR-91-fixtures-lease-controls.log.gz",
+      "sha256": "52ec980f6fb98d01bda6de454e1f505126d60021e69aab2968f303c940aa7b36",
+      "uncompressed_sha256": "6d23c0040c925babf47983999170fd66ca7d7f26e5c67dae6363967ebdbac3f4",
+      "encoding": "gzip; sections use byte offsets into uncompressed original logs",
+      "sections": [
+        {
+          "name": "late-cas-original-1",
+          "offset": 33,
+          "length": 19733,
+          "sha256": "00763d838be25e61dc1f520815f0a3afd13ef468d11f3cd5ce2bcd4c0b83fae3",
+          "source_note": "Temporary120ms physical CAS worker completes after caller cancellation; actual applied=true, but original fixture loses commit notification and times out. Diagnostic removed."
+        },
+        {
+          "name": "late-cas-fixed-1",
+          "offset": 19796,
+          "length": 21971,
+          "sha256": "2f5f7d12d533526cc352208ab49bdeccc6e30910e859a7663ffaac9609bfbdab",
+          "source_note": "Corrected task-owned commit observation and joined response task pass with identical120ms physical CAS delay, original900ms lease and assertions. Delay removed before final checks."
+        },
+        {
+          "name": "late-cas-original-2",
+          "offset": 41800,
+          "length": 18375,
+          "sha256": "b762f8de898c15772c19a5e8ce15b0143260496dff803ad0234b2433bae2caee",
+          "source_note": "Temporary120ms physical CAS worker completes after caller cancellation; actual applied=true, but original fixture loses commit notification and times out. Diagnostic removed."
+        },
+        {
+          "name": "late-cas-fixed-2",
+          "offset": 60205,
+          "length": 20612,
+          "sha256": "3868d348a5ccbc4fefbef2ad65b58a3a64c58276c9fb4b0e6bd851475ad3b266",
+          "source_note": "Corrected task-owned commit observation and joined response task pass with identical120ms physical CAS delay, original900ms lease and assertions. Delay removed before final checks."
+        },
+        {
+          "name": "earlier-150ms-probe",
+          "offset": 80850,
+          "length": 19673,
+          "sha256": "ad440a686a045017b9cff256fc2e26792c8f8b908f2743c62f0e3f05f5d7063a",
+          "source_note": "An earlier150ms probe reproduced timeout but lacked an observation of the actual physical CAS outcome. It is not used as proof of a committed write. The refined120ms probes above explicitly establish applied=true."
+        },
+        {
+          "name": "former-budget-negative-control",
+          "offset": 100567,
+          "length": 15765,
+          "sha256": "6f7db2d10e44736b41617d0b1da1b0c2b3da7844eb20694e8d0f7de5abc22274",
+          "source_note": "Temporary reintroduction of the former250ms renewal minimum makes the corrected fixture fail with SELF-FENCE and node-discarded-committed-renewal error. This verifies that the fixture still detects the original production regression. Production source restored byte-for-byte."
+        },
+        {
+          "name": "restored-budget-positive-control",
+          "offset": 116378,
+          "length": 21122,
+          "sha256": "49081b47a03ae294218902d58a43c44b38a2125011ba6143cc72ff82589dad1f",
+          "source_note": "The same corrected fixture passes after restoring the actual half-remaining production budget. No production behavior change is shipped."
+        }
+      ]
+    },
+    {
+      "id": "balance-controls",
+      "output": "evidence/PR-91-fixtures-balance-controls.log.gz",
+      "sha256": "b20807c0118399a3817ade8a4cdd7537a384acc2eda2a3ec71b30fa62fab0668",
+      "uncompressed_sha256": "8204e4cc0ab88eeba9383f6a5f523827a2b53d0d62df02fdb3faf9399844ec7e",
+      "encoding": "gzip; sections use byte offsets into uncompressed original logs",
+      "sections": [
+        {
+          "name": "original-delayed-image",
+          "offset": 36,
+          "length": 13749,
+          "sha256": "39aba69704e7cf92da45c6dd7545ea368103b87021ff6950d0d4e0523219ea81",
+          "source_note": "Temporary3s initial follower data delay plus actual publication context makes original assertion fail with observed=None; original first seed was checked only on node0."
+        },
+        {
+          "name": "fixed-delayed-image",
+          "offset": 13818,
+          "length": 13446,
+          "sha256": "373cb463d28f5919ba55c7d77c3260c4b8a34f3890ff175a82f6755912dd0a5f",
+          "source_note": "Identical initial delay passes after every voter proves its first image before the original data cut. Lag, balancing, cooldown and final reads unchanged. Temporary proxy helper/delay removed."
+        }
+      ]
+    }
+  ],
+  "source_note": "Final checks ran on the uncommitted six-test-file source before this source commit; the recorded file hashes identify the same checked-in Rust bytes. Temporary fault probes are separately labeled and removed. The previous full workspace tests at7c8d908 and850-case record atf89c7b4 are not repinned or pooled. Source baseline f8f8958 retains unchanged76 anchors.",
+  "limitations": "Native local fixtures and in-memory object stores do not qualify physical S3, power-loss durability, failure-zone separation, production capacity, soak or federation. MR13 throughMR17 gates remain open. Final full Linux/Python ABI qualification is reported through current PR91 checks."
+}

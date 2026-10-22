@@ -80,11 +80,16 @@ pub(super) struct PreparedDriver {
     pub shutdown_accept_failure_test_active: bool,
 }
 
-struct AdmissionFence(Arc<std::sync::atomic::AtomicBool>);
+struct AdmissionFence {
+    draining: Arc<std::sync::atomic::AtomicBool>,
+    raft: Arc<crate::raft::operations::NodeLifecycle>,
+}
 
 impl Drop for AdmissionFence {
     fn drop(&mut self) {
-        self.0.store(true, std::sync::atomic::Ordering::SeqCst);
+        self.draining
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+        self.raft.quiesce(None);
     }
 }
 
@@ -108,10 +113,25 @@ where
 {
     // Capture before the first poll, so dropping an unstarted driver also
     // closes admission. Its host still owns joining the execution domain.
-    let admission_fence = AdmissionFence(prepared.app.draining.clone());
+    let raft = crate::asyncrt::services().raft_lifecycle();
+    let admission_fence = AdmissionFence {
+        draining: prepared.app.draining.clone(),
+        raft: raft.clone(),
+    };
     async move {
         let _admission_fence = admission_fence;
-        let result = run_inner(prepared, stop).await;
+        let mut shutdown_deadline = None;
+        let mut result = run_inner(prepared, stop, &mut shutdown_deadline).await;
+        // Both host adapters retain the entered root while closing the actual
+        // registered Raft host, then join the whole domain outside this root.
+        let closed = raft.close().await;
+        if let Ok(NodeOutcome::Stopped(report)) = &mut result {
+            report.raft = closed.map(Box::new);
+            // Physical closure retains ownership beyond the semantic budget.
+            // It must not erase that elapsed original deadline from the proof.
+            report.deadline_elapsed |=
+                shutdown_deadline.is_none_or(|deadline| tokio::time::Instant::now() >= deadline);
+        }
         if let Some(operations) = crate::asyncrt::services().node_operations() {
             operations.drained(&result);
         }
@@ -129,7 +149,11 @@ fn bounded_stall_deadline(
         .min(absolute)
 }
 
-async fn run_inner<F>(prepared: PreparedDriver, stop: F) -> anyhow::Result<NodeOutcome>
+async fn run_inner<F>(
+    prepared: PreparedDriver,
+    stop: F,
+    shutdown_deadline: &mut Option<tokio::time::Instant>,
+) -> anyhow::Result<NodeOutcome>
 where
     F: std::future::Future<Output = ShutdownMode> + Send,
 {
@@ -439,11 +463,18 @@ where
     // shutdown. Progress can extend only the inner stall deadline. The
     // absolute bound leaves the orchestrator time to observe an orderly exit
     // instead of replacing a progressing donor with SIGKILL.
-    super::operations::phase("draining_ingress");
     let shutdown_started = tokio::time::Instant::now();
     let process_deadline = shutdown_started
         .checked_add(std::time::Duration::from_millis(shutdown_total_ms))
         .context("shutdown budget exceeds the host clock range")?;
+    *shutdown_deadline = Some(process_deadline);
+    // Includes authenticated operator stops from shutdown_rx as well as the
+    // caller/signal future. Seal and register the same original budget before
+    // sampling any application work. Admission sealing consumes that budget.
+    crate::asyncrt::services()
+        .raft_lifecycle()
+        .quiesce(Some(shutdown_total_ms));
+    super::operations::phase("draining_ingress");
     // A donor normally spends its complete budget making safe handoff
     // progress. Reserve at most one second, and never more than ten percent of
     // a short configured budget, for the token CAS. Otherwise a deadline-cut
@@ -1233,6 +1264,7 @@ where
     );
     let remaining_work = application_work.snapshot();
     Ok(NodeOutcome::Stopped(ShutdownReport {
+        raft: None,
         mode: shutdown_mode,
         ingress_drained: ingress_drained_before_cut && app.public_in_flight() == 0,
         application_work_drained: admitted_work_drained
