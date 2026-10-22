@@ -138,6 +138,10 @@ metadata. The value and aggregate bridge budgets still charge the complete
 base64-equivalent envelope, preserving admission limits without allocating that
 encoded body. The interpreter copies the body while its native reservation is
 held; queued, refused and cancelled invocations release that reservation normally.
+HTTP completions likewise pass an immutable byte body beside their metadata.
+Native byte and mailbox capacity are reserved before copying it into Rust; the
+reservation remains owned through response validation. Completion metadata and
+the body share the same base64-equivalent envelope limit as encoded delivery.
 `max_value_bytes` limits the serialized UTF-8 JSON envelope of an entire atomic
 batch, rather than each row separately. `max_batch_operations` counts checks,
 puts, deletes and an optional alarm decision together. Rejected oversized
@@ -359,9 +363,9 @@ does not infer rollback of abandoned mutations.
 
 `reserved_bytes_total` counts successful payload reservations, including later
 abandonment. `input_copied_bytes` and `output_copied_bytes` count explicit owned
-UTF-8 and raw request-body copies across the adapter boundary. Invocation body
+UTF-8 and raw HTTP body copies across the adapter boundary. HTTP body
 charges conservatively include their base64-equivalent length, while copy counters
-record the raw body length actually copied into Python. Admission checks precede Rust-owned
+record the raw body length actually copied across the boundary. Admission checks precede Rust-owned
 input copies; SDK operation names are bounded to 64 bytes. These counters exclude
 codec temporaries, Python UTF-8 caches and native transport/library copies. They
 are distinct from allocation bytes.

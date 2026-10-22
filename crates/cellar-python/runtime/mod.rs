@@ -53,7 +53,7 @@ pub struct Options {
     pub max_invocations: usize,
     pub max_body_bytes: usize,
     /// Encoded invocation/result limit; at least 128 bytes for fixed failures.
-    /// Raw invocation bodies count at their base64-equivalent encoded length.
+    /// Raw HTTP bodies count at their base64-equivalent encoded length.
     pub max_value_bytes: usize,
     pub max_bridge_bytes: usize,
     pub max_operations: usize,

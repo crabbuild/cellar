@@ -151,6 +151,12 @@ class Response:
         return dict(status=self.status, headers=self.headers,
                     body=base64.b64encode(self.body).decode())
 
+    def _completion(self):
+        body = self.body
+        if not isinstance(body, bytes):
+            body = memoryview(body).tobytes()
+        return dict(status=self.status, headers=self.headers, body=""), body
+
     @classmethod
     def _from_wire(cls, value):
         return cls(base64.b64decode(value["body"]), value["status"], value["headers"])

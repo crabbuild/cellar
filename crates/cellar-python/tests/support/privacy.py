@@ -9,17 +9,21 @@ class Malformed(Response):
         super().__init__(b"unused")
         self.kind = kind
 
-    def _wire(self):
-        value = super()._wire()
+    def _completion(self):
+        value, body = super()._completion()
         if self.kind == "/headers":
             value["headers"] = [PRIVATE]
         elif self.kind == "/header-value":
             value["headers"] = [["x-private", PRIVATE + "\r\n"]]
         elif self.kind == "/body":
+            body = PRIVATE
+        elif self.kind == "/metadata-body":
             value["body"] = PRIVATE
+        elif self.kind == "/missing-body":
+            body = None
         elif self.kind == "/payload":
-            return PRIVATE
-        return value
+            return PRIVATE, body
+        return value, body
 
 
 async def fetch(request, ctx):

@@ -96,21 +96,29 @@ pub(super) fn child() -> Result<()> {
                 // bridge must copy the body as bytes, not expand it into a
                 // base64 string in the invocation's JSON envelope.
                 let binary: Vec<u8> = (0..4096).map(|byte| byte as u8).collect();
-                let before = observed.bridge_report().output_copied_bytes;
-                let echoed = client
-                    .post(format!("{url}/echo"))
-                    .body(binary.clone())
-                    .send()
-                    .await?
-                    .error_for_status()?
-                    .bytes()
-                    .await?;
-                ensure!(echoed.as_ref() == binary);
-                let copied = observed.bridge_report().output_copied_bytes - before;
-                ensure!(
-                    copied >= binary.len() && copied < binary.len() + 1024,
-                    "binary invocation expanded its body: {copied} copied bytes"
-                );
+                for path in ["/echo", "/echo-buffer"] {
+                    let before = observed.bridge_report();
+                    let echoed = client
+                        .post(format!("{url}{path}"))
+                        .body(binary.clone())
+                        .send()
+                        .await?
+                        .error_for_status()?
+                        .bytes()
+                        .await?;
+                    ensure!(echoed.as_ref() == binary);
+                    let after = observed.bridge_report();
+                    let copied = after.output_copied_bytes - before.output_copied_bytes;
+                    ensure!(
+                        copied >= binary.len() && copied < binary.len() + 1024,
+                        "binary invocation expanded its body: {copied} copied bytes"
+                    );
+                    let copied = after.input_copied_bytes - before.input_copied_bytes;
+                    ensure!(
+                        copied >= binary.len() && copied < binary.len() + 1024,
+                        "binary completion expanded its body: {copied} copied bytes"
+                    );
+                }
                 // Raw delivery must retain the previous encoded-envelope
                 // bound, including escaped headers and base64-equivalent body
                 // length. Observe the real ingress metadata instead of assuming

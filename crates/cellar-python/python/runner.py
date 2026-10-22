@@ -96,8 +96,8 @@ async def _invoke(module, objects, payload, body, bridge, context, stats, maximu
         result = await result
         if kind == "fetch" and not isinstance(result, Response):
             raise TypeError("fetch must return cellar.Response")
-        encoded = _encode(result._wire() if kind == "fetch" else None)
-        bridge.complete(encoded, False)
+        value, output_body = result._completion() if kind == "fetch" else (None, None)
+        bridge.complete(_encode(value), False, output_body)
         metrics["handlers_completed"] += 1
     except asyncio.CancelledError:
         metrics["handlers_cancelled"] += 1

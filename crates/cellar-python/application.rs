@@ -222,7 +222,7 @@ impl PythonApplication {
         let payload = serde_json::to_string(
             &json!({"kind":kind,"event":payload,"object":object,"class":class,"identity":identity}),
         )?;
-        let charge = values::invocation_size(payload.len(), body.len())?;
+        let charge = values::envelope_size(payload.len(), body.len())?;
         ensure!(
             charge <= self.runtime.options.max_value_bytes,
             "Python invocation exceeds value budget"
@@ -329,6 +329,7 @@ impl PythonApplication {
                 }
                 Event::Complete {
                     payload,
+                    body,
                     failed,
                     reservation,
                 } => {
@@ -341,10 +342,11 @@ impl PythonApplication {
                         // Serde and HTTP conversion errors may quote malformed
                         // application values. Native ingress formats the full
                         // handler error chain, so replace it at this boundary.
-                        values::output(&context, &value, self.runtime.options.max_body_bytes)
+                        values::output(&context, &value, body, self.runtime.options.max_body_bytes)
                             .map(Output::Http)
                             .map_err(|_| anyhow::anyhow!("Python response conversion failed"))
                     } else {
+                        ensure!(body.is_none(), "Python event completion has an HTTP body");
                         Ok(Output::Done)
                     };
                 }

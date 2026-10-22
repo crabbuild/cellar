@@ -26,14 +26,14 @@ pub(crate) async fn request(
     ))
 }
 
-/// Preserve encoded-envelope admission while carrying a request body as bytes.
+/// Preserve encoded-envelope admission while carrying an HTTP body as bytes.
 /// Base64 has no JSON escapes, so its length can be charged without encoding it.
-pub(crate) fn invocation_size(metadata: usize, body: usize) -> Result<usize> {
+pub(crate) fn envelope_size(metadata: usize, body: usize) -> Result<usize> {
     body.checked_add(2)
         .map(|rounded| rounded / 3)
         .and_then(|groups| groups.checked_mul(4))
         .and_then(|encoded| metadata.checked_add(encoded))
-        .context("Python invocation size overflow")
+        .context("Python HTTP envelope size overflow")
 }
 
 pub(crate) fn input(value: &Value, limit: usize) -> Result<Request> {
@@ -53,6 +53,7 @@ pub(crate) fn input(value: &Value, limit: usize) -> Result<Request> {
 pub(crate) fn output(
     context: &Context,
     value: &Value,
+    body: Option<Vec<u8>>,
     limit: usize,
 ) -> Result<cellar::engine_api::HttpResponse> {
     let status = value["status"]
@@ -62,7 +63,11 @@ pub(crate) fn output(
         (200..=599).contains(&status),
         "Python response status must be 200..599"
     );
-    let bytes = STANDARD.decode(field(value, "body")?)?;
+    ensure!(
+        field(value, "body")?.is_empty(),
+        "Python response metadata contains a body"
+    );
+    let bytes = body.context("Python response needs a byte body")?;
     ensure!(bytes.len() <= limit, "Python response body exceeds limit");
     let response_headers: Vec<(String, String)> = serde_json::from_value(value["headers"].clone())?;
     headers(&response_headers)?;
@@ -151,20 +156,25 @@ mod tests {
     use super::*;
 
     #[test]
-    fn binary_request_charge_matches_encoded_envelope() {
+    fn binary_http_charge_matches_encoded_envelope() {
         for size in [0, 1, 2, 3, 4, 255, 256, 257, 4095, 4096, 4097] {
             let body: Vec<u8> = (0..size).map(|byte| byte as u8).collect();
-            let metadata = json!({"url":"http://cell/é", "headers":[["x", "\"\\"]], "body":""});
-            let mut encoded = metadata.clone();
-            encoded["body"] = json!(STANDARD.encode(&body));
-            assert_eq!(
-                invocation_size(serde_json::to_vec(&metadata).unwrap().len(), body.len()).unwrap(),
-                serde_json::to_vec(&encoded).unwrap().len()
-            );
+            for metadata in [
+                json!({"url":"http://cell/é", "headers":[["x", "\"\\"]], "body":""}),
+                json!({"status":200, "headers":[["x", "é\"\\"]], "body":""}),
+            ] {
+                let mut encoded = metadata.clone();
+                encoded["body"] = json!(STANDARD.encode(&body));
+                assert_eq!(
+                    envelope_size(serde_json::to_vec(&metadata).unwrap().len(), body.len())
+                        .unwrap(),
+                    serde_json::to_vec(&encoded).unwrap().len()
+                );
+            }
         }
-        assert!(invocation_size(usize::MAX, 1).is_err());
-        assert!(invocation_size(0, usize::MAX).is_err());
-        assert!(invocation_size(0, usize::MAX / 4 * 3 + 1).is_err());
+        assert!(envelope_size(usize::MAX, 1).is_err());
+        assert!(envelope_size(0, usize::MAX).is_err());
+        assert!(envelope_size(0, usize::MAX / 4 * 3 + 1).is_err());
     }
 
     #[test]

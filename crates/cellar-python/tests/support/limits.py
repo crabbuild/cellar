@@ -7,6 +7,10 @@ visits = 0
 async def fetch(request, ctx):
     if request.path == "/echo":
         return Response(request.body)
+    if request.path == "/echo-buffer":
+        response = Response()
+        response.body = memoryview(bytearray(request.body))
+        return response
     if request.path == "/input-envelope":
         envelope = dict(kind="fetch", event=request._wire(), object=None, identity=None)
         envelope["class"] = None
