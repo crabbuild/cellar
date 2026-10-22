@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "baseline_revision": "efb83287018098718726109170f9e2b43ceb9adb",
+  "baseline_revision": "1093fde73b1ede17280968fe426bdf3a4c8f0c65",
   "status_values": [
     "TODO",
     "IN_PROGRESS",
@@ -2335,7 +2335,11 @@
         "crates/cellar/node/raft_startup.rs",
         "crates/cellar/tests/native_raft_reads.rs",
         "crates/cellar/tests/support/raft_controller_native.rs",
-        "crates/cellar/tests/support/raft_repair_native.rs"
+        "crates/cellar/tests/support/raft_repair_native.rs",
+        "crates/cellar-ltx/src/apply.rs",
+        "crates/cellar-ltx/src/generation.rs",
+        "crates/cellar-ltx/README.md",
+        "crates/cellar/tests/native_raft_ltx.rs"
       ],
       "creates": [
         "tools/perf/raft_run.py",
@@ -2464,7 +2468,8 @@
         "evidence/MR-14-io-local-progress.json",
         "evidence/MR-14-background-admission-progress.json",
         "evidence/MR-14-handoff-progress.json",
-        "evidence/MR-14-baseline-progress.json"
+        "evidence/MR-14-baseline-progress.json",
+        "evidence/MR-14-replay-progress.json"
       ]
     },
     {

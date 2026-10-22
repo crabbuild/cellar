@@ -1020,7 +1020,25 @@ these observations establish neither steady state nor causal improvement over
 older runs. Exact owned containers exited zero and the dedicated profile is
 stopped; volumes and raw evidence remain. Other profiles were not changed.
 
-Remaining MR-14 gates include Raft S3 acknowledgement latency, controlled
+The [bounded replay evidence](evidence/MR-14-replay-progress.json) replaces one
+sealed image per archive entry with one private image per bounded batch. Every
+intermediate SQLite image, SHA-256 and optional rolling checksum is still checked;
+existing aggregate apply limits and peak disk reservations remain enforced. The
+32-entry regression reduces image publication from 33 sync/rename sequences to
+one with identical restored bytes. Long-tail partitioning, intermediate corruption,
+growth/truncation and process-kill cases pass. Source `1093fde` passes 298 Raft
+integration cases, the daemon qualification, Clippy, feature-mode and repository
+checks; raw red/green logs and the original failing patch are retained.
+
+A fresh three-node RustFS S3 run completed 199/200 offered operations at 169 ms
+p99 arrival latency, with one generator rejection. All submitted histories,
+36 replicas and final archive cuts reconcile. This short run meets its proposed
+traffic objectives. The preceding repeat of the original binary completed
+183/200 at 264 ms p99; both raw runs remain in evidence. Shared-host work and
+swap prevent a controlled causal speedup or steady-state capacity claim. All
+exact containers exited zero, the owned profile is stopped, and volumes remain.
+
+Remaining MR-14 gates include sustained S3 acknowledgement latency, controlled
 slow-follower baselines and equivalent-contract analysis, instrumentation overhead
 and whole-device attribution, steady-state/density evidence and preliminary Q1
 execution.
