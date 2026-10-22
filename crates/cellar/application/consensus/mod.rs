@@ -25,6 +25,7 @@ pub use crate::raft::effects::{
     RaftEffectVerificationKey, RaftInbox, RaftNativeEffectSink, RaftOutbox, RaftOutboxLimits,
     RaftOutboxProgress,
 };
+pub use crate::raft::receipt_maintenance::ReceiptMaintenanceLimits;
 
 pub use crate::raft::catalog::{
     BirthProposal, CatalogOptions, InitialMember, NamespaceConfig, VoterPolicy,

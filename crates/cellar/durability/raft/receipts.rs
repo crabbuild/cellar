@@ -40,7 +40,10 @@ fn digest(bytes: Vec<u8>) -> Result<[u8; 32], ExecutionError> {
     bytes.try_into().map_err(|_| corrupt())
 }
 
-fn client(connection: &Connection, id: ClientId) -> Result<Option<(u64, u64)>, ExecutionError> {
+pub(super) fn client(
+    connection: &Connection,
+    id: ClientId,
+) -> Result<Option<(u64, u64)>, ExecutionError> {
     let row: Option<(Vec<u8>, Vec<u8>)> = connection
         .query_row(
             "SELECT last_sequence,expired_through FROM __sys_raft_clients WHERE client_id=?1",
@@ -60,7 +63,27 @@ fn client(connection: &Connection, id: ClientId) -> Result<Option<(u64, u64)>, E
     .transpose()
 }
 
+pub(super) fn retained_count(connection: &Connection) -> Result<usize, ExecutionError> {
+    connection
+        .query_row("SELECT count(*) FROM __sys_raft_receipts", [], |row| {
+            row.get(0)
+        })
+        .map_err(storage)
+}
+
 pub(super) fn preflight(
+    connection: &Connection,
+    request: &CommandRequest,
+    limits: &ExecutionLimits,
+) -> Result<Option<StoredReceipt>, ExecutionError> {
+    let receipt = preflight_identity(connection, request, limits)?;
+    if receipt.is_none() && retained_count(connection)? >= limits.max_retained_receipts {
+        return Err(ExecutionError::Refused(CommandFailure::Overloaded));
+    }
+    Ok(receipt)
+}
+
+pub(super) fn preflight_identity(
     connection: &Connection,
     request: &CommandRequest,
     limits: &ExecutionLimits,
@@ -132,12 +155,6 @@ pub(super) fn preflight(
             return Err(ExecutionError::Refused(CommandFailure::Overloaded));
         }
     }
-    let count: usize = connection
-        .query_row("SELECT count(*) FROM __sys_raft_receipts", [], |r| r.get(0))
-        .map_err(storage)?;
-    if count >= limits.max_retained_receipts {
-        return Err(ExecutionError::Refused(CommandFailure::Overloaded));
-    }
     Ok(None)
 }
 
@@ -190,7 +207,7 @@ pub(super) fn prune(
     let retained: bool = connection
         .query_row(
             "SELECT EXISTS(SELECT 1 FROM __sys_raft_receipts
-        WHERE client_id=?1 AND sequence<=?2 AND retry_until>?3)",
+        WHERE client_id=?1 AND sequence<=?2 AND retry_until>=?3)",
             params![
                 id.bytes().as_slice(),
                 through.to_be_bytes().as_slice(),

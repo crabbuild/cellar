@@ -20,6 +20,13 @@ fn retry_deadline_is_inclusive() -> anyhow::Result<()> {
     install(&connection)?;
     let command = request(1, 1000);
     record(&connection, &command, vec![7])?;
+    assert_eq!(client(&connection, command.id.client)?, Some((1, 0)));
+    assert_eq!(
+        preflight(&connection, &command, &ExecutionLimits::default())?
+            .expect("new receipt exists")
+            .retry_until_ms(),
+        1000
+    );
     // New command admission accepts retry_until == now. Maintenance must not
     // invalidate the promised retry at that same instant.
     assert!(matches!(
@@ -37,5 +44,19 @@ fn retry_deadline_is_inclusive() -> anyhow::Result<()> {
         preflight(&connection, &command, &ExecutionLimits::default()),
         Err(ExecutionError::Refused(CommandFailure::CommandExpired))
     ));
+    Ok(())
+}
+
+#[test]
+fn maximum_retry_deadline_is_never_expired() -> anyhow::Result<()> {
+    let connection = Connection::open_in_memory()?;
+    install(&connection)?;
+    let command = request(1, u64::MAX);
+    record(&connection, &command, vec![9])?;
+    assert!(matches!(
+        prune(&connection, command.id.client, 1, u64::MAX),
+        Err(ExecutionError::RetentionNotExpired)
+    ));
+    assert_eq!(client(&connection, command.id.client)?, Some((1, 0)));
     Ok(())
 }
