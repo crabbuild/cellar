@@ -2,6 +2,7 @@
 #![allow(clippy::disallowed_methods)]
 #[path = "../../examples/raft-counter/counter.rs"]
 mod counter;
+mod raft_workload;
 use anyhow::{ensure, Context, Result};
 use cellar::bucket::{Bucket, StorageBackend};
 use cellar::engine_api::{Compat, WorkerConfigOptions};
@@ -67,6 +68,23 @@ async fn main() -> Result<()> {
     let queue_items: usize = std::env::var("RAFT_QUEUE_ITEMS")
         .unwrap_or_else(|_| "256".into())
         .parse()?;
+    let workload = match std::env::var("RAFT_WORKLOAD").as_deref() {
+        Ok("reference") => true,
+        Ok("counter") | Err(_) => false,
+        _ => anyhow::bail!("invalid workload"),
+    };
+    let durability = match std::env::var("RAFT_DURABILITY").as_deref() {
+        Ok("s3") => Durability::S3,
+        Ok("quorum") | Err(_) => Durability::Quorum,
+        _ => anyhow::bail!("invalid durability"),
+    };
+    ensure!(
+        workload || durability == Durability::Quorum,
+        "counter fixture requires quorum durability"
+    );
+    let network = std::env::var("RAFT_NETWORK_PREFIX").unwrap_or_else(|_| "172.29.81".into());
+    let address: std::net::Ipv4Addr = format!("{network}.1").parse()?;
+    ensure!(address.is_private(), "private workload network required");
     let primary_only = std::env::var("RAFT_PRIMARY_ONLY").as_deref() == Ok("1");
     let root = PathBuf::from("/data");
     let secret = std::fs::read_to_string("/config/token")?.trim().to_owned();
@@ -106,16 +124,39 @@ async fn main() -> Result<()> {
     let namespace = NamespaceId::new([2; 16])?;
     let cluster = ClusterId::new([1; 16])?;
     let label = format!("raft-node{i}");
-    let class = counter::definition()?;
-    let api = counter::CounterApi::new(secret.clone(), namespace, &class)?;
-    let application = counter::application(api.clone(), class)?;
+    let class = if workload {
+        raft_workload::definition()?
+    } else {
+        counter::definition()?
+    };
+    let schema = class.schema_digest();
+    let class_name = if workload { "Workload" } else { "Counter" };
+    let reference = if workload {
+        Some(raft_workload::Api::new(
+            secret.clone(),
+            namespace,
+            &class,
+            durability,
+        )?)
+    } else {
+        None
+    };
+    let api = if workload {
+        None
+    } else {
+        Some(counter::CounterApi::new(secret.clone(), namespace, &class)?)
+    };
+    let application = match &api {
+        Some(api) => counter::application(api.clone(), class)?,
+        None => raft_workload::application(class)?,
+    };
     let public = tokio::net::TcpListener::bind("0.0.0.0:8080").await?;
     let internal = tokio::net::TcpListener::bind("0.0.0.0:8081").await?;
     let signer = Arc::new(PeerProbeSigner::generate());
     let config = NodeConfig::new(
         ActorIdentity {
             node: label.clone(),
-            advertise: format!("172.29.81.{}:8081", i + 10),
+            advertise: format!("{network}.{}:8081", i + 10),
             region: "local-demo".into(),
         },
         ActorOptions {
@@ -166,7 +207,7 @@ async fn main() -> Result<()> {
     .await?;
     let mut peers = Vec::new();
     for n in 1..=3u8 {
-        let address = |port| format!("172.29.81.{}:{port}", n + 10).parse();
+        let address = |port| format!("{network}.{}:{port}", n + 10).parse();
         peers.push(RaftPeerNode {
             node: NodeId::new([n; 16])?,
             disk: DiskLineage::new([n + 10; 16])?,
@@ -184,12 +225,7 @@ async fn main() -> Result<()> {
     }
     // Fresh process identity on every restart; peers authenticate physical routes.
     // The runner persists the peer directory per run and replaces all processes together.
-    let mut config = NamespaceConfig::new(
-        cluster,
-        namespace,
-        NamespaceMode::Raft,
-        counter::definition()?.schema_digest(),
-    );
+    let mut config = NamespaceConfig::new(cluster, namespace, NamespaceMode::Raft, schema);
     config.voters = VoterPolicy::ThreeVoters;
     let cells = (0..total)
         .map(|c| -> Result<_> {
@@ -198,12 +234,12 @@ async fn main() -> Result<()> {
             Ok(RaftCellRegistration {
                 placement: RaftCellPlacement::Replica,
                 namespace: config.clone(),
-                class: "Counter".into(),
+                class: class_name.into(),
                 birth: BirthProposal {
                     scope: GroupScope {
                         cluster,
                         namespace,
-                        cell: format!("Counter:{c}"),
+                        cell: format!("{class_name}:{c}"),
                         group: GroupId::new(group)?,
                         incarnation: IncarnationId::new([4; 16])?,
                     },
@@ -279,11 +315,20 @@ async fn main() -> Result<()> {
             },
         )
         .await?;
-    *api.cells
-        .lock()
-        .map_err(|_| anyhow::anyhow!("poisoned binding"))? = Some(service.clone());
+    let router = if let Some(api) = api {
+        *api.cells
+            .lock()
+            .map_err(|_| anyhow::anyhow!("poisoned binding"))? = Some(service.clone());
+        counter::router(api)
+    } else {
+        let api = reference.ok_or_else(|| anyhow::anyhow!("missing workload API"))?;
+        *api.cells
+            .lock()
+            .map_err(|_| anyhow::anyhow!("poisoned binding"))? = Some(service.clone());
+        raft_workload::router(api)
+    };
     let admin = service.clone();
-    let router = counter::router(api).route("/admin/{id}", axum::routing::any(
+    let router = router.route("/admin/{id}", axum::routing::any(
         move |axum::extract::Path(id): axum::extract::Path<usize>, request: axum::extract::Request| {
             let service = admin.clone(); let secret = secret.clone();
             async move {
@@ -293,7 +338,7 @@ async fn main() -> Result<()> {
                 let result = async {
                     ensure!(authorized, "unauthorized");
                     ensure!(id < total, "invalid cell");
-                    let cell = service.cell(namespace, &format!("Counter:{id}"))?;
+                    let cell = service.cell(namespace, &format!("{class_name}:{id}"))?;
                     let status = cell.status().await.map_err(|e| anyhow::anyhow!("{e:?}"))?;
                     if transfer && status.command_ready {
                         let target = MemberId::new(if primary_only { 1 } else { (id % 3 + 1) as u64 })?;

@@ -2271,7 +2271,7 @@
       "id": "MR-14",
       "title": "Batch multi-group work and deliver the workload harness",
       "phase": "v1",
-      "status": "TODO",
+      "status": "IN_PROGRESS",
       "depends_on": [
         "MR-13"
       ],
@@ -2288,7 +2288,10 @@
         "tools/perf/raft_workload.rs",
         "tools/perf/test_raft_run.py",
         "tools/perf/raft_profiles.json",
-        "crates/cellar/tests/native_raft_multigroup.rs"
+        "crates/cellar/tests/native_raft_multigroup.rs",
+        "tools/perf/raft_workload.py",
+        "tools/perf/raft_analyze.py",
+        "tools/perf/raft-performance.md"
       ],
       "steps": [
         "Optimize shared log batches, pooled transport and fair scheduling while retaining per-group Ready ordering.",

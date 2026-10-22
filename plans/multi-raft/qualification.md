@@ -101,10 +101,13 @@ overlapping application traffic.
 
 ## Harness delivery
 
-MR-14 extends the existing `tools/perf` patterns with proposed files
-`tools/perf/raft_run.py`, `raft_workload.rs` and a Cargo binary
-`cellar-perf-raft`. MR-15 adds `raft_history.py`, regression tests and result schema.
-They are future implementation outputs, not present executables in this package.
+MR-14 now provides `tools/perf/raft_run.py`, the native `raft_workload.rs`
+reference application in `cellar-perf-raft`, and `raft_analyze.py` for independent
+serialized-history and replica reconciliation. The local healthy runner refuses
+unimplemented fault scenarios and soak before creating workload resources.
+`tools/perf/raft-performance.md` gives its current executable interface and
+qualification limits. MR-15's concurrent `raft_history.py` checker and complete
+fault/result qualification remain future outputs.
 
 Required runner interface:
 

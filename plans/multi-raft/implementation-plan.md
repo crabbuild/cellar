@@ -889,7 +889,27 @@ shown by `plan.py show MR-13`; the manifest is authoritative for arguments.
 
 ### MR-14 Batch multi-group work and deliver the workload harness
 
-Dependencies: MR-13. Phase: v1. Initial status: TODO.
+Dependencies: MR-13. Phase: v1. Status: IN_PROGRESS.
+
+The October 22 performance work adds a FIFO queue for shared durable batches,
+a native conditional-update/transfer workload, fixed open-loop arrivals,
+stable per-cell clients, durable invocation/completion ledgers and an independent
+serialized-history/replica/archive checker. The runner verifies compiled source
+and deployed executable hashes before admitting traffic. Profiles declare
+proposed numeric objectives and preserve the Q1 capacity gap.
+
+The first three-node Colima/RustFS experiment reconciled 138 commands including
+initialization, 113 queries and all 36 replicas across 12 groups. Its measurement
+completed 190 of 200 scheduled arrivals, with 10 generator rejections and about
+535 ms p99 arrival-to-response latency. This misses the proposed local traffic
+objectives and does not establish Q0 release qualification or Q1 capacity.
+`tools/perf/raft-performance.md` documents execution, accounting and limits.
+
+Remaining MR-14 gates include repair budgets under load, mixed-group archive
+bundle indexing, internal timings/byte measurements, matched Fleet/bucket
+baselines, steady-state/density evidence and preliminary Q1 execution. The
+current local scope is at most five nodes; the original six-process Q1 gate
+remains unqualified. MR-13's remaining management/restore work stays open.
 
 Modify: `crates/cellar/durability/raft/runtime.rs`, `crates/cellar/durability/raft/storage.rs`, `crates/cellar/durability/raft/transport.rs`, `crates/cellar/Cargo.toml`, `tools/perf/README.md`, `crates/cellar/durability/raft/host.rs`.
 

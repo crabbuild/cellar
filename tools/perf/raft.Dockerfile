@@ -14,6 +14,8 @@ RUN --mount=type=cache,id=cellar-perf-registry,target=/usr/local/cargo/registry 
     find Cargo.toml Cargo.lock crates examples tools vendor -type f -exec touch {} + && \
     cargo build --profile lab --locked -p cellar --bin cellar-perf-raft && \
     mkdir /out && cp target/lab/cellar-perf-raft /out/
+RUN find Cargo.toml Cargo.lock crates vendor examples tools/perf tools/xtask -type f \( -name '*.rs' -o -name '*.toml' -o -name Cargo.lock \) -print0 | \
+    LC_ALL=C sort -z | xargs -0 sha256sum > /out/raft-source.sha256
 FROM debian:bookworm-slim
 ARG SOURCE_REVISION=unspecified
 LABEL org.opencontainers.image.revision=${SOURCE_REVISION}

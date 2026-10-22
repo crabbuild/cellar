@@ -671,6 +671,7 @@ impl Outbox {
 struct Group {
     replica: Replica,
     scheduled: bool,
+    write_scheduled: bool,
     deferred: VecDeque<Request>,
     inbound: Arc<Budget>,
     hints: BTreeMap<u64, PeerHint>,
@@ -703,6 +704,9 @@ struct Worker {
     options: RaftRuntimeOptions,
     groups: BTreeMap<GroupScope, Group>,
     order: VecDeque<GroupScope>,
+    // One slot per group with a pending durable write. Consensus traffic must
+    // not reorder persistence waiters or repeatedly scan idle/applying groups.
+    writes: VecDeque<GroupScope>,
     ready_bytes: usize,
     apply_bytes: usize,
     pending_reads: usize,
@@ -737,6 +741,7 @@ impl Worker {
             options,
             groups: BTreeMap::new(),
             order: VecDeque::new(),
+            writes: VecDeque::new(),
             ready_bytes: 0,
             apply_bytes: 0,
             pending_reads: 0,
@@ -777,6 +782,7 @@ impl Worker {
             Group {
                 replica,
                 scheduled: true,
+                write_scheduled: false,
                 deferred: VecDeque::new(),
                 inbound: Budget::new(
                     (self.options.max_request_bytes / 4).max(self.options.max_message_bytes + 4096),
@@ -1067,6 +1073,10 @@ impl Worker {
             pending_reads = pending_reads - old_reads + group.replica.pending_reads();
             ready_bytes = ready_bytes - old_ready + group.replica.ready_bytes;
             apply_bytes = apply_bytes - old_apply + group.replica.apply_bytes;
+            if group.failed.is_none() && group.replica.write.is_some() && !group.write_scheduled {
+                group.write_scheduled = true;
+                self.writes.push_back(scope.clone());
+            }
             group.scheduled = group.report_failure
                 || (group.failed.is_none()
                     && (group.tick
@@ -1092,11 +1102,9 @@ impl Worker {
         }
         let mut bytes = 1024;
         let mut jobs = Vec::new();
-        for _ in 0..self.order.len() {
-            let Some(scope) = self.order.pop_front() else {
-                break;
-            };
+        while let Some(scope) = self.writes.pop_front() {
             let group = self.groups.get_mut(&scope).ok_or(RuntimeError::NotFound)?;
+            group.write_scheduled = false;
             if group.failed.is_none() {
                 if let Some((_, write)) = &group.replica.write {
                     let size = write.estimated_bytes()?;
@@ -1111,10 +1119,16 @@ impl Worker {
                             ticket,
                             write,
                         });
+                    } else {
+                        // Keep the first waiter for the next batch. Skipping a
+                        // large write lets a stream of small writes bypass it
+                        // indefinitely, despite round-robin consensus turns.
+                        group.write_scheduled = true;
+                        self.writes.push_front(scope);
+                        break;
                     }
                 }
             }
-            self.order.push_back(scope);
             if jobs.len() >= self.options.max_batch_groups {
                 break;
             }
@@ -1160,12 +1174,14 @@ impl Worker {
                     .mono_ms()
                     .map_err(|_| RuntimeError::Closed)?
                     .saturating_add(10);
-                for job in jobs {
-                    self.groups
+                for job in jobs.into_iter().rev() {
+                    let group = self
+                        .groups
                         .get_mut(&job.scope)
-                        .ok_or(RuntimeError::NotFound)?
-                        .replica
-                        .write = Some((job.ticket, job.write));
+                        .ok_or(RuntimeError::NotFound)?;
+                    group.replica.write = Some((job.ticket, job.write));
+                    group.write_scheduled = true;
+                    self.writes.push_front(job.scope);
                 }
             }
             Err(error @ (LogError::Invalid(_) | LogError::WrongIdentity)) => {
