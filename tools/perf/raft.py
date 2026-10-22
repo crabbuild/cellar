@@ -33,7 +33,16 @@ def port_base(value):
 
 
 def captured_node_limits(config):
-    return {key: config[key] for key in ('NanoCpus', 'CpusetCpus', 'Memory', 'MemorySwap', 'Tmpfs')}
+    # Docker omits an unused optional map. Actual CPU/memory quotas remain
+    # mandatory; a missing quota must never become a successful zero/default.
+    captured = {key: config[key] for key in ('NanoCpus', 'CpusetCpus', 'Memory', 'MemorySwap')}
+    tmpfs = config.get('Tmpfs')
+    if tmpfs is None:
+        tmpfs = {}
+    if not isinstance(tmpfs, dict):
+        raise ValueError('invalid Docker tmpfs metadata')
+    captured['Tmpfs'] = tmpfs
+    return captured
 
 
 def command(*args):
