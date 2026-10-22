@@ -1173,8 +1173,8 @@ Do not attribute all of the regression to host interference without further
 evidence. The PR remains a draft.
 
 Both Linux SDK variants and the Python examples passed on `1ba6a3a`, including
-the corrected per-cell snapshot drill. Preview-reuse Linux CI is pending; those
-preceding-revision passes do not qualify the new implementation.
+the corrected per-cell snapshot drill. Preview-reuse Linux CI failed as detailed
+below; those preceding-revision passes do not qualify the new implementation.
 
 ## Image publication and reclamation barriers
 
@@ -1225,9 +1225,62 @@ all-target/all-feature Clippy, the LTX build without default features, formattin
 layout, dependency policy and documentation checks pass. The SDK assertion now
 passes with eight directory syncs; the original 14-sync failure is preserved.
 
-The `34f9493` Linux 3.14t SDK job failed in the Python bridge fixture with response
-JSON decoding and incomplete host shutdown. That cause is unresolved; preceding
-revision passes do not qualify this revision or the new shared-barrier change.
+Both `34f9493` Linux SDK jobs failed. The 3.14t job failed in the Python bridge
+fixture with response JSON decoding and incomplete host shutdown. The 3.14 job
+passed 87 native Node cases and failed two: lost append/ack response qualification
+exceeded its deadline, and named binding recreation ended with the owner fenced
+for an expired lease. These causes remain unresolved; preceding revision passes
+do not qualify this revision or the new shared-barrier change.
+
+## Shared image-barrier container results
+
+The [external-disk attempts](evidence/tikv-shared-image-sync-failures.json) retain
+the shared-barrier candidate `12d6e87` and preview-reuse control `c6aed34` failures.
+At one writer, the candidate completed 619 writes (10.31 TPS, 871-ms p99) and
+returned one unavailable outcome. The control completed one error-free window at
+22.11 TPS and 435-ms p99; its next two-writer window completed 2,118 writes
+(35.28 TPS, 269-ms p99) and returned two ambiguous outcomes. All three outcomes
+reconciled outside timed windows with original identities, inputs and unexpired
+deadlines. Each cohort then passed all 4,500 exact replica and 1,500 archive checks.
+Both original timed runs remain failed. All containers stopped cleanly and all
+volumes remain preserved. This evidence establishes neither a speedup nor the
+cause of the different rates.
+
+A [fresh internal-storage comparison](evidence/tikv-shared-image-internal-comparison.json)
+uses persistent node bind volumes on the host internal filesystem through Colima
+virtiofs, with RustFS still on the external VM disk. Both images use this same
+backing and the same three 1-vCPU / 3-GiB nodes, 500 leaders per node, quorum plus
+committed-image publication acknowledgement, two archive producers and 512-MiB
+archive scratch tmpfs. A preflight checks locking, file sync, rename, directory
+sync and readback; it does not qualify host power loss. These absolute results
+must not be compared against external-node-disk runs as a code-only speedup.
+
+The control ran first, then the candidate. Each ran four 60-second windows at
+2, 4, 4 and 2 writers, without timed mutation retries. Source/image/binary hashes,
+resource limits, raw evidence hashes and storage placement are recorded.
+
+| Image | Writers | TPS in each repeat | Mean TPS | Worst p99 (ms) |
+| --- | --- | --- | --- | --- |
+| Control `c6aed34` | 2 | 71.29 / 79.33 | 75.31 | 164.95 |
+| Control `c6aed34` | 4 | 112.52 / 79.48 | 96.00 | 136.03 |
+| Shared barrier `12d6e87` | 2 | 137.74 / 101.92 | 119.83 | 54.76 |
+| Shared barrier `12d6e87` | 4 | 134.16 / 149.96 | 142.06 | 73.91 |
+
+All eight windows were error-free and met both the 200- and 500-ms p99 ceilings.
+Both cohorts passed all 4,500 exact replica values and 1,500 archive positions;
+acknowledged counts including seed were 22,067 for control and 32,934 for candidate.
+Both stopped with zero exit codes and no OOM kills, retaining all eight volumes.
+The four-writer candidate mean is 48.0% higher, with 45.7% lower worst-window p99.
+This is an observed improvement under these conditions, not an isolated causal
+estimate or a sustained-capacity qualification.
+
+Other builds appeared in every host sample. Recorded swap use ranged from 11.1
+to 12.4 GiB during control and 10.1 to 11.1 GiB during candidate, so host conditions
+were not identical. Control setup initially failed two seed requests, which were
+continued using their original identities, inputs and unexpired deadlines before
+measurement. Its host monitor has a 55.64-second gap overlapping the first window;
+that period cannot support continuous host-pressure attribution. No timed mutation
+was retried. Higher concurrency and reversed image order remain to be measured.
 
 ## Remaining qualification
 

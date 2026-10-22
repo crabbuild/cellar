@@ -1,0 +1,567 @@
+{
+  "format": 1,
+  "scope": "Storage counterfactual and code comparison: fresh node bind volumes on the host internal filesystem for both binaries, RustFS remains on the external VM disk. Control then candidate, two repeats at two and four writers. Identical resources, workload, durability and deadlines; no timed mutation retries. Previous external-disk runs remain failed.",
+  "completed": true,
+  "controlled_speedup_established": false,
+  "limitations": [
+    "Sequential shared-host comparison; other workloads and builds continued. These short windows are not a soak or isolated capacity qualification.",
+    "Node data uses persistent host-internal bind volumes through Colima virtiofs. RustFS stays on the external VM disk. Absolute TPS cannot be compared with external-node-disk runs as a code-only improvement.",
+    "The storage preflight verifies file locking, file/directory sync calls, rename and readback. It does not qualify host power-loss behavior.",
+    "Control setup initially failed two seed requests. Continuation used their original identities, inputs and unexpired deadlines before any timed window. Its host monitor has an initial 55.64-second sampling gap, overlapping part of the first measured window; host activity is not continuously observed there."
+  ],
+  "run_order": [
+    "control",
+    "candidate"
+  ],
+  "prior_low_load_comparison": null,
+  "setup_failure_metadata": "shared-image-internal-pair-seed-failure.json",
+  "runs": [
+    {
+      "label": "control",
+      "source": {
+        "revision": "c6aed34d2eaf4267a98e7588dfed43d20e71ff36",
+        "tag": "cellar-raft-perf:tikv-preview-reuse-ios-7da4ddb5",
+        "image": "sha256:80b983ca8ceaa84be106829b4a536579ae1a7c1ba9b69b5c7eb47d21dd759217",
+        "binary_sha256": "a94513ab86e843610f0b416bdd78b6738fd37190aac46fdf4e2440801cb95c54",
+        "context_sha256": "0da97bb14c7cf021185df7821305dcae3787fbbe76ff1d8f6b779c2e0258990b"
+      },
+      "archive_producers": 2,
+      "analysis": {
+        "200": {
+          "verified": true,
+          "acknowledged_writes_including_seed": 22067,
+          "best_observed_below_limit": {
+            "concurrency": 4,
+            "offered_rate": 0.0,
+            "mean_tps": 96.00087443192251,
+            "min_tps": 79.48260033408161,
+            "worst_p99_ms": 136.0283519989025,
+            "windows": 2
+          }
+        },
+        "500": {
+          "verified": true,
+          "acknowledged_writes_including_seed": 22067,
+          "best_observed_below_limit": {
+            "concurrency": 4,
+            "offered_rate": 0.0,
+            "mean_tps": 96.00087443192251,
+            "min_tps": 79.48260033408161,
+            "worst_p99_ms": 136.0283519989025,
+            "windows": 2
+          }
+        }
+      },
+      "host_activity": {
+        "samples": 46,
+        "compiler_samples": 46,
+        "swap_mib_min": 11328.31,
+        "swap_mib_max": 12666.88,
+        "pageouts_start": 1099357,
+        "pageouts_end": 1103821,
+        "swapins_start": 9121766,
+        "swapins_end": 9219386,
+        "sampling_gaps_over_15_seconds": [
+          {
+            "after_unix": 1792711441.0130382,
+            "seconds": 55.640734910964966
+          }
+        ],
+        "raw_sha256": "5a228c95788e7d49a303815318ed7ca237feb2e439baba53d05ec5b374f4f467"
+      },
+      "windows": [
+        {
+          "repeat": 1,
+          "concurrency": 2,
+          "tps": 71.28866906051705,
+          "latency_ms": {
+            "p50": 17.352660001051845,
+            "p95": 84.03205200011143,
+            "p99": 164.95450299953518,
+            "max": 702.612177001356
+          },
+          "error_rate": 0.0,
+          "errors": 0
+        },
+        {
+          "repeat": 1,
+          "concurrency": 4,
+          "tps": 112.51914852976343,
+          "latency_ms": {
+            "p50": 30.96744399954332,
+            "p95": 67.6885159991798,
+            "p99": 94.06911200130708,
+            "max": 1061.918898998556
+          },
+          "error_rate": 0.0,
+          "errors": 0
+        },
+        {
+          "repeat": 2,
+          "concurrency": 4,
+          "tps": 79.48260033408161,
+          "latency_ms": {
+            "p50": 44.34538899840845,
+            "p95": 98.83355199963262,
+            "p99": 136.0283519989025,
+            "max": 312.71248499979265
+          },
+          "error_rate": 0.0,
+          "errors": 0
+        },
+        {
+          "repeat": 2,
+          "concurrency": 2,
+          "tps": 79.3309776519354,
+          "latency_ms": {
+            "p50": 21.36286899985862,
+            "p95": 53.269172998625436,
+            "p99": 76.79850099884789,
+            "max": 130.6684099999984
+          },
+          "error_rate": 0.0,
+          "errors": 0
+        }
+      ],
+      "containers_stopped_volumes_retained": true,
+      "data_backing": {
+        "previous_wrapper_sha256": "11813f0b8b92993b3192607d6b0c20b122021243e4daba85a815c52ab42ab16e",
+        "node_storage": "host internal filesystem through Colima virtiofs bind volumes",
+        "rustfs_storage": "unchanged external VM data disk",
+        "node_volumes": {
+          "cellar-raft-20261022-232109-node1": {
+            "Name": "cellar-raft-20261022-232109-node1",
+            "Driver": "local",
+            "Options": {
+              "device": "/Users/haipingfu/.codex-workspaces/worktrees/ios-7da4ddb5-e7b2-4b8b-bfa7-796196551e64/cellar/.cellar/raft-perf/internal-node-data/cellar-raft-20261022-232109-node1",
+              "o": "bind",
+              "type": "none"
+            }
+          },
+          "cellar-raft-20261022-232109-node2": {
+            "Name": "cellar-raft-20261022-232109-node2",
+            "Driver": "local",
+            "Options": {
+              "device": "/Users/haipingfu/.codex-workspaces/worktrees/ios-7da4ddb5-e7b2-4b8b-bfa7-796196551e64/cellar/.cellar/raft-perf/internal-node-data/cellar-raft-20261022-232109-node2",
+              "o": "bind",
+              "type": "none"
+            }
+          },
+          "cellar-raft-20261022-232109-node3": {
+            "Name": "cellar-raft-20261022-232109-node3",
+            "Driver": "local",
+            "Options": {
+              "device": "/Users/haipingfu/.codex-workspaces/worktrees/ios-7da4ddb5-e7b2-4b8b-bfa7-796196551e64/cellar/.cellar/raft-perf/internal-node-data/cellar-raft-20261022-232109-node3",
+              "o": "bind",
+              "type": "none"
+            }
+          }
+        },
+        "preflight_sha256": "14598b0501fe74fe9048fdc3df005b4de7768d8f56628c0a43947774057eeb9c",
+        "wrapper_sha256": "f29180400d66d3e3b3f6a31a50ce142cebaa459e1044b8098653a93ddf73cfcf"
+      },
+      "run": "1500-tikv-shared-image-internal-control",
+      "verification": {
+        "verified_replica_values": 4500,
+        "verified_archive_groups": 1500,
+        "write_durability": "Quorum",
+        "placement": {
+          "leaders_per_node": [
+            500,
+            500,
+            500
+          ],
+          "followers_per_node": [
+            1000,
+            1000,
+            1000
+          ]
+        },
+        "cells": 1500,
+        "voters": 3
+      },
+      "settings": {
+        "tick_ms": 500,
+        "queue_items": 4096,
+        "archive_tmpfs_mib": 512,
+        "limits": [
+          {
+            "NanoCpus": 1000000000,
+            "CpusetCpus": "0",
+            "Memory": 3221225472,
+            "MemorySwap": 3221225472,
+            "Tmpfs": {
+              "/data/node/raft-cells/archive-verifier": "rw,noexec,nosuid,nodev,size=512m"
+            }
+          },
+          {
+            "NanoCpus": 1000000000,
+            "CpusetCpus": "1",
+            "Memory": 3221225472,
+            "MemorySwap": 3221225472,
+            "Tmpfs": {
+              "/data/node/raft-cells/archive-verifier": "rw,noexec,nosuid,nodev,size=512m"
+            }
+          },
+          {
+            "NanoCpus": 1000000000,
+            "CpusetCpus": "2",
+            "Memory": 3221225472,
+            "MemorySwap": 3221225472,
+            "Tmpfs": {
+              "/data/node/raft-cells/archive-verifier": "rw,noexec,nosuid,nodev,size=512m"
+            }
+          }
+        ]
+      },
+      "workload_sha256": [
+        "6f27a1ed80cd137646a27ae3677738fc4f864e8c7914f5709592d6c551c3d127"
+      ],
+      "cohort_resource_samples": {
+        "node1": {
+          "samples": 63,
+          "cpu_mean_percent": 57.66126984126984,
+          "cpu_max_percent": 73.42,
+          "last_memory": "244.1MiB / 3GiB"
+        },
+        "node2": {
+          "samples": 63,
+          "cpu_mean_percent": 56.75095238095238,
+          "cpu_max_percent": 70.37,
+          "last_memory": "243.8MiB / 3GiB"
+        },
+        "node3": {
+          "samples": 63,
+          "cpu_mean_percent": 56.499841269841276,
+          "cpu_max_percent": 69.87,
+          "last_memory": "243.6MiB / 3GiB"
+        },
+        "rustfs": {
+          "samples": 63,
+          "cpu_mean_percent": 117.01269841269841,
+          "cpu_max_percent": 176.02,
+          "last_memory": "792MiB / 4GiB"
+        }
+      },
+      "shutdown": {
+        "states": {
+          "cellar-raft-20261022-232109-node1": {
+            "Running": false,
+            "ExitCode": 0,
+            "OOMKilled": false,
+            "Error": "",
+            "FinishedAt": "2026-10-22T23:28:43.88960118Z"
+          },
+          "cellar-raft-20261022-232109-node2": {
+            "Running": false,
+            "ExitCode": 0,
+            "OOMKilled": false,
+            "Error": "",
+            "FinishedAt": "2026-10-22T23:28:43.890693021Z"
+          },
+          "cellar-raft-20261022-232109-node3": {
+            "Running": false,
+            "ExitCode": 0,
+            "OOMKilled": false,
+            "Error": "",
+            "FinishedAt": "2026-10-22T23:28:43.931763038Z"
+          },
+          "cellar-raft-20261022-232109-rustfs": {
+            "Running": false,
+            "ExitCode": 0,
+            "OOMKilled": false,
+            "Error": "",
+            "FinishedAt": "2026-10-22T23:28:46.64440761Z"
+          }
+        },
+        "preserved_volumes": [
+          "cellar-raft-20261022-232109-node1",
+          "cellar-raft-20261022-232109-node2",
+          "cellar-raft-20261022-232109-node3",
+          "cellar-raft-20261022-232109-rustfs"
+        ]
+      },
+      "raw_sha256": {
+        "report.json": "ec5ae37c4beeb0ea2aea11ed328bcb3f4758093f1dc8f29486920dfafc05551f",
+        "seed-journal.jsonl": "37f15c4b13f0289663f27cc4e4a0123831a38463a6a073d9ae35096dc23c0b25",
+        "replica-verification.json": "f02b85b225e90037f62291c7981d84c0155dfd080cdc52c5e5d870bcf44f5907",
+        "archive-verification.json": "3367d6c7f84772090d53466be81deaae6d5fa28bea901564aac831e99b20276c",
+        "analysis-200.json": "ddfc50b4bb0fe31e77d759337de05a0b0473671a8d09eecc26036221f09d40f6",
+        "analysis-500.json": "206b2706400d6ee8f089cdb808a9d0fd85b28c8045fdb445f82eefa1fb5378aa",
+        "resources.jsonl": "aa52666b3b5a837e583717d040d7330048de8fb90e04d5c3663199580094048e",
+        "verified-stop/resources.json": "b130ec2d6d69c013852f6e278dd93e0581b320313d2b32deb29ae3a8a5a56a4b"
+      }
+    },
+    {
+      "label": "candidate",
+      "source": {
+        "revision": "12d6e87bd4f2fbfcba9c772b13588c4282f0875d",
+        "tag": "cellar-raft-perf:tikv-shared-image-sync-ios-7da4ddb5",
+        "image": "sha256:55ecf6c1c89451f9e7655a9812dc4b18cbf22b7dce4be063e6258567b0d6bd1f",
+        "binary_sha256": "6c4a669078e20ea710a6059e569c81911019f44e84ea5d9eab916f47fa32a351",
+        "context_sha256": "8933fd716e9c3d7c996980af881456414e00d86f53753ef184dddbc28a78c8f0"
+      },
+      "archive_producers": 2,
+      "analysis": {
+        "200": {
+          "verified": true,
+          "acknowledged_writes_including_seed": 32934,
+          "best_observed_below_limit": {
+            "concurrency": 4,
+            "offered_rate": 0.0,
+            "mean_tps": 142.06278621048378,
+            "min_tps": 134.16237615615478,
+            "worst_p99_ms": 73.9143350001541,
+            "windows": 2
+          }
+        },
+        "500": {
+          "verified": true,
+          "acknowledged_writes_including_seed": 32934,
+          "best_observed_below_limit": {
+            "concurrency": 4,
+            "offered_rate": 0.0,
+            "mean_tps": 142.06278621048378,
+            "min_tps": 134.16237615615478,
+            "worst_p99_ms": 73.9143350001541,
+            "windows": 2
+          }
+        }
+      },
+      "host_activity": {
+        "samples": 74,
+        "compiler_samples": 74,
+        "swap_mib_min": 10378.62,
+        "swap_mib_max": 11328.31,
+        "pageouts_start": 1103870,
+        "pageouts_end": 1107885,
+        "swapins_start": 9219513,
+        "swapins_end": 9297621,
+        "sampling_gaps_over_15_seconds": [],
+        "raw_sha256": "96730dd8f0f2bd780971a12fab4228c96e910850277be1167f06d15b7f36e972"
+      },
+      "windows": [
+        {
+          "repeat": 1,
+          "concurrency": 2,
+          "tps": 137.73749838451633,
+          "latency_ms": {
+            "p50": 13.25562700003502,
+            "p95": 24.834268999256892,
+            "p99": 37.196244000369916,
+            "max": 69.18089300052088
+          },
+          "error_rate": 0.0,
+          "errors": 0
+        },
+        {
+          "repeat": 1,
+          "concurrency": 4,
+          "tps": 134.16237615615478,
+          "latency_ms": {
+            "p50": 26.790412000991637,
+            "p95": 55.56612100008351,
+            "p99": 73.9143350001541,
+            "max": 920.9699860002729
+          },
+          "error_rate": 0.0,
+          "errors": 0
+        },
+        {
+          "repeat": 2,
+          "concurrency": 4,
+          "tps": 149.96319626481278,
+          "latency_ms": {
+            "p50": 24.371206998694106,
+            "p95": 47.28572400017583,
+            "p99": 68.76369000019622,
+            "max": 267.160416000479
+          },
+          "error_rate": 0.0,
+          "errors": 0
+        },
+        {
+          "repeat": 2,
+          "concurrency": 2,
+          "tps": 101.92111609248244,
+          "latency_ms": {
+            "p50": 16.81864900092478,
+            "p95": 37.269477999871015,
+            "p99": 54.755726998337195,
+            "max": 230.57682500075316
+          },
+          "error_rate": 0.0,
+          "errors": 0
+        }
+      ],
+      "containers_stopped_volumes_retained": true,
+      "data_backing": {
+        "previous_wrapper_sha256": null,
+        "node_storage": "host internal filesystem through Colima virtiofs bind volumes",
+        "rustfs_storage": "unchanged external VM data disk",
+        "node_volumes": {
+          "cellar-raft-20261022-232848-node1": {
+            "Name": "cellar-raft-20261022-232848-node1",
+            "Driver": "local",
+            "Options": {
+              "device": "/Users/haipingfu/.codex-workspaces/worktrees/ios-7da4ddb5-e7b2-4b8b-bfa7-796196551e64/cellar/.cellar/raft-perf/internal-node-data/cellar-raft-20261022-232848-node1",
+              "o": "bind",
+              "type": "none"
+            }
+          },
+          "cellar-raft-20261022-232848-node2": {
+            "Name": "cellar-raft-20261022-232848-node2",
+            "Driver": "local",
+            "Options": {
+              "device": "/Users/haipingfu/.codex-workspaces/worktrees/ios-7da4ddb5-e7b2-4b8b-bfa7-796196551e64/cellar/.cellar/raft-perf/internal-node-data/cellar-raft-20261022-232848-node2",
+              "o": "bind",
+              "type": "none"
+            }
+          },
+          "cellar-raft-20261022-232848-node3": {
+            "Name": "cellar-raft-20261022-232848-node3",
+            "Driver": "local",
+            "Options": {
+              "device": "/Users/haipingfu/.codex-workspaces/worktrees/ios-7da4ddb5-e7b2-4b8b-bfa7-796196551e64/cellar/.cellar/raft-perf/internal-node-data/cellar-raft-20261022-232848-node3",
+              "o": "bind",
+              "type": "none"
+            }
+          }
+        },
+        "preflight_sha256": "14598b0501fe74fe9048fdc3df005b4de7768d8f56628c0a43947774057eeb9c",
+        "wrapper_sha256": "f29180400d66d3e3b3f6a31a50ce142cebaa459e1044b8098653a93ddf73cfcf"
+      },
+      "run": "1500-tikv-shared-image-internal-candidate",
+      "verification": {
+        "verified_replica_values": 4500,
+        "verified_archive_groups": 1500,
+        "write_durability": "Quorum",
+        "placement": {
+          "leaders_per_node": [
+            500,
+            500,
+            500
+          ],
+          "followers_per_node": [
+            1000,
+            1000,
+            1000
+          ]
+        },
+        "cells": 1500,
+        "voters": 3
+      },
+      "settings": {
+        "tick_ms": 500,
+        "queue_items": 4096,
+        "archive_tmpfs_mib": 512,
+        "limits": [
+          {
+            "NanoCpus": 1000000000,
+            "CpusetCpus": "0",
+            "Memory": 3221225472,
+            "MemorySwap": 3221225472,
+            "Tmpfs": {
+              "/data/node/raft-cells/archive-verifier": "rw,noexec,nosuid,nodev,size=512m"
+            }
+          },
+          {
+            "NanoCpus": 1000000000,
+            "CpusetCpus": "1",
+            "Memory": 3221225472,
+            "MemorySwap": 3221225472,
+            "Tmpfs": {
+              "/data/node/raft-cells/archive-verifier": "rw,noexec,nosuid,nodev,size=512m"
+            }
+          },
+          {
+            "NanoCpus": 1000000000,
+            "CpusetCpus": "2",
+            "Memory": 3221225472,
+            "MemorySwap": 3221225472,
+            "Tmpfs": {
+              "/data/node/raft-cells/archive-verifier": "rw,noexec,nosuid,nodev,size=512m"
+            }
+          }
+        ]
+      },
+      "workload_sha256": [
+        "6f27a1ed80cd137646a27ae3677738fc4f864e8c7914f5709592d6c551c3d127"
+      ],
+      "cohort_resource_samples": {
+        "node1": {
+          "samples": 65,
+          "cpu_mean_percent": 57.40953846153846,
+          "cpu_max_percent": 71.55,
+          "last_memory": "279.8MiB / 3GiB"
+        },
+        "node2": {
+          "samples": 65,
+          "cpu_mean_percent": 54.223230769230774,
+          "cpu_max_percent": 68.15,
+          "last_memory": "280.4MiB / 3GiB"
+        },
+        "node3": {
+          "samples": 65,
+          "cpu_mean_percent": 55.36553846153846,
+          "cpu_max_percent": 68.0,
+          "last_memory": "278.2MiB / 3GiB"
+        },
+        "rustfs": {
+          "samples": 65,
+          "cpu_mean_percent": 119.90923076923077,
+          "cpu_max_percent": 170.25,
+          "last_memory": "849.2MiB / 4GiB"
+        }
+      },
+      "shutdown": {
+        "states": {
+          "cellar-raft-20261022-232848-node1": {
+            "Running": false,
+            "ExitCode": 0,
+            "OOMKilled": false,
+            "Error": "",
+            "FinishedAt": "2026-10-22T23:34:58.659742415Z"
+          },
+          "cellar-raft-20261022-232848-node2": {
+            "Running": false,
+            "ExitCode": 0,
+            "OOMKilled": false,
+            "Error": "",
+            "FinishedAt": "2026-10-22T23:34:58.686950984Z"
+          },
+          "cellar-raft-20261022-232848-node3": {
+            "Running": false,
+            "ExitCode": 0,
+            "OOMKilled": false,
+            "Error": "",
+            "FinishedAt": "2026-10-22T23:34:58.676066998Z"
+          },
+          "cellar-raft-20261022-232848-rustfs": {
+            "Running": false,
+            "ExitCode": 0,
+            "OOMKilled": false,
+            "Error": "",
+            "FinishedAt": "2026-10-22T23:34:59.984611075Z"
+          }
+        },
+        "preserved_volumes": [
+          "cellar-raft-20261022-232848-node1",
+          "cellar-raft-20261022-232848-node2",
+          "cellar-raft-20261022-232848-node3",
+          "cellar-raft-20261022-232848-rustfs"
+        ]
+      },
+      "raw_sha256": {
+        "report.json": "523ff7b5ea4b90283c405aa61ecc73303fd5331309340b81f0806c1fccb49f5e",
+        "seed-journal.jsonl": "70a2b41a65bbd3ea1b49ade7c3fa90f785147359623d09f205550da61bedae20",
+        "replica-verification.json": "e4556beabb522e4c22b701f82a9440caf02c96adcfcf5e0b7c714093a916b0b6",
+        "archive-verification.json": "1b13daf36e4c2817d099fc4d04fdf14f8e149795c3c804816fd52a34852b605c",
+        "analysis-200.json": "c632587b1f0902e87e8ed9279a1cf6499668d6439369d36a70e7b89f49013901",
+        "analysis-500.json": "45390ce475c5b8183d1d2e368e0390ba6bb6d287a54f0a7d7adb8ac8e1164c81",
+        "resources.jsonl": "ad8e332fec25bdb83226f4c1756b62724ba057ab4b20320ff295e4c54abc6c81",
+        "verified-stop/resources.json": "23610b0a414557578b0119408e23c9bcc1660e6768a9c0317c3de40a0d335fc9"
+      }
+    }
+  ]
+}
