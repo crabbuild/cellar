@@ -108,9 +108,12 @@ requested MR-14 focus; it does not waive MR-13's release dependency.
    and qualify fault histories through ambiguous outcomes. The
    [recovery drills](evidence/MR-14-recovery-progress.json) verify four original
    command identities in one Raft S3 run and one bucket run. The bucket repeat
-   self-fences on expired ownership and remains unqualified. Add an explicit
-   fenced-owner restart/restore drill; preserve the original lease and deadline
-   bounds. Recovery never improves the original performance score. Define any common
+   self-fences on expired ownership and remains unqualified. The separate
+   [all-owner restart drills](evidence/MR-14-restart-progress.json) now preserve
+   acknowledged state before retry, recover eight original identities and commit
+   twelve new writes in each of two runs. Mixed live/fenced owners and cold or
+   disaster restore remain separate gates; preserve the original lease and
+   deadline bounds. Recovery never improves the original performance score. Define any common
    service contract explicitly before permitting a cross-adapter ratio;
    current guarantees still differ.
    Account for observation overhead and device I/O. Keep Q1's original workload
@@ -137,7 +140,9 @@ pause behavior and final state across all four policies. Equivalent-contract
 comparison and broader fault qualification remain open. The subsequent
 [ambiguous-command recovery evidence](evidence/MR-14-recovery-progress.json)
 retains both successful receipt checks and rejected attempts, including the
-bucket owner's expired-lease fence. Shared-host observations
+bucket owner's expired-lease fence. The subsequent all-owner restart evidence
+closes that explicitly bounded harness scenario, with unavailable old-process
+counters and performance comparison refused. Shared-host observations
 do not establish a controlled latency comparison. The physical
 queue/latency gate still needs causal evidence and the unchanged workload
 comparison. All misses remain in the evidence; one passing short run does not
@@ -1303,6 +1308,25 @@ These observations restrict attribution, not the numeric acceptance gates. The
 dedicated profile remains stopped and other profiles were not mutated. This
 change proves removal of redundant scheduler work during persistence waits; it
 does not prove the cause or resolution of the physical queue/latency bursts.
+
+The [all-owner restart evidence](evidence/MR-14-restart-progress.json), source
+`aaa83f8`, records two three-node bucket runs under an explicit twelve-second
+RustFS pause. All owners join an expired-lease fence before the exact containers
+restart on the same volumes with fresh lease generations. Each run verifies 36
+owner-route reads before any retry, preserves every acknowledged prefix, recovers
+and confirms eight original command identities, commits twelve new writes and
+passes 36 final reads. Recovery is bounded at 8.22 and 7.69 seconds, within the
+unchanged thirty-second objective. No fresh held-window write acknowledges.
+Both measured histories retain only 32 of 200 completions, eight ambiguous
+commands and ten failed queries; recovery never improves those scores.
+
+Old-process final counters are unavailable, so performance comparison is refused.
+Both raw capsules reanalyze independently. All eight containers stop cleanly,
+their exact empty networks are removed, volumes remain, and only the dedicated
+profile is stopped. The earlier mixed-live/fenced-owner attempt remains rejected;
+these runs do not establish cold or disaster restore. At the source pin, 192
+Python cases pass with one existing opt-in Docker skip, including eight restart
+cases; all five native baseline cases, focused Clippy and repository checks pass.
 
 Remaining MR-14 gates include the observed control-queue and latency failures,
 repeatable leadership stability under density, sustained S3 acknowledgement latency, controlled

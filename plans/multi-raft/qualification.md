@@ -119,8 +119,15 @@ measurement, requiring two matching receipts and the unchanged recovery bound.
 The [local recovery drills](evidence/MR-14-recovery-progress.json) recover four
 ambiguous commands in one Raft S3 run and one bucket run, while retaining a
 rejected Raft harness attempt and a bucket repeat that fences an expired owner.
-Both completed runs miss traffic targets. Fenced-owner restart/restore and
-repeatable long-outage recovery remain open. The runners refuse other unimplemented fault scenarios
+Both completed runs miss traffic targets. The distinct bucket-only
+`s3-fenced-recovery` scenario requires all owners to join their expired-lease
+fences before one exact-container restart on retained volumes. Two
+[local restart drills](evidence/MR-14-restart-progress.json) preserve every
+acknowledged prefix before retry, recover eight original identities and commit
+twelve new writes each within the original recovery bound. Missing old-process
+final counters explicitly prevent performance qualification. Mixed-owner restart,
+cold/disaster restore and broader long-outage recovery remain open.
+The runners refuse other unimplemented fault scenarios
 and soak before creating workload resources.
 `tools/perf/raft-performance.md` gives its current executable interface and
 qualification limits. MR-15's concurrent `raft_history.py` checker and complete

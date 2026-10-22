@@ -2392,7 +2392,11 @@
         "tools/perf/test_store_faults.py",
         "tools/perf/workload_recovery.py",
         "tools/perf/test_workload_recovery.py",
-        "tools/perf/store_recovery_profile.json"
+        "tools/perf/store_recovery_profile.json",
+        "tools/perf/baseline_restart.py",
+        "tools/perf/baseline_resume.py",
+        "tools/perf/test_baseline_restart.py",
+        "tools/perf/store_fenced_recovery_profile.json"
       ],
       "steps": [
         "Optimize shared log batches, pooled transport and fair scheduling while retaining per-group Ready ordering.",
@@ -2507,7 +2511,8 @@
         "evidence/MR-14-persistence-progress.json",
         "evidence/MR-14-store-fault-progress.json",
         "evidence/MR-14-store-physical-progress.json",
-        "evidence/MR-14-recovery-progress.json"
+        "evidence/MR-14-recovery-progress.json",
+        "evidence/MR-14-restart-progress.json"
       ]
     },
     {

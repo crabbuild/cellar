@@ -520,8 +520,9 @@ post-measurement node snapshot fails before recovery starts. The ten-second
 lease and seven-second pause can overlap such that authority expires around
 release. Approximate cross-clock alignment does not prove millisecond ordering.
 The checker preserves this failure and refuses comparison with the incomplete
-run. An explicit owner restart/restore drill is still required; neither a longer
-lease nor repeated attempts until one passes establishes that behavior.
+run. The separate all-owner restart drill below does not qualify this mixed-owner
+failure; neither a longer lease nor repeated attempts until one passes establishes
+that behavior.
 
 Both accepted runs reanalyze after capsule extraction; both rejected runs stay
 rejected. All 16 containers are stopped, all four exact empty networks removed,
@@ -555,8 +556,23 @@ unavailable. Recovery and resumed-write counters belong to the new processes,
 and are never subtracted from old-process samples. `measurement_proofs_complete`
 and `traffic_objectives_met` remain false; `compare_runs.py` refuses performance
 ratios for these drills even when all recovery checks pass. Fresh images include
-the native public lease generation in startup evidence. Implementation and unit
-tests alone do not establish physical restart qualification.
+the native public lease generation in startup evidence.
+
+The [physical restart evidence](../../plans/multi-raft/evidence/MR-14-restart-progress.json)
+pins two fresh runs to source `aaa83f8` and one image. Each run proves all three
+fences, fresh lease generations, 36 pre-retry owner reads, eight original-identity
+recoveries with confirmation, twelve new writes and 36 final owner reads. All
+eight unknown commands are absent at the pre-retry audit; acknowledged state is
+intact. Final recovery bounds are 8.22 and 7.69 seconds. New-process counters
+record eight recovery and twelve resumed bucket proofs with no proof errors.
+
+Each measured workload still records only 32 of 200 completions, eight ambiguous
+commands and ten failed queries. None of the eight fresh held-window writes
+acknowledges during the pause. The independent analyzers pass after extraction,
+and comparison refuses both runs. All eight containers stop cleanly; their exact
+empty networks are removed, volumes retained and the dedicated profile stopped.
+The earlier mixed-owner failure remains rejected, and cold/disaster restore is
+still unqualified.
 
 ## Comparison rules
 
