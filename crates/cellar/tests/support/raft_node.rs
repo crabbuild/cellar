@@ -415,9 +415,23 @@ pub struct Counter {
 }
 
 pub fn counter(calls: Arc<std::sync::atomic::AtomicUsize>, gate: Arc<Gate>) -> Result<Counter> {
+    counter_observed(
+        move |_| {
+            calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Ok(())
+        },
+        gate,
+    )
+}
+
+/// Attribute private execution to its group without changing counter SQL or gates.
+pub fn counter_observed(
+    observe: impl Fn(&GroupScope) -> Result<()> + Send + Sync + 'static,
+    gate: Arc<Gate>,
+) -> Result<Counter> {
     let class=RaftClass::new("Counter",1,[21;32])?
         .command("Increment",[22;32],move |context,input|{
-            calls.fetch_add(1,std::sync::atomic::Ordering::SeqCst);
+            observe(context.identity())?;
             let delta=i64::from_be_bytes(input.try_into()?);
             context.sql().execute_batch("CREATE TABLE IF NOT EXISTS counter(value INTEGER); INSERT INTO counter SELECT 0 WHERE NOT EXISTS(SELECT 1 FROM counter)")?;
             context.sql().execute("UPDATE counter SET value=value+?1",[delta])?;
