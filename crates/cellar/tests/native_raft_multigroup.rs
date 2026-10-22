@@ -1,12 +1,20 @@
 //! Multi-group consensus scheduling and real-engine process-crash boundaries.
-//! The runtime fixture's application markers are stubs; SQLite/LTX workload
-//! results are independently exercised by the container runner.
+//! The scheduler fixture's application markers are stubs. The repair-load
+//! fixture and container runner exercise actual native SQLite/LTX publication.
 #![allow(clippy::disallowed_methods)]
 #[path = "support/raft_storage_fault.rs"]
 mod fault;
 #[allow(dead_code)] // Shared fixture also serves snapshot, peer-fault and lifecycle targets.
 #[path = "support/raft_runtime_fixture.rs"]
 mod fixture;
+#[allow(dead_code)] // Shared native fixture also serves membership and snapshot drills.
+#[path = "support/raft_cluster.rs"]
+mod native_cluster;
+#[allow(dead_code)]
+#[path = "support/raft_node.rs"]
+mod public_node;
+#[path = "support/raft_repair_load.rs"]
+mod repair_load;
 
 use anyhow::{ensure, Result};
 use cellar::application::consensus::verification::*;
@@ -16,6 +24,11 @@ use cellar_ltx::DirectFileSystem;
 use fixture::*;
 use raft::{prelude::Entry, GetEntriesContext, Storage};
 use std::{path::Path, sync::Arc, time::Duration};
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn repair_budget_under_load() -> Result<()> {
+    repair_load::run().await
+}
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn many_groups_mixed_roles() -> Result<()> {

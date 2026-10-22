@@ -79,8 +79,9 @@ MR-14 is in progress with fair shared persistence batches, a native reference
 workload, fixed open-loop arrivals and independent ledger/replica/archive checks.
 Its [performance evidence](evidence/MR-14-performance-progress.json) retains both
 passed functional checks and missed local traffic objectives. Matched Fleet/bucket
-baselines, remaining instrumentation, repair/archive-bundle cases and Q1 density
-qualification remain open. MR-15 adds release qualification including the 24-hour
+baselines, remaining instrumentation, archive-bundle indexing and Q1 density
+qualification remain open. The native repair-load case checks snapshot reservation
+bounds while independent commands and follower queries continue. MR-15 adds release qualification including the 24-hour
 soak, MR-16 measured density/physical tiers and MR-17 federation.
 
 Local/in-memory stores, declared zones and small native fixtures do not qualify

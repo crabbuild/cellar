@@ -2294,7 +2294,8 @@
         "crates/cellar/tests/native_raft_multigroup.rs",
         "tools/perf/raft_workload.py",
         "tools/perf/raft_analyze.py",
-        "tools/perf/raft-performance.md"
+        "tools/perf/raft-performance.md",
+        "crates/cellar/tests/support/raft_repair_load.rs"
       ],
       "steps": [
         "Optimize shared log batches, pooled transport and fair scheduling while retaining per-group Ready ordering.",

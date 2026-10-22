@@ -111,8 +111,14 @@ registered cells establishes measured capacity.
 
 ## Remaining milestone gates
 
-MR-14 remains in progress. Remaining work includes repair-budget qualification
-under traffic, exact mixed-group archive bundle indexing, all required internal
+The native `repair_budget_under_load` case holds real TLS snapshot transfers for
+two lagging cells while a third completes 24 commands and 24 AtLeast follower
+queries. It samples actual node-wide reservations, checks both distinct restored
+histories and waits for physical reservation release. This is bounded catch-up
+coverage on three embedded nodes, not replacement throughput or an SLO.
+
+MR-14 remains in progress. Remaining work includes exact mixed-group archive
+bundle indexing, all required internal
 latency/byte/controller measurements, steady-state and density measurements,
 and executable Fleet/bucket adapters with matched durability/hardware/workloads.
 `matched_comparison` refuses missing or unequal contract, hardware, workload and

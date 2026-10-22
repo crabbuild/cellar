@@ -910,8 +910,15 @@ objectives. Earlier diagnostics remain in the evidence; no capacity or equivalen
 Fleet/bucket speedup is claimed. `tools/perf/raft-performance.md` documents
 execution, accounting, measured results and limits.
 
-Remaining MR-14 gates include repair budgets under load, mixed-group archive
-bundle indexing, internal timings/byte measurements, matched Fleet/bucket
+The native `repair_budget_under_load` case exercises two compacted, lagging cells
+competing for the receive budget while a third cell completes 24 commands and 24
+AtLeast follower queries. It holds real TLS snapshot responses, checks node-wide
+reservation bounds, restores distinct per-cell histories and requires physical
+reservation release. This qualifies bounded native catch-up under that workload,
+not physical-node density, new-member replacement throughput or an SLO.
+
+Remaining MR-14 gates include mixed-group archive bundle indexing, internal
+timings/byte measurements, matched Fleet/bucket
 baselines, steady-state/density evidence and preliminary Q1 execution. The
 current local scope is at most five nodes; the original six-process Q1 gate
 remains unqualified. MR-13's remaining management/restore work stays open.
