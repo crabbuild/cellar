@@ -14,7 +14,7 @@ an unrestricted Docker inspection containing container environment variables.
 Create the dedicated profile without changing the active Docker context:
 
 ```sh
-colima start cellar-multi-raft --activate=false --cpus 6 --memory 12 --disk 60
+colima start cellar-multi-raft --activate=false --cpus 8 --memory 16 --disk 60
 python3 tools/multi-raft/local.py preflight --nodes 3
 python3 tools/multi-raft/local.py prepare --nodes 3 --output /tmp/cellar-raft-local-001
 python3 tools/multi-raft/local.py probe --output /tmp/cellar-raft-local-001
@@ -51,9 +51,24 @@ preparations retain their environment record for diagnosis. A separate cleanup
 step can remove the exact recorded resources after their data is no longer
 needed; never use a global Docker prune or delete a Colima profile as cleanup.
 
-## Remaining node harness work
+## Native node runs
 
-The next vertical slice must launch a compiled native application through
+The repository's `tools/perf/raft.py` harness now provides three native SDK node
+containers with the required one-CPU/3-GiB limits, its own RustFS instance, exact
+replica/version checks and final archive coverage. See
+[the harness guide](../perf/raft-README.md). Use this separate profile and
+`--port-base 19900` to avoid another profile's host ports. Stop the preparation
+backend first; the node harness allocates two CPUs/4 GiB for its own store and
+two CPUs/1 GiB for its load container, requiring an eight-CPU/16-GiB VM. Its
+current topology has three nodes. Five-node placement remains additional work.
+
+This harness uses embedded SDK startup. Production `NativeDaemon::raft_cells`
+has a separate process qualification; physical CLI/RustFS recovery drills remain
+part of the operating qualification.
+
+## Remaining qualification
+
+An additional vertical slice must launch a compiled native application through
 `NativeDaemon::raft_cells`, using real RustFS clients, authenticated TLS links,
 unique persistent node disks and fresh process identities. Each group needs
 three voters; on five nodes, rotate voter placement between groups and use the
