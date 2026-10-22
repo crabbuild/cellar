@@ -347,6 +347,44 @@ case: admission closure was not observed within its 500-ms bound. The original
 assertion remains unchanged; this failure is unresolved and is an additional
 qualification gate.
 
+## Bounded transport pipelining
+
+The second diagnostic build added shared-log persistence timing, sender queue
+and RPC timing, and receiver admission timing. All six 60-second windows at
+three/six/nine writers had zero errors; every replica and archive verified.
+The five-second timeout did not recur. Shared-log persistence reached
+761/1,514/1,505 ms on nodes 1/2/3. Control-frame queue delays reached
+424/459/404 ms during measured write windows; the corresponding peer RPCs
+completed in 1–3 ms. No receiver admission call reached 100 ms. These bounded
+slow-event probes identify queueing separately from persistence stalls, without
+qualifying the diagnostic image as a faster implementation.
+
+TiKV's [message buffer and stream sender](https://github.com/tikv/tikv/blob/b3995dab28308f09cbb7c125bf32f789dbc203fe/src/server/raft_client.rs)
+collect messages by count/bytes and flush them onto a client stream. Its
+[stream receiver](https://github.com/tikv/tikv/blob/b3995dab28308f09cbb7c125bf32f789dbc203fe/src/server/service/kv.rs)
+dispatches batch members without a separate response round trip for each one.
+Cellar preserves its authenticated per-frame admission responses, but can avoid
+waiting for each response before writing the next queued frame.
+
+The proposed sender drains up to 16 already queued frames with a 1-MiB window;
+one larger permitted frame occupies a window by itself. An overflow frame keeps
+its FIFO position and original byte/item permits. Concurrent bounded reads and
+writes avoid a full-duplex socket buffer deadlock. Every reply still binds the
+channel, sequence, route and request tag. Error or cancellation discards the
+connection; accepted transport frames remain distinct from durable Raft proofs.
+No waiting interval or additional worker is introduced.
+
+The real TLS regression queues two different groups and withholds the first
+reply until the second authenticated frame arrives. The original sender times
+out; the proposed sender passes. Additional tests reject a mismatched reply and
+release all admission, and exchange 16 frames over 64-byte duplex buffers.
+The final sender passes 590 Rust cases: 445 library, 27 host, 19 operations,
+16 runtime, 14 transport, 27 membership and 42 snapshot cases. Five standalone
+process helpers run through their parent scenarios. Affected-target strict
+Clippy, module layout, dependency policy, documentation and eight Python harness
+cases pass. The previously failing management-stop case passes locally; the
+Linux CI failure remains unexplained. A fresh end-to-end comparison is pending.
+
 ## Remaining qualification
 
 - Reproduce and resolve the Linux management-stop admission-seal failure, then

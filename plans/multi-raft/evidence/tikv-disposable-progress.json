@@ -359,5 +359,150 @@
     "python_examples": "passed",
     "free_threaded_sdk": "failed: management_stop_seals_raft_before_joined_receipt did not observe sealed admission within 500 ms; unresolved",
     "run_id": 39758131994
+  },
+  "transport_diagnostic": {
+    "image": "sha256:89daa2209e1dd33259e592b4d0345c6232cebbc7753d60f01fde4c1048493b20",
+    "binary_sha256": "8feed8cff87d2fa344265eb52af8e1fed1caf436dc1b03589410c05b05445605",
+    "completed": true,
+    "scope": "Temporary diagnostic instrumentation; no speedup qualification",
+    "verified_replicas": 4500,
+    "verified_archives": 1500,
+    "windows": [
+      {
+        "repeat": 1,
+        "concurrency": 3,
+        "successful_writes": 8013,
+        "tps": 133.52503485761807,
+        "latency_ms": {
+          "p50": 15.472627001145156,
+          "p95": 55.99232500026119,
+          "p99": 89.29952600010438,
+          "max": 1037.4807950029208
+        },
+        "error_free": true
+      },
+      {
+        "repeat": 1,
+        "concurrency": 6,
+        "successful_writes": 5802,
+        "tps": 96.65672530040159,
+        "latency_ms": {
+          "p50": 49.04651100150659,
+          "p95": 134.17728400236228,
+          "p99": 224.06717500052764,
+          "max": 797.7557849990262
+        },
+        "error_free": true
+      },
+      {
+        "repeat": 1,
+        "concurrency": 9,
+        "successful_writes": 5928,
+        "tps": 98.64729499190817,
+        "latency_ms": {
+          "p50": 77.51012899825582,
+          "p95": 194.39391899868497,
+          "p99": 290.7983690020046,
+          "max": 739.5694500009995
+        },
+        "error_free": true
+      },
+      {
+        "repeat": 2,
+        "concurrency": 9,
+        "successful_writes": 10735,
+        "tps": 178.60014355646345,
+        "latency_ms": {
+          "p50": 37.41355099919019,
+          "p95": 118.72541599950637,
+          "p99": 200.70775000203867,
+          "max": 584.1091450020031
+        },
+        "error_free": true
+      },
+      {
+        "repeat": 2,
+        "concurrency": 6,
+        "successful_writes": 8562,
+        "tps": 142.3103863645973,
+        "latency_ms": {
+          "p50": 29.868933001125697,
+          "p95": 100.14843400131213,
+          "p99": 198.1763760013564,
+          "max": 923.1592819996877
+        },
+        "error_free": true
+      },
+      {
+        "repeat": 2,
+        "concurrency": 3,
+        "successful_writes": 3531,
+        "tps": 58.79426344883092,
+        "latency_ms": {
+          "p50": 36.414289999811444,
+          "p95": 116.9985029991949,
+          "p99": 272.7548700022453,
+          "max": 1636.3462039989827
+        },
+        "error_free": true
+      }
+    ],
+    "slow_probes": [
+      {
+        "node": 1,
+        "slow_persistence_count": 38,
+        "max_persistence_ms": 761,
+        "max_observed_send_queue_ms": 424,
+        "max_observed_send_rpc_ms": 68,
+        "receiver_admission_over_100ms": 0
+      },
+      {
+        "node": 2,
+        "slow_persistence_count": 38,
+        "max_persistence_ms": 1514,
+        "max_observed_send_queue_ms": 459,
+        "max_observed_send_rpc_ms": 56,
+        "receiver_admission_over_100ms": 0
+      },
+      {
+        "node": 3,
+        "slow_persistence_count": 37,
+        "max_persistence_ms": 1505,
+        "max_observed_send_queue_ms": 404,
+        "max_observed_send_rpc_ms": 61,
+        "receiver_admission_over_100ms": 0
+      }
+    ],
+    "sampling": "Persistence/admission durations >=100ms; slow send queue/RPC >=100ms limited to one log per 100ms; all send errors. Includes setup and verification. Largest queue events separately checked to fall within timed-write windows.",
+    "host_samples": 90,
+    "host_samples_with_builds": 58,
+    "raw_sha256": {
+      "report.json": "73c05dbdf82a6898de9504df8246ba1180945fe5e4f1f326399a093fa3e3719e",
+      "phase-diagnostics/samples.json": "03d29a9e413843718b052288e98d8d554d871d04bf4378ae3342572f3c870263",
+      "replica-verification.json": "6894dfab8fce8d41add7addd3136e1dff53dfc28935a3eead3da05653c7132a8",
+      "archive-verification.json": "33479e05c18c7edba865fe384c9a603e2db7f09967a51c6b40c61b672d30c92a"
+    }
+  },
+  "transport_pipeline_validation": {
+    "cases": {
+      "library": 445,
+      "host": 27,
+      "operations": 19,
+      "runtime": 16,
+      "transport": 14,
+      "membership": 27,
+      "snapshot": 42
+    },
+    "total_passed": 590,
+    "standalone_process_helpers": 5,
+    "tls_pipeline_regression": "Failed before: second queued group waited for the first admission reply. Passed after bounded concurrent frame writes/reply reads.",
+    "additional_regressions": [
+      "Invalid reply refuses the window and releases admission",
+      "Sixteen authenticated frames complete with 64-byte duplex buffers"
+    ],
+    "strict_clippy": "passed for library, performance binary, transport/runtime/host/operations integration targets",
+    "python_harness_cases": 8,
+    "performance_comparison": "pending",
+    "ci_failure": "Original Linux management-stop admission closure timeout remains unexplained; local serial case passed without weakening its assertion."
   }
 }
