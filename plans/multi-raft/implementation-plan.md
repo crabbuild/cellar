@@ -105,10 +105,12 @@ requested MR-14 focus; it does not waive MR-13's release dependency.
    now execute through both runners. The eight-run local healthy/outage matrix
    reconciles across Quorum, S3, Fleet and bucket policies. Retain the S3, Fleet
    and bucket outage traffic misses, investigate Fleet's delayed owner queries,
-   and qualify fault histories through ambiguous outcomes. The explicit
-   `s3-recovery` runner now preserves the original identity, deadline, quarantine
-   and performance failure while verifying post-measurement receipt recovery;
-   physical qualification remains separate. Define any common
+   and qualify fault histories through ambiguous outcomes. The
+   [recovery drills](evidence/MR-14-recovery-progress.json) verify four original
+   command identities in one Raft S3 run and one bucket run. The bucket repeat
+   self-fences on expired ownership and remains unqualified. Add an explicit
+   fenced-owner restart/restore drill; preserve the original lease and deadline
+   bounds. Recovery never improves the original performance score. Define any common
    service contract explicitly before permitting a cross-adapter ratio;
    current guarantees still differ.
    Account for observation overhead and device I/O. Keep Q1's original workload
@@ -132,7 +134,10 @@ improvement are delivered. The
 [shared object-store outage runner](evidence/MR-14-store-fault-progress.json) is implemented;
 [its physical matrix](evidence/MR-14-store-physical-progress.json) verifies bounded
 pause behavior and final state across all four policies. Equivalent-contract
-comparison and broader fault qualification remain open. Shared-host observations
+comparison and broader fault qualification remain open. The subsequent
+[ambiguous-command recovery evidence](evidence/MR-14-recovery-progress.json)
+retains both successful receipt checks and rejected attempts, including the
+bucket owner's expired-lease fence. Shared-host observations
 do not establish a controlled latency comparison. The physical
 queue/latency gate still needs causal evidence and the unchanged workload
 comparison. All misses remain in the evidence; one passing short run does not

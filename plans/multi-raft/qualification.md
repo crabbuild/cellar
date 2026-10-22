@@ -116,8 +116,11 @@ misses. It does not make cross-adapter contracts equivalent or qualify longer
 failures with ambiguous outcomes. A separate `s3-recovery` scenario now retains
 timed-out commands in measurement and resolves their original identities after
 measurement, requiring two matching receipts and the unchanged recovery bound.
-It supports Raft S3 and bucket policies; its implementation does not by itself
-establish physical qualification. The runners refuse other unimplemented fault scenarios
+The [local recovery drills](evidence/MR-14-recovery-progress.json) recover four
+ambiguous commands in one Raft S3 run and one bucket run, while retaining a
+rejected Raft harness attempt and a bucket repeat that fences an expired owner.
+Both completed runs miss traffic targets. Fenced-owner restart/restore and
+repeatable long-outage recovery remain open. The runners refuse other unimplemented fault scenarios
 and soak before creating workload resources.
 `tools/perf/raft-performance.md` gives its current executable interface and
 qualification limits. MR-15's concurrent `raft_history.py` checker and complete

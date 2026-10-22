@@ -2389,7 +2389,10 @@
         "crates/cellar/durability/raft/runtime_persistence_tests.rs",
         "tools/perf/store_faults.py",
         "tools/perf/store_fault_profile.json",
-        "tools/perf/test_store_faults.py"
+        "tools/perf/test_store_faults.py",
+        "tools/perf/workload_recovery.py",
+        "tools/perf/test_workload_recovery.py",
+        "tools/perf/store_recovery_profile.json"
       ],
       "steps": [
         "Optimize shared log batches, pooled transport and fair scheduling while retaining per-group Ready ordering.",
@@ -2503,7 +2506,8 @@
         "evidence/MR-14-pipeline-progress.json",
         "evidence/MR-14-persistence-progress.json",
         "evidence/MR-14-store-fault-progress.json",
-        "evidence/MR-14-store-physical-progress.json"
+        "evidence/MR-14-store-physical-progress.json",
+        "evidence/MR-14-recovery-progress.json"
       ]
     },
     {

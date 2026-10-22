@@ -449,8 +449,8 @@ profile is stopped. Unrelated profiles remain untouched.
 These are short functional observations on a shared Mac, with swap use and
 other active Colima profiles recorded in each run. They do not establish a
 causal speedup, sustained capacity, independent failure domains or a common
-cross-adapter service contract. Longer failures with ambiguous outcomes, process
-loss, disk loss, real S3 and Q1 remain open.
+cross-adapter service contract. The following separate drill covers selected
+ambiguous outcomes; broader process loss, disk loss, real S3 and Q1 remain open.
 
 ### Recovering ambiguous commands after measurement
 
@@ -488,6 +488,46 @@ completion or throughput. Bucket output-barrier errors during this explicit
 failure phase remain visible in the report; recovery-phase errors must be zero.
 Healthy and short-outage proof-error requirements remain unchanged. These
 serialized receipt checks do not replace MR-15's concurrent history checker.
+
+The [physical recovery evidence](../../plans/multi-raft/evidence/MR-14-recovery-progress.json)
+retains four attempts with the original three-node, 12-cell workload and SLOs:
+
+| Source | Policy / attempt | Recovery result | Measurement completed / offered |
+| --- | --- | --- | --- |
+| `f3bf129` | Raft S3 / first | Rejected: harness compared renewed token bytes | 68 / 200 |
+| `f3bf129` | Bucket / first | Four original commands recovered and confirmed | 61 / 200 |
+| `1490457` | Raft S3 / repeat | Four original commands recovered and confirmed | 68 / 200 |
+| `1490457` | Bucket / repeat | Rejected: node 1 fenced expired ownership | 66 / 200 |
+
+The first Raft attempt compared whole responses even though the SDK issues a new
+observation token on each response. Its two responses retain identical durable
+result, position, term, scope and durability; only token issue/expiry times and
+signature differ. A regression now distinguishes token renewal from changed
+receipt fields. That incomplete attempt remains rejected; it retried only the
+first of four unknown commands before stopping.
+
+The completed Raft and bucket runs verify all 36 replica or owner-route reads.
+Raft also verifies final archive coverage. No fresh observed write acknowledges
+during the held store pause. Final state checks bound recovery at 8.41 and 7.75
+seconds after release starts, including the remaining measurement time. Both
+completed runs miss the original traffic targets; their four ambiguous command
+outcomes and generator rejections remain in measurement. Bucket also records
+one failed query. Recovery requests are excluded from those totals.
+
+The bucket repeat records an ambiguous lease renewal, then a native
+`NodeLeaseExpired` fence. Node 1 exits with code 1 and no OOM; the required
+post-measurement node snapshot fails before recovery starts. The ten-second
+lease and seven-second pause can overlap such that authority expires around
+release. Approximate cross-clock alignment does not prove millisecond ordering.
+The checker preserves this failure and refuses comparison with the incomplete
+run. An explicit owner restart/restore drill is still required; neither a longer
+lease nor repeated attempts until one passes establishes that behavior.
+
+Both accepted runs reanalyze after capsule extraction; both rejected runs stay
+rejected. All 16 containers are stopped, all four exact empty networks removed,
+and volumes and raw artifacts retained. The dedicated profile is stopped.
+These observations do not establish repeatability, steady state, causal speedup,
+independent failure domains or a common cross-adapter contract.
 
 ## Comparison rules
 
