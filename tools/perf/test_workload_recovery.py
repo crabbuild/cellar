@@ -126,6 +126,27 @@ class Recovery(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     recovery_evidence(root, report)
 
+    def test_raft_token_can_be_renewed_only_with_the_same_durable_receipt(self):
+        for changes in ({'version_token': 'renewed-token'}, {'version_token': ''},
+                        {'version_token': 'renewed-token', 'term': 2},
+                        {'version_token': 'renewed-token', 'index': 3}):
+            with self.subTest(changes=changes), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                report, _, response, _ = fixture(root)
+                second = {**response, **changes}
+                send = Mock(side_effect=[(200, response), (200, second)])
+                if changes == {'version_token': 'renewed-token'}:
+                    checked, resolutions = recover(root, report, send)
+                    self.assertEqual(checked['resolved_commands'], 1)
+                    self.assertEqual(history(root, report, resolutions)['recovered_commands'], 1)
+                    rows = [json.loads(line) for line in (root / 'recovery.jsonl').read_text().splitlines()]
+                    self.assertEqual(rows[1]['response']['version_token'], response['version_token'])
+                    self.assertEqual(rows[3]['response']['version_token'], 'renewed-token')
+                    self.assertEqual(resolutions[0]['response']['version_token'], response['version_token'])
+                else:
+                    with self.assertRaises(ValueError):
+                        recover(root, report, send)
+
     def test_failed_recovery_or_confirmation_does_not_retry_or_resolve(self):
         for attempt in (1, 2):
             for failed in (TimeoutError('lost response'), (503, {'ambiguous': True})):

@@ -124,6 +124,16 @@ def check_reply(reply, command, report):
                       int(invocation['command_id'].split(':')[1]))
 
 
+def stable_receipt(reply, report):
+    # RaftHost issues a new signed observation token at each successful finish.
+    # Its issue/expiry times are not part of the durable command identity or
+    # result. Keep both tokens in raw evidence; final at-least reads authenticate
+    # the first token through the SDK. All other response fields must match.
+    if report.get('adapter', 'raft') == 'raft':
+        return {key: value for key, value in reply.items() if key != 'version_token'}
+    return reply
+
+
 def recovery_evidence(root, report):
     """Return verified logical completions *after* the measured operation log."""
     root = Path(root)
@@ -162,14 +172,14 @@ def recovery_evidence(root, report):
             if attempt == 1:
                 first_reply, first_complete = reply, finished
             else:
-                require(reply == first_reply, 'confirmation changed the recovered receipt or result')
+                require(stable_receipt(reply, report) == stable_receipt(first_reply, report), 'confirmation changed the recovered receipt or result')
             previous = finished
         resolved.append({'event': 'recovered', 'order': len(operations) + len(resolved) + 1,
                          'id': original_id, 'cell': invocation['cell'], 'operation': 'command', 'phase': 'recovery',
                          'status': 200, 'outcome': 'completed', 'response': first_reply,
                          'confirmed_monotonic_seconds': previous})
         summaries.append({'original_id': original_id, 'cell': invocation['cell'], 'command_id': invocation['command_id'],
-                          'receipt_sha256': input_digest(first_reply), 'first_acknowledged_monotonic_seconds': first_complete,
+                          'receipt_sha256': input_digest(stable_receipt(first_reply, report)), 'first_acknowledged_monotonic_seconds': first_complete,
                           'confirmed_monotonic_seconds': previous})
     return {'original_ambiguous_commands': len(commands), 'resolved_commands': len(resolved),
             'recovery_requests': 2 * len(resolved), 'resolutions': summaries,
@@ -221,7 +231,7 @@ def recover_commands(root, report, send, *, clock=time.monotonic, wall=time.time
                 if attempt == 1:
                     first = reply
                 else:
-                    require(reply == first, 'confirmation changed the recovered receipt or result')
+                    require(stable_receipt(reply, report) == stable_receipt(first, report), 'confirmation changed the recovered receipt or result')
     finally:
         ledger.close()
     return recovery_evidence(root, report)

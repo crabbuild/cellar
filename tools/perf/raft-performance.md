@@ -468,6 +468,11 @@ and the store release is observed, the runner submits the original command ID,
 input and retry deadline once, then sends one identical confirming request.
 Both responses must succeed with the same receipt and result, satisfy the
 original durability contract and finish within the original recovery bound.
+Raft observation tokens are renewed by the SDK on each response; their issue and
+expiry times are excluded from receipt equality. Result, position, term, scope,
+durability and every other returned field must remain identical. Both tokens
+remain in the raw ledger, and final at-least reads authenticate the first token
+through the SDK. The analyzer does not treat parsing a token as authentication.
 The retry deadline is never renewed. Expiry, failed confirmation, changed scope,
 or an inconsistent result stops recovery and retains the partial ledger.
 There is no blind retry loop. The first retry may observe an earlier commit or
