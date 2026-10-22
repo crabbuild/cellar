@@ -617,7 +617,7 @@ one to four concurrent publications across distinct cells (default two). A
 slot stays occupied from capture through completion, preventing duplicate
 publication of one cell. Object I/O overlaps; physical replay remains serialized
 by the verifier owner. SQL workers capture immutable published image/engine cuts;
-`archive.rs` performs bounded object I/O and physical verification, and
+`archive/mod.rs` performs bounded object I/O and physical verification, and
 `manifest.rs` describes complete snapshot/tail/dependency sets. A conditional
 head advances only after referenced bytes are read back, validated and replayed.
 Lost object/head responses are reconciled by exact reads. The supplied
@@ -662,6 +662,16 @@ retained payloads once during complete final verification. Reusing a covering
 head still downloads and physically verifies its material. Snapshot rotation
 also checks the prior payloads before replacing them, preserving refusal of
 missing or corrupt prior history.
+`archive/replay.rs` materializes bounded batches into a private image and seals
+only each batch's final generation. Every intermediate image still passes its
+full SHA-256 and checksum proof. Batches retain at most 64 decoded envelopes or
+4 MiB of encoded entry bytes, splitting sooner at the destination's aggregate
+file/page/byte limits. A larger valid envelope runs alone under its existing
+per-entry limits. Snapshot bytes are borrowed from the recovery set. Image
+shrink boundaries also end a batch, preserving the disk capacity required by
+entry-by-entry replay before a later growth. No intermediate image becomes an
+activation or acknowledgement proof.
+
 Failed archive attempts retry after 100 ms. Shutdown cancels I/O and joins
 blocking work, then releases the workspace before returning. Startup reclaims
 verification copies under their

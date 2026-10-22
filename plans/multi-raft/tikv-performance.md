@@ -971,6 +971,39 @@ handoff case, ten releasing the archive reader within budget and ten holding it
 through budget exhaustion. The deterministic pre-fix failure and these
 post-fix repetitions exercise the actual Node, quorum and physical SQL paths.
 
+## Batch physical archive replay without dropping intermediate proofs
+
+TiKV's `ApplyContext::prepare_for`, `commit` and `write_to_db` accumulate apply
+work before the durable engine write and completion notification (local TiKV
+revision `b3995dab28308f09cbb7c125bf32f789dbc203fe`,
+`components/raftstore/src/store/fsm/apply.rs:542–635`). Cellar can use that
+bounded batching principle in disposable archive replay while retaining its
+SQLite image and LTX proofs. No TiKV source was copied.
+
+The native archive regression reproduces one image sync and rename for the
+snapshot plus each of twenty tail entries: 21 seals. Bounded replay now needs
+one seal for the same history and produces identical SQLite bytes. Restricting
+the destination to three files per batch requires seven seals; one file per
+batch retains the original 21. This is an operation-count result, not a measured
+end-to-end throughput improvement.
+
+`GenerationStore::prepare_chain` copies a pinned base once and checks each
+intermediate image's complete SHA-256 and checksum before applying the next
+update. Sealing happens only after the complete batch succeeds. The tests include
+a false middle digest with a metadata-contiguous following entry that overwrites
+it; both checksum modes refuse the chain. The archive fixture separately proves
+that this failure leaves the previous published head unchanged. Sync failures
+preserve the original pin and refund successfully cleaned temporary capacity.
+
+The archive adapter retains at most 64 envelopes or 4 MiB of entry bytes per
+batch, with a larger valid envelope handled alone. Destination file/page/byte
+budgets can end the batch sooner. The snapshot is borrowed from the recovery
+set. Peak image size controls disk reservation, and a shrink ends the batch so
+later growth uses the smaller pinned base. A real shrink/growth restore under
+a two-generation disk budget covers this capacity boundary. Ordinary committed
+image publication still needs its existing image sync and durable Raft marker;
+archive batching changes neither quorum nor S3 acknowledgement requirements.
+
 ## Remaining qualification
 
 - Reproduce and resolve the Linux management-stop admission-seal failure, then

@@ -64,6 +64,14 @@ truncation against the resulting SQLite header and full image digest. Published
 images are never patched in place. This first materialized implementation uses
 a full verified copy; it does not require filesystem reflinks.
 
+`GenerationStore::prepare_chain` applies several updates to one private copy.
+It verifies the full digest and checksum of every intermediate result before
+applying the next update, so a later overwrite cannot hide a corrupt image.
+Only the final image is sealed and returned. File, byte and page budgets apply
+to the whole batch; disk reservation covers its largest intermediate image.
+The single-update `prepare` uses the same path. `apply_limits` exposes the
+configured replay bounds for callers that split longer histories into batches.
+
 File operations use the injected `FileSystem` synchronously on the host's owning
 blocking/execution domain. Publication syncs the complete image, reserves its
 unique final name with exclusive creation, renames over that owned unpublished

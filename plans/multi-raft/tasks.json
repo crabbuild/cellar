@@ -1110,7 +1110,7 @@
         "crates/cellar/durability/raft/README.md"
       ],
       "creates": [
-        "crates/cellar/durability/raft/archive.rs",
+        "crates/cellar/durability/raft/archive/mod.rs",
         "crates/cellar/durability/raft/manifest.rs",
         "crates/cellar/tests/native_raft_archive.rs",
         "crates/cellar/durability/raft/host_archive.rs",
@@ -1244,7 +1244,7 @@
         "crates/cellar-ltx/src/apply.rs",
         "crates/cellar-ltx/src/bounded_ltx.rs",
         "crates/cellar-ltx/src/ltx.rs",
-        "crates/cellar/durability/raft/archive.rs",
+        "crates/cellar/durability/raft/archive/mod.rs",
         "crates/cellar/durability/raft/host.rs",
         "crates/cellar/tests/native_raft_host.rs",
         "crates/cellar/durability/raft/options.rs",
@@ -1840,7 +1840,7 @@
         "crates/cellar/durability/raft/mod.rs",
         "crates/cellar/durability/raft/host.rs",
         "crates/cellar/durability/raft/host_sql.rs",
-        "crates/cellar/durability/raft/archive.rs",
+        "crates/cellar/durability/raft/archive/mod.rs",
         "crates/cellar/node/embedded.rs",
         "crates/cellar/storage/sqlite/command.rs",
         "crates/cellar/tests/support/raft_catalog_fault.rs",

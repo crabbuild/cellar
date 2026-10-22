@@ -9,8 +9,8 @@ use super::manifest::{
 use crate::application::consensus::{CellUpdate, EnvelopeLimits};
 use ::raft::prelude::{ConfState, Entry, EntryType};
 use cellar_logic::consensus::{GroupScope, LogPosition};
-use cellar_ltx::apply::{ApplyLimits, ImageState, ImageUpdate, LtxSegment};
-use cellar_ltx::generation::{GenerationError, GenerationPin, GenerationStore, ImageId};
+use cellar_ltx::apply::{ApplyLimits, ImageState};
+use cellar_ltx::generation::{GenerationError, GenerationStore, ImageId};
 use cellar_ltx::{ltx, LtxHost, TXID};
 use futures_util::{StreamExt, TryStreamExt};
 use object_store::{path::Path, ObjectStore, PutMode, PutOptions, UpdateVersion};
@@ -22,6 +22,8 @@ use std::{
     fmt,
     sync::{Arc, Mutex},
 };
+
+mod replay;
 
 #[derive(Debug)]
 pub enum ArchiveError {
@@ -1159,89 +1161,6 @@ impl ArchiveRecoverySet {
             return Err(ArchiveError::Corrupt("archive LTX history/base/schema"));
         }
         Ok(update)
-    }
-
-    /// Run on the owning blocking domain with an exclusively opened destination.
-    /// A failed restore leaves no activation authority. Its retained temporary
-    /// images may be inspected or removed by that directory's recovery owner.
-    pub fn restore(
-        &self,
-        images: &GenerationStore,
-        nonce: ImageId,
-    ) -> Result<GenerationPin, ArchiveError> {
-        let mut sequence = 0u64;
-        let id = |sequence: u64| -> Result<ImageId, ArchiveError> {
-            let mut hash = Sha256::new();
-            hash.update(b"cellar-archive-image-1");
-            hash.update(nonce.bytes());
-            hash.update(sequence.to_be_bytes());
-            let digest: [u8; 32] = hash.finalize().into();
-            ImageId::new(
-                digest[..16]
-                    .try_into()
-                    .map_err(|_| ArchiveError::Corrupt("archive image identity"))?,
-            )
-            .map_err(ArchiveError::Images)
-        };
-        let state = self.manifest.snapshot.image.decode()?;
-        let decoded = ltx::decode_file_bounded(&self.snapshot, apply_limits().decode)
-            .map_err(|_| ArchiveError::Corrupt("archive snapshot LTX"))?;
-        let mut pin = images
-            .prepare(
-                id(sequence)?,
-                None,
-                &ImageUpdate {
-                    base: ImageState::empty(state.epoch)
-                        .map_err(|_| ArchiveError::Corrupt("archive image epoch"))?,
-                    result: state,
-                    segments: vec![LtxSegment {
-                        bytes: &self.snapshot,
-                        min_txid: TXID(1),
-                        max_txid: state.txid,
-                        page_count: decoded.pages().len(),
-                        decoded_bytes: decoded.decoded_bytes(),
-                    }],
-                },
-            )
-            .map_err(ArchiveError::Images)?;
-        drop(decoded);
-        for entry in &self.entries {
-            if entry.data.is_empty() {
-                continue;
-            }
-            let update = self.update(entry, pin.state())?;
-            let result = result_state(&update)?;
-            let segments = update
-                .files
-                .iter()
-                .map(|file| LtxSegment {
-                    bytes: &file.bytes,
-                    min_txid: TXID(file.min_txid),
-                    max_txid: TXID(file.max_txid),
-                    page_count: file.page_count as usize,
-                    decoded_bytes: file.decoded_bytes,
-                })
-                .collect();
-            sequence += 1;
-            let next = images
-                .prepare(
-                    id(sequence)?,
-                    Some(&pin),
-                    &ImageUpdate {
-                        base: pin.state(),
-                        result,
-                        segments,
-                    },
-                )
-                .map_err(ArchiveError::Images)?;
-            images.retire(pin.id()).map_err(ArchiveError::Images)?;
-            pin = next;
-            images.reclaim(8).map_err(ArchiveError::Images)?;
-        }
-        if Image::from(pin.state()) != self.manifest.image {
-            return Err(ArchiveError::Corrupt("restored archive image digest"));
-        }
-        Ok(pin)
     }
 }
 

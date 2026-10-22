@@ -369,6 +369,11 @@ impl GenerationStore {
         })
     }
 
+    /// Configured bounds for one sealed image's physical replay work.
+    pub fn apply_limits(&self) -> ApplyLimits {
+        self.inner.limits.apply
+    }
+
     /// Build a new image from an exact pinned base. The returned image is fully
     /// fsynced and immutable. The host must separately persist its Raft apply
     /// marker before publishing this pin to readers or settling a command.
@@ -378,12 +383,27 @@ impl GenerationStore {
         base: Option<&GenerationPin>,
         update: &ImageUpdate<'_>,
     ) -> Result<GenerationPin, GenerationError> {
-        let peak = apply::peak_image_bytes(update, &self.inner.limits.apply)?;
+        self.prepare_chain(id, base, std::slice::from_ref(update))
+    }
+
+    /// Replay a bounded contiguous chain into one new private image. Every
+    /// intermediate result must pass its full digest and checksum proof before
+    /// the next update runs. Only the final image is synced, sealed and pinned;
+    /// no published image is mutated and no intermediate result is observable.
+    /// File/page/byte limits and peak disk reservation cover the whole chain.
+    pub fn prepare_chain(
+        &self,
+        id: ImageId,
+        base: Option<&GenerationPin>,
+        updates: &[ImageUpdate<'_>],
+    ) -> Result<GenerationPin, GenerationError> {
+        let peak = apply::peak_chain_bytes(updates, &self.inner.limits.apply)?;
+        let first = updates.first().ok_or(ApplyError::Limit)?;
         if let Some(base) = base {
-            if !Arc::ptr_eq(&self.inner, &base.inner) || base.state() != update.base {
+            if !Arc::ptr_eq(&self.inner, &base.inner) || base.state() != first.base {
                 return Err(GenerationError::Identity);
             }
-        } else if update.base != ImageState::empty(update.base.epoch)? {
+        } else if first.base != ImageState::empty(first.base.epoch)? {
             return Err(ApplyError::MissingBase.into());
         }
         // Two names can coexist before rename or after a crash. Reserving two
@@ -435,7 +455,7 @@ impl GenerationStore {
                 self.inner.filesystem.as_ref(),
                 base_path.as_deref(),
                 &mut destination,
-                update,
+                updates,
                 &self.inner.limits.apply,
             )?;
             destination.sync_all()?;

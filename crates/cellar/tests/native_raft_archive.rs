@@ -9,6 +9,9 @@ mod cluster;
 mod download;
 #[path = "support/raft_catalog_fault.rs"]
 mod faults;
+#[path = "support/raft_ltx_fault.rs"]
+#[allow(dead_code)]
+mod image_fault;
 #[allow(dead_code)]
 #[path = "support/raft_ltx_fixture.rs"]
 mod images;
@@ -192,6 +195,22 @@ impl Fixture {
                 &format!("UPDATE counter SET value={value}"),
             )?
         };
+        self.commit_bytes(next, dependencies, |update| {
+            if corrupt {
+                let bytes = &mut update.files[0].bytes;
+                let last = bytes.len() - 1;
+                bytes[last] ^= 0xff;
+            }
+        })
+        .await
+    }
+
+    async fn commit_bytes(
+        &mut self,
+        next: Vec<u8>,
+        dependencies: Vec<ArchiveDependency>,
+        mutate: impl FnOnce(&mut CellUpdate),
+    ) -> Result<CommittedArchiveCut> {
         let cut = images::Cut::new(
             &self.bytes,
             &next,
@@ -204,17 +223,12 @@ impl Fixture {
                 .prepare(images::id(self.txid + 1), self.pin.as_ref(), &cut.update())?;
         let index = self.group.applied()?.position.index.get() + 1;
         let mut write = GroupWrite::new(&self.group);
-        let mut payload = self.payload(&cut)?;
-        if corrupt {
-            // The mechanical storage fixture can lie about applied bytes. A
-            // real ImageApplier refuses this entry; archive replay must also
-            // refuse it before advancing the independently verified head.
-            let mut update = CellUpdate::decode(&payload, EnvelopeLimits::default())?;
-            let bytes = &mut update.files[0].bytes;
-            let last = bytes.len() - 1;
-            bytes[last] ^= 0xff;
-            payload = update.encode(EnvelopeLimits::default())?;
-        }
+        // The mechanical storage fixture can lie about applied bytes. A real
+        // ImageApplier refuses such entries; archive replay must also refuse
+        // them before advancing the independently verified head.
+        let mut update = CellUpdate::decode(&self.payload(&cut)?, EnvelopeLimits::default())?;
+        mutate(&mut update);
+        let payload = update.encode(EnvelopeLimits::default())?;
         write.entries.push(Entry {
             index,
             term: 1,
@@ -355,6 +369,123 @@ fn restored(set: &ArchiveRecoverySet, expected: i64) -> Result<Vec<u8>> {
             == expected
     );
     Ok(bytes)
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn archive_replay_seals_one_generation_for_a_bounded_tail_batch() -> Result<()> {
+    let mut fixture = Fixture::new(ArchiveLimits::default()).await?;
+    let first = fixture.commit(1, vec![]).await?;
+    fixture.publish(first).await?;
+    for value in 2..=20 {
+        fixture.commit(value, vec![]).await?;
+    }
+    let last = fixture.commit(21, vec![]).await?;
+    let set = fixture.publish(last).await?;
+    ensure!(set.tail_entries() == 20);
+    for (max_files, expected_seals) in [(64, 1), (3, 7), (1, 21)] {
+        let root = tempfile::tempdir()?;
+        let directory = root.path().join("replay");
+        let faults = image_fault::Faults::new(directory.clone(), None);
+        let mut limits = GenerationLimits::default();
+        limits.apply.max_files = max_files;
+        let store = GenerationStore::open(
+            directory,
+            Arc::new(image_fault::FaultFileSystem {
+                faults: faults.clone(),
+            }),
+            limits,
+        )?;
+        faults.events.lock().unwrap().clear();
+        let pin = set.restore(&store, images::id(91))?;
+        ensure!(images::read(&pin)? == fixture.bytes);
+        let events = faults.events.lock().unwrap().clone();
+        for operation in ["image-sync", "rename"] {
+            assert_eq!(
+                events.iter().filter(|&&event| event == operation).count(),
+                expected_seals,
+                "archive replay {operation} count with {max_files} files per batch"
+            );
+        }
+    }
+    fixture.close().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn archive_replay_batches_preserve_shrink_then_growth_capacity() -> Result<()> {
+    let mut fixture = Fixture::new(ArchiveLimits::default()).await?;
+    let initial = images::image(
+        None,
+        "CREATE TABLE counter(value INTEGER); INSERT INTO counter VALUES(1);\
+         CREATE TABLE payload(value BLOB); INSERT INTO payload VALUES(zeroblob(32768))",
+    )?;
+    let initial_length = initial.len() as u64;
+    let first = fixture.commit_bytes(initial, vec![], |_| {}).await?;
+    fixture.publish(first).await?;
+    fixture.commit(2, vec![]).await?;
+    let shrunk = images::image(Some(&fixture.bytes), "DELETE FROM payload; VACUUM")?;
+    let shrunk_length = shrunk.len() as u64;
+    fixture.commit_bytes(shrunk, vec![], |_| {}).await?;
+    let grown = images::image(
+        Some(&fixture.bytes),
+        "INSERT INTO payload VALUES(zeroblob(36864))",
+    )?;
+    let capacity = 3 * initial_length;
+    ensure!(shrunk_length + 2 * grown.len() as u64 <= capacity);
+    ensure!(initial_length + 2 * grown.len() as u64 > capacity);
+    let last = fixture.commit_bytes(grown, vec![], |_| {}).await?;
+    let set = fixture.publish(last).await?;
+    let root = tempfile::tempdir()?;
+    let mut limits = GenerationLimits {
+        max_generations: 2,
+        max_bytes: capacity,
+        ..Default::default()
+    };
+    limits.apply.max_files = 2;
+    let store = GenerationStore::open(
+        root.path().join("replay"),
+        Arc::new(DirectFileSystem),
+        limits,
+    )?;
+    let pin = set.restore(&store, images::id(91))?;
+    ensure!(images::read(&pin)? == fixture.bytes);
+    fixture.close().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn archive_replay_refuses_an_overwritten_intermediate_image_digest() -> Result<()> {
+    let mut fixture = Fixture::new(ArchiveLimits::default()).await?;
+    let first = fixture.commit(1, vec![]).await?;
+    fixture.publish(first.clone()).await?;
+    let middle = images::image(Some(&fixture.bytes), "UPDATE counter SET value=2")?;
+    let mut false_digest = [0; 32];
+    fixture
+        .commit_bytes(middle, vec![], |update| {
+            update.result.image_digest[0] ^= 1;
+            false_digest = update.result.image_digest;
+        })
+        .await?;
+    let final_image = images::image(Some(&fixture.bytes), "UPDATE counter SET value=3")?;
+    let last = fixture
+        .commit_bytes(final_image, vec![], |update| {
+            update.base.image_digest = false_digest;
+        })
+        .await?;
+    ensure!(matches!(
+        fixture.publish(last).await,
+        Err(ArchiveError::Images(
+            cellar_ltx::generation::GenerationError::Apply(
+                cellar_ltx::apply::ApplyError::ResultDigest
+            )
+        ))
+    ));
+    let set = fixture
+        .archive
+        .recovery_set()
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("missing prior head"))?;
+    ensure!(set.position() == first.position());
+    restored(&set, 1)?;
+    fixture.close().await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

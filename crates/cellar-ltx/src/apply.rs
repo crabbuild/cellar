@@ -213,126 +213,177 @@ pub(crate) fn peak_image_bytes(
     Ok(peak)
 }
 
+/// Preflight the whole private chain, including its largest intermediate image
+/// and aggregate decode budgets. Every update retains its own image digest.
+pub(crate) fn peak_chain_bytes(
+    updates: &[ImageUpdate<'_>],
+    limits: &ApplyLimits,
+) -> Result<u64, ApplyError> {
+    let first = updates.first().ok_or(ApplyError::Limit)?;
+    let mut expected = first.base;
+    let mut peak = 0;
+    let (mut files, mut encoded, mut decoded, mut pages) = (0usize, 0usize, 0u64, 0usize);
+    for update in updates {
+        if update.base != expected {
+            return Err(ApplyError::Chain);
+        }
+        peak = peak.max(peak_image_bytes(update, limits)?);
+        for segment in &update.segments {
+            files = files.checked_add(1).ok_or(ApplyError::Limit)?;
+            encoded = encoded
+                .checked_add(segment.bytes.len())
+                .ok_or(ApplyError::Limit)?;
+            decoded = decoded
+                .checked_add(segment.decoded_bytes)
+                .ok_or(ApplyError::Limit)?;
+            pages = pages
+                .checked_add(segment.page_count)
+                .ok_or(ApplyError::Limit)?;
+        }
+        if files > limits.max_files
+            || encoded > limits.max_total_encoded_bytes
+            || decoded > limits.max_total_decoded_bytes
+            || pages > limits.max_total_pages
+        {
+            return Err(ApplyError::Limit);
+        }
+        expected = update.result;
+    }
+    Ok(peak)
+}
+
 /// Only called with an exclusively created private destination. No public API
 /// can ask this helper to mutate a published/pinned generation in place.
 pub(crate) fn apply_private(
     fs: &dyn FileSystem,
     base: Option<&Path>,
     target: &mut HostFile,
-    update: &ImageUpdate<'_>,
+    updates: &[ImageUpdate<'_>],
     limits: &ApplyLimits,
 ) -> Result<ImageState, ApplyError> {
-    peak_image_bytes(update, limits)?;
+    peak_chain_bytes(updates, limits)?;
+    let first = updates.first().ok_or(ApplyError::Limit)?;
     if target.file_len()? != 0 {
         return Err(ApplyError::Geometry);
     }
     let mut rolling = if let Some(path) = base {
         let mut source = fs.open(path)?;
-        inspect(&mut source, &update.base, Some(&mut *target)).map_err(|e| match e {
+        inspect(&mut source, &first.base, Some(&mut *target)).map_err(|e| match e {
             ApplyError::Digest => ApplyError::BaseDigest,
             e => e,
         })?
     } else {
-        if update.base != ImageState::empty(update.base.epoch)? {
+        if first.base != ImageState::empty(first.base.epoch)? {
             return Err(ApplyError::MissingBase);
         }
         CHECKSUM_FLAG
     };
-    let mut count = if update.base.page_size == 0 {
+    let mut count = if first.base.page_size == 0 {
         0
     } else {
-        (update.base.length / update.base.page_size as u64) as u32
+        (first.base.length / first.base.page_size as u64) as u32
     };
-    let mut actual_pages = 0_usize;
-    let mut actual_decoded = 0_u64;
-    let mut last_checksum = 0;
-    for segment in &update.segments {
-        let mut decode = limits.decode;
-        decode.max_pages = decode.max_pages.min(segment.page_count).min(
-            limits
-                .max_total_pages
-                .checked_sub(actual_pages)
-                .ok_or(ApplyError::Limit)?,
-        );
-        decode.max_decoded_bytes = decode.max_decoded_bytes.min(segment.decoded_bytes).min(
-            limits
-                .max_total_decoded_bytes
-                .checked_sub(actual_decoded)
-                .ok_or(ApplyError::Limit)?,
-        );
-        // A zero remaining budget can still admit an empty file; DecodeLimits
-        // itself stays a positive configuration and the counts are checked below.
-        decode.max_pages = decode.max_pages.max(1);
-        decode.max_decoded_bytes = decode.max_decoded_bytes.max(1);
-        let file = ltx::decode_file_bounded(segment.bytes, decode)?;
-        let header = file.header();
-        if file.pages().len() != segment.page_count || file.decoded_bytes() != segment.decoded_bytes
-        {
-            return Err(ApplyError::Declaration);
-        }
-        actual_pages = actual_pages
-            .checked_add(file.pages().len())
-            .ok_or(ApplyError::Limit)?;
-        actual_decoded = actual_decoded
-            .checked_add(file.decoded_bytes())
-            .ok_or(ApplyError::Limit)?;
-        if actual_pages > limits.max_total_pages || actual_decoded > limits.max_total_decoded_bytes
-        {
-            return Err(ApplyError::Limit);
-        }
-        if !header.no_checksum() && !header.is_snapshot() && header.pre_apply_checksum != rolling {
-            return Err(ApplyError::Checksum);
-        }
-        let page_size = header.page_size as u64;
-        let lock = ltx::lock_pgno(header.page_size);
-        let mut next = count + 1;
-        for (pgno, _) in file.pages().iter().filter(|(pgno, _)| *pgno > count) {
+    let mut result = first.base;
+    for update in updates {
+        let mut actual_pages = 0_usize;
+        let mut actual_decoded = 0_u64;
+        let mut last_checksum = 0;
+        for segment in &update.segments {
+            let mut decode = limits.decode;
+            decode.max_pages = decode.max_pages.min(segment.page_count).min(
+                limits
+                    .max_total_pages
+                    .checked_sub(actual_pages)
+                    .ok_or(ApplyError::Limit)?,
+            );
+            decode.max_decoded_bytes = decode.max_decoded_bytes.min(segment.decoded_bytes).min(
+                limits
+                    .max_total_decoded_bytes
+                    .checked_sub(actual_decoded)
+                    .ok_or(ApplyError::Limit)?,
+            );
+            // A zero remaining budget can still admit an empty file; DecodeLimits
+            // itself stays a positive configuration and the counts are checked below.
+            decode.max_pages = decode.max_pages.max(1);
+            decode.max_decoded_bytes = decode.max_decoded_bytes.max(1);
+            let file = ltx::decode_file_bounded(segment.bytes, decode)?;
+            let header = file.header();
+            if file.pages().len() != segment.page_count
+                || file.decoded_bytes() != segment.decoded_bytes
+            {
+                return Err(ApplyError::Declaration);
+            }
+            actual_pages = actual_pages
+                .checked_add(file.pages().len())
+                .ok_or(ApplyError::Limit)?;
+            actual_decoded = actual_decoded
+                .checked_add(file.decoded_bytes())
+                .ok_or(ApplyError::Limit)?;
+            if actual_pages > limits.max_total_pages
+                || actual_decoded > limits.max_total_decoded_bytes
+            {
+                return Err(ApplyError::Limit);
+            }
+            if !header.no_checksum()
+                && !header.is_snapshot()
+                && header.pre_apply_checksum != rolling
+            {
+                return Err(ApplyError::Checksum);
+            }
+            let page_size = header.page_size as u64;
+            let lock = ltx::lock_pgno(header.page_size);
+            let mut next = count + 1;
+            for (pgno, _) in file.pages().iter().filter(|(pgno, _)| *pgno > count) {
+                if next == lock {
+                    next += 1;
+                }
+                if *pgno != next {
+                    return Err(ApplyError::MissingPage);
+                }
+                next += 1;
+            }
             if next == lock {
                 next += 1;
             }
-            if *pgno != next {
+            if next <= header.commit {
                 return Err(ApplyError::MissingPage);
             }
-            next += 1;
-        }
-        if next == lock {
-            next += 1;
-        }
-        if next <= header.commit {
-            return Err(ApplyError::MissingPage);
-        }
-        for pgno in header.commit + 1..=count {
-            if pgno != lock {
-                let old = read_page(target, pgno, page_size)?;
-                rolling = CHECKSUM_FLAG | (rolling ^ ltx::checksum_page(pgno, &old));
+            for pgno in header.commit + 1..=count {
+                if pgno != lock {
+                    let old = read_page(target, pgno, page_size)?;
+                    rolling = CHECKSUM_FLAG | (rolling ^ ltx::checksum_page(pgno, &old));
+                }
+            }
+            for (pgno, data) in file.pages() {
+                if *pgno <= count && *pgno != lock {
+                    let old = read_page(target, *pgno, page_size)?;
+                    rolling = CHECKSUM_FLAG | (rolling ^ ltx::checksum_page(*pgno, &old));
+                }
+                target.write_all_at((*pgno as u64 - 1) * page_size, data)?;
+                rolling = CHECKSUM_FLAG | (rolling ^ ltx::checksum_page(*pgno, data));
+            }
+            target.set_len(header.commit as u64 * page_size)?;
+            count = header.commit;
+            last_checksum = file.trailer().post_apply_checksum;
+            if !header.no_checksum() && last_checksum != rolling {
+                return Err(ApplyError::Checksum);
             }
         }
-        for (pgno, data) in file.pages() {
-            if *pgno <= count && *pgno != lock {
-                let old = read_page(target, *pgno, page_size)?;
-                rolling = CHECKSUM_FLAG | (rolling ^ ltx::checksum_page(*pgno, &old));
-            }
-            target.write_all_at((*pgno as u64 - 1) * page_size, data)?;
-            rolling = CHECKSUM_FLAG | (rolling ^ ltx::checksum_page(*pgno, data));
-        }
-        target.set_len(header.commit as u64 * page_size)?;
-        count = header.commit;
-        last_checksum = file.trailer().post_apply_checksum;
-        if !header.no_checksum() && last_checksum != rolling {
+        if update.result.checksum != last_checksum {
             return Err(ApplyError::Checksum);
         }
+        // Check every intermediate image: a later overwrite could otherwise
+        // hide a false result digest even when the final image is correct.
+        let observed = inspect(target, &update.result, None).map_err(|e| match e {
+            ApplyError::Digest => ApplyError::ResultDigest,
+            e => e,
+        })?;
+        if observed != rolling {
+            return Err(ApplyError::Checksum);
+        }
+        result = update.result;
     }
-    if update.result.checksum != last_checksum {
-        return Err(ApplyError::Checksum);
-    }
-    let observed = inspect(target, &update.result, None).map_err(|e| match e {
-        ApplyError::Digest => ApplyError::ResultDigest,
-        e => e,
-    })?;
-    if observed != rolling {
-        return Err(ApplyError::Checksum);
-    }
-    Ok(update.result)
+    Ok(result)
 }
 
 fn read_page(file: &mut HostFile, pgno: u32, page_size: u64) -> Result<Vec<u8>, ApplyError> {
