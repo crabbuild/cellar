@@ -548,7 +548,8 @@ or let the adapter fabricate an activation context.
 | M4: packaging | Runtime/source/dependency inventory, verified install and process replacement | Wrong ABI/missing library/tampered source refuses startup; offline deployment; old/new process handoff; runtime artifact recovery; Python example runs from a fresh installation |
 | M5: SDK growth | Additional bindings and optional ASGI/stream adapters | Independent authority, cancellation, backpressure, replay and resource tests for each surface |
 
-Core features span all six phases; optional adapters remain deferred. The
+Core features span all six phases. The FastAPI example adds buffered ASGI HTTP;
+general ASGI lifespan, WebSockets and live streaming remain deferred. The
 assessments below describe implemented contracts and historical evidence, not
 qualification of a later revision. The shared release gate requires current
 source/ABI/platform checks and diagnosis of preserved lifecycle failures.
@@ -561,7 +562,7 @@ Component acceptance does not close that reliability gate:
 | M2 | Storage, atomic batches, alarms, proof and receipt recovery have direct evidence; complete Linux regressions pass | No missing feature identified; shared reliability release gate remains |
 | M3 | Fencing, retirement, takeover and supervised noncooperative shutdown implemented; lease and reset/read corrections have direct evidence; complete Linux regressions pass | Diagnose preserved delivery, initial consumer admission and clock/replay failures without weakening assertions |
 | M4 | Verified packaging, native prerequisites, offline restoration and process replacement pass locally and in all four complete Linux jobs at 85cdef4 | No missing feature identified; shared reliability release gate remains |
-| M5 | KV, shared SQL, queues and cron implemented with independent failure matrices; measured defaults and complete Linux regressions pass in both ABIs | Optional ASGI/streaming remain deferred; shared reliability release gate remains |
+| M5 | KV, shared SQL, queues and cron implemented with independent failure matrices; measured defaults and historical Linux regressions pass in both ABIs; the buffered FastAPI example includes deployment checks | General ASGI lifespan, WebSockets and live streaming remain deferred; shared reliability release gate remains |
 
 Qualification of source 97be2cc completes the Linux installed-package step in
 both push ABI jobs and the conventional PR job. The PR free-threaded job fails

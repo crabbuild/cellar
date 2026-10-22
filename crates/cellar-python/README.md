@@ -184,6 +184,15 @@ not check every idle cell. Consuming the flag before the scan preserves concurre
 retirements for another pass. Each SDK operation still checks its native owner
 and invocation authority independently of this cleanup optimization.
 
+The pump admits at most 64 starts before yielding to the event loop. Continuous
+arrivals, including requests rejected at task capacity, cannot indefinitely
+postpone timers and task cancellation. A deferred continuation services queued
+starts without waiting for another native notification.
+Managed invocations start eagerly until their first await; handlers that finish
+inline avoid an extra task-dispatch turn and completion callback. They still use
+the bounded task factory and invocation context. Individual handlers remain
+cooperative and can block the interpreter.
+
 `poll_interval` now bounds housekeeping waits (250 ms by default), rather than
 delaying ordinary requests. The telemetry deadline may shorten that wait. A
 longer housekeeping interval delays observation of background thread/unraisable
@@ -341,8 +350,8 @@ records whole-process peak RSS and initial/final CPython allocated-block counts.
 These are measurements, not per-cell limits or Python-only memory attribution.
 `loop_delay` measures ready-queue checkpoint delay and housekeeping timer
 lateness, including blocking Python, GIL contention and OS scheduling; it cannot
-isolate one cause. Checkpoints follow newly started/resumed handlers so a long
-housekeeping interval does not hide short blocking handlers. Time spent awaiting
+isolate one cause. Checkpoints cover inline pump/handler work and follow resumed
+handlers so a long housekeeping interval does not hide short blocking handlers. Time spent awaiting
 host I/O is not counted as event-loop delay.
 The exact bounded histogram layout is available through
 `LatencyReport::upper_bounds_ns()`: inclusive bounds of 1 µs, 10 µs, 100 µs,

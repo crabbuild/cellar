@@ -33,8 +33,9 @@ Startup verification is not a filesystem sandbox.
 The following uses an independent runtime, cached platform wheels, then an
 offline installation. `uv` is a build-time tool; it is never run by the host.
 Select the managed runtime executable printed by `uv python find`.
-The build and qualification scripts require Python 3.11 or newer. The commands
-below run them with the selected managed 3.14 interpreter.
+The build and packaging tools require Python 3.11 or newer. Runner scheduling
+tests use the selected CPython 3.14 or 3.14t interpreter. The commands below run
+the tools with the selected managed 3.14 interpreter.
 
 ```sh
 export CELLAR_PYTHON_PREFIX="/absolute/private/path/cellar-python-env"
@@ -248,6 +249,10 @@ Each scenario prints a `PASS Python watchdog` line only after the recovered
 counter, durable alarm and duplicate-delivery assertions succeed. The bridge
 uses a custom test harness (`harness = false`); a preceding Cargo summary of
 `0 passed` belongs to another test target and does not describe these checks.
+Run `"$PYO3_PYTHON" -B tools/python/test_runner.py` with the selected interpreter
+to check continuous-arrival fairness, nested task admission, blocking-handler
+telemetry and timer-driven cancellation. These scheduling tests complement the
+real-node bridge suite's authority, durability and lifecycle checks.
 Any bridge failure still exits nonzero and fails `cargo test`.
 
 To isolate the main HTTP/storage/lifecycle contract after the subprocess drills,

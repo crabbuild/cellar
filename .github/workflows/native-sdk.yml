@@ -81,6 +81,7 @@ jobs:
         run: |
           python3 tools/python/test_qualification_guards.py
           python3 tools/python/test_baseline.py
+          python3 tools/python/test_runner.py
       - name: Test Cloudflare benchmark peer relay
         run: |
           npm ci --ignore-scripts --prefix tools/perf/cloudflare

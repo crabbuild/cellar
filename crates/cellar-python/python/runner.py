@@ -178,8 +178,14 @@ async def _serve(module, inbox, interval, shutdown, stats, maximum, max_tasks, t
                 # A cancelled task can retain its cell through its traceback.
                 # An idle pump may receive no later reply to overwrite entry.
                 del entry, result
-            while (start := inbox.take()) is not None:
+            # Rejections free native admission immediately. A continuously
+            # replenished inbox must still yield to replies, timers and cleanup.
+            for _ in range(64):
+                start = inbox.take()
+                if start is None:
+                    break
                 invocation, payload, body, bridge = start
+                del start
                 payload = json.loads(payload)
                 context = Context(bridge, payload["identity"])
                 if len(asyncio.all_tasks()) >= max_tasks:
@@ -192,10 +198,16 @@ async def _serve(module, inbox, interval, shutdown, stats, maximum, max_tasks, t
                         _current_invocation.reset(token)
                     del context, bridge, payload, body
                     continue
-                task = asyncio.create_task(_invoke(module, objects, payload, body, bridge, context, stats, maximum))
-                task.add_done_callback(completed)
+                task = asyncio.create_task(_invoke(module, objects, payload, body, bridge, context, stats, maximum),
+                                           eager_start=True)
+                if not task.done():
+                    task.add_done_callback(completed)
                 invocations[invocation] = (task, context, bridge)
                 del task, context, bridge, payload, body
+            else:
+                # Defer the continuation so ready.wait() actually yields. No
+                # additional native notification is required for queued starts.
+                loop.call_soon(ready.set)
             for invocation, (task, context, bridge) in tuple(invocations.items()):
                 if not bridge.active() and not task.done():
                     task.cancel()
@@ -228,11 +240,11 @@ async def _serve(module, inbox, interval, shutdown, stats, maximum, max_tasks, t
                 publish_work()
                 next_sample = now + int(telemetry * 1_000_000_000)
             delay = min(interval, max(0, (next_sample - time.perf_counter_ns()) / 1_000_000_000))
-            # This ready-queue checkpoint follows the tasks just started or
-            # resumed above. Detect blocking handlers even when housekeeping
-            # is infrequent, without measuring time spent awaiting host I/O.
-            now = time.perf_counter_ns()
+            # Queue the checkpoint after resumed tasks, using the start of this
+            # pump turn to include inline handler work. Host I/O awaits yield
+            # the loop and do not contribute their elapsed wait to this sample.
             loop.call_soon(observe_ready, now)
+            now = time.perf_counter_ns()
             timer = loop.call_later(delay, deadline_ready, now + int(delay * 1_000_000_000))
             try:
                 await ready.wait()
