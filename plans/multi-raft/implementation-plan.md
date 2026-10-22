@@ -1038,6 +1038,31 @@ traffic objectives. The preceding repeat of the original binary completed
 swap prevent a controlled causal speedup or steady-state capacity claim. All
 exact containers exited zero, the owned profile is stopped, and volumes remain.
 
+The [five-node evidence](evidence/MR-14-five-node-progress.json) extends the
+runner to three-voter placement across three to five physical nodes. Unassigned
+nodes do not register a cell. Complete before/after scans verify actual voter
+membership, roles and registration; owner metrics verify local group counts,
+and final reads verify every assigned replica. Raw receipts and query invocations
+must match the declared durability and follower-read contract. Resource checks
+require distinct CPU sets and all five 1-vCPU/3-GiB/no-swap containers.
+
+At source `bd7868f`, both five-node profiles use 150 cells, 30 active cells,
+90 replicas and 30 leaders per node, 30 seconds of warmup and 120 seconds of
+measurement at 10 offered operations/second. Quorum completed 1,200/1,200
+measured operations at 65 ms overall p99 arrival latency. S3 completed
+1,158/1,200 at 233 ms p99, with 42 `cell_busy` generator rejections, missing
+the declared traffic objectives. Every submitted history, all 450 replicas and
+final archive coverage reconcile in both runs. These shared-host observations
+do not qualify steady state or Q1 capacity. The comparison refuses a speedup
+ratio between the different durability contracts. All six containers per run
+exited zero; the dedicated profile is stopped and volumes remain.
+
+The same change retains a separate CI finding: the preceding Python 3.14
+baseline job failed a counter acknowledgement without logging its response.
+Three local repetitions passed, so the failure is unresolved. CI now retains
+bounded response details and private fixture failure artifacts; assertions
+remain unchanged. This diagnostic improvement is not a CI correctness fix.
+
 Remaining MR-14 gates include sustained S3 acknowledgement latency, controlled
 slow-follower baselines and equivalent-contract analysis, instrumentation overhead
 and whole-device attribution, steady-state/density evidence and preliminary Q1

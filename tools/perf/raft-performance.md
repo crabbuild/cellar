@@ -75,6 +75,23 @@ requires six processes and 10,000 three-voter cells; neither the host bound nor
 the Q1 gate is reduced by these profiles. Fleet and bucket reference adapters
 continue to use their separate three-node topology and contracts.
 
+The [retained five-node runs](../../plans/multi-raft/evidence/MR-14-five-node-progress.json)
+at source `bd7868f` use those unmodified profiles:
+
+| Acknowledgement | Completed / offered | Overall p99 | Command p99 | Follower-query p99 | Generator rejections |
+| --- | --- | --- | --- | --- | --- |
+| Quorum | 1,200 / 1,200 | 64.7 ms | 147.2 ms | 22.9 ms | 0 |
+| S3 | 1,158 / 1,200 | 232.7 ms | 260.2 ms | 35.7 ms | 42 `cell_busy` |
+
+Latencies include generator scheduling. Quorum meets the proposed traffic
+targets; S3 misses them. Both reconcile every submitted operation, all 450
+replicas and final archive coverage. All six containers per run exited zero
+without OOM; volumes and complete evidence remain, and the owned profile is
+stopped. These are shared-Mac observations with host swap and other independent
+Colima profiles. They do not establish steady state, a capacity ceiling or an
+equivalent-guarantee speedup. The independent comparison refuses a ratio between
+Quorum and S3 contracts.
+
 ## Workload and evidence
 
 The JSON profile explicitly names topology, cell population, uniformly sampled

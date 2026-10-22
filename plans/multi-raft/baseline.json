@@ -1,12 +1,12 @@
 {
   "format": 1,
   "repository": "https://github.com/crabbuild/cellar",
-  "revision": "1093fde73b1ede17280968fe426bdf3a4c8f0c65",
+  "revision": "bd7868f03db1b58437892526ffebabdabe0453a7",
   "prepared_date": "2026-10-22",
   "files": [
     {
       "path": ".github/workflows/native-sdk.yml",
-      "sha256": "bcc6bb647a34845a2e19b3e76960b277d1eb04fa3167bdd1f37fda545b610fd2"
+      "sha256": "ea2182ccb5d444c2568c252f45946af99abc4e18fd89d3d9b35c3782a16400da"
     },
     {
       "path": "AGENTS.md",
@@ -330,7 +330,7 @@
     },
     {
       "path": "tools/perf/raft_node.rs",
-      "sha256": "8e9257fdafd414a9734c901f9788f6e28ef7de3650de864033f3956a37e84f95"
+      "sha256": "ef9b70238e9b15b2055142e8d53c909924795d9cd824352740223b16c8703fdb"
     },
     {
       "path": "tools/perf/test_build_freshness.py",

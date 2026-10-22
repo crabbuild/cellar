@@ -80,6 +80,12 @@ workload, fixed open-loop arrivals and independent ledger/replica/archive checks
 Its [performance evidence](evidence/MR-14-performance-progress.json) retains both
 passed functional checks and missed local traffic objectives. Matched Fleet/bucket
 baselines, remaining instrumentation and Q1 density qualification remain open.
+The later [five-node evidence](evidence/MR-14-five-node-progress.json) verifies
+actual three-voter placement for 150 cells, with 90 replicas and 30 leaders per
+node. Quorum completes 1,200/1,200 measured arrivals at 65 ms p99; S3 completes
+1,158/1,200 at 233 ms p99 and misses its traffic targets. Both reconcile all
+submitted histories, 450 replica observations and final archive coverage.
+The shared-host runs preserve separate durability contracts and leave Q1 open.
 The bounded archive producer now coalesces payloads from two histories while
 keeping independent per-cell physical verification and head publication. The
 [archive-bundle evidence](evidence/MR-14-archive-bundle-progress.json) records all

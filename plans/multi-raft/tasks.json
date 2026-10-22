@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "baseline_revision": "1093fde73b1ede17280968fe426bdf3a4c8f0c65",
+  "baseline_revision": "bd7868f03db1b58437892526ffebabdabe0453a7",
   "status_values": [
     "TODO",
     "IN_PROGRESS",
@@ -2372,7 +2372,8 @@
         "tools/perf/baseline_history.py",
         "tools/perf/baseline_analyze.py",
         "tools/perf/compare_runs.py",
-        "tools/perf/test_baseline.py"
+        "tools/perf/test_baseline.py",
+        "tools/perf/raft_topology.py"
       ],
       "steps": [
         "Optimize shared log batches, pooled transport and fair scheduling while retaining per-group Ready ordering.",
@@ -2469,7 +2470,8 @@
         "evidence/MR-14-background-admission-progress.json",
         "evidence/MR-14-handoff-progress.json",
         "evidence/MR-14-baseline-progress.json",
-        "evidence/MR-14-replay-progress.json"
+        "evidence/MR-14-replay-progress.json",
+        "evidence/MR-14-five-node-progress.json"
       ]
     },
     {
