@@ -669,8 +669,8 @@ parent cases. Clippy first detected two unit-test modules independently loading
 the same filesystem fault fixture. Moving that fixture to their shared parent
 resolved the duplicate module; all 12 host unit tests and strict all-target
 Clippy pass afterward. Formatting, module layout, dependency policy and
-documentation checks pass. Production-image comparison of accounting reuse is
-pending; the end-to-end performance objective remains open.
+documentation checks pass. The production-image comparison below is complete;
+the end-to-end performance objective remains open.
 
 The regular Linux SDK job at `2ee7fd6` failed both
 `native_snapshot_interrupted_transfer_retries_without_blocking_other_groups`
@@ -678,6 +678,63 @@ and `native_snapshot_shutdown_joins_partial_transfer` with generic elapsed
 deadlines (40 passed, two failed). This repeats earlier Linux snapshot failures;
 the latest local 42-case snapshot pass does not explain them. The free-threaded
 job advanced beyond its test/lint step and is still running at this observation.
+
+## Accounting reuse production comparison
+
+Control `2ee7fd6` and candidate `5080836` each completed six 60-second windows,
+first at three/six/nine concurrent writers, then in reverse order. Both used
+three Colima nodes with one vCPU and 3 GiB each, 500 leaders and 1,000 followers
+per node, quorum acknowledgements, 500-ms ticks, a 4,096-item request queue and
+512-MiB archive scratch mounts. Image, executable and frozen source identities
+matched; neither run overlapped builds, tests or profilers from this checkout.
+
+| Build | Repeat | Writers | Accepted writes/sec | Successful-response p99 (ms) | Overloads |
+| --- | --- | --- | --- | --- | --- |
+| Control | 1 | 3 | 104.96 | 92.39 | 0 |
+| Control | 1 | 6 | 182.81 | 89.94 | 0 |
+| Control | 1 | 9 | 206.20 | 124.03 | 568 |
+| Control | 2 | 9 | 206.87 | 117.26 | 888 |
+| Control | 2 | 6 | 239.37 | 52.65 | 0 |
+| Control | 2 | 3 | 161.69 | 43.72 | 0 |
+| Candidate | 1 | 3 | 181.60 | 44.74 | 0 |
+| Candidate | 1 | 6 | 255.41 | 53.21 | 0 |
+| Candidate | 1 | 9 | 247.30 | 106.03 | 892 |
+| Candidate | 2 | 9 | 246.90 | 79.39 | 2,098 |
+| Candidate | 2 | 6 | 232.56 | 69.86 | 0 |
+| Candidate | 2 | 3 | 161.62 | 49.72 | 0 |
+
+Independent analysis verified 67,639 control and 81,052 candidate acknowledged
+writes including seed against all 4,500 exact replica values and all 1,500
+RustFS archive positions in each run. At either the 200-ms or 500-ms p99 budget,
+six writers passed both repeats without errors: control averaged 211.09
+writes/sec with worst-window p99 89.94 ms, and candidate averaged 243.98 with
+worst-window p99 69.86 ms. Nine writers still produced overloads. The candidate's
+additional concurrency did not materially increase accepted throughput; its
+successful-response latency excludes refused requests.
+
+Other checkouts' build processes appeared in 19/93 control activity samples and
+0/92 candidate samples. Reconstructed issue times place all 19 overlapping
+samples in the control's nine-writer windows; neither six-writer window had a
+sampled build process. Sampling does not prove host isolation, the control's
+six-writer repeats varied substantially, and the candidate's second six-writer
+repeat was slightly slower than the control's. These short measurements show a
+promising operating point, not a controlled, repeatable improvement or sustained
+service-rate qualification. A longer confirmation remains necessary.
+
+Peak node memory was 1.21 GB for control and 1.35 GB for candidate, below the
+3-GiB limits, with no recorded OOM events or CPU-quota throttling. Shared VM disk
+use rose from 89% to 93%; this is another uncontrolled environmental change.
+Archive catch-up after replica checks took approximately 16.48 seconds in each
+run; different pending work prevents comparing these waits as archive
+service rates. Both clusters stopped cleanly, with voter and RustFS volumes,
+receipts and closing logs retained. The [sanitized comparison](evidence/tikv-admission-accounting-comparison.json)
+records per-window host overlap, resource counters and raw evidence hashes.
+
+Archive-retention admission remains the measured throughput limit. The earlier
+stage counters identify the 4,096-entry bound and material download, replay and
+publication costs; this production comparison does not further attribute those
+costs or establish RustFS server saturation. Raising the backlog cap would add
+buffering without demonstrating faster archive catch-up.
 
 ## Remaining qualification
 
