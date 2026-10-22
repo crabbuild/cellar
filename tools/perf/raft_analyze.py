@@ -7,6 +7,7 @@ from raft_run import decode_json, input_digest, read_json, require, summarize_le
 from raft_workload import reconcile
 from raft_metrics import phases, periodic
 from raft_faults import fault_evidence, validate_scenario
+from raft_kernel import analyze as analyze_kernel
 from raft_topology import local_placement, members, verify_topology, verify_resources, verify_populations, verify_traffic
 
 
@@ -68,8 +69,11 @@ def analyze(root):
         require(row['cpu_max'] == '100000 100000' and row['memory_max'] == 3 * 1024**3 and row['swap_max'] == 0, 'physical cgroup differs')
     fault = fault_evidence(root, report, summarize_ledger, decode_json)
     require(fault == report['fault_result'], 'fault result differs from raw observations')
+    kernel = analyze_kernel(read_json(root / 'kernel-measurements.json'), report)
+    require(kernel == report['kernel'], 'kernel result differs from raw observations')
+    require(report['memory_objectives_met'] is all(row['memory_objective_met'] for row in kernel['measurement']), 'memory objective differs from kernel evidence')
     return {'verified': True, 'scope': report['scenario'] + ' serialized workload, assigned three-voter replicas and archive coverage', 'placement': planned,
-            'fault': fault,
+            'fault': fault, 'kernel': kernel,
             'commands_including_seed': history['commands_including_seed'], 'queries': history['queries'],
             'replicas': len(seen), 'summary': summary, 'performance': performance, 'limitations': report['limitations']}
 

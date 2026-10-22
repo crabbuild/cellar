@@ -27,6 +27,18 @@ class Profiles(unittest.TestCase):
         self.assertFalse(result['host_bound_admits_balanced_placement'])
         self.assertFalse(result['density_qualified'])
 
+    def test_density_ladder_changes_only_live_cell_population(self):
+        catalog = read_json(Path(__file__).with_name('raft_profiles.json'))['profiles']
+        from raft_topology import local_placement
+        for cells in (500, 1500):
+            profile = validate_profile(catalog['local-density-' + str(cells)])
+            expected = copy.deepcopy(catalog['local-five'])
+            expected['cells']['total'] = cells
+            expected['qualification'] = profile['qualification']
+            self.assertEqual(profile, expected)
+            self.assertEqual({r['replica_cells'] for r in local_placement(profile)}, {cells * 3 // 5})
+            self.assertFalse(capacity(profile)['density_qualified'])
+
     def test_missing_and_unknown_workload_fields_are_refused(self):
         for key in self.profile():
             profile = self.profile()
@@ -359,6 +371,7 @@ class IndependentReport(unittest.TestCase):
         profile['timing']['measurement_seconds'] = 2
         planned = local_placement(profile)
         report = {'completed': True, 'reconciled': True, 'profile': profile, 'prefix': 'fixture',
+            'run_id': 'owned',
             'scenario': 'healthy', 'fault_profile': None, 'fault_profile_sha256': input_digest(None), 'fault_result': None,
             'profile_sha256': input_digest(profile), 'summary': summarize_ledger(path, 'measurement', 2),
             'measurement': {'offered': 2 * total}, 'final_archive': [[200, {'cell': cell, 'archived': 3}] for cell in range(total)],
@@ -391,15 +404,31 @@ class IndependentReport(unittest.TestCase):
                                 voters=sorted(assigned) if node == assigned[0] else None)
                 topology.append({'cell': cell, 'node': node, 'status': 200, 'response': view})
         (root / 'topology.json').write_text(json.dumps({'before': topology, 'after': topology}))
+        from test_raft_kernel import rows as kernel_rows
+        from raft_kernel import analyze as analyze_kernel
+        kernel = {'measurement': {'before': kernel_rows(report, 30), 'after': kernel_rows(report, 40)}}
+        report['measurement'].update(started_monotonic_seconds=31, elapsed_seconds=2)
+        if profile['timing']['warmup_seconds']:
+            kernel['warmup'] = {'before': kernel_rows(report, 1), 'after': kernel_rows(report, 20)}
+            report['warmup'] = {'started_monotonic_seconds': 2, 'elapsed_seconds': profile['timing']['warmup_seconds']}
+        report['kernel'] = analyze_kernel(kernel, report)
+        report['memory_objectives_met'] = True
+        (root / 'kernel-measurements.json').write_text(json.dumps(kernel))
         return report, replicas
 
     def test_four_and_five_node_evidence_covers_only_assigned_replicas(self):
         from raft_analyze import analyze
         for nodes in (4, 5):
-            for corrupt in ('valid', 'unassigned_replica', 'missing_node', 'extra_registration', 'wrong_voters', 'wrong_population', 'shared_cpu', 'short_vm', 'wrong_cgroup', 'false_durability', 'false_read_mode'):
+            for corrupt in ('valid', 'unassigned_replica', 'missing_node', 'extra_registration', 'wrong_voters', 'wrong_population', 'shared_cpu', 'short_vm', 'wrong_cgroup', 'false_durability', 'false_read_mode', 'false_memory', 'changed_kernel'):
                 with self.subTest(nodes=nodes, corrupt=corrupt), tempfile.TemporaryDirectory() as directory:
                     root = Path(directory)
                     report, replicas = self.fixture(root, nodes)
+                    if corrupt == 'false_memory':
+                        report['memory_objectives_met'] = False
+                    elif corrupt == 'changed_kernel':
+                        raw = json.loads((root / 'kernel-measurements.json').read_text())
+                        raw['measurement']['after'][0]['identity']['started'] = 'changed-process'
+                        (root / 'kernel-measurements.json').write_text(json.dumps(raw))
                     if corrupt == 'unassigned_replica':
                         replicas[0]['node'] = 4
                         replicas[0]['response']['served_by'] = 4

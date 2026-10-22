@@ -21,6 +21,7 @@ from raft_workload import Ledger, input_digest, model, run_load, reconcile
 from raft_metrics import phases, samples
 from raft_faults import SlowFollower, fault_evidence, preflight_pause, validate_scenario
 from raft_docker import BoundContainer, discover as discover_fault_engine
+from raft_kernel import capture as capture_kernel, analyze as analyze_kernel
 from raft_topology import local_placement, members, verify_topology, verify_resources, verify_populations, verify_traffic, vm_requirements
 from run import create_bucket
 
@@ -240,7 +241,7 @@ def main():
     def docker(*command):
         # Never print arguments: credentials may appear in container environment.
         result = subprocess.run(['docker', '--context', args.context, *command], text=True, capture_output=True,
-                                timeout=15 if command[0] in ('pause', 'unpause', 'inspect') else None)
+                                timeout=15 if command[0] in ('pause', 'unpause', 'inspect', 'exec') else None)
         require(result.returncode == 0, f'Docker {command[0]} failed (arguments and environment omitted)')
         return (result.stdout + (result.stderr if command[0] == 'logs' else '')).strip()
     build = verify_image(args.image, docker)
@@ -281,7 +282,7 @@ def run(args, profile, build, docker, cpus, memory):
               'fault_profile': args.fault_config, 'fault_profile_sha256': input_digest(args.fault_config),
               'fault_capability': args.fault_capability,
               'fault_engine': args.fault_engine,
-              'runner_sha256': {name: hashlib.sha256((ROOT / 'tools/perf' / name).read_bytes()).hexdigest() for name in ('raft_run.py', 'raft_workload.py', 'raft_analyze.py', 'raft_metrics.py', 'raft_topology.py', 'raft_faults.py', 'raft_docker.py', 'raft.py', 'run.py')},
+              'runner_sha256': {name: hashlib.sha256((ROOT / 'tools/perf' / name).read_bytes()).hexdigest() for name in ('raft_run.py', 'raft_workload.py', 'raft_analyze.py', 'raft_metrics.py', 'raft_topology.py', 'raft_faults.py', 'raft_docker.py', 'raft_kernel.py', 'raft.py', 'run.py')},
               'capacity': capacity(profile), 'placement': planned, 'vm': {'cpus': cpus, 'memory_bytes': memory},
               'completed': False, 'reconciled': False,
               'limitations': ['One local VM and RustFS; no independent failure domains or Amazon S3 qualification.',
@@ -398,8 +399,10 @@ def run(args, profile, build, docker, cpus, memory):
                 require(code == 200, 'node metrics unavailable')
                 rows.append({'node': node, 'started_ns': began, 'finished_ns': ended, 'sample': sample})
             return rows
-        measurements = {}
+        measurements, kernel = {}, {}
         def boundary(phase, edge):
+            kernel.setdefault(phase, {})[edge] = capture_kernel(docker, nodes + [prefix + '-store'], run_id)
+            (root / 'kernel-measurements.json').write_text(json.dumps(kernel) + '\n')
             measurements.setdefault(phase, {})[edge] = capture()
             (root / 'measurements.json').write_text(json.dumps(measurements) + '\n')
             samples(measurements[phase][edge], node_count)
@@ -438,6 +441,8 @@ def run(args, profile, build, docker, cpus, memory):
                 boundary(phase, 'after')
                 require(not report[phase]['ambiguous'] and not report[phase]['blocked_cells'], 'ambiguous history requires reconciliation before continuing')
         report['performance'] = phases(measurements, bool(profile['timing']['warmup_seconds']), node_count)
+        report['kernel'] = analyze_kernel(kernel, report)
+        report['memory_objectives_met'] = all(row['memory_objective_met'] for row in report['kernel']['measurement'])
         replicas = []
         for cell, expected in state.items():
             for ordinal in members(cell, node_count):

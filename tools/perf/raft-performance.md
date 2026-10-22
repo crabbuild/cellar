@@ -81,6 +81,17 @@ requires six processes and 10,000 three-voter cells; neither the host bound nor
 the Q1 gate is reduced by these profiles. Fleet and bucket reference adapters
 continue to use their separate three-node topology and contracts.
 
+`local-density-500` and `local-density-1500` retain the `local-five` workload,
+timings, 30 active cells, resource limits and Quorum acknowledgement contract.
+They increase only the total seeded live cell population, to 300 and 900 voter
+replicas per node respectively. Every cell still has actual consensus, SQLite
+state and archive coverage; inactive application cells continue Raft ticks.
+Compare these with a fresh same-image `local-five` healthy run without fault
+probes. This ladder measures the cost of additional mostly idle replicas under
+fixed active traffic. It does not test Q1's active fraction, six processes,
+database distribution or 24-hour failure/recovery requirement. Admission and
+the 4,096-group host bound are unchanged; a completed run is not a density claim.
+
 The [retained five-node runs](../../plans/multi-raft/evidence/MR-14-five-node-progress.json)
 at source `bd7868f` use those unmodified profiles:
 
@@ -157,6 +168,22 @@ checker. Ambiguous or overlapping per-cell histories refuse reconciliation.
 `traffic_objectives_met` separately records the proposed latency, throughput and
 error objectives. Warmup is explicit but does not establish steady state by
 itself. A successful functional run is not a capacity claim.
+
+`kernel-measurements.json` records cgroup v2 and PID 1 observations before and
+after each phase for every Cellar container and RustFS. Raw source IDs, container
+start time and process start ticks must remain stable. The analyzer rejects
+missing nodes, changed limits, restarts, reset counters and intervals that do not
+enclose the workload. It recomputes CPU use/throttling, cgroup I/O deltas, lifetime
+peak memory, boundary RSS/thread/FD counts and the declared memory headroom gate.
+`memory_objectives_met` is separate from traffic and history results.
+
+CPU rates are reported as a range bounded by the observation request windows;
+they cover the whole container, including observer commands. Memory peak includes
+startup and warmup. Boundary FD/thread counts are not interval peaks. Cgroup I/O
+is charged container I/O, not complete physical-device or host-volume attribution.
+The report retains observation overhead instead of subtracting an assumed cost.
+Use the recorded analyzer revision for older evidence; fresh reports require
+these kernel observations, while the internal format marker remains 1.
 
 ## Controlled slow-follower experiments
 

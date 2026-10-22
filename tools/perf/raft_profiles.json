@@ -283,6 +283,118 @@
         "memory_headroom_fraction": 0.1
       },
       "qualification": "Proposed local five-node observation: 150 three-voter cells, 90 replicas and 30 planned leaders per node. One VM and RustFS do not qualify independent domains, Q1, steady state or a capacity ceiling."
+    },
+    "local-density-500": {
+      "topology": {
+        "nodes": 5,
+        "voters": 3,
+        "failure_domains": 1
+      },
+      "cells": {
+        "total": 500,
+        "active": 30
+      },
+      "database_bytes": [
+        4096
+      ],
+      "write_bytes": [
+        64,
+        1024
+      ],
+      "read_fraction": 0.5,
+      "read_consistency": "at-least",
+      "skew": {
+        "hot_fraction": 0.1,
+        "hot_probability": 0.8
+      },
+      "arrival": {
+        "rate_per_second": 10,
+        "max_inflight": 8,
+        "max_lateness_ms": 100
+      },
+      "timing": {
+        "warmup_seconds": 30,
+        "measurement_seconds": 120,
+        "soak_seconds": 0,
+        "request_timeout_ms": 5000,
+        "retry_window_ms": 300000,
+        "startup_seconds": 600
+      },
+      "durability": "quorum",
+      "resources": {
+        "node_cpus": 1,
+        "node_memory_bytes": 3221225472,
+        "node_swap_bytes": 0,
+        "store_cpus": 2,
+        "store_memory_bytes": 4294967296
+      },
+      "tick_ms": 100,
+      "seed": 14,
+      "slo": {
+        "p99_ms": 200,
+        "max_error_fraction": 0.01,
+        "min_completed_per_second": 9.9,
+        "max_archive_lag_seconds": 60,
+        "max_recovery_seconds": 30,
+        "memory_headroom_fraction": 0.1
+      },
+      "qualification": "Local density observation only: 500 seeded live three-voter cells, 300 replicas per node, and 30 active cells. Fixed active traffic isolates additional mostly idle consensus/image cost. Five nodes in one VM do not qualify Q1, steady state, recovery reserve or a capacity ceiling."
+    },
+    "local-density-1500": {
+      "topology": {
+        "nodes": 5,
+        "voters": 3,
+        "failure_domains": 1
+      },
+      "cells": {
+        "total": 1500,
+        "active": 30
+      },
+      "database_bytes": [
+        4096
+      ],
+      "write_bytes": [
+        64,
+        1024
+      ],
+      "read_fraction": 0.5,
+      "read_consistency": "at-least",
+      "skew": {
+        "hot_fraction": 0.1,
+        "hot_probability": 0.8
+      },
+      "arrival": {
+        "rate_per_second": 10,
+        "max_inflight": 8,
+        "max_lateness_ms": 100
+      },
+      "timing": {
+        "warmup_seconds": 30,
+        "measurement_seconds": 120,
+        "soak_seconds": 0,
+        "request_timeout_ms": 5000,
+        "retry_window_ms": 300000,
+        "startup_seconds": 600
+      },
+      "durability": "quorum",
+      "resources": {
+        "node_cpus": 1,
+        "node_memory_bytes": 3221225472,
+        "node_swap_bytes": 0,
+        "store_cpus": 2,
+        "store_memory_bytes": 4294967296
+      },
+      "tick_ms": 100,
+      "seed": 14,
+      "slo": {
+        "p99_ms": 200,
+        "max_error_fraction": 0.01,
+        "min_completed_per_second": 9.9,
+        "max_archive_lag_seconds": 60,
+        "max_recovery_seconds": 30,
+        "memory_headroom_fraction": 0.1
+      },
+      "qualification": "Local density observation only: 1500 seeded live three-voter cells, 900 replicas per node, and 30 active cells. Fixed active traffic isolates additional mostly idle consensus/image cost. Five nodes in one VM do not qualify Q1, steady state, recovery reserve or a capacity ceiling."
     }
   }
 }
