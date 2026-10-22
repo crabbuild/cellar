@@ -871,6 +871,7 @@ async fn initialize(
             local,
             snapshot_limits,
             snapshot_source: None,
+            maintenance_at: 0,
         };
         driver.run(requests, controls, closes).await;
         let result = driver.shutdown().await;
@@ -1122,6 +1123,7 @@ enum Job {
 }
 
 struct Driver {
+    maintenance_at: u64,
     drain: Option<drain::Drain>,
     effect_scheduler: Option<effect_scheduler::Scheduler>,
     controller: Option<controller::Controller>,
@@ -1686,6 +1688,7 @@ impl Driver {
     }
 
     fn on_request(&mut self, mut request: Request) {
+        self.reconcile_membership(&request.scope);
         if matches!(request.kind, Kind::NodeDrain) {
             self.start_node_drain(request);
             return;
@@ -2675,8 +2678,14 @@ impl Driver {
 
     fn pump(&mut self) {
         self.pump_directory();
-        self.pump_membership();
-        self.pump_snapshots();
+        // Inventory scans are node maintenance, not per-frame work. Repeating
+        // them for every heartbeat makes N groups cost O(N²) per tick.
+        let now = crate::asyncrt::mono_ms();
+        if now >= self.maintenance_at {
+            self.maintenance_at = now.saturating_add(self.options.poll_ms);
+            self.pump_membership();
+            self.pump_snapshots();
+        }
         for scope in self.applying.clone() {
             let Some(cell) = self.cells.get_mut(&scope) else {
                 continue;
@@ -2812,6 +2821,9 @@ impl Driver {
             return;
         }
         let now = crate::asyncrt::mono_ms();
+        if now < owner.scan_at {
+            return;
+        }
         let eligible = |cell: &&Cell| {
             !cell.failed
                 && !cell.sql_busy
@@ -2830,6 +2842,7 @@ impl Driver {
             .or_else(|| self.cells.iter().find(|(_, cell)| eligible(cell)))
             .map(|(scope, _)| scope.clone());
         let Some(scope) = next else {
+            owner.scan_at = now.saturating_add(self.options.poll_ms);
             return;
         };
         owner.busy = true;

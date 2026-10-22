@@ -151,7 +151,9 @@ rustls = { version = "0.23", default-features = false, features = ["ring"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["raw_value"] }
 sha1 = "0.10"
-sha2 = "0.10"
+# Enable runtime-detected ARM SHA instructions for image hashes and peer HMACs.
+# sha2 keeps its software fallback on CPUs without the required instructions.
+sha2 = { version = "0.10", features = ["asm"] }
 # sqlite-vec is pre-v1, and its Rust binding is outside its compatibility
 # policy. Pin the audited C amalgamation exactly.
 sqlite-vec = "=0.1.9"
