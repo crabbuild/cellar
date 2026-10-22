@@ -106,7 +106,12 @@ reference application in `cellar-perf-raft`, and `raft_analyze.py` for independe
 serialized-history and replica reconciliation. Controlled slow-follower runs add
 bounded process pauses, observed majority progress during third-voter lag and
 exact final replica recovery. The target's concurrent leader/query-follower roles
-are reported separately. The runner refuses other unimplemented fault scenarios
+are reported separately. Both Raft and Fleet/bucket runners also implement the
+shared `s3-outage` RustFS process-pause schedule and healthy controls. Independent
+checks require fresh submitted command witnesses, preserve each acknowledgement
+policy, refuse ambiguous histories and bound final state recovery. This harness
+path still needs physical execution evidence; it does not make cross-adapter
+contracts equivalent. The runners refuse other unimplemented fault scenarios
 and soak before creating workload resources.
 `tools/perf/raft-performance.md` gives its current executable interface and
 qualification limits. MR-15's concurrent `raft_history.py` checker and complete
@@ -119,7 +124,7 @@ python3 tools/perf/raft_run.py
   --image <verified-image-digest>
   --profile <checked-in-workload.json>
   --scenario <healthy|slow-follower|leader-loss|minority-partition|disk-stall|s3-outage|snapshot-crash>
-  --fault-profile <checked-in-fault.json>  # required for slow-follower; optional healthy control
+  --fault-profile <checked-in-fault.json>  # required for slow-follower/s3-outage; optional healthy control
   --output <new-run-directory>
 ```
 

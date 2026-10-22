@@ -101,6 +101,10 @@ requested MR-14 focus; it does not waive MR-13's release dependency.
 2. **Finish MR-14's performance acceptance.** Establish repeatable healthy and
    slow-follower latency before claiming a supported capacity. Complete sustained
    S3 acknowledgement and equivalent-contract Fleet/bucket fault comparisons.
+   Shared RustFS pause scheduling and independent acknowledgement-window checks
+   now execute through both runners. Run their healthy/outage matrix, retain all
+   failed attempts and define any common service contract explicitly before
+   permitting a cross-adapter ratio; current guarantees still differ.
    Account for observation overhead and device I/O. Keep Q1's original workload
    and the 4,096-group bound; the six-process gate exceeds the current local scope.
 3. **Complete MR-13's remaining operator features.** Qualify receipt maintenance
@@ -118,7 +122,9 @@ requested MR-14 focus; it does not waive MR-13's release dependency.
    do not establish 30/100/1,000-node or million-node support.
 
 The bounded control-path change, physical comparison and native persistence-wait
-improvement are delivered. Continue equivalent-contract fault execution while
+improvement are delivered. The shared object-store outage runner is implemented;
+physical execution and equivalent-contract comparison remain open. Continue
+fault qualification while
 shared-host contention prevents a controlled latency comparison. The physical
 queue/latency gate still needs causal evidence and the unchanged workload
 comparison. All misses remain in the evidence; one passing short run does not

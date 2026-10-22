@@ -121,7 +121,7 @@ def run_load(profile, phase, seconds, state, ledger, send, run_id, *, clock=time
         # Keep the cell reserved until its completion record is durable.
         ledger.append({**item, 'event': 'complete', 'outcome': outcome, 'status': code,
                        'response': response, 'violation': violation, 'timed_out': timed_out,
-                       'complete_seconds': completed - began, 'wire_ms': (completed - sent) * 1000,
+                       'sent_seconds': sent - began, 'complete_seconds': completed - began, 'wire_ms': (completed - sent) * 1000,
                        'dispatch_delay_ms': (started - began - item['scheduled_seconds']) * 1000,
                        'invocation_sync_ms': (sent - started) * 1000,
                        'latency_ms': (completed - began - item['scheduled_seconds']) * 1000})

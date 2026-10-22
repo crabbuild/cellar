@@ -6,7 +6,9 @@ from pathlib import Path
 import json
 from baseline_history import reconcile
 from baseline_run import effective_profile
-from raft_run import input_digest, read_json, require, summarize_ledger
+from raft_run import decode_json, input_digest, read_json, require, summarize_ledger
+from raft_faults import fault_evidence
+from store_faults import validate_store_scenario
 
 
 def proof_delta(samples, mode):
@@ -30,8 +32,8 @@ def analyze(root):
     root = Path(root)
     report = read_json(root / 'report.json')
     require(report.get('completed') is True and report.get('reconciled') is True, 'unfinished baseline run')
-    require(report['scenario'] == 'healthy', 'baseline fault capability is not implemented')
     profile = effective_profile(report['source_profile'], report['adapter'])
+    validate_store_scenario(report['scenario'], report['fault_profile'], profile)
     require(profile == report['profile'] and input_digest(profile) == report['profile_sha256'], 'altered baseline profile')
     history = reconcile(root / 'operations.jsonl', report['run_id'], profile['durability'])
     require(history['cells'] == profile['cells']['total'], 'missing seeded cells')
@@ -55,7 +57,10 @@ def analyze(root):
     # configured Fleet fast path to have actually participated in this run.
     if report['adapter'] == 'fleet':
         require(proofs['fleet'] > 0, 'Fleet baseline never exercised a Fleet output proof')
-    return {'verified': True, 'scope': 'healthy serialized workload through native output gates and owner routes',
+    fault = fault_evidence(root, report, summarize_ledger, decode_json)
+    require(fault == report['fault_result'], 'store fault result differs from raw observations')
+    return {'verified': True, 'scope': report['scenario'] + ' serialized workload through native output gates and owner routes',
+            'fault': fault,
             'commands_including_seed': history['commands_including_seed'], 'queries': history['queries'],
             'owner_route_reads': len(seen), 'summary': summary, 'proof_delta': proofs, 'limitations': report['limitations']}
 

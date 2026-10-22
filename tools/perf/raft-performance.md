@@ -350,6 +350,62 @@ retain aggregate output-proof counters. The analyzer checks monotonicity, errors
 and source policy, and refuses a Fleet experiment that never exercises a Fleet
 proof during measurement.
 
+## Shared object-store outage experiments
+
+Both runners accept `--scenario s3-outage --fault-profile
+tools/perf/store_fault_profile.json`. The checked-in schedule pauses the exact
+owned RustFS process for one second every five seconds, beginning five seconds
+into measurement and leaving five seconds at the end. The complete pause and
+control overhead must fit the unchanged two-second maximum. A missed timing
+bound fails verification. This models a temporarily frozen backend, not a crash,
+packet-loss partition or Amazon S3 outage.
+
+```sh
+python3 tools/perf/raft_run.py --image "$image" \
+  --profile tools/perf/raft_profiles.json --profile-name local-q0-s3 \
+  --scenario s3-outage --fault-profile tools/perf/store_fault_profile.json \
+  --output /absolute/new/raft-store-outage
+# Stop the preceding report's exact containers before the next experiment.
+python3 tools/perf/baseline_run.py --mode bucket --image "$image" \
+  --profile tools/perf/raft_profiles.json --profile-name local-q0-s3 \
+  --scenario s3-outage --fault-profile tools/perf/store_fault_profile.json \
+  --output /absolute/new/bucket-store-outage
+```
+
+Use the same fault profile with `--scenario healthy` for a control with the same
+inspection schedule. Each fresh run still requires its independent analyzer.
+The Linux freezer preflight precedes workload resource creation. The fault
+owner binds the container's unpredictable name, run label and immutable ID;
+lost pause or resume replies trigger inspection, and cancellation joins cleanup.
+No cell node is paused in this scenario. Raw `faults.jsonl` retains every window,
+including incomplete or failed attempts.
+
+Every window must contain a fresh successful command dispatched after the
+observed hold and before release starts. `sent_seconds` records the instant after
+the invocation journal sync and immediately before calling the HTTP adapter. Scheduled
+arrivals and time spent writing the journal cannot supply a witness. For S3 and
+bucket acknowledgement policies, no such command may complete while RustFS is
+observed paused. Quorum and Fleet may acknowledge within that window under their
+different output contracts; the checker reports those observations separately.
+It never infers a per-command Fleet proof from aggregate counters.
+
+Raw histories must still reconcile. An ambiguous mutation remains quarantined
+and fails qualification; the runner does not replay it or turn it into a safe
+refusal. Raft requires all assigned replica reads and final archive coverage;
+the baseline requires matching owner-route state and sequence through all three
+ingresses. Their final observation bounds recovery from the last release within
+the original recovery SLO. This is state convergence, not recovery from lost
+disks. Existing proof-error, resource and traffic gates remain unchanged.
+
+The shared injection does not make the architectures' authority, retained-copy,
+read or receipt guarantees equal. `compare_runs.py` includes the fault profile
+for every adapter and continues to refuse a throughput ratio when any required
+contract differs. This runner implementation is tested with local Python
+fixtures; physical RustFS execution, timing acceptance and a truly equivalent
+cross-adapter service contract remain open.
+
+## Comparison rules
+
 `compare_runs.py` reruns the appropriate independent analyzer for each directory.
 It compares authority, retained-copy and object-store guarantees, receipt and
 read semantics, exact workload, resource limits, VM, source manifest, executable
@@ -437,8 +493,8 @@ now share the SQL transition and open-loop scheduler; the contracts below remain
 explicit. No cross-architecture throughput ratio is justified by merely running
 the same business workload.
 
-Bounded process-pause experiments have an explicit injection and reconciliation
-path. Other fault scenarios and soak are refused before resource creation until
+Bounded node and object-store process-pause experiments have explicit injection
+and reconciliation paths. Other fault scenarios and soak are refused before resource creation until
 their capabilities exist. The Q1 six-process run and
 large-fleet gates remain unqualified within the agreed local five-node ceiling.
 MR-13's remaining management/restore gates also remain open.

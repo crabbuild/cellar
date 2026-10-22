@@ -2386,7 +2386,10 @@
         "tools/perf/test_raft_kernel.py",
         "crates/cellar/durability/raft/transport_send.rs",
         "crates/cellar/durability/raft/transport_pipeline_tests.rs",
-        "crates/cellar/durability/raft/runtime_persistence_tests.rs"
+        "crates/cellar/durability/raft/runtime_persistence_tests.rs",
+        "tools/perf/store_faults.py",
+        "tools/perf/store_fault_profile.json",
+        "tools/perf/test_store_faults.py"
       ],
       "steps": [
         "Optimize shared log batches, pooled transport and fair scheduling while retaining per-group Ready ordering.",

@@ -21,6 +21,9 @@ from raft import captured_node_limits, port_base
 from raft_run import (LABEL, ROOT, RUSTFS, input_digest, read_json, request, require,
                       summarize_ledger, validate_profile, verify_image)
 from raft_workload import Ledger, model, run_load
+from raft_faults import fault_evidence, preflight_pause
+from raft_docker import BoundContainer, discover as discover_fault_engine
+from store_faults import StorePause, validate_store_scenario
 from run import create_bucket
 
 
@@ -29,7 +32,7 @@ def effective_profile(source, mode):
     require(mode in ('fleet', 'bucket'), 'unsupported baseline mode')
     require(source['topology'] == {'nodes': 3, 'voters': 3, 'failure_domains': 1}, 'baseline supports three local nodes only')
     require(source['cells']['total'] <= 4096, 'baseline cell bound')
-    require(source['timing']['soak_seconds'] == 0, 'baseline soak and faults are not implemented')
+    require(source['timing']['soak_seconds'] == 0, 'baseline soak is not implemented')
     require(source['timing']['retry_window_ms'] <= 300000, 'baseline retry window bound')
     # Even if every offered operation targets one cell, no receipt capacity can
     # be crossed. Rejected arrivals still count in this conservative bound.
@@ -48,6 +51,8 @@ def main():
     parser.add_argument('--mode', required=True, choices=['fleet', 'bucket'])
     parser.add_argument('--profile', required=True, type=Path)
     parser.add_argument('--profile-name', default='local-q0')
+    parser.add_argument('--scenario', choices=['healthy', 's3-outage'], default='healthy')
+    parser.add_argument('--fault-profile', type=Path)
     parser.add_argument('--image', required=True)
     parser.add_argument('--output', required=True, type=Path)
     parser.add_argument('--context', default='colima-cellar-multi-raft')
@@ -57,11 +62,14 @@ def main():
     require(catalog.get('format') == 1, 'unsupported profile format')
     source = catalog['profiles'][args.profile_name]
     profile = effective_profile(source, args.mode)
+    args.fault_config = read_json(args.fault_profile) if args.fault_profile else None
+    validate_store_scenario(args.scenario, args.fault_config, profile)
     require(args.context.startswith('colima-cellar-multi-raft'), 'use the separate Cellar Colima profile')
     require(args.port_base <= 65522, 'baseline reserves ports through base+13')
     require(not args.output.exists(), 'provide a new output directory')
     def docker(*command):
-        result = subprocess.run(['docker', '--context', args.context, *command], text=True, capture_output=True)
+        result = subprocess.run(['docker', '--context', args.context, *command], text=True, capture_output=True,
+                                timeout=15 if command[0] in ('pause', 'unpause', 'inspect', 'exec') else None)
         require(result.returncode == 0, f'Docker {command[0]} failed (arguments and environment omitted)')
         return (result.stdout + (result.stderr if command[0] == 'logs' else '')).strip()
     build = verify_image(args.image, docker, binary_name='cellar-perf-baseline')
@@ -72,6 +80,8 @@ def main():
     require(cpus >= 6 and memory >= 14 * 1024**3, 'insufficient dedicated VM resources')
     # Refuse to add three more Cellar nodes to an active experiment in this VM.
     require(not docker('ps', '-q', '--filter', f'label={LABEL}'), 'stop the previous owned experiment before starting another')
+    args.fault_engine = discover_fault_engine(docker, args.context) if args.fault_config is not None else None
+    args.fault_capability = preflight_pause(docker, args.image, lambda node, owner: BoundContainer(**args.fault_engine, node=node, owner=owner)) if args.fault_config is not None else None
     run(args, source, profile, build, docker, cpus, memory)
 
 
@@ -94,12 +104,15 @@ def run(args, source, profile, build, docker, cpus, memory):
     internal = [f'http://127.0.0.1:{args.port_base+10+i}' for i in range(1, 4)]
     report = {'format': 1, 'adapter': args.mode, 'run_id': run_id, 'prefix': prefix, 'context': args.context,
               'build': build, 'source_profile': source, 'profile': profile, 'profile_sha256': input_digest(profile),
-              'vm': {'cpus': cpus, 'memory_bytes': memory}, 'scenario': 'healthy',
+              'vm': {'cpus': cpus, 'memory_bytes': memory}, 'scenario': args.scenario,
+              'fault_profile': args.fault_config, 'fault_profile_sha256': input_digest(args.fault_config),
+              'fault_engine': args.fault_engine, 'fault_capability': args.fault_capability,
+              'runner_sha256': {name: hashlib.sha256((ROOT / 'tools/perf' / name).read_bytes()).hexdigest() for name in ('baseline_run.py', 'baseline_analyze.py', 'baseline_history.py', 'raft_workload.py', 'raft_faults.py', 'store_faults.py', 'raft_docker.py', 'raft_run.py')},
               'completed': False, 'reconciled': False,
               'limitations': ['One local VM and RustFS, without independent failure domains or Amazon S3 validation.',
                               'Fleet races all current follower fsyncs against bucket publication; the response names that policy, not a per-write proof source.',
                               'Application transaction receipts, owner reads and native ownership differ from Raft receipts, follower reads and quorum authority.',
-                              'No fault, disk-loss recovery, steady-state, instrumentation overhead or capacity qualification.']}
+                              'Only the recorded scenario is covered; no crash, packet-loss, disk-loss recovery, steady-state, instrumentation overhead or capacity qualification.']}
     def save():
         (root / 'report.json').write_text(json.dumps(report, indent=2) + '\n')
     def capture():
@@ -113,6 +126,7 @@ def run(args, source, profile, build, docker, cpus, memory):
     ledger = Ledger(root / 'operations.jsonl')
     stop = threading.Event()
     sampler = None
+    fault = None
     try:
         docker('network', 'create', '--label', owner, prefix)
         docker('volume', 'create', '--label', owner, prefix + '-store')
@@ -194,12 +208,18 @@ def run(args, source, profile, build, docker, cpus, memory):
                 report['sampler_failure'] = str(error)
         sampler = threading.Thread(target=sample)
         sampler.start()
+        if args.fault_config is not None:
+            control = BoundContainer(**args.fault_engine, node=prefix + '-store', owner=run_id)
+            fault = StorePause(root, args.scenario, args.fault_config, profile, prefix, run_id, control)
         report['proof_samples'] = {}
         for phase, seconds in [('warmup', profile['timing']['warmup_seconds']), ('measurement', profile['timing']['measurement_seconds'])]:
             if seconds:
                 print(f'{args.mode} {phase}: {seconds}s at {profile["arrival"]["rate_per_second"]} offered operations/sec', flush=True)
                 report['proof_samples'][phase] = {'before': capture()}
-                report[phase] = run_load(profile, phase, seconds, state, ledger, send, run_id, position=position)
+                report[phase] = run_load(profile, phase, seconds, state, ledger, send, run_id, position=position,
+                                        on_start=fault.start if fault and phase == 'measurement' else None)
+                if fault and phase == 'measurement':
+                    fault.finish()
                 report['proof_samples'][phase]['after'] = capture()
                 require(not report[phase]['ambiguous'] and not report[phase]['blocked_cells'], 'ambiguous history requires recovery before continuing')
         reads = []
@@ -209,8 +229,10 @@ def run(args, source, profile, build, docker, cpus, memory):
                 require(code == 200 and reply['state'] == expected['state'] and reply['sequence'] == expected['sequence'], 'owner-route reconciliation failed')
                 reads.append({'cell': cell, 'ingress': member+1, 'response': reply})
         (root / 'owner-reads.json').write_text(json.dumps(reads) + '\n')
+        report['store_recovery_verified_monotonic_seconds'] = time.monotonic()
         report['summary'] = summarize_ledger(root / 'operations.jsonl', 'measurement', profile['timing']['measurement_seconds'])
         report['history'] = reconcile(root / 'operations.jsonl', run_id, profile['durability'])
+        report['fault_result'] = fault_evidence(root, report, summarize_ledger)
         report['cgroups'] = [{'node': node, 'cpu_max': docker('exec', node, 'cat', '/sys/fs/cgroup/cpu.max'),
             'memory_max': int(docker('exec', node, 'cat', '/sys/fs/cgroup/memory.max')),
             'swap_max': int(docker('exec', node, 'cat', '/sys/fs/cgroup/memory.swap.max')),
@@ -225,6 +247,8 @@ def run(args, source, profile, build, docker, cpus, memory):
         report['failure'] = str(error)
         raise
     finally:
+        if fault:
+            fault.close()
         stop.set()
         if sampler:
             sampler.join()

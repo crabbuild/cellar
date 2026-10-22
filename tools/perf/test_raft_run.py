@@ -70,7 +70,7 @@ class Profiles(unittest.TestCase):
     def test_unavailable_fault_capability_refuses_before_docker_or_output(self):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / 'run'
-            for scenario in ('leader-loss', 'minority-partition', 'disk-stall', 's3-outage', 'snapshot-crash'):
+            for scenario in ('leader-loss', 'minority-partition', 'disk-stall', 'snapshot-crash'):
                 args = ['raft_run.py', '--profile', str(Path(__file__).with_name('raft_profiles.json')),
                         '--scenario', scenario, '--output', str(output)]
                 with self.subTest(scenario=scenario), patch('sys.argv', args), patch('raft_run.subprocess.run') as docker:
