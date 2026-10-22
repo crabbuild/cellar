@@ -105,6 +105,13 @@ replica; the 1,500-cell run has no server refusals or changed leaders. However,
 control queues still fill, the 500/1,500-cell runs miss traffic targets and a
 repeated 150-cell control also misses. Queue bursts and repeatable latency remain
 the immediate work; these observations do not prove a causal speedup.
+The [persistence-wait evidence](evidence/MR-14-persistence-progress.json) removes
+redundant scheduler visits to groups awaiting log sync, while retaining FIFO
+writes, bounded requests, hints and exact completion proofs. Five new regressions,
+96 Raft unit cases, 299 native Raft cases and daemon qualification pass. No new
+physical benchmark is claimed: the prior shared-host burst remains unattributed.
+Equivalent-contract fault execution can proceed while controlled latency
+qualification remains open.
 The [current execution priorities](implementation-plan.md#current-execution-priorities)
 put queue/latency diagnosis and reproducible MR-14 results first, then remaining
 MR-13 management/restore, MR-15 release qualification and MR-16/MR-17 expansion.

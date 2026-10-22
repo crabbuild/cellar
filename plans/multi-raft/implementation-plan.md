@@ -95,6 +95,9 @@ requested MR-14 focus; it does not waive MR-13's release dependency.
    phase observations to build a bounded causal reproducer before another
    optimization. Aggregate stage latency and mean CPU alone cannot establish
    the cause. Preserve durability, authentication, budgets and numeric SLOs.
+   The [persistence-wait regression](evidence/MR-14-persistence-progress.json)
+   reproduces and removes redundant runnable-queue visits during disk waits;
+   its contribution to the physical bursts remains unproven.
 2. **Finish MR-14's performance acceptance.** Establish repeatable healthy and
    slow-follower latency before claiming a supported capacity. Complete sustained
    S3 acknowledgement and equivalent-contract Fleet/bucket fault comparisons.
@@ -114,10 +117,12 @@ requested MR-14 focus; it does not waive MR-13's release dependency.
    source-fenced migration and cross-cluster failure behavior. Local containers
    do not establish 30/100/1,000-node or million-node support.
 
-The bounded control-path change and physical comparison are delivered. The next
-deliverable is a causal reproducer for the remaining queue/latency burst, followed
-by a focused change and the same physical workload comparison. All misses remain
-in the evidence; one passing short run does not qualify a supported capacity.
+The bounded control-path change, physical comparison and native persistence-wait
+improvement are delivered. Continue equivalent-contract fault execution while
+shared-host contention prevents a controlled latency comparison. The physical
+queue/latency gate still needs causal evidence and the unchanged workload
+comparison. All misses remain in the evidence; one passing short run does not
+qualify a supported capacity.
 No group-limit increase, automatic seed retry or relaxed SLO substitutes for it.
 
 ## Package dependency order
@@ -1252,6 +1257,33 @@ not establish a causal speedup. All four runs independently reanalyze after
 capsule extraction. Exact owned containers are stopped and empty networks
 removed; volumes remain and the dedicated profile is stopped. Other profiles
 were not mutated.
+
+The [persistence-wait evidence](evidence/MR-14-persistence-progress.json) pins
+source `729dd8e`. Groups waiting for a queued or in-flight log write now leave the
+consensus runnable queue. Their independent persistence FIFO, deferred requests,
+reservations, coalesced ticks and hints remain intact. Exact sync receipts wake
+their groups; overload preserves order and backoff, and permanent rejection
+wakes the failure report. Snapshot installation remains distinct from its
+subsequent log-persistence wait.
+
+The original scheduler fails a 32-waiter regression. With the change, an unrelated
+group answers 32 heartbeats while persistence futures are held, and each batch
+releases only its own responses after real engine persistence. Five regressions
+also cover bounded deferred admission, retained hints, overload retry, actual
+engine rejection and mismatched receipts. All 96 Raft unit cases, 299 native Raft
+cases across 15 standard targets, the custom daemon harness, all-target/all-feature
+Cellar Clippy and repository checks pass. The final unit run includes a backoff
+assertion that does not race a ten-millisecond wall-clock window. Initial zero-test
+selection and failing-before/passing-after outputs remain in the raw capsule.
+
+No physical benchmark runs in this slice. The prior repeated 150-cell control
+ends with a host load average near 23 and about 12.2 GiB swap in use. At inspection,
+the other Colima profiles have 18 GiB configured and the stopped dedicated profile
+has 22 GiB, against 32 GiB host RAM; configured limits are not resident usage.
+These observations restrict attribution, not the numeric acceptance gates. The
+dedicated profile remains stopped and other profiles were not mutated. This
+change proves removal of redundant scheduler work during persistence waits; it
+does not prove the cause or resolution of the physical queue/latency bursts.
 
 Remaining MR-14 gates include the observed control-queue and latency failures,
 repeatable leadership stability under density, sustained S3 acknowledgement latency, controlled
