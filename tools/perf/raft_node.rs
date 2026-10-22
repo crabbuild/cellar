@@ -3,6 +3,7 @@
 #[path = "../../examples/raft-counter/counter.rs"]
 mod counter;
 mod raft_workload;
+mod reference_workload;
 use anyhow::{ensure, Context, Result};
 use cellar::bucket::{Bucket, StorageBackend};
 use cellar::engine_api::{Compat, WorkerConfigOptions};

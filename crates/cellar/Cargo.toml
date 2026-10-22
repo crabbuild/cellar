@@ -70,6 +70,10 @@ name = "cellar-perf-raft"
 path = "../../tools/perf/raft_node.rs"
 
 [[bin]]
+name = "cellar-perf-baseline"
+path = "../../tools/perf/baseline_node.rs"
+
+[[bin]]
 name = "cellar-perf-storage"
 path = "../../tools/perf/storage_operations.rs"
 

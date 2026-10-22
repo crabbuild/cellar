@@ -12,8 +12,8 @@ COPY tools/xtask ./tools/xtask
 RUN --mount=type=cache,id=cellar-perf-registry,target=/usr/local/cargo/registry \
     --mount=type=cache,id=${TARGET_CACHE_ID},target=/src/target \
     find Cargo.toml Cargo.lock crates examples tools vendor -type f -exec touch {} + && \
-    cargo build --profile lab --locked -p cellar --bin cellar-perf-raft && \
-    mkdir /out && cp target/lab/cellar-perf-raft /out/
+    cargo build --profile lab --locked -p cellar --bin cellar-perf-raft --bin cellar-perf-baseline && \
+    mkdir /out && cp target/lab/cellar-perf-raft target/lab/cellar-perf-baseline /out/
 # Include embedded SQL, protobuf, C, assets and build recipes as well as Rust.
 # Match source_manifest() and the context's node_modules/.cellar exclusions.
 RUN find Cargo.toml Cargo.lock crates vendor examples tools/perf tools/xtask \

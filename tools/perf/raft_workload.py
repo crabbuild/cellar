@@ -56,7 +56,11 @@ def model(state, operation):
             'payload_sha256': hashlib.sha256(operation['payload'].encode()).hexdigest()}, True
 
 
-def run_load(profile, phase, seconds, state, ledger, send, run_id, *, clock=time.monotonic, sleep=time.sleep):
+def raft_position(response):
+    return {"version_token": response["version_token"], "index": response["index"]}
+
+
+def run_load(profile, phase, seconds, state, ledger, send, run_id, *, clock=time.monotonic, sleep=time.sleep, position=raft_position):
     """send(cell, command|query, body, headers) -> (HTTP status, decoded body).
 
     Invocation records reach disk before send. The bounded executor has no
@@ -104,9 +108,8 @@ def run_load(profile, phase, seconds, state, ledger, send, run_id, *, clock=time
                     else:
                         state[cell]['state'] = expected
                         state[cell]['next_sequence'] += 1
-                        state[cell]['version_token'] = response['version_token']
-                        state[cell]['index'] = response['index']
-                elif profile['read_consistency'] in ('at-least', 'linearizable') and response.get('state') != state[cell]['state']:
+                        state[cell].update(position(response))
+                elif profile['read_consistency'] in ('at-least', 'linearizable', 'owner') and response.get('state') != state[cell]['state']:
                     violation = 'query differs from the preceding acknowledged state'
             if outcome == 'ambiguous' or violation:
                 blocked.add(cell)
@@ -158,7 +161,8 @@ def run_load(profile, phase, seconds, state, ledger, send, run_id, *, clock=time
             headers = {'retry_until_ms': int(time.time() * 1000) + profile['timing']['retry_window_ms'],
                        'command_id': f"{hashlib.sha256(f'{run_id}:{cell}'.encode()).hexdigest()[:32]}:{current['next_sequence']}"}
             if operation == 'query':
-                headers['min_version'] = current['version_token']
+                if 'version_token' in current:
+                    headers['min_version'] = current['version_token']
                 body = {'consistency': profile['read_consistency']}
             else:
                 body = {**change, 'expected_revision': current['state']['revision']}

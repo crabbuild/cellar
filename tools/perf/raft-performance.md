@@ -82,6 +82,72 @@ checker. Ambiguous or overlapping per-cell histories refuse reconciliation.
 error objectives. Warmup is explicit but does not establish steady state by
 itself. A successful functional run is not a capacity claim.
 
+## Fleet and bucket reference adapters
+
+The same image also builds `cellar-perf-baseline`. It uses the production native
+`NodeFleet` host and the existing output gate. `reference_workload.rs` contains
+the SQL schema, statements, payload bindings and transitions shared with Raft.
+An application transaction stores the exact result and command identity beside
+the mutation, including conditional no-ops. Duplicate identities return the
+retained result; conflicting input/deadline, sequence gaps, expired deadlines,
+additional clients and capacity overflow refuse execution. The baseline accepts
+one client and retains at most 4,096 receipts per cell, without pruning. It is a
+bounded benchmark application, not a new general SDK command API.
+
+Use the original `local-q0` workload profile as input. The baseline records both
+that source profile and an explicit effective profile: three native nodes, zero
+Raft voters, owner reads, and either `fleet-or-bucket` or `bucket` output policy.
+It preserves business operations, size distributions, random seed, offered
+arrivals, limits and timings. Reads sent to another ingress still route to the
+owner; the result must not be counted as a follower or replica read.
+
+```sh
+python3 tools/perf/baseline_run.py --mode fleet --image "$image" \
+  --profile tools/perf/raft_profiles.json --profile-name local-q0 \
+  --output /absolute/new/fleet-run
+python3 tools/perf/baseline_analyze.py /absolute/new/fleet-run
+# Stop this report's exact containers before running the bucket experiment.
+python3 tools/perf/baseline_run.py --mode bucket --image "$image" \
+  --profile tools/perf/raft_profiles.json --profile-name local-q0 \
+  --output /absolute/new/bucket-run
+python3 tools/perf/baseline_analyze.py /absolute/new/bucket-run
+python3 tools/perf/compare_runs.py /absolute/new/fleet-run /absolute/new/raft-run
+```
+
+Both launchers refuse an active experiment with their ownership label. Resources
+remain after each run, with no automatic deletion of voter or object-store data.
+The baseline verifies its own executable hash against the same complete source
+manifest, caps receipt demand before creating resources and treats every failed
+mutation response as ambiguous. The independent baseline checker replays raw
+history and reconciles exact state and receipt sequence through all three ingress
+routes. `owner-reads.json` contains those observations; it is not replica evidence.
+A fresh-owner/empty-directory native fixture also checks restoration of state,
+exact successful and no-op receipts, and a subsequent noncommutative write.
+
+| Path | Acknowledgement contract | Read path |
+| --- | --- | --- |
+| Raft Quorum | Durable majority plus committed-image publication | Declared Raft query consistency |
+| Raft S3 | Quorum contract plus verified S3 archive coverage | Declared Raft query consistency |
+| Fleet | All current ensemble follower fsyncs **or** a bucket proof, whichever wins; applicable authority checks still gate output | Authoritative owner |
+| Bucket | Bucket proof and current ownership verification | Authoritative owner |
+
+The native Fleet log recruits two followers in a healthy three-node fleet but
+can retain service with one. It also races bucket publication on every write.
+The baseline labels its response with this configured policy; it does not invent
+a per-command proof source. Raw `/state` snapshots before and after each phase
+retain aggregate output-proof counters. The analyzer checks monotonicity, errors
+and source policy, and refuses a Fleet experiment that never exercises a Fleet
+proof during measurement.
+
+`compare_runs.py` reruns the appropriate independent analyzer for each directory.
+It compares authority, retained-copy and object-store guarantees, receipt and
+read semantics, exact workload, resource limits, VM, source manifest, executable
+and build profile before emitting a throughput ratio. Different contracts produce
+an explicit difference report with no ratio. Raft S3 and bucket both wait for
+object storage, but their quorum and receipt guarantees still differ. These
+adapters make that comparison executable; they do not establish an equivalent
+contract, a steady-state result or an architecture speedup.
+
 ## Owner measurements
 
 The benchmark's bearer-authenticated `GET /metrics` returns the same resource
@@ -155,9 +221,10 @@ speedup or physical memory improvement has been measured.
 
 MR-14 remains in progress. Remaining work includes full-device I/O attribution, instrumentation-overhead,
 steady-state and density measurements,
-and executable Fleet/bucket adapters with matched durability/hardware/workloads.
-`matched_comparison` refuses missing or unequal contract, hardware, workload and
-build-mode records; this guard is not a measured baseline result.
+and equivalent-guarantee Fleet/bucket comparisons. Executable baseline adapters
+now share the SQL transition and open-loop scheduler; the contracts below remain
+explicit. No cross-architecture throughput ratio is justified by merely running
+the same business workload.
 
 Fault scenarios and soak are refused before resource creation until their
 injection and reconciliation capabilities exist. The Q1 six-process run and

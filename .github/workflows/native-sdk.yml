@@ -75,6 +75,8 @@ jobs:
         run: python3 tools/check_native_dependencies.py
       - name: Verify documentation integrity
         run: python3 tools/docs/check.py
+      - name: Test performance workload and evidence guards
+        run: python3 -m unittest discover -s tools/perf -p 'test_*.py'
       - name: Test native Python prerequisite capture
         run: python3 tools/python/test_native_prerequisites.py
       - name: Test Python qualification guards

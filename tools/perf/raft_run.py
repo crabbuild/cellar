@@ -121,12 +121,13 @@ def parse_manifest(text):
     return result
 
 
-def verify_image(image, docker, expected=None):
+def verify_image(image, docker, expected=None, *, binary_name='cellar-perf-raft'):
     require(re.fullmatch(r'(sha256:[0-9a-f]{64}|[^\s]+@sha256:[0-9a-f]{64})', image), 'provide an immutable image digest, not a tag')
+    require(binary_name in ('cellar-perf-raft', 'cellar-perf-baseline'), 'unsupported benchmark executable')
     identifier = docker('image', 'inspect', image, '--format', '{{.Id}}')
     actual = parse_manifest(docker('run', '--rm', '--network', 'none', '--entrypoint', 'cat', image, '/usr/local/bin/raft-source.sha256'))
     require(actual == (source_manifest() if expected is None else expected), 'stale image: compiled source manifest differs from this checkout')
-    binary = docker('run', '--rm', '--network', 'none', '--entrypoint', 'sha256sum', image, '/usr/local/bin/cellar-perf-raft').split()[0]
+    binary = docker('run', '--rm', '--network', 'none', '--entrypoint', 'sha256sum', image, '/usr/local/bin/' + binary_name).split()[0]
     require(re.fullmatch('[0-9a-f]{64}', binary), 'invalid executable digest')
     return {'image_id': identifier, 'binary_sha256': binary,
             'source_manifest_sha256': input_digest(actual), 'build_profile': 'lab'}
@@ -241,6 +242,7 @@ def main():
     cpus = int(docker('info', '--format', '{{.NCPU}}'))
     memory = int(docker('info', '--format', '{{.MemTotal}}'))
     require(cpus >= 6 and memory >= 14 * 1024**3, 'insufficient dedicated VM resources')
+    require(not docker('ps', '-q', '--filter', f'label={LABEL}'), 'stop the previous owned experiment before starting another')
     run(args, profile, build, docker, cpus, memory)
 
 

@@ -2359,7 +2359,16 @@
         "crates/cellar/durability/raft/object_metrics_tests.rs",
         "crates/cellar/durability/raft/transport_metrics.rs",
         "crates/cellar/durability/raft/transport_metrics_tests.rs",
-        "crates/cellar/tests/support/raft_background_admission.rs"
+        "crates/cellar/tests/support/raft_background_admission.rs",
+        "tools/perf/reference_workload.rs",
+        "tools/perf/baseline_node.rs",
+        "tools/perf/baseline_workload.rs",
+        "tools/perf/baseline_tests.rs",
+        "tools/perf/baseline_run.py",
+        "tools/perf/baseline_history.py",
+        "tools/perf/baseline_analyze.py",
+        "tools/perf/compare_runs.py",
+        "tools/perf/test_baseline.py"
       ],
       "steps": [
         "Optimize shared log batches, pooled transport and fair scheduling while retaining per-group Ready ordering.",
