@@ -239,6 +239,40 @@ separate client connection pools. The two native client workers share the host
 machine, and timer granularity can group arrivals. These read measurements do
 not qualify write capacity, long-running resource stability or fleet recovery.
 
+### Size ingress for nested calls
+
+An order request occupies a Python invocation slot while awaiting its cell,
+which needs another slot in the same interpreter. The default 128-slot Python
+budget covers both, plus alarms, queues and other Python invocations. A waiting
+parent keeps its slot. The CLI leaves native stateless admission unbounded when
+`CELLAR_MAX_REQUESTS` is unset; the embedded library's default is 64 per script
+pool. Configure the CLI explicitly when qualifying a deployment.
+
+For this single-script example, compare bounded ingress with the same offered
+rates and a fresh output directory:
+
+```sh
+CELLAR_MAX_REQUESTS=64 CELLAR_ADMISSION_WAIT_MS=10 \
+python3 -B examples/python-fastapi/offered_perf.py \
+  --client "$CARGO_TARGET_DIR/lab/examples/python-offered-load" --client-profile lab \
+  --cellar "$CARGO_TARGET_DIR/debug/cellar" \
+  --project "gil=$CELLAR_FASTAPI_ROOT/perf-project.json" \
+  --output "$CELLAR_FASTAPI_ROOT/offered-bounded-results" \
+  --rates 1000 4000 8000 --duration-ms 5000 --repetitions 2
+```
+
+This is a tuning candidate, not a production default. Allow headroom for
+background handlers, cohosted scripts and deeper or concurrent nested calls;
+native request limits apply per script pool, while Python's budget is shared.
+Increasing admission wait can replace refusals with longer latency and client
+drops. Compare all outcomes and p99 together. The report records inherited native
+policy settings; `null` means the CLI default applies. Apply the chosen settings
+to the deployed host's environment as well as the benchmark.
+
+Python invocation exhaustion returns HTTP 503 / SDK `Overloaded`. A parent may
+have committed before a child was refused, so its mutation outcome remains
+`unknown`. Reconcile writes with their receipt keys before considering replay.
+
 ## HTTP integration boundaries
 
 [app.py](app.py) contains an example-only adapter for the

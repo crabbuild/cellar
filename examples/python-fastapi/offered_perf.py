@@ -178,6 +178,9 @@ def main():
             (Path(__file__).with_name("perf.py"), Path("tools/python/offered.py"),
              Path("tools/python/offered_load.rs"))},
         platform=platform.platform(), cpu_count=os.cpu_count(),
+        native_policy_environment={name: os.environ.get(name) for name in (
+            "CELLAR_MAX_REQUESTS", "CELLAR_ADMISSION_WAIT_MS", "CELLAR_MAX_STATELESS_ISOLATES",
+            "CELLAR_MAX_CELL_REQUESTS", "CELLAR_HANDLER_BUDGET_S")},
         configuration=dict(rates=args.rates, duration_ms=args.duration_ms, warmup_ms=args.warmup_ms,
                            max_inflight=args.max_inflight, max_lag_ms=args.max_lag_ms,
                            timeout_ms=args.timeout_ms, rust_threads=args.rust_threads,
@@ -186,6 +189,7 @@ def main():
                 "Every scheduled read has an outcome. Exact HTTP 200 bodies, including EOF, are checked against seeded receipts.",
                 "Percentiles describe successes only; inspect success fraction, failures, dispatch delay and client drops together.",
                 "Completed experiment means accounting and shutdown succeeded, not that an application SLO passed.",
+                "Native policy environment records inherited overrides; null means the CLI default applies.",
                 "Loopback with shared client/server CPU and a SQLite development bucket; no remote storage or fleet capacity claim.",
                 "Warmup and measurement use separate native client processes/pools. Rates may be affected by timer granularity."])
     try:
