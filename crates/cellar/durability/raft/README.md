@@ -611,8 +611,12 @@ failure domains.
 
 ## Committed archives and S3 output
 
-`host_archive.rs` owns one archive producer and an exclusive verification
-workspace per node. SQL workers capture immutable published image/engine cuts;
+`host_archive.rs` owns a bounded window of archive producers and one exclusive
+verification workspace per node. `RaftArchiveOptions::max_producers` permits
+one to four concurrent publications across distinct cells (default two). A
+slot stays occupied from capture through completion, preventing duplicate
+publication of one cell. Object I/O overlaps; physical replay remains serialized
+by the verifier owner. SQL workers capture immutable published image/engine cuts;
 `archive.rs` performs bounded object I/O and physical verification, and
 `manifest.rs` describes complete snapshot/tail/dependency sets. A conditional
 head advances only after referenced bytes are read back, validated and replayed.
@@ -628,12 +632,17 @@ membership/leadership authority. Snapshot installation and fresh-member recovery
 remain separate operations.
 
 `RaftHostOptions::archive` configures `RaftArchiveOptions` and `ArchiveLimits`.
-Defaults allow one producer, 4 MiB of captured log bytes, 128 MiB objects, a
-256-MiB recovery set, 32 tails, 1,024 tail entries and 128 dependencies. New
+Defaults allow two producers, 4 MiB of captured log bytes per producer, 128 MiB
+objects, a 256-MiB recovery set, 32 tails, 1,024 tail entries and 128 dependencies. New
 callbacks reserve against 256 MiB of unarchived log/image admission and 4,096
 data-bearing entries. Protocol entries consume bytes too. Existing duplicate
 lookup remains available under backpressure. Incoming replication also has the
 transport/log/per-image hard bounds; this cap is not total process or disk usage.
+The node capture bank reserves `max_producers * max_capture_bytes` across at
+most `max_producers` cuts. Each producer retains its own bounded recovery sets;
+their aggregate memory scales with this explicit concurrency limit. All
+producers share cancellation and are joined before the single replay workspace
+is released. Setting the limit to one retains serial publication.
 
 Retained log/image charges are reused for the same group cache, durable cache
 revision and archive position. Storage publishes the revision under its cache

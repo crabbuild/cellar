@@ -1,18 +1,23 @@
-//! One node-owned archive producer and an exclusively owned replay workspace.
+//! Bounded node-owned archive producers and one exclusive replay workspace.
 //! SQL workers capture immutable cuts; network/archive replay never occupies a
 //! cell's private execution connection or creates a task for each resident cell.
 
 use super::archive::{apply_limits, ArchiveError, ArchiveLimits, ArchiveVerifier};
 use cellar_logic::consensus::GroupScope;
 use cellar_ltx::generation::{GenerationLimits, GenerationStore, ImageId};
+use std::collections::BTreeSet;
 use std::path::PathBuf;
 
-/// Node-owned archive I/O and new-command retention admission. One producer is
-/// active per node; S3 success still requires its exact verified recovery proof.
+/// Node-owned archive I/O and new-command retention admission. S3 success still
+/// requires its exact verified recovery proof.
 #[derive(Clone, Copy, Debug)]
 pub struct RaftArchiveOptions {
     pub limits: ArchiveLimits,
     pub retry_ms: u64,
+    /// Concurrent publications across distinct cells (1..=4). Each reserves a
+    /// complete capture and retains its bounded recovery sets until completion.
+    /// Object I/O overlaps; physical replay shares one exclusive workspace.
+    pub max_producers: usize,
     /// New callbacks reserve their maximum image/envelope size, reduced to the
     /// verified physical size after preparation. Temporary reservation pressure
     /// waits within request admission bounds; retained log/image backlog that
@@ -27,6 +32,7 @@ impl Default for RaftArchiveOptions {
         Self {
             limits: ArchiveLimits::default(),
             retry_ms: 100,
+            max_producers: 2,
             max_unarchived_bytes: 256 * 1024 * 1024,
             max_unarchived_entries: 4096,
         }
@@ -36,6 +42,10 @@ impl Default for RaftArchiveOptions {
 impl RaftArchiveOptions {
     pub(crate) fn validate(&self) -> anyhow::Result<()> {
         self.limits.validate()?;
+        anyhow::ensure!(
+            (1..=4).contains(&self.max_producers),
+            "invalid archive producer limit"
+        );
         anyhow::ensure!(
             (1..=60_000).contains(&self.retry_ms)
                 && (4096..=16 * 1024 * 1024 * 1024).contains(&self.max_unarchived_bytes)
@@ -49,7 +59,9 @@ impl RaftArchiveOptions {
 pub(crate) struct Owner {
     pub verifier: ArchiveVerifier,
     pub cancellation: tokio::sync::watch::Sender<bool>,
-    pub busy: bool,
+    /// A slot covers capture, object I/O, physical verification and completion.
+    /// The same cell cannot publish twice concurrently, even after SQL is idle.
+    pub inflight: BTreeSet<GroupScope>,
     pub cursor: Option<GroupScope>,
     /// Empty inventory is retried by maintenance, not by every peer frame.
     pub scan_at: u64,
@@ -85,9 +97,34 @@ impl Owner {
         Ok(Self {
             verifier,
             cancellation,
-            busy: false,
+            inflight: BTreeSet::new(),
             cursor: None,
             scan_at: 0,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::RaftArchiveOptions;
+
+    #[test]
+    fn archive_producers_require_a_bounded_nonempty_window() {
+        for max_producers in [0, 5, usize::MAX] {
+            assert!(RaftArchiveOptions {
+                max_producers,
+                ..Default::default()
+            }
+            .validate()
+            .is_err());
+        }
+        for max_producers in 1..=4 {
+            assert!(RaftArchiveOptions {
+                max_producers,
+                ..Default::default()
+            }
+            .validate()
+            .is_ok());
+        }
     }
 }

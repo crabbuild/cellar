@@ -8,8 +8,9 @@ snapshot installation and authorized replacement-member recovery; the original
 ## Authority and proofs
 
 Each registered member has an archive capability bound to its immutable
-namespace/birth/schema. The node runs one archive producer at a time, rotating
-across eligible cells. A SQL worker captures an immutable published generation
+namespace/birth/schema. The node runs a bounded number of archive producers,
+rotating across eligible cells and excluding a cell until its prior publication
+finishes. A SQL worker captures an immutable published generation
 and its matching durable engine cut; network and physical verification run
 outside the private command connection. Captured log bytes have an independent
 budget, so a command waiting for S3 cannot consume the capacity needed to archive
@@ -41,13 +42,17 @@ the archive format and verifier already accept explicit immutable dependencies.
 
 ## Capacity and lifetime
 
-Defaults allow one node-wide producer, 4 MiB of captured log bytes, 128 MiB per
+Defaults allow two node-wide producers (configurable from one to four), 4 MiB
+of captured log bytes per producer, 128 MiB per
 object, 256 MiB per recovery set, 32 tail bundles, 1,024 tail entries, 128
 dependencies and 256 KiB manifests. Object-store operations have a 10-second
 deadline, including the complete streamed read; failed attempts retry after
 100 ms. The timer stays bound to the originating execution domain. Shutdown
 cancels object-store waits and joins running blocking work before releasing
 the verification workspace and cell directories.
+Concurrent producers overlap object I/O while serializing physical replay
+through one exclusive workspace. Capture reservations cover the configured
+producer count; each in-flight publication retains its bounded recovery sets.
 
 New business callbacks reserve a conservative maximum image/envelope allocation
 against a 256-MiB aggregate unarchived-byte admission cap and 4,096 data-bearing

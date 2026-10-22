@@ -182,7 +182,12 @@ pub async fn run(shutdown_held: bool) -> Result<()> {
                 }
         );
         ensure!(initial.business.max_items == 128 && initial.control.max_items == 16);
-        ensure!(initial.archive_capture.max_items == 1 && initial.archive_capture.max_bytes > 0);
+        let archive = RaftArchiveOptions::default();
+        ensure!(initial.archive_capture.max_items == archive.max_producers);
+        ensure!(
+            initial.archive_capture.max_bytes
+                == archive.limits.max_capture_bytes * archive.max_producers
+        );
         let mut written = Vec::new();
         for handle in &handles {
             public_node::ready(handle).await?;

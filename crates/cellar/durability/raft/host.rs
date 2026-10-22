@@ -364,7 +364,10 @@ async fn initialize(
     );
     let domain = service.log.domain();
     let budget = Budget::new(options.max_pending_bytes, options.max_requests);
-    let archive_capture_budget = Budget::new(options.archive.limits.max_capture_bytes, 1);
+    let archive_capture_budget = Budget::new(
+        options.archive.limits.max_capture_bytes * options.archive.max_producers,
+        options.archive.max_producers,
+    );
     let query_pins = Budget::new(0, options.max_query_pins);
     let mut pool = Pool::start(
         domain.clone(),
@@ -2402,7 +2405,8 @@ impl Driver {
                     }));
                 }
                 _ => {
-                    owner.busy = false;
+                    owner.inflight.remove(&scope);
+                    owner.scan_at = 0;
                     cell.archive_retry_at =
                         crate::asyncrt::mono_ms().saturating_add(self.options.archive.retry_ms);
                 }
@@ -2832,7 +2836,9 @@ impl Driver {
         let Some(owner) = self.archive_owner.as_mut() else {
             return;
         };
-        if owner.busy || self.closing.load(Ordering::Acquire) {
+        if owner.inflight.len() >= self.options.archive.max_producers
+            || self.closing.load(Ordering::Acquire)
+        {
             return;
         }
         let now = crate::asyncrt::mono_ms();
@@ -2849,25 +2855,35 @@ impl Driver {
                     .applied()
                     .is_ok_and(|applied| applied.position.index > cell.archived)
         };
-        let next = self
-            .cells
-            .iter()
-            .filter(|(_, cell)| eligible(cell))
-            .find(|(scope, _)| owner.cursor.as_ref().is_none_or(|cursor| *scope > cursor))
-            .or_else(|| self.cells.iter().find(|(_, cell)| eligible(cell)))
-            .map(|(scope, _)| scope.clone());
-        let Some(scope) = next else {
-            owner.scan_at = now.saturating_add(self.options.poll_ms);
-            return;
-        };
-        owner.busy = true;
-        owner.cursor = Some(scope.clone());
+        let mut captures = Vec::new();
+        while owner.inflight.len() < self.options.archive.max_producers {
+            let next = self
+                .cells
+                .iter()
+                .filter(|(scope, cell)| !owner.inflight.contains(*scope) && eligible(cell))
+                .find(|(scope, _)| owner.cursor.as_ref().is_none_or(|cursor| *scope > cursor))
+                .or_else(|| {
+                    self.cells
+                        .iter()
+                        .find(|(scope, cell)| !owner.inflight.contains(*scope) && eligible(cell))
+                })
+                .map(|(scope, _)| scope.clone());
+            let Some(scope) = next else {
+                owner.scan_at = now.saturating_add(self.options.poll_ms);
+                break;
+            };
+            owner.inflight.insert(scope.clone());
+            owner.cursor = Some(scope.clone());
+            captures.push(scope);
+        }
         let limits = self.options.archive.limits;
-        self.sql(
-            &scope,
-            SqlPurpose::CaptureArchive,
-            Action::CaptureArchive { limits },
-        );
+        for scope in captures {
+            self.sql(
+                &scope,
+                SqlPurpose::CaptureArchive,
+                Action::CaptureArchive { limits },
+            );
+        }
     }
 
     fn on_job(&mut self, job: Job) {
@@ -2912,7 +2928,8 @@ impl Driver {
             } => {
                 self.admission_at = 0;
                 if let Some(owner) = self.archive_owner.as_mut() {
-                    owner.busy = false;
+                    owner.inflight.remove(&scope);
+                    owner.scan_at = 0;
                 }
                 let Some(cell) = self.cells.get_mut(&scope) else {
                     return;

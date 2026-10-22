@@ -1552,6 +1552,241 @@ async fn retention_preserves_only_copy() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn independent_cell_archives_while_another_publication_is_stalled() -> Result<()> {
+    use std::time::Duration;
+    let store = Arc::new(faults::Store::default());
+    let native = Native::start_many(
+        store.clone(),
+        RaftHostOptions::default(),
+        Durability::Quorum,
+        2,
+    )
+    .await?;
+    store.payload_hang.store(true, Ordering::Release);
+    store.hold_next_payload.store(true, Ordering::Release);
+    let first = native.cell()?;
+    let blocked = first.command(
+        native.definition.increment.clone(),
+        1_i64.to_be_bytes().to_vec(),
+        public_node::archived_options(1)?,
+    );
+    let result = async {
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while !store.payload_waiting.load(Ordering::Acquire) {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .context("first archive did not enter its payload gate")?;
+        let second = native
+            .service
+            .cell(native.registration.namespace.namespace, "Counter:extra-1")?;
+        let receipt = tokio::time::timeout(
+            Duration::from_secs(2),
+            second.command(
+                native.definition.increment.clone(),
+                1_i64.to_be_bytes().to_vec(),
+                public_node::archived_options(1)?,
+            ),
+        )
+        .await
+        .context("independent archive waited behind stalled publication")??;
+        ensure!(receipt.result == 1_i64.to_be_bytes());
+        let first_status = archive_status(&first).await?;
+        ensure!(first_status.archived < first_status.committed);
+        let second_status = archive_status(&second).await?;
+        ensure!(second_status.archived >= second_status.committed);
+        ensure!(store.payload_waiting.load(Ordering::Acquire));
+        ensure!(native.calls.load(Ordering::Acquire) == 2);
+        Ok::<_, anyhow::Error>(())
+    }
+    .await;
+    // Release and join both real SDK owners even when the progress assertion fails.
+    store.release_payload();
+    let first_result = tokio::time::timeout(Duration::from_secs(5), blocked).await;
+    let cleanup = native.close().await;
+    result?;
+    ensure!(first_result??.result == 1_i64.to_be_bytes());
+    cleanup
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn archive_producer_excludes_its_cell_until_captured_cut_finishes() -> Result<()> {
+    use std::time::Duration;
+    let store = Arc::new(faults::Store::default());
+    let native = Native::start(
+        store.clone(),
+        RaftHostOptions::default(),
+        Durability::Quorum,
+    )
+    .await?;
+    store.hold_archive_payloads.store(true, Ordering::Release);
+    let result = async {
+        let cell = native.cell()?;
+        let first = native
+            .write(1, Durability::Quorum, Duration::from_secs(5))
+            .await?;
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while store.active_payload_reads.load(Ordering::Acquire) != 1 {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await?;
+        let mut command = public_node::options(2)?;
+        let second = cell
+            .command(
+                native.definition.increment.clone(),
+                1_i64.to_be_bytes().to_vec(),
+                command.clone(),
+            )
+            .await?;
+        ensure!(first.result == 1_i64.to_be_bytes() && second.result == 2_i64.to_be_bytes());
+        let value = cell
+            .query(
+                native.definition.get.clone(),
+                vec![],
+                QueryOptions {
+                    consistency: QueryConsistency::Linearizable,
+                    ..Default::default()
+                },
+            )
+            .await?;
+        ensure!(value.result == 2_i64.to_be_bytes());
+        ensure!(native.service.resource_usage().archive_capture.items == 1);
+        ensure!(store.active_payload_reads.load(Ordering::Acquire) == 1);
+        ensure!(store.peak_payload_reads.load(Ordering::Acquire) == 1);
+        command.durability = Durability::S3;
+        let archived = cell.command(
+            native.definition.increment.clone(),
+            1_i64.to_be_bytes().to_vec(),
+            command,
+        );
+        store.hold_archive_payloads.store(false, Ordering::Release);
+        store.payload_window_resume.notify_waiters();
+        ensure!(archived.await?.result == 2_i64.to_be_bytes());
+        ensure!(native.calls.load(Ordering::Acquire) == 2);
+        let set = native
+            .archive()
+            .await?
+            .recovery_set()
+            .await?
+            .context("missing archive")?;
+        restored(&set, 2)?;
+        Ok::<_, anyhow::Error>(())
+    }
+    .await;
+    store.hold_archive_payloads.store(false, Ordering::Release);
+    store.payload_window_resume.notify_waiters();
+    let cleanup = native.close().await;
+    result.and(cleanup)
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn archive_producer_limits_hold_until_joined_shutdown() -> Result<()> {
+    for max_producers in [1, 2, 4] {
+        check_archive_producer_shutdown(max_producers).await?;
+    }
+    Ok(())
+}
+
+async fn archive_status(handle: &RaftCellHandle) -> Result<CellStatus> {
+    use std::time::Duration;
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            match handle.status().await {
+                Ok(status) => return Ok(status),
+                // A read-only observation can collide with the host's existing
+                // status poll for a command waiting on S3. Keep one deadline.
+                Err(CommandFailure::Overloaded) => {
+                    tokio::time::sleep(Duration::from_millis(5)).await;
+                }
+                Err(error) => return Err(error.into()),
+            }
+        }
+    })
+    .await
+    .context("observe archive progress while a command waits for S3")?
+}
+
+async fn check_archive_producer_shutdown(max_producers: usize) -> Result<()> {
+    use std::time::Duration;
+    let store = Arc::new(faults::Store::default());
+    let mut options = RaftHostOptions::default();
+    options.archive.max_producers = max_producers;
+    let capture_bytes = options.archive.limits.max_capture_bytes;
+    let count = max_producers + 1;
+    let native =
+        Native::start_many(store.clone(), options, Durability::Quorum, count as u8).await?;
+    store.hold_archive_payloads.store(true, Ordering::Release);
+    let mut handles = vec![native.cell()?];
+    for id in 1..count {
+        handles.push(native.service.cell(
+            native.registration.namespace.namespace,
+            &format!("Counter:extra-{id}"),
+        )?);
+    }
+    let mut pending = Vec::new();
+    for handle in &handles {
+        let mut command = public_node::archived_options(1)?;
+        command.timeout = Duration::from_secs(15);
+        pending.push(handle.command(
+            native.definition.increment.clone(),
+            1_i64.to_be_bytes().to_vec(),
+            command,
+        ));
+    }
+    let observed = async {
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                let mut committed = 0;
+                for handle in &handles {
+                    let status = archive_status(handle).await?;
+                    if status.committed.get() > 1 && status.applied.index >= status.committed {
+                        committed += 1;
+                    }
+                    ensure!(status.archived < status.committed);
+                }
+                if committed == count
+                    && store.active_payload_reads.load(Ordering::Acquire) == max_producers
+                {
+                    return Ok::<_, anyhow::Error>(());
+                }
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .context("archive producers did not fill their bounded window")??;
+        ensure!(store.peak_payload_reads.load(Ordering::Acquire) == max_producers);
+        let capture = native.service.resource_usage().archive_capture;
+        ensure!(capture.items == max_producers && capture.max_items == max_producers);
+        ensure!(capture.bytes == capture_bytes * max_producers);
+        ensure!(capture.max_bytes == capture.bytes);
+        ensure!(native.calls.load(Ordering::Acquire) == count);
+        Ok::<_, anyhow::Error>(())
+    }
+    .await;
+    // Closing must cancel every held read without relying on this test's gates.
+    let closed = tokio::time::timeout(Duration::from_secs(5), native.service.close()).await;
+    let reads_after_close = store.active_payload_reads.load(Ordering::Acquire);
+    let capture_after_close = native.service.resource_usage().archive_capture;
+    store.hold_archive_payloads.store(false, Ordering::Release);
+    store.payload_window_resume.notify_waiters();
+    let mut outcomes = Vec::new();
+    for command in pending {
+        outcomes.push(tokio::time::timeout(Duration::from_secs(5), command).await);
+    }
+    let cleanup = native.close().await;
+    observed?;
+    closed??;
+    ensure!(reads_after_close == 0);
+    ensure!(capture_after_close.bytes == 0 && capture_after_close.items == 0);
+    for outcome in outcomes {
+        ensure!(matches!(outcome?, Err(CommandFailure::Ambiguous { .. })));
+    }
+    cleanup
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn archive_shutdown_joins_hung_store_without_acknowledging() -> Result<()> {
     let store = Arc::new(faults::Store::default());
     store.archive_hang.store(true, Ordering::Release);

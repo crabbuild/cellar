@@ -67,6 +67,13 @@ async fn main() -> Result<()> {
     let queue_items: usize = std::env::var("RAFT_QUEUE_ITEMS")
         .unwrap_or_else(|_| "256".into())
         .parse()?;
+    let archive_producers: usize = std::env::var("RAFT_ARCHIVE_PRODUCERS")
+        .unwrap_or_else(|_| RaftArchiveOptions::default().max_producers.to_string())
+        .parse()?;
+    ensure!(
+        (1..=4).contains(&archive_producers),
+        "invalid archive producer limit"
+    );
     let primary_only = std::env::var("RAFT_PRIMARY_ONLY").as_deref() == Ok("1");
     let root = PathBuf::from("/data");
     let secret = std::fs::read_to_string("/config/token")?.trim().to_owned();
@@ -235,6 +242,7 @@ async fn main() -> Result<()> {
         ..Default::default()
     };
     host.close_report.max_groups = total;
+    host.archive.max_producers = archive_producers;
     let service = node
         .start_raft_cells(
             RaftCellsConfig {
@@ -315,11 +323,12 @@ async fn main() -> Result<()> {
         }));
     let listener = tokio::net::TcpListener::bind("0.0.0.0:8082").await?;
     cellar::note!(
-        "raft_perf_ready node={} groups={} tick_ms={} queue_items={} durability=quorum archive=rustfs",
+        "raft_perf_ready node={} groups={} tick_ms={} queue_items={} archive_producers={} durability=quorum archive=rustfs",
         i,
         total,
         tick_ms,
-        queue_items
+        queue_items,
+        archive_producers
     );
     axum::serve(listener, router)
         .with_graceful_shutdown(async {

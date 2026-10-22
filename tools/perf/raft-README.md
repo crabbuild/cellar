@@ -43,6 +43,13 @@ additional scheduling delays. This trades failover speed for lower protocol
 traffic. The runner retains the SDK-oriented 100-ms default for small smoke
 runs. Record the chosen interval with every result.
 
+`--archive-producers` selects one to four concurrent cell publications per node
+(default two). Publications for the same cell remain serial, and physical replay
+uses one exclusive verification workspace. Each producer has a bounded capture
+and recovery set, so aggregate archive memory scales with this setting. The
+runner records it and requires the same value when continuing incomplete setup.
+Use one and two with the same image to isolate the effect of overlapping I/O.
+
 To find an operating point below the latency limit, pace aggregate requests
 while retaining three independent clients:
 

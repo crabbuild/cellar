@@ -736,6 +736,62 @@ publication costs; this production comparison does not further attribute those
 costs or establish RustFS server saturation. Raising the backlog cap would add
 buffering without demonstrating faster archive catch-up.
 
+## Bounded publications across cells
+
+TiKV's pinned backup endpoint acquires a `SoftLimit` permit before scanning a
+batch and releases its progress lock before doing the work. Its worker limit is
+independent of the number of regions. Cellar's archive producer instead held
+one node-wide slot through capture, all object-store waits, replay and head
+confirmation. The first hypothesis is that overlapping independent I/O improves
+catch-up. Repeated history download/replay and contention for the single CPU
+remain alternative limits; a larger window can increase memory and contention.
+
+The real Node/SDK regression
+`independent_cell_archives_while_another_publication_is_stalled` holds one
+cell's archive payload read and requests S3 durability for a second cell. With
+one producer the independent acknowledgement hits its two-second observation
+deadline; after the scheduler change it succeeds while the original read is
+still held. The test releases and joins the held publication on either outcome.
+
+`RaftArchiveOptions::max_producers` now bounds concurrent publications from one
+to four, with default two. Each slot covers SQL capture through final archive
+completion. The in-flight scope set excludes a cell until its captured cut
+finishes; round-robin selection continues across other eligible cells. The
+capture bank reserves the configured count times the per-cut byte limit. Each
+producer keeps its bounded recovery sets, so aggregate memory scales with the
+window. The existing verifier serializes physical replay through the same
+exclusive workspace. Cancellation applies to every producer and shutdown joins
+all publication work before releasing that workspace. Head checks, physical
+replay, quorum/image acknowledgement and backlog limits are unchanged.
+
+Additional regressions exercise same-cell exclusion while newer quorum writes
+commit, exact restoration after catch-up, limits of one/two/four with an extra
+waiting cell, and cancellation releasing every held read and capture permit.
+Invalid zero or oversized windows are refused. The cancellation fixture first
+encountered `Overloaded` from a read-only status observation colliding with the
+host's existing status poll. That observation now retries only this transient
+failure under its original deadline; write identities and all progress,
+resource-bound and shutdown assertions remain unchanged.
+
+Validation passes 696 Rust cases: 452 library, 39 archive, 16 directory,
+16 effects, 28 host, 27 membership, 19 operations, 21 reads, 19 runtime,
+42 snapshot and 17 storage. Five process helpers are invoked by their parent
+cases. Strict all-target Clippy, formatting, layout, dependency policy and
+documentation checks pass. The performance Python suite passes 94 cases; its
+opt-in Docker freshness case was not enabled. The frozen-image comparison below
+independently checks source, executable and image identities. Production
+throughput qualification of this change remains pending.
+
+The performance runner exposes `--archive-producers`, records the setting and
+refuses to change it during setup continuation. A same-image comparison at one
+and two producers is planned, using six/nine/twelve writers in both orders. The
+idle performance VM's disk was expanded from 80 to 120 GiB before either run;
+CPU, memory and node limits remain unchanged. All previous volumes are retained,
+including an explicit check of the preceding accounting comparison's eight
+volumes. The new filesystem has about 44 GiB available. This expansion avoids
+running the comparison near disk exhaustion; it changes the environment from
+earlier measurements and must be reported with the next results.
+
 ## Remaining qualification
 
 - Reproduce and resolve the Linux management-stop admission-seal failure, then
