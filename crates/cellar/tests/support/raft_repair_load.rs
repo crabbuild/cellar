@@ -242,7 +242,10 @@ pub async fn run() -> Result<()> {
         for service in &cluster.services {
             source_items += bounded(service)?.0;
         }
-        ensure!(source_items > 0, "held snapshot lost its source reservation");
+        ensure!(
+            source_items > 0,
+            "held snapshot lost its source reservation"
+        );
         ensure!(
             bounded(&cluster.services[follower])?.1 == 1,
             "held snapshot receive reservation ended before traffic completed"
