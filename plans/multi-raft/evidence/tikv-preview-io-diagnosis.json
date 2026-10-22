@@ -1,0 +1,706 @@
+{
+  "diagnostic_only": true,
+  "source": {
+    "revision": "34f94934e4586477e87c3d35f8566d3813b579b4",
+    "diagnostic_only": true,
+    "tag": "cellar-raft-perf:tikv-preview-io-probe-ios-7da4ddb5",
+    "image": "sha256:81f7512f535f2bf7b4f75f2f3b1de8949e5717767a9ee4d7a077376a2e099f1b",
+    "binary_sha256": "e5fef2441344dafda0913aa1769d5d3134e108b313674e958d55340b9c7396b0",
+    "context_sha256": "64f99839e34e0ee05a1bbab2b998705e9ebb253af8f7a12dab096453fcaa20e8"
+  },
+  "method": "Cumulative stage counters emitted at least every two seconds while active, plus all operations >=250ms. Window deltas use the last observed cumulative counter before each boundary. Boundary samples are approximate; histograms use fixed upper-bound buckets. Stage durations are nested and must not be added as exclusive request latency. VM samples cover only their observed interval.",
+  "original_run_completed": true,
+  "windows": [
+    {
+      "repeat": 1,
+      "concurrency": 2,
+      "diagnostic_tps": 28.11760896026124,
+      "latency_ms": {
+        "p50": 42.96167400025297,
+        "p95": 113.07848099932016,
+        "p99": 838.974190000954,
+        "max": 4887.660025000514
+      },
+      "errors": 0,
+      "start_unix_ms": 1792707388747.1025,
+      "end_unix_ms": 1792707448679.9336,
+      "stages": {
+        "archive.publish": {
+          "count": 5077,
+          "mean_ms": 9.788703171164073,
+          "total_seconds": 49.697246,
+          "items_per_call": 4.21764821745125,
+          "p95_bucket_upper_ms": 50,
+          "p99_bucket_upper_ms": 50,
+          "nodes": 3
+        },
+        "archive.replay": {
+          "count": 5086,
+          "mean_ms": 0.24181852143138025,
+          "total_seconds": 1.229889,
+          "items_per_call": 1.5194651985843493,
+          "p95_bucket_upper_ms": 0.5,
+          "p99_bucket_upper_ms": 1,
+          "nodes": 3
+        },
+        "image.directory_sync": {
+          "count": 5040,
+          "mean_ms": 6.441806349206349,
+          "total_seconds": 32.466704,
+          "items_per_call": 1.0,
+          "p95_bucket_upper_ms": 10,
+          "p99_bucket_upper_ms": 50,
+          "nodes": 3
+        },
+        "image.file_sync": {
+          "count": 5122,
+          "mean_ms": 7.808308668488872,
+          "total_seconds": 39.994157,
+          "items_per_call": 1.0,
+          "p95_bucket_upper_ms": 50,
+          "p99_bucket_upper_ms": 50,
+          "nodes": 3
+        },
+        "image.materialize": {
+          "count": 5079,
+          "mean_ms": 1.2108930891907854,
+          "total_seconds": 6.150126,
+          "items_per_call": 1.0,
+          "p95_bucket_upper_ms": 5,
+          "p99_bucket_upper_ms": 10,
+          "nodes": 3
+        },
+        "image.reclaim_sync": {
+          "count": 4023,
+          "mean_ms": 6.768641063882675,
+          "total_seconds": 27.230243,
+          "items_per_call": 1.0,
+          "p95_bucket_upper_ms": 10,
+          "p99_bucket_upper_ms": 50,
+          "nodes": 3
+        },
+        "preview.hit": {
+          "count": 1673,
+          "mean_ms": 0.0,
+          "total_seconds": 0.0,
+          "items_per_call": 1.0,
+          "p95_bucket_upper_ms": 0.1,
+          "p99_bucket_upper_ms": 0.1,
+          "nodes": 3
+        },
+        "preview.miss": {
+          "count": 3378,
+          "mean_ms": 0.0,
+          "total_seconds": 0.0,
+          "items_per_call": 1.0,
+          "p95_bucket_upper_ms": 0.1,
+          "p99_bucket_upper_ms": 0.1,
+          "nodes": 3
+        },
+        "raft.file_sync": {
+          "count": 14728,
+          "mean_ms": 7.405374388919065,
+          "total_seconds": 109.066354,
+          "items_per_call": 1.0,
+          "p95_bucket_upper_ms": 10,
+          "p99_bucket_upper_ms": 50,
+          "nodes": 3
+        },
+        "raft.persist": {
+          "count": 14728,
+          "mean_ms": 8.218930472569257,
+          "total_seconds": 121.048408,
+          "items_per_call": 1.024307441607822,
+          "p95_bucket_upper_ms": 50,
+          "p99_bucket_upper_ms": 100,
+          "nodes": 3
+        },
+        "sql_queue.Prepare": {
+          "count": 5024,
+          "mean_ms": 0.36772890127388536,
+          "total_seconds": 1.84747,
+          "items_per_call": 1.0,
+          "p95_bucket_upper_ms": 1,
+          "p99_bucket_upper_ms": 10,
+          "nodes": 3
+        },
+        "sql_queue.Stage": {
+          "count": 1670,
+          "mean_ms": 3.9378622754491017,
+          "total_seconds": 6.57623,
+          "items_per_call": 1.0,
+          "p95_bucket_upper_ms": 50,
+          "p99_bucket_upper_ms": 50,
+          "nodes": 3
+        }
+      },
+      "vm": {
+        "sample_seconds": 52.73660588264465,
+        "disks": {
+          "vda": {
+            "reads": 0,
+            "writes": 9,
+            "write_mib": 0.078125,
+            "io_busy_percent": 0.005688648235489278,
+            "weighted_io_ms": 12,
+            "mean_write_ms": 1.3333333333333333
+          },
+          "vdb": {
+            "reads": 52,
+            "writes": 66865,
+            "write_mib": 1303.6484375,
+            "io_busy_percent": 85.21974299978638,
+            "weighted_io_ms": 1199803,
+            "mean_write_ms": 17.365692066103342
+          }
+        },
+        "vm_pressure": {
+          "io": {
+            "some_stall_seconds": 22.655311,
+            "full_stall_seconds": 21.119513
+          },
+          "cpu": {
+            "some_stall_seconds": 2.429619,
+            "full_stall_seconds": 0.0
+          },
+          "memory": {
+            "some_stall_seconds": 7.8e-05,
+            "full_stall_seconds": 5e-06
+          }
+        }
+      }
+    },
+    {
+      "repeat": 2,
+      "concurrency": 2,
+      "diagnostic_tps": 29.568324385838306,
+      "latency_ms": {
+        "p50": 42.63398600051005,
+        "p95": 139.84644700030913,
+        "p99": 403.65523699983896,
+        "max": 2559.5347069993295
+      },
+      "errors": 0,
+      "start_unix_ms": 1792707452307.1357,
+      "end_unix_ms": 1792707512337.749,
+      "stages": {
+        "archive.publish": {
+          "count": 5284,
+          "mean_ms": 11.214403671461014,
+          "total_seconds": 59.256909,
+          "items_per_call": 6.291635124905374,
+          "p95_bucket_upper_ms": 50,
+          "p99_bucket_upper_ms": 100,
+          "nodes": 3
+        },
+        "archive.replay": {
+          "count": 5247,
+          "mean_ms": 0.3155818562988374,
+          "total_seconds": 1.655858,
+          "items_per_call": 3.604345340194397,
+          "p95_bucket_upper_ms": 0.5,
+          "p99_bucket_upper_ms": 1,
+          "nodes": 3
+        },
+        "image.directory_sync": {
+          "count": 5199,
+          "mean_ms": 4.301860742450471,
+          "total_seconds": 22.365374,
+          "items_per_call": 1.0,
+          "p95_bucket_upper_ms": 50,
+          "p99_bucket_upper_ms": 50,
+          "nodes": 3
+        },
+        "image.file_sync": {
+          "count": 5274,
+          "mean_ms": 7.474072241183163,
+          "total_seconds": 39.418257,
+          "items_per_call": 1.0,
+          "p95_bucket_upper_ms": 50,
+          "p99_bucket_upper_ms": 100,
+          "nodes": 3
+        },
+        "image.materialize": {
+          "count": 5246,
+          "mean_ms": 1.2394828440716739,
+          "total_seconds": 6.502327,
+          "items_per_call": 1.0,
+          "p95_bucket_upper_ms": 5,
+          "p99_bucket_upper_ms": 50,
+          "nodes": 3
+        },
+        "image.reclaim_sync": {
+          "count": 5194,
+          "mean_ms": 5.665820754716981,
+          "total_seconds": 29.428273,
+          "items_per_call": 1.0,
+          "p95_bucket_upper_ms": 50,
+          "p99_bucket_upper_ms": 50,
+          "nodes": 3
+        },
+        "preview.hit": {
+          "count": 1785,
+          "mean_ms": 0.0,
+          "total_seconds": 0.0,
+          "items_per_call": 1.0,
+          "p95_bucket_upper_ms": 0.1,
+          "p99_bucket_upper_ms": 0.1,
+          "nodes": 3
+        },
+        "preview.miss": {
+          "count": 3501,
+          "mean_ms": 0.0,
+          "total_seconds": 0.0,
+          "items_per_call": 1.0,
+          "p95_bucket_upper_ms": 0.1,
+          "p99_bucket_upper_ms": 0.1,
+          "nodes": 3
+        },
+        "raft.file_sync": {
+          "count": 15884,
+          "mean_ms": 6.214449823721984,
+          "total_seconds": 98.710321,
+          "items_per_call": 1.0,
+          "p95_bucket_upper_ms": 50,
+          "p99_bucket_upper_ms": 100,
+          "nodes": 3
+        },
+        "raft.persist": {
+          "count": 15878,
+          "mean_ms": 7.754878574127725,
+          "total_seconds": 123.131962,
+          "items_per_call": 1.0160599571734474,
+          "p95_bucket_upper_ms": 50,
+          "p99_bucket_upper_ms": 100,
+          "nodes": 3
+        },
+        "sql_queue.Prepare": {
+          "count": 5233,
+          "mean_ms": 0.1822623733995796,
+          "total_seconds": 0.953779,
+          "items_per_call": 1.0,
+          "p95_bucket_upper_ms": 0.5,
+          "p99_bucket_upper_ms": 5,
+          "nodes": 3
+        },
+        "sql_queue.Stage": {
+          "count": 1815,
+          "mean_ms": 3.495626446280992,
+          "total_seconds": 6.344562,
+          "items_per_call": 1.0,
+          "p95_bucket_upper_ms": 50,
+          "p99_bucket_upper_ms": 50,
+          "nodes": 3
+        }
+      },
+      "vm": {
+        "sample_seconds": 52.47899389266968,
+        "disks": {
+          "vda": {
+            "reads": 0,
+            "writes": 8,
+            "write_mib": 0.046875,
+            "io_busy_percent": 0.0038110486723324207,
+            "weighted_io_ms": 8,
+            "mean_write_ms": 0.875
+          },
+          "vdb": {
+            "reads": 27,
+            "writes": 77111,
+            "write_mib": 1457.5078125,
+            "io_busy_percent": 83.22758643073158,
+            "weighted_io_ms": 524781,
+            "mean_write_ms": 6.220941240549338
+          }
+        },
+        "vm_pressure": {
+          "io": {
+            "some_stall_seconds": 20.199848,
+            "full_stall_seconds": 18.354191
+          },
+          "cpu": {
+            "some_stall_seconds": 2.691463,
+            "full_stall_seconds": 0.0
+          },
+          "memory": {
+            "some_stall_seconds": 1e-06,
+            "full_stall_seconds": 2e-06
+          }
+        }
+      }
+    },
+    {
+      "repeat": 3,
+      "concurrency": 2,
+      "diagnostic_tps": 29.95763599073187,
+      "latency_ms": {
+        "p50": 52.62010600017675,
+        "p95": 145.26376700086985,
+        "p99": 298.6722989990085,
+        "max": 1243.8188629985234
+      },
+      "errors": 0,
+      "start_unix_ms": 1792707515390.121,
+      "end_unix_ms": 1792707575441.7476,
+      "stages": {
+        "archive.publish": {
+          "count": 5332,
+          "mean_ms": 10.471089272318078,
+          "total_seconds": 55.831848,
+          "items_per_call": 8.41635408852213,
+          "p95_bucket_upper_ms": 50,
+          "p99_bucket_upper_ms": 100,
+          "nodes": 3
+        },
+        "archive.replay": {
+          "count": 5426,
+          "mean_ms": 0.3755707703649097,
+          "total_seconds": 2.037847,
+          "items_per_call": 5.708072244747512,
+          "p95_bucket_upper_ms": 1,
+          "p99_bucket_upper_ms": 1,
+          "nodes": 3
+        },
+        "image.directory_sync": {
+          "count": 5412,
+          "mean_ms": 4.858874168514412,
+          "total_seconds": 26.296227,
+          "items_per_call": 1.0,
+          "p95_bucket_upper_ms": 50,
+          "p99_bucket_upper_ms": 50,
+          "nodes": 3
+        },
+        "image.file_sync": {
+          "count": 5368,
+          "mean_ms": 7.916645305514158,
+          "total_seconds": 42.496552,
+          "items_per_call": 1.0,
+          "p95_bucket_upper_ms": 50,
+          "p99_bucket_upper_ms": 50,
+          "nodes": 3
+        },
+        "image.materialize": {
+          "count": 5409,
+          "mean_ms": 1.305317618783509,
+          "total_seconds": 7.060463,
+          "items_per_call": 1.0,
+          "p95_bucket_upper_ms": 5,
+          "p99_bucket_upper_ms": 50,
+          "nodes": 3
+        },
+        "image.reclaim_sync": {
+          "count": 5458,
+          "mean_ms": 5.191305240014657,
+          "total_seconds": 28.334144,
+          "items_per_call": 1.0,
+          "p95_bucket_upper_ms": 50,
+          "p99_bucket_upper_ms": 50,
+          "nodes": 3
+        },
+        "preview.hit": {
+          "count": 1836,
+          "mean_ms": 0.0,
+          "total_seconds": 0.0,
+          "items_per_call": 1.0,
+          "p95_bucket_upper_ms": 0.1,
+          "p99_bucket_upper_ms": 0.1,
+          "nodes": 3
+        },
+        "preview.miss": {
+          "count": 3636,
+          "mean_ms": 0.0,
+          "total_seconds": 0.0,
+          "items_per_call": 1.0,
+          "p95_bucket_upper_ms": 0.1,
+          "p99_bucket_upper_ms": 0.1,
+          "nodes": 3
+        },
+        "raft.file_sync": {
+          "count": 15851,
+          "mean_ms": 6.167760835278531,
+          "total_seconds": 97.765177,
+          "items_per_call": 1.0,
+          "p95_bucket_upper_ms": 50,
+          "p99_bucket_upper_ms": 50,
+          "nodes": 3
+        },
+        "raft.persist": {
+          "count": 15851,
+          "mean_ms": 7.590629234748596,
+          "total_seconds": 120.319064,
+          "items_per_call": 1.0157718755914453,
+          "p95_bucket_upper_ms": 50,
+          "p99_bucket_upper_ms": 50,
+          "nodes": 3
+        },
+        "sql_queue.Prepare": {
+          "count": 5516,
+          "mean_ms": 0.19592802755620015,
+          "total_seconds": 1.080739,
+          "items_per_call": 1.0,
+          "p95_bucket_upper_ms": 0.5,
+          "p99_bucket_upper_ms": 5,
+          "nodes": 3
+        },
+        "sql_queue.Stage": {
+          "count": 1802,
+          "mean_ms": 3.4978684794672588,
+          "total_seconds": 6.303159,
+          "items_per_call": 1.0,
+          "p95_bucket_upper_ms": 50,
+          "p99_bucket_upper_ms": 50,
+          "nodes": 3
+        }
+      },
+      "vm": {
+        "sample_seconds": 52.40061283111572,
+        "disks": {
+          "vda": {
+            "reads": 0,
+            "writes": 2,
+            "write_mib": 0.05078125,
+            "io_busy_percent": 0.0,
+            "weighted_io_ms": 1,
+            "mean_write_ms": 0.0
+          },
+          "vdb": {
+            "reads": 37,
+            "writes": 77930,
+            "write_mib": 1472.34375,
+            "io_busy_percent": 82.07155923654167,
+            "weighted_io_ms": 294418,
+            "mean_write_ms": 3.166816373668677
+          }
+        },
+        "vm_pressure": {
+          "io": {
+            "some_stall_seconds": 18.764514,
+            "full_stall_seconds": 17.047134
+          },
+          "cpu": {
+            "some_stall_seconds": 2.355763,
+            "full_stall_seconds": 0.0
+          },
+          "memory": {
+            "some_stall_seconds": 1e-06,
+            "full_stall_seconds": 1e-06
+          }
+        }
+      }
+    },
+    {
+      "repeat": 4,
+      "concurrency": 2,
+      "diagnostic_tps": 37.916076895380534,
+      "latency_ms": {
+        "p50": 37.5702960009221,
+        "p95": 112.20353099997737,
+        "p99": 246.80946300031792,
+        "max": 1605.583698999908
+      },
+      "errors": 0,
+      "start_unix_ms": 1792707579419.624,
+      "end_unix_ms": 1792707639451.8188,
+      "stages": {
+        "archive.publish": {
+          "count": 6901,
+          "mean_ms": 10.40029531951891,
+          "total_seconds": 71.772438,
+          "items_per_call": 10.134038545138386,
+          "p95_bucket_upper_ms": 50,
+          "p99_bucket_upper_ms": 50,
+          "nodes": 3
+        },
+        "archive.replay": {
+          "count": 6878,
+          "mean_ms": 0.44929834254143647,
+          "total_seconds": 3.090274,
+          "items_per_call": 7.4632160511776675,
+          "p95_bucket_upper_ms": 1,
+          "p99_bucket_upper_ms": 5,
+          "nodes": 3
+        },
+        "image.directory_sync": {
+          "count": 6868,
+          "mean_ms": 4.062081100757134,
+          "total_seconds": 27.898373,
+          "items_per_call": 1.0,
+          "p95_bucket_upper_ms": 50,
+          "p99_bucket_upper_ms": 50,
+          "nodes": 3
+        },
+        "image.file_sync": {
+          "count": 6875,
+          "mean_ms": 6.2857709090909095,
+          "total_seconds": 43.214675,
+          "items_per_call": 1.0,
+          "p95_bucket_upper_ms": 50,
+          "p99_bucket_upper_ms": 50,
+          "nodes": 3
+        },
+        "image.materialize": {
+          "count": 6938,
+          "mean_ms": 0.6614639665609686,
+          "total_seconds": 4.589237,
+          "items_per_call": 1.0,
+          "p95_bucket_upper_ms": 5,
+          "p99_bucket_upper_ms": 10,
+          "nodes": 3
+        },
+        "image.reclaim_sync": {
+          "count": 6703,
+          "mean_ms": 4.270163807250484,
+          "total_seconds": 28.622908,
+          "items_per_call": 1.0,
+          "p95_bucket_upper_ms": 50,
+          "p99_bucket_upper_ms": 50,
+          "nodes": 3
+        },
+        "preview.hit": {
+          "count": 2285,
+          "mean_ms": 0.0,
+          "total_seconds": 0.0,
+          "items_per_call": 1.0,
+          "p95_bucket_upper_ms": 0.1,
+          "p99_bucket_upper_ms": 0.1,
+          "nodes": 3
+        },
+        "preview.miss": {
+          "count": 4600,
+          "mean_ms": 0.0,
+          "total_seconds": 0.0,
+          "items_per_call": 1.0,
+          "p95_bucket_upper_ms": 0.1,
+          "p99_bucket_upper_ms": 0.1,
+          "nodes": 3
+        },
+        "raft.file_sync": {
+          "count": 20063,
+          "mean_ms": 5.110126750735184,
+          "total_seconds": 102.524473,
+          "items_per_call": 1.0,
+          "p95_bucket_upper_ms": 50,
+          "p99_bucket_upper_ms": 50,
+          "nodes": 3
+        },
+        "raft.persist": {
+          "count": 20057,
+          "mean_ms": 5.964284489205764,
+          "total_seconds": 119.625654,
+          "items_per_call": 1.0171012614049957,
+          "p95_bucket_upper_ms": 50,
+          "p99_bucket_upper_ms": 50,
+          "nodes": 3
+        },
+        "sql_queue.Prepare": {
+          "count": 6840,
+          "mean_ms": 0.19401827485380116,
+          "total_seconds": 1.327085,
+          "items_per_call": 1.0,
+          "p95_bucket_upper_ms": 0.5,
+          "p99_bucket_upper_ms": 5,
+          "nodes": 3
+        },
+        "sql_queue.Stage": {
+          "count": 2244,
+          "mean_ms": 3.3360873440285204,
+          "total_seconds": 7.48618,
+          "items_per_call": 1.0,
+          "p95_bucket_upper_ms": 50,
+          "p99_bucket_upper_ms": 50,
+          "nodes": 3
+        }
+      },
+      "vm": {
+        "sample_seconds": 52.334940910339355,
+        "disks": {
+          "vda": {
+            "reads": 0,
+            "writes": 9,
+            "write_mib": 0.08203125,
+            "io_busy_percent": 0.009553846652021716,
+            "weighted_io_ms": 8,
+            "mean_write_ms": 0.6666666666666666
+          },
+          "vdb": {
+            "reads": 33,
+            "writes": 101562,
+            "write_mib": 1842.59765625,
+            "io_busy_percent": 80.44529957935326,
+            "weighted_io_ms": 528792,
+            "mean_write_ms": 4.753648017959473
+          }
+        },
+        "vm_pressure": {
+          "io": {
+            "some_stall_seconds": 16.788202,
+            "full_stall_seconds": 14.966226
+          },
+          "cpu": {
+            "some_stall_seconds": 3.110437,
+            "full_stall_seconds": 0.0
+          },
+          "memory": {
+            "some_stall_seconds": 1e-05,
+            "full_stall_seconds": 1e-05
+          }
+        }
+      }
+    }
+  ],
+  "verification": {
+    "verified_replica_values": 4500,
+    "verified_archive_groups": 1500,
+    "all_windows_error_free": true
+  },
+  "raw_sha256": {
+    "report.json": "00f8ad0f8aefcd5afbced5b1e20642c20c4f6e9cacf9233e1187c122c52934e2",
+    "resources.jsonl": "2e4e9c04e89c2b935f2e32fe3022ca669acfe42c2548287154798fe6cf1aba7b"
+  },
+  "shutdown": {
+    "states": {
+      "cellar-raft-20261022-221406-node1": {
+        "Running": false,
+        "ExitCode": 0,
+        "OOMKilled": false,
+        "Error": "",
+        "FinishedAt": "2026-10-22T22:20:44.918445173Z"
+      },
+      "cellar-raft-20261022-221406-node2": {
+        "Running": false,
+        "ExitCode": 0,
+        "OOMKilled": false,
+        "Error": "",
+        "FinishedAt": "2026-10-22T22:20:44.923196456Z"
+      },
+      "cellar-raft-20261022-221406-node3": {
+        "Running": false,
+        "ExitCode": 0,
+        "OOMKilled": false,
+        "Error": "",
+        "FinishedAt": "2026-10-22T22:20:44.927382Z"
+      },
+      "cellar-raft-20261022-221406-rustfs": {
+        "Running": false,
+        "ExitCode": 0,
+        "OOMKilled": false,
+        "Error": "",
+        "FinishedAt": "2026-10-22T22:20:46.942040235Z"
+      }
+    },
+    "preserved_volumes": [
+      "cellar-raft-20261022-221406-node1",
+      "cellar-raft-20261022-221406-node2",
+      "cellar-raft-20261022-221406-node3",
+      "cellar-raft-20261022-221406-rustfs"
+    ]
+  },
+  "analysis_sha256": "f4ce6cb16a1db299da4ffdc46f62ab037d768d223efac771b65820cada59f679",
+  "diagnostic_provenance_sha256": {
+    "tikv-preview-io-probe-source/diagnostic.patch": "70b4c06379f800ffc4e8fe908486c0917ca11e8623ed6a43959e03dd7faca71c",
+    "tikv-preview-io-probe-source/source-files.json": "2b890f02524bad4a598f5f3ecd84f8358e4c568f3e2552d47c963c6344c9cc09",
+    "diagnosis/analyze-preview-io-probe.py": "9140bf3c15cddcee9383314276efc0741a5fd55fb365b364fe777a6fa588f9dd",
+    "diagnosis/tikv-preview-io-probe-vm.jsonl": "c011c5a1ca42f384da2b73a892ff9c0a83fce805636af3fc9564dda8feadca7f"
+  },
+  "interpretation": "Instrumented shared-host diagnosis only. Storage barriers dominate physical image replay and SQL prepare queue waits; this does not isolate the cause of prior candidate/control regressions. Timings are nested and boundary samples approximate."
+}

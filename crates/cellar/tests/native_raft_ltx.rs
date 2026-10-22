@@ -4,6 +4,8 @@
 mod fault;
 #[path = "support/raft_ltx_fixture.rs"]
 mod fixture;
+#[path = "support/raft_reclaim.rs"]
+mod reclaim;
 
 use anyhow::Result;
 use cellar_ltx::apply::ApplyError;

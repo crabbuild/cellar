@@ -52,6 +52,8 @@ async fn leader_seals_each_command_image_once_and_recovers_its_receipts() -> Res
     let cell = service.cell(NamespaceId::new([2; 16])?, "Counter:preview")?;
     let outcome = async {
         public_node::ready(&cell).await?;
+        faults.synced_paths.lock().unwrap().clear();
+        faults.removed_paths.lock().unwrap().clear();
         let mut requests = Vec::new();
         for sequence in 1..=8 {
             let request = public_node::archived_options(sequence)?;
@@ -78,15 +80,37 @@ async fn leader_seals_each_command_image_once_and_recovers_its_receipts() -> Res
             .iter()
             .filter(|path| path.parent() == Some(image_directory.as_path()))
             .count();
-        Ok::<_, anyhow::Error>((seals, requests))
+        let directory_syncs = faults
+            .synced_paths
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|path| **path == image_directory)
+            .count();
+        let reclaimed = faults
+            .removed_paths
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|path| path.parent() == Some(image_directory.as_path()))
+            .count();
+        Ok::<_, anyhow::Error>((seals, directory_syncs, reclaimed, requests))
     }
     .await;
     ensure!(service.close().await?.unfinished.is_empty());
     node.shutdown(ShutdownMode::Preserve).await?;
-    let (seals, requests) = outcome?;
+    let (seals, directory_syncs, reclaimed, requests) = outcome?;
     assert_eq!(
         seals, 8,
         "each exact leader preview must become its committed image without a second seal"
+    );
+    assert!(
+        reclaimed > 0,
+        "old command images must actually be reclaimed"
+    );
+    assert_eq!(
+        directory_syncs, 8,
+        "old image deletion must share new image publication's directory barrier"
     );
 
     // Restart after private executor teardown and old-generation reclamation.

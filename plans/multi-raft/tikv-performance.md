@@ -1176,6 +1176,59 @@ Both Linux SDK variants and the Python examples passed on `1ba6a3a`, including
 the corrected per-cell snapshot drill. Preview-reuse Linux CI is pending; those
 preceding-revision passes do not qualify the new implementation.
 
+## Image publication and reclamation barriers
+
+An isolated, instrumented image of `34f9493` ran four 60-second windows at two
+writers with the same 1,500-group, three-node resources and durability. The
+[diagnostic record](evidence/tikv-preview-io-diagnosis.json) includes source,
+binary and raw-evidence hashes. Instrumented throughput is diagnostic only.
+All windows were error-free; all 4,500 replica values and 1,500 RustFS archive
+positions verified. Containers stopped cleanly and their volumes are retained.
+
+During sampled intervals the VM data disk was 80–85% busy. Image file syncs
+averaged 6.3–7.9 ms, image directory syncs 4.1–6.4 ms and reclamation directory
+syncs 4.3–6.8 ms. Physical materialization averaged 0.7–1.3 ms, and committed
+prepare queue waits averaged 0.18–0.37 ms. These nested timings cannot be added
+as exclusive request latency. They prioritize reducing storage barriers over
+raising SQL worker counts; they do not establish the cause of the earlier
+candidate/control regression.
+
+Raft persistence averaged roughly nine batches per acknowledged write across
+the three nodes, with about 1.02 groups per batch at this load. Archive progress
+does not itself persist another Raft watermark: verified archive completion
+updates volatile host/core state. Append, commit and applied-image persistence
+remain separate proof boundaries. No barrier has been removed from those paths.
+
+The next implementation applies the shared-barrier principle illustrated by
+TiKV's bounded write batching to obsolete image deletion. Normal image
+preparation removes eligible retired files before the directory sync already
+required for the new image's rename. Capacity stays charged and the selected
+entries stay busy until that sync completes. Tight admission first reclaims
+and syncs capacity separately. Reader pins, retained markers and monotonic
+references still protect their images; any failed shared deletion/barrier
+quarantines the store. The host defers ordinary post-publication cleanup to the
+next preparation rather than issuing another directory sync on the write path.
+Idle retired files remain within the existing store limits and are reconciled
+from authoritative references on recovery.
+
+The real SDK regression initially observed 14 image-directory syncs for eight
+commands, despite only eight image seals. The added assertion requires eight
+directory syncs while also requiring actual deletion, exact results and receipt
+recovery after restart. Physical tests cover capacity before sync, pinned-image
+pressure, bounded two-name recovery cleanup, I/O failures and process loss during
+shared deletion/publication. End-to-end performance qualification is pending.
+
+[Local validation](evidence/tikv-shared-image-sync-validation.json) passes all
+718 selected Rust cases: 453 library and 265 native cases across eleven test
+binaries. Eight process helpers execute through their parent cases. Strict
+all-target/all-feature Clippy, the LTX build without default features, formatting,
+layout, dependency policy and documentation checks pass. The SDK assertion now
+passes with eight directory syncs; the original 14-sync failure is preserved.
+
+The `34f9493` Linux 3.14t SDK job failed in the Python bridge fixture with response
+JSON decoding and incomplete host shutdown. That cause is unresolved; preceding
+revision passes do not qualify this revision or the new shared-barrier change.
+
 ## Remaining qualification
 
 - Repeat the Linux management-stop admission-seal qualification; the latest

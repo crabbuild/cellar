@@ -1,0 +1,87 @@
+{
+  "base_revision": "34f94934e4586477e87c3d35f8566d3813b579b4",
+  "rust_toolchain": "1.98.1",
+  "checks": [
+    {
+      "check": "libraries",
+      "exit": 0,
+      "seconds": 194.96959614753723
+    },
+    {
+      "check": "native-suite",
+      "exit": 0,
+      "seconds": 587.3454480171204
+    },
+    {
+      "check": "ltx-no-default",
+      "exit": 0,
+      "seconds": 10.09244418144226
+    },
+    {
+      "check": "clippy",
+      "exit": 0,
+      "seconds": 151.10284113883972
+    },
+    {
+      "check": "format-check",
+      "exit": 0,
+      "seconds": 48.18539094924927
+    },
+    {
+      "check": "layout",
+      "exit": 0,
+      "seconds": 0.3420248031616211
+    },
+    {
+      "check": "dependencies",
+      "exit": 0,
+      "seconds": 0.368574857711792
+    },
+    {
+      "check": "docs",
+      "exit": 0,
+      "seconds": 0.0948793888092041
+    }
+  ],
+  "passed_library_cases": 453,
+  "passed_native_cases": 265,
+  "native_binaries": 11,
+  "process_helpers": "Eight helpers execute through their parent cases; ignored entries are not additional independent passes.",
+  "sdk_boundary": {
+    "commands": 8,
+    "leader_image_seals": 8,
+    "directory_syncs_before": 14,
+    "directory_syncs_after": 8,
+    "requires_actual_reclamation": true,
+    "exact_results_and_restart_receipts_verified": true
+  },
+  "failure_coverage": [
+    "No capacity refund or adoption before the shared directory barrier",
+    "Independent generation and byte pressure preserve pinned readers",
+    "Bounded reclamation of recovered stage/final names shares one barrier",
+    "Removal and shared-sync failures quarantine until authoritative recovery",
+    "Process loss after deletion, after shared sync and after marker persistence"
+  ],
+  "performance_qualified": false,
+  "source_sha256": {
+    "crates/cellar-ltx/src/generation.rs": "e4b2b56c7f8b6d48420c08d2ba52cabab033c33bda996168fbf6649080d09ee6",
+    "crates/cellar/durability/raft/apply.rs": "a5a437efa047454b340855e1518444b77fb988fcfb735f0d5ee4213edf3c7743",
+    "crates/cellar/durability/raft/execution.rs": "8e71ed7188ce89465176ae20071a5f59a786eb22b4fa1e90b114bff20e774c9d",
+    "crates/cellar/tests/native_raft_ltx.rs": "46a552edfd15ae3ebcaf6f65b604a0eaa5196a2497173e4e0a745c02fae7e2a5",
+    "crates/cellar/tests/support/raft_ltx_fault.rs": "b8c9416524aaa17a1eabfe70a8523499b1cebb858b77ccfc4a599942ac62c509",
+    "crates/cellar/tests/support/raft_reclaim.rs": "cf91f1a28d04fda0d0e24b57efaacbce3a35656b520329f2f4aa7305ee248df6",
+    "crates/cellar/tests/support/raft_preview_reuse.rs": "d8f41cad442c0ec1ff4ca8b0f16aab1f20733d09f017447262e0155a3d065583"
+  },
+  "raw_sha256": {
+    "shared-image-sync-before-valid.log": "4a6705617cdec70fbba016412a21caf66f0540e6efde3c54bed6d8ee390e3d52",
+    "shared-image-sync-focused-fixed.log": "a70d44f50cc622037d2c14a2362e19650ac01d531bb823a3740e450a2dba015e",
+    "shared-image-sync-final-libraries.log": "80100a185b81fd1b93858971fb4bb1465539c9b629ec32a2c9145819896d0af8",
+    "shared-image-sync-final-native-suite.log": "e6f9f7645ce738c4cbd68397ed946fe080b48536acec44f48f6c9b896b288c65",
+    "shared-image-sync-final-ltx-no-default.log": "af57416c45e669de147db49595aaacc762fb152c9ac69628ae13cf90cd3e13b9",
+    "shared-image-sync-final-clippy.log": "3799b8b7f656fe5ffde85f5c6c5c70b6962550f811b4b06e04728140736de8cd",
+    "shared-image-sync-final-format-check.log": "5c195b75a52a9abb95647977bb521696c4aac1d9e426851c81f872707e70872e",
+    "shared-image-sync-final-layout.log": "519dd0ce90645915d740ab40b851b8219b3efa58c892bc921987036396fb6a72",
+    "shared-image-sync-final-dependencies.log": "faf9bdb8df5819a63d590ede5d4a5f43eb4e8b00d8a6f44ccfb36bd8c4c5c238",
+    "shared-image-sync-final-docs.log": "fc7c35ef13964a04e099f7026328ae922c45c28f73000cfc736883acace2434f"
+  }
+}

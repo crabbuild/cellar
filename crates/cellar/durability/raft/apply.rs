@@ -363,10 +363,10 @@ impl ImageApplier {
                 })
             })
             .collect::<Result<Vec<_>, ImageApplyError>>()?;
-        self.images.reclaim(8).map_err(ImageApplyError::Images)?;
+        self.images.usage().map_err(ImageApplyError::Images)?;
         // The private owner has already replayed and sealed these exact bytes.
         // Take its pin only after every durable ticket/head/schema check above,
-        // and after reclamation has checked the image store's health. Followers
+        // and after checking the image store's health. Followers
         // and unmatched proposals retain the ordinary physical replay path.
         let preview = private.and_then(|private| {
             private.take_preview(
@@ -443,7 +443,9 @@ impl ImageApplier {
                     .map_err(ImageApplyError::Images)?;
             }
         }
-        self.images.reclaim(8).map_err(ImageApplyError::Images)?;
+        // Eligible old images are reclaimed with the next image's directory
+        // publication barrier. They remain fully charged until that sync.
+        self.images.usage().map_err(ImageApplyError::Images)?;
         Ok(head)
     }
 }

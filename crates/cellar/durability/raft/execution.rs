@@ -635,10 +635,8 @@ impl PrivateExecutor {
                 return Err(storage(error));
             }
             drop(pin);
-            if let Err(error) = self.options.images.reclaim(1) {
-                self.rebuild_required = true;
-                return Err(storage(error));
-            }
+            // The next image preparation reclaims eligible files with its
+            // publication sync, or before reservation if capacity is exhausted.
         }
         if let Err(error) = self
             .working

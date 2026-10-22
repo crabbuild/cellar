@@ -17,6 +17,8 @@ pub const AFTER_MARKER_SYNC: u8 = 4;
 pub const FAIL_IMAGE_SYNC: u8 = 5;
 pub const FAIL_DIRECTORY_SYNC: u8 = 6;
 pub const FAIL_AFTER_FINAL_CREATE: u8 = 7;
+pub const FAIL_REMOVE: u8 = 8;
+pub const AFTER_REMOVE: u8 = 9;
 
 pub struct Faults {
     pub directory: PathBuf,
@@ -26,6 +28,9 @@ pub struct Faults {
     pub reads: AtomicUsize,
     pub events: Mutex<Vec<&'static str>>,
     pub image_seals: Mutex<Vec<PathBuf>>,
+    pub synced_paths: Mutex<Vec<PathBuf>>,
+    pub removed_paths: Mutex<Vec<PathBuf>>,
+    pub before_directory_sync: Mutex<Option<Box<dyn FnOnce() + Send>>>,
     pub signal: Option<PathBuf>,
 }
 
@@ -39,6 +44,9 @@ impl Faults {
             reads: AtomicUsize::new(0),
             events: Mutex::new(Vec::new()),
             image_seals: Mutex::new(Vec::new()),
+            synced_paths: Mutex::new(Vec::new()),
+            removed_paths: Mutex::new(Vec::new()),
+            before_directory_sync: Mutex::new(None),
             signal,
         })
     }
@@ -193,17 +201,24 @@ impl FileSystem for FaultFileSystem {
 
     fn sync_all(&self, path: &Path) -> io::Result<()> {
         if path == self.faults.directory {
+            let observe = self.faults.before_directory_sync.lock().unwrap().take();
+            if let Some(observe) = observe {
+                observe();
+            }
             if self.faults.take(FAIL_DIRECTORY_SYNC) {
                 return Err(io::Error::other("injected directory sync failure"));
             }
             DirectFileSystem.sync_all(path)?;
+            self.faults.synced_paths.lock().unwrap().push(path.into());
             self.faults.event("directory-sync");
             if self.faults.take(AFTER_DIRECTORY_SYNC) {
                 self.faults.pause()?;
             }
             return Ok(());
         }
-        DirectFileSystem.sync_all(path)
+        DirectFileSystem.sync_all(path)?;
+        self.faults.synced_paths.lock().unwrap().push(path.into());
+        Ok(())
     }
 
     fn rename(&self, from: &Path, to: &Path) -> io::Result<()> {
@@ -218,7 +233,16 @@ impl FileSystem for FaultFileSystem {
     }
 
     fn remove_file(&self, path: &Path) -> io::Result<()> {
-        DirectFileSystem.remove_file(path)
+        if path.parent() == Some(self.faults.directory.as_path()) && self.faults.take(FAIL_REMOVE) {
+            return Err(io::Error::other("injected image removal failure"));
+        }
+        DirectFileSystem.remove_file(path)?;
+        self.faults.removed_paths.lock().unwrap().push(path.into());
+        if path.parent() == Some(self.faults.directory.as_path()) && self.faults.take(AFTER_REMOVE)
+        {
+            self.faults.pause()?;
+        }
+        Ok(())
     }
 
     fn remove_dir_all(&self, path: &Path) -> io::Result<()> {

@@ -72,6 +72,15 @@ to the whole batch; disk reservation covers its largest intermediate image.
 The single-update `prepare` uses the same path. `apply_limits` exposes the
 configured replay bounds for callers that split longer histories into batches.
 
+Image preparation also removes up to eight eligible retired files before its
+final directory sync, sharing that barrier with the new image's rename. Selected
+files stay busy and fully charged until the shared sync succeeds. Existing pins,
+retention and monotonic references exclude an image from selection. If space is
+needed before reserving the new image, bounded reclamation completes a separate
+directory sync first; it never spends unsynced deletion capacity. A failed
+removal or shared barrier quarantines admission and returns no new image pin.
+Explicit `reclaim` similarly batches its selected names under one directory sync.
+
 File operations use the injected `FileSystem` synchronously on the host's owning
 blocking/execution domain. Publication syncs the complete image, reserves its
 unique final name with exclusive creation, renames over that owned unpublished
