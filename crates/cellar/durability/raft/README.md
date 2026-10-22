@@ -694,7 +694,9 @@ Empty/configuration-only snapshot descriptors carry no image or encoded payload.
 They preserve configuration/index/term without allocating a SQLite database; the
 first committed LTX update can subsequently establish the initial image.
 `recovery.rs` validates coherent engine-selected reference sets before startup GC.
-Native checkpoint scheduling defaults to one cut per 256 applied entries;
+Native checkpoint scheduling defaults to one cut per 256 applied entries. When
+the aggregate durable log cache reaches half its byte capacity, eligible groups
+above an average share also checkpoint before reaching that entry count;
 `checkpoint_entries = 0` disables automatic compaction. The host pins and registers
 the exact requested source cut before sending `MsgSnapshot`. The receiver validates
 the descriptor against its local ticket, fetches ordered chunks and seals on its

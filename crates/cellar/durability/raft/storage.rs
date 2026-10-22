@@ -112,6 +112,7 @@ struct LogHandle {
     domain: crate::asyncrt::DomainToken,
     groups: Catalog,
     pending: Arc<AtomicUsize>,
+    cache_usage: Arc<AtomicUsize>,
     options: ReplicaLogOptions,
     closing: Arc<AtomicBool>,
     runtime_claimed: AtomicBool,
@@ -229,6 +230,12 @@ impl ReplicaLog {
         &self.inner.options
     }
 
+    /// Advisory maintenance signal. The writer still enforces the hard bound
+    /// against the complete candidate batch before crossing its sync boundary.
+    pub(crate) fn cache_under_pressure(&self) -> bool {
+        self.inner.cache_usage.load(Ordering::Acquire) >= self.inner.options.max_cache_bytes / 2
+    }
+
     pub async fn open(
         options: ReplicaLogOptions,
         filesystem: Arc<dyn FileSystem>,
@@ -248,6 +255,7 @@ impl ReplicaLog {
         });
         let closing = Arc::new(AtomicBool::new(false));
         let owner = Arc::new(());
+        let cache_usage = Arc::new(AtomicUsize::new(0));
         let handle = Self {
             inner: Arc::new(LogHandle {
                 instance: std::sync::OnceLock::new(),
@@ -256,6 +264,7 @@ impl ReplicaLog {
                 domain: domain.clone(),
                 groups: groups.clone(),
                 pending: Arc::new(AtomicUsize::new(0)),
+                cache_usage: cache_usage.clone(),
                 options: options.clone(),
                 closing: closing.clone(),
                 runtime_claimed: AtomicBool::new(false),
@@ -289,7 +298,14 @@ impl ReplicaLog {
                     }
                 }
                 let _guard = ClosedOnDrop(closed.clone(), terminal.clone());
-                let result = Worker::open(options, filesystem, groups, owner, closed.clone());
+                let result = Worker::open(
+                    options,
+                    filesystem,
+                    groups,
+                    owner,
+                    closed.clone(),
+                    cache_usage,
+                );
                 let mut worker = match result {
                     Ok(worker) => worker,
                     Err(error) => {
@@ -472,6 +488,7 @@ struct Worker {
     owner: Arc<()>,
     closed: Arc<AtomicBool>,
     cache_bytes: usize,
+    cache_usage: Arc<AtomicUsize>,
 }
 
 impl Worker {
@@ -481,6 +498,7 @@ impl Worker {
         groups: Catalog,
         owner: Arc<()>,
         closed: Arc<AtomicBool>,
+        cache_usage: Arc<AtomicUsize>,
     ) -> Result<Self, LogError> {
         match options.mode {
             LogOpenMode::Create => create_directory_durably(fs.as_ref(), &options.directory)?,
@@ -585,8 +603,12 @@ impl Worker {
             owner,
             closed,
             cache_bytes: 0,
+            cache_usage,
         };
         worker.recover()?;
+        worker
+            .cache_usage
+            .store(worker.cache_bytes, Ordering::Release);
         Ok(worker)
     }
 
@@ -855,6 +877,7 @@ impl Worker {
             .insert(bootstrap.scope, handle.clone());
         self.mappings.insert(key, mapping);
         self.cache_bytes += bytes;
+        self.cache_usage.store(self.cache_bytes, Ordering::Release);
         Ok(handle)
     }
 
@@ -921,6 +944,7 @@ impl Worker {
                 .map_err(|_| LogError::Corrupt("cache publication lock poisoned".into()))? = next;
         }
         self.cache_bytes = next_bytes;
+        self.cache_usage.store(self.cache_bytes, Ordering::Release);
         Ok(SyncReceipt {
             operation,
             sequence,

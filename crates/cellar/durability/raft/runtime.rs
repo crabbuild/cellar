@@ -1122,6 +1122,20 @@ impl Worker {
         }
         let mut bytes = 1024;
         let mut jobs = Vec::new();
+        // Reclamation must not share a batch with an append which cannot fit
+        // until that reclamation persists. Otherwise retrying the same bounded
+        // batch can indefinitely prevent the checkpoint from freeing capacity.
+        let checkpoints = self.order.iter().any(|scope| {
+            self.groups.get(scope).is_some_and(|group| {
+                group.failed.is_none()
+                    && group.replica.write.as_ref().is_some_and(|(_, write)| {
+                        matches!(
+                            write.snapshot,
+                            Some(super::cache::SnapshotChange::Checkpoint(_))
+                        )
+                    })
+            })
+        });
         for _ in 0..self.order.len() {
             let Some(scope) = self.order.pop_front() else {
                 break;
@@ -1129,6 +1143,15 @@ impl Worker {
             let group = self.groups.get_mut(&scope).ok_or(RuntimeError::NotFound)?;
             if group.failed.is_none() {
                 if let Some((_, write)) = &group.replica.write {
+                    if checkpoints
+                        && !matches!(
+                            write.snapshot,
+                            Some(super::cache::SnapshotChange::Checkpoint(_))
+                        )
+                    {
+                        self.order.push_back(scope);
+                        continue;
+                    }
                     let size = write.estimated_bytes()?;
                     if size + 1024 > self.log.limits().max_batch_bytes {
                         Self::fail(group, RuntimeError::Overloaded);

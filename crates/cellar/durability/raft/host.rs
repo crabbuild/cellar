@@ -82,7 +82,8 @@ pub struct RaftHostOptions {
     pub node_directory: Option<RaftNodeDirectoryOptions>,
     /// Enable native snapshot recovery and its larger image admission floor.
     pub enable_snapshots: bool,
-    /// Applied entries between automatic checkpoints; zero disables compaction.
+    /// Applied entries between automatic checkpoints. Shared log-cache pressure
+    /// can trigger an earlier checkpoint; zero disables automatic compaction.
     pub checkpoint_entries: u64,
     pub archive: RaftArchiveOptions,
     pub max_groups: usize,

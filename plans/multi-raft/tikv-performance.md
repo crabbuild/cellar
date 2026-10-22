@@ -420,6 +420,64 @@ their parent scenarios. Strict Clippy, formatting, layout, dependency policy,
 documentation and eight Python harness cases pass. Full-cluster revalidation
 and a controlled throughput comparison remain pending.
 
+## Aggregate log-cache exhaustion
+
+The completion-capacity candidate at `9e18e03` completed the full eight-window
+run and verified all 4,500 replica values and 1,500 archive positions. It still
+had admission refusals and no operating point passed every repeat. A subsequent
+three-writer, 180-second window acknowledged 10,041 writes (55.20 TPS), with
+976 admission refusals and 63 five-second ambiguous outcomes on distinct cells.
+Its successful-response p99 was 79.86 ms, which excludes those failed requests
+and therefore does not qualify the run. The original command deadlines were
+preserved; one reconciliation attempt returned overload for all 63 commands.
+
+The first ambiguous requests on all three nodes started within four milliseconds
+of one another. A quiescent copy of node 1's durable log, opened separately for
+inspection, contained 268,431,038 cache bytes against the 268,435,456-byte limit:
+only 4,418 bytes remained. Across 1,500 groups it retained 89,861 entries, but
+the largest group had only 126 entries. None could reach the default 256-entry
+automatic checkpoint threshold. New append batches exceeded the aggregate
+limit, and the runtime retried their `Overloaded` result without reclaiming
+history. This explains the sustained-write stall; it does not attribute every
+earlier latency spike to this cause.
+
+The SDK regression `many_small_groups_checkpoint_under_shared_cache_pressure`
+uses eight real SQLite groups and a 256-KiB shared cache. Before the change it
+returned an ambiguous result at group 1, sequence 20. The proposed maintenance
+trigger observes durable aggregate cache usage and begins checkpointing at half
+capacity, selecting eligible groups above an average share of that capacity.
+Existing entry-count scheduling and explicit compaction disabling remain in
+effect. The physical snapshot, image retention and durable checkpoint barriers
+are unchanged. With pressure scheduling, all 256 commands and exact reads pass.
+The scheduler regression
+`checkpoint_reclaims_cache_ahead_of_capacity_blocked_append` independently
+reproduces a reclaiming checkpoint rejected in the same batch as an append that
+cannot fit. Runtime batches now persist queued checkpoints separately before
+appends; the same regression then persists both the checkpoint and append.
+
+This follows TiKV's use of memory-pressure-aware entry-cache reclamation, but
+Cellar's synchronous Raft storage view currently retains every uncompacted
+entry in memory. Cellar therefore uses its existing verified physical checkpoint
+path to reclaim entries. A disk-backed cache-miss path would be a separate
+architectural change.
+
+The `9e18e03` SDK CI run failed two snapshot fault scenarios: the regular Python
+job timed out in `native_snapshot_shutdown_joins_partial_transfer`, and the
+free-threaded job timed out in
+`native_snapshot_interrupted_transfer_retries_without_blocking_other_groups`.
+The causes remain unresolved. Python application examples passed. The new cache
+fix still needs full-cluster sustained measurement and recovery qualification.
+
+Local validation of the cache fix passed 630 Rust cases across the library,
+archive, host, membership, operations, runtime, snapshot and storage targets.
+One operations case, `node_shutdown_hands_off_to_published_voter`, failed with
+zero handoff attempts and one unavailable group. Ten isolated repetitions then
+passed, which does not explain or erase the original failure. All 42 snapshot
+cases passed locally, including the two scenarios that failed the preceding
+Linux CI run. Five process helpers are invoked by their parent tests. Strict
+Clippy, formatting, layout, dependency policy, documentation and eight Python
+harness tests passed. The PR remains a draft with these qualification limits.
+
 ## Remaining qualification
 
 - Reproduce and resolve the Linux management-stop admission-seal failure, then

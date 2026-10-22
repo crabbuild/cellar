@@ -305,7 +305,9 @@ async fn main() -> Result<()> {
                     }
                     Ok::<_,anyhow::Error>(serde_json::json!({"cell":id, "leader":status.leader.map(MemberId::get),
                         "ready": status.command_ready, "role":format!("{:?}",status.role),
-                        "term":status.term.get(), "committed":status.committed.get(), "applied":status.applied.index.get(), "archived":status.archived.get()}))
+                        "term":status.term.get(), "persisted":status.persisted.get(),
+                        "checkpoint":status.checkpoint.index.get(), "committed":status.committed.get(),
+                        "applied":status.applied.index.get(), "archived":status.archived.get()}))
                 }.await;
                 match result { Ok(v) => (axum::http::StatusCode::OK, v.to_string()),
                     Err(e) => (axum::http::StatusCode::SERVICE_UNAVAILABLE, e.to_string()) }

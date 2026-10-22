@@ -679,5 +679,207 @@
       "apply-completion-recovery-tests.log": "385911af3d18aef2b976991dca468d98ae1451ad5c69ebe9bccd273bde368bd5",
       "apply-completion-clippy.log": "71c651da232a10ad7cb2de1076b9b3847a9322b297e8d4894ebf6eaa5b49855f"
     }
+  },
+  "completion_admission_run": {
+    "source": "9e18e038e6d0d09a56a58a9e31ce73985d2ea7f9",
+    "image": "sha256:6acfcea03687bcd3aac71f2c00cbf8fa2db1203da054913e38293787f6acdb56",
+    "binary_sha256": "f9a25f20db5983a5545dbf6dc8c08aa4e9b5eed64c773331e760a1c2b5e2dc55",
+    "completed": true,
+    "verified_replica_values": 4500,
+    "verified_archive_groups": 1500,
+    "all_windows_error_free": false,
+    "selected_under_200_ms": null,
+    "selected_under_500_ms": null,
+    "windows": [
+      {
+        "repeat": 1,
+        "concurrency": 3,
+        "successful_writes": 10357,
+        "tps": 172.579415848461,
+        "latency_ms": {
+          "p50": 15.039269001135835,
+          "p95": 29.5360360032646,
+          "p99": 44.51987900029053,
+          "max": 951.2898449975182
+        },
+        "errors": 0,
+        "error_counts": {}
+      },
+      {
+        "repeat": 1,
+        "concurrency": 6,
+        "successful_writes": 5349,
+        "tps": 89.07995776095966,
+        "latency_ms": {
+          "p50": 50.407974998961436,
+          "p95": 150.34147299957112,
+          "p99": 271.2827520008432,
+          "max": 1077.6296309995814
+        },
+        "errors": 0,
+        "error_counts": {}
+      },
+      {
+        "repeat": 1,
+        "concurrency": 9,
+        "successful_writes": 6434,
+        "tps": 107.17734993588681,
+        "latency_ms": {
+          "p50": 65.85877500037896,
+          "p95": 197.59470200006035,
+          "p99": 324.32620899999165,
+          "max": 1212.4026380006399
+        },
+        "errors": 0,
+        "error_counts": {}
+      },
+      {
+        "repeat": 1,
+        "concurrency": 12,
+        "successful_writes": 9932,
+        "tps": 165.43397886371056,
+        "latency_ms": {
+          "p50": 42.95207600080175,
+          "p95": 98.0192220013123,
+          "p99": 194.87534200015943,
+          "max": 416.84625999914715
+        },
+        "errors": 6427,
+        "error_counts": {
+          "Overloaded": 6427
+        }
+      },
+      {
+        "repeat": 2,
+        "concurrency": 12,
+        "successful_writes": 10925,
+        "tps": 181.99339173505498,
+        "latency_ms": {
+          "p50": 37.85000299831154,
+          "p95": 77.2395729982236,
+          "p99": 137.6276519986277,
+          "max": 675.6230270002561
+        },
+        "errors": 7046,
+        "error_counts": {
+          "Overloaded": 7046
+        }
+      },
+      {
+        "repeat": 2,
+        "concurrency": 9,
+        "successful_writes": 12222,
+        "tps": 203.61070869215013,
+        "latency_ms": {
+          "p50": 28.07253300125012,
+          "p95": 44.55800199866644,
+          "p99": 62.83159499798785,
+          "max": 140.23605699912878
+        },
+        "errors": 9552,
+        "error_counts": {
+          "Overloaded": 9552
+        }
+      },
+      {
+        "repeat": 2,
+        "concurrency": 6,
+        "successful_writes": 11464,
+        "tps": 191.00397265597212,
+        "latency_ms": {
+          "p50": 20.136200000706594,
+          "p95": 29.97205200153985,
+          "p99": 39.52645599929383,
+          "max": 144.99964800052112
+        },
+        "errors": 10889,
+        "error_counts": {
+          "Overloaded": 10889
+        }
+      },
+      {
+        "repeat": 2,
+        "concurrency": 3,
+        "successful_writes": 9139,
+        "tps": 152.29608152619093,
+        "latency_ms": {
+          "p50": 15.930965000734432,
+          "p95": 28.4370690023934,
+          "p99": 48.0373589998635,
+          "max": 192.1959909996076
+        },
+        "errors": 3140,
+        "error_counts": {
+          "Overloaded": 3140
+        }
+      }
+    ]
+  },
+  "cache_pressure_diagnosis": {
+    "implementation_commit": "9e18e038e6d0d09a56a58a9e31ce73985d2ea7f9",
+    "followup_seconds": 180,
+    "followup_concurrency": 3,
+    "successful_writes": 10041,
+    "tps": 55.19997499615066,
+    "successful_response_latency_ms": {
+      "p50": 18.517371001507854,
+      "p95": 45.6121470015205,
+      "p99": 79.8578659996565,
+      "max": 980.0085159986338
+    },
+    "overloaded": 976,
+    "ambiguous": 63,
+    "ambiguous_distinct_cells": 63,
+    "original_deadlines_extended": false,
+    "reconciliation_successes": 0,
+    "node1_offline_cache_bytes": 268431038,
+    "cache_limit_bytes": 268435456,
+    "cache_remaining_bytes": 4418,
+    "retained_entries": 89861,
+    "largest_group_retained_entries": 126,
+    "checkpoint_entry_threshold": 256,
+    "sdk_reproduction": "eight groups, 256-KiB shared cache: ambiguous at group 1, sequence 20",
+    "proposed_fix": "checkpoint under aggregate cache pressure; ensure reclaiming checkpoints can persist ahead of blocked appends",
+    "full_cluster_revalidation": "pending",
+    "timed_run_qualified": false,
+    "local_evidence_sha256": {
+      ".cellar/raft-perf/1500-tikv-completion/report.json": "127bd0d057f8555a6f28451b7ca833cd4645d836e045e85700f6825bb3840ff4",
+      ".cellar/raft-perf/1500-tikv-completion/steady-three-writer/write-r1.json": "e5b41739706ba325b7985e8b50fe614c4f7e5c55c31cae394a3d23299ef07819",
+      ".cellar/raft-perf/1500-tikv-completion/steady-three-writer/postfailure-reconciliation.json": "1fa18d7562420f9c223f0e33b63b69205f1194a5684b0adf11a98fe327d1621e",
+      ".cellar/raft-perf/diagnosis/cache-inspection.log": "ab2fc8db8e12ca6e82e55d68b3e4bf95044bd6607b5732affff4faf88175724e",
+      ".cellar/raft-perf/diagnosis/cache-pressure-before-valid.log": "0d62c34c4fee469b107f144cc61ead21a6274a8cb7735c236ad8b0ef7cfce276",
+      ".cellar/raft-perf/diagnosis/cache-pressure-after.log": "d2e20b16d772a687830ea55779de0b717633f450ea9283a8dd516e57e46dabe4",
+      ".cellar/raft-perf/diagnosis/cache-reclaim-before-valid.log": "38cb1008a3ee2bb109d0334955868c6c328adc758e4b6daf4dfa3d5ca7580608",
+      ".cellar/raft-perf/diagnosis/cache-reclaim-after.log": "b7f8413510bbbad831ccc6e272476c9e049242b08a3eaa4ba4d3c9bca1c99015",
+      ".cellar/raft-perf/diagnosis/cache-regression-suite.log": "0034bd2d42aef2fa29d6d90e0e102c2a1c63d9823ce982d1bc342cd8da7c269e",
+      ".cellar/raft-perf/diagnosis/cache-recovery-suite.log": "815692f24b494f3342387de6c8700c43b8822275c1908afc2dcf60b5d55df004",
+      ".cellar/raft-perf/diagnosis/cache-clippy.log": "cb412b670659c9e608478af9d64a0c6c38389e95e3dbeb2ecc9027f61e16193d",
+      ".cellar/raft-perf/diagnosis/cache-handoff-repeats/summary.json": "ed9522aa98cd7111ebfedc815f8df0e388b768edd9b5942cda1f16f65956b8c7"
+    },
+    "checkpoint_batch_reproduction": "capacity-blocked append prevents reclaiming checkpoint from persisting in a mixed batch; separate checkpoint batch passes",
+    "local_regressions": "both fail before and pass after",
+    "validation": {
+      "passed_rust_cases": 630,
+      "failed_rust_cases": 1,
+      "failed_case": "native_raft_operations::node_shutdown_hands_off_to_published_voter",
+      "failure": "zero handoff attempts, one unavailable group",
+      "isolated_handoff_repetitions_passed": 10,
+      "original_failure_resolved": false,
+      "strict_clippy": "passed",
+      "formatting": "795 files passed",
+      "layout": "795 files passed",
+      "dependencies": "452 packages passed",
+      "docs": "passed",
+      "python_harness_cases": 8
+    }
+  },
+  "ci_at_9e18e03": {
+    "sdk": "failed",
+    "python_examples": "passed",
+    "failures": [
+      "3.14: native_snapshot_shutdown_joins_partial_transfer: deadline has elapsed",
+      "3.14t: native_snapshot_interrupted_transfer_retries_without_blocking_other_groups: deadline has elapsed"
+    ],
+    "root_cause": "unresolved"
   }
 }
