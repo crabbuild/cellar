@@ -8,7 +8,7 @@ from unittest.mock import Mock
 from baseline_analyze import proof_delta
 from baseline_history import reconcile, position
 from baseline_run import effective_profile
-from compare_runs import compare_verified, contract
+from compare_runs import compare_verified, contract, normalized
 from raft_run import read_json, verify_image
 from raft_workload import Ledger, input_digest, model, run_load
 
@@ -112,6 +112,18 @@ class History(unittest.TestCase):
 
 
 class Comparisons(unittest.TestCase):
+    def test_scenario_and_fault_instrumentation_are_comparison_inputs(self):
+        profile = read_json(Path(__file__).with_name('raft_profiles.json'))['profiles']['local-q0']
+        report = {'profile': profile, 'scenario': 'healthy', 'fault_profile': None, 'vm': {}, 'limits': [],
+                  'build': {'build_profile': 'lab', 'source_manifest_sha256': 'source', 'binary_sha256': 'binary'}}
+        verified = {'verified': True, 'summary': {'completed_per_second': 10}}
+        left = normalized(report, verified)
+        for changes in ({'scenario': 'slow-follower'}, {'fault_profile': {'node': 3}}):
+            result = compare_verified(left, normalized({**report, **changes}, verified))
+            self.assertFalse(result['matched_contract'])
+            self.assertIn('workload_contract', result['differences'])
+            self.assertNotIn('throughput_ratio', result)
+
     def test_quorum_s3_fleet_and_bucket_contracts_are_distinct(self):
         contracts = [contract({'adapter': mode, 'profile': {'durability': durability, 'read_consistency': 'at-least'}})
                      for mode, durability in [('raft', 'quorum'), ('raft', 's3'), ('fleet', 'fleet-or-bucket'), ('bucket', 'bucket')]]

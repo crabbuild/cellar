@@ -103,8 +103,11 @@ overlapping application traffic.
 
 MR-14 now provides `tools/perf/raft_run.py`, the native `raft_workload.rs`
 reference application in `cellar-perf-raft`, and `raft_analyze.py` for independent
-serialized-history and replica reconciliation. The local healthy runner refuses
-unimplemented fault scenarios and soak before creating workload resources.
+serialized-history and replica reconciliation. Controlled slow-follower runs add
+bounded process pauses, observed majority progress during third-voter lag and
+exact final replica recovery. The target's concurrent leader/query-follower roles
+are reported separately. The runner refuses other unimplemented fault scenarios
+and soak before creating workload resources.
 `tools/perf/raft-performance.md` gives its current executable interface and
 qualification limits. MR-15's concurrent `raft_history.py` checker and complete
 fault/result qualification remain future outputs.
@@ -115,7 +118,8 @@ Required runner interface:
 python3 tools/perf/raft_run.py
   --image <verified-image-digest>
   --profile <checked-in-workload.json>
-  --scenario <healthy|leader-loss|minority-partition|disk-stall|s3-outage|snapshot-crash>
+  --scenario <healthy|slow-follower|leader-loss|minority-partition|disk-stall|s3-outage|snapshot-crash>
+  --fault-profile <checked-in-fault.json>  # required for slow-follower; optional healthy control
   --output <new-run-directory>
 ```
 

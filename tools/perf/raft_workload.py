@@ -60,7 +60,7 @@ def raft_position(response):
     return {"version_token": response["version_token"], "index": response["index"]}
 
 
-def run_load(profile, phase, seconds, state, ledger, send, run_id, *, clock=time.monotonic, sleep=time.sleep, position=raft_position):
+def run_load(profile, phase, seconds, state, ledger, send, run_id, *, clock=time.monotonic, sleep=time.sleep, position=raft_position, on_start=None):
     """send(cell, command|query, body, headers) -> (HTTP status, decoded body).
 
     Invocation records reach disk before send. The bounded executor has no
@@ -79,6 +79,8 @@ def run_load(profile, phase, seconds, state, ledger, send, run_id, *, clock=time
     began = clock()
     offered = arrival_count(seconds, rate)
     counters = {key: 0 for key in ('offered', 'submitted', 'completed', 'rejected', 'ambiguous', 'failed', 'timed_out', 'generator_rejected')}
+    if on_start is not None:
+        on_start(began)
 
     def execute(item, headers, body):
         cell = item['cell']
@@ -174,7 +176,7 @@ def run_load(profile, phase, seconds, state, ledger, send, run_id, *, clock=time
         sleep(max(0, began + seconds - clock()))
         for future in pending:
             future.result()
-    return {**counters, 'offered_seconds': seconds, 'elapsed_seconds': clock() - began,
+    return {**counters, 'offered_seconds': seconds, 'started_monotonic_seconds': began, 'elapsed_seconds': clock() - began,
             'blocked_cells': sorted(blocked)}
 
 

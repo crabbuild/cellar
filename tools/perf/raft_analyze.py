@@ -6,6 +6,7 @@ from pathlib import Path
 from raft_run import decode_json, input_digest, read_json, require, summarize_ledger, validate_profile
 from raft_workload import reconcile
 from raft_metrics import phases, periodic
+from raft_faults import fault_evidence, validate_scenario
 from raft_topology import local_placement, members, verify_topology, verify_resources, verify_populations, verify_traffic
 
 
@@ -14,6 +15,7 @@ def analyze(root):
     report = read_json(root / 'report.json')
     require(report.get('completed') is True and report.get('reconciled') is True, 'unfinished run')
     profile = validate_profile(report['profile'])
+    validate_scenario(report['scenario'], report['fault_profile'], profile)
     require(report['profile_sha256'] == input_digest(profile), 'changed workload profile')
     node_count = profile['topology']['nodes']
     planned = local_placement(profile)
@@ -64,7 +66,10 @@ def analyze(root):
     require(len(report['cgroups']) == node_count and {row['node'] for row in report['cgroups']} == {f"{report['prefix']}-node{n}" for n in range(1, node_count + 1)}, 'missing physical resource evidence')
     for row in report['cgroups']:
         require(row['cpu_max'] == '100000 100000' and row['memory_max'] == 3 * 1024**3 and row['swap_max'] == 0, 'physical cgroup differs')
-    return {'verified': True, 'scope': 'healthy serialized workload, assigned three-voter replicas and archive coverage', 'placement': planned,
+    fault = fault_evidence(root, report, summarize_ledger, decode_json)
+    require(fault == report['fault_result'], 'fault result differs from raw observations')
+    return {'verified': True, 'scope': report['scenario'] + ' serialized workload, assigned three-voter replicas and archive coverage', 'placement': planned,
+            'fault': fault,
             'commands_including_seed': history['commands_including_seed'], 'queries': history['queries'],
             'replicas': len(seen), 'summary': summary, 'performance': performance, 'limitations': report['limitations']}
 

@@ -27,6 +27,8 @@ def normalized(report, verified):
     # A matching compiler profile alone is insufficient: sources and the shared
     # reference workload must also be exactly the same build input snapshot.
     workload['tick_ms'] = profile['tick_ms'] if report.get('adapter', 'raft') == 'raft' else None
+    workload['scenario'] = report['scenario']
+    workload['fault_profile'] = report['fault_profile'] if report.get('adapter', 'raft') == 'raft' else None
     return {'durability_contract': contract(report),
             'hardware': {'resources': profile['resources'], 'vm': report['vm'], 'nodes': profile['topology']['nodes'],
                          'failure_domains': profile['topology']['failure_domains'], 'limits': report['limits']},

@@ -19,6 +19,7 @@ import urllib.request
 from raft import captured_node_limits, port_base, wait_for_placement
 from raft_workload import Ledger, input_digest, model, run_load, reconcile
 from raft_metrics import phases, samples
+from raft_faults import SlowFollower, fault_evidence, preflight_pause, validate_scenario
 from raft_topology import local_placement, members, verify_topology, verify_resources, verify_populations, verify_traffic, vm_requirements
 from run import create_bucket
 
@@ -142,12 +143,12 @@ def matched_comparison(left, right):
     return {'matched_contract': True, 'throughput_ratio': right['completed_per_second'] / left['completed_per_second']}
 
 
-def request(base, path, token, *, method='GET', body=None, headers=None):
+def request(base, path, token, *, method='GET', body=None, headers=None, timeout=6):
     wire = None if body is None else json.dumps(body, sort_keys=True, separators=(',', ':')).encode()
     req = urllib.request.Request(base + path, data=wire, method=method,
         headers={'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json', **(headers or {})})
     try:
-        with urllib.request.urlopen(req, timeout=6) as response:
+        with urllib.request.urlopen(req, timeout=timeout) as response:
             return response.status, json.loads(response.read())
     except urllib.error.HTTPError as error:
         raw = error.read().decode()
@@ -158,7 +159,7 @@ def request(base, path, token, *, method='GET', body=None, headers=None):
         return error.code, raw
 
 
-def summarize_ledger(path, phase, seconds):
+def summarize_ledger(path, phase, seconds, *, cells=None):
     invocations, samples, violations = {}, [], []
     seen = set()
     by_operation = {'command': [], 'query': []}
@@ -169,7 +170,7 @@ def summarize_ledger(path, phase, seconds):
             event = json.loads(line)
             require(event['order'] == last_order + 1, 'ledger event order gap')
             last_order = event['order']
-            if event.get('phase') != phase:
+            if event.get('phase') != phase or (cells is not None and event['cell'] not in cells):
                 continue
             key = event['id']
             if event['event'] in ('invoke', 'reject'):
@@ -212,7 +213,8 @@ def main():
     parser.add_argument('--image')
     parser.add_argument('--profile', type=Path, required=True)
     parser.add_argument('--profile-name', default='local-q0')
-    parser.add_argument('--scenario', choices=['healthy', 'leader-loss', 'minority-partition', 'disk-stall', 's3-outage', 'snapshot-crash'], default='healthy')
+    parser.add_argument('--scenario', choices=['healthy', 'slow-follower', 'leader-loss', 'minority-partition', 'disk-stall', 's3-outage', 'snapshot-crash'], default='healthy')
+    parser.add_argument('--fault-profile', type=Path)
     parser.add_argument('--output', type=Path)
     parser.add_argument('--context', default='colima-cellar-multi-raft')
     parser.add_argument('--port-base', type=port_base, default=20000)
@@ -224,7 +226,8 @@ def main():
     if args.capacity_only:
         print(json.dumps(capacity(profile), indent=2))
         return
-    require(args.scenario == 'healthy', 'fault capability not implemented: refuse before creating resources')
+    args.fault_config = read_json(args.fault_profile) if args.fault_profile else None
+    validate_scenario(args.scenario, args.fault_config, profile)
     local_placement(profile)
     require(args.port_base <= 65535 - profile['topology']['nodes'], 'port base cannot cover all nodes')
     require(capacity(profile)['host_bound_admits_balanced_placement'], 'profile exceeds current host group bound')
@@ -235,9 +238,10 @@ def main():
     require(args.image is not None, 'provide --image')
     def docker(*command):
         # Never print arguments: credentials may appear in container environment.
-        result = subprocess.run(['docker', '--context', args.context, *command], text=True, capture_output=True)
+        result = subprocess.run(['docker', '--context', args.context, *command], text=True, capture_output=True,
+                                timeout=15 if command[0] in ('pause', 'unpause', 'inspect') else None)
         require(result.returncode == 0, f'Docker {command[0]} failed (arguments and environment omitted)')
-        return result.stdout.strip()
+        return (result.stdout + (result.stderr if command[0] == 'logs' else '')).strip()
     build = verify_image(args.image, docker)
     build['source_revision'] = subprocess.check_output(['git', '-C', str(ROOT), 'rev-parse', 'HEAD'], text=True).strip()
     build['working_tree_dirty'] = bool(subprocess.check_output(['git', '-C', str(ROOT), 'status', '--porcelain'], text=True).strip())
@@ -246,6 +250,7 @@ def main():
     minimum = vm_requirements(profile['topology']['nodes'])
     require(cpus >= minimum['cpus'] and memory >= minimum['memory_bytes'], 'insufficient dedicated VM resources')
     require(not docker('ps', '-q', '--filter', f'label={LABEL}'), 'stop the previous owned experiment before starting another')
+    args.fault_capability = preflight_pause(docker, args.image) if args.fault_config is not None else None
     run(args, profile, build, docker, cpus, memory)
 
 
@@ -271,11 +276,13 @@ def run(args, profile, build, docker, cpus, memory):
     bases = [f'http://127.0.0.1:{args.port_base+i}' for i in range(1, node_count + 1)]
     report = {'format': 1, 'run_id': run_id, 'prefix': prefix, 'context': args.context, 'build': build,
               'profile': profile, 'profile_sha256': input_digest(profile), 'scenario': args.scenario,
-              'runner_sha256': {name: hashlib.sha256((ROOT / 'tools/perf' / name).read_bytes()).hexdigest() for name in ('raft_run.py', 'raft_workload.py', 'raft_analyze.py', 'raft_metrics.py', 'raft_topology.py', 'raft.py', 'run.py')},
+              'fault_profile': args.fault_config, 'fault_profile_sha256': input_digest(args.fault_config),
+              'fault_capability': args.fault_capability,
+              'runner_sha256': {name: hashlib.sha256((ROOT / 'tools/perf' / name).read_bytes()).hexdigest() for name in ('raft_run.py', 'raft_workload.py', 'raft_analyze.py', 'raft_metrics.py', 'raft_topology.py', 'raft_faults.py', 'raft.py', 'run.py')},
               'capacity': capacity(profile), 'placement': planned, 'vm': {'cpus': cpus, 'memory_bytes': memory},
               'completed': False, 'reconciled': False,
               'limitations': ['One local VM and RustFS; no independent failure domains or Amazon S3 qualification.',
-                              'No fault/recovery or all-disk-loss restore qualification.',
+                              'Only the recorded scenario is covered; no disk-stall, partition, crash, all-disk-loss restore or soak qualification.',
                               'No matched Fleet/bucket baseline measurement yet.',
                               'Engine/SQL and object API work, Raft socket bytes below TLS and controller attempts are measured; SDK-internal retries, TCP retransmissions, physical device I/O and instrumentation overhead remain unqualified.']}
     def save():
@@ -284,6 +291,7 @@ def run(args, profile, build, docker, cpus, memory):
     ledger = Ledger(root / 'operations.jsonl')
     stop = threading.Event()
     sampler = None
+    fault = None
     try:
         # Let Docker allocate a private subnet; avoid overlapping a retained run.
         network = json.loads(docker('network', 'inspect', docker('network', 'create', '--label', owner, prefix)))
@@ -412,11 +420,17 @@ def run(args, profile, build, docker, cpus, memory):
                 report['sampler_failure'] = str(error)
         sampler = threading.Thread(target=sample)
         sampler.start()
+        if args.fault_config is not None:
+            fault = SlowFollower(root, args.scenario, args.fault_config, profile, prefix, run_id, docker,
+                                 lambda cell, timeout: request(bases[cell % node_count], f'/admin/{cell}', token, timeout=timeout))
         for phase, seconds in [('warmup', profile['timing']['warmup_seconds']), ('measurement', profile['timing']['measurement_seconds'])]:
             if seconds:
                 print(f'{phase}: {seconds}s, {profile["arrival"]["rate_per_second"]} offered operations/sec', flush=True)
                 boundary(phase, 'before')
-                report[phase] = run_load(profile, phase, seconds, state, ledger, send, run_id)
+                report[phase] = run_load(profile, phase, seconds, state, ledger, send, run_id,
+                                        on_start=fault.start if fault and phase == 'measurement' else None)
+                if fault and phase == 'measurement':
+                    fault.finish()
                 boundary(phase, 'after')
                 require(not report[phase]['ambiguous'] and not report[phase]['blocked_cells'], 'ambiguous history requires reconciliation before continuing')
         report['performance'] = phases(measurements, bool(profile['timing']['warmup_seconds']), node_count)
@@ -428,6 +442,7 @@ def run(args, profile, build, docker, cpus, memory):
                 require(code == 200 and reply['state'] == expected['state'] and reply['index'] >= expected['index'] and reply['served_by'] == member+1, 'replica state or version mismatch')
                 replicas.append({'cell': cell, 'node': member+1, 'response': reply})
         (root / 'replicas.json').write_text(json.dumps(replicas) + '\n')
+        report['replicas_verified_monotonic_seconds'] = time.monotonic()
         report['final_archive'], report['final_archive_seconds'] = wait_archive()
         capture_topology('after')
         report['summary'] = summarize_ledger(root / 'operations.jsonl', 'measurement', profile['timing']['measurement_seconds'])
@@ -435,6 +450,7 @@ def run(args, profile, build, docker, cpus, memory):
         report['history'] = reconcile(root / 'operations.jsonl')
         with (root / 'operations.jsonl').open() as stream:
             verify_traffic((decode_json(line) for line in stream), profile)
+        report['fault_result'] = fault_evidence(root, report, summarize_ledger, decode_json)
         report['cgroups'] = [{'node': node, 'cpu_max': docker('exec', node, 'cat', '/sys/fs/cgroup/cpu.max'),
             'memory_max': int(docker('exec', node, 'cat', '/sys/fs/cgroup/memory.max')),
             'swap_max': int(docker('exec', node, 'cat', '/sys/fs/cgroup/memory.swap.max')),
@@ -450,6 +466,8 @@ def run(args, profile, build, docker, cpus, memory):
         report['failure'] = str(error)
         raise
     finally:
+        if fault:
+            fault.close()
         stop.set()
         if sampler:
             sampler.join()

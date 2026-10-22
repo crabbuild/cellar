@@ -152,6 +152,50 @@ checker. Ambiguous or overlapping per-cell histories refuse reconciliation.
 error objectives. Warmup is explicit but does not establish steady state by
 itself. A successful functional run is not a capacity claim.
 
+## Controlled slow-follower experiments
+
+`--scenario slow-follower --fault-profile tools/perf/raft_slow_follower.json`
+periodically pauses the exact tagged node 3 during measurement. The checked-in
+schedule holds it for 250 ms every second, starting after two seconds and ending
+before the last two seconds. Observed pause duration, including Docker and probe
+work, must remain below 750 ms. The runner proves Linux freezer support using a
+disposable, network-isolated process before creating workload resources.
+
+Use the same profile with `--scenario healthy --fault-profile ...` for a control
+with the same probe schedule and no workload-node pauses. Warmup stays healthy.
+Both runs use the same image, resource limits, workload, acknowledgement mode and
+follower-query policy. The comparison command includes the scenario and probe
+configuration in its input contract, so different conditions cannot silently
+produce an equivalent-speedup ratio.
+
+```sh
+python3 tools/perf/raft_run.py --image "$IMAGE_DIGEST" \
+  --profile tools/perf/raft_profiles.json --profile-name local-five \
+  --scenario slow-follower --fault-profile tools/perf/raft_slow_follower.json \
+  --output /absolute/new/slow-follower-run
+```
+
+This pauses the whole process. Node 3 also leads some cells and serves follower
+queries for others; `fault_result.cohort_summaries` separates those planned roles from
+cells where it is the third voter and from unaffected cells. `faults.jsonl`
+retains ownership checks, the scheduled and actual pause/release times and
+leader-local replication samples. A command counts as healthy-majority progress
+only if it starts after the pause is confirmed, completes before a matching
+leader probe, and its exact history/term/index is covered by the two healthy
+voters while the third remains behind. A recorded pause without this witness is
+insufficient. These samples are diagnostic evidence, not acknowledgement proofs.
+
+Final reads still verify every assigned replica and archive cut. The recovery
+bound starts before requesting the last unpause and ends when all exact replica
+reads complete, so it includes the release round trip and any remaining
+measurement time and scanning overhead. The worker always inspects and releases
+its owned target, including after an ambiguous pause response, and joins before
+returning. An incomplete schedule, changed ownership, excess pause, missing lag,
+unresolved history or failed recovery refuses qualification and retains evidence.
+Use the source-pinned analyzer for earlier report packages; fresh reports must
+declare their scenario and fault evidence explicitly. This experiment does not
+qualify disk-only stalls, partitions, crashes, Fleet/bucket fault handling or soak.
+
 ## Archive replay work
 
 S3 acknowledgement still requires a physically verified recovery set and exact
@@ -327,8 +371,9 @@ now share the SQL transition and open-loop scheduler; the contracts below remain
 explicit. No cross-architecture throughput ratio is justified by merely running
 the same business workload.
 
-Fault scenarios and soak are refused before resource creation until their
-injection and reconciliation capabilities exist. The Q1 six-process run and
+Bounded process-pause experiments have an explicit injection and reconciliation
+path. Other fault scenarios and soak are refused before resource creation until
+their capabilities exist. The Q1 six-process run and
 large-fleet gates remain unqualified within the agreed local five-node ceiling.
 MR-13's remaining management/restore gates also remain open.
 

@@ -67,6 +67,17 @@ class Profiles(unittest.TestCase):
                     docker.assert_not_called()
                     self.assertFalse(output.exists())
 
+    def test_slow_follower_requires_a_checked_fault_profile_before_resources(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / 'run'
+            args = ['raft_run.py', '--profile', str(Path(__file__).with_name('raft_profiles.json')),
+                    '--scenario', 'slow-follower', '--output', str(output)]
+            with patch('sys.argv', args), patch('raft_run.subprocess.run') as docker:
+                with self.assertRaisesRegex(ValueError, 'requires a fault profile'):
+                    main()
+                docker.assert_not_called()
+                self.assertFalse(output.exists())
+
     def test_local_placement_enforces_actual_peak_and_the_five_node_ceiling(self):
         from raft_topology import local_placement, members, placement, vm_requirements
         self.assertEqual(members(4, 5), (5, 1, 2))
@@ -348,6 +359,7 @@ class IndependentReport(unittest.TestCase):
         profile['timing']['measurement_seconds'] = 2
         planned = local_placement(profile)
         report = {'completed': True, 'reconciled': True, 'profile': profile, 'prefix': 'fixture',
+            'scenario': 'healthy', 'fault_profile': None, 'fault_profile_sha256': input_digest(None), 'fault_result': None,
             'profile_sha256': input_digest(profile), 'summary': summarize_ledger(path, 'measurement', 2),
             'measurement': {'offered': 2 * total}, 'final_archive': [[200, {'cell': cell, 'archived': 3}] for cell in range(total)],
             'cgroups': [{'node': f'fixture-node{n}', 'cpu_max': '100000 100000', 'memory_max': 3 * 1024**3, 'swap_max': 0} for n in range(1, node_count + 1)],
@@ -429,6 +441,8 @@ class IndependentReport(unittest.TestCase):
         from raft_analyze import analyze
         for name, corrupt in {
             'valid': lambda report, replicas: None,
+            'unsupported_scenario': lambda report, replicas: report.update(scenario='disk-stall'),
+            'unobserved_slow_follower': lambda report, replicas: report.update(scenario='slow-follower'),
             'missing_replica': lambda report, replicas: replicas.pop(),
             'wrong_scope': lambda report, replicas: replicas[0]['response'].update(incarnation='other'),
             'inflated_tps': lambda report, replicas: report['summary'].update(completed_per_second=1000),

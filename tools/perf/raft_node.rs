@@ -411,16 +411,28 @@ async fn main() -> Result<()> {
                                 .await.map_err(|e| anyhow::anyhow!("{e:?}"))?;
                         }
                     }
-                    let voters = if status.role == RaftReplicaRole::Leader && !transfer {
+                    let replication = if status.role == RaftReplicaRole::Leader && !transfer {
                         let progress = cell.replication_status().await.map_err(|e| anyhow::anyhow!("{e:?}"))?;
                         ensure!(progress.term == status.term && progress.membership_revision == status.membership_revision
                             && progress.replica.member.get() == u64::from(i), "changed replication observation");
                         ensure!(progress.members.iter().all(|member| member.voter), "unexpected learner");
+                        Some(progress)
+                    } else { None };
+                    let voters = replication.as_ref().map(|progress| {
                         let mut voters: Vec<_> = progress.members.iter().map(|member| member.member.get()).collect();
                         voters.sort_unstable();
-                        Some(voters)
-                    } else { None };
+                        voters
+                    });
+                    let replication = replication.map(|progress| serde_json::json!({
+                        "group":hex::encode(progress.replica.scope.group.bytes()),
+                        "incarnation":hex::encode(progress.replica.scope.incarnation.bytes()),
+                        "term":progress.term.get(), "committed":progress.committed.get(),
+                        "members":progress.members.iter().map(|member| serde_json::json!({
+                            "member":member.member.get(), "matched":member.matched.get(), "voter":member.voter
+                        })).collect::<Vec<_>>()
+                    }));
                     Ok::<_,anyhow::Error>(serde_json::json!({"cell":id, "node":i, "registered":true, "voters":voters, "leader":status.leader.map(MemberId::get),
+                        "replication":replication,
                         "ready": status.command_ready, "role":format!("{:?}",status.role),
                         "term":status.term.get(), "committed":status.committed.get(), "applied":status.applied.index.get(), "archived":status.archived.get()}))
                 }.await;

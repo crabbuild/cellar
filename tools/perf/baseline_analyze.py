@@ -30,6 +30,7 @@ def analyze(root):
     root = Path(root)
     report = read_json(root / 'report.json')
     require(report.get('completed') is True and report.get('reconciled') is True, 'unfinished baseline run')
+    require(report['scenario'] == 'healthy', 'baseline fault capability is not implemented')
     profile = effective_profile(report['source_profile'], report['adapter'])
     require(profile == report['profile'] and input_digest(profile) == report['profile_sha256'], 'altered baseline profile')
     history = reconcile(root / 'operations.jsonl', report['run_id'], profile['durability'])
