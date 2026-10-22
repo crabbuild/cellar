@@ -276,13 +276,17 @@ pub(super) fn qualify() -> Result<()> {
             let mut observed = Value::Null;
             tokio::time::timeout(Duration::from_secs(10), async {
                 loop {
-                    let mut state: Value = client
+                    let response = client
                         .get(format!("{url}/durable-alarm-state"))
                         .send()
-                        .await?
-                        .error_for_status()?
-                        .json()
                         .await?;
+                    let status = response.status();
+                    let body = response.text().await?;
+                    ensure!(
+                        status.is_success(),
+                        "{route}: recovered durable alarm observation failed ({status}): {body}"
+                    );
+                    let mut state: Value = serde_json::from_str(&body)?;
                     observed = state.clone();
                     let deliveries = state.as_object_mut().context("alarm state object")?
                         .remove("deliveries").context("alarm delivery timestamps")?;
