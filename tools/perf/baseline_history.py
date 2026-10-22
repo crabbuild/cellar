@@ -20,14 +20,14 @@ def position(reply):
     return {'sequence': sequence}
 
 
-def reconcile(path, run_id, durability, *, resolutions=()):
+def reconcile(path, run_id, durability, *, resolutions=(), continuation=()):
     require(durability in ('fleet-or-bucket', 'bucket'), 'invalid baseline durability')
     states, seeds, pending, busy, seen = {}, {}, {}, set(), set()
     quarantined = set()
     recovered = 0
     commands = queries = 0
     with open(path) as stream:
-        for order, event in enumerate(itertools.chain((json.loads(line) for line in stream), resolutions), 1):
+        for order, event in enumerate(itertools.chain((json.loads(line) for line in stream), resolutions, continuation), 1):
             require(event['order'] == order, 'ledger order gap')
             cell, kind = event['cell'], event['event']
             if kind == 'seed_invoke':

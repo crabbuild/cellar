@@ -529,6 +529,35 @@ and volumes and raw artifacts retained. The dedicated profile is stopped.
 These observations do not establish repeatability, steady state, causal speedup,
 independent failure domains or a common cross-adapter contract.
 
+### Restart after bucket owners fence
+
+The bucket adapter also accepts `--scenario s3-fenced-recovery --fault-profile
+tools/perf/store_fenced_recovery_profile.json` with `local-q0-s3`. This distinct
+drill pauses RustFS for twelve seconds, beyond the unchanged ten-second node
+lease. It requires all three native owners to report `NodeLeaseExpired`, join
+their owned work and exit before issuing one start operation against their
+original immutable container IDs. Missing fences, OOM, changed images or data
+volumes, reused lease generations and recovery beyond the original thirty-second
+bound refuse qualification. A lost start response is inspected, never replayed.
+
+Every cell is read through all three ingresses before any ambiguous mutation is
+retried. Each result must contain the complete acknowledged prefix, with either
+the original unknown command present or absent. Missing acknowledged state
+cannot be repaired by replay. Original identities and deadlines then pass the
+same recovery/confirmation checks. One new sequence per cell must subsequently
+commit, followed by the final owner-route checks. `restart.jsonl`,
+`before-recovery.jsonl` and `resumed.jsonl` retain these phases separately from
+the immutable measured workload.
+
+This exercises restart on the same persistent volumes; it does not establish
+empty-disk or disaster restore. The old processes' final counters are explicitly
+unavailable. Recovery and resumed-write counters belong to the new processes,
+and are never subtracted from old-process samples. `measurement_proofs_complete`
+and `traffic_objectives_met` remain false; `compare_runs.py` refuses performance
+ratios for these drills even when all recovery checks pass. Fresh images include
+the native public lease generation in startup evidence. Implementation and unit
+tests alone do not establish physical restart qualification.
+
 ## Comparison rules
 
 `compare_runs.py` reruns the appropriate independent analyzer for each directory.

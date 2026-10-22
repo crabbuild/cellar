@@ -5,6 +5,8 @@ import math
 from pathlib import Path
 import json
 from baseline_history import reconcile
+from baseline_restart import verify_restart
+from baseline_resume import continuation_events, verify_audit
 from baseline_run import effective_profile
 from raft_run import decode_json, input_digest, read_json, require, summarize_ledger
 from raft_faults import fault_evidence
@@ -38,7 +40,11 @@ def analyze(root):
     require(profile == report['profile'] and input_digest(profile) == report['profile_sha256'], 'altered baseline profile')
     recovery, resolutions = recovery_evidence(root, report)
     require(recovery == report.get('recovery'), 'recovery differs from raw ledger')
-    history = reconcile(root / 'operations.jsonl', report['run_id'], profile['durability'], resolutions=resolutions)
+    restart = verify_restart(root, report)
+    continuation = continuation_events(root, report, resolutions)
+    audit = verify_audit(root, report) if restart is not None else None
+    require(restart == report.get('restart') and audit == report.get('before_recovery'), 'restart or pre-retry audit differs from raw observations')
+    history = reconcile(root / 'operations.jsonl', report['run_id'], profile['durability'], resolutions=resolutions, continuation=continuation)
     require(history['cells'] == profile['cells']['total'], 'missing seeded cells')
     summary = summarize_ledger(root / 'operations.jsonl', 'measurement', profile['timing']['measurement_seconds'])
     require(summary == report['summary'], 'summary differs from raw ledger')
@@ -55,7 +61,19 @@ def analyze(root):
     require(len(report['cgroups']) == 3 and len({row['node'] for row in report['cgroups']}) == 3, 'missing physical resource evidence')
     for row in report['cgroups']:
         require(row['cpu_max'] == '100000 100000' and row['memory_max'] == 3 * 1024**3 and row['swap_max'] == 0, 'physical cgroup differs')
-    proofs = proof_delta(report['proof_samples']['measurement'], report['adapter'], allow_failed_proofs=recovery is not None)
+    if restart is not None:
+        require(report['proof_samples']['measurement']['after'] is None
+                and report.get('measurement_proofs_complete') is False
+                and report['traffic_objectives_met'] is False, 'missing old-process counters were presented as a benchmark')
+        # Validate the retained starting samples without inventing final values.
+        before = report['proof_samples']['measurement']['before']
+        proof_delta({'before': before, 'after': before}, report['adapter'])
+        proofs = None
+        resumed_proofs = proof_delta(report['proof_samples']['resumed'], report['adapter'])
+        require(resumed_proofs['bucket'] >= profile['cells']['total'], 'resumed writes did not exercise bucket proofs')
+    else:
+        proofs = proof_delta(report['proof_samples']['measurement'], report['adapter'], allow_failed_proofs=recovery is not None)
+        resumed_proofs = None
     recovery_proofs = proof_delta(report['proof_samples']['recovery'], report['adapter']) if recovery is not None else None
     # No per-operation source is inferred from aggregate counters. Require the
     # configured Fleet fast path to have actually participated in this run.
@@ -64,6 +82,8 @@ def analyze(root):
     fault = fault_evidence(root, report, summarize_ledger, decode_json)
     require(fault == report['fault_result'], 'store fault result differs from raw observations')
     return {'verified': True, 'scope': report['scenario'] + ' serialized workload through native output gates and owner routes',
+            'measurement_proofs_complete': restart is None,
+            **({'restart': restart, 'before_recovery': audit, 'resumed_proof_delta': resumed_proofs} if restart is not None else {}),
             'fault': fault, **({'recovery': recovery, 'recovery_proof_delta': recovery_proofs} if recovery is not None else {}),
             'commands_including_seed': history['commands_including_seed'], 'queries': history['queries'],
             'owner_route_reads': len(seen), 'summary': summary, 'proof_delta': proofs, 'limitations': report['limitations']}

@@ -22,6 +22,7 @@ def contract(report):
 
 def normalized(report, verified):
     require(verified['verified'] is True, 'unverified input')
+    require(verified.get('measurement_proofs_complete', True) is True, 'recovery drill has incomplete measurement counters; refuse performance comparison')
     profile = report['profile']
     workload = {key: value for key, value in profile.items() if key not in ('durability', 'qualification', 'slo', 'topology', 'resources', 'tick_ms')}
     # A matching compiler profile alone is insufficient: sources and the shared

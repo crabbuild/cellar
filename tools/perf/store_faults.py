@@ -45,18 +45,24 @@ def validate_store_fault(config, profile, *, recovery=False):
 
 
 def validate_store_scenario(scenario, config, profile):
-    require(scenario in ('healthy', 's3-outage', 's3-recovery'), 'unsupported baseline fault capability')
+    require(scenario in ('healthy', 's3-outage', 's3-recovery', 's3-fenced-recovery'), 'unsupported baseline fault capability')
+    if scenario == 's3-fenced-recovery':
+        require(profile['durability'] == 'bucket' and isinstance(config, dict)
+                and type(config.get('pause_ms')) is int and config['pause_ms'] > 10000,
+                'fenced recovery requires bucket authority and a pause beyond its ten-second lease')
+        offered = sum(math.ceil(profile['timing'][k] * profile['arrival']['rate_per_second']) for k in ('warmup_seconds', 'measurement_seconds'))
+        require(offered + 2 <= 4096, 'post-restart write exceeds receipt capacity')
     if config is None:
         require(scenario == 'healthy', scenario + ' requires a store fault profile')
     else:
-        validate_store_fault(config, profile, recovery=scenario == 's3-recovery')
+        validate_store_fault(config, profile, recovery=scenario in ('s3-recovery', 's3-fenced-recovery'))
 
 
 class StorePause:
     """Join the sole fault owner; inspect ambiguous mutations before cleanup."""
     def __init__(self, root, scenario, config, profile, prefix, run_id, control):
         validate_store_scenario(scenario, config, profile)
-        self.offsets = validate_store_fault(config, profile, recovery=scenario == 's3-recovery')
+        self.offsets = validate_store_fault(config, profile, recovery=scenario in ('s3-recovery', 's3-fenced-recovery'))
         self.scenario, self.config = scenario, config
         self.node, self.run_id = prefix + '-store', run_id
         self.control = control
@@ -149,9 +155,9 @@ def verify_store_fault(report, events, operations, *, recovery=None):
     config, profile, scenario = report['fault_profile'], report['profile'], report['scenario']
     validate_store_scenario(scenario, config, profile)
     require(report['fault_profile_sha256'] == input_digest(config), 'changed store fault profile')
-    offsets = validate_store_fault(config, profile, recovery=scenario == 's3-recovery')
+    offsets = validate_store_fault(config, profile, recovery=scenario in ('s3-recovery', 's3-fenced-recovery'))
     resolutions = {row['original_id']: row for row in recovery['resolutions']} if recovery is not None else {}
-    require((recovery is not None) is (scenario == 's3-recovery'), 'missing or undeclared store recovery evidence')
+    require((recovery is not None) is (scenario in ('s3-recovery', 's3-fenced-recovery')), 'missing or undeclared store recovery evidence')
     began = report['measurement']['started_monotonic_seconds']
     require(number(began) and began > 0, 'missing workload clock origin')
     require(len(events) == 4 * len(offsets), 'incomplete store fault schedule')
@@ -229,7 +235,7 @@ def verify_store_fault(report, events, operations, *, recovery=None):
                           'acknowledged_during_hold': len(during),
                           'commands': [{'cell': cell, 'command_id': command_id, 'ack_after_release_started': finished >= release}
                                        for _, _, finished, cell, command_id in overlap]})
-    if scenario == 's3-recovery':
+    if scenario in ('s3-recovery', 's3-fenced-recovery'):
         require(any(command['command_id'] in ambiguous_witnesses for window in witnesses for command in window['commands']),
                 'no ambiguous command was dispatched in the observed store pause')
     recovered = report['store_recovery_verified_monotonic_seconds']

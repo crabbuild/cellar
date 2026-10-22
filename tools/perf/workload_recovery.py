@@ -28,7 +28,7 @@ def read_events(path):
         return [json.loads(line) for line in stream]
 
 
-def ambiguous_commands(events, report):
+def inspect_history(events, report):
     """Validate request identity and quarantine before any recovery mutation."""
     seeds, states, pending, busy, blocked, seen, ambiguous = {}, {}, {}, set(), set(), set(), {}
     for order, event in enumerate(events, 1):
@@ -92,11 +92,15 @@ def ambiguous_commands(events, report):
     require(isinstance(declared['blocked_cells'], list) and all(type(cell) is int for cell in declared['blocked_cells'])
             and len(declared['blocked_cells']) == len(blocked) and set(declared['blocked_cells']) == blocked
             and type(declared['ambiguous']) is int and declared['ambiguous'] == len(ambiguous), 'recorded ambiguity/quarantine differs')
-    return ambiguous
+    return ambiguous, states
+
+
+def ambiguous_commands(events, report):
+    return inspect_history(events, report)[0]
 
 
 def recovery_window(root, report):
-    require(report['scenario'] == 's3-recovery', 'undeclared command recovery')
+    require(report['scenario'] in ('s3-recovery', 's3-fenced-recovery'), 'undeclared command recovery')
     phase = report['measurement']
     require(number(phase['started_monotonic_seconds']) and number(phase['elapsed_seconds'])
             and phase['elapsed_seconds'] >= report['profile']['timing']['measurement_seconds'], 'incomplete measurement before recovery')
@@ -137,12 +141,15 @@ def stable_receipt(reply, report):
 def recovery_evidence(root, report):
     """Return verified logical completions *after* the measured operation log."""
     root = Path(root)
-    if report['scenario'] != 's3-recovery':
+    if report['scenario'] not in ('s3-recovery', 's3-fenced-recovery'):
         require(not (root / 'recovery.jsonl').exists(), 'undeclared recovery ledger')
         return None, []
     operations = read_events(root / 'operations.jsonl')
     commands = ambiguous_commands(operations, report)
     start, end = recovery_window(root, report)
+    if report['scenario'] == 's3-fenced-recovery':
+        from baseline_resume import verify_audit
+        start = max(start, verify_audit(root, report)['verified_monotonic_seconds'])
     events = read_events(root / 'recovery.jsonl')
     require(len(events) == 4 * len(commands), 'incomplete recovery/confirmation ledger')
     previous = start
@@ -195,6 +202,9 @@ def recover_commands(root, report, send, *, clock=time.monotonic, wall=time.time
     root = Path(root)
     commands = ambiguous_commands(read_events(root / 'operations.jsonl'), report)
     start, end = recovery_window(root, report)
+    if report['scenario'] == 's3-fenced-recovery':
+        from baseline_resume import verify_audit
+        start = max(start, verify_audit(root, report)['verified_monotonic_seconds'])
     # Native work has a five-second budget; the existing HTTP adapter allows
     # one extra second to observe that result. Do not overrun the outer bound.
     request_seconds = (report['profile']['timing']['request_timeout_ms'] + 1000) / 1000

@@ -17,6 +17,8 @@ import threading
 import time
 
 from baseline_history import position, reconcile
+from baseline_restart import SCENARIO as FENCED_RECOVERY, initial_nodes, restart_nodes
+from baseline_resume import audit_before_retry, continuation_events, resume_writes
 from raft import captured_node_limits, port_base
 from raft_run import (LABEL, ROOT, RUSTFS, input_digest, read_json, request, require,
                       summarize_ledger, validate_profile, verify_image)
@@ -52,7 +54,7 @@ def main():
     parser.add_argument('--mode', required=True, choices=['fleet', 'bucket'])
     parser.add_argument('--profile', required=True, type=Path)
     parser.add_argument('--profile-name', default='local-q0')
-    parser.add_argument('--scenario', choices=['healthy', 's3-outage', 's3-recovery'], default='healthy')
+    parser.add_argument('--scenario', choices=['healthy', 's3-outage', 's3-recovery', FENCED_RECOVERY], default='healthy')
     parser.add_argument('--fault-profile', type=Path)
     parser.add_argument('--image', required=True)
     parser.add_argument('--output', required=True, type=Path)
@@ -69,8 +71,11 @@ def main():
     require(args.port_base <= 65522, 'baseline reserves ports through base+13')
     require(not args.output.exists(), 'provide a new output directory')
     def docker(*command):
-        result = subprocess.run(['docker', '--context', args.context, *command], text=True, capture_output=True,
-                                timeout=15 if command[0] in ('pause', 'unpause', 'inspect', 'exec') else None)
+        try:
+            result = subprocess.run(['docker', '--context', args.context, *command], text=True, capture_output=True,
+                                    timeout=15 if command[0] in ('pause', 'unpause', 'inspect', 'exec', 'start', 'logs') else None)
+        except subprocess.TimeoutExpired:
+            raise ValueError(f'Docker {command[0]} timed out; outcome unknown (arguments and environment omitted)') from None
         require(result.returncode == 0, f'Docker {command[0]} failed (arguments and environment omitted)')
         return (result.stdout + (result.stderr if command[0] == 'logs' else '')).strip()
     build = verify_image(args.image, docker, binary_name='cellar-perf-baseline')
@@ -108,12 +113,14 @@ def run(args, source, profile, build, docker, cpus, memory):
               'vm': {'cpus': cpus, 'memory_bytes': memory}, 'scenario': args.scenario,
               'fault_profile': args.fault_config, 'fault_profile_sha256': input_digest(args.fault_config),
               'fault_engine': args.fault_engine, 'fault_capability': args.fault_capability,
-              'runner_sha256': {name: hashlib.sha256((ROOT / 'tools/perf' / name).read_bytes()).hexdigest() for name in ('baseline_run.py', 'baseline_analyze.py', 'baseline_history.py', 'raft_workload.py', 'raft_faults.py', 'store_faults.py', 'workload_recovery.py', 'raft_docker.py', 'raft_run.py')},
+              'runner_sha256': {name: hashlib.sha256((ROOT / 'tools/perf' / name).read_bytes()).hexdigest() for name in ('baseline_run.py', 'baseline_analyze.py', 'baseline_history.py', 'raft_workload.py', 'raft_faults.py', 'store_faults.py', 'workload_recovery.py', 'baseline_restart.py', 'baseline_resume.py', 'raft_docker.py', 'raft_run.py')},
               'completed': False, 'reconciled': False,
               'limitations': ['One local VM and RustFS, without independent failure domains or Amazon S3 validation.',
                               'Fleet races all current follower fsyncs against bucket publication; the response names that policy, not a per-write proof source.',
                               'Application transaction receipts, owner reads and native ownership differ from Raft receipts, follower reads and quorum authority.',
                               'Only the recorded scenario is covered; no crash, packet-loss, disk-loss recovery, steady-state, instrumentation overhead or capacity qualification.']}
+    if args.scenario == FENCED_RECOVERY:
+        report['limitations'].append('All old owners must join an expired-lease fence before the exact containers restart on their existing volumes. Old-process final counters are unavailable; this recovery drill cannot qualify or compare performance.')
     def save():
         (root / 'report.json').write_text(json.dumps(report, indent=2) + '\n')
     def capture():
@@ -212,6 +219,8 @@ def run(args, source, profile, build, docker, cpus, memory):
         if args.fault_config is not None:
             control = BoundContainer(**args.fault_engine, node=prefix + '-store', owner=run_id)
             fault = StorePause(root, args.scenario, args.fault_config, profile, prefix, run_id, control)
+        if args.scenario == FENCED_RECOVERY:
+            report['processes_before'] = initial_nodes(docker, nodes, report)
         report['proof_samples'] = {}
         for phase, seconds in [('warmup', profile['timing']['warmup_seconds']), ('measurement', profile['timing']['measurement_seconds'])]:
             if seconds:
@@ -221,16 +230,29 @@ def run(args, source, profile, build, docker, cpus, memory):
                                         on_start=fault.start if fault and phase == 'measurement' else None)
                 if fault and phase == 'measurement':
                     fault.finish()
-                report['proof_samples'][phase]['after'] = capture()
-                if not (args.scenario == 's3-recovery' and phase == 'measurement'):
+                # All old owners must fence in this distinct scenario. Their
+                # terminal counters are unavailable, never fabricated as zero.
+                report['proof_samples'][phase]['after'] = None if args.scenario == FENCED_RECOVERY and phase == 'measurement' else capture()
+                if not (args.scenario in ('s3-recovery', FENCED_RECOVERY) and phase == 'measurement'):
                     require(not report[phase]['ambiguous'] and not report[phase]['blocked_cells'], 'ambiguous history requires recovery before continuing')
+        if args.scenario == FENCED_RECOVERY:
+            report['restart'] = restart_nodes(root, report, docker,
+                lambda n, timeout: request(bases[n-1], '/.well-known/cellar/health', token, timeout=timeout)[0])
+            report['before_recovery'] = audit_before_retry(root, report, send)
         resolutions = []
-        if args.scenario == 's3-recovery':
+        if args.scenario in ('s3-recovery', FENCED_RECOVERY):
             report['proof_samples']['recovery'] = {'before': capture()}
             report['recovery'], resolutions = recover_commands(root, report, send)
             report['proof_samples']['recovery']['after'] = capture()
             reconcile(root / 'operations.jsonl', run_id, profile['durability'], resolutions=resolutions)
             apply_resolutions(state, resolutions, position)
+        continuation = []
+        if args.scenario == FENCED_RECOVERY:
+            report['proof_samples']['resumed'] = {'before': capture()}
+            resume_writes(root, report, state, send)
+            report['proof_samples']['resumed']['after'] = capture()
+            continuation = continuation_events(root, report, resolutions)
+            reconcile(root / 'operations.jsonl', run_id, profile['durability'], resolutions=resolutions, continuation=continuation)
         reads = []
         for cell, expected in state.items():
             for member in range(3):
@@ -240,7 +262,7 @@ def run(args, source, profile, build, docker, cpus, memory):
         (root / 'owner-reads.json').write_text(json.dumps(reads) + '\n')
         report['store_recovery_verified_monotonic_seconds'] = time.monotonic()
         report['summary'] = summarize_ledger(root / 'operations.jsonl', 'measurement', profile['timing']['measurement_seconds'])
-        report['history'] = reconcile(root / 'operations.jsonl', run_id, profile['durability'], resolutions=resolutions)
+        report['history'] = reconcile(root / 'operations.jsonl', run_id, profile['durability'], resolutions=resolutions, continuation=continuation)
         report['fault_result'] = fault_evidence(root, report, summarize_ledger)
         report['cgroups'] = [{'node': node, 'cpu_max': docker('exec', node, 'cat', '/sys/fs/cgroup/cpu.max'),
             'memory_max': int(docker('exec', node, 'cat', '/sys/fs/cgroup/memory.max')),
@@ -250,7 +272,8 @@ def run(args, source, profile, build, docker, cpus, memory):
             'memory_events': docker('exec', node, 'cat', '/sys/fs/cgroup/memory.events')} for node in nodes]
         require(all(row['cpu_max'] == '100000 100000' and row['memory_max'] == 3 * 1024**3 and row['swap_max'] == 0 for row in report['cgroups']), 'actual cgroup mismatch')
         summary, slo = report['summary'], profile['slo']
-        report['traffic_objectives_met'] = bool(summary['latency_ms']['p99'] is not None and summary['latency_ms']['p99'] <= slo['p99_ms'] and summary['error_fraction'] <= slo['max_error_fraction'] and summary['completed_per_second'] >= slo['min_completed_per_second'])
+        report['measurement_proofs_complete'] = args.scenario != FENCED_RECOVERY
+        report['traffic_objectives_met'] = bool(args.scenario != FENCED_RECOVERY and summary['latency_ms']['p99'] is not None and summary['latency_ms']['p99'] <= slo['p99_ms'] and summary['error_fraction'] <= slo['max_error_fraction'] and summary['completed_per_second'] >= slo['min_completed_per_second'])
         report.update(completed=True, reconciled=True)
     except Exception as error:
         report['failure'] = str(error)

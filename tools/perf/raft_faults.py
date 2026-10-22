@@ -87,7 +87,7 @@ def validate_fault(config, profile):
 
 def validate_scenario(scenario, config, profile):
     from store_faults import is_store_fault, validate_store_scenario
-    if scenario in ('s3-outage', 's3-recovery') or is_store_fault(config):
+    if scenario in ('s3-outage', 's3-recovery', 's3-fenced-recovery') or is_store_fault(config):
         return validate_store_scenario(scenario, config, profile)
     require(scenario in ('healthy', 'slow-follower'), 'fault capability not implemented: refuse before creating resources')
     if config is None:
@@ -178,7 +178,7 @@ def verify_fault(report, events, operations, *, recovery=None):
     """Reject missing injection, wrong scope, fabricated progress or no recovery."""
     scenario, config, profile = report['scenario'], report['fault_profile'], report['profile']
     from store_faults import is_store_fault, verify_store_fault
-    if scenario in ('s3-outage', 's3-recovery') or is_store_fault(config):
+    if scenario in ('s3-outage', 's3-recovery', 's3-fenced-recovery') or is_store_fault(config):
         return verify_store_fault(report, events, operations, recovery=recovery)
     validate_scenario(scenario, config, profile)
     require(report['fault_profile_sha256'] == input_digest(config), 'changed fault profile')
