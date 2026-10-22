@@ -1116,17 +1116,75 @@ Seven process helpers execute through their parent scenarios. Strict all-target,
 all-feature Clippy for `cellar` and `cellar-ltx`, the LTX library build without
 default features, formatting (801 Rust files), module layout, dependency policy
 and documentation checks pass. The earlier archive-pressure failure is preserved
-with the successful checks. Container comparison and fresh Linux qualification
-are still required.
+with the successful checks. The container comparison below is complete; fresh
+Linux qualification of this change is still required.
+
+## Sealed-preview container results
+
+[Failed sweeps](evidence/tikv-preview-reuse-failures.json) preserve the first
+preview-reuse candidate (`c6aed34`) and a subsequent control (`1ba6a3a`) sweep.
+The candidate reached 48.10, 47.16 and 47.48 writes/sec at one, three and six
+writers, with p99 62, 360 and 830 ms. Its nine-writer window failed at 25.16
+writes/sec and 2,908-ms p99 with thirteen ambiguous and four unavailable
+outcomes. The control later reached 39.98 and 47.74 writes/sec at one and two
+writers, then failed at three writers with four ambiguous and two unavailable
+outcomes. All 23 requests reconciled outside their timed windows using only
+original identities, inputs and unexpired deadlines. Each cohort then passed
+4,500 exact replica values and 1,500 archive positions. These timed runs remain
+failed. Both cohorts stopped cleanly and retained their volumes.
+
+The candidate's failed sweep averaged 36–39% node CPU, with less than 0.09 seconds
+of CPU throttling per node and no OOM events. Closing cgroup counters recorded
+83–88 seconds of some-task I/O pressure per node over the entire cohort,
+including setup and verification. These are evidence of storage waits, not
+stage-specific attribution of the timed latency distribution.
+
+A [fresh lower-load comparison](evidence/tikv-preview-reuse-comparison.json)
+then ran control first and candidate second, each with four 60-second windows
+at concurrency 1, 2, 2, 1. Both used the same external Colima disk, three 1-vCPU /
+3-GiB nodes, 500 leaders per node, two archive producers, 512-MiB archive scratch
+tmpfs, and the existing durable quorum plus image-publication acknowledgement.
+There were no timed mutation retries. This task ran no builds, tests or
+profilers during timed windows; other host workloads continued. Source revisions, image/binary hashes, limits and raw evidence hashes
+are retained in the comparison record.
+
+| Image | Writers | TPS in each repeat | Mean TPS | Worst p99 (ms) | Both repeats below 500 ms |
+| --- | --- | --- | --- | --- | --- |
+| Control `1ba6a3a` | 1 | 43.09 / 22.07 | 32.58 | 276.67 | Yes |
+| Control `1ba6a3a` | 2 | 51.06 / 41.33 | 46.19 | 183.08 | Yes |
+| Preview reuse `c6aed34` | 1 | 40.78 / 7.33 | 24.06 | 900.25 | No |
+| Preview reuse `c6aed34` | 2 | 23.58 / 8.26 | 15.92 | 1,046.89 | No |
+
+All eight windows had zero write errors. The control acknowledged 10,976 writes
+including seed and the candidate 6,301; both passed all 4,500 exact replica values
+and 1,500 RustFS archive positions. Both cohorts stopped with exit code zero and
+no OOM kills; all eight volumes remain preserved. Independent analysis selects
+two writers on the control at either the 200- or 500-ms ceiling. It selects no
+candidate setting at either ceiling.
+
+Control node CPU averaged 27–28%, with final memory around 228 MiB; candidate
+CPU averaged 23–25%, with final memory around 212 MiB. The host monitor recorded
+other builds in all 89 control samples and 58 of 70 candidate samples, alongside
+roughly 10.2 GiB of swap usage and active paging. This sequential shared-host
+comparison does not isolate the cause of the candidate's worse results. The
+operation-count reduction is proven, but **this comparison shows no end-to-end
+speedup and the candidate does not meet the requested repeated latency gate**.
+Do not attribute all of the regression to host interference without further
+evidence. The PR remains a draft.
+
+Both Linux SDK variants and the Python examples passed on `1ba6a3a`, including
+the corrected per-cell snapshot drill. Preview-reuse Linux CI is pending; those
+preceding-revision passes do not qualify the new implementation.
 
 ## Remaining qualification
 
 - Repeat the Linux management-stop admission-seal qualification; the latest
   `b68c086` 3.14t job passes this case, but the earlier failure lacks a direct
   reproducer.
-- Verify the corrected per-cell snapshot leadership drill on fresh Linux SDK
-  jobs, retaining the existing transfer, recovery and shutdown assertions.
-- Record batch occupancy and stage-level I/O evidence on diagnostic runs.
+- Complete Linux SDK qualification of the preview-reuse revision; the corrected
+  per-cell snapshot drill passes both SDK variants on `1ba6a3a`.
+- Distinguish a preview-reuse regression from storage/host stalls with stage-level
+  I/O and SQL queue evidence, then repeat with the image order reversed.
 - Compare fresh baseline and candidate clusters with identical resources,
   durability, cell counts, client partitioning and archive scratch placement.
   Avoid builds or profilers during timed windows; retain repeated raw samples.

@@ -1,0 +1,453 @@
+{
+  "scope": "Fresh sequential control/candidate shared-host comparison, 60-second windows at one and two writers in reversed repeats. No timed mutation retries. Neither a soak nor an isolated capacity test. Both images use the same external Colima VM disk.",
+  "completed": true,
+  "disk_backing": "/Volumes/Workspace/CrabData/colima-cellar-raft-perf/datadisk",
+  "runs": [
+    {
+      "label": "control",
+      "source": {
+        "revision": "1ba6a3a16f320f06eabd15e59e087d4f10d37eac",
+        "tag": "cellar-raft-perf:tikv-replay-batch-ios-7da4ddb5",
+        "image": "sha256:8474daa69fe38c290b021830a536b3a4e2388c507a97c4c114f1e1928885e5ed",
+        "binary_sha256": "17abeffea0b5db55be72896eab385e6ced383ebc7e14e22c05176de06c04f4ca",
+        "context_sha256": "c5ae3a4fe7ef167c6f41d3f0af845660c4e7c3bcd35e3b8d780f6431adacc437"
+      },
+      "archive_producers": 2,
+      "analysis": {
+        "200": {
+          "verified": true,
+          "acknowledged_writes_including_seed": 10976,
+          "best_observed_below_limit": {
+            "concurrency": 2,
+            "offered_rate": 0.0,
+            "mean_tps": 46.19237962875232,
+            "min_tps": 41.325889566382465,
+            "worst_p99_ms": 183.08278299991798,
+            "windows": 2
+          }
+        },
+        "500": {
+          "verified": true,
+          "acknowledged_writes_including_seed": 10976,
+          "best_observed_below_limit": {
+            "concurrency": 2,
+            "offered_rate": 0.0,
+            "mean_tps": 46.19237962875232,
+            "min_tps": 41.325889566382465,
+            "worst_p99_ms": 183.08278299991798,
+            "windows": 2
+          }
+        }
+      },
+      "host_activity": {
+        "samples": 89,
+        "compiler_samples": 89,
+        "swap_mib_min": 10462.75,
+        "swap_mib_max": 10486.75,
+        "pageouts_start": 1003832,
+        "pageouts_end": 1007155,
+        "swapins_start": 8622937,
+        "swapins_end": 8625876
+      },
+      "windows": [
+        {
+          "repeat": 1,
+          "concurrency": 1,
+          "tps": 43.09076816344722,
+          "latency_ms": {
+            "p50": 20.539072999781638,
+            "p95": 35.788231999504205,
+            "p99": 50.90647399993031,
+            "max": 1053.653678000046
+          },
+          "error_rate": 0.0,
+          "errors": 0
+        },
+        {
+          "repeat": 1,
+          "concurrency": 2,
+          "tps": 51.05886969112218,
+          "latency_ms": {
+            "p50": 31.520358999841847,
+            "p95": 68.95783999971172,
+            "p99": 141.2147629998799,
+            "max": 2085.2380779997475
+          },
+          "error_rate": 0.0,
+          "errors": 0
+        },
+        {
+          "repeat": 2,
+          "concurrency": 2,
+          "tps": 41.325889566382465,
+          "latency_ms": {
+            "p50": 42.75606200008042,
+            "p95": 68.84838200039667,
+            "p99": 183.08278299991798,
+            "max": 1393.136677000257
+          },
+          "error_rate": 0.0,
+          "errors": 0
+        },
+        {
+          "repeat": 2,
+          "concurrency": 1,
+          "tps": 22.06604267759508,
+          "latency_ms": {
+            "p50": 26.52411100007157,
+            "p95": 111.50002799968206,
+            "p99": 276.66827800021565,
+            "max": 4125.454974999229
+          },
+          "error_rate": 0.0,
+          "errors": 0
+        }
+      ],
+      "containers_stopped_volumes_retained": true,
+      "run": "1500-tikv-preview-reuse-safe-control",
+      "verification": {
+        "verified_replica_values": 4500,
+        "verified_archive_groups": 1500,
+        "write_durability": "Quorum",
+        "placement": {
+          "leaders_per_node": [
+            500,
+            500,
+            500
+          ],
+          "followers_per_node": [
+            1000,
+            1000,
+            1000
+          ]
+        },
+        "cells": 1500,
+        "voters": 3
+      },
+      "settings": {
+        "tick_ms": 500,
+        "queue_items": 4096,
+        "archive_tmpfs_mib": 512,
+        "limits": [
+          {
+            "NanoCpus": 1000000000,
+            "CpusetCpus": "0",
+            "Memory": 3221225472,
+            "MemorySwap": 3221225472,
+            "Tmpfs": {
+              "/data/node/raft-cells/archive-verifier": "rw,noexec,nosuid,nodev,size=512m"
+            }
+          },
+          {
+            "NanoCpus": 1000000000,
+            "CpusetCpus": "1",
+            "Memory": 3221225472,
+            "MemorySwap": 3221225472,
+            "Tmpfs": {
+              "/data/node/raft-cells/archive-verifier": "rw,noexec,nosuid,nodev,size=512m"
+            }
+          },
+          {
+            "NanoCpus": 1000000000,
+            "CpusetCpus": "2",
+            "Memory": 3221225472,
+            "MemorySwap": 3221225472,
+            "Tmpfs": {
+              "/data/node/raft-cells/archive-verifier": "rw,noexec,nosuid,nodev,size=512m"
+            }
+          }
+        ]
+      },
+      "resource_samples": {
+        "node1": {
+          "samples": 63,
+          "cpu_mean_percent": 27.704603174603175,
+          "cpu_max_percent": 38.66,
+          "last_memory": "227.1MiB / 3GiB"
+        },
+        "node2": {
+          "samples": 63,
+          "cpu_mean_percent": 27.124285714285712,
+          "cpu_max_percent": 36.82,
+          "last_memory": "227.7MiB / 3GiB"
+        },
+        "node3": {
+          "samples": 63,
+          "cpu_mean_percent": 27.04,
+          "cpu_max_percent": 39.04,
+          "last_memory": "227.5MiB / 3GiB"
+        },
+        "rustfs": {
+          "samples": 63,
+          "cpu_mean_percent": 49.69269841269841,
+          "cpu_max_percent": 121.24,
+          "last_memory": "660.2MiB / 4GiB"
+        }
+      },
+      "shutdown": {
+        "states": {
+          "cellar-raft-20261022-214858-node1": {
+            "Running": false,
+            "ExitCode": 0,
+            "OOMKilled": false,
+            "Error": "",
+            "FinishedAt": "2026-10-22T21:56:23.155350786Z"
+          },
+          "cellar-raft-20261022-214858-node2": {
+            "Running": false,
+            "ExitCode": 0,
+            "OOMKilled": false,
+            "Error": "",
+            "FinishedAt": "2026-10-22T21:56:23.169512612Z"
+          },
+          "cellar-raft-20261022-214858-node3": {
+            "Running": false,
+            "ExitCode": 0,
+            "OOMKilled": false,
+            "Error": "",
+            "FinishedAt": "2026-10-22T21:56:23.148971705Z"
+          },
+          "cellar-raft-20261022-214858-rustfs": {
+            "Running": false,
+            "ExitCode": 0,
+            "OOMKilled": false,
+            "Error": "",
+            "FinishedAt": "2026-10-22T21:56:26.23001658Z"
+          }
+        },
+        "preserved_volumes": [
+          "cellar-raft-20261022-214858-node1",
+          "cellar-raft-20261022-214858-node2",
+          "cellar-raft-20261022-214858-node3",
+          "cellar-raft-20261022-214858-rustfs"
+        ]
+      },
+      "raw_sha256": {
+        "report.json": "d821f89f9df34d8d8dd9d8ce5f3498604f4e37b62e0d4b891ab8abcf87119b1c",
+        "seed-journal.jsonl": "1602d5e994d6340d87d104507a7411e322bac0fa0cf7a6a82d5d4432774fc9f8",
+        "replica-verification.json": "dff63f1fb4556421e9a8eee106aa862a94e6f429a44fe172900c71d790eef08c",
+        "archive-verification.json": "ae2f93c1d84a7e7a275fbb2ab4e1101f503c6f3dd5bcc91610eac13c567bc1b1",
+        "analysis-200.json": "c37c71decae2434381215333e71b0f06be4e18aab1a6550cc0b0a2a16f4305ae",
+        "analysis-500.json": "2fc3e13a4def37d20796c2b2b65f6b667be9cdacdfe03f5d6c41bb51b413a2dc",
+        "resources.jsonl": "21e16ecd1d091b748a3584a1719cc3c730d725f6cf3e4d012c02e050c1841e25",
+        "verified-stop/resources.json": "d0cf90563c5acd51748117e56910d1f8c69938a7b6d134efdccaa7b8daf02dfa"
+      }
+    },
+    {
+      "label": "candidate",
+      "source": {
+        "revision": "c6aed34d2eaf4267a98e7588dfed43d20e71ff36",
+        "tag": "cellar-raft-perf:tikv-preview-reuse-ios-7da4ddb5",
+        "image": "sha256:80b983ca8ceaa84be106829b4a536579ae1a7c1ba9b69b5c7eb47d21dd759217",
+        "binary_sha256": "a94513ab86e843610f0b416bdd78b6738fd37190aac46fdf4e2440801cb95c54",
+        "context_sha256": "0da97bb14c7cf021185df7821305dcae3787fbbe76ff1d8f6b779c2e0258990b"
+      },
+      "archive_producers": 2,
+      "analysis": {
+        "200": {
+          "verified": true,
+          "acknowledged_writes_including_seed": 6301,
+          "best_observed_below_limit": null
+        },
+        "500": {
+          "verified": true,
+          "acknowledged_writes_including_seed": 6301,
+          "best_observed_below_limit": null
+        }
+      },
+      "host_activity": {
+        "samples": 70,
+        "compiler_samples": 58,
+        "swap_mib_min": 10422.75,
+        "swap_mib_max": 10462.75,
+        "pageouts_start": 1007155,
+        "pageouts_end": 1008911,
+        "swapins_start": 8625908,
+        "swapins_end": 8627668
+      },
+      "windows": [
+        {
+          "repeat": 1,
+          "concurrency": 1,
+          "tps": 40.78497093669652,
+          "latency_ms": {
+            "p50": 22.00886399987212,
+            "p95": 39.480272000218974,
+            "p99": 64.24430100014433,
+            "max": 541.4178549999633
+          },
+          "error_rate": 0.0,
+          "errors": 0
+        },
+        {
+          "repeat": 1,
+          "concurrency": 2,
+          "tps": 23.577378334486703,
+          "latency_ms": {
+            "p50": 49.44619900015823,
+            "p95": 298.3088660002977,
+            "p99": 662.0544610004799,
+            "max": 1164.3459180004356
+          },
+          "error_rate": 0.0,
+          "errors": 0
+        },
+        {
+          "repeat": 2,
+          "concurrency": 2,
+          "tps": 8.258720102646704,
+          "latency_ms": {
+            "p50": 172.24378700029774,
+            "p95": 523.1657360000099,
+            "p99": 1046.8863550004244,
+            "max": 4140.856950999478
+          },
+          "error_rate": 0.0,
+          "errors": 0
+        },
+        {
+          "repeat": 2,
+          "concurrency": 1,
+          "tps": 7.325874071212156,
+          "latency_ms": {
+            "p50": 90.52303499993286,
+            "p95": 405.0425069999619,
+            "p99": 900.2492190011253,
+            "max": 2100.663324999914
+          },
+          "error_rate": 0.0,
+          "errors": 0
+        }
+      ],
+      "containers_stopped_volumes_retained": true,
+      "run": "1500-tikv-preview-reuse-safe-candidate",
+      "verification": {
+        "verified_replica_values": 4500,
+        "verified_archive_groups": 1500,
+        "write_durability": "Quorum",
+        "placement": {
+          "leaders_per_node": [
+            500,
+            500,
+            500
+          ],
+          "followers_per_node": [
+            1000,
+            1000,
+            1000
+          ]
+        },
+        "cells": 1500,
+        "voters": 3
+      },
+      "settings": {
+        "tick_ms": 500,
+        "queue_items": 4096,
+        "archive_tmpfs_mib": 512,
+        "limits": [
+          {
+            "NanoCpus": 1000000000,
+            "CpusetCpus": "0",
+            "Memory": 3221225472,
+            "MemorySwap": 3221225472,
+            "Tmpfs": {
+              "/data/node/raft-cells/archive-verifier": "rw,noexec,nosuid,nodev,size=512m"
+            }
+          },
+          {
+            "NanoCpus": 1000000000,
+            "CpusetCpus": "1",
+            "Memory": 3221225472,
+            "MemorySwap": 3221225472,
+            "Tmpfs": {
+              "/data/node/raft-cells/archive-verifier": "rw,noexec,nosuid,nodev,size=512m"
+            }
+          },
+          {
+            "NanoCpus": 1000000000,
+            "CpusetCpus": "2",
+            "Memory": 3221225472,
+            "MemorySwap": 3221225472,
+            "Tmpfs": {
+              "/data/node/raft-cells/archive-verifier": "rw,noexec,nosuid,nodev,size=512m"
+            }
+          }
+        ]
+      },
+      "resource_samples": {
+        "node1": {
+          "samples": 65,
+          "cpu_mean_percent": 24.875692307692308,
+          "cpu_max_percent": 67.22,
+          "last_memory": "211.9MiB / 3GiB"
+        },
+        "node2": {
+          "samples": 65,
+          "cpu_mean_percent": 22.698,
+          "cpu_max_percent": 59.27,
+          "last_memory": "211.7MiB / 3GiB"
+        },
+        "node3": {
+          "samples": 65,
+          "cpu_mean_percent": 24.70276923076923,
+          "cpu_max_percent": 68.58,
+          "last_memory": "211.4MiB / 3GiB"
+        },
+        "rustfs": {
+          "samples": 65,
+          "cpu_mean_percent": 31.262153846153847,
+          "cpu_max_percent": 100.71,
+          "last_memory": "488MiB / 4GiB"
+        }
+      },
+      "shutdown": {
+        "states": {
+          "cellar-raft-20261022-215627-node1": {
+            "Running": false,
+            "ExitCode": 0,
+            "OOMKilled": false,
+            "Error": "",
+            "FinishedAt": "2026-10-22T22:02:16.017796083Z"
+          },
+          "cellar-raft-20261022-215627-node2": {
+            "Running": false,
+            "ExitCode": 0,
+            "OOMKilled": false,
+            "Error": "",
+            "FinishedAt": "2026-10-22T22:02:16.022645172Z"
+          },
+          "cellar-raft-20261022-215627-node3": {
+            "Running": false,
+            "ExitCode": 0,
+            "OOMKilled": false,
+            "Error": "",
+            "FinishedAt": "2026-10-22T22:02:16.019585812Z"
+          },
+          "cellar-raft-20261022-215627-rustfs": {
+            "Running": false,
+            "ExitCode": 0,
+            "OOMKilled": false,
+            "Error": "",
+            "FinishedAt": "2026-10-22T22:02:22.786662605Z"
+          }
+        },
+        "preserved_volumes": [
+          "cellar-raft-20261022-215627-node1",
+          "cellar-raft-20261022-215627-node2",
+          "cellar-raft-20261022-215627-node3",
+          "cellar-raft-20261022-215627-rustfs"
+        ]
+      },
+      "raw_sha256": {
+        "report.json": "01b06e31fb60fde0547f3cb8e06fcd1f8a2da3b0d5d106b1fd017c1b6f77cdd8",
+        "seed-journal.jsonl": "4df06dc97b54618f5316ddd16c274dfbf486f8a81ba28834570e563266f76227",
+        "replica-verification.json": "5a616bc78d2f746abb97b8bf7e212c8f86852a1f88e02c015e628419447fffa9",
+        "archive-verification.json": "4a0bd0da5001a86ce542dbdeaf1a5e6f14e01bf1a0b08814818ca1b52c42c752",
+        "analysis-200.json": "6198e90ffa4b7b7a6df9c1aa5b76ce5c3232e5943bc42a53f3aff8542edfb468",
+        "analysis-500.json": "b8ef4d547ef1840cea4cc692f4e3274d9f14fdfc3a4ba147313d405bbb72c579",
+        "resources.jsonl": "6a0be768ad77f8f2cf0a098b49397747ab6619464f0fa0d3b4c818439dea7fec",
+        "verified-stop/resources.json": "dc969aa5c54f3dfa263fe15267d361f44c6c6abd32833f6d592647dfeb7afd29"
+      }
+    }
+  ]
+}
