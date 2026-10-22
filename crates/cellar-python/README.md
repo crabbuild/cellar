@@ -142,6 +142,9 @@ HTTP completions likewise pass an immutable byte body beside their metadata.
 Native byte and mailbox capacity are reserved before copying it into Rust; the
 reservation remains owned through response validation. Completion metadata and
 the body share the same base64-equivalent envelope limit as encoded delivery.
+Ordinary HTTP metadata uses a shallow encoder with owned header snapshots and
+identical JSON escaping and key order. Unusual metadata and subclasses retain
+the general SDK encoder; native HTTP validation and byte limits still apply.
 `max_value_bytes` limits the serialized UTF-8 JSON envelope of an entire atomic
 batch, rather than each row separately. `max_batch_operations` counts checks,
 puts, deletes and an optional alarm decision together. Rejected oversized

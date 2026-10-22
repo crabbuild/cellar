@@ -253,6 +253,10 @@ Run `"$PYO3_PYTHON" -B tools/python/test_runner.py` with the selected interprete
 to check continuous-arrival fairness, nested task admission, blocking-handler
 telemetry and timer-driven cancellation. These scheduling tests complement the
 real-node bridge suite's authority, durability and lifecycle checks.
+Run `"$PYO3_PYTHON" -B tools/python/test_encoding.py` to check HTTP metadata
+escaping, integer/nesting rejection, subclass fallback and owned header
+snapshots. The real-node suite also checks exact completion envelope limits,
+native header validation and sanitized failures after nested mutations.
 Any bridge failure still exits nonzero and fails `cargo test`.
 
 To isolate the main HTTP/storage/lifecycle contract after the subprocess drills,

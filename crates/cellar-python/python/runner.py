@@ -6,7 +6,7 @@ import resource
 import sys
 import threading
 import time
-from cellar import Batch, Context, Request, Response, Scheduled, _encode, _current_invocation
+from cellar import Batch, Context, Request, Response, Scheduled, _encode_response, _current_invocation
 
 _failures = dict(unraisable_errors=0, thread_errors=0)
 # Collection while taking a snapshot can invoke another destructor on the same
@@ -97,7 +97,7 @@ async def _invoke(module, objects, payload, body, bridge, context, stats, maximu
         if kind == "fetch" and not isinstance(result, Response):
             raise TypeError("fetch must return cellar.Response")
         value, output_body = result._completion() if kind == "fetch" else (None, None)
-        bridge.complete(_encode(value), False, output_body)
+        bridge.complete(_encode_response(value) if kind == "fetch" else "null", False, output_body)
         metrics["handlers_completed"] += 1
     except asyncio.CancelledError:
         metrics["handlers_cancelled"] += 1

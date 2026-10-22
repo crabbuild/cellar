@@ -82,6 +82,7 @@ jobs:
           python3 tools/python/test_qualification_guards.py
           python3 tools/python/test_baseline.py
           python3 tools/python/test_runner.py
+          python3 tools/python/test_encoding.py
       - name: Test Cloudflare benchmark peer relay
         run: |
           npm ci --ignore-scripts --prefix tools/perf/cloudflare

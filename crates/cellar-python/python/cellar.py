@@ -54,6 +54,35 @@ def _encode(value):
         raise ValidationError("Unsupported Cellar value") from error
 
 
+def _encode_response(value):
+    """Encode ordinary HTTP metadata without recursively checking every scalar."""
+    if type(value) is not dict:
+        return _encode(value)
+    snapshot = value.copy()
+    if any(type(key) is not str for key in snapshot) or snapshot.keys() != {"status", "headers", "body"}:
+        return _encode(value)
+    status, headers, body = snapshot["status"], snapshot["headers"], snapshot["body"]
+    if (type(status) is not int or not -(2**63) <= status < 2**64
+            or type(body) is not str
+            or (type(headers) is not list and type(headers) is not tuple) or len(headers) > 128):
+        return _encode(value)
+    # Own each container before inspecting its members. Another application
+    # thread may mutate the original headers on a free-threaded interpreter.
+    rows = []
+    for row in tuple(headers):
+        if type(row) is not list and type(row) is not tuple:
+            return _encode(value)
+        pair = tuple(row)
+        if len(pair) != 2 or type(pair[0]) is not str or type(pair[1]) is not str:
+            return _encode(value)
+        rows.append(pair)
+    snapshot["headers"] = rows
+    # This shape is shallow and contains only checked, immutable scalars.
+    # Keep key order and ASCII escaping: native admission charges these bytes.
+    # HTTP status/header validation still belongs to the native output boundary.
+    return _json.dumps(snapshot, allow_nan=False, separators=(",", ":"))
+
+
 class SDKError(Exception):
     """A host operation failed. Mutations are never automatically retried."""
 
