@@ -229,7 +229,22 @@ The bridge harness separately runs disposable CPU-loop and GIL-held native-call
 hosts. It kills each owner, deletes all owner-local databases, recovers from the
 fleet bucket and verifies a new write includes the previously acknowledged
 state. No clean-drain report may be produced for a hard-killed host. These are
-local development-fleet drills. The bridge harness also pauses both real
+local development-fleet drills. Before killing an owner, an independent native
+cell turn observes the persisted alarm retry deadline through the output gate;
+elapsed time alone does not prove that retry was recorded. The fixture uses a
+finite two-second native handler budget for cold seeding, recovery and blocked
+handlers, and waits for its five-second node lease to expire before
+takeover. HTTP failures include the stage and bounded response body; native
+actor warnings preserve the reason for an unexpected fence.
+
+With CPython selected as above, run just this drill using the bridge's custom
+harness mode:
+
+```sh
+cargo test -p cellar-python --test bridge --features embed --locked -- --runtime-watchdog
+```
+
+The bridge harness also pauses both real
 follower append traffic and bucket data writes in a three-node fleet: sync and
 final output wait for proof, actual follower acknowledgements release success
 while bucket writes remain held, and failure of both paths refuses success.
