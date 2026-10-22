@@ -1095,8 +1095,46 @@ ratios between different binaries. Host observations and complete raw outputs,
 including missed traffic objectives, remain in the evidence. All exact containers
 exited zero; the owned profile is stopped and volumes remain.
 
+The [controlled slow-follower evidence](evidence/MR-14-slow-follower-progress.json)
+adds a joined fault owner, physical pause observations and exact healthy-majority
+command witnesses. The target also leads some cells and serves follower queries;
+separate role cohorts make that whole-process effect visible. Healthy controls
+use the same probes without node pauses. Final replica and archive checks remain
+mandatory. Source `97d00b4` retains four runs using the unchanged five-node
+profiles and 116 observation cycles per run:
+
+| Acknowledgement | Scenario | Completed / offered | Overall p99 | Traffic targets |
+| --- | --- | --- | --- | --- |
+| Quorum | Healthy control | 1,194 / 1,200 | 169.8 ms | Met |
+| Quorum | Slow follower | 1,165 / 1,200 | 311.9 ms | Missed |
+| S3 | Healthy control | 1,198 / 1,200 | 146.8 ms | Met |
+| S3 | Slow follower | 1,176 / 1,200 | 332.5 ms | Missed |
+
+All four histories, 450 replicas per run and archive coverage independently
+reconcile. The injected Quorum/S3 runs retain 44/45 exact healthy-majority
+command witnesses and recovery upper bounds of 3.16/3.21 seconds. Every observed
+pause stays within the unchanged 750 ms bound. Where the target is only the third
+voter, Quorum completes 403/406 arrivals at 112.7 ms p99; S3 completes 406/406 at
+79.5 ms p99. These are short shared-host observations, not steady-state capacity
+or a causal comparison between durability modes.
+
+The first five-node fault run at `8beeee3` remains rejected because eight pause
+cycles exceeded 750 ms. Stage timings and an alternating isolated control probe
+support replacing repeated CLI startup with a persistent local Engine connection
+bound to the owned container's immutable ID. The original scenario passes at the
+new source without relaxed gates. A separate S3 attempt failed before workload
+creation because retained empty networks exhausted Docker address pools. Its
+diagnostics and fresh-directory retry remain in the evidence. Seven exact owned
+empty networks were recorded and removed; stopped containers and data volumes
+remain. The dedicated profile is stopped; other profiles were not mutated.
+
+Validation retains 154 passing Python cases and one existing opt-in Docker skip,
+two Rust fixture cases and affected all-feature Clippy at `8beeee3`, plus
+formatting/layout, dependency and documentation checks. The source-pinned raw
+capsules independently reanalyze after extraction; failed attempts stay failed.
+
 Remaining MR-14 gates include sustained S3 acknowledgement latency, controlled
-slow-follower baselines and equivalent-contract analysis, instrumentation overhead
+Fleet/bucket fault baselines and equivalent-contract analysis, instrumentation overhead
 and whole-device attribution, steady-state/density evidence and preliminary Q1
 execution.
 The current local scope is at most five nodes; the original six-process Q1 gate

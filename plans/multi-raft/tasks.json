@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "baseline_revision": "8424f02a8fb3ebc77b333bcadbf2ad44825d0bcc",
+  "baseline_revision": "97d00b498707ddbc642bb038e4bb7587741ca880",
   "status_values": [
     "TODO",
     "IN_PROGRESS",
@@ -2374,7 +2374,12 @@
         "tools/perf/compare_runs.py",
         "tools/perf/test_baseline.py",
         "tools/perf/raft_topology.py",
-        "crates/cellar/tests/support/raft_archive_wakeup.rs"
+        "crates/cellar/tests/support/raft_archive_wakeup.rs",
+        "tools/perf/raft_faults.py",
+        "tools/perf/raft_slow_follower.json",
+        "tools/perf/test_raft_faults.py",
+        "tools/perf/raft_docker.py",
+        "tools/perf/test_raft_docker.py"
       ],
       "steps": [
         "Optimize shared log batches, pooled transport and fair scheduling while retaining per-group Ready ordering.",
@@ -2482,7 +2487,8 @@
         "evidence/MR-14-baseline-progress.json",
         "evidence/MR-14-replay-progress.json",
         "evidence/MR-14-five-node-progress.json",
-        "evidence/MR-14-wakeup-progress.json"
+        "evidence/MR-14-wakeup-progress.json",
+        "evidence/MR-14-slow-follower-progress.json"
       ]
     },
     {

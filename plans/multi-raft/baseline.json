@@ -1,7 +1,7 @@
 {
   "format": 1,
   "repository": "https://github.com/crabbuild/cellar",
-  "revision": "8424f02a8fb3ebc77b333bcadbf2ad44825d0bcc",
+  "revision": "97d00b498707ddbc642bb038e4bb7587741ca880",
   "prepared_date": "2026-10-22",
   "files": [
     {
@@ -330,7 +330,7 @@
     },
     {
       "path": "tools/perf/raft_node.rs",
-      "sha256": "ef9b70238e9b15b2055142e8d53c909924795d9cd824352740223b16c8703fdb"
+      "sha256": "fd789ed9b2c2805669ae91ac8294901db1613f7314b11bf94d381047eec754a1"
     },
     {
       "path": "tools/perf/test_build_freshness.py",

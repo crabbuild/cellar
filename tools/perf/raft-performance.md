@@ -43,6 +43,12 @@ run, context and prefix. The runner generates fresh private RustFS credentials
 and a private bearer file. It accepts no external bucket or credential options.
 It retains resources on both success and failure. Inspect only the selected
 context and label when stopping a run; never use a global prune command.
+Retained empty networks consume Docker's finite default address pools. After
+closing an experiment and saving its evidence, inspect the report's exact network
+name in its recorded context. Verify its run label, that every owned container is
+stopped and that the network's `Containers` map is empty. Save that inspection,
+then remove only its immutable network ID. Keep data volumes and stopped
+containers as inspection artifacts; use a fresh directory for the next run.
 
 ## Three-voter placement across up to five nodes
 
@@ -201,6 +207,27 @@ unresolved history or failed recovery refuses qualification and retains evidence
 Use the source-pinned analyzer for earlier report packages; fresh reports must
 declare their scenario and fault evidence explicitly. This experiment does not
 qualify disk-only stalls, partitions, crashes, Fleet/bucket fault handling or soak.
+
+The [retained controlled runs](../../plans/multi-raft/evidence/MR-14-slow-follower-progress.json)
+at `97d00b4` use the unchanged five-node profiles and 116 observation cycles:
+
+| Acknowledgement | Scenario | Completed / offered | Overall p99 | Traffic targets |
+| --- | --- | --- | --- | --- |
+| Quorum | Healthy control | 1,194 / 1,200 | 169.8 ms | Met |
+| Quorum | Slow follower | 1,165 / 1,200 | 311.9 ms | Missed |
+| S3 | Healthy control | 1,198 / 1,200 | 146.8 ms | Met |
+| S3 | Slow follower | 1,176 / 1,200 | 332.5 ms | Missed |
+
+All histories, 450 replicas per run and archive coverage reconcile. The two
+injected runs retain 44/45 exact healthy-majority witnesses and 3.16/3.21-second
+recovery upper bounds. Every pause stays below 750 ms. The initial CLI-controlled
+five-node attempt exceeded that bound in eight cycles and remains rejected;
+control-stage timings and an isolated alternating probe support the persistent
+connection fix. A separate attempt failed before workload creation when Docker
+address pools were exhausted; exact empty-network cleanup allowed a fresh retry.
+Both failures remain in the raw capsule. The owned profile is stopped, volumes
+remain, and other profiles were not mutated. These short shared-host observations
+do not establish sustained capacity or an equivalent-guarantee speedup.
 
 ## Archive replay work
 

@@ -86,6 +86,12 @@ node. Quorum completes 1,200/1,200 measured arrivals at 65 ms p99; S3 completes
 1,158/1,200 at 233 ms p99 and misses its traffic targets. Both reconcile all
 submitted histories, 450 replica observations and final archive coverage.
 The shared-host runs preserve separate durability contracts and leave Q1 open.
+The [controlled slow-follower evidence](evidence/MR-14-slow-follower-progress.json)
+adds bounded node pauses, separate role cohorts and exact healthy-majority command
+witnesses. Same-image Quorum/S3 healthy controls meet short-run traffic targets;
+the corresponding pause scenarios miss them while reconciling every history,
+all 450 replicas and archive coverage. Original timing and network-setup failures
+remain recorded. Sustained SLOs, equivalent-contract fault baselines and Q1 stay open.
 The bounded archive producer now coalesces payloads from two histories while
 keeping independent per-cell physical verification and head publication. The
 [archive-bundle evidence](evidence/MR-14-archive-bundle-progress.json) records all
