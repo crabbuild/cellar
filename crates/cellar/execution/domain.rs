@@ -549,6 +549,17 @@ impl DomainToken {
             .ok_or(DomainClosed)
     }
 
+    /// Enter the captured owner without granting process-global authority.
+    pub(crate) async fn run<F: Future>(&self, future: F) -> Result<F::Output, DomainClosed> {
+        let owner = self.owner()?;
+        let domain = owner
+            .domain
+            .get()
+            .and_then(Weak::upgrade)
+            .ok_or(DomainClosed)?;
+        run_scoped(domain, future).await
+    }
+
     pub(crate) fn same_owner(&self, other: &Self) -> bool {
         Weak::ptr_eq(&self.inner, &other.inner)
     }

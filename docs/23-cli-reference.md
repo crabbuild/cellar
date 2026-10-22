@@ -62,6 +62,19 @@ alone does not prove application drain. See the [supervisor contract and service
 template](../tools/python/README.md#process-supervision) for policy,
 supported platforms and qualification commands.
 
+## Compiled node storage and Raft startup
+
+`APPLICATION --data-dir /absolute/persistent/node-directory [NODE OPTIONS]`
+selects the node's working directory. Duplicate flags and relative paths are
+refused. A compiled application can register one node-owned Raft host with
+`Host::raft_cells`; its Rust startup adapter supplies explicit catalog,
+replication, identity, TLS, version-key and cell policies. Public ingress opens
+after the host starts and its handles bind to the active application instance.
+Raft-enabled daemons require this flag and reject `CELLAR_TEST_DATA_DIR` and
+`CELLAR_WATCH` overrides. They pin the initial deployment and refuse `/reload`;
+restart the supervised process for a compatible deployment change. See the
+[Raft startup and retained-disk contract](../plans/multi-raft/operations-design.md#production-cli-startup).
+
 ## Operator command families
 
 | Family | Scope | Implementation |

@@ -68,6 +68,14 @@ CLI builds and publishes packages; it cannot serve factories absent from its
 binary. Follow [packaging and deployment](../../docs/12-packaging-deployment.md)
 when promoting an application to a fleet.
 
+Compiled applications can opt into one node-owned Raft cell host through
+`Host::raft_cells`. Preparation supplies explicit Raft resources and policies;
+the daemon resolves the active compiled application and binds SDK handles before
+public ingress. Run with an absolute persistent `--data-dir`, retain claimed
+disks, and restart the process for deployment changes. See the
+[production Raft startup contract](../../plans/multi-raft/operations-design.md#production-cli-startup)
+for startup failure, cancellation, resume and qualification boundaries.
+
 ## Find the implementation
 
 The crate separates application contracts, runtime execution, storage, fleet

@@ -153,3 +153,8 @@ lz4_flex.workspace = true
 
 [build-dependencies]
 cc.workspace = true
+
+# A real process runner: child invocations use the public daemon's CLI arguments.
+[[test]]
+name = "native_raft_daemon"
+harness = false

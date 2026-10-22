@@ -257,10 +257,10 @@ Malformed engine identities, inconsistent aggregate counts and missing Raft
 evidence are refused by the receipt reader. The internal receipt marker stays
 1 with a hard cutover; no old receipt reader or migration is provided.
 
-The Node outcome formatter includes Raft results. Production CLI configuration
-and startup still require separate end-to-end Raft integration; the shared drain
-and formatter do not qualify that missing bootstrap path. Aggregate resource
-inspection and other management surfaces remain MR-13 work.
+The Node outcome formatter includes Raft results. Production daemon startup now
+uses the same catalog, registration, transport, storage and host validation as
+`Node.start_raft_cells`. See [production CLI startup](#production-cli-startup).
+Remaining management surfaces and complete operating qualification remain MR-13 work.
 
 After a stop:
 
@@ -274,6 +274,54 @@ After a stop:
    engine instance. Missing/corrupt state refuses old-voter resume.
 5. Require normal quorum for strong reads, commands and learner activation.
    Available object storage does not replace that authority.
+
+## Production CLI startup
+
+A compiled application opts in through `Host::raft_cells(script, prepare, bind)`
+before `run` or `run_until`. One node owns one registered cell host. The named
+script must exist in the active deployment; Raft uses that exact application
+instance and its compiled class definitions. It does not invoke the application
+factory a second time. The preparation future receives `NativeRaftNode` with
+the actual process node name and selected data directory, and returns
+`NativeRaftCells`: explicit cell/catalog/host/runtime/log/transport policies,
+caller-bound control/data/query listeners, TLS, object storage and version keys.
+The binding callback installs the resulting `RaftCells` handles in application
+ingress. No public listener accepts requests before both stages succeed.
+
+Run that executable with `--data-dir /absolute/persistent/node-directory`.
+The flag rejects relative paths and duplicate values. Raft startup rejects the
+`CELLAR_TEST_DATA_DIR` and `CELLAR_WATCH` test/development overrides. A temporary
+process directory is never selected for a Raft daemon. Configure stable node and
+disk identities, fresh process generations and trusted peer endpoints in the
+application's preparation adapter. TLS and signing secrets belong in its
+credential provider; command-line node flags do not supply consensus authority.
+
+The preparation adapter must choose `LogOpenMode::Create` or `Resume` explicitly.
+For a retained node, use `Resume` with the original node/disk identities, a fresh
+process generation and compatible namespace/schema/definitions. Missing or
+corrupt claimed state refuses old-member admission. Starting with `Create` on a
+retained history does not grant a replacement identity. Keep the original disks
+when startup fails. An available catalog/archive is not a substitute for voting
+state, and opening S3 objects does not grant permission to restore an old voter.
+
+The current daemon pins its entire initial deployment when Raft is configured.
+It does not start the deployment pointer watcher; `/reload` refuses adoption.
+Use a supervised process restart to install a compatible executable or deployment
+change. Live definition/ingress rebinding requires a separate qualified protocol.
+Ordinary Fleet-only daemons retain their existing pointer/reload behavior.
+
+Preparation, registration and binding failure refuse public admission. TERM,
+INT or the supplied host-stop future cancels Raft startup. The lifecycle then
+closes any installed host and joins the process execution domain, including
+physical opening/storage work, before returning failure. Cancellation leaves
+incomplete startup rather than a graceful stop proof. After admission, the usual
+shared driver seals work, attempts bounded handoff and closes the registered
+host before whole-domain joining and the durable stop receipt.
+
+The `crates/cellar/tests/native_raft_daemon.rs` process fixture exercises
+this public builder and the actual daemon argument parser. Its temporary local
+catalog and development keys are qualification fixtures, not deployment defaults.
+It does not qualify physical S3, deployment fencing, scale or live upgrades.
 
 New-incarnation disaster restore remains a separate unfinished MR-13 protocol.
 No force-new-group command exists here. Restore must bind an exact selected
