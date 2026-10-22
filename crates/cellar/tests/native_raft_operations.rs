@@ -261,6 +261,20 @@ async fn node_shutdown_hands_off_to_published_voter() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn node_shutdown_waits_for_archive_capture_before_handoff() -> Result<()> {
+    let store = Arc::new(faults::Store::default());
+    store.archive_unavailable.store(true, Ordering::Release);
+    automatic::shutdown_handoff_during_archive_capture(store, false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn node_shutdown_archive_capture_does_not_extend_handoff_budget() -> Result<()> {
+    let store = Arc::new(faults::Store::default());
+    store.archive_unavailable.store(true, Ordering::Release);
+    automatic::shutdown_handoff_during_archive_capture(store, true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
 async fn node_shutdown_report_bounds_preserve_complete_lag_count() -> Result<()> {
     automatic::bounded_shutdown_report().await
 }

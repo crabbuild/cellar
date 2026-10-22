@@ -145,7 +145,11 @@ configured voters, serially. A single node-wide turn owns reserved control
 memory; it creates no per-cell thread or detached task.
 
 Failed, retired, incoming, pending-producer, configuration-changing or physically
-busy replicas cannot begin handoff. The source obtains current runtime status
+busy replicas cannot begin handoff. Temporary local work, including archive
+capture, may finish within that same one-second turn before inspection starts.
+The group is counted once; revisiting it never renews either the group or Node
+deadline. Failure and retirement remain immediate refusals, and a group still
+busy at its deadline is reported unavailable. The source obtains current runtime status
 and replication progress. Candidate checks require current matched progress,
 voter role and recent activity, then authenticated inspection of the exact
 scope, schema, birth, member, node/disk/process, term and membership revision.

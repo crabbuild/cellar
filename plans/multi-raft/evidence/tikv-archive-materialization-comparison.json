@@ -1,0 +1,697 @@
+{
+  "format": 1,
+  "diagnostic_only": false,
+  "controlled_speedup_established": false,
+  "topology": {
+    "nodes": 3,
+    "cpu_per_node": 1,
+    "memory_gib_per_node": 3,
+    "groups": 1500,
+    "leaders_per_node": 500,
+    "voters_per_group": 3,
+    "tick_ms": 500,
+    "queue_items": 4096,
+    "archive_tmpfs_mib": 512,
+    "write_durability": "Quorum",
+    "vm_disk_gib": 120,
+    "archive_producers": 2
+  },
+  "window_seconds": 60,
+  "repeats": 2,
+  "concurrency_order": [
+    12,
+    18,
+    24,
+    24,
+    18,
+    12
+  ],
+  "run_order": [
+    "candidate",
+    "control"
+  ],
+  "comparison_limit": "The user requested continued shared-host measurement. Other builds appeared during both runs, and a control-run snapshot shows 12,568.19 MiB of host swap in use on a 32-GiB host with 40 GiB of configured active VM memory. Configured VM memory is not resident usage; this is one pressure snapshot, not a per-window attribution. The candidate is slower at the only setting meeting the 500-ms budget in both repeats. These short sequential runs establish neither an improvement nor a causal regression. All writes were acknowledged without retries in timed windows.",
+  "host_pressure": {
+    "captured_unix": 1792693730.7530391,
+    "host_memory_bytes": 34359738368,
+    "host_cpus": 12,
+    "host_disk_free_bytes": 4505882624,
+    "host_swap": "vm.swapusage: total = 14336.00M  used = 12568.19M  free = 1767.81M  (encrypted)",
+    "host_memory_counters": [
+      "Mach Virtual Memory Statistics: (page size of 16384 bytes)",
+      "Pages free:                                     6627.",
+      "Pages active:                                 449062.",
+      "Pages inactive:                               410558.",
+      "Pages speculative:                             37955.",
+      "Pages throttled:                                   0.",
+      "Pages wired down:                             168857.",
+      "Pages purgeable:                                   2.",
+      "\"Translation faults\":                     4229807698.",
+      "Pages copy-on-write:                       172244985.",
+      "Pages zero filled:                        2045933709.",
+      "Pages reactivated:                         388626774.",
+      "Pages purged:                               10760097.",
+      "File-backed pages:                            303260.",
+      "Anonymous pages:                              594315.",
+      "Pages stored in compressor:                  2785472.",
+      "Pages occupied by compressor:                 987644.",
+      "Decompressions:                            306099319.",
+      "Compressions:                              356562441.",
+      "Pageins:                                   135049605.",
+      "Pageouts:                                     859325.",
+      "Swapins:                                     7923837.",
+      "Swapouts:                                    9360584."
+    ],
+    "active_vms": [
+      {
+        "role": "other",
+        "cpus": 2,
+        "memory_bytes": 2147483648
+      },
+      {
+        "role": "other",
+        "cpus": 8,
+        "memory_bytes": 23622320128
+      },
+      {
+        "role": "benchmark",
+        "cpus": 8,
+        "memory_bytes": 17179869184
+      }
+    ],
+    "decision": "User requested continued shared-host measurement; other profiles and workloads remain untouched."
+  },
+  "host_pressure_sha256": "1c597ee1b703508f281a72b00ded0aa189a0ac6d07805f04d25d95a3c052e3d6",
+  "runs": [
+    {
+      "label": "candidate",
+      "archive_producers": 2,
+      "artifact": {
+        "revision": "b2e4850c4fcc8f3ae6cf8492766694daf4238d57",
+        "tag": "cellar-raft-perf:tikv-archive-materialization-ios-7da4ddb5",
+        "image": "sha256:60071984e70f03d1ae3f38d4604135158050155c52e080e6d89770779fd772aa",
+        "binary_sha256": "6c7dc181a5883bf2735d4db832c2151237f19c66c88e05601a784ea2c681cf24",
+        "context_sha256": "9e44c3d15c9f4cf3918e938c54b27dd696ebd9f5d25dd60e14f4e5eac72de7cf"
+      },
+      "completed": true,
+      "verified_replica_values": 4500,
+      "verified_archive_groups": 1500,
+      "archive_wait_seconds": 17.32847412500996,
+      "analysis": {
+        "200": {
+          "verified": true,
+          "acknowledged_writes_including_seed": 52131,
+          "best_observed_below_limit": null
+        },
+        "500": {
+          "verified": true,
+          "acknowledged_writes_including_seed": 52131,
+          "best_observed_below_limit": {
+            "concurrency": 12,
+            "offered_rate": 0.0,
+            "mean_tps": 145.71459571380836,
+            "min_tps": 141.19840175404013,
+            "worst_p99_ms": 325.81150000078196,
+            "windows": 2
+          }
+        }
+      },
+      "host_activity": {
+        "samples": 92,
+        "build_process_samples": 73
+      },
+      "windows": [
+        {
+          "repeat": 1,
+          "concurrency": 12,
+          "successful_writes": 9025,
+          "elapsed_seconds": 60.07423657700019,
+          "tps": 150.23078967357662,
+          "latency_ms": {
+            "p50": 59.296346999872185,
+            "p95": 191.70281700007763,
+            "p99": 325.81150000078196,
+            "max": 558.2585279998966
+          },
+          "error_count": 0,
+          "host_samples": 12,
+          "host_build_samples": 9,
+          "sampled_cpu_percent": {
+            "node1": {
+              "samples": 15,
+              "mean": 72.594,
+              "max": 86.6
+            },
+            "node2": {
+              "samples": 15,
+              "mean": 61.974666666666664,
+              "max": 85.55
+            },
+            "node3": {
+              "samples": 15,
+              "mean": 64.63133333333333,
+              "max": 79.52
+            },
+            "rustfs": {
+              "samples": 15,
+              "mean": 108.73733333333334,
+              "max": 148.93
+            }
+          },
+          "raw_sha256": "1df28a32b101d9bc0e4a056642550c75cd710f62a38d680d8a5c999732527f94"
+        },
+        {
+          "repeat": 1,
+          "concurrency": 18,
+          "successful_writes": 7606,
+          "elapsed_seconds": 60.170418024000355,
+          "tps": 126.4076310217119,
+          "latency_ms": {
+            "p50": 112.47552300028474,
+            "p95": 311.2797160001719,
+            "p99": 420.2201050002259,
+            "max": 581.7597639997985
+          },
+          "error_count": 0,
+          "host_samples": 12,
+          "host_build_samples": 9,
+          "sampled_cpu_percent": {
+            "node1": {
+              "samples": 14,
+              "mean": 78.70071428571428,
+              "max": 87.47
+            },
+            "node2": {
+              "samples": 14,
+              "mean": 72.71071428571429,
+              "max": 81.07
+            },
+            "node3": {
+              "samples": 14,
+              "mean": 71.56571428571428,
+              "max": 80.13
+            },
+            "rustfs": {
+              "samples": 14,
+              "mean": 98.05142857142857,
+              "max": 110.99
+            }
+          },
+          "raw_sha256": "23115445ceeacc21b55f33be94b7ccd5c0c46cbff38a10228fbfb7784acd3e7a"
+        },
+        {
+          "repeat": 1,
+          "concurrency": 24,
+          "successful_writes": 9788,
+          "elapsed_seconds": 60.18717486999958,
+          "tps": 162.62600830062965,
+          "latency_ms": {
+            "p50": 109.68461600077717,
+            "p95": 334.7069819992612,
+            "p99": 479.455272999985,
+            "max": 708.4676860004038
+          },
+          "error_count": 0,
+          "host_samples": 11,
+          "host_build_samples": 8,
+          "sampled_cpu_percent": {
+            "node1": {
+              "samples": 15,
+              "mean": 65.73533333333333,
+              "max": 84.64
+            },
+            "node2": {
+              "samples": 15,
+              "mean": 60.804,
+              "max": 79.27
+            },
+            "node3": {
+              "samples": 15,
+              "mean": 59.56066666666667,
+              "max": 76.87
+            },
+            "rustfs": {
+              "samples": 15,
+              "mean": 75.926,
+              "max": 108.32
+            }
+          },
+          "raw_sha256": "bab92f80405debf07b043d474b3cbd25414d3ee42358536accad360342c8fbaa"
+        },
+        {
+          "repeat": 2,
+          "concurrency": 24,
+          "successful_writes": 9967,
+          "elapsed_seconds": 60.06900628299991,
+          "tps": 165.92583458169767,
+          "latency_ms": {
+            "p50": 112.72020100022928,
+            "p95": 334.97230500051955,
+            "p99": 611.0878800000137,
+            "max": 960.5715920006332
+          },
+          "error_count": 0,
+          "host_samples": 12,
+          "host_build_samples": 8,
+          "sampled_cpu_percent": {
+            "node1": {
+              "samples": 14,
+              "mean": 75.29642857142858,
+              "max": 93.03
+            },
+            "node2": {
+              "samples": 14,
+              "mean": 66.85357142857143,
+              "max": 85.63
+            },
+            "node3": {
+              "samples": 14,
+              "mean": 66.11928571428571,
+              "max": 90.37
+            },
+            "rustfs": {
+              "samples": 14,
+              "mean": 80.86071428571428,
+              "max": 118.76
+            }
+          },
+          "raw_sha256": "d17331c46a28ea709c3cc53eb995afdedfc8f052172980bb726d0b42565183fb"
+        },
+        {
+          "repeat": 2,
+          "concurrency": 18,
+          "successful_writes": 5766,
+          "elapsed_seconds": 60.04951798000002,
+          "tps": 96.02075410364515,
+          "latency_ms": {
+            "p50": 148.19808999982342,
+            "p95": 404.2045380001582,
+            "p99": 739.6490420005648,
+            "max": 1717.0601340003486
+          },
+          "error_count": 0,
+          "host_samples": 11,
+          "host_build_samples": 11,
+          "sampled_cpu_percent": {
+            "node1": {
+              "samples": 15,
+              "mean": 78.31266666666667,
+              "max": 95.13
+            },
+            "node2": {
+              "samples": 15,
+              "mean": 67.12133333333334,
+              "max": 91.02
+            },
+            "node3": {
+              "samples": 15,
+              "mean": 66.60866666666666,
+              "max": 90.11
+            },
+            "rustfs": {
+              "samples": 15,
+              "mean": 82.53266666666667,
+              "max": 121.33
+            }
+          },
+          "raw_sha256": "62a2278cc1c91cfaae6a4bfc5c0a0c3ec39356beea7574a3630ef343176e7fee"
+        },
+        {
+          "repeat": 2,
+          "concurrency": 12,
+          "successful_writes": 8479,
+          "elapsed_seconds": 60.05025478099924,
+          "tps": 141.19840175404013,
+          "latency_ms": {
+            "p50": 72.84588400034409,
+            "p95": 173.44620200037753,
+            "p99": 269.3483479997667,
+            "max": 474.2629989996203
+          },
+          "error_count": 0,
+          "host_samples": 12,
+          "host_build_samples": 11,
+          "sampled_cpu_percent": {
+            "node1": {
+              "samples": 14,
+              "mean": 83.81285714285714,
+              "max": 97.59
+            },
+            "node2": {
+              "samples": 14,
+              "mean": 79.76428571428572,
+              "max": 92.92
+            },
+            "node3": {
+              "samples": 14,
+              "mean": 79.36357142857143,
+              "max": 93.4
+            },
+            "rustfs": {
+              "samples": 14,
+              "mean": 98.99571428571429,
+              "max": 122.98
+            }
+          },
+          "raw_sha256": "f2e4e24becec08551b92ec0bb7b520ffd49ecf11a92ee7c1883aad5031126591"
+        }
+      ],
+      "memory_peak_bytes": [
+        1057284096,
+        1056313344,
+        1050705920
+      ],
+      "memory_events": [
+        "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+        "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+        "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0"
+      ],
+      "cpu_stat": [
+        "usage_usec 293860586\nuser_usec 183880183\nsystem_usec 109980402\ncore_sched.force_idle_usec 0\nnr_periods 4547\nnr_throttled 2\nthrottled_usec 9733\nnr_bursts 0\nburst_usec 0",
+        "usage_usec 267188397\nuser_usec 181160769\nsystem_usec 86027627\ncore_sched.force_idle_usec 0\nnr_periods 4550\nnr_throttled 2\nthrottled_usec 2646\nnr_bursts 0\nburst_usec 0",
+        "usage_usec 266317539\nuser_usec 180726306\nsystem_usec 85591233\ncore_sched.force_idle_usec 0\nnr_periods 4551\nnr_throttled 3\nthrottled_usec 20088\nnr_bursts 0\nburst_usec 0"
+      ],
+      "source_file_count": 98,
+      "workload_sha256": "dc02dc2be7eff3f5cca825b9cbdf012f517797af4f23b2e16e845f437adb1a0d",
+      "containers_stopped_volumes_retained": true,
+      "host_disk_free_bytes_before": 15042428928,
+      "host_disk_free_bytes_after": 8597434368,
+      "evidence_sha256": {
+        "report.json": "aaf81bd7af345a2f1729be40ce9031708f91c75b812bb8a3de37defcda9c445d",
+        "seed-journal.jsonl": "218b3ab630016fc1dfc9f48acef6f24d7f987520a898f42f57e5803d0f4819cc",
+        "replica-verification.json": "344c16cc11465ee45a02159eb8c1ad6b884ce361f26fc6e8b271415dfcdd25d5",
+        "archive-verification.json": "f9bd6df3c7cbce1b40646487220ecbfb03d4f75201956463cb9749ca1c25e3ac",
+        "analysis-200.json": "16742978dd3faba8681146901e80ed60d62299ab310a703db084c721108b6170",
+        "analysis-500.json": "f3b2c4fc7a574ef30ee759a0d16c10aca53b1335028caf7f6509bb0490451d39",
+        "verified-stop/resources.json": "f873452348dfc5ff04da833f2ddc9d9b3bf7f3bb29f35a414d469c0c1f90e87a",
+        "resources.jsonl": "30c6cbd6bf554f2630a8bbbe9e7abe2092ce8dc75a1a4e032b0cef534d3c7173"
+      },
+      "host_activity_sha256": "60eb63803ab35f75b81853ee838463a046e04753b483752c7060c6ab833d8252"
+    },
+    {
+      "label": "control",
+      "archive_producers": 2,
+      "artifact": {
+        "revision": "22d768948fb3531ddea935d3c70f275a483296ad",
+        "tag": "cellar-raft-perf:tikv-archive-producers-ios-7da4ddb5",
+        "image": "sha256:9a2c4947f40f7ece7045101ec995b1a857fd2ff4027ecb34287e09e8ce24585e",
+        "binary_sha256": "fade872e3cea008080194218a2300fd20e95b743c6a561624ae66b55d5b185e4",
+        "context_sha256": "866a5c4b6846277a12f3f3df4639309ecba2c3088ca11e3581bd9bc4526a87ce"
+      },
+      "completed": true,
+      "verified_replica_values": 4500,
+      "verified_archive_groups": 1500,
+      "archive_wait_seconds": 17.46895991699421,
+      "analysis": {
+        "200": {
+          "verified": true,
+          "acknowledged_writes_including_seed": 53547,
+          "best_observed_below_limit": null
+        },
+        "500": {
+          "verified": true,
+          "acknowledged_writes_including_seed": 53547,
+          "best_observed_below_limit": {
+            "concurrency": 12,
+            "offered_rate": 0.0,
+            "mean_tps": 193.00401267882188,
+            "min_tps": 190.67834103977916,
+            "worst_p99_ms": 224.168372999884,
+            "windows": 2
+          }
+        }
+      },
+      "host_activity": {
+        "samples": 94,
+        "build_process_samples": 60
+      },
+      "windows": [
+        {
+          "repeat": 1,
+          "concurrency": 12,
+          "successful_writes": 11729,
+          "elapsed_seconds": 60.047196825000356,
+          "tps": 195.32968431786458,
+          "latency_ms": {
+            "p50": 48.49357599960058,
+            "p95": 125.94975699994393,
+            "p99": 224.168372999884,
+            "max": 1935.2454290001333
+          },
+          "error_count": 0,
+          "host_samples": 12,
+          "host_build_samples": 8,
+          "sampled_cpu_percent": {
+            "node1": {
+              "samples": 15,
+              "mean": 59.36,
+              "max": 77.49
+            },
+            "node2": {
+              "samples": 15,
+              "mean": 55.046,
+              "max": 67.97
+            },
+            "node3": {
+              "samples": 15,
+              "mean": 54.99666666666667,
+              "max": 68.4
+            },
+            "rustfs": {
+              "samples": 15,
+              "mean": 103.08133333333333,
+              "max": 142.12
+            }
+          },
+          "raw_sha256": "346bc5e48e43b1ccd476831fdb00d2feb4df23f3398e58755e125dac8709dace"
+        },
+        {
+          "repeat": 1,
+          "concurrency": 18,
+          "successful_writes": 3446,
+          "elapsed_seconds": 60.47138022400031,
+          "tps": 56.985634976995726,
+          "latency_ms": {
+            "p50": 295.39832299997215,
+            "p95": 598.9099309999801,
+            "p99": 779.0055329996903,
+            "max": 1055.5975469997065
+          },
+          "error_count": 0,
+          "host_samples": 12,
+          "host_build_samples": 12,
+          "sampled_cpu_percent": {
+            "node1": {
+              "samples": 14,
+              "mean": 86.91214285714285,
+              "max": 99.8
+            },
+            "node2": {
+              "samples": 14,
+              "mean": 79.23642857142858,
+              "max": 94.58
+            },
+            "node3": {
+              "samples": 14,
+              "mean": 77.24071428571429,
+              "max": 97.28
+            },
+            "rustfs": {
+              "samples": 14,
+              "mean": 107.54857142857144,
+              "max": 159.28
+            }
+          },
+          "raw_sha256": "6290d4ca807f46be6e59812d2346b6086195300caaf219f36a2912903d7dba7f"
+        },
+        {
+          "repeat": 1,
+          "concurrency": 24,
+          "successful_writes": 9056,
+          "elapsed_seconds": 60.10200084600001,
+          "tps": 150.67718000278035,
+          "latency_ms": {
+            "p50": 126.37019100020552,
+            "p95": 378.2056210002338,
+            "p99": 669.9486870002147,
+            "max": 1134.4292039993888
+          },
+          "error_count": 0,
+          "host_samples": 12,
+          "host_build_samples": 12,
+          "sampled_cpu_percent": {
+            "node1": {
+              "samples": 14,
+              "mean": 88.31857142857143,
+              "max": 97.96
+            },
+            "node2": {
+              "samples": 14,
+              "mean": 81.84357142857142,
+              "max": 102.97
+            },
+            "node3": {
+              "samples": 14,
+              "mean": 81.63571428571429,
+              "max": 104.76
+            },
+            "rustfs": {
+              "samples": 14,
+              "mean": 91.53142857142858,
+              "max": 108.77
+            }
+          },
+          "raw_sha256": "63feaa4799776af9f4f7aff2dece525a1919f5f12b48c8b0a0354d4d6adc61b2"
+        },
+        {
+          "repeat": 2,
+          "concurrency": 24,
+          "successful_writes": 3127,
+          "elapsed_seconds": 60.061509144999945,
+          "tps": 52.06329385515148,
+          "latency_ms": {
+            "p50": 345.7212389994311,
+            "p95": 1136.3922620002995,
+            "p99": 2214.7371439996277,
+            "max": 4534.61881200019
+          },
+          "error_count": 0,
+          "host_samples": 12,
+          "host_build_samples": 12,
+          "sampled_cpu_percent": {
+            "node1": {
+              "samples": 15,
+              "mean": 59.114,
+              "max": 97.15
+            },
+            "node2": {
+              "samples": 15,
+              "mean": 53.436,
+              "max": 105.43
+            },
+            "node3": {
+              "samples": 15,
+              "mean": 62.348,
+              "max": 100.7
+            },
+            "rustfs": {
+              "samples": 15,
+              "mean": 65.47533333333334,
+              "max": 116.9
+            }
+          },
+          "raw_sha256": "137accad72f0641f6d58d2d842ef6f45cf75a4d3727e9b9a0e0ce0b2af11e314"
+        },
+        {
+          "repeat": 2,
+          "concurrency": 18,
+          "successful_writes": 13235,
+          "elapsed_seconds": 60.08027061800021,
+          "tps": 220.28862160342464,
+          "latency_ms": {
+            "p50": 67.54409299992403,
+            "p95": 179.41844100005255,
+            "p99": 252.93374700049753,
+            "max": 636.4574239996728
+          },
+          "error_count": 0,
+          "host_samples": 11,
+          "host_build_samples": 1,
+          "sampled_cpu_percent": {
+            "node1": {
+              "samples": 15,
+              "mean": 75.364,
+              "max": 92.36
+            },
+            "node2": {
+              "samples": 15,
+              "mean": 64.466,
+              "max": 82.51
+            },
+            "node3": {
+              "samples": 15,
+              "mean": 66.68266666666666,
+              "max": 85.05
+            },
+            "rustfs": {
+              "samples": 15,
+              "mean": 93.02666666666667,
+              "max": 120.48
+            }
+          },
+          "raw_sha256": "71c0c4c4648dcfa9d9512ef59f91c468dc7fdead24acb78d639aa6dbef5fdc4f"
+        },
+        {
+          "repeat": 2,
+          "concurrency": 12,
+          "successful_writes": 11454,
+          "elapsed_seconds": 60.069748548999996,
+          "tps": 190.67834103977916,
+          "latency_ms": {
+            "p50": 53.841587999158946,
+            "p95": 125.95865499952197,
+            "p99": 191.50016300045536,
+            "max": 491.1821570003667
+          },
+          "error_count": 0,
+          "host_samples": 12,
+          "host_build_samples": 7,
+          "sampled_cpu_percent": {
+            "node1": {
+              "samples": 15,
+              "mean": 86.90533333333333,
+              "max": 97.65
+            },
+            "node2": {
+              "samples": 15,
+              "mean": 78.61666666666666,
+              "max": 89.89
+            },
+            "node3": {
+              "samples": 15,
+              "mean": 78.608,
+              "max": 89.72
+            },
+            "rustfs": {
+              "samples": 15,
+              "mean": 105.47933333333333,
+              "max": 129.1
+            }
+          },
+          "raw_sha256": "88d5e8d8a7a1c798268b48ac8b42e18b44d2105f66d3e839bb46c8562f7816ec"
+        }
+      ],
+      "memory_peak_bytes": [
+        1051500544,
+        1088536576,
+        1084211200
+      ],
+      "memory_events": [
+        "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+        "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+        "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0"
+      ],
+      "cpu_stat": [
+        "usage_usec 303410240\nuser_usec 195234029\nsystem_usec 108176210\ncore_sched.force_idle_usec 0\nnr_periods 4620\nnr_throttled 30\nthrottled_usec 432978\nnr_bursts 0\nburst_usec 0",
+        "usage_usec 277306669\nuser_usec 193058072\nsystem_usec 84248596\ncore_sched.force_idle_usec 0\nnr_periods 4622\nnr_throttled 15\nthrottled_usec 249489\nnr_bursts 0\nburst_usec 0",
+        "usage_usec 280935447\nuser_usec 196267916\nsystem_usec 84667530\ncore_sched.force_idle_usec 0\nnr_periods 4623\nnr_throttled 15\nthrottled_usec 138738\nnr_bursts 0\nburst_usec 0"
+      ],
+      "source_file_count": 98,
+      "workload_sha256": "dc02dc2be7eff3f5cca825b9cbdf012f517797af4f23b2e16e845f437adb1a0d",
+      "containers_stopped_volumes_retained": true,
+      "host_disk_free_bytes_before": 8570269696,
+      "host_disk_free_bytes_after": 5246816256,
+      "evidence_sha256": {
+        "report.json": "777070bf9a950af7947ace8b4b3c115ae191fb0434cc43b620834ceab2074186",
+        "seed-journal.jsonl": "b5adc99efe2d95a0ba425e97ca97d72c8dff3eeb52f82cc81027bdc30e9fbad1",
+        "replica-verification.json": "bfb5cc72fab2947531225606b9bcda41a20eec4aceb9df3525c4006e014979b8",
+        "archive-verification.json": "872373b37687b8f25e8ade485dd4ce5840755a37a743399e8c532f2f3e404d6f",
+        "analysis-200.json": "64cb5ac68ee41f1493f979e5c1ab4b84b0479212f9308ab53591c5fbdc3995b7",
+        "analysis-500.json": "ebea5ed836d4ae2be8b5519cee6fe9ee2f0bae9a506ab28d955ad172454a91a6",
+        "verified-stop/resources.json": "7b554ab73e4ea24cf31c4163c12e9bcaa9800d50b9aba08d758d52bb02fff3b7",
+        "resources.jsonl": "30b7c81e42ffc13ee317f257cd3837f4582822723baea47df955f6e1ac504453"
+      },
+      "host_activity_sha256": "85e2bc0a6a4569c01644aafa144cfb7fd88493e38efb6540ff63ffa86e6f0cb0"
+    }
+  ]
+}

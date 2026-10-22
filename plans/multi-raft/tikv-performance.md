@@ -895,9 +895,81 @@ the native SDK quorum, S3-outage, failover and shutdown scenarios.
 Strict all-target Clippy, formatting, module layout, native dependency policy
 and documentation checks also pass on Rust 1.98.1.
 
-The 22d7689 container measurements above predate this change. They cannot
-establish its throughput or latency effect; a fresh frozen-image comparison
-remains required.
+The frozen `b2e4850` candidate and `22d7689` control each completed a fresh
+1,500-group run with two archive producers, using sixty-second windows at
+concurrency 12, 18, 24, 24, 18 and 12. All twelve windows had zero write errors.
+Both runs verified all 4,500 exact replica values and 1,500 archive positions:
+52,131 acknowledged writes including seed for the candidate and 53,547 for the
+control. Both clusters stopped cleanly, retaining their volumes and logs.
+
+| Implementation | Repeated qualifying concurrency | Mean writes/sec | Worst-window p99 | Peak node memory |
+| --- | --- | --- | --- | --- |
+| Candidate: avoid duplicate materialization | 12 | 145.71 | 325.81 ms | 1.06 GB |
+| Control: prior materialization | 12 | 193.00 | 224.17 ms | 1.09 GB |
+
+Neither run qualified a setting under 200 ms across both repeats; only
+concurrency 12 qualified under 500 ms. No OOM events were recorded. Final
+archive catch-up took 17.33 and 17.47 seconds respectively. The
+[complete comparison evidence](evidence/tikv-archive-materialization-comparison.json)
+records every window, resource counters, source/image/executable identities and
+hashes of the retained raw results.
+
+These measurements do not establish an end-to-end speedup. The candidate was
+slower at concurrency 12, while the control varied from 56.99 to 220.29 writes/sec
+at concurrency 18 and from 150.68 to 52.06 at concurrency 24. Other builds
+appeared in 73/92 candidate and 60/94 control host samples. A snapshot during the
+control run recorded 12,568.19 MiB of swap in use on the 32-GiB host; active VMs
+had 40 GiB of configured memory. That allocation is not a measurement of
+resident use, and a single snapshot cannot attribute individual windows. The
+user explicitly chose continued shared-host measurements. Our own builds,
+tests and profilers were absent throughout both timed runs; other workloads
+were left untouched. The object-read regression establishes reduced archive
+work, but this sequential comparison establishes neither a causal performance
+improvement nor a causal regression.
+
+The `22d7689` Linux SDK matrix finished with the 3.14t job passing and the 3.14
+job failing `node_shutdown_hands_off_to_published_voter`: one group examined,
+zero handoff attempts and one unavailable group, without an elapsed overall
+deadline. This is the previously observed intermittent handoff symptom;
+the earlier local passes did not resolve it.
+
+## Preserve the drain turn through temporary archive capture
+
+An instrumented repetition of the original shutdown case reproduced the failure
+on its fourth iteration. The drain skipped a replica with `sql_busy=true`, while
+failure, retirement, pending command, configuration, incoming snapshot, apply
+and publication flags were all clear. Application calls had completed, but
+background archive capture could still own the SQL worker. The scan advanced
+its cursor before that check and never revisited the group.
+
+The regression holds an actual immutable-image read during archive dependency
+capture after all three replicas return the exact committed value. The original
+implementation fails because drain closes the SQL queue instead of waiting
+for that capture. The implementation now retains the original group deadline
+while local work finishes. Waiting and authenticated candidate inspection share
+the same one-second budget, capped by the original Node deadline; each group
+is counted once. Failure and retirement remain immediate refusals. Transfer
+fencing, target publication checks and physical shutdown joining are unchanged.
+
+The held-capture case now completes handoff after the read is released. A second
+case keeps the physical reader held until the group budget is exhausted: drain
+reports one unavailable group without a transfer, and Node shutdown still waits
+for release before returning. The six focused Node shutdown cases pass. All
+temporary diagnostic probes have been removed. This explains and repairs the
+locally reproduced handoff path; fresh Linux CI must still validate the change.
+It does not explain the separate earlier snapshot or management-stop failures.
+
+The broader local suite passes 630 cases on Rust 1.98.1: 452 library, 41 archive,
+28 host, 27 membership, 21 operations, 19 runtime and 42 snapshot cases. Four
+ignored process helpers are invoked through their parent scenarios. This run
+includes the previously failing Linux snapshot cases and the management-stop
+cases; local passes alone do not explain those earlier failures. Strict
+all-target Clippy, formatting, module layout, dependency policy and
+documentation checks pass.
+An additional 40 isolated repetitions also pass: twenty of the original
+handoff case, ten releasing the archive reader within budget and ten holding it
+through budget exhaustion. The deterministic pre-fix failure and these
+post-fix repetitions exercise the actual Node, quorum and physical SQL paths.
 
 ## Remaining qualification
 

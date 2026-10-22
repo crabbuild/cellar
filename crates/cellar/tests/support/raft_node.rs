@@ -415,7 +415,28 @@ pub struct Counter {
 }
 
 pub fn counter(calls: Arc<std::sync::atomic::AtomicUsize>, gate: Arc<Gate>) -> Result<Counter> {
-    let class=RaftClass::new("Counter",1,[21;32])?
+    counter_with_class(calls, gate, RaftClass::new("Counter", 1, [21; 32])?)
+}
+
+// This shared fixture also serves targets without archive-capture gates.
+#[allow(dead_code)]
+pub fn counter_with_blobs(
+    calls: Arc<std::sync::atomic::AtomicUsize>,
+    gate: Arc<Gate>,
+) -> Result<Counter> {
+    counter_with_class(
+        calls,
+        gate,
+        RaftClass::new("Counter", 1, [21; 32])?.immutable_blobs(RaftBlobLimits::default())?,
+    )
+}
+
+fn counter_with_class(
+    calls: Arc<std::sync::atomic::AtomicUsize>,
+    gate: Arc<Gate>,
+    class: RaftClass,
+) -> Result<Counter> {
+    let class=class
         .command("Increment",[22;32],move |context,input|{
             calls.fetch_add(1,std::sync::atomic::Ordering::SeqCst);
             let delta=i64::from_be_bytes(input.try_into()?);

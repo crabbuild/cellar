@@ -22,6 +22,7 @@ pub const CRASH_AFTER_DELETE: u8 = 7;
 pub const FAIL_PARENT_SYNC: u8 = 8;
 pub const FAIL_SYNC_HOLD_LOCK_DROP: u8 = 9;
 pub const HOLD_LOCK_DROP: u8 = 10;
+pub const HOLD_IMAGE_READ: u8 = 11;
 
 pub struct Gate {
     pub mode: AtomicU8,
@@ -138,6 +139,15 @@ impl HostFileIo for FaultFile {
     }
 
     fn read_exact_at(&mut self, offset: u64, len: usize) -> io::Result<Vec<u8>> {
+        if !self.log
+            && self
+                .gate
+                .mode
+                .compare_exchange(HOLD_IMAGE_READ, OFF, Ordering::AcqRel, Ordering::Acquire)
+                .is_ok()
+        {
+            self.gate.pause()?;
+        }
         self.inner.read_exact_at(offset, len)
     }
 

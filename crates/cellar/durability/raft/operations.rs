@@ -81,6 +81,7 @@ pub struct RaftNodeShutdownReport {
 }
 
 /// Each registered local replica receives at most one bounded handoff turn.
+/// Temporary local work and candidate inspection share that turn's deadline.
 /// Acceptance is not an election result; release observes the old leader step
 /// down. Neither observation fences a deployment or authorizes disk deletion.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
