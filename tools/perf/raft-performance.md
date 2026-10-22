@@ -619,6 +619,13 @@ frames; it is not a per-frame latency or a durable acknowledgement. The analyzer
 requires all six new operations. Older evidence uses its pinned analyzer;
 missing observations are never filled with zeros. These timings provide a
 diagnostic boundary, not proof of the existing density slowdown's cause or fix.
+The [timing validation](../../plans/multi-raft/evidence/MR-14-transport-timing-progress.json)
+at `87ed5d6` includes 96 Raft unit cases, 20 native reads/replication cases and
+20 native operations cases. Real TLS tests separate queued frames from held
+exchanges and retain failure/cancellation outcomes. The operations fixture
+verifies 551 fixed metric identities for both one and 32 groups. All 192 Python
+cases pass with one existing opt-in Docker skip; Clippy and repository checks
+pass. No physical workload or instrumentation-overhead result is added here.
 
 ## Batching and Q1
 

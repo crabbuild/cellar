@@ -95,9 +95,10 @@ requested MR-14 focus; it does not waive MR-13's release dependency.
    phase observations to build a bounded causal reproducer before another
    optimization. Aggregate stage latency and mean CPU alone cannot establish
    the cause. Preserve durability, authentication, budgets and numeric SLOs.
-   Bounded control/data timers now separate sender queue residence, exchange
-   windows and receiver runtime admission. Use their deltas in the next density
-   experiment; they do not yet attribute or resolve the observed slowdown.
+   [Bounded control/data timers](evidence/MR-14-transport-timing-progress.json)
+   now separate sender queue residence, exchange windows and receiver runtime
+   admission. Use their deltas in the next density experiment; they do not yet
+   attribute or resolve the observed slowdown.
    The [persistence-wait regression](evidence/MR-14-persistence-progress.json)
    reproduces and removes redundant runnable-queue visits during disk waits;
    its contribution to the physical bursts remains unproven.

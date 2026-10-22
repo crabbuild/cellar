@@ -2512,7 +2512,8 @@
         "evidence/MR-14-store-fault-progress.json",
         "evidence/MR-14-store-physical-progress.json",
         "evidence/MR-14-recovery-progress.json",
-        "evidence/MR-14-restart-progress.json"
+        "evidence/MR-14-restart-progress.json",
+        "evidence/MR-14-transport-timing-progress.json"
       ]
     },
     {
