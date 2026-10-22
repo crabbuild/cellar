@@ -1931,7 +1931,10 @@ impl Driver {
                 input,
                 options,
             } => {
-                if cell.pending.is_some() || cell.sql_busy {
+                // Background SQL does not consume the one business-command slot.
+                // Keep the bounded request until the physical worker completes;
+                // pump() rechecks its original deadline before staging.
+                if cell.pending.is_some() {
                     reply(&mut request, Err(CommandFailure::Overloaded));
                     return;
                 }
@@ -1950,8 +1953,11 @@ impl Driver {
                     phase: Phase::Start,
                     _bytes: None,
                 });
+                let sql_idle = !cell.sql_busy;
                 self.active.insert(scope.clone());
-                self.status(&scope, StatusPurpose::Start);
+                if sql_idle {
+                    self.status(&scope, StatusPurpose::Start);
+                }
             }
         }
     }

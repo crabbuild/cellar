@@ -2315,7 +2315,8 @@
         "crates/cellar/node/embedded.rs",
         "crates/cellar/node/raft_startup.rs",
         "crates/cellar/tests/native_raft_reads.rs",
-        "crates/cellar/tests/support/raft_controller_native.rs"
+        "crates/cellar/tests/support/raft_controller_native.rs",
+        "crates/cellar/tests/support/raft_repair_native.rs"
       ],
       "creates": [
         "tools/perf/raft_run.py",
@@ -2338,7 +2339,8 @@
         "crates/cellar/durability/raft/object_metrics.rs",
         "crates/cellar/durability/raft/object_metrics_tests.rs",
         "crates/cellar/durability/raft/transport_metrics.rs",
-        "crates/cellar/durability/raft/transport_metrics_tests.rs"
+        "crates/cellar/durability/raft/transport_metrics_tests.rs",
+        "crates/cellar/tests/support/raft_background_admission.rs"
       ],
       "steps": [
         "Optimize shared log batches, pooled transport and fair scheduling while retaining per-group Ready ordering.",

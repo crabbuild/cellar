@@ -71,6 +71,16 @@ pending-work, persistence and apply checks and additionally requires leader role
 No node-wide healthy boolean hides unavailable cells; nonmember/query-router
 occupancy retains its separate typed inspection contract.
 
+## Command admission during background SQL
+
+One pending business command per local group can wait behind an archive,
+checkpoint or other existing SQL action. It retains the request's existing
+node-wide byte/work reservation and original deadline. Background SQL cannot
+consume that command slot; a second producer still receives `Overloaded`.
+The host waits for physical SQL completion before starting the authority and
+staging checks. A cancelled, unsubmitted waiter is discarded without invoking
+its callback. Queue admission is not a commit or durability acknowledgement.
+
 ## Physical query-reader admission
 
 `RaftHostOptions.max_query_pins` bounds simultaneous SDK query-reader
