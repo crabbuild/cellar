@@ -531,6 +531,21 @@ bounded event loops, shared disk/apply pools and pooled authenticated transport.
 Control messages have reserved capacity so snapshot transfers and user queries
 cannot starve votes and heartbeats. Bound bytes, not just message counts.
 
+The shared control sender drains at most eight already-admitted FIFO frames per
+peer connection without waiting to fill the window. Ordered writes and ordered
+replies progress concurrently, including when either socket buffer fills. Every
+frame retains its node/peer byte and item permits and its own authenticated
+sequence, route and reply binding. Recheck current routing before transmission,
+after each reply and before completing the observer. The existing I/O deadline
+bounds the whole window; it is not multiplied by its frame count. Data frames
+remain one at a time on the independent data connection.
+
+A failed exchange closes the connection rather than replaying a partially sent
+window. Preserve individually verified earlier admission replies; fail unresolved
+frames without inferring delivery, persistence or commit. Release each payload
+and its permits before waking its observer, including during joined shutdown.
+This optimization leaves Raft's durable response and Ready ordering unchanged.
+
 Use independent control, LTX and query listeners/connections with separate byte
 and item admission. A query awaiting LTX catch-up must not occupy the connection
 needed for that replication. Query frames use distinct MAC domains, TLS exporter

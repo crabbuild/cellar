@@ -35,6 +35,8 @@ mod metrics;
 mod queries;
 #[path = "transport_resources.rs"]
 mod resources;
+#[path = "transport_send.rs"]
+mod sender;
 pub(crate) use resources::ResourceObserver;
 #[path = "seed_transport.rs"]
 pub(crate) mod seeds;
@@ -1290,127 +1292,6 @@ impl State {
                 self.accepted.fetch_add(1, Ordering::Relaxed);
             } else {
                 self.refused.fetch_add(1, Ordering::Relaxed);
-            }
-        }
-    }
-
-    async fn send_loop(
-        self: Arc<Self>,
-        pool: Arc<Pool>,
-        lane: Lane,
-        mut requests: mailbox::Receiver<SendRequest>,
-    ) {
-        let mut stop = self.stop.subscribe();
-        let mut peer_stop = pool.stop.subscribe();
-        let mut connection = None;
-        loop {
-            if *stop.borrow() || *peer_stop.borrow() {
-                return;
-            }
-            let mut request = crate::asyncrt::select! {
-                _ = stop.changed() => return,
-                _ = peer_stop.changed() => return,
-                request = requests.recv() => match request { Some(request) => request, None => return },
-            };
-            let result = self
-                .bounded(Some(&pool), async {
-                    if !self.current(&request) {
-                        return Err(TransportError::StalePeer);
-                    }
-                    if connection.is_none() {
-                        let owner = self.outgoing_connections.acquire(lane);
-                        let tcp = TcpStream::connect(pool.peer.address(lane)).await?;
-                        tcp.set_nodelay(true)?;
-                        let tcp = self.observed_socket(tcp, lane.into());
-                        let name =
-                            rustls::pki_types::ServerName::try_from(pool.peer.server_name.clone())
-                                .map_err(|_| TransportError::Identity)?;
-                        let tls = tokio_rustls::TlsConnector::from(self.tls.client.clone())
-                            .connect(name, tcp)
-                            .await
-                            .map_err(|e| TransportError::Tls(e.to_string()))?;
-                        let exporter = tls
-                            .get_ref()
-                            .1
-                            .export_keying_material([0; 32], frame::EXPORT_LABEL, None)
-                            .map_err(|e| TransportError::Tls(e.to_string()))?;
-                        connection = Some((tls, exporter, owner));
-                    }
-                    let (stream, exporter, _owner) =
-                        connection.as_mut().ok_or(TransportError::Closed)?;
-                    let head = frame::request_head(
-                        &self.auth,
-                        exporter,
-                        &request.header,
-                        request.body.len(),
-                        &self.options,
-                    )?;
-                    write_frame(stream, &head, &request.body).await?;
-                    let response = read_head(stream, &self.options, lane, true).await?;
-                    match response.response(&self.auth, exporter, &request.header, &head.tag)? {
-                        Disposition::Accepted => (),
-                        Disposition::UnknownGroup => return Err(TransportError::UnknownGroup),
-                        Disposition::StalePeer => return Err(TransportError::StalePeer),
-                        Disposition::Overloaded => return Err(TransportError::Overloaded),
-                        Disposition::Refused => return Err(TransportError::Refused),
-                    }
-                    if !self.current(&request) {
-                        return Err(TransportError::StalePeer);
-                    }
-                    Ok(())
-                })
-                .await;
-            if result.is_err() {
-                connection = None;
-                self.failed.fetch_add(1, Ordering::Relaxed);
-                if self.current(&request) {
-                    // These are failure hints only. A timeout never constructs
-                    // MsgAppendResponse or advances a durable/committed index.
-                    let _ = self
-                        .bounded(Some(&pool), async {
-                            self.runtime
-                                .admit_unreachable(
-                                    &request.scope,
-                                    request.peer.replica.member.get(),
-                                )
-                                .await?;
-                            if request.snapshot {
-                                self.runtime
-                                    .admit_snapshot_status(
-                                        &request.scope,
-                                        request.peer.replica.member.get(),
-                                        false,
-                                    )
-                                    .await?;
-                            }
-                            Ok(())
-                        })
-                        .await;
-                }
-            }
-            if result.is_ok() && request.snapshot && self.current(&request) {
-                // raft-rs defines Finish as the transport status of the sent
-                // snapshot. Actual installation still needs the receiver's
-                // persisted Raft response; this hint never proves installation.
-                let _ = self
-                    .bounded(Some(&pool), async {
-                        self.runtime
-                            .admit_snapshot_status(
-                                &request.scope,
-                                request.peer.replica.member.get(),
-                                true,
-                            )
-                            .await?;
-                        Ok(())
-                    })
-                    .await;
-            }
-            // Completion observers may immediately admit another frame. Drop
-            // the body and both permits before waking that observer.
-            let reply = request.result.take();
-            drop(request);
-            if let Some(reply) = reply {
-                let _ = reply.send(result);
             }
         }
     }
