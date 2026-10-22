@@ -1512,3 +1512,47 @@ async fn private_checkpoint_capture_covers_control_writes() -> Result<()> {
     drop(executor);
     host.close().await
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn private_recovery_discards_corrupt_working_state() -> Result<()> {
+    let root = tempfile::tempdir()?;
+    let mut host = Host::open(root.path(), false).await?;
+    host.elect().await?;
+    let mut executor = host
+        .private(root.path(), ExecutionLimits::default())
+        .await?;
+    let first = prepared(executor.stage(attempt(1, 1)?, initialize)?)?;
+    host.commit_private(&mut executor, first, 1).await?;
+    let _unsubmitted = prepared(executor.stage(attempt(2, 2)?, increment)?)?;
+    drop(executor);
+    host.close().await?;
+
+    // Simulate loss or corruption of every disposable SQLite artifact. The
+    // durable image and log still identify the sole admitted recovery state.
+    let private = root.path().join("private");
+    for suffix in ["", "-wal", "-shm", "-journal"] {
+        std::fs::write(
+            private.join(format!("working.sqlite{suffix}")),
+            b"torn private state",
+        )?;
+    }
+    let metadata = cellar_ltx::Db::meta_path_for_path(private.join("working.sqlite"));
+    std::fs::write(metadata.join("ltx/0/incomplete.tmp"), b"torn capture")?;
+
+    let mut recovered = Host::open(root.path(), true).await?;
+    assert_eq!(recovered.counter()?, 7);
+    recovered.elect().await?;
+    let mut executor = recovered
+        .private(root.path(), ExecutionLimits::default())
+        .await?;
+    let duplicate = executor.stage(attempt(1, 3)?, |_| panic!("committed callback reran"))?;
+    let StageOutcome::Duplicate(receipt) = duplicate else {
+        bail!("committed receipt was lost with private state")
+    };
+    assert_eq!(receipt.receipt().result(), 7_i64.to_be_bytes());
+    let retry = prepared(executor.stage(attempt(2, 4)?, increment)?)?;
+    recovered.commit_private(&mut executor, retry, 2).await?;
+    assert_eq!(recovered.counter()?, 8);
+    drop(executor);
+    recovered.close().await
+}

@@ -302,6 +302,7 @@ pub struct PreparedCommand {
     bytes: Vec<u8>,
     proposal: ProposalId,
     command: Option<CommandId>,
+    archive_bytes: u64,
 }
 
 impl PreparedCommand {
@@ -319,6 +320,12 @@ impl PreparedCommand {
 
     pub fn context(&self) -> Vec<u8> {
         self.proposal.bytes().to_vec()
+    }
+
+    /// Retention bound after the physical preview has verified the image size.
+    /// Includes the encoded log entry and room for its protobuf/context framing.
+    pub(crate) fn archive_bytes(&self) -> u64 {
+        self.archive_bytes
     }
 }
 
@@ -754,6 +761,11 @@ impl PrivateExecutor {
             .retired_preview
             .take()
             .ok_or(ExecutionError::RebuildRequired)?;
+        let archive_bytes = preview
+            .state()
+            .length
+            .saturating_add(bytes.len() as u64)
+            .saturating_add(1024);
         self.pending = Some(Pending {
             proposal,
             preview,
@@ -765,6 +777,7 @@ impl PrivateExecutor {
             bytes,
             proposal,
             command,
+            archive_bytes,
         })
     }
 

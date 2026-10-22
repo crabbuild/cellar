@@ -65,6 +65,10 @@ const COMPLETION_BYTES: usize = COMPLETION_SLOTS * SNAPSHOT_COMPLETION_BYTES;
 const HINT_SLOTS: usize = 256;
 const HINT_BYTES: usize = HINT_SLOTS * 4096;
 
+// Coalesce already queued groups before collecting Ready and starting a sync.
+// Bound each dispatch turn so persistence, events, ticks and shutdown can run.
+const REQUEST_BATCH: usize = 64;
+
 enum Command {
     Group {
         scope: GroupScope,
@@ -1221,7 +1225,14 @@ impl Worker {
                 }
             };
             crate::asyncrt::select! {
-                request=requests.receiver.recv()=> { match request { Some(request)=>self.dispatch(request),None=>return Ok(()) } }
+                request=requests.receiver.recv()=> {
+                    let Some(request) = request else { return Ok(()); };
+                    self.dispatch(request);
+                    for _ in 1..REQUEST_BATCH {
+                        let Ok(request) = requests.receiver.try_recv() else { break; };
+                        self.dispatch(request);
+                    }
+                }
                 _=stop.notified()=>return Ok(()),
                 result=io=> { self.finish_batch(result)?; }
                 _=timer=> { let now=self.domain.mono_ms().unwrap_or(0); if now>=tick_at { if self.options.tick_interval_ms.is_some() { self.tick(); } tick_at=now.saturating_add(self.options.tick_interval_ms.unwrap_or(1000)); } }

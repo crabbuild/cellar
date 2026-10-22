@@ -47,12 +47,14 @@ impl Working {
                 <[u8; 32]>::from(hash.finalize()) == state.digest,
                 "private base SHA-256 mismatch"
             );
-            target.sync_all()?;
+            // Only the independently sealed base is a recovery authority.
+            // This copy is discarded on every reopen, including after a crash.
         }
-        let mut capture = match options.sqlite_vfs.as_deref() {
-            Some(vfs) => Db::open_with_host_and_vfs(&path, options.host.clone(), vfs)?,
-            None => Db::open_with_host(&path, options.host.clone())?,
-        };
+        let mut capture = Db::open_disposable_with_host(
+            &path,
+            options.host.clone(),
+            options.sqlite_vfs.as_deref(),
+        )?;
         let database = CommandDatabase::open(
             &path,
             options.sqlite_vfs.as_deref(),
@@ -104,7 +106,7 @@ impl Working {
                 filesystem.remove_file(&directory.join(name))?;
             }
         }
-        filesystem.sync_all(&directory)?;
+        // Capture history is private bookkeeping; rebuilding deletes it again.
         Ok(())
     }
 
@@ -308,7 +310,8 @@ fn clean(filesystem: &dyn FileSystem, directory: &Path, path: &Path) -> Result<(
     }
     for _ in 0..32 {
         if filesystem.remove_dir_batch(&meta, 256)? {
-            filesystem.sync_all(directory)?;
+            // Cleanup need not survive a crash: the next open repeats it before
+            // admitting a callback or reading any private capture history.
             return Ok(());
         }
     }

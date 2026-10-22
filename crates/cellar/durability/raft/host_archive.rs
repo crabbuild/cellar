@@ -13,8 +13,10 @@ use std::path::PathBuf;
 pub struct RaftArchiveOptions {
     pub limits: ArchiveLimits,
     pub retry_ms: u64,
-    /// New business callbacks are refused before the retained log/image backlog
-    /// plus conservative in-flight reservations can exceed this admission cap.
+    /// New callbacks reserve their maximum image/envelope size, reduced to the
+    /// verified physical size after preparation. Temporary reservation pressure
+    /// waits within request admission bounds; retained log/image backlog that
+    /// cannot fit a new reservation refuses fresh callbacks (not receipt lookup).
     pub max_unarchived_bytes: u64,
     /// Data-bearing entries; protocol-only entries also consume the byte cap.
     pub max_unarchived_entries: usize,

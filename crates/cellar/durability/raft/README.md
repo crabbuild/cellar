@@ -265,10 +265,16 @@ query consistency or a successful SDK command.
 
 `PrivateExecutor` owns an exclusively locked writable directory. Opening or
 rebuilding it copies the marker-selected immutable base, verifies that copy,
-opens the ordinary WAL capture engine and seeds its continuation at the exact
+opens WAL capture in disposable mode and seeds its continuation at the exact
 committed LTX position. Opening/control writes join the next proposed cut; a
 zero-page continuation file is never replicated as data. No Fleet uploader,
 maintenance timer or output ticket can operate on this private image.
+Private SQLite connections use `synchronous=OFF`; local capture files, copied
+bases and cleanup do not require disk syncs. Every reopen discards those files
+before reading private history or admitting a callback. Captured bytes still
+pass physical preview verification, durable Raft commitment and committed-image
+publication before acknowledgement. The immutable image and log persistence
+barriers are unchanged; disposable state never supplies a recovery proof.
 
 A checked `CommandAuthority` observes a current-term, caught-up leader and binds
 the replica, term, applied marker and command base. One synchronous callback

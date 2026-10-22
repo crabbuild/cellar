@@ -912,7 +912,8 @@ async fn archive_refuses_different_engine_birth() -> Result<()> {
 }
 
 struct Native {
-    _entered: tokio::sync::mpsc::UnboundedReceiver<()>,
+    entered: tokio::sync::mpsc::UnboundedReceiver<()>,
+    gate: Arc<public_node::Gate>,
     root: tempfile::TempDir,
     node: cellar::sdk::Node,
     service: RaftCells,
@@ -929,11 +930,33 @@ impl Native {
         options: RaftHostOptions,
         minimum: Durability,
     ) -> Result<Self> {
+        Self::start_many(store, options, minimum, 1).await
+    }
+
+    async fn start_many(
+        store: Arc<faults::Store>,
+        options: RaftHostOptions,
+        minimum: Durability,
+        count: u8,
+    ) -> Result<Self> {
+        Self::start_gated(store, options, minimum, count, false).await
+    }
+
+    async fn start_gated(
+        store: Arc<faults::Store>,
+        options: RaftHostOptions,
+        minimum: Durability,
+        count: u8,
+        hold: bool,
+    ) -> Result<Self> {
+        ensure!((1..=32).contains(&count));
         let root = tempfile::tempdir()?;
         let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let (gate, entered) = public_node::Gate::new();
-        gate.release();
-        let definition = public_node::counter(calls.clone(), gate)?;
+        if !hold {
+            gate.release();
+        }
+        let definition = public_node::counter(calls.clone(), gate.clone())?;
         let mut namespace = NamespaceConfig::new(
             ClusterId::new([1; 16])?,
             NamespaceId::new([2; 16])?,
@@ -962,17 +985,26 @@ impl Native {
             },
         };
         let node = public_node::node(root.path(), definition.application.clone()).await?;
-        let service = public_node::cells_with_host(
+        let mut registrations = vec![registration.clone()];
+        for id in 1..count {
+            let mut extra = registration.clone();
+            extra.birth.scope.cell = format!("Counter:extra-{id}");
+            extra.birth.scope.group = GroupId::new([5 + id; 16])?;
+            registrations.push(extra);
+        }
+        let service = public_node::cells_many(
             &node,
             definition.application.clone(),
             store.clone(),
-            registration.clone(),
+            registrations.clone(),
             false,
             options.clone(),
+            TransportOptions::default(),
         )
         .await?;
         let native = Self {
-            _entered: entered,
+            entered,
+            gate,
             root,
             node,
             service,
@@ -982,7 +1014,13 @@ impl Native {
             registration,
             options,
         };
-        public_node::ready(&native.cell()?).await?;
+        for registration in registrations {
+            public_node::ready(&native.service.cell(
+                registration.namespace.namespace,
+                &registration.birth.scope.cell,
+            )?)
+            .await?;
+        }
         Ok(native)
     }
 
@@ -1165,6 +1203,227 @@ async fn quorum_s3_outage() -> Result<()> {
     let third = native.retry(3, Durability::S3).await?;
     ensure!(third.result == 3_i64.to_be_bytes());
     native.close().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn unknown_command_reservation_waits_for_prepared_size() -> Result<()> {
+    check_unknown_reservation(false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn cancelled_archive_reservation_waiter_never_executes() -> Result<()> {
+    check_unknown_reservation(true).await
+}
+
+async fn check_unknown_reservation(cancel_waiter: bool) -> Result<()> {
+    use std::time::Duration;
+    let mut options = RaftHostOptions::default();
+    options.archive.max_unarchived_bytes = options.execution.max_image_bytes
+        + options.execution.envelope.max_payload_bytes as u64
+        + options.execution.envelope.max_header_bytes as u64
+        + 1024
+        + 256 * 1024;
+    let mut native = Native::start_gated(
+        Arc::new(faults::Store::default()),
+        options,
+        Durability::Quorum,
+        2,
+        true,
+    )
+    .await?;
+    let mut tasks = Vec::new();
+    let result = async {
+        let cells = [
+            native.cell()?,
+            native
+                .service
+                .cell(native.registration.namespace.namespace, "Counter:extra-1")?,
+        ];
+        for cell in &cells {
+            cell.command(
+                native.definition.increment.clone(),
+                1_i64.to_be_bytes().to_vec(),
+                public_node::archived_options(1)?,
+            )
+            .await?;
+            public_node::ready(cell).await?;
+        }
+        tasks.push(tokio::spawn(cells[0].command(
+            native.definition.increment.clone(),
+            1_i64.to_be_bytes().to_vec(),
+            public_node::options(2)?,
+        )));
+        tokio::time::timeout(Duration::from_secs(5), native.entered.recv())
+            .await?
+            .context("first callback did not enter")?;
+        tasks.push(tokio::spawn(cells[1].command(
+            native.definition.increment.clone(),
+            1_i64.to_be_bytes().to_vec(),
+            public_node::options(2)?,
+        )));
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        ensure!(
+            native.calls.load(Ordering::SeqCst) == 3,
+            "second callback ran without a worst-case reservation"
+        );
+        ensure!(
+            !tasks[1].is_finished(),
+            "transient reservation pressure refused the queued command"
+        );
+        if cancel_waiter {
+            let task = tasks.pop().unwrap();
+            task.abort();
+            ensure!(task.await.is_err_and(|error| error.is_cancelled()));
+            // Cancellation must release this cell while the other producer
+            // still owns its unknown-size reservation.
+            public_node::ready(&cells[1]).await?;
+            ensure!(native.calls.load(Ordering::SeqCst) == 3);
+        }
+        native.gate.release();
+        for task in tasks.drain(..) {
+            let receipt = tokio::time::timeout(Duration::from_secs(5), task).await???;
+            ensure!(receipt.result == 2_i64.to_be_bytes());
+        }
+        if cancel_waiter {
+            let value = cells[1]
+                .query(
+                    native.definition.get.clone(),
+                    vec![],
+                    QueryOptions {
+                        consistency: QueryConsistency::Linearizable,
+                        ..Default::default()
+                    },
+                )
+                .await?;
+            ensure!(value.result == 1_i64.to_be_bytes());
+            let receipt = cells[1]
+                .command(
+                    native.definition.increment.clone(),
+                    1_i64.to_be_bytes().to_vec(),
+                    public_node::options(2)?,
+                )
+                .await?;
+            ensure!(receipt.result == 2_i64.to_be_bytes());
+        }
+        ensure!(native.calls.load(Ordering::SeqCst) == 4);
+        Ok::<_, anyhow::Error>(())
+    }
+    .await;
+    native.gate.release();
+    for task in tasks {
+        task.abort();
+        let _ = task.await;
+    }
+    let cleanup = native.close().await;
+    result.and(cleanup)
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn prepared_small_commands_release_worst_case_archive_reservations() -> Result<()> {
+    // Retain the real 256-MiB backlog cap and 64-MiB image/16-MiB envelope
+    // limits. Eight small prepared commands fit; eight worst-case ones do not.
+    check_prepared_archive_reservations(RaftHostOptions::default(), 8, 8).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn prepared_commands_keep_actual_archive_byte_charge() -> Result<()> {
+    let mut options = RaftHostOptions::default();
+    // Enough room for one unknown callback and the initial protocol entries,
+    // but not another unknown callback plus the first committed counter image.
+    options.archive.max_unarchived_bytes = options.execution.max_image_bytes
+        + options.execution.envelope.max_payload_bytes as u64
+        + options.execution.envelope.max_header_bytes as u64
+        + 1024
+        + 16 * 1024;
+    check_prepared_archive_reservations(options, 2, 1).await
+}
+
+async fn check_prepared_archive_reservations(
+    host: RaftHostOptions,
+    count: u8,
+    admitted: usize,
+) -> Result<()> {
+    use std::time::Duration;
+    let store = Arc::new(faults::Store::default());
+    store.archive_unavailable.store(true, Ordering::Release);
+    let native = Native::start_many(store.clone(), host, Durability::Quorum, count)
+        .await
+        .context("start native groups for archive admission")?;
+    let mut tasks = Vec::new();
+    let result = async {
+        for id in 0..usize::from(count) {
+            let name = if id == 0 {
+                "Counter:one".into()
+            } else {
+                format!("Counter:extra-{id}")
+            };
+            let cell = native
+                .service
+                .cell(native.registration.namespace.namespace, &name)?;
+            let mut options = public_node::options(1)?;
+            options.durability = Durability::S3;
+            if id >= admitted {
+                options.timeout = Duration::from_secs(2);
+                let refused = cell
+                    .command(
+                        native.definition.increment.clone(),
+                        1_i64.to_be_bytes().to_vec(),
+                        options,
+                    )
+                    .await;
+                ensure!(
+                    matches!(refused, Err(CommandFailure::Overloaded)),
+                    "retained archive bytes were not charged: {refused:?}"
+                );
+                continue;
+            }
+            options.timeout = Duration::from_secs(30);
+            tasks.push(tokio::spawn(cell.command(
+                native.definition.increment.clone(),
+                1_i64.to_be_bytes().to_vec(),
+                options,
+            )));
+            tokio::time::timeout(Duration::from_secs(5), async {
+                loop {
+                    ensure!(
+                        !tasks.last().unwrap().is_finished(),
+                        "small command {id} refused before archive recovery"
+                    );
+                    let applied = match cell.status().await {
+                        Ok(status) => status.applied.index.get() > 2,
+                        Err(CommandFailure::Overloaded) => false,
+                        Err(error) => {
+                            return Err(anyhow::Error::new(error).context("observe applied command"))
+                        }
+                    };
+                    if native.calls.load(Ordering::SeqCst) == id + 1 && applied {
+                        return Ok::<_, anyhow::Error>(());
+                    }
+                    tokio::time::sleep(Duration::from_millis(5)).await;
+                }
+            })
+            .await
+            .context("wait for small command to apply")??;
+        }
+        ensure!(native.calls.load(Ordering::SeqCst) == admitted);
+        store.archive_unavailable.store(false, Ordering::Release);
+        for task in tasks.drain(..) {
+            let receipt = tokio::time::timeout(Duration::from_secs(10), task).await???;
+            ensure!(receipt.result == 1_i64.to_be_bytes());
+        }
+        Ok(())
+    }
+    .await;
+    store.archive_unavailable.store(false, Ordering::Release);
+    for task in tasks {
+        task.abort();
+        let _ = task.await;
+    }
+    let cleanup = native
+        .close()
+        .await
+        .context("close archive admission groups");
+    result.and(cleanup)
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

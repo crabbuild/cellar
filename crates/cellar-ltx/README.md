@@ -42,6 +42,16 @@ does not acknowledge writes. Standalone `Db::sync` retains its combined policy.
 A checkpoint captures its own sealing write before clearing maintenance state,
 so a later capture cannot re-arm idle maintenance from that control write.
 
+`Db::open_disposable_with_host` is an explicit mode for a private command
+workspace rebuilt from an independently authoritative image. It omits SQLite
+syncs on the managed connections and syncs of captured LTX files, while retaining
+WAL capture, bounded decoding, checkpointing and atomic file replacement. It
+refuses existing sidecars or capture metadata before opening SQLite. Every
+restart must discard that workspace; captured bytes need a separate durability
+proof before acknowledgement. Ordinary `Db` constructors retain durable capture.
+The Raft host uses this mode only for private command execution: its verified
+preview, committed immutable image and Raft log keep their persistence barriers.
+
 ## Verified immutable images
 
 `GenerationStore::prepare` copies an exact pinned base into a new private file,

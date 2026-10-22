@@ -17,6 +17,43 @@ use raft::Storage;
 use std::sync::Arc;
 use std::time::Duration;
 
+#[tokio::test]
+async fn queued_groups_share_the_first_persistence_batch() -> Result<()> {
+    let ids = [10, 11, 12, 13, 14, 15, 16, 17];
+    let mut cluster = Cluster::new(1, &ids).await?;
+    for &id in &ids {
+        cluster.elect(id, 0).await?;
+    }
+    cluster.settled(&ids).await?;
+    cluster.persisted.clear();
+    let runtime = cluster.hosts[0].runtime.clone();
+    // The current-thread executor polls every call into the mailbox before
+    // letting the production worker run. No disk stall creates this batch.
+    let accepted = futures_util::future::try_join_all(ids.iter().map(|&id| {
+        let runtime = runtime.clone();
+        async move { runtime.propose(&scope(id), vec![id], vec![id; 32]).await }
+    }))
+    .await?;
+    for (&id, proposal) in ids.iter().zip(accepted) {
+        cluster
+            .applied_to(id, 0, proposal.position.index.get())
+            .await?;
+    }
+    let mut first = std::collections::BTreeMap::new();
+    for &(_, group, sequence) in &cluster.persisted {
+        first.entry(group).or_insert(sequence);
+    }
+    ensure!(first.len() == ids.len(), "every group must persist");
+    let sequences = first.values().collect::<std::collections::BTreeSet<_>>();
+    let shared = sequences.len() == 1;
+    cluster.close().await?;
+    ensure!(
+        shared,
+        "queued groups split across initial syncs: {first:?}"
+    );
+    Ok(())
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn ready_persistence_order() -> Result<()> {
     let mut cluster = Cluster::new(3, &[10, 11, 12]).await?;

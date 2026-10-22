@@ -137,8 +137,10 @@ The bounded-queue profile sets runtime request/event capacity and each transport
 lane to 4,096 items, with 16-MiB peer and 32-MiB node control byte budgets.
 External request admission and the SDK's default image, archive-backlog and
 payload bounds remain active. The default 256-MiB archive backlog budget includes
-an approximately 80-MiB worst-case reservation per pending new command; it can
-refuse additional concurrent writes even when materialized counters are small.
+an approximately 80-MiB worst-case reservation before each new callback runs.
+Preparation reduces that charge to verified image and encoded-entry bytes.
+Commands wait within bounded request admission when only temporary reservations
+prevent execution; a full retained backlog still refuses fresh callbacks.
 Admission rejection rate is therefore part of the result.
 
 Setup seed writes are journaled and may retry the **same** command ID, input and

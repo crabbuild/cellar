@@ -51,6 +51,11 @@ async fn query_pin_shutdown_waits_for_physical_reader() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn command_waits_for_cell_sql_owner() -> Result<()> {
+    resources::command_waits_for_reader().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn metrics_group_cardinality() -> Result<()> {
     metrics::group_cardinality().await
 }

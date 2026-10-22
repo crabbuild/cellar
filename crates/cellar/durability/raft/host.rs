@@ -21,7 +21,7 @@ use cellar_logic::raft_command::CommandState;
 use cellar_ltx::generation::{GenerationLimits, ImageId, ReadServices};
 use futures_util::{future::BoxFuture, stream::FuturesUnordered, StreamExt};
 use rand::RngCore;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::path::PathBuf;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -32,6 +32,9 @@ use tokio::sync::{mpsc, Notify};
 #[cfg(all(test, not(cellar_internal_tests)))]
 #[path = "host_startup_tests.rs"]
 mod startup_tests;
+
+#[path = "host_admission.rs"]
+mod admission;
 
 #[path = "host_controller.rs"]
 mod controller;
@@ -872,6 +875,8 @@ async fn initialize(
             snapshot_limits,
             snapshot_source: None,
             maintenance_at: 0,
+            admission_at: 0,
+            admission_waiters: VecDeque::new(),
         };
         driver.run(requests, controls, closes).await;
         let result = driver.shutdown().await;
@@ -948,6 +953,7 @@ fn progress(
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Phase {
+    AwaitAdmission,
     Start,
     AwaitStart,
     Staging,
@@ -964,6 +970,9 @@ enum Phase {
 
 struct Pending {
     allow_new: bool,
+    // Unknown until the callback's physical preview is verified. Keep this
+    // bound after proposal submission takes `prepared`, through proof/reply.
+    archive_bytes: Option<u64>,
     system: bool,
     proof: Option<(LogPosition, [u8; 32])>,
     request: Request,
@@ -1124,6 +1133,8 @@ enum Job {
 
 struct Driver {
     maintenance_at: u64,
+    admission_at: u64,
+    admission_waiters: VecDeque<GroupScope>,
     drain: Option<drain::Drain>,
     effect_scheduler: Option<effect_scheduler::Scheduler>,
     controller: Option<controller::Controller>,
@@ -1570,10 +1581,16 @@ impl Driver {
             }
         }
         self.active.remove(scope);
+        self.admission_waiters.retain(|queued| queued != scope);
+        self.admission_at = 0;
     }
 
+    #[track_caller]
     fn fail(&mut self, scope: &GroupScope) {
         if let Some(cell) = self.cells.get_mut(scope) {
+            if !cell.failed {
+                tracing::error!(group = ?scope.group, location = %std::panic::Location::caller(), "Raft host closed group admission after a failure");
+            }
             cell.failed = true;
             cell.core.close();
             if let Some(pending) = cell.pending.as_mut() {
@@ -1723,10 +1740,19 @@ impl Driver {
             return;
         }
         let system = matches!(&request.kind, Kind::SystemCommand { .. });
-        let allow_new = matches!(
+        let admission = if matches!(
             &request.kind,
             Kind::Command { .. } | Kind::SystemCommand { .. }
-        ) && self.archive_admission();
+        ) {
+            match self.archive_admission() {
+                admission::Decision::Granted if !self.admission_waiters.is_empty() => {
+                    admission::Decision::Deferred
+                }
+                decision => decision,
+            }
+        } else {
+            admission::Decision::Refused
+        };
         if self.closing.load(Ordering::Acquire)
             || self
                 .cells
@@ -1928,12 +1954,13 @@ impl Driver {
                 input,
                 options,
             } => {
-                if cell.pending.is_some() || cell.sql_busy {
+                if cell.pending.is_some() {
                     reply(&mut request, Err(CommandFailure::Overloaded));
                     return;
                 }
                 cell.pending = Some(Pending {
-                    allow_new,
+                    allow_new: admission == admission::Decision::Granted,
+                    archive_bytes: None,
                     system,
                     proof: None,
                     request,
@@ -1944,11 +1971,19 @@ impl Driver {
                     prepared: None,
                     result: None,
                     duplicate: false,
-                    phase: Phase::Start,
+                    phase: if admission == admission::Decision::Deferred {
+                        Phase::AwaitAdmission
+                    } else {
+                        Phase::Start
+                    },
                     _bytes: None,
                 });
                 self.active.insert(scope.clone());
-                self.status(&scope, StatusPurpose::Start);
+                if admission == admission::Decision::Deferred {
+                    self.admission_waiters.push_back(scope);
+                } else if !cell.sql_busy {
+                    self.status(&scope, StatusPurpose::Start);
+                }
             }
         }
     }
@@ -2066,6 +2101,13 @@ impl Driver {
         }
         match purpose {
             StatusPurpose::Start => {
+                // A reader or archive capture may acquire SQL while status is
+                // in flight. Keep one bounded command and recheck authority
+                // after that work physically completes.
+                if cell.sql_busy {
+                    pending.phase = Phase::Start;
+                    return;
+                }
                 let Some(authority) = cell.core.authority().cloned() else {
                     if status.is_leader {
                         pending.phase = Phase::AwaitStart;
@@ -2439,6 +2481,7 @@ impl Driver {
                     purpose,
                     SqlPurpose::Discard | SqlPurpose::Prepare(_) | SqlPurpose::Publish(_)
                 ) {
+                    tracing::error!(group = ?scope.group, ?error, "Raft image operation failed");
                     self.fail(&scope);
                 } else {
                     self.refuse(&scope, failure(error));
@@ -2448,10 +2491,12 @@ impl Driver {
         };
         match (purpose, value) {
             (SqlPurpose::Stage, Value::Staged(outcome)) => {
+                self.admission_at = 0;
                 if let Some(pending) = cell.pending.as_mut() {
                     pending._bytes = _bytes;
                     match outcome {
                         StageOutcome::Prepared(prepared) => {
+                            pending.archive_bytes = Some(prepared.archive_bytes());
                             pending.prepared = Some(prepared);
                             pending.phase = Phase::BeforeSubmit;
                         }
@@ -2521,7 +2566,13 @@ impl Driver {
             }
             (SqlPurpose::Publish(ticket), Value::Published { view, receipt }) => {
                 cell.image = Some(view);
-                cell.apply_inflight = false;
+                // The runtime can deliver the next committed entry while this
+                // image is being published. Publication consumed the scheduler
+                // slot, so restore it for that queued entry after SQL joins.
+                cell.apply_inflight = cell.apply.is_some();
+                if cell.apply_inflight {
+                    self.applying.insert(scope.clone());
+                }
                 cell.apply_ticket = None;
                 if let Ok(Some(progress)) =
                     progress(&cell.group, cell.image.as_ref(), cell.archived)
@@ -2630,7 +2681,10 @@ impl Driver {
                     }
                 }
             }
-            RuntimeEventKind::Failed { replica, .. } => self.fail(&replica.scope),
+            RuntimeEventKind::Failed { replica, error } => {
+                tracing::error!(group = ?replica.scope.group, ?error, "Raft runtime failed");
+                self.fail(&replica.scope);
+            }
             RuntimeEventKind::Snapshot {
                 ticket,
                 snapshot,
@@ -2678,6 +2732,7 @@ impl Driver {
 
     fn pump(&mut self) {
         self.pump_directory();
+        self.pump_admission();
         // Inventory scans are node maintenance, not per-frame work. Repeating
         // them for every heartbeat makes N groups cost O(N²) per tick.
         let now = crate::asyncrt::mono_ms();
@@ -2766,53 +2821,6 @@ impl Driver {
         self.pump_node_drain();
     }
 
-    fn archive_admission(&self) -> bool {
-        let reservation = self
-            .options
-            .execution
-            .max_image_bytes
-            .saturating_add(self.options.execution.envelope.max_payload_bytes as u64)
-            .saturating_add(self.options.execution.envelope.max_header_bytes as u64)
-            .saturating_add(1024);
-        let mut bytes = reservation;
-        let mut entries = 1u64;
-        for cell in self.cells.values() {
-            let Ok(cache) = cell.group.read() else {
-                return false;
-            };
-            let after = cell.archived.get().max(1);
-            if cache.applied.position.index > cell.archived {
-                if let Some(image) = &cache.applied.image {
-                    bytes = bytes.saturating_add(image.length);
-                }
-            }
-            for (_, entry) in cache.entries.range(after.saturating_add(1)..) {
-                bytes =
-                    bytes.saturating_add(u64::from(protobuf::Message::compute_size(entry)) + 128);
-                if entry.get_entry_type() == ::raft::prelude::EntryType::EntryNormal
-                    && !entry.data.is_empty()
-                {
-                    entries = entries.saturating_add(1);
-                }
-            }
-            if cell
-                .pending
-                .as_ref()
-                .is_some_and(|pending| pending.allow_new)
-            {
-                bytes = bytes.saturating_add(reservation);
-                entries = entries.saturating_add(1);
-            }
-            if bytes > self.options.archive.max_unarchived_bytes
-                || entries > self.options.archive.max_unarchived_entries as u64
-            {
-                return false;
-            }
-        }
-        bytes <= self.options.archive.max_unarchived_bytes
-            && entries <= self.options.archive.max_unarchived_entries as u64
-    }
-
     fn pump_archive(&mut self) {
         let Some(owner) = self.archive_owner.as_mut() else {
             return;
@@ -2895,6 +2903,7 @@ impl Driver {
                 position,
                 result,
             } => {
+                self.admission_at = 0;
                 if let Some(owner) = self.archive_owner.as_mut() {
                     owner.busy = false;
                 }
@@ -2971,7 +2980,8 @@ impl Driver {
                 result,
             } => self.on_sql(scope, purpose, *result),
             Job::Installed { scope, result } => {
-                if result.is_err() {
+                if let Err(error) = result {
+                    tracing::error!(group = ?scope.group, ?error, "Raft durable apply completion failed");
                     self.fail(&scope);
                 }
             }

@@ -60,7 +60,10 @@ impl CommandDatabase {
             Some(vfs) => Connection::open_with_flags_and_vfs(path, OpenFlags::default(), vfs)?,
             None => Connection::open(path)?,
         };
-        connection.execute_batch("PRAGMA wal_autocheckpoint=0; PRAGMA temp_store=MEMORY; PRAGMA trusted_schema=OFF; PRAGMA cache_size=-64;")?;
+        // This connection only mutates the disposable Raft working image. The
+        // captured command and committed image have separate durability barriers;
+        // recovery always discards this SQLite database and its sidecars.
+        connection.execute_batch("PRAGMA synchronous=OFF; PRAGMA wal_autocheckpoint=0; PRAGMA temp_store=MEMORY; PRAGMA trusted_schema=OFF; PRAGMA cache_size=-64;")?;
         let page_size: u64 = connection.query_row("PRAGMA page_size", [], |r| r.get(0))?;
         ensure!(
             cellar_ltx::ltx::is_valid_page_size(u32::try_from(page_size)?),
