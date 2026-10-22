@@ -415,7 +415,19 @@ pub struct Counter {
 }
 
 pub fn counter(calls: Arc<std::sync::atomic::AtomicUsize>, gate: Arc<Gate>) -> Result<Counter> {
-    let class=RaftClass::new("Counter",1,[21;32])?
+    counter_with_blobs(calls, gate, false)
+}
+
+pub fn counter_with_blobs(
+    calls: Arc<std::sync::atomic::AtomicUsize>,
+    gate: Arc<Gate>,
+    blobs: bool,
+) -> Result<Counter> {
+    let mut class = RaftClass::new("Counter", 1, [21; 32])?;
+    if blobs {
+        class = class.immutable_blobs(RaftBlobLimits::default())?;
+    }
+    let class=class
         .command("Increment",[22;32],move |context,input|{
             calls.fetch_add(1,std::sync::atomic::Ordering::SeqCst);
             let delta=i64::from_be_bytes(input.try_into()?);

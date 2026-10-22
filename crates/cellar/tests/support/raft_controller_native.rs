@@ -1,6 +1,9 @@
 //! Six actual nodes. All sources use identical advertised physical endpoints;
 //! data cuts leave direct control/inspection connections live.
 #![allow(clippy::disallowed_methods)]
+#[path = "raft_catalog_fault.rs"]
+#[allow(dead_code)]
+mod archive_faults;
 use super::{cluster, public_node};
 use anyhow::{ensure, Context as _, Result};
 use cellar::sdk::{
@@ -20,9 +23,23 @@ struct Fixture {
     definitions: Vec<public_node::Counter>,
     registrations: Vec<RaftCellRegistration>,
     calls: Vec<Arc<AtomicUsize>>,
-    store: Arc<object_store::memory::InMemory>,
+    store: Arc<dyn object_store::ObjectStore>,
     _roots: Vec<tempfile::TempDir>,
     _entered: tokio::sync::mpsc::UnboundedReceiver<()>,
+}
+
+struct SqlHold {
+    store: Arc<archive_faults::Store>,
+    reads: Vec<Arc<super::log_fault::Gate>>,
+}
+
+struct ArchiveRelease(Arc<archive_faults::Store>);
+
+impl Drop for ArchiveRelease {
+    fn drop(&mut self) {
+        self.0.archive_hang.store(false, Ordering::Release);
+        self.0.archive_resume.notify_waiters();
+    }
 }
 
 impl Fixture {
@@ -37,13 +54,25 @@ impl Fixture {
         draining: Option<usize>,
         report_limits: RaftCloseReportLimits,
     ) -> Result<Self> {
+        Self::start_configured(groups, balance, draining, report_limits, None).await
+    }
+
+    async fn start_configured(
+        groups: usize,
+        balance: bool,
+        draining: Option<usize>,
+        report_limits: RaftCloseReportLimits,
+        hold: Option<SqlHold>,
+    ) -> Result<Self> {
         ensure!((1..=16).contains(&groups));
         let (gate, entered) = public_node::Gate::new();
         gate.release();
         let calls: Vec<_> = (0..6).map(|_| Arc::new(AtomicUsize::new(0))).collect();
         let definitions = calls
             .iter()
-            .map(|calls| public_node::counter(calls.clone(), gate.clone()))
+            .map(|calls| {
+                public_node::counter_with_blobs(calls.clone(), gate.clone(), hold.is_some())
+            })
             .collect::<Result<Vec<_>>>()?;
         let namespace = NamespaceConfig::new(
             ClusterId::new([1; 16])?,
@@ -78,7 +107,10 @@ impl Fixture {
                 })
             })
             .collect::<Result<Vec<_>>>()?;
-        let store = Arc::new(object_store::memory::InMemory::new());
+        let store: Arc<dyn object_store::ObjectStore> = match &hold {
+            Some(hold) => hold.store.clone(),
+            None => Arc::new(object_store::memory::InMemory::new()),
+        };
         let mut fixture = Self {
             nodes: vec![],
             services: vec![],
@@ -95,10 +127,18 @@ impl Fixture {
         for index in 0..6 {
             let root = tempfile::tempdir()?;
             let label = format!("automatic-native-{}", index + 1);
-            let node = public_node::node_named(
+            let filesystem: Arc<dyn cellar_ltx::FileSystem> = match &hold {
+                Some(hold) => Arc::new(super::log_fault::FaultFileSystem {
+                    gate: hold.reads[index].clone(),
+                }),
+                None => Arc::new(cellar_ltx::DirectFileSystem),
+            };
+            let node = public_node::node_declared_with_filesystem(
                 root.path(),
                 fixture.definitions[index].application.clone(),
                 &label,
+                vec![],
+                filesystem,
             )
             .await?;
             let bound = NodeRaftListeners {
@@ -129,6 +169,10 @@ impl Fixture {
                 close_report: report_limits,
                 ..Default::default()
             };
+            if hold.is_some() {
+                host.blocking_workers = 1;
+                host.archive.max_batch_groups = 1;
+            }
             let reservation = host.images.max_bytes;
             host.node_profile = Some(RaftNodeProfile {
                 pool: "native".into(),
@@ -493,6 +537,171 @@ pub async fn shutdown_handoff() -> Result<()> {
         Ok(())
     }
     .await;
+    fixture.close().await?;
+    result
+}
+
+/// Hold the published image read inside the real SQL archive-capture worker.
+/// No accepted application command or query can delay Node's application drain.
+#[allow(dead_code)] // Also compiled by the membership/controller fixture target.
+pub async fn shutdown_handoff_with_busy_sql(expire: bool) -> Result<()> {
+    let reads: Vec<_> = (0..6).map(|_| super::log_fault::Gate::new(None)).collect();
+    let mut release_read = None;
+    let store = Arc::new(archive_faults::Store::default());
+    store.archive_hang.store(true, Ordering::Release);
+    let mut release_archive = Some(ArchiveRelease(store.clone()));
+    let mut fixture = Fixture::start_configured(
+        1,
+        false,
+        None,
+        RaftCloseReportLimits::default(),
+        Some(SqlHold {
+            store: store.clone(),
+            reads: reads.clone(),
+        }),
+    )
+    .await?;
+    let result = async {
+        fixture.enable(false).await?;
+        let primary = fixture.leader(0).await?;
+        fixture.write(0, 1, 4).await?;
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while store.archive_attempts.load(Ordering::Acquire) < 3 {
+                tokio::time::sleep(Duration::from_millis(2)).await;
+            }
+        })
+        .await
+        .context("all voter archive producers entered object I/O")?;
+        let scope = &fixture.registrations[0].birth.scope;
+        let images = fixture.nodes[primary]
+            .as_ref()
+            .context("node")?
+            .info()
+            .data_dir
+            .join("raft-cells")
+            .join(hex::encode(scope.namespace.bytes()))
+            .join(hex::encode(scope.group.bytes()))
+            .join(hex::encode(scope.incarnation.bytes()))
+            .join("images");
+        let image_paths = || -> Result<std::collections::BTreeSet<std::path::PathBuf>> {
+            Ok(std::fs::read_dir(&images)?
+                .map(|entry| entry.map(|entry| entry.path()))
+                .collect::<std::io::Result<Vec<_>>>()?
+                .into_iter()
+                .filter(|path| path.extension().is_some_and(|ext| ext == "sqlite"))
+                .collect())
+        };
+        let before = image_paths()?;
+        let receipt = fixture.write(0, 2, 3).await?;
+        for index in 0..3 {
+            let read = fixture
+                .cell(index, 0)?
+                .query(
+                    fixture.definitions[index].get.clone(),
+                    vec![],
+                    QueryOptions {
+                        consistency: QueryConsistency::AtLeast(receipt.version_token.clone()),
+                        ..Default::default()
+                    },
+                )
+                .await?;
+            ensure!(read.result == 7i64.to_be_bytes());
+        }
+        let after = image_paths()?;
+        let added: Vec<_> = after.difference(&before).cloned().collect();
+        // Staging and committed apply each create an image. Neither belonged
+        // to the first archive cut, which must finish before this capture.
+        ensure!(added.len() == 2, "expected preview and committed images");
+        *reads[primary].image_read_paths.lock().unwrap() = added;
+        release_read = Some(reads[primary].arm(super::log_fault::HOLD_IMAGE_READ));
+        drop(release_archive.take());
+        tokio::time::timeout(Duration::from_secs(5), reads[primary].entered.notified())
+            .await
+            .context("archive capture did not enter physical image read")?;
+        let service = fixture.service(primary)?.clone();
+        let performance = service.performance();
+        let capture = performance
+            .operations
+            .iter()
+            .find(|op| op.name == "sql_archive_capture")
+            .context("archive capture observation")?;
+        ensure!(
+            capture.started > capture.succeeded + capture.failed + capture.abandoned,
+            "held read is not owned by the SQL archive capture"
+        );
+        let started = tokio::time::Instant::now();
+        let stop = tokio::spawn(
+            fixture.nodes[primary]
+                .take()
+                .context("node")?
+                .shutdown(ShutdownMode::Preserve),
+        );
+        let observed_close = if expire {
+            tokio::time::timeout(Duration::from_secs(3), async {
+                while !service
+                    .resource_usage()
+                    .sql
+                    .is_some_and(|sql| sql.queue_closed)
+                {
+                    tokio::time::sleep(Duration::from_millis(5)).await;
+                }
+            })
+            .await
+            .is_ok()
+        } else {
+            tokio::time::sleep(Duration::from_millis(600)).await;
+            service
+                .resource_usage()
+                .sql
+                .is_some_and(|sql| sql.queue_closed)
+        };
+        let elapsed = started.elapsed();
+        // Release the physical read and join shutdown before asserting, including
+        // the pre-fix early-close regression. Waiter cancellation is not a join.
+        drop(release_read.take());
+        let outcome = tokio::time::timeout(Duration::from_secs(15), stop).await???;
+        let NodeOutcome::Stopped(report) = outcome else {
+            anyhow::bail!("unexpected stop: {outcome:?}")
+        };
+        let raft = report.raft.context("missing Raft report")?;
+        let drain = raft.drain.context("missing handoff result")??;
+        ensure!(
+            drain.groups_examined == 1 && !drain.deadline_elapsed,
+            "unexpected drain: {drain:?}"
+        );
+        if expire {
+            ensure!(
+                observed_close && elapsed >= Duration::from_millis(900),
+                "SQL wait did not retain its bounded turn: {elapsed:?}, {drain:?}"
+            );
+            ensure!(
+                drain.handoff_attempts == 0
+                    && drain.handoffs_accepted == 0
+                    && drain.leadership_released == 0
+                    && drain.unavailable_groups == 1,
+                "stalled SQL invented a handoff: {drain:?}"
+            );
+        } else {
+            ensure!(!observed_close, "busy SQL caused early close: {drain:?}");
+            ensure!(
+                drain.handoff_attempts == 1
+                    && drain.handoffs_accepted == 1
+                    && drain.leadership_released == 1
+                    && drain.unavailable_groups == 0,
+                "handoff after physical SQL release failed: {drain:?}"
+            );
+        }
+        let closed = raft.result?;
+        ensure!(closed.unfinished.is_empty() && service.close().await? == closed);
+        fixture.services[primary].take();
+        let successor = fixture.leader(0).await?;
+        ensure!(successor != primary);
+        ensure!(fixture.write(0, 3, 3).await?.result == 10i64.to_be_bytes());
+        Ok(())
+    }
+    .await;
+    drop(release_archive);
+    drop(release_read);
     fixture.close().await?;
     result
 }

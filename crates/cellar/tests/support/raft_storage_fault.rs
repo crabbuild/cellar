@@ -22,6 +22,7 @@ pub const CRASH_AFTER_DELETE: u8 = 7;
 pub const FAIL_PARENT_SYNC: u8 = 8;
 pub const FAIL_SYNC_HOLD_LOCK_DROP: u8 = 9;
 pub const HOLD_LOCK_DROP: u8 = 10;
+pub const HOLD_IMAGE_READ: u8 = 11;
 
 pub struct Gate {
     pub mode: AtomicU8,
@@ -30,6 +31,7 @@ pub struct Gate {
     release: Condvar,
     signal: Option<std::path::PathBuf>,
     pub sync_path: Mutex<Option<std::path::PathBuf>>,
+    pub image_read_paths: Mutex<Vec<std::path::PathBuf>>,
 }
 
 impl Gate {
@@ -41,6 +43,7 @@ impl Gate {
             release: Condvar::new(),
             signal,
             sync_path: Mutex::new(None),
+            image_read_paths: Mutex::new(vec![]),
         })
     }
 
@@ -83,19 +86,27 @@ impl FaultFileSystem {
     fn wrap(&self, path: &Path, inner: HostFile) -> HostFile {
         HostFile::from_io(FaultFile {
             inner,
+            path: path.into(),
             gate: self.gate.clone(),
             log: path
                 .parent()
                 .and_then(Path::file_name)
                 .is_some_and(|name| name == "log"),
+            image: path
+                .parent()
+                .and_then(Path::file_name)
+                .is_some_and(|name| name == "images")
+                && path.extension().is_some_and(|name| name == "sqlite"),
         })
     }
 }
 
 struct FaultFile {
     inner: HostFile,
+    path: std::path::PathBuf,
     gate: Arc<Gate>,
     log: bool,
+    image: bool,
 }
 
 struct TrackedLock {
@@ -138,6 +149,22 @@ impl HostFileIo for FaultFile {
     }
 
     fn read_exact_at(&mut self, offset: u64, len: usize) -> io::Result<Vec<u8>> {
+        if self.image
+            && self.gate.mode.load(Ordering::Acquire) == HOLD_IMAGE_READ
+            && self
+                .gate
+                .image_read_paths
+                .lock()
+                .unwrap()
+                .contains(&self.path)
+            && self
+                .gate
+                .mode
+                .compare_exchange(HOLD_IMAGE_READ, OFF, Ordering::AcqRel, Ordering::Acquire)
+                .is_ok()
+        {
+            self.gate.pause()?;
+        }
         self.inner.read_exact_at(offset, len)
     }
 

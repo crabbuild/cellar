@@ -871,6 +871,8 @@ Stop conditions: Stop if cancellation drops owned blocking work without a truthf
 | `rollback_mode_guard` | Feature disable never opens Raft data with Fleet ownership |
 | `metrics_group_cardinality` | Fleet metrics remain bounded while sampled group inspection is available |
 | `node_shutdown_hands_off_to_published_voter` | An authenticated caught-up published voter receives leadership before joined Node shutdown |
+| `node_shutdown_handoff_waits_for_physical_sql` | A held archive capture keeps its turn until the worker finishes, then transfers to a verified published voter |
+| `node_shutdown_handoff_sql_wait_is_bounded` | A stalled archive capture exhausts the original one-second turn without inventing a transfer; closure still joins its physical worker |
 | `node_shutdown_reports_submitted_ambiguity` | A committed command held below its requested S3 proof remains ambiguous in a bounded Node stop report |
 | `node_shutdown_report_bounds_preserve_complete_lag_count` | Omitted bounded group details do not hide archive lag in complete aggregate counts |
 | `node_shutdown_reports_parked_archive_unknown` | A resumed subset reports every durable engine history and explicitly unknown archive coverage for parked histories without executing their callbacks |

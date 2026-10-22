@@ -256,6 +256,16 @@ async fn node_shutdown_hands_off_to_published_voter() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn node_shutdown_handoff_waits_for_physical_sql() -> Result<()> {
+    automatic::shutdown_handoff_with_busy_sql(false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn node_shutdown_handoff_sql_wait_is_bounded() -> Result<()> {
+    automatic::shutdown_handoff_with_busy_sql(true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
 async fn node_shutdown_report_bounds_preserve_complete_lag_count() -> Result<()> {
     automatic::bounded_shutdown_report().await
 }

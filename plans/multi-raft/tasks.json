@@ -2229,6 +2229,24 @@
             "I13",
             "I14"
           ]
+        },
+        {
+          "name": "node_shutdown_handoff_waits_for_physical_sql",
+          "oracle": "A held archive-capture worker retains the handoff turn; release permits exact published-voter handoff and joined closure",
+          "invariants": [
+            "I07",
+            "I11",
+            "I14"
+          ]
+        },
+        {
+          "name": "node_shutdown_handoff_sql_wait_is_bounded",
+          "oracle": "A stalled archive capture consumes the original one-second group turn without renewing the Node deadline or inventing a transfer",
+          "invariants": [
+            "I07",
+            "I11",
+            "I14"
+          ]
         }
       ],
       "verification": [
