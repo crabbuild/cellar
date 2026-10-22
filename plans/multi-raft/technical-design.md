@@ -531,6 +531,15 @@ bounded event loops, shared disk/apply pools and pooled authenticated transport.
 Control messages have reserved capacity so snapshot transfers and user queries
 cannot starve votes and heartbeats. Bound bytes, not just message counts.
 
+Groups awaiting a queued or in-flight log write leave the consensus runnable
+queue. Retain deferred peer requests, their reservations, coalesced ticks and
+failure hints while parked. The independent persistence FIFO continues to choose
+batches; a matching sync receipt wakes exactly its groups. Admission overload
+keeps the original FIFO order and retry deadline, and permanent per-group
+rejection wakes its failure report. Snapshot installation/abort work is distinct
+from waiting for an authorized snapshot's log write. Parking cannot advance
+Ready, publish an image or release a durable response without its existing proof.
+
 The shared control sender drains at most eight already-admitted FIFO frames per
 peer connection without waiting to fill the window. Ordered writes and ordered
 replies progress concurrently, including when either socket buffer fills. Every

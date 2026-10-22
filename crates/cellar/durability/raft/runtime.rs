@@ -23,6 +23,10 @@ use tokio::sync::{mpsc, oneshot, Notify};
 #[path = "runtime_scheduler_tests.rs"]
 mod scheduler_tests;
 
+#[cfg(test)]
+#[path = "runtime_persistence_tests.rs"]
+mod persistence_tests;
+
 pub(crate) enum GroupAction {
     Campaign,
     ReplicationStatus,
@@ -680,6 +684,18 @@ struct Group {
     report_failure: bool,
 }
 
+impl Group {
+    fn wake(&mut self, scope: &GroupScope, order: &mut VecDeque<GroupScope>) {
+        if !self.scheduled
+            && (self.report_failure
+                || (self.failed.is_none() && !self.replica.waiting_for_persistence()))
+        {
+            self.scheduled = true;
+            order.push_back(scope.clone());
+        }
+    }
+}
+
 #[derive(Default)]
 struct PeerHint {
     unreachable: bool,
@@ -822,10 +838,7 @@ impl Worker {
         };
         if let Some(scope) = scope {
             if let Some(group) = self.groups.get_mut(scope) {
-                if !group.scheduled {
-                    group.scheduled = true;
-                    self.order.push_back(scope.clone());
-                }
+                group.wake(scope, &mut self.order);
             }
         }
         if let Command::Group { scope, .. } = &request.command {
@@ -975,10 +988,7 @@ impl Worker {
     fn tick(&mut self) {
         for (scope, group) in &mut self.groups {
             group.tick = true;
-            if !group.scheduled && group.failed.is_none() {
-                group.scheduled = true;
-                self.order.push_back(scope.clone());
-            }
+            group.wake(scope, &mut self.order);
         }
     }
 
@@ -1079,6 +1089,7 @@ impl Worker {
             }
             group.scheduled = group.report_failure
                 || (group.failed.is_none()
+                    && !group.replica.waiting_for_persistence()
                     && (group.tick
                         || !group.hints.is_empty()
                         || !group.deferred.is_empty()
@@ -1110,6 +1121,7 @@ impl Worker {
                     let size = write.estimated_bytes()?;
                     if size + 1024 > self.log.limits().max_batch_bytes {
                         Self::fail(group, RuntimeError::Overloaded);
+                        group.wake(&scope, &mut self.order);
                     } else if bytes + size <= self.log.limits().max_batch_bytes {
                         let (ticket, write) =
                             group.replica.write.take().ok_or(RuntimeError::NotReady)?;
@@ -1161,11 +1173,12 @@ impl Worker {
                     return Err(RuntimeError::StaleCompletion);
                 }
                 for job in jobs {
-                    self.groups
+                    let group = self
+                        .groups
                         .get_mut(&job.scope)
-                        .ok_or(RuntimeError::NotFound)?
-                        .replica
-                        .synced(&job.ticket, receipt.sequence)?;
+                        .ok_or(RuntimeError::NotFound)?;
+                    group.replica.synced(&job.ticket, receipt.sequence)?;
+                    group.wake(&job.scope, &mut self.order);
                 }
             }
             Err(LogError::Overloaded) => {
@@ -1188,6 +1201,7 @@ impl Worker {
                 for job in jobs {
                     if let Some(group) = self.groups.get_mut(&job.scope) {
                         Self::fail(group, error.clone().into());
+                        group.wake(&job.scope, &mut self.order);
                     }
                 }
             }
