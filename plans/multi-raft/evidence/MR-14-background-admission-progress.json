@@ -1,0 +1,358 @@
+{
+  "task_id": "MR-14",
+  "source_revision": "1a8f9e15901f98ea6c534827133d9b71fcb0d642",
+  "completion": "partial",
+  "scope": "Resolve background-SQL command admission interference while preserving the single pending producer, global admission budgets, original deadlines, authority checks and durability proofs. No throughput or capacity qualification.",
+  "environment": {
+    "system": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+    "validation": "Native embedded fixtures with actual SQLite/LTX, Raft-Engine, HTTP/TLS and InMemory object stores. No Colima run or cloud qualification was added for this fix."
+  },
+  "finding": {
+    "previous_record": "evidence/MR-14-io-metrics-progress.json",
+    "test": "learner_before_promotion",
+    "status": "reproduced and fixed",
+    "cause": "After learner abort, background SQL could occupy the cell worker while its business-command slot was empty. Admission treated physical SQL occupancy as a competing producer and returned Overloaded.",
+    "reproduction": "The repeated original case failed on iteration 10 with command-after-abort context. A deterministic two-cell fixture queues an archive capture behind the other cell's held physical SQL callback and reproduces the same refusal.",
+    "fix": "Allow one already-budgeted pending command to wait behind physical SQL work. Defer its initial authority/status check until SQL is idle. Existing pump logic checks cancellation/deadline before staging; a second producer still receives Overloaded."
+  },
+  "regressions": [
+    "A queued command waits until the physical worker is released, then commits exactly once and serves the expected AtLeast read.",
+    "A second command for the same group is refused while the first owns the pending slot, without another callback.",
+    "An unsubmitted waiter whose deadline expires does not execute after physical worker release; a same-identity retry executes once.",
+    "The original learner/abort loop passed 60 repetitions in one process; final committed membership validation also retains its unchanged promotion/abort/state assertions."
+  ],
+  "rust_passed": 671,
+  "rust_failed": 0,
+  "tests": [
+    {
+      "target": "unittests lib.rs",
+      "passed": 465,
+      "failed": 0,
+      "ignored": 0,
+      "binary_sha256": "8e1b13f4066b3e820b9f530fc4664c98c67256564cad5f5d2199b36dbd730222"
+    },
+    {
+      "target": "unittests ../../tools/perf/raft_node.rs",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "binary_sha256": "8a8a5bfffb48c2f49c569466ed3bdf49b86ab0980eb1410441c925de74f5b73f"
+    },
+    {
+      "target": "tests/native_raft_archive.rs",
+      "passed": 30,
+      "failed": 0,
+      "ignored": 0,
+      "binary_sha256": "3fba1924181bcce3f627088b403edf93dbdf16a3ad6e4dedcde689a8a488249f"
+    },
+    {
+      "target": "tests/native_raft_effects.rs",
+      "passed": 16,
+      "failed": 0,
+      "ignored": 0,
+      "binary_sha256": "be08a8a7c3deaf93235a8a8960500fafd1acf61747765bbcd2077631485c1929"
+    },
+    {
+      "target": "tests/native_raft_execution.rs",
+      "passed": 17,
+      "failed": 0,
+      "ignored": 2,
+      "binary_sha256": "64561b1b8169edc9a51133943d3aa7e925fe969aad40657eff65605789233e95"
+    },
+    {
+      "target": "tests/native_raft_host.rs",
+      "passed": 27,
+      "failed": 0,
+      "ignored": 0,
+      "binary_sha256": "0c6aa90cf1985d82844e0347d05f36370820b484e67ad7106f6040c1c9ab0e3c"
+    },
+    {
+      "target": "tests/native_raft_membership.rs",
+      "passed": 27,
+      "failed": 0,
+      "ignored": 1,
+      "binary_sha256": "2ab67781269f94db86fa009d8b392b6eb14a57e6e56865de1ba74428b4fedef8"
+    },
+    {
+      "target": "tests/native_raft_multigroup.rs",
+      "passed": 8,
+      "failed": 0,
+      "ignored": 1,
+      "binary_sha256": "42621db22afcfade3a971f3a6a0096c99dd1c5081bf77f78ae96f0606232b2be"
+    },
+    {
+      "target": "tests/native_raft_operations.rs",
+      "passed": 18,
+      "failed": 0,
+      "ignored": 0,
+      "binary_sha256": "f31eea20e0b3fc4b070f6d538aaffdaec65cfb1fc6a08ff1c0e7a44425b95835"
+    },
+    {
+      "target": "tests/native_raft_reads.rs",
+      "passed": 20,
+      "failed": 0,
+      "ignored": 0,
+      "binary_sha256": "35f2c14a9879d998d98e814c7f4fe71b2ca44bd504c54ef4625fe8a04ce52334"
+    },
+    {
+      "target": "tests/native_raft_snapshot.rs",
+      "passed": 42,
+      "failed": 0,
+      "ignored": 2,
+      "binary_sha256": "1eae4fdefb71a0edd30f8959a054e7f9564ac69537f3a67434296addce22c6ca"
+    }
+  ],
+  "python": {
+    "passed": 128,
+    "skipped": 1,
+    "skip_scope": "Existing opt-in Docker cache check."
+  },
+  "plan_tests_passed": 17,
+  "checks": [
+    {
+      "name": "matrix",
+      "source_revision": "1a8f9e15901f98ea6c534827133d9b71fcb0d642",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--all-features",
+        "--locked",
+        "--no-fail-fast",
+        "--lib",
+        "--bin",
+        "cellar-perf-raft",
+        "--test",
+        "native_raft_reads",
+        "--test",
+        "native_raft_operations",
+        "--test",
+        "native_raft_host",
+        "--test",
+        "native_raft_execution",
+        "--test",
+        "native_raft_archive",
+        "--test",
+        "native_raft_multigroup",
+        "--test",
+        "native_raft_membership",
+        "--test",
+        "native_raft_effects",
+        "--test",
+        "native_raft_snapshot",
+        "--",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "exit_code": 0,
+      "duration_seconds": 571.639,
+      "sha256": "49b5854b1e4717e204af8d2c146bab50b818cc91dfd2b18c295878b0f55accc8",
+      "log_member": "matrix",
+      "output": "evidence/MR-14-background-admission-validation.json.gz"
+    },
+    {
+      "name": "clippy",
+      "source_revision": "1a8f9e15901f98ea6c534827133d9b71fcb0d642",
+      "command": [
+        "cargo",
+        "clippy",
+        "-p",
+        "cellar",
+        "--all-targets",
+        "--all-features",
+        "--locked",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "duration_seconds": 52.749,
+      "sha256": "4356605bc6ad0936959b5c0641d477103f59fbb76e51748b71e3832c202f5328",
+      "log_member": "clippy",
+      "output": "evidence/MR-14-background-admission-validation.json.gz"
+    },
+    {
+      "name": "native-only",
+      "source_revision": "1a8f9e15901f98ea6c534827133d9b71fcb0d642",
+      "command": [
+        "cargo",
+        "check",
+        "-p",
+        "cellar",
+        "--no-default-features",
+        "--lib",
+        "--locked"
+      ],
+      "exit_code": 0,
+      "duration_seconds": 31.506,
+      "sha256": "5e739dd6e2d41a138c406c162247cda023711c4b6f66d75803a413c44bf7d988",
+      "log_member": "native-only",
+      "output": "evidence/MR-14-background-admission-validation.json.gz"
+    },
+    {
+      "name": "format",
+      "source_revision": "1a8f9e15901f98ea6c534827133d9b71fcb0d642",
+      "command": [
+        "cargo",
+        "format",
+        "--check"
+      ],
+      "exit_code": 0,
+      "duration_seconds": 42.072,
+      "sha256": "262e9f114908baa150ecdee443fa2a8ab02c38d93bdc349276e64ff17269b996",
+      "log_member": "format",
+      "output": "evidence/MR-14-background-admission-validation.json.gz"
+    },
+    {
+      "name": "layout",
+      "source_revision": "1a8f9e15901f98ea6c534827133d9b71fcb0d642",
+      "command": [
+        "cargo",
+        "check-layout"
+      ],
+      "exit_code": 0,
+      "duration_seconds": 0.12,
+      "sha256": "56ad95513f8324f30719b8b597af12e1a442f554ff312cf0f509997ad2ede754",
+      "log_member": "layout",
+      "output": "evidence/MR-14-background-admission-validation.json.gz"
+    },
+    {
+      "name": "dependencies",
+      "source_revision": "1a8f9e15901f98ea6c534827133d9b71fcb0d642",
+      "command": [
+        "python3",
+        "tools/check_native_dependencies.py"
+      ],
+      "exit_code": 0,
+      "duration_seconds": 0.245,
+      "sha256": "faf9bdb8df5819a63d590ede5d4a5f43eb4e8b00d8a6f44ccfb36bd8c4c5c238",
+      "log_member": "dependencies",
+      "output": "evidence/MR-14-background-admission-validation.json.gz"
+    },
+    {
+      "name": "docs",
+      "source_revision": "1a8f9e15901f98ea6c534827133d9b71fcb0d642",
+      "command": [
+        "python3",
+        "tools/docs/check.py"
+      ],
+      "exit_code": 0,
+      "duration_seconds": 0.082,
+      "sha256": "701e55367b1b8c08dcd388c3084250c7209af81cb161e4ba73339783b537eeb3",
+      "log_member": "docs",
+      "output": "evidence/MR-14-background-admission-validation.json.gz"
+    },
+    {
+      "name": "python",
+      "source_revision": "1a8f9e15901f98ea6c534827133d9b71fcb0d642",
+      "command": [
+        "python3",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "tools/perf"
+      ],
+      "exit_code": 0,
+      "duration_seconds": 2.181,
+      "sha256": "2ec77dcf09513b90092d0d3140436e25bd8438728f59042f8b6ce39d7384a9ec",
+      "log_member": "python",
+      "output": "evidence/MR-14-background-admission-validation.json.gz"
+    },
+    {
+      "name": "plan-tests",
+      "source_revision": "1a8f9e15901f98ea6c534827133d9b71fcb0d642",
+      "command": [
+        "python3",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "plans/multi-raft",
+        "-p",
+        "test_plan.py"
+      ],
+      "exit_code": 0,
+      "duration_seconds": 0.142,
+      "sha256": "1ba94a19bc6023e418862fc0a94b7666fb13cc67163a30e300a14d33d76da01c",
+      "log_member": "plan-tests",
+      "output": "evidence/MR-14-background-admission-validation.json.gz"
+    },
+    {
+      "name": "plan-validate",
+      "source_revision": "1a8f9e15901f98ea6c534827133d9b71fcb0d642",
+      "command": [
+        "python3",
+        "plans/multi-raft/plan.py",
+        "validate"
+      ],
+      "exit_code": 0,
+      "duration_seconds": 0.113,
+      "sha256": "183e26a6815b032ae1fc2b9f50a9c10f96e1de968f16719a786e4b86359afd0d",
+      "log_member": "plan-validate",
+      "output": "evidence/MR-14-background-admission-validation.json.gz"
+    },
+    {
+      "name": "preflight",
+      "source_revision": "1a8f9e15901f98ea6c534827133d9b71fcb0d642",
+      "command": [
+        "python3",
+        "plans/multi-raft/plan.py",
+        "preflight"
+      ],
+      "exit_code": 0,
+      "sha256": "b43ecd42216e76357fa6b3335be82a70aa8c9127946bf37b9887e5b7478cfc2c",
+      "log_member": "preflight",
+      "output": "evidence/MR-14-background-admission-validation.json.gz"
+    }
+  ],
+  "diagnostics": [
+    {
+      "name": "repeated-original-red",
+      "source_revision": null,
+      "description": "The original learner/abort scenario failed on repetition 10 within one process. Targeted trace and error context identified command-after-abort admission with sql_busy=true and no pending command/configuration/apply/publication.",
+      "log_member": "repeated-original-red",
+      "sha256": "3d2b641530b3a2e7627fa4cb4e10556aa37355a1f1cfc126ec40266c29cad064"
+    },
+    {
+      "name": "regression-compile",
+      "source_revision": null,
+      "description": "The regression initially called resources instead of the actual resource_usage SDK method. Corrected before its behavioral red run.",
+      "log_member": "regression-compile",
+      "sha256": "b97a573766ae2731612dde6d49e84149b10020f066d74a989e096f206e551e0f"
+    },
+    {
+      "name": "regression-red",
+      "source_revision": null,
+      "description": "The deterministic native regression held a physical SQL worker and queued the target archive capture. The free business-command slot was rejected with Overloaded.",
+      "log_member": "regression-red",
+      "sha256": "c005b65ef876c93179782fe98e98587f2b392ddad4d73f76cd279b65e8072b9c"
+    },
+    {
+      "name": "regressions-green",
+      "source_revision": null,
+      "description": "Both held-worker tests passed with the queue fix: one waiter admitted, second producer refused, cancellation prevents late execution, and same-identity retry executes once.",
+      "log_member": "regressions-green",
+      "sha256": "55a54015feb4c3c7745dcca2759713d9fe720d31e4581f1588e513e0c6b6f851"
+    },
+    {
+      "name": "repeated-original-green",
+      "source_revision": null,
+      "description": "The original learner/abort scenario passed all 60 repetitions in one process with fixed production behavior. Temporary loop entry point and diagnostic probes were removed before final committed validation.",
+      "log_member": "repeated-original-green",
+      "sha256": "d61ab8e3bb55fe4d401a4d6ca11fcb2959dbae849140207d8e6503d1c9d0f55e"
+    }
+  ],
+  "raw_output": {
+    "path": "evidence/MR-14-background-admission-validation.json.gz",
+    "bytes": 32237,
+    "sha256": "92b5e643cc3fbc279726d5f660e391b321395cb620f0b2be1bbdb1f1a7a97466"
+  },
+  "remaining": [
+    "The independently recorded intermittent shutdown-handoff failure is not explained or fixed by this change; passing its ordinary test does not establish a repair.",
+    "Previously recorded transfer/read/effect/Fleet-event findings and MR-13 management/receipt/restore gates retain their separate status.",
+    "MR-14 still needs matched Fleet/bucket executions, instrumentation-overhead and controlled steady-state/density evidence, and Q1 qualification. Earlier Colima measurements stay pinned to their original binaries.",
+    "Q1 remains six processes and 10,000 three-voter cells, exceeding the agreed five-node local scope and current 4,096-group host bound at 5,000 average replicas per process."
+  ]
+}

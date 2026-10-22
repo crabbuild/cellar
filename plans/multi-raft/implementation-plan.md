@@ -950,8 +950,20 @@ establish physical device usage, network delivery or completed repair.
 The [I/O measurement evidence](evidence/MR-14-io-metrics-progress.json) records
 683 passing Rust cases and one failing membership case (`learner_before_promotion`
 returned `Overloaded`). An earlier shutdown-handoff failure is also retained.
-Isolated repetitions passed without a fix, so both findings remain unresolved.
+At that revision, isolated repetitions passed without explaining either failure.
 Clippy, native-only compilation, repository checks and 128 Python cases pass.
+
+The [background-admission evidence](evidence/MR-14-background-admission-progress.json)
+subsequently reproduces the learner/abort failure: background SQL occupied the
+physical worker while the business-command slot was free. One already-budgeted
+command now waits in that slot until SQL completes, retaining its original
+deadline and authority checks. A second producer is still refused. Deterministic
+native tests verify waiting, cancellation before execution and an exactly-once
+retry; the original scenario passes 60 repetitions in one process. Final source
+validation passes 671 Rust cases, Clippy, native-only compilation, repository
+checks, 128 Python cases and 17 plan-tool cases. This resolves the learner
+admission finding; the independent shutdown-handoff finding remains open.
+No throughput or capacity claim follows from this change.
 
 [Fresh Colima/RustFS evidence](evidence/MR-14-io-local-progress.json) uses the
 instrumented `/bundles-1` binary on three 1-vCPU/3-GiB nodes and 12 cells. All

@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "baseline_revision": "142fb23171452e09d266e9628ced40d48ec7cc80",
+  "baseline_revision": "1a8f9e15901f98ea6c534827133d9b71fcb0d642",
   "status_values": [
     "TODO",
     "IN_PROGRESS",
@@ -2433,7 +2433,8 @@
         "evidence/MR-14-archive-bundle-progress.json",
         "evidence/MR-14-performance-metrics-progress.json",
         "evidence/MR-14-io-metrics-progress.json",
-        "evidence/MR-14-io-local-progress.json"
+        "evidence/MR-14-io-local-progress.json",
+        "evidence/MR-14-background-admission-progress.json"
       ]
     },
     {
