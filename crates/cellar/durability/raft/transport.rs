@@ -4,6 +4,7 @@
 use super::budget::{Budget, Permit};
 use super::completion::RuntimeError;
 use super::mailbox;
+use super::performance::{Operation, Timer};
 use super::runtime::RaftRuntime;
 use super::transport_frame::{self as frame, Disposition, FrameHead, RequestHeader, Route};
 use super::transport_options::{NamespaceQueryOrigin, RaftPeerNode, RaftTls, TransportOptions};
@@ -231,6 +232,7 @@ struct SendRequest {
     body: Vec<u8>,
     snapshot: bool,
     result: Option<oneshot::Sender<Result<(), TransportError>>>,
+    queued: Option<Timer>,
     _node: Permit,
     _peer: Permit,
 }
@@ -721,15 +723,23 @@ impl RaftTransport {
             body,
             snapshot: message.get_msg_type() == MessageType::MsgSnapshot,
             result: Some(result),
+            queued: Some(state.performance.timer(match lane {
+                Lane::Control => Operation::ControlQueue,
+                Lane::Data => Operation::DataQueue,
+            })),
             _node: node_permit,
             _peer: peer_permit,
         };
-        pool.tx[lane_index(lane)]
-            .try_send(request)
-            .map_err(|e| match e {
+        pool.tx[lane_index(lane)].try_send(request).map_err(|e| {
+            let error = match &e {
                 mpsc::error::TrySendError::Full(_) => TransportError::Overloaded,
                 mpsc::error::TrySendError::Closed(_) => TransportError::Closed,
-            })?;
+            };
+            if let Some(timer) = e.into_inner().queued.take() {
+                timer.finish(false);
+            }
+            error
+        })?;
         Ok(Delivery { result: wait })
     }
 
@@ -1265,6 +1275,10 @@ impl State {
             // Routing/configuration may have changed while reading the body.
             self.authorize(&header)?;
             let scope = source.scope.clone();
+            let admission = self.performance.timer(match lane {
+                Lane::Control => Operation::ControlAdmit,
+                Lane::Data => Operation::DataAdmit,
+            });
             let result = self
                 .bounded(Some(&pool), async {
                     self.runtime
@@ -1273,6 +1287,7 @@ impl State {
                         .map_err(TransportError::from)
                 })
                 .await;
+            admission.finish(result.is_ok());
             let accepted = result.is_ok();
             let status = result
                 .as_ref()

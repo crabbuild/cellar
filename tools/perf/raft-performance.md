@@ -611,6 +611,15 @@ window may include work that started before its first sample; both boundary
 in-flight counts remain in the report. No per-cell or per-peer metric labels are
 allocated. There is no claim yet that this instrumentation has negligible cost.
 
+Control/data timing now separates sender queue residence, sender exchange windows
+and receiver runtime admission. Use their phase deltas alongside queue depth and
+CPU pressure to distinguish queue buildup from slow exchange or admission. An
+exchange includes connection/TLS setup when needed and can contain eight control
+frames; it is not a per-frame latency or a durable acknowledgement. The analyzer
+requires all six new operations. Older evidence uses its pinned analyzer;
+missing observations are never filled with zeros. These timings provide a
+diagnostic boundary, not proof of the existing density slowdown's cause or fix.
+
 ## Batching and Q1
 
 The runtime retains one persistence-queue slot per group with an outstanding

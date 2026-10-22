@@ -236,7 +236,7 @@ async fn cluster(groups: usize) -> Result<BTreeSet<String>> {
         ensure!(status == reqwest::StatusCode::OK);
         let observed = service.performance();
         ensure!(observed.available && !observed.saturated && observed.source.len() == 32);
-        ensure!(observed.operations.len() == 17 && observed.counters.len() == 20);
+        ensure!(observed.operations.len() == 23 && observed.counters.len() == 20);
         let mut perf_ids = BTreeSet::new();
         for line in text.lines().filter(|line| !line.starts_with('#') && !line.is_empty()) {
             let mut fields = line.split_whitespace();
@@ -245,7 +245,7 @@ async fn cluster(groups: usize) -> Result<BTreeSet<String>> {
             ensure!(value.is_finite() && value >= 0.0 && fields.next().is_none());
             ensure!(perf_ids.insert(name.to_owned()));
         }
-        ensure!(perf_ids.len() == 413);
+        ensure!(perf_ids.len() == 551);
         let expected = observed.prometheus().lines().filter(|line| !line.starts_with('#') && !line.is_empty()).map(|line| line.split_whitespace().next().unwrap().to_owned()).collect::<BTreeSet<_>>();
         ensure!(perf_ids == expected && perf_ids.is_disjoint(&identities));
         identities.extend(perf_ids);

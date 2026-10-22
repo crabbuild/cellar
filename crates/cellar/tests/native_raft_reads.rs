@@ -520,6 +520,23 @@ async fn saturated_query_peer_refuses_and_expires_queued_work() -> Result<()> {
             assert!(bytes > 0, "real TLS traffic missing from {name}");
         }
     }
+    for lane in ["control", "data"] {
+        for phase in ["queue", "exchange", "admit"] {
+            let name = format!("transport_{lane}_{phase}");
+            let successes: u64 = performance
+                .iter()
+                .map(|sample| {
+                    sample
+                        .operations
+                        .iter()
+                        .find(|operation| operation.name == name)
+                        .unwrap()
+                        .succeeded
+                })
+                .sum();
+            assert!(successes > 0, "real TLS traffic missing from {name}");
+        }
+    }
     fixture.close().await
 }
 

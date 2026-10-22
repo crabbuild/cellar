@@ -46,9 +46,15 @@ pub(crate) enum Operation {
     ObjectPutOverwrite,
     ControllerProbe,
     ControllerAction,
+    ControlQueue,
+    DataQueue,
+    ControlExchange,
+    DataExchange,
+    ControlAdmit,
+    DataAdmit,
 }
 
-const OPERATIONS: [Operation; 17] = [
+const OPERATIONS: [Operation; 23] = [
     Operation::EngineQueue,
     Operation::EngineFileSync,
     Operation::EngineDirectorySync,
@@ -66,6 +72,12 @@ const OPERATIONS: [Operation; 17] = [
     Operation::ObjectPutOverwrite,
     Operation::ControllerProbe,
     Operation::ControllerAction,
+    Operation::ControlQueue,
+    Operation::DataQueue,
+    Operation::ControlExchange,
+    Operation::DataExchange,
+    Operation::ControlAdmit,
+    Operation::DataAdmit,
 ];
 
 impl Operation {
@@ -88,6 +100,12 @@ impl Operation {
             Self::ObjectPutOverwrite => "object_put_overwrite",
             Self::ControllerProbe => "controller_probe",
             Self::ControllerAction => "controller_action",
+            Self::ControlQueue => "transport_control_queue",
+            Self::DataQueue => "transport_data_queue",
+            Self::ControlExchange => "transport_control_exchange",
+            Self::DataExchange => "transport_data_exchange",
+            Self::ControlAdmit => "transport_control_admit",
+            Self::DataAdmit => "transport_data_admit",
         }
     }
 }

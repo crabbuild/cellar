@@ -9,7 +9,10 @@ import re
 OPERATIONS = ('engine_queue', 'engine_file_sync', 'engine_directory_sync', 'engine_persist',
               'sql_queue', 'sql_stage', 'sql_prepare', 'sql_publish', 'sql_query',
               'sql_archive_capture', 'sql_other', 'object_get', 'object_put_create', 'object_put_update',
-              'object_put_overwrite', 'controller_probe', 'controller_action')
+              'object_put_overwrite', 'controller_probe', 'controller_action',
+              'transport_control_queue', 'transport_data_queue',
+              'transport_control_exchange', 'transport_data_exchange',
+              'transport_control_admit', 'transport_data_admit')
 COUNTERS = ('engine_file_read_bytes', 'engine_file_write_requested_bytes',
             'engine_file_write_completed_bytes', 'engine_persist_groups',
             'engine_persist_entries', 'engine_persist_entry_bytes', 'sql_stage_input_bytes',

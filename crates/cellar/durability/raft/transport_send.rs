@@ -33,6 +33,17 @@ impl State {
                     }
                 }
             }
+            // Queue residence ends on selection, independently of the later
+            // peer exchange. Cancellation of a Delivery does not end either.
+            for request in &mut window {
+                if let Some(timer) = request.queued.take() {
+                    timer.finish(true);
+                }
+            }
+            let exchange = self.performance.timer(match lane {
+                Lane::Control => Operation::ControlExchange,
+                Lane::Data => Operation::DataExchange,
+            });
             let mut outcomes = vec![None; window.len()];
             let result = self
                 .bounded(Some(&pool), async {
@@ -64,6 +75,7 @@ impl State {
                         .await
                 })
                 .await;
+            exchange.finish(result.is_ok());
             if result.is_err() {
                 // A partially written request or unread reply cannot be reused
                 // as the next frame. No frame is blindly replayed on reconnect.

@@ -193,8 +193,8 @@ describes the implemented command-coupled path and its remaining oracles.
 startup or standalone engine open. `GET /peer/raft/metrics?generation=<generation>&view=performance`
 exports the same observation through existing generation-bound peer authentication;
 append `&format=json` for typed JSON. The default resource view remains unchanged.
-The performance view has 20 counters and 17 operations with 16 duration buckets,
-producing 413 Prometheus samples independent of cell/peer population. Registry
+The performance view has 20 counters and 23 operations with 16 duration buckets,
+producing 551 Prometheus samples independent of cell/peer population. Registry
 storage and scrape work are fixed; no group enumeration, callback or I/O is used.
 
 Each operation has started, succeeded, failed and abandoned counters, plus a
@@ -207,6 +207,23 @@ is separate. SQL stage, prepare, publish, query, archive capture and other actio
 have separate histograms. Outcomes describe the measured operation, not a command
 acknowledgement. Successful dequeue is not successful execution. Output-budget
 refusal remains a failed SQL action even if its callback produced a value.
+
+Transport timings separate three boundaries for each control/data lane:
+`transport_{control,data}_queue` measures from the bounded mailbox submission
+attempt to sender-window selection; refused submissions fail, while discarded
+queued work is abandoned. Earlier route, validation and budget refusals do not
+enter this timer. `transport_{control,data}_exchange` measures one sender window,
+including any connection/TLS setup and authenticated replies under the existing
+deadline. Control windows contain one to eight frames; data windows contain one.
+A partial window fails even if earlier frame admissions succeeded. These
+window counts are not frame or command counts. `transport_{control,data}_admit`
+measures the receiver's runtime admission after body verification and route
+authorization, excluding reply transmission. Admission is not persistence,
+application or command acknowledgement. Query, inspection, seed and physical
+snapshot streams are outside these six timers and retain their byte accounting.
+The queue timer follows physical ownership when a caller drops its Delivery;
+timers never authorize or retry work. Quantiles from different boundaries cannot
+be subtracted or added to derive a causal per-command breakdown.
 
 | Counter | Meaning |
 | --- | --- |

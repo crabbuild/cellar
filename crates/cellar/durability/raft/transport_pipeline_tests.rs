@@ -88,6 +88,22 @@ fn submit(fixture: &Fixture, scope: &GroupScope, id: u8) -> anyhow::Result<Deliv
 
 type Stream = tokio_rustls::server::TlsStream<TcpStream>;
 
+fn timing(
+    fixture: &Fixture,
+    name: &str,
+) -> crate::application::consensus::RaftOperationPerformance {
+    fixture
+        .transport
+        .handle
+        .0
+        .performance
+        .snapshot()
+        .operations
+        .into_iter()
+        .find(|sample| sample.name == name)
+        .expect("missing transport phase timing")
+}
+
 async fn accept(fixture: &Fixture, listener: &TcpListener) -> anyhow::Result<(Stream, [u8; 32])> {
     let (tcp, _) = listener.accept().await?;
     tcp.set_nodelay(true)?;
@@ -153,6 +169,18 @@ async fn control_window_sends_independent_groups_before_first_ack() -> anyhow::R
                 let primer = read(&fixture, &mut stream, &exporter, 0).await?;
                 ready.send(()).unwrap();
                 wait_queued.await?;
+                let queue = timing(&fixture, "transport_control_queue");
+                assert_eq!(
+                    (
+                        queue.started,
+                        queue.succeeded,
+                        queue.failed,
+                        queue.abandoned
+                    ),
+                    (10, 1, 0, 0)
+                );
+                let exchange = timing(&fixture, "transport_control_exchange");
+                assert_eq!((exchange.started, exchange.count), (1, 0));
                 acknowledge(&fixture, &mut stream, &exporter, &primer).await?;
                 let mut window = Vec::new();
                 for id in 1..=WINDOW {
@@ -192,6 +220,28 @@ async fn control_window_sends_independent_groups_before_first_ack() -> anyhow::R
                     delivery.accepted().await?;
                 }
                 anyhow::ensure!(fixture.transport.usage().control_items == 0);
+                let queue = timing(&fixture, "transport_control_queue");
+                assert_eq!(
+                    (
+                        queue.started,
+                        queue.succeeded,
+                        queue.failed,
+                        queue.abandoned
+                    ),
+                    (10, 10, 0, 0)
+                );
+                let exchange = timing(&fixture, "transport_control_exchange");
+                assert_eq!(
+                    (
+                        exchange.started,
+                        exchange.succeeded,
+                        exchange.failed,
+                        exchange.abandoned
+                    ),
+                    (3, 3, 0, 0)
+                );
+                assert_eq!(timing(&fixture, "transport_control_admit").started, 0);
+                assert_eq!(timing(&fixture, "transport_data_queue").started, 0);
                 for (scope, expected) in scopes.iter().zip(&initial_commit) {
                     anyhow::ensure!(
                         fixture.runtime.status(scope).await?.committed == *expected,
@@ -286,14 +336,38 @@ async fn failed_window(failure: Failure) -> anyhow::Result<()> {
                 }
                 resume.send(()).unwrap();
                 if matches!(failure, Failure::Shutdown) {
+                    let queued = (10..13)
+                        .map(|id| submit(&fixture, &scopes[0], id))
+                        .collect::<anyhow::Result<Vec<_>>>()?;
+                    drop(queued);
                     drop(deliveries);
                     anyhow::ensure!(
-                        fixture.transport.usage().control_items == WINDOW,
+                        fixture.transport.usage().control_items == WINDOW + 3,
                         "cancelled observers released in-flight reservations"
                     );
                     fixture.transport.close().await;
                     anyhow::ensure!(fixture.transport.usage().tasks == 0);
                     anyhow::ensure!(fixture.transport.usage().control_items == 0);
+                    let queue = timing(&fixture, "transport_control_queue");
+                    assert_eq!(
+                        (
+                            queue.started,
+                            queue.succeeded,
+                            queue.failed,
+                            queue.abandoned
+                        ),
+                        (12, 9, 0, 3)
+                    );
+                    let exchange = timing(&fixture, "transport_control_exchange");
+                    assert_eq!(
+                        (
+                            exchange.started,
+                            exchange.succeeded,
+                            exchange.failed,
+                            exchange.abandoned
+                        ),
+                        (2, 1, 1, 0)
+                    );
                     completed.send(()).unwrap();
                     return Ok::<_, anyhow::Error>(());
                 }
@@ -324,6 +398,26 @@ async fn failed_window(failure: Failure) -> anyhow::Result<()> {
                 }
                 anyhow::ensure!(fixture.transport.usage().control_items == 0);
                 anyhow::ensure!(fixture.transport.usage().control_bytes == 0);
+                let queue = timing(&fixture, "transport_control_queue");
+                assert_eq!(
+                    (
+                        queue.started,
+                        queue.succeeded,
+                        queue.failed,
+                        queue.abandoned
+                    ),
+                    (9, 9, 0, 0)
+                );
+                let exchange = timing(&fixture, "transport_control_exchange");
+                assert_eq!(
+                    (
+                        exchange.started,
+                        exchange.succeeded,
+                        exchange.failed,
+                        exchange.abandoned
+                    ),
+                    (2, 1, 1, 0)
+                );
                 for (scope, expected) in scopes.iter().zip(&initial_commit) {
                     anyhow::ensure!(fixture.runtime.status(scope).await?.committed == *expected);
                 }
@@ -411,6 +505,7 @@ async fn control_window_drives_both_directions_with_one_byte_buffers() -> anyhow
             body,
             snapshot: false,
             result: None,
+            queued: None,
             _node: state.outgoing.control.acquire(charge).unwrap(),
             _peer: pool.outgoing.control.acquire(charge).unwrap(),
         });
