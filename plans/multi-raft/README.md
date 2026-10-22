@@ -23,6 +23,12 @@ alarms and receipt-checked outbox/inbox delivery share an owned leader scheduler
 | [Earlier Blob component](evidence/MR-12-blob-progress.json) | Source `8cfc4bd`: 354 cases, 16 binaries, 31 checks |
 | [Earlier alarm component](evidence/MR-12-alarm-progress.json) | Source `5a6b606`: 322 cases, 19 binaries, 31 checks |
 
+The [PR91 integration repair](evidence/PR-91-ci-repair.json) merges upstream
+Python support and qualifies all 29 archive cases at `3682454`. A slow-capture
+probe reproduces an admission refusal mislabeled by the old durability test;
+the corrected fixture retains its original deadline and proof/value assertions.
+This focused result does not replace or enlarge earlier qualification counts.
+
 Each record retains its full source pin, executable/output hashes, failed initial
 diagnostics and original scope. Counts from different sources are not added.
 The [business-feature contract](effects-design.md) describes Blob, alarm, signed
