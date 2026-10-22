@@ -289,7 +289,8 @@ async fn native_seed_process_fixture() -> Result<()> {
         store,
         filesystem.clone(),
     )
-    .await?;
+    .await
+    .context("start seed crash fixture")?;
     let cells = cluster
         .services
         .iter()
@@ -309,7 +310,8 @@ async fn native_seed_process_fixture() -> Result<()> {
             5_i64.to_be_bytes().to_vec(),
             options,
         )
-        .await?;
+        .await
+        .with_context(|| format!("initial S3 command before {cut}, s3={s3}"))?;
     assert_eq!(receipt.result, 5_i64.to_be_bytes());
     cells[primary]
         .add_learner(
@@ -323,17 +325,37 @@ async fn native_seed_process_fixture() -> Result<()> {
                 timeout: Duration::from_secs(5),
             },
         )
-        .await?;
+        .await
+        .with_context(|| format!("add learner before {cut}, s3={s3}"))?;
     // The S3 proof forces an archive cut covering the learner configuration.
     let mut options = public_node::options(2)?;
     options.durability = Durability::S3;
+    let deadline = tokio::time::Instant::now() + options.timeout;
+    let revision = cells[primary].status().await?.membership_revision;
+    // Adding the learner starts a background archive capture on the same SQL
+    // worker. This crash fixture needs its command admitted before arming the
+    // seed cut; it is not an overload retry test. Wait for that capture's
+    // actual proof, charging this wait to the original command budget.
+    tokio::time::timeout_at(deadline, async {
+        loop {
+            let status = cells[primary].status().await?;
+            if status.archived >= revision && status.command_ready {
+                return Ok::<_, anyhow::Error>(());
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .with_context(|| format!("learner configuration archive before {cut}, s3={s3}"))??;
+    options.timeout = deadline.saturating_duration_since(tokio::time::Instant::now());
     cells[primary]
         .command(
             definitions[primary].increment.clone(),
             0_i64.to_be_bytes().to_vec(),
             options,
         )
-        .await?;
+        .await
+        .with_context(|| format!("archive learner configuration before {cut}, s3={s3}"))?;
     let directory = cluster.nodes[3].info().data_dir.clone();
     let image_directory = directory
         .join("raft-cells")
@@ -355,7 +377,8 @@ async fn native_seed_process_fixture() -> Result<()> {
     file.sync_all()?;
     let joined = cluster
         .join_standby(definitions[3].application.clone(), placement(s3, primary)?)
-        .await?;
+        .await
+        .with_context(|| format!("join standby at {cut}, s3={s3}"))?;
     ensure!(
         cut == "after-attachment",
         "seed cut was not exercised: {cut}"

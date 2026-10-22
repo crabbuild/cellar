@@ -26,6 +26,7 @@ mod query;
 mod query_identity;
 mod query_route;
 mod query_wire;
+pub(crate) mod receipt_maintenance;
 mod receipts;
 mod records;
 mod recovery;

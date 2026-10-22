@@ -26,6 +26,9 @@ pub struct ExecutionLimits {
     pub max_client_identities: usize,
     pub max_retained_receipts: usize,
     pub max_retry_window_ms: u64,
+    /// Bounded maintenance in the same replicated transaction as a new command.
+    /// Latest receipts and all client sequence floors remain protected.
+    pub receipt_maintenance: Option<super::receipt_maintenance::ReceiptMaintenanceLimits>,
 }
 
 impl Default for ExecutionLimits {
@@ -37,6 +40,9 @@ impl Default for ExecutionLimits {
             max_client_identities: 1024,
             max_retained_receipts: 4096,
             max_retry_window_ms: 600_000,
+            receipt_maintenance: Some(
+                super::receipt_maintenance::ReceiptMaintenanceLimits::default(),
+            ),
         }
     }
 }
@@ -44,6 +50,9 @@ impl Default for ExecutionLimits {
 impl ExecutionLimits {
     pub(crate) fn validate(&self) -> Result<(), ExecutionError> {
         self.envelope.validate().map_err(ExecutionError::Protocol)?;
+        if let Some(maintenance) = self.receipt_maintenance {
+            maintenance.validate()?;
+        }
         if !(4096..=64 * 1024 * 1024).contains(&self.max_image_bytes)
             || !(1..=1024 * 1024).contains(&self.max_result_bytes)
             || !(1..=65_536).contains(&self.max_client_identities)
@@ -364,6 +373,7 @@ pub struct PrivateExecutor {
     pending: Option<Pending>,
     rebuild_required: bool,
     retired_preview: Option<GenerationPin>,
+    receipt_cursor: Option<ClientId>,
     _lock: HostFileLock,
 }
 
@@ -561,6 +571,7 @@ impl PrivateExecutor {
             pending: None,
             rebuild_required: false,
             retired_preview: None,
+            receipt_cursor: None,
             _lock: lock,
         })
     }
@@ -645,7 +656,7 @@ impl PrivateExecutor {
             .working
             .as_ref()
             .ok_or(ExecutionError::RebuildRequired)?;
-        if receipts::preflight(
+        if receipts::preflight_identity(
             working.database.framework(),
             &attempt.request,
             &self.options.limits,
@@ -659,6 +670,28 @@ impl PrivateExecutor {
                     .ok_or(ExecutionError::Invalid("receipt without base"))?,
             )?;
             return Ok(StageOutcome::Duplicate(receipt));
+        }
+        let count = receipts::retained_count(working.database.framework())?;
+        let ceiling = self.options.limits.max_retained_receipts;
+        let maintenance = match self.options.limits.receipt_maintenance {
+            Some(limits) if count >= ceiling - ceiling / 4 => {
+                let plan = super::receipt_maintenance::plan(
+                    working.database.framework(),
+                    attempt.inputs.now_unix_millis,
+                    limits,
+                    self.receipt_cursor,
+                )?;
+                self.receipt_cursor = plan.next_cursor;
+                Some(plan)
+            }
+            _ => None,
+        };
+        let removed = maintenance.as_ref().map_or(0, |plan| plan.rows_removed);
+        if count
+            .checked_sub(removed)
+            .is_none_or(|count| count >= ceiling)
+        {
+            return Err(ExecutionError::Refused(CommandFailure::Overloaded));
         }
         if attempt.request.retry_until_ms < attempt.inputs.now_unix_millis
             || attempt
@@ -679,6 +712,11 @@ impl PrivateExecutor {
             .ok_or(ExecutionError::RebuildRequired)?
             .database
             .transaction(attempt.inputs, |connection, transaction| {
+                if let Some(maintenance) = maintenance {
+                    maintenance
+                        .apply(connection, attempt.inputs.now_unix_millis)
+                        .map_err(anyhow::Error::new)?;
+                }
                 let result = command(transaction)?;
                 if result.len() > self.options.limits.max_result_bytes {
                     return Err(anyhow::Error::new(CommandFailure::Overloaded));
