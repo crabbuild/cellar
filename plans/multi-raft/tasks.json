@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "baseline_revision": "bd7868f03db1b58437892526ffebabdabe0453a7",
+  "baseline_revision": "8424f02a8fb3ebc77b333bcadbf2ad44825d0bcc",
   "status_values": [
     "TODO",
     "IN_PROGRESS",
@@ -2373,7 +2373,8 @@
         "tools/perf/baseline_analyze.py",
         "tools/perf/compare_runs.py",
         "tools/perf/test_baseline.py",
-        "tools/perf/raft_topology.py"
+        "tools/perf/raft_topology.py",
+        "crates/cellar/tests/support/raft_archive_wakeup.rs"
       ],
       "steps": [
         "Optimize shared log batches, pooled transport and fair scheduling while retaining per-group Ready ordering.",
@@ -2434,6 +2435,15 @@
           "invariants": [
             "I01"
           ]
+        },
+        {
+          "name": "archived_progress_wakes_commands_without_maintenance_poll",
+          "oracle": "Eight sequential S3 commands publish actual SQLite/LTX state and confirm archive coverage without waiting for the deliberately slow host maintenance poll; fresh authority and output-proof checks still gate each response",
+          "invariants": [
+            "I05",
+            "I09",
+            "I13"
+          ]
         }
       ],
       "verification": [
@@ -2471,7 +2481,8 @@
         "evidence/MR-14-handoff-progress.json",
         "evidence/MR-14-baseline-progress.json",
         "evidence/MR-14-replay-progress.json",
-        "evidence/MR-14-five-node-progress.json"
+        "evidence/MR-14-five-node-progress.json",
+        "evidence/MR-14-wakeup-progress.json"
       ]
     },
     {

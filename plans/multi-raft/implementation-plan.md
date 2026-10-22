@@ -1063,6 +1063,38 @@ Three local repetitions passed, so the failure is unresolved. CI now retains
 bounded response details and private fixture failure artifacts; assertions
 remain unchanged. This diagnostic improvement is not a CI correctness fix.
 
+The [archive wake-up evidence](evidence/MR-14-wakeup-progress.json) removes two
+maintenance-timer waits: new committed images wake idle archive scanning, and
+accepted archive coverage wakes pending command completion. Fresh authority,
+receipt and output-proof checks still determine the response. Fair scheduling,
+capture budgets and per-cell failure backoff are unchanged. The amplified
+one-second-maintenance regression fails three times on the original code;
+invalidating only the idle scan still fails. Both wakeups pass the same test
+and 20 repetitions. Source `8424f02` passes all 299 Raft integration cases,
+the daemon qualification, Clippy, feature-mode and repository checks.
+
+Fresh runs keep the same five-node profiles, resources and offered load. They
+retain the new image, subsequent repeats of the original cached image, and a
+final repeat of the fixed image:
+
+| Source | Acknowledgement | Completed / offered | Overall p99 | Command p99 | Query p99 | Rejections |
+| --- | --- | --- | --- | --- | --- | --- |
+| Wake-up fix `8424f02` | Quorum | 1,170 / 1,200 | 432.9 ms | 651.2 ms | 219.5 ms | 30 |
+| Wake-up fix `8424f02` | S3 | 1,142 / 1,200 | 662.6 ms | 721.5 ms | 113.2 ms | 58 |
+| Original repeat `bd7868f` | Quorum | 1,200 / 1,200 | 86.4 ms | 145.5 ms | 13.7 ms | 0 |
+| Original repeat `bd7868f` | S3 | 1,158 / 1,200 | 367.6 ms | 427.6 ms | 223.6 ms | 42 |
+| Fix repeat `8424f02` | Quorum | 1,189 / 1,200 | 190.5 ms | 250.0 ms | 20.1 ms | 11 |
+| Fix repeat `8424f02` | S3 | 1,194 / 1,200 | 160.8 ms | 205.6 ms | 15.0 ms | 6 |
+
+The final fixed-image repeats meet both short-run traffic targets; the first
+fixed-image pair misses both. All submitted histories, all 450 replicas and final
+archive coverage reconcile in each run. These observations do not establish a
+causal speedup or steady-state capacity: the shared Mac has varying load and
+swap, and the comparison refuses
+ratios between different binaries. Host observations and complete raw outputs,
+including missed traffic objectives, remain in the evidence. All exact containers
+exited zero; the owned profile is stopped and volumes remain.
+
 Remaining MR-14 gates include sustained S3 acknowledgement latency, controlled
 slow-follower baselines and equivalent-contract analysis, instrumentation overhead
 and whole-device attribution, steady-state/density evidence and preliminary Q1
@@ -1096,6 +1128,7 @@ Stop conditions: Stop if full-image publication dominates the declared SLO; redu
 | `repair_budget_under_load` | Snapshot/repair work remains within configured budgets during traffic |
 | `archive_bundle_group_index` | Mixed-group bundles restore only the named exact histories |
 | `harness_rejects_stale_binary` | Benchmark cannot attribute results to a different executable |
+| `archived_progress_wakes_commands_without_maintenance_poll` | Committed images and accepted archive coverage wake eight sequential S3 commands while preserving normal proof checks |
 
 Verification target: `native_raft_multigroup`. Run the exact list/test commands
 shown by `plan.py show MR-14`; the manifest is authoritative for arguments.

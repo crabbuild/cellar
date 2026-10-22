@@ -92,6 +92,28 @@ Colima profiles. They do not establish steady state, a capacity ceiling or an
 equivalent-guarantee speedup. The independent comparison refuses a ratio between
 Quorum and S3 contracts.
 
+The [archive wake-up runs](../../plans/multi-raft/evidence/MR-14-wakeup-progress.json)
+repeat the same profiles after removing maintenance-timer waits. Subsequent runs
+use the original cached image and then the fixed image again; all observations
+remain visible:
+
+| Source | Acknowledgement | Completed / offered | Overall p99 | Command p99 | Query p99 | Rejections |
+| --- | --- | --- | --- | --- | --- | --- |
+| Wake-up fix `8424f02` | Quorum | 1,170 / 1,200 | 432.9 ms | 651.2 ms | 219.5 ms | 30 |
+| Wake-up fix `8424f02` | S3 | 1,142 / 1,200 | 662.6 ms | 721.5 ms | 113.2 ms | 58 |
+| Original repeat `bd7868f` | Quorum | 1,200 / 1,200 | 86.4 ms | 145.5 ms | 13.7 ms | 0 |
+| Original repeat `bd7868f` | S3 | 1,158 / 1,200 | 367.6 ms | 427.6 ms | 223.6 ms | 42 |
+| Fix repeat `8424f02` | Quorum | 1,189 / 1,200 | 190.5 ms | 250.0 ms | 20.1 ms | 11 |
+| Fix repeat `8424f02` | S3 | 1,194 / 1,200 | 160.8 ms | 205.6 ms | 15.0 ms | 6 |
+
+The final fixed-image repeats meet both short-run traffic targets; the first
+fixed-image pair misses both. All histories, 450 replicas and archive coverage
+reconcile in each run. Shared-host load and swap vary, so these measurements
+do not isolate the code change or
+establish steady-state capacity. The evidence retains host observations and all
+missed traffic targets. See the scheduling regression below for the narrower
+behavior established by the fix.
+
 ## Workload and evidence
 
 The JSON profile explicitly names topology, cell population, uniformly sampled
@@ -146,6 +168,20 @@ batch limits, corrupt intermediate identities, aggregate bounds, peak temporary
 disk admission and process-kill publication cuts. These checks count physical
 work; a deployment latency claim requires a fresh image and retained workload
 measurement under the same resource and durability profile.
+
+New committed images and protocol-only progress wake an idle archive scan.
+Accepted archive progress covering a pending receipt also wakes the normal
+completion path, which rechecks current authority, receipt identity and output
+proof before responding. The single archive producer, fair batch cursor, capture
+bounds and per-cell failure backoff remain in force.
+
+The `archived_progress_wakes_commands_without_maintenance_poll` regression runs
+eight sequential S3 commands through the public Node and real SQLite/LTX paths.
+Only the host maintenance interval is stretched to one second. The original
+implementation fails the four-second aggregate bound; both wakeups pass 20
+consecutive repetitions. This amplified scheduling check is not a deployment
+latency target. The [wake-up evidence](../../plans/multi-raft/evidence/MR-14-wakeup-progress.json)
+retains the failed probes, passing regressions and fresh physical observations.
 
 ## Fleet and bucket reference adapters
 
