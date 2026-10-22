@@ -122,7 +122,8 @@ requested MR-14 focus; it does not waive MR-13's release dependency.
    do not establish 30/100/1,000-node or million-node support.
 
 The bounded control-path change, physical comparison and native persistence-wait
-improvement are delivered. The shared object-store outage runner is implemented;
+improvement are delivered. The
+[shared object-store outage runner](evidence/MR-14-store-fault-progress.json) is implemented;
 physical execution and equivalent-contract comparison remain open. Continue
 fault qualification while
 shared-host contention prevents a controlled latency comparison. The physical

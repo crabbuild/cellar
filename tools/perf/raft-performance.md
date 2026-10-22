@@ -402,7 +402,9 @@ read or receipt guarantees equal. `compare_runs.py` includes the fault profile
 for every adapter and continues to refuse a throughput ratio when any required
 contract differs. This runner implementation is tested with local Python
 fixtures; physical RustFS execution, timing acceptance and a truly equivalent
-cross-adapter service contract remain open.
+cross-adapter service contract remain open. The
+[source-pinned harness evidence](../../plans/multi-raft/evidence/MR-14-store-fault-progress.json)
+retains the test results and explicitly records zero physical runs.
 
 ## Comparison rules
 
