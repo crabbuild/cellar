@@ -479,6 +479,10 @@ async fn qualify() -> Result<()> {
     // Three separate production CLI processes use a shared catalog and peer
     // authentication key, two independent groups and real TLS replication.
     let root = tempfile::tempdir()?;
+    // The real dev supervisor initializes its local store before starting
+    // children. Concurrent first-open WAL/schema setup is not peer readiness.
+    cellar::bucket::Bucket::open_dev(&root.path().join("fleet.sqlite"))?;
+    cellar::bucket::Bucket::open_dev(&root.path().join("catalog.sqlite"))?;
     let mut cluster = Vec::new();
     for i in 0..3 {
         let disk = root.path().join(format!("disk-{i}"));
