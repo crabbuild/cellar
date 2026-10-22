@@ -1,7 +1,7 @@
 {
   "format": 1,
   "repository": "https://github.com/crabbuild/cellar",
-  "revision": "e2752d27280db077513af37b7685fceb114196b7",
+  "revision": "43096b30d5af9696c299ebbea891fd56aa8b3969",
   "prepared_date": "2026-10-22",
   "files": [
     {
@@ -182,7 +182,7 @@
     },
     {
       "path": "crates/cellar/execution/domain.rs",
-      "sha256": "c61fc17df3e2c2a802549ea92544fcd3103bddfc565deada5de4ffedc5b30634"
+      "sha256": "8210499f955242a2b705426e9ed30561f8433baffa1c955f94f8dda2974d9d20"
     },
     {
       "path": "crates/cellar/execution/services.rs",
@@ -330,7 +330,7 @@
     },
     {
       "path": "tools/perf/raft_node.rs",
-      "sha256": "a6fa1babb9cb4d80ac9e879c6426be2b988330c24fd3edd4cf3da149a16169ae"
+      "sha256": "32b3bce4c7437ccc481c37a53e163134f3667c476e6ccbff1e8cad8241a9b1d3"
     },
     {
       "path": "tools/perf/test_build_freshness.py",

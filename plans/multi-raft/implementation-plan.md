@@ -937,7 +937,10 @@ The workload runner captures raw phase boundaries and periodic node observations
 Its analyzer rejects missing data, changed sources, counter resets, saturation and
 impossible histograms; reported internal quantiles are bucket upper bounds.
 Engine API bytes exclude SQLite images, node metadata and physical-device effects.
-This instrumentation has not established a measured overhead or speedup.
+The [measurement evidence](evidence/MR-14-performance-metrics-progress.json)
+records 596 Rust cases, 128 Python tooling cases, native snapshot/analyzer
+interoperability and repository checks. This instrumentation has not established
+a measured overhead or speedup.
 
 Remaining MR-14 gates include S3/network bytes, controller timings and whole-device
 attribution, matched Fleet/bucket baselines, steady-state/density evidence and

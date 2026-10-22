@@ -1,0 +1,345 @@
+{
+  "task_id": "MR-14",
+  "source_revision": "43096b30d5af9696c299ebbea891fd56aa8b3969",
+  "completion": "partial",
+  "scope": "Fixed-cardinality physical engine/SQL observations, SDK/authenticated metrics exports, raw workload phase/periodic capture, and strict independent delta validation. No performance improvement or capacity is established.",
+  "environment": {
+    "system": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+    "machine": "arm64",
+    "validation": "Native fixtures on macOS with real Raft-Engine, SQLite/LTX and native HTTP/TLS; embedded archive stores are InMemory. Tests are not 1-vCPU/3-GiB container qualification.",
+    "colima_profile": "cellar-multi-raft",
+    "profile_state": "Stopped; no containers were launched for this change; other profiles unchanged."
+  },
+  "toolchain": "Rust 1.98.1; locked dependencies; all-feature matrix and Clippy; separate no-default-feature library check; test/dev debuginfo and incremental disabled; three build jobs.",
+  "lockfile_sha256": "b9622cfd2713f81591f3cf200ff5a732418ab42e99df46e63c22c06a6d94b105",
+  "protocol_identity": "cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1/nodes-1/bundles-1",
+  "observation_contract": {
+    "scope": "One opened engine/host; random source nonce changes on reopen. No per-cell/peer labels.",
+    "counters": 11,
+    "operations": 11,
+    "duration_buckets_per_operation": 16,
+    "prometheus_samples": 266,
+    "integer_encoding": "Decimal strings for JSON u64 values; saturation and availability are explicit.",
+    "durations": "Microseconds, all physical outcomes with an available owner clock. Derived quantiles are inclusive bucket upper bounds; null for no events or the unbounded final bucket.",
+    "bytes": "Engine filesystem API and staged proposal/LTX/query bytes; excludes physical-device accounting, SQLite images, node metadata outside the adapter, S3 and network. Prepared output bytes precede admission/commit.",
+    "cancellation": "Queue timers travel with queued work; physical SQL/fsync timers finish at the worker boundary even if the response waiter cancels. Abandoned is not rollback.",
+    "sampling": "Per-operation coherent outcomes/histogram; cross-operation and byte counters are not transactional. Per-node HTTP sample windows are sequential. Boundary in-flight counts remain visible."
+  },
+  "native_checks": [
+    "A held real engine sync increments started without publishing completion; release records success; failed sync records failure and still quarantines reads. Persist group/entry/encoded-byte counters are checked against the actual write.",
+    "A canceled held SQL query retains physical work and unfinished timing; shutdown joins the reader and leaves complete outcome accounting on retained handles.",
+    "Generation-bound peer HTTP refuses wrong authentication, stale generation, duplicate/unknown views and unavailable startup. Resource view remains 110 samples; performance view has identical 266 identities at one and 32 initialized groups.",
+    "Production JSON snapshots from both native group populations pass the workload analyzer with nonzero engine/proposal/LTX counters. No synthetic native measurements are substituted.",
+    "Poisoned/saturated/dead-clock observations remain explicit; observation failures do not change business outcomes. JSON preserves u64 precision."
+  ],
+  "tests": [
+    {
+      "target": "unittests lib.rs",
+      "passed": 460,
+      "failed": 0,
+      "ignored": 0,
+      "binary_sha256": "c68f6ee46fc9790e7e6499ad4c0b3b8201b980e8c48b56bfe2bfd267009c68bf"
+    },
+    {
+      "target": "unittests ../../tools/perf/raft_node.rs",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "binary_sha256": "53b36f973b4bf23d748624044a779f1c35bfe348383fe6f74ef189b39e94b562"
+    },
+    {
+      "target": "tests/native_raft_archive.rs",
+      "passed": 30,
+      "failed": 0,
+      "ignored": 0,
+      "binary_sha256": "51eb19a3c05a0759a0cba9e082cd910240d4fc40b465c6abf7c8befd1d1b1d83"
+    },
+    {
+      "target": "tests/native_raft_execution.rs",
+      "passed": 17,
+      "failed": 0,
+      "ignored": 2,
+      "binary_sha256": "6cffb41537970e4c4f7584ab3012f7c1ab56b0cb2ca754fa925ea8d99cd908f2"
+    },
+    {
+      "target": "tests/native_raft_host.rs",
+      "passed": 27,
+      "failed": 0,
+      "ignored": 0,
+      "binary_sha256": "600fd2a59dfd193723f98ce52deabc775b07cbcfa12b0c85623fca7fdb04c9c2"
+    },
+    {
+      "target": "tests/native_raft_multigroup.rs",
+      "passed": 6,
+      "failed": 0,
+      "ignored": 1,
+      "binary_sha256": "bd38b9e8b1257d0bcd8d42ef431b20c1f8e418b44e26efdee77adc0f0476acbd"
+    },
+    {
+      "target": "tests/native_raft_operations.rs",
+      "passed": 18,
+      "failed": 0,
+      "ignored": 0,
+      "binary_sha256": "f60775bf22c3ffdba7339c75500a356147b34d061ad038cf940fae0e438c4b78"
+    },
+    {
+      "target": "tests/native_raft_reads.rs",
+      "passed": 20,
+      "failed": 0,
+      "ignored": 0,
+      "binary_sha256": "21d14c75110f1e3767ff23a9095f9ca75072523b7c6a741b7bcbd4f3e4143dde"
+    },
+    {
+      "target": "tests/native_raft_storage.rs",
+      "passed": 17,
+      "failed": 0,
+      "ignored": 1,
+      "binary_sha256": "1f83f77c3fd6e5823c9f7ae9a656a8f03b04cdc9ca0766262d5a48cca792f335"
+    }
+  ],
+  "rust_passed": 596,
+  "python": {
+    "passed": 128,
+    "skipped": 1,
+    "skip_scope": "Existing opt-in Docker cache test; no physical Docker benchmark was run."
+  },
+  "plan_tests_passed": 17,
+  "runner_validation": "Tests refuse unavailable/duplicate/missing telemetry, changed sources, reset counters, impossible bucket deltas/sums, malformed decimals, saturation, phase overlap and fabricated performance reports. Current analyzer requires observations; earlier experiments remain pinned to their original analyzers.",
+  "checks": [
+    {
+      "name": "matrix",
+      "source_revision": "43096b30d5af9696c299ebbea891fd56aa8b3969",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--all-features",
+        "--locked",
+        "--lib",
+        "--bin",
+        "cellar-perf-raft",
+        "--test",
+        "native_raft_storage",
+        "--test",
+        "native_raft_reads",
+        "--test",
+        "native_raft_operations",
+        "--test",
+        "native_raft_host",
+        "--test",
+        "native_raft_execution",
+        "--test",
+        "native_raft_archive",
+        "--test",
+        "native_raft_multigroup",
+        "--",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "exit_code": 0,
+      "duration_seconds": 195.302,
+      "sha256": "3c16f6b137f247d6cb625838a33f3af89e61bf92667233a3d8222f9598afc9d8",
+      "log_member": "matrix",
+      "output": "evidence/MR-14-performance-metrics-validation.json.gz"
+    },
+    {
+      "name": "clippy",
+      "source_revision": "43096b30d5af9696c299ebbea891fd56aa8b3969",
+      "command": [
+        "cargo",
+        "clippy",
+        "-p",
+        "cellar",
+        "--all-targets",
+        "--all-features",
+        "--locked",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "duration_seconds": 14.713,
+      "sha256": "d28491f5b23502cbc43fbd126e93535c1dd3212e639fc5b50da24565d27330fe",
+      "log_member": "clippy",
+      "output": "evidence/MR-14-performance-metrics-validation.json.gz"
+    },
+    {
+      "name": "native-only",
+      "source_revision": "43096b30d5af9696c299ebbea891fd56aa8b3969",
+      "command": [
+        "cargo",
+        "check",
+        "-p",
+        "cellar",
+        "--no-default-features",
+        "--lib",
+        "--locked"
+      ],
+      "exit_code": 0,
+      "duration_seconds": 27.142,
+      "sha256": "de86e6d4f56ef4b27e58a515901ac88c7fe7b199aa8b544e2077a300ca836556",
+      "log_member": "native-only",
+      "output": "evidence/MR-14-performance-metrics-validation.json.gz"
+    },
+    {
+      "name": "format",
+      "source_revision": "43096b30d5af9696c299ebbea891fd56aa8b3969",
+      "command": [
+        "cargo",
+        "format",
+        "--check"
+      ],
+      "exit_code": 0,
+      "duration_seconds": 41.34,
+      "sha256": "e5dce4222ece3b01fd6f3b8e94a46d8eb29b1388362e6f7a8efb5a61243ad54c",
+      "log_member": "format",
+      "output": "evidence/MR-14-performance-metrics-validation.json.gz"
+    },
+    {
+      "name": "layout",
+      "source_revision": "43096b30d5af9696c299ebbea891fd56aa8b3969",
+      "command": [
+        "cargo",
+        "check-layout"
+      ],
+      "exit_code": 0,
+      "duration_seconds": 0.123,
+      "sha256": "8baaa5e939e0a6838f43278e4568197816b5fb4d605c79ee98b3672e118cf0e8",
+      "log_member": "layout",
+      "output": "evidence/MR-14-performance-metrics-validation.json.gz"
+    },
+    {
+      "name": "dependencies",
+      "source_revision": "43096b30d5af9696c299ebbea891fd56aa8b3969",
+      "command": [
+        "python3",
+        "tools/check_native_dependencies.py"
+      ],
+      "exit_code": 0,
+      "duration_seconds": 0.338,
+      "sha256": "faf9bdb8df5819a63d590ede5d4a5f43eb4e8b00d8a6f44ccfb36bd8c4c5c238",
+      "log_member": "dependencies",
+      "output": "evidence/MR-14-performance-metrics-validation.json.gz"
+    },
+    {
+      "name": "docs",
+      "source_revision": "43096b30d5af9696c299ebbea891fd56aa8b3969",
+      "command": [
+        "python3",
+        "tools/docs/check.py"
+      ],
+      "exit_code": 0,
+      "duration_seconds": 0.082,
+      "sha256": "701e55367b1b8c08dcd388c3084250c7209af81cb161e4ba73339783b537eeb3",
+      "log_member": "docs",
+      "output": "evidence/MR-14-performance-metrics-validation.json.gz"
+    },
+    {
+      "name": "python",
+      "source_revision": "43096b30d5af9696c299ebbea891fd56aa8b3969",
+      "command": [
+        "python3",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "tools/perf"
+      ],
+      "exit_code": 0,
+      "duration_seconds": 2.127,
+      "sha256": "67d33066e0a0c839651f13936902147cc11c70e8319cf69964cb3c907d137d64",
+      "log_member": "python",
+      "output": "evidence/MR-14-performance-metrics-validation.json.gz"
+    },
+    {
+      "name": "plan-tests",
+      "source_revision": "43096b30d5af9696c299ebbea891fd56aa8b3969",
+      "command": [
+        "python3",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "plans/multi-raft",
+        "-p",
+        "test_plan.py"
+      ],
+      "exit_code": 0,
+      "duration_seconds": 0.135,
+      "sha256": "6e86f8b527d49822bbb78eb327ca1cbc20c75d7c78ad64dccd1a19249e7f50fa",
+      "log_member": "plan-tests",
+      "output": "evidence/MR-14-performance-metrics-validation.json.gz"
+    },
+    {
+      "name": "plan-validate",
+      "source_revision": "43096b30d5af9696c299ebbea891fd56aa8b3969",
+      "command": [
+        "python3",
+        "plans/multi-raft/plan.py",
+        "validate"
+      ],
+      "exit_code": 0,
+      "duration_seconds": 0.105,
+      "sha256": "225323cb27e96ff40f2d53e9fe772de4a0d3abe7d70eea4c0bf9edb2dc200eb3",
+      "log_member": "plan-validate",
+      "output": "evidence/MR-14-performance-metrics-validation.json.gz"
+    },
+    {
+      "name": "preflight",
+      "source_revision": "43096b30d5af9696c299ebbea891fd56aa8b3969",
+      "command": [
+        "python3",
+        "plans/multi-raft/plan.py",
+        "preflight"
+      ],
+      "exit_code": 0,
+      "sha256": "e590723f6f8618fa8d541989efce720e4994fda69f14ec13217bdc53a370c913",
+      "log_member": "preflight",
+      "output": "evidence/MR-14-performance-metrics-validation.json.gz"
+    }
+  ],
+  "diagnostics": [
+    {
+      "name": "development-compile",
+      "source_revision": null,
+      "description": "Compilation rejected an immutable sync handle and catch_unwind capturing a domain token. Corrected before successful checks.",
+      "log_member": "development-compile",
+      "sha256": "8e9bdb36f51092ceed586f8e792f5d9b4b8278c7e614a60ab07d834c265eb33b"
+    },
+    {
+      "name": "development-clippy",
+      "source_revision": null,
+      "description": "Clippy rejected a fixture println; changed to the repository note macro without a lint allowance.",
+      "log_member": "development-clippy",
+      "sha256": "3066dfe7766049ca1b38039052e009fb78b473aa6ada809cd6d7e9c9dca947aa"
+    },
+    {
+      "name": "development-python",
+      "source_revision": null,
+      "description": "Six synthetic report subcases lacked the newly required raw measurements. Added explicit synthetic snapshots and retained all original failure oracles.",
+      "log_member": "development-python",
+      "sha256": "28c573fa56c7598d8b75e8f9a5a689696200777ad2544546064c474a4da75f97"
+    },
+    {
+      "name": "development-dependency-command",
+      "source_revision": null,
+      "description": "Dependency check initially lacked Cargo on PATH; rerun with the pinned build environment.",
+      "log_member": "development-dependency-command",
+      "sha256": "4f88bf403e7fc21ce521ca71554651a02da821030eb23e76df8c8187a97032ce"
+    }
+  ],
+  "raw_output": {
+    "path": "evidence/MR-14-performance-metrics-validation.json.gz",
+    "sha256": "7cf968f7c006d5ba9e10e281ee14848442727c9fade0e4b6537b5e494d33572b",
+    "bytes": 34768
+  },
+  "remaining": [
+    "Measure instrumentation overhead and rerun the bounded Colima/RustFS workload on the new source.",
+    "Add S3/network byte accounting and controller timings; attribute physical device I/O explicitly.",
+    "Implement executable Fleet/bucket benchmark adapters with matched durability, workload, hardware and build contracts.",
+    "Measure steady state, archive cost and supported density; archive/log batching speedup remains unmeasured.",
+    "Preliminary Q1 remains six processes and 10,000 three-voter cells: 5,000 average replicas per node versus the unchanged 4,096 host bound. It is unqualified and outside the local five-node ceiling.",
+    "MR-13 remaining operations/receipt/restore gates and MR-15 through MR-17 release, scale and federation remain open."
+  ]
+}
