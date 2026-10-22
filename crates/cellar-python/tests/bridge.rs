@@ -246,8 +246,15 @@ fn main() -> Result<()> {
     if mode == "--runtime-authority" || mode == "--runtime-authority-fence" {
         return authority::child(mode.ends_with("-fence"));
     }
-    if mode == "--runtime-cycles" || mode == "--runtime-cycles-fence" {
-        return cycles::child(mode.ends_with("-fence"));
+    if matches!(
+        mode.as_str(),
+        "--runtime-cycles" | "--runtime-cycles-fence" | "--runtime-cycles-inner-cancel"
+    ) {
+        return cycles::child(match mode.as_str() {
+            "--runtime-cycles-fence" => cycles::End::Fence,
+            "--runtime-cycles-inner-cancel" => cycles::End::InnerCancellation,
+            _ => cycles::End::Deadline,
+        });
     }
     if let Some(mode) = mode.strip_prefix("--runtime-capacity-") {
         return capacity::child(mode);
@@ -457,6 +464,7 @@ fn main() -> Result<()> {
         "--runtime-limits",
         "--runtime-cycles",
         "--runtime-cycles-fence",
+        "--runtime-cycles-inner-cancel",
         "--runtime-authority",
         "--runtime-authority-fence",
         "--runtime-proof-authority-sync-deadline",
@@ -847,6 +855,7 @@ fn lifecycle_mode(mode: &str) -> Result<()> {
             "--runtime-durability"
                 | "--runtime-cycles"
                 | "--runtime-cycles-fence"
+                | "--runtime-cycles-inner-cancel"
                 | "--runtime-authority"
                 | "--runtime-authority-fence"
                 | "--runtime-proof-authority-sync-deadline"
