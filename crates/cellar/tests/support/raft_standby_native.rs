@@ -3,6 +3,37 @@
 use super::*;
 use futures_util::TryStreamExt;
 
+async fn write_with_admission_retry(
+    cell: &RaftCellHandle,
+    definition: &public_node::Counter,
+    value: i64,
+    options: CommandOptions,
+) -> Result<CommandReceipt> {
+    let deadline = tokio::time::Instant::now() + options.timeout;
+    tokio::time::timeout_at(deadline, async {
+        loop {
+            let mut attempt = options.clone();
+            attempt.timeout = deadline.saturating_duration_since(tokio::time::Instant::now());
+            match cell
+                .command(
+                    definition.increment.clone(),
+                    value.to_be_bytes().to_vec(),
+                    attempt,
+                )
+                .await
+            {
+                Err(CommandFailure::Overloaded) => {
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+                result => return result,
+            }
+        }
+    })
+    .await
+    .context("standby command admission deadline elapsed")?
+    .map_err(Into::into)
+}
+
 pub(in super::super) async fn registered_standby_refuses_quorumless_s3_activation() -> Result<()> {
     let mut f = Fixture::new(true).await?;
     let cell = registered(&mut f).await?;
@@ -145,13 +176,13 @@ pub(in super::super) async fn registered_standby_peer_activation_retains_handles
     ));
     f.step(RepairStep::PromoteAndRemove).await?;
     f.step(RepairStep::FinishJoint).await?;
-    let write = f.handles[f.primary]
-        .command(
-            f.definitions[f.primary].increment.clone(),
-            1_i64.to_be_bytes().to_vec(),
-            public_node::options(2)?,
-        )
-        .await?;
+    let write = write_with_admission_retry(
+        &f.handles[f.primary],
+        &f.definitions[f.primary],
+        1,
+        public_node::options(2)?,
+    )
+    .await?;
     assert_eq!(write.result, 6_i64.to_be_bytes());
     caught_up(&f, &retained, write.version_token, 6).await?;
     assert_eq!(f.cluster.services.len(), 4);
@@ -159,24 +190,26 @@ pub(in super::super) async fn registered_standby_peer_activation_retains_handles
 }
 
 pub(in super::super) async fn registered_standby_s3_activation_and_restart() -> Result<()> {
-    let mut f = Fixture::new(true).await?;
+    let mut f = Fixture::new(true)
+        .await
+        .context("initialize archived repair fixture")?;
     let cell = registered(&mut f).await?;
     f.fail_obsolete().await?;
     f.begin().await?;
-    let receipt = cell.activate_learner(activation(&f, true)?).await?;
+    let receipt = cell
+        .activate_learner(activation(&f, true)?)
+        .await
+        .context("activate S3 learner")?;
     assert_eq!(receipt.member, f.plan.replacement);
     caught_up(&f, &cell, f.retained.clone(), 5).await?;
     f.step(RepairStep::PromoteAndRemove).await?;
     f.step(RepairStep::FinishJoint).await?;
     let mut options = public_node::options(2)?;
     options.durability = Durability::S3;
-    let receipt = f.handles[f.primary]
-        .command(
-            f.definitions[f.primary].increment.clone(),
-            1_i64.to_be_bytes().to_vec(),
-            options,
-        )
-        .await?;
+    let receipt =
+        write_with_admission_retry(&f.handles[f.primary], &f.definitions[f.primary], 1, options)
+            .await
+            .context("write after joint repair")?;
     caught_up(&f, &cell, receipt.version_token.clone(), 6).await?;
     let namespace = f.registration.namespace.namespace;
     let name = f.registration.birth.scope.cell.clone();
@@ -236,13 +269,14 @@ pub(in super::super) async fn registered_standby_s3_activation_and_restart() -> 
         .map(|service| service.cell(namespace, &f.registration.birth.scope.cell))
         .collect::<Result<Vec<_>, _>>()?;
     let primary = leader(&cells).await?;
-    let receipt = cells[primary]
-        .command(
-            f.definitions[primary].increment.clone(),
-            2_i64.to_be_bytes().to_vec(),
-            public_node::options(3)?,
-        )
-        .await?;
+    let receipt = write_with_admission_retry(
+        &cells[primary],
+        &f.definitions[primary],
+        2,
+        public_node::options(3)?,
+    )
+    .await
+    .context("write after standby restart")?;
     assert_eq!(receipt.result, 8_i64.to_be_bytes());
     let reader = if primary == 3 {
         (0..3).find(|i| *i != f.failed).unwrap()

@@ -357,6 +357,14 @@ pub fn options(sequence: u64) -> Result<CommandOptions> {
     ))
 }
 
+// Gate fixtures need an idle SQL worker before starting an unpolled command.
+// S3 proof also waits for the preceding image's physical archive capture.
+pub fn archived_options(sequence: u64) -> Result<CommandOptions> {
+    let mut options = options(sequence)?;
+    options.durability = Durability::S3;
+    Ok(options)
+}
+
 pub struct Gate {
     open: std::sync::Mutex<bool>,
     changed: std::sync::Condvar,

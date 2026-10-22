@@ -752,7 +752,7 @@ async fn unpolled_waiter_cannot_submit_after_its_deadline() -> Result<()> {
     cell.command(
         definition.increment.clone(),
         1_i64.to_be_bytes().to_vec(),
-        public_node::options(1)?,
+        public_node::archived_options(1)?,
     )
     .await?;
     let mut options = public_node::options(2)?;
@@ -1574,7 +1574,7 @@ async fn cancelled_private_callback_is_joined_before_its_slot_is_reused() -> Res
     cell.command(
         definition.increment.clone(),
         1_i64.to_be_bytes().to_vec(),
-        public_node::options(1)?,
+        public_node::archived_options(1)?,
     )
     .await?;
     let mut options = public_node::options(2)?;
@@ -1660,7 +1660,7 @@ async fn retained_handle_fenced() -> Result<()> {
     old.command(
         definition.increment.clone(),
         1_i64.to_be_bytes().to_vec(),
-        public_node::options(1)?,
+        public_node::archived_options(1)?,
     )
     .await?;
     let pending = old.command(

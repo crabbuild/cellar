@@ -53,7 +53,7 @@ async fn member_inspection_preserves_published_cut_while_callback_is_private() -
         .command(
             definition.increment.clone(),
             1_i64.to_be_bytes().to_vec(),
-            public_node::options(1)?,
+            public_node::archived_options(1)?,
         )
         .await?;
     let second = cell.command(

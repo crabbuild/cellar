@@ -611,21 +611,24 @@ pub async fn balance_with_lag() -> Result<()> {
     let fixture = Fixture::start(8, true, None).await?;
     for group in 0..8 {
         let receipt = fixture.write(group, 1, 1).await?;
-        assert_eq!(
-            fixture
-                .cell(0, group)?
-                .query(
-                    fixture.definitions[0].get.clone(),
-                    vec![],
-                    QueryOptions {
-                        consistency: QueryConsistency::AtLeast(receipt.version_token),
-                        ..Default::default()
-                    }
-                )
-                .await?
-                .result,
-            1_i64.to_be_bytes()
-        );
+        // Establish the old published image before isolating the lagging voter.
+        for reader in 0..3 {
+            assert_eq!(
+                fixture
+                    .cell(reader, group)?
+                    .query(
+                        fixture.definitions[reader].get.clone(),
+                        vec![],
+                        QueryOptions {
+                            consistency: QueryConsistency::AtLeast(receipt.version_token.clone()),
+                            ..Default::default()
+                        }
+                    )
+                    .await?
+                    .result,
+                1_i64.to_be_bytes()
+            );
+        }
         force_leader(&fixture, group, 0).await?;
     }
     fixture.data[2].block(true).await?;
