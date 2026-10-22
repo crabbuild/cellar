@@ -1,4 +1,4 @@
-"""HTTP metadata keeps the SDK's JSON representation and rejection rules."""
+"""SDK values and HTTP metadata preserve JSON representation and rejection rules."""
 from http import HTTPStatus
 import json
 from pathlib import Path
@@ -11,6 +11,62 @@ from cellar import Response, ValidationError, _encode, _encode_response
 
 
 class EncodingTests(unittest.TestCase):
+    def test_scalar_leaves_obey_the_exact_nesting_limit(self):
+        for scalar in (None, True, False, 0, -2**63, 2**64 - 1, 1.25, "text"):
+            value = scalar
+            for _ in range(64):
+                value = [value]
+            with self.subTest(scalar=scalar):
+                self.assertEqual(_encode(value), json.dumps(value, separators=(",", ":")))
+                with self.assertRaises(ValidationError) as caught:
+                    _encode([value])
+                self.assertEqual(caught.exception.outcome, "not_committed")
+
+    def test_scalar_subclasses_keep_values_and_integer_bounds(self):
+        class Meta(type):
+            def __eq__(self, other):
+                raise AssertionError("scalar type checks must not run metaclass equality")
+
+        class Number(int, metaclass=Meta):
+            pass
+
+        class Text(str, metaclass=Meta):
+            pass
+
+        class Fraction(float, metaclass=Meta):
+            pass
+
+        value = {Text("key"): [Number(-2**63), Number(2**64 - 1), Fraction(1.25), Text("é")]}
+        self.assertEqual(_encode(value), json.dumps(value, separators=(",", ":")))
+        for invalid in (Number(-2**63 - 1), Number(2**64), Fraction(float("nan")),
+                        Fraction(float("inf"))):
+            with self.subTest(value=invalid):
+                with self.assertRaises(ValidationError):
+                    _encode({"nested": [invalid]})
+
+    def test_integer_like_containers_still_validate_their_members(self):
+        class IntegerLike:
+            @property
+            def __class__(self):
+                return int
+
+            def __ge__(self, other):
+                return True
+
+            def __lt__(self, other):
+                return True
+
+        class Mapping(IntegerLike, dict):
+            pass
+
+        class Sequence(IntegerLike, list):
+            pass
+
+        for value in (Mapping({1: "invalid key"}), Mapping(key=2**64), Sequence([2**64])):
+            with self.subTest(container=type(value).__name__):
+                with self.assertRaises(ValidationError):
+                    _encode(value)
+
     def test_exact_escaping_and_order(self):
         value = dict(body="", headers=[['x-escape', '"\\\n\x00é☃😀']], status=201)
         self.assertEqual(

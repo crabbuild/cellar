@@ -33,22 +33,32 @@ class CellIdentity:
 _current_invocation = ContextVar("cellar_invocation", default=None)
 
 
+# Reuse the validator: a per-call recursive closure creates cyclic garbage.
+def _check_value(item, depth=0):
+    if depth > 64:
+        raise ValueError("Cellar values are limited to 64 nesting levels")
+    kind = type(item)
+    if kind is str or kind is bool or item is None or kind is float:
+        return
+    if isinstance(item, int) and not -(2**63) <= item < 2**64:
+        raise ValueError("Cellar integers must fit signed or unsigned 64 bits")
+    # A container can advertise an integer __class__. Only exact scalars may
+    # skip the original container checks; subclasses retain their validation.
+    if kind is int:
+        return
+    if isinstance(item, dict):
+        if any(not isinstance(key, str) for key in item):
+            raise TypeError("Cellar object keys must be strings")
+        for child in item.values():
+            _check_value(child, depth + 1)
+    elif isinstance(item, (list, tuple)):
+        for child in item:
+            _check_value(child, depth + 1)
+
+
 def _encode(value):
-    def check(item, depth=0):
-        if depth > 64:
-            raise ValueError("Cellar values are limited to 64 nesting levels")
-        if isinstance(item, int) and not -(2**63) <= item < 2**64:
-            raise ValueError("Cellar integers must fit signed or unsigned 64 bits")
-        if isinstance(item, dict):
-            if any(not isinstance(key, str) for key in item):
-                raise TypeError("Cellar object keys must be strings")
-            for child in item.values():
-                check(child, depth + 1)
-        elif isinstance(item, (list, tuple)):
-            for child in item:
-                check(child, depth + 1)
     try:
-        check(value)
+        _check_value(value)
         return _json.dumps(value, allow_nan=False, separators=(",", ":"))
     except (ValueError, TypeError, RecursionError) as error:
         raise ValidationError("Unsupported Cellar value") from error
