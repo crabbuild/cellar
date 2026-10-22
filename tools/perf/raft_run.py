@@ -210,6 +210,25 @@ def summarize_ledger(path, phase, seconds, *, cells=None):
             'error_fraction': (counts['offered'] - counts['completed']) / counts['offered'] if counts['offered'] else 1}
 
 
+def observe_failed_seed(cell, bases, token, docker, nodes, run_id):
+    """Read-only diagnostics; never retry or change the failed command outcome."""
+    replicas, kernel = [], []
+    for member in members(cell, len(bases)):
+        row = {'cell': cell, 'node': member, 'started_ns': time.monotonic_ns()}
+        try:
+            row['status'], row['response'] = request(bases[member - 1], f'/admin/{cell}', token, timeout=.5)
+        except Exception as error:
+            row['error_type'] = type(error).__name__
+        row['finished_ns'] = time.monotonic_ns()
+        replicas.append(row)
+    for node in nodes:
+        try:
+            kernel.extend(capture_kernel(docker, [node], run_id))
+        except Exception as error:
+            kernel.append({'node': node, 'error_type': type(error).__name__})
+    return {'replicas': replicas, 'kernel': kernel}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--image')
@@ -370,26 +389,6 @@ def run(args, profile, build, docker, cpus, memory):
             extra = {'x-command-id': headers['command_id'], 'x-retry-until-ms': str(headers['retry_until_ms'])} if operation == 'command' else {
                 'x-read-consistency': body['consistency'], 'x-min-version': headers.get('min_version', '')}
             return request(bases[node], f'/cells/{cell}', token, method='POST' if operation == 'command' else 'GET', body=body if operation == 'command' else None, headers=extra)
-        state = {}
-        for cell in range(profile['cells']['total']):
-            change = {'kind': 'initialize', 'database_bytes': profile['database_bytes'][cell % len(profile['database_bytes'])]}
-            command_id = hashlib.sha256(f'{run_id}:{cell}'.encode()).hexdigest()[:32] + ':1'
-            headers = {'command_id': command_id, 'retry_until_ms': int(time.time()*1000) + profile['timing']['retry_window_ms']}
-            ledger.append({'event': 'seed_invoke', 'cell': cell, 'input': change, 'input_sha256': input_digest(change), **headers})
-            code, reply = send(cell, 'command', change, headers)
-            ledger.append({'event': 'seed_complete', 'cell': cell, 'status': code, 'response': reply})
-            expected, changed = model(None, change)
-            require(code == 200 and reply['state'] == expected and reply['changed'] == changed and reply['durability'] == profile['durability'], 'seed failed; retain original command identity and ledger')
-            state[cell] = {'state': expected, 'next_sequence': 2, 'version_token': reply['version_token'], 'index': reply['index']}
-        def wait_archive():
-            began = time.monotonic()
-            while True:
-                observations = [request(bases[cell % node_count], f'/admin/{cell}', token) for cell in state]
-                if all(code == 200 and item['archived'] >= state[cell]['index'] for cell, (code, item) in enumerate(observations)):
-                    return observations, time.monotonic() - began
-                require(time.monotonic() - began < profile['slo']['max_archive_lag_seconds'], 'archive drain exceeded declared SLO')
-                time.sleep(.5)
-        report['initial_archive'], report['initial_archive_seconds'] = wait_archive()
         def capture():
             rows = []
             for node, base in enumerate(bases, 1):
@@ -426,6 +425,36 @@ def run(args, profile, build, docker, cpus, memory):
                 report['sampler_failure'] = str(error)
         sampler = threading.Thread(target=sample)
         sampler.start()
+        report['startup_kernel'] = capture_kernel(docker, nodes + [prefix + '-store'], run_id)
+        report['seeding_started_monotonic_seconds'] = time.monotonic()
+        state = {}
+        for cell in range(profile['cells']['total']):
+            change = {'kind': 'initialize', 'database_bytes': profile['database_bytes'][cell % len(profile['database_bytes'])]}
+            command_id = hashlib.sha256(f'{run_id}:{cell}'.encode()).hexdigest()[:32] + ':1'
+            headers = {'command_id': command_id, 'retry_until_ms': int(time.time()*1000) + profile['timing']['retry_window_ms']}
+            ledger.append({'event': 'seed_invoke', 'monotonic_seconds': time.monotonic(), 'cell': cell, 'input': change, 'input_sha256': input_digest(change), **headers})
+            try:
+                code, reply = send(cell, 'command', change, headers)
+            except Exception:
+                report['seed_failure_observations'] = observe_failed_seed(cell, bases, token, docker, nodes + [prefix + '-store'], run_id)
+                raise
+            ledger.append({'event': 'seed_complete', 'monotonic_seconds': time.monotonic(), 'cell': cell, 'status': code, 'response': reply})
+            expected, changed = model(None, change)
+            valid = code == 200 and reply['state'] == expected and reply['changed'] == changed and reply['durability'] == profile['durability']
+            if not valid:
+                report['seed_failure_observations'] = observe_failed_seed(cell, bases, token, docker, nodes + [prefix + '-store'], run_id)
+            require(valid, 'seed failed; retain original command identity and ledger')
+            state[cell] = {'state': expected, 'next_sequence': 2, 'version_token': reply['version_token'], 'index': reply['index']}
+        def wait_archive():
+            began = time.monotonic()
+            while True:
+                observations = [request(bases[cell % node_count], f'/admin/{cell}', token) for cell in state]
+                if all(code == 200 and item['archived'] >= state[cell]['index'] for cell, (code, item) in enumerate(observations)):
+                    return observations, time.monotonic() - began
+                require(time.monotonic() - began < profile['slo']['max_archive_lag_seconds'], 'archive drain exceeded declared SLO')
+                time.sleep(.5)
+        report['seeding_finished_monotonic_seconds'] = time.monotonic()
+        report['initial_archive'], report['initial_archive_seconds'] = wait_archive()
         if args.fault_config is not None:
             control = BoundContainer(**args.fault_engine, node=f"{prefix}-node{args.fault_config['node']}", owner=run_id)
             fault = SlowFollower(root, args.scenario, args.fault_config, profile, prefix, run_id, control,

@@ -115,6 +115,25 @@ class Profiles(unittest.TestCase):
                 members(0, nodes)
 
 
+class SeedDiagnostics(unittest.TestCase):
+    def test_failed_seed_inspects_all_assigned_peers_and_preserves_partial_errors(self):
+        from raft_run import observe_failed_seed
+        bases = ['node1', 'node2', 'node3', 'node4', 'node5']
+        nodes = bases + ['store']
+        with patch('raft_run.request', side_effect=[TimeoutError('private context'), (200, {'leader': None}), (200, {'leader': 2})]) as request, \
+             patch('raft_run.capture_kernel', side_effect=[ValueError('private context')] + [[{'node': node}] for node in nodes[1:]]) as kernel:
+            result = observe_failed_seed(781, bases, 'private-token', Mock(), nodes, 'owner')
+        self.assertEqual([row['node'] for row in result['replicas']], [2, 3, 4])
+        self.assertEqual(result['replicas'][0]['error_type'], 'TimeoutError')
+        self.assertEqual(result['kernel'][0]['error_type'], 'ValueError')
+        self.assertEqual(len(result['kernel']), 6)
+        self.assertNotIn('private', json.dumps(result))
+        self.assertEqual(kernel.call_count, 6)
+        for call, base in zip(request.call_args_list, bases[1:4]):
+            self.assertEqual(call.args, (base, '/admin/781', 'private-token'))
+            self.assertEqual(call.kwargs, {'timeout': .5})
+
+
 
 class Freshness(unittest.TestCase):
     def test_harness_rejects_stale_binary(self):

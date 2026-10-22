@@ -184,6 +184,12 @@ is charged container I/O, not complete physical-device or host-volume attributio
 The report retains observation overhead instead of subtracting an assumed cost.
 Use the recorded analyzer revision for older evidence; fresh reports require
 these kernel observations, while the internal format marker remains 1.
+Periodic resource and runtime sampling begins before cell initialization, after
+full topology and executable verification. Seed ledger events include monotonic
+timestamps. A refused seed additionally records bounded read-only views from its
+three assigned peers and best-effort kernel observations before shutdown. These
+diagnostics retain failures; they never retry a mutation or turn a refused seed
+into a successful workload run.
 
 ## Controlled slow-follower experiments
 
