@@ -31,5 +31,13 @@
       "volumes_retained": 374,
       "images_retained": 53
     }
+  },
+  "between_cohorts": {
+    "sha256": "2c4d347915d212ac7c27eb43c610683b778c1f053c0ec403fc62aadd87200c2d",
+    "files": 125,
+    "logical_bytes": 2076368400,
+    "allocated_bytes_saved": 1435922432,
+    "volumes": 3,
+    "original_volume_options_verified": true
   }
 }

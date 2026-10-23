@@ -1,13 +1,14 @@
 # TiKV comparison and Cellar performance investigation
 
-Status: PR #98's conflicts are resolved through main `1455fb0`. Observation
-build `e9748fa` completes the 1,500-group diagnostic at 217.23 / 178.17 TPS and
-249.13 / 366.59-ms p99, with 17,313 / zero known overload refusals. It **fails
-end-to-end performance qualification** despite exact 4,500-replica / 1,500-archive
-verification. Publication failures and rejected progress observations are zero;
-only 60 of 80,421 successful cuts encounter an incoherent local image. The next
-experiment isolates archive batch size, keeping four producers and all limits.
-No repeatable, error-free TPS gain is claimed. Earlier failures remain preserved.
+Status: PR #98's conflicts are resolved through main `1455fb0`. Same-binary
+`0b07410` archive batch-size comparison is complete. Two-cell batches reach
+286.08 / 208.53 TPS with 177.65 / 508.56-ms p99 and 169 / zero refusals;
+singletons reach 222.15 / 173.47 TPS with 219.38 / 408.45-ms p99 and zero errors.
+Both verify exact 4,500-replica / 1,500-archive state and stop cleanly. Singleton
+passes this run's 500-ms gate but has 20.01% lower mean successful TPS; keep the
+production default two. This is not a repeatable throughput improvement.
+Shared-host differences and the unreversed order limit attribution. Earlier
+failures and the publication/coverage diagnostic remain preserved below.
 
 ## Distinguish publication from local archive coverage
 
@@ -71,7 +72,7 @@ to the observation counters. All data verifies without reconciliation, shutdown
 is clean, peak node memory is 1.37 GB, and final archive catch-up takes 6.74 s.
 Raw evidence, images and volumes remain retained.
 
-### Next bounded experiment: archive batch size
+### Archive batch-size comparison
 
 `host_archive::publish` currently retains every cut reservation until
 `CellArchive::publish_batch` returns all members. The host receives all coverage
@@ -86,13 +87,52 @@ change it. A regression first accepts deliberately mismatched node observations
 and fails, then passes after validation is added. Production defaults and the
 native acknowledgement/recovery contracts are unchanged.
 
-Compare the same frozen binary at batch size two and one, each with four cut
+The completed comparison uses the same frozen binary at batch size two and one, each with four cut
 slots, 256 MiB admission bytes, 4,096 retained entries, four SQL workers / 64 work
 reservations, 24 writers and the same two-window load. Single-cell publication
 removes coalescing and the partner-completion dependency but may increase object
 I/O. Preserve all failures; require zero errors, p99 below 500 ms and exact data
 before considering a reversed confirmation. This tests the tradeoff before
 adding per-cut completion machinery, changing concurrency or increasing memory.
+
+The [completed pair](evidence/tikv-archive-batch.json), control first, reports:
+
+| Maximum batch size | TPS, windows 1 / 2 | Successful-request p99 ms | Errors |
+| --- | --- | --- | --- |
+| Two cells (control) | 286.08 / 208.53 | 177.65 / 508.56 | 169 / 0 |
+| One cell (candidate) | 222.15 / 173.47 | 219.38 / 408.45 | 0 / 0 |
+
+Both cohorts pass exact data verification without reconciliation, stop cleanly
+without OOM, and retain all artifacts. Peak memory is 1.72 / 1.36 GB; final
+archive catch-up takes 0.35 / 0.34 seconds. Singleton passes the 500-ms/zero-error
+gate in this pair, but mean successful throughput is **20.01% lower**. The
+production default stays two; no reversed confirmation or repeatable gain is
+claimed. All 169 control errors occur on node one, but only 167 match retained
+entry refusals and failed staging. The remaining two are not attributed.
+
+The two-cell setting actually averages 1.49 / 1.47 successful cuts per completed
+batch, versus exactly one for singleton. First-window batch duration is nearly
+equal (31.45 / 31.28 ms), with 55,744 / 58,073 successful cuts. Singleton's second
+window stages at 25.32 ms, prepares images at 8.12 ms and queues SQL at 11.96 ms,
+versus 18.38 / 5.79 / 7.49 ms for control. These overlapping durations and shared
+host conditions suggest that useful amortization is lost; they do not prove a
+causal per-operation CPU cost. The setting changes both object coalescing and
+partner completion waiting, so it cannot rule out per-cut completion while
+retaining bundled uploads.
+
+A separate tail signal needs attention: control window two's control-transport
+queue averages 175.52 ms and records 85,856 waits over one second, versus
+38.02 ms and zero such waits for singleton. Queue timing is not an additive
+client-latency component or proof of where the sender stalls. The next transport
+probe should distinguish queued frames, outstanding authenticated replies and
+receiver admission, then reproduce the relevant stall at the existing duplex
+transport test seam before changing window sizes or heartbeat policy.
+
+Other host builds overlap 36/36 samples in both control windows versus 9/36 and
+0/36 for singleton; about 8.66 GiB of swap remains. This imbalance and control-
+first order limit causal claims, even though singleton is slower in both windows.
+Closed control logs are losslessly compressed between cohorts to maintain the
+unchanged disk guard; fresh candidate storage is uncompressed and unchanged.
 
 [Capacity preservation](evidence/tikv-archive-batch-preservation.json) records
 lossless compression of 87 closed logs (1.00 GB saved), verified relocation of
@@ -101,6 +141,8 @@ aliases, and benchmark-only disk growth from 288 to 352 GiB for inode reserve.
 All volume options, images, logical contents and metadata remain. Fresh measured
 node data stays internal; RustFS stays on the original external VM disk. Both
 cohorts use the expanded filesystem and unchanged CPU/memory configuration.
+Between cohorts, another 125 closed logs are verified and compressed, saving
+1.44 GB without changing original volume paths or options.
 
 TiKV's `ApplyContext::write_to_db` flushes a shared KV write batch before
 callbacks; it does not justify acknowledging Cellar's independent images before
