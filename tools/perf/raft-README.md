@@ -60,6 +60,13 @@ correctness and latency checks. The node reports its configured byte budget at
 `/resources`; the runner and independent analyzer verify it at both boundaries.
 Setup continuation cannot change it. Production defaults remain unchanged.
 
+The [same-image 256/512-MiB experiment](../../plans/multi-raft/tikv-performance.md#larger-admission-budget-shifts-waiting-into-sqlite-work)
+finds no demonstrated throughput improvement: 236.97 versus 237.84 mean TPS,
+with worst p99 increasing from 206 to 234 ms. Both configurations pass exact
+replica/archive checks and zero-error windows, but reduced admission waiting
+is replaced by more SQL queueing and slower staging. Retain the 256-MiB default;
+a larger budget is an experiment, not a qualified performance recommendation.
+
 `--sql-workers` selects one to sixteen fixed SQL owners per node (default two).
 `--sql-worker-queue` bounds queued/executing reservations per owner (default 32).
 To isolate worker concurrency while retaining 64 total reservations, compare

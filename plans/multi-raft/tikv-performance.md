@@ -1,16 +1,77 @@
 # TiKV comparison and Cellar performance investigation
 
-Status: PR #98's conflicts are resolved through main `1455fb0`. The combined
-capture/admission-reuse candidate `8a34732` was rejected after confirmation;
-`b65615f` restored runtime source to admission-reuse control `230cd4f`. Current
-candidate `a10215e` adds bounded control-window refill on that baseline and passes
-a complete 1,500-group cohort with zero errors and exact replica/archive values.
-It does not demonstrate a throughput gain: 234.97 mean TPS versus the historical
-control's 237.70. The [transport evidence](evidence/tikv-control-sliding.json)
-distinguishes the local progress fix, the passing cohort and the unproven relative
-performance effect. Every earlier experiment and raw outcome remains preserved.
+Status: PR #98's conflicts are resolved through main `1455fb0`. Current runtime
+`7bbf71e` includes bounded control-window refill and admission timing. Fixture
+`6f57b79` exposes the existing archive byte budget without changing its default.
+The latest same-image 256/512-MiB comparison passes correctness and the accepted
+sub-500-ms gate, but **does not demonstrate a throughput improvement**: mean TPS
+is 236.97 versus 237.84 (+0.37%), while worst p99 increases from 206 to 234 ms.
+The production default remains 256 MiB. All earlier experiments, including the
+rejected capture candidate `8a34732`, remain preserved.
 
-## Admission timing result and next bounded-budget experiment
+## Larger admission budget shifts waiting into SQLite work
+
+The [same-image comparison](evidence/tikv-admission-budget.json) uses executable
+`6f57b79` for both configurations: three pinned 1-vCPU / 3-GiB nodes, 500 leaders
+and 1,000 followers each, four SQL workers / 64 reservations, four archive-cut
+slots, 500-ms ticks and 24 writers. Each cohort has fresh persistent volumes,
+a cold benchmark VM and two 180-second windows. Only the node-wide archive byte
+budget changes; the entry cap, durability proofs and production default do not.
+Every node reports the expected configured budget at both measurement boundaries.
+
+| Archive budget | TPS, windows 1 / 2 | p99 ms, windows 1 / 2 | Errors |
+| --- | --- | --- | --- |
+| 256 MiB control | 248.01 / 225.93 | 180.69 / 206.32 | 0 / 0 |
+| 512 MiB candidate | 251.70 / 223.99 | 176.49 / 233.50 | 0 / 0 |
+
+Both independently verify all 4,500 exact replica values and 1,500 RustFS archive
+positions without reconciliation, then stop cleanly with no OOM kill. Peak node
+memory remains below 1.66 GB. Final archive catch-up takes 0.38 / 5.74 seconds
+for control/candidate; these final waits do not establish continuous archive lag.
+All images, volumes and raw measurements remain retained.
+
+The reservation hypothesis is only partially supported. Admission wait per
+successful write falls from **32.81 / 38.86 ms** to **0.30 / 0.59 ms**, and the
+fraction waiting falls from 95–97% to 2–4%. However, SQL queue means rise from
+**8.21 / 8.83 ms** to **14.46 / 15.95 ms**, staging from **17.22 / 18.12 ms**
+to **21.84 / 24.03 ms**, and replica preparation from **6.10 / 6.69 ms** to
+**7.26 / 8.03 ms**. Shared-log persistence also increases from 1.01 / 1.13 ms
+to 1.21 / 1.45 ms. These operations overlap and have different counts; they
+cannot be summed into request latency. Reducing admission wait alone does not
+remove the downstream image-processing cost.
+
+Mean TPS changes by only **+0.37%**, with lower second-window TPS and higher
+worst-window p99. This does not justify increasing the default or claiming an
+optimization. A reversed-order confirmation is not pursued for this negligible
+observed benefit. Other compiler activity appears in 36/36 and 22/36 control
+samples versus 3/36 and 3/37 candidate samples; host swap remains about 9,232 MiB.
+The shared host prevents a causal non-regression guarantee despite the identical
+executable and workload. Node CPU usage stays around 72–78%; completed control
+queue observations over one second are zero in all four windows.
+
+The next priorities are reducing actual private capture/preview and replicated
+image work, distinguishing I/O service time from SQL queue residence, and
+eliminating repeated archive materialization while retaining dependency checks.
+A bounded SQL-owner comparison can test overlap, but must retain the same total
+reservation capacity and memory limit. Simply increasing queues or archive
+credits has not improved this workload. TiKV-style separation of applied and
+checkpointed progress remains a separate recovery protocol design, requiring
+log retention, snapshot/GC and crash qualification before any image sync is
+removed from Cellar's acknowledgement path.
+
+At pinned TiKV `b3995dab`, transaction scheduler `handle_flow_control` charges
+`to_be_write.size()` to the flow controller; deadline failure returns consumed
+quota. Cellar must reserve before invoking an arbitrary SQLite callback, then
+reduce to verified physical size after preparation. These are different safety
+contracts. TiKV's calculated-size flow control is useful design context, not
+justification for bypassing Cellar's pre-callback bound. Its shared KV apply
+batch also cannot be reproduced by changing Cellar's shared Raft-log writer.
+
+After preserving the pair, internal/external free space is approximately
+3.1 / 2.9 GiB. Another full cohort needs verified preservation/compression or
+relocation before the unchanged capacity guards can pass. No data is pruned.
+
+## Admission timing result and budget-experiment motivation
 
 The [observation cohort](evidence/tikv-admission-timing.json) uses frozen
 `7bbf71e` with the same production policies and resource limits. Two 180-second
@@ -1041,6 +1102,7 @@ and raft-engine `55bccdea42718ab2b4f90cdd9068da53b6bf4c39`.
 | Continuous bounded transport | Drains size/count-limited message batches into a readiness-controlled gRPC stream. | Cellar now refills its eight-frame control window per completed authenticated reply; it retains its own admission protocol and Raft persistence proofs. This fixes a local stall but has not established a TPS gain. |
 | Batched apply | Accumulates state-machine changes in a shared engine write batch; flushes before reporting apply results. | Cellar's separate SQLite images do not share TiKV's KV batch. Its per-image copy, validation, sync, and marker work can dominate despite a shared Raft log. |
 | Explicit recovery progress | Raftstore v2 disables tablet WAL while tracking flushed apply indices and retaining the history needed to replay missing state. | Cellar's durable applied marker currently names a durable immutable image. Delaying that image's persistence requires separate visible and durable progress, replay retention, and crash/snapshot/GC tests. |
+| Write-size flow control | Transaction flow control charges calculated mutation bytes and returns quota on deadline failure. | Cellar executes arbitrary callbacks and reserves maximum output before they run. Raising its reservation budget nearly eliminates that wait but did not improve sustained TPS in the same-image experiment. |
 | Coordinated hibernation | Peer agreement and quorum checks govern leader/group hibernation. | Increasing Cellar's fixture tick interval is a workload tradeoff, not an implementation of TiKV hibernation. |
 | Bounded backup concurrency | Backup workers acquire semaphore permits for scanning batches; optional CPU tuning adjusts the permit count. | Overlap independent archive I/O within a fixed window while retaining the recovery-set byte budget. The proposed four-read window does not implement CPU auto-tuning. |
 
@@ -1054,6 +1116,8 @@ Pinned primary sources:
 - [Bounded message batches and continuous sender polling](https://github.com/tikv/tikv/blob/b3995dab28308f09cbb7c125bf32f789dbc203fe/src/server/raft_client.rs).
 - [Apply batching](https://github.com/tikv/tikv/blob/b3995dab28308f09cbb7c125bf32f789dbc203fe/components/raftstore/src/store/fsm/apply.rs)
   and [flushed apply progress and recovery](https://github.com/tikv/tikv/blob/b3995dab28308f09cbb7c125bf32f789dbc203fe/components/raftstore-v2/src/operation/ready/apply_trace.rs).
+- [Transaction flow control and deadline quota return](https://github.com/tikv/tikv/blob/b3995dab28308f09cbb7c125bf32f789dbc203fe/src/storage/txn/scheduler.rs)
+  and [engine flow controller](https://github.com/tikv/tikv/blob/b3995dab28308f09cbb7c125bf32f789dbc203fe/src/storage/txn/flow_controller/singleton_flow_controller.rs).
 - [Hibernation state](https://github.com/tikv/tikv/blob/b3995dab28308f09cbb7c125bf32f789dbc203fe/components/raftstore/src/store/hibernate_state.rs).
 - [Backup concurrency permits](https://github.com/tikv/tikv/blob/b3995dab28308f09cbb7c125bf32f789dbc203fe/components/backup/src/softlimit.rs)
   and [worker admission and optional CPU tuning](https://github.com/tikv/tikv/blob/b3995dab28308f09cbb7c125bf32f789dbc203fe/components/backup/src/endpoint.rs).
