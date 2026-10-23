@@ -991,11 +991,10 @@ enum Phase {
 
 struct Pending {
     allow_new: bool,
-    wait_for_archive: bool,
     // Unknown until the callback's physical preview is verified. Keep this
     // bound after proposal submission takes `prepared`, through proof/reply.
     archive_bytes: Option<u64>,
-    // Admission deferral is timed here, until grant/refusal.
+    // Only transient admission deferral is timed here, until grant/refusal.
     // Dropping a cancelled/retired waiter records abandonment, never a grant.
     admission_wait: Option<super::performance::Timer>,
     system: bool,
@@ -1985,7 +1984,6 @@ impl Driver {
                 }
                 cell.pending = Some(Pending {
                     allow_new: admission == admission::Decision::Granted,
-                    wait_for_archive: admission == admission::Decision::Retained,
                     archive_bytes: None,
                     admission_wait: (admission == admission::Decision::Deferred).then(|| {
                         self.local
@@ -2531,9 +2529,6 @@ impl Driver {
             }
         };
         match (purpose, value) {
-            (SqlPurpose::Stage, Value::AdmissionDeferred(input)) => {
-                self.defer_archive(&scope, input);
-            }
             (SqlPurpose::Stage, Value::Staged(outcome)) => {
                 self.admission_at = 0;
                 if let Some(pending) = cell.pending.as_mut() {

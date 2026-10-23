@@ -1,17 +1,16 @@
 # TiKV comparison and Cellar performance investigation
 
-Status: PR #98's conflicts are resolved through main `1455fb0`. The bounded
-retained-history admission candidate passes local qualification: 518 library,
-59 archive, 19 execution, 29 host and nine multi-group tests, strict Clippy and
-repository checks. Its fresh sustained three-node comparison remains pending.
-The prior archive-completion experiment is reverted in `9c9630f`: mean successful
-TPS fell 13.83%, with 32,571 candidate refusals and 527.66-ms worst p99. Unequal
-compiler overlap limits causal attribution; neither cohort qualified. The earlier
-control-frame gathering experiment was also reverted after 18.71% lower mean TPS.
-No repeatable throughput gain is claimed. Two-cell archive batching and the
-256-MiB admission budget remain unchanged.
+Status: PR #98's conflicts are resolved through main `1455fb0`. Bounded
+retained-history waiting passed local correctness checks but failed its fresh
+three-node performance comparison. Candidate `6747573` delivered 14.84% lower
+mean successful TPS, a 565.52-ms worst p99 and 24 deadline expirations. The control
+also failed qualification with 4,443 refusals. Shared-host interference prevents
+causal attribution. The admission experiment is removed from active code, restoring
+production code and its tests exactly to `9c9630f`; its source, image, regression
+cases and raw evidence remain preserved. No repeatable throughput gain is claimed.
+Two-cell archive batching and the 256-MiB admission budget remain unchanged.
 
-## Bounded admission under retained-history pressure
+## Rejected bounded admission under retained-history pressure
 
 The latest pair attributes every overload refusal to retained data-entry pressure,
 with zero publication failures and zero rejected coverage updates. Three ranked
@@ -76,8 +75,72 @@ separately and retain the existing no-timed-retry and exact-state gates.
 verification and 42 read-only probes through original volume identities. Transparent
 compression recovers 6.89 GiB without removing logical contents, raw evidence,
 images or volumes. Fresh timed storage uses the same backing. The prepared next
-pair runs candidate first with unchanged 24 writers and two 180-second windows;
-performance and reversed-order confirmation are still outstanding.
+pair ran candidate first with unchanged 24 writers and two 180-second windows.
+
+### Fresh paired measurement and disposition
+
+[Paired evidence](evidence/tikv-retained-wait.json) compares frozen control
+`0b07410` with candidate `6747573`, using three pinned 1-vCPU / 3-GiB nodes,
+500 leaders and 1,000 followers each, 1,500 three-voter groups, four retained
+archive cuts, two-cell bundles and unchanged 256-MiB / 4,096-entry limits.
+Each cohort uses fresh internal node data, the same RustFS backing and a cold
+benchmark VM. The load AST is identical. Timed mutations never retry.
+
+| Build | Successful TPS, windows 1 / 2 | Successful-request p99 ms | Timed errors |
+| --- | --- | --- | --- |
+| Control | 254.60 / 254.44 | 192.21 / 210.98 | 0 / 4,443 Overloaded |
+| Retained-history waiting | 200.73 / 232.75 | 565.52 / 222.16 | 0 / 24 Unavailable |
+
+Mean successful TPS is 254.52 versus 216.74, a descriptive **14.84% decrease**.
+Neither cohort meets the zero-error / 500-ms gate. The candidate reduces errors
+in this observation but does not establish a throughput or latency benefit.
+Its first window never reaches retained-history pressure. Window two records
+83 explicit non-mutating deferral probes and 24 abandoned admission waits on
+node one, matching 24 unsubmitted deadline expirations. All stage successes
+reconcile exactly to successful writes plus the separately counted probes.
+Retained admission counters include waiter rechecks, not terminal error counts.
+Publication failures and rejected archive coverage remain zero.
+
+Both cohorts verify all **4,500 replica values and 1,500 archive positions** and
+stop cleanly without OOM. The candidate stops normal measurement finalization
+after its definitive failures; read-only postfailure verification proves the exact
+state. Its 24 refusals are **not reissued**, and the reconciliation report contains
+zero commands. The timed failure remains a failure. Final archive verification
+waits 5.82 seconds for control and 0.42 seconds for candidate after failure;
+these differently placed observations are not a steady-state catch-up comparison.
+The control's final cgroup peak is 1.78 GB. The candidate's normal final resource
+and peak-memory snapshots are unavailable, rather than zero. Its initial limits,
+timed CPU boundaries, exact data and clean shutdown are independently verified.
+
+Compiler activity overlaps 36/36 and 24/37 candidate samples versus 36/37 and
+5/37 control samples. Host swap stays around 9.1 GiB. Candidate allocated CPU
+utilization is roughly 68–81% with almost no quota throttling. Unequal host activity
+and candidate-first ordering prevent attributing the full TPS difference to code.
+No build or profiling by this task overlaps timed writes. Between cohorts, an
+attempt to compress closed checkout libraries finds no additional savings and
+leaves all original files unchanged; external free space recovers through shared
+host activity before the control's capacity preflight.
+
+The first paired analyzer invocation correctly stopped on missing candidate final
+cgroup snapshots. The corrected analysis reports missing snapshots explicitly,
+uses the separately verified postfailure archive result, and accounts for abandoned
+wait timers. The failed invocation and partial aggregate are retained. An independent failed-run check also recomputes TPS and every quantile from raw
+outcomes, checks unique command identities, and rechecks all replica values and
+archive positions; both 200-ms and 500-ms gates remain failed. No raw
+measurement, gate, deadline or data assertion was relaxed.
+
+The active implementation returns to `9c9630f` rather than retaining an admission
+policy change without a qualified performance gain. Restoration passes 53 native
+archive and 29 native host tests, strict all-target/all-feature Clippy, formatting
+and layout across 871 Rust files, the 454-package native dependency check and docs.
+All 118 frozen control source inputs match the restored checkout. The first
+dependency invocation lacked Cargo on PATH; its configured-toolchain rerun passes,
+and both logs remain. The locally passing candidate
+and six regressions remain in `6747573`. The next performance work should reduce
+per-cell image/replay cost and archive drain work, then measure the maximum
+error-free offered rate below the p99 bound. Merely raising capacity or converting
+refusals into waits does not increase the underlying service rate.
+
 
 ## Rejected independent completion within archive bundles
 

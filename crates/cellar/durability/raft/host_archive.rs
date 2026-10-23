@@ -26,9 +26,8 @@ pub struct RaftArchiveOptions {
     pub max_producers: usize,
     /// New callbacks reserve their maximum image/envelope size, reduced to the
     /// verified physical size after preparation. Temporary reservation pressure
-    /// and retained log/image pressure wait within original request deadlines
-    /// and admission bounds. Duplicate lookup remains available. An individually
-    /// oversized reservation or failed accounting still refuses new callbacks.
+    /// waits within request admission bounds; retained log/image backlog that
+    /// cannot fit a new reservation refuses fresh callbacks (not receipt lookup).
     pub max_unarchived_bytes: u64,
     /// Data-bearing entries; protocol-only entries also consume the byte cap.
     pub max_unarchived_entries: usize,

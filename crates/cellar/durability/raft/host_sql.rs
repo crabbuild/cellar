@@ -137,9 +137,6 @@ pub(crate) enum Value {
     Seeded(Box<super::snapshot::PreparedSeed>),
     Initialized(Option<ImageView>),
     Staged(StageOutcome),
-    /// The original input remains charged to the host request permit. The
-    /// physical worker has returned without invoking or retaining a callback.
-    AdmissionDeferred(Vec<u8>),
     Submitted,
     Discarded,
     Retired(cellar_logic::consensus::LogPosition),
@@ -470,8 +467,6 @@ impl Pool {
                         )
                         .and_then(|value| {
                             match &value {
-                                Value::AdmissionDeferred(_) => performance
-                                    .increment(MeasuredCounter::SqlStageAdmissionDeferred, 1),
                                 Value::Staged(StageOutcome::Prepared(prepared)) => {
                                     performance.increment(
                                         MeasuredCounter::SqlPreparedProposalBytes,
@@ -845,13 +840,12 @@ impl Cell {
                     executor.stage_registered_admitted(attempt, &self.class, &input, allow_new)
                 };
                 match result {
-                    Ok(StageAdmission::Complete(outcome)) => {
+                    Ok(outcome) => {
                         if matches!(&outcome, StageOutcome::Prepared(_)) {
                             self.active = Some(identity);
                         }
                         Ok(Value::Staged(outcome))
                     }
-                    Ok(StageAdmission::Deferred) => Ok(Value::AdmissionDeferred(input)),
                     Err(error) => {
                         self.discard(None)?;
                         Err(error)
