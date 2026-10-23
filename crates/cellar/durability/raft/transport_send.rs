@@ -3,7 +3,6 @@ use super::*;
 
 // Drain only already-admitted frames; never wait to fill a window. Every frame
 // retains its node/peer byte and item permits. A large data frame travels alone.
-const CONTROL_WINDOW: usize = 8;
 const DATA_WINDOW: usize = 16;
 const DATA_WINDOW_BYTES: usize = 1024 * 1024;
 
@@ -14,6 +13,9 @@ impl State {
         lane: Lane,
         mut requests: mailbox::Receiver<SendRequest>,
     ) {
+        if lane == Lane::Control {
+            return self.send_control(pool, requests).await;
+        }
         let mut stop = self.stop.subscribe();
         let mut peer_stop = pool.stop.subscribe();
         let mut connection = None;
@@ -34,10 +36,7 @@ impl State {
             let charge = |request: &SendRequest| {
                 request.body.len() + self.options.max_header_bytes + frame::PREFIX + frame::TAG
             };
-            let (max_frames, max_bytes) = match lane {
-                Lane::Control => (CONTROL_WINDOW, usize::MAX),
-                Lane::Data => (DATA_WINDOW, DATA_WINDOW_BYTES),
-            };
+            let (max_frames, max_bytes) = (DATA_WINDOW, DATA_WINDOW_BYTES);
             let mut bytes = charge(&first);
             let mut window = vec![first];
             while window.len() < max_frames && bytes < max_bytes {
@@ -175,7 +174,7 @@ impl State {
         Ok(())
     }
 
-    async fn finish_delivery(
+    pub(super) async fn finish_delivery(
         &self,
         pool: &Pool,
         mut request: SendRequest,

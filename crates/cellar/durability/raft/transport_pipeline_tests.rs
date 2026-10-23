@@ -6,6 +6,12 @@ use std::time::Duration;
 const WINDOW: usize = 8;
 
 async fn setup() -> anyhow::Result<(Fixture, TcpListener, Vec<GroupScope>)> {
+    setup_with_options(TransportOptions::default()).await
+}
+
+async fn setup_with_options(
+    options: TransportOptions,
+) -> anyhow::Result<(Fixture, TcpListener, Vec<GroupScope>)> {
     let scopes = (1..=2)
         .map(|id| {
             Ok(GroupScope {
@@ -29,7 +35,7 @@ async fn setup() -> anyhow::Result<(Fixture, TcpListener, Vec<GroupScope>)> {
             })
         })
         .collect::<anyhow::Result<Vec<_>>>()?;
-    let fixture = Fixture::start(TransportOptions::default(), groups).await?;
+    let fixture = Fixture::start(options, groups).await?;
     let listener = TcpListener::bind("127.0.0.1:0").await?;
     // Reserve distinct endpoints throughout setup instead of selecting ports.
     let data = TcpListener::bind("127.0.0.1:0").await?;
@@ -170,17 +176,11 @@ async fn control_window_sends_independent_groups_before_first_ack() -> anyhow::R
                 ready.send(()).unwrap();
                 wait_queued.await?;
                 let queue = timing(&fixture, "transport_control_queue");
-                assert_eq!(
-                    (
-                        queue.started,
-                        queue.succeeded,
-                        queue.failed,
-                        queue.abandoned
-                    ),
-                    (10, 1, 0, 0)
-                );
+                assert_eq!((queue.started, queue.failed, queue.abandoned), (10, 0, 0));
+                assert!((1..=WINDOW as u64).contains(&queue.succeeded));
                 let exchange = timing(&fixture, "transport_control_exchange");
-                assert_eq!((exchange.started, exchange.count), (1, 0));
+                assert!((1..=WINDOW as u64).contains(&exchange.started));
+                assert_eq!(exchange.count, 0);
                 acknowledge(&fixture, &mut stream, &exporter, &primer).await?;
                 let mut window = Vec::new();
                 for id in 1..=WINDOW {
@@ -238,7 +238,7 @@ async fn control_window_sends_independent_groups_before_first_ack() -> anyhow::R
                         exchange.failed,
                         exchange.abandoned
                     ),
-                    (3, 3, 0, 0)
+                    (10, 10, 0, 0)
                 );
                 assert_eq!(timing(&fixture, "transport_control_admit").started, 0);
                 assert_eq!(timing(&fixture, "transport_data_queue").started, 0);
@@ -253,6 +253,96 @@ async fn control_window_sends_independent_groups_before_first_ack() -> anyhow::R
             let (server, client) = tokio::join!(server, client);
             server?;
             client
+        }))
+        .await;
+    fixture.close().await?;
+    result???;
+    Ok(())
+}
+
+// A reply releases one slot even while later replies remain withheld. The
+// receiver is a real TLS peer and authenticates every frame in FIFO order.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn control_window_refills_after_each_reply() -> anyhow::Result<()> {
+    let (fixture, listener, scopes) = setup().await?;
+    let result = fixture
+        .domain
+        .run(crate::asyncrt::timeout(Duration::from_secs(3), async {
+            let primer = submit(&fixture, &scopes[0], 0)?;
+            let (mut stream, exporter) = accept(&fixture, &listener).await?;
+            let initial = read(&fixture, &mut stream, &exporter, 0).await?;
+            let deliveries = (1..=WINDOW + 1)
+                .map(|id| submit(&fixture, &scopes[id % 2], id as u8))
+                .collect::<anyhow::Result<Vec<_>>>()?;
+            acknowledge(&fixture, &mut stream, &exporter, &initial).await?;
+            primer.accepted().await?;
+            let mut received = Vec::new();
+            for id in 1..=WINDOW {
+                received.push(read(&fixture, &mut stream, &exporter, id as u8).await?);
+            }
+            // No ninth frame can be sent before at least one acknowledgement.
+            assert!(
+                crate::asyncrt::timeout(Duration::from_millis(20), stream.read_u8(),)
+                    .await
+                    .is_err()
+            );
+            acknowledge(&fixture, &mut stream, &exporter, &received[0]).await?;
+            let next = crate::asyncrt::timeout(
+                Duration::from_millis(300),
+                read(&fixture, &mut stream, &exporter, (WINDOW + 1) as u8),
+            )
+            .await
+            .map_err(|_| {
+                anyhow::anyhow!("one verified reply did not refill the bounded control window")
+            })??;
+            for request in received.iter().skip(1).chain(std::iter::once(&next)) {
+                acknowledge(&fixture, &mut stream, &exporter, request).await?;
+            }
+            for delivery in deliveries {
+                delivery.accepted().await?;
+            }
+            anyhow::ensure!(fixture.transport.usage().control_items == 0);
+            Ok::<_, anyhow::Error>(())
+        }))
+        .await;
+    fixture.close().await?;
+    result???;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn control_window_refill_does_not_renew_older_frame_deadline() -> anyhow::Result<()> {
+    let (fixture, listener, scopes) = setup_with_options(TransportOptions {
+        io_timeout_ms: 1000,
+        ..TransportOptions::default()
+    })
+    .await?;
+    let result = fixture
+        .domain
+        .run(crate::asyncrt::timeout(Duration::from_secs(3), async {
+            let first = submit(&fixture, &scopes[0], 0)?;
+            let second = submit(&fixture, &scopes[1], 1)?;
+            let (mut stream, exporter) = accept(&fixture, &listener).await?;
+            let reply = read(&fixture, &mut stream, &exporter, 0).await?;
+            let _held = read(&fixture, &mut stream, &exporter, 1).await?;
+            crate::asyncrt::sleep(Duration::from_millis(600)).await;
+            acknowledge(&fixture, &mut stream, &exporter, &reply).await?;
+            first.accepted().await?;
+            let refill = submit(&fixture, &scopes[0], 2)?;
+            let _next = read(&fixture, &mut stream, &exporter, 2).await?;
+            let outcome =
+                crate::asyncrt::timeout(Duration::from_millis(650), second.accepted()).await?;
+            anyhow::ensure!(
+                outcome == Err(TransportError::Timeout),
+                "older frame deadline changed: {outcome:?}"
+            );
+            anyhow::ensure!(refill.accepted().await == Err(TransportError::Timeout));
+            anyhow::ensure!(fixture.transport.usage().control_items == 0);
+            anyhow::ensure!(
+                stream.read_u8().await.is_err(),
+                "failed connection remained open"
+            );
+            Ok::<_, anyhow::Error>(())
         }))
         .await;
     fixture.close().await?;
@@ -366,7 +456,7 @@ async fn failed_window(failure: Failure) -> anyhow::Result<()> {
                             exchange.failed,
                             exchange.abandoned
                         ),
-                        (2, 1, 1, 0)
+                        (9, 1, 8, 0)
                     );
                     completed.send(()).unwrap();
                     return Ok::<_, anyhow::Error>(());
@@ -416,7 +506,11 @@ async fn failed_window(failure: Failure) -> anyhow::Result<()> {
                         exchange.failed,
                         exchange.abandoned
                     ),
-                    (2, 1, 1, 0)
+                    if matches!(failure, Failure::LostReply) {
+                        (9, 2, 7, 0)
+                    } else {
+                        (9, 1, 8, 0)
+                    }
                 );
                 for (scope, expected) in scopes.iter().zip(&initial_commit) {
                     anyhow::ensure!(fixture.runtime.status(scope).await?.committed == *expected);
@@ -515,7 +609,16 @@ async fn control_window_drives_both_directions_with_one_byte_buffers() -> anyhow
         .run(crate::asyncrt::timeout(Duration::from_secs(3), async {
             let (mut client, mut server) = tokio::io::duplex(1);
             let exporter = [7; 32];
-            let mut outcomes = vec![None; WINDOW];
+            let (sender, mut inbox) = mailbox::channel(WINDOW);
+            let pool = state.registry.lock().unwrap().pools[&requests[0].peer.replica.node].clone();
+            for request in requests.drain(..) {
+                sender
+                    .try_send(request)
+                    .map_err(|_| anyhow::anyhow!("fixture queue full"))?;
+            }
+            let first = inbox.recv().await.expect("first control frame");
+            let mut pending =
+                std::collections::VecDeque::from([control_sender::Pending::new(state, first)]);
             let receiver = async {
                 for id in 1..=WINDOW {
                     let frame = read(&fixture, &mut server, &exporter, id as u8).await?;
@@ -524,18 +627,12 @@ async fn control_window_drives_both_directions_with_one_byte_buffers() -> anyhow
                 Ok::<_, anyhow::Error>(())
             };
             let (sent, received) = tokio::join!(
-                state.exchange_window(
-                    &mut client,
-                    &exporter,
-                    Lane::Control,
-                    &requests,
-                    &mut outcomes
-                ),
+                state.exchange_control(&mut client, &exporter, &pool, &mut inbox, &mut pending,),
                 receiver
             );
             sent?;
             received?;
-            anyhow::ensure!(outcomes == vec![Some(Ok(())); WINDOW]);
+            anyhow::ensure!(pending.is_empty());
             Ok::<_, anyhow::Error>(())
         }))
         .await;

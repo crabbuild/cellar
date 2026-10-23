@@ -26,6 +26,8 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{mpsc, oneshot, watch, Notify, Semaphore};
 
+#[path = "transport_control_send.rs"]
+mod control_sender;
 #[path = "transport_directory.rs"]
 mod directory;
 #[path = "inspection_transport.rs"]

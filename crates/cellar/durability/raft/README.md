@@ -558,6 +558,18 @@ local member identity and durable configuration. Unknown groups never create
 storage or fetch a bucket object. Each physical peer has separate incoming and
 outgoing banks, so full outbound queues cannot consume inbound response capacity.
 
+Control transmission holds at most eight selected frames and refills a slot as
+soon as its FIFO authenticated reply and physical write finish. A later held
+reply cannot delay that refill. Each selected frame keeps its original I/O
+deadline, node/peer reservations and route identity. The reader and writer make
+progress together, retaining partially completed I/O across scheduling events;
+failed connections close before pending reservations are released and never
+blindly replay selected frames. Data transmission retains its separate 16-frame /
+1-MiB bounded batches, with oversized frames alone. The control-exchange timer
+measures individual selected frames; the data-exchange timer measures batches.
+Queue timers remain per frame. Older control measurements used batch timers, so
+their exchange counts and means are not directly comparable.
+
 The marker-1 wire uses TLS 1.3 with verified server certificates and no early
 data. A distinct HMAC domain authenticates each request and response with the
 existing fleet secret, a normal TLS exporter and length-framed inputs. Requests

@@ -7,6 +7,45 @@ improvement: confirmation window two reached 941.58-ms p99 with seven ambiguous
 writes. The runtime is restored byte-for-byte to the verified admission-reuse
 control `230cd4f`; all capture experiments and raw evidence remain preserved.
 
+## Bounded control-window refill experiment
+
+The failed confirmation motivates three ranked hypotheses: the fixed control
+batch barrier amplifies a slow reply; synchronized group ticks exceed lane
+service; or shared-host pressure dominates both effects. A real TLS regression
+isolates the first: queue nine frames behind a primer, read eight, withhold seven
+replies, acknowledge the first and require the ninth frame within 300 ms. The
+old sender fails with `one verified reply did not refill the bounded control
+window`. The initial fixture attempt timed out before reaching that assertion;
+its corrected primer synchronization produces the targeted failure.
+
+The new sender refills each completed slot while retaining the eight-frame
+bound. It holds node/peer permits outside cancellable read/write futures,
+authenticates replies in FIFO order, rechecks route identity and retains each
+frame's original deadline. Partial I/O futures survive scheduling events; errors
+close the connection before resolving pending deliveries. No message is blindly
+replayed. The data lane's batch policy is unchanged. Control exchange timing now
+counts frames rather than batches; queue timing remains comparable.
+
+At pinned TiKV `b3995dab`, `src/server/raft_client.rs::AsyncRaftSender::poll`
+repeatedly drains bounded `BatchMessageBuffer` work subject to gRPC sink readiness.
+Cellar's change borrows continuous bounded draining while preserving its own
+per-frame authenticated admission protocol. TiKV's streaming RPC completion is
+not a substitute for Cellar's Raft append responses or durability gates.
+
+The refill regression passes. The complete 27-test transport selection passes,
+including lost/reordered replies, revocation, cancellation/physical joining and
+one-byte duplex buffers through the new production path. A further regression
+holds an older frame through a successful reply and refill and proves its
+original deadline still expires. These results establish transport behavior,
+not a throughput or p99 improvement. Native validation passes 516 library tests,
+52 archive, 19 execution, 29 host, nine multi-group and 44 snapshot tests; child
+entry points remain harness-driven. Both new refill tests pass ten repeated runs.
+Strict all-target/all-feature Cellar Clippy passes after replacing a manual
+conditional dequeue with `pop_front_if`; the route check still precedes removal.
+The next full candidate cohort uses the frozen admission-reuse control as a
+historical reference, not a fresh adjacent pair. Paired performance confirmation
+remains required before claiming a repeatable gain.
+
 ## Reversed-order capture confirmation
 
 The [confirmation evidence](evidence/tikv-capture-confirmation.json) records
