@@ -5,8 +5,9 @@ Status: observed baseline. Source: `c24feb2`. Recorded: 2026-10-12.
 ## Context and decision
 
 Cellar applications implement the Rust SDK and compile their factories into
-native executables. The workspace excludes JavaScript engines, including
-all-feature builds. The generic CLI builds/manages packages but cannot serve
+native executables. Native-only applications exclude JavaScript engines, including
+all-feature builds of the native host. Optional language adapters are described
+in the amendments below. The generic CLI builds/manages packages but cannot serve
 uncompiled factories. Source JavaScript and previous Python/Wasm wrappers are
 unsupported executable formats.
 
@@ -35,3 +36,11 @@ the runtime/package closure. External OS libraries remain platform prerequisites
 The integration decision is recorded in [ADR 004](004-embedded-python.md).
 This is not an isolation mechanism for untrusted code. See the
 [design and outstanding qualification](../../plans/007-embedded-python-pyo3.md).
+
+## Optional JavaScript/TypeScript adapter (2026-10-22)
+
+[ADR 005](005-embedded-javascript.md) permits the explicit `cellar-javascript`
+adapter to embed V8. The native host and decision core remain engine-free.
+TypeScript and compatible npm packages are compiled into the executable; the
+native executable format and digest verification remain authoritative. The
+JavaScript build opt-in does not permit other engines or imply Node compatibility.

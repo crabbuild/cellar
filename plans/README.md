@@ -14,9 +14,15 @@ MR-13 is in progress and MR-14 through MR-17 remain open.
 | Design | Status | Scope |
 | --- | --- | --- |
 | [007: Embedded CPython through PyO3](007-embedded-python-pyo3.md) | Partial; full-plan audit active | Python request and cell handlers, invocation-bound SDK access, atomic storage batches, interpreter lifecycle, packaging and qualification gates |
+| [008: Embedded JavaScript and TypeScript](008-embedded-javascript-typescript.md) | V8 and Node backends implemented; production gates open | Optional Rust-owned JS runtime, build-time TypeScript, invocation authority, component composition, deployment and qualification gates |
 
-The optional interpreter adapter is implemented above the native Rust SDK.
-Its Python API sketches are not implemented or runnable examples.
+The optional Python adapter is implemented above the native Rust SDK; its
+[crate guide](../crates/cellar-python/README.md) and
+[example](../examples/python/README.md) describe the delivered API. The JavaScript
+[adapter guide](../crates/cellar-javascript/README.md) and
+[TypeScript/npm example](../examples/javascript/README.md), and
+[Node.js example](../examples/node/README.md) describe implemented
+behavior. Broader API sketches in plan 008 remain future work.
 
 ## Primitive designs
 

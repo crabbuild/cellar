@@ -1,4 +1,5 @@
 //! Checked content-addressed archive reader. Never invokes tar unpack.
+use super::super::filesystem::{rename_new, sync_directories};
 use super::files::verify_inventory_files;
 use crate::protocol::{
     PythonEnvironmentRef, PythonFile, PythonInventory, MAX_PYTHON_ARCHIVE_BYTES,
@@ -219,12 +220,6 @@ pub(super) fn install(
     }
     // Only directories/files we created are present; symlink destinations were
     // checked against the inventory roots before any filesystem mutation.
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        // The installed runtime may be read by a distinct service account.
-        std::fs::set_permissions(staging.path(), std::fs::Permissions::from_mode(0o755))?;
-    }
     sync_directories(staging.path())?;
     // Atomically refuse even an empty competing directory. A separate check
     // followed by ordinary rename would silently replace that directory.
@@ -250,58 +245,6 @@ fn relative<'a>(path: &'a Path, prefix: &Path) -> Result<&'a Path> {
         "invalid Python install relative path"
     );
     Ok(relative)
-}
-
-fn sync_directories(path: &Path) -> Result<()> {
-    for child in std::fs::read_dir(path)? {
-        let child = child?;
-        if child.file_type()?.is_dir() {
-            sync_directories(&child.path())?;
-        }
-    }
-    std::fs::File::open(path)?.sync_all()?;
-    Ok(())
-}
-
-fn rename_new(source: &Path, destination: &Path) -> std::io::Result<()> {
-    #[cfg(any(target_os = "linux", target_os = "macos"))]
-    {
-        let source = std::ffi::CString::new(source.as_os_str().as_encoded_bytes())
-            .map_err(std::io::Error::other)?;
-        let destination = std::ffi::CString::new(destination.as_os_str().as_encoded_bytes())
-            .map_err(std::io::Error::other)?;
-        #[cfg(target_os = "linux")]
-        // SAFETY: both names are owned, NUL-terminated paths valid for this
-        // synchronous syscall. Kernel NOREPLACE performs one atomic publication.
-        let result = unsafe {
-            libc::syscall(
-                libc::SYS_renameat2,
-                libc::AT_FDCWD,
-                source.as_ptr(),
-                libc::AT_FDCWD,
-                destination.as_ptr(),
-                libc::RENAME_NOREPLACE,
-            )
-        };
-        #[cfg(target_os = "macos")]
-        // SAFETY: owned path buffers remain alive for the syscall; RENAME_EXCL
-        // atomically refuses any existing destination, including empty dirs.
-        let result =
-            unsafe { libc::renamex_np(source.as_ptr(), destination.as_ptr(), libc::RENAME_EXCL) };
-        if result == 0 {
-            Ok(())
-        } else {
-            Err(std::io::Error::last_os_error())
-        }
-    }
-    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
-    {
-        let _ = (source, destination);
-        Err(std::io::Error::new(
-            std::io::ErrorKind::Unsupported,
-            "Python environment installation requires Linux or macOS",
-        ))
-    }
 }
 
 #[cfg(test)]

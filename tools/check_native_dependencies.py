@@ -13,7 +13,8 @@ def main():
     ], text=True))
     packages = {package["id"]: package for package in metadata["packages"]}
     nodes = {node["id"]: node for node in metadata["resolve"]["nodes"]}
-    roots = metadata["workspace_members"]
+    roots = [root for root in metadata["workspace_members"]
+             if packages[root]["name"] != "cellar-javascript"]
     reachable = set()
     pending = list(roots)
     while pending:
@@ -30,8 +31,8 @@ def main():
     found = sorted(packages[package_id]["name"] for package_id in reachable
                    if packages[package_id]["name"] in engines)
     if found:
-        sys.exit(f"Cellar workspace activates a JavaScript engine: {found}")
-    print(f"Cellar workspace (all features): {len(reachable)} reachable packages; no JavaScript engine")
+        sys.exit(f"Cellar native-only graph activates a JavaScript engine: {found}")
+    print(f"Cellar native-only workspace (all features): {len(reachable)} reachable packages; no JavaScript engine")
 
 
 if __name__ == "__main__":

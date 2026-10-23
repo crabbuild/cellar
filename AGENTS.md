@@ -42,7 +42,9 @@ Start with the [documentation index](docs/README.md) for architecture and APIs.
   the required durability proof; failed recovery must refuse admission.
 - Preserve typed failures and operation-specific retry rules. A lost response
   does not establish whether a mutation committed.
-- Cellar executes native Rust applications without JavaScript engines. During
+- The Rust core and native-only applications remain free of JavaScript engines.
+  The optional `cellar-javascript` adapter may embed V8 when explicitly selected;
+  keep engine dependencies out of the host and pure decision core. During
   internal development, Cellar-owned format markers stay at 1; use hard cutovers
   rather than legacy readers or state migrations.
 
