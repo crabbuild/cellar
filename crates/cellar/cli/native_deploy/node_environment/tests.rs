@@ -210,7 +210,16 @@ fn node_archives_reject_missing_duplicate_unlisted_and_special_entries() -> Resu
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn node_publish_and_install_require_verified_runtime_before_selector_or_executable(
 ) -> Result<()> {
-    crate::asyncrt::set_host_handle(tokio::runtime::Handle::current());
+    // This fixture shares the library test process with the CLI bootstrap
+    // contract. Own and join its domain instead of installing a second process
+    // singleton or leaving services attached to this test's dropped runtime.
+    let domain = crate::asyncrt::ExecutionDomain::new(tokio::runtime::Handle::current());
+    let result = domain.run(verify_publish_and_install()).await;
+    domain.shutdown().await;
+    result?
+}
+
+async fn verify_publish_and_install() -> Result<()> {
     let fixture = Fixture::new()?;
     let host = fixture.output.join("host");
     std::fs::write(&host, b"native fixture")?;
