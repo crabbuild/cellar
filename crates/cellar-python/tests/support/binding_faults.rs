@@ -32,20 +32,31 @@ async fn wait_phase(
     .with_context(|| format!("{command} did not reach {phase}"))?
 }
 
-async fn drained(client: &reqwest::Client, url: &str) -> Result<Value> {
+async fn drained(client: &reqwest::Client, url: &str, phase: &str) -> Result<Value> {
     let mut refused = 0;
+    let mut last_metrics = None;
+    let mut last_status = None;
+    let mut probe = "metrics";
+    let mut observations = 0;
     let result = tokio::time::timeout(Duration::from_secs(10), async {
         loop {
             // Reset is asynchronous after failed proof. These two fixed
             // observations contain only metrics, KV reads and SELECTs; retry
             // their temporary refusal, never a mutation/attempt endpoint.
+            probe = "metrics";
             let metrics = client.get(format!("{url}/metrics")).send().await?;
+            last_status = Some(metrics.status().as_u16());
+            observations += 1;
             if matches!(metrics.status().as_u16(), 500 | 503) {
                 refused += 1;
             } else {
                 let metrics: Value = metrics.error_for_status()?.json().await?;
-                if metrics["count"].as_f64() == Some(0.0) {
+                let empty = metrics["count"].as_f64() == Some(0.0);
+                last_metrics = Some(metrics);
+                if empty {
+                    probe = "state";
                     let state = client.get(format!("{url}/state")).send().await?;
+                    last_status = Some(state.status().as_u16());
                     if matches!(state.status().as_u16(), 500 | 503) {
                         refused += 1;
                     } else {
@@ -58,7 +69,7 @@ async fn drained(client: &reqwest::Client, url: &str) -> Result<Value> {
     })
     .await;
     result.with_context(|| {
-        format!("binding queue did not recover/drain; {refused} read-only probes refused")
+        format!("binding queue did not recover/drain during {phase}; {refused} read-only probes refused; observations={observations}, probe={probe}, last_status={last_status:?}, last_metrics={last_metrics:?}")
     })?
 }
 
@@ -103,7 +114,7 @@ pub(super) fn child() -> Result<()> {
             let (node, url) = start_graph(&data, application.clone(), "binding-faults", Some(bucket.clone()), configure).await?;
             let client = reqwest::Client::builder().timeout(Duration::from_secs(20)).build()?;
             ensure!(value(&client, &url, "/setup").await? == true);
-            drained(&client, &url).await?;
+            drained(&client, &url, "setup").await?;
             for binding in ["kv", "sql", "queue"] {
                 ensure!(value(&client, &url, &format!("/attempt/{binding}/before")).await? == json!({"phase":"cancelled"}));
                 for mode in ["cancel", "failure"] {
@@ -144,7 +155,7 @@ pub(super) fn child() -> Result<()> {
                     // A cancelled/failed inner mutation does not establish its
                     // output proof. The outer request is not an effect receipt.
                     let _response = response?;
-                    let state = drained(&client, &url).await?;
+                    let state = drained(&client, &url, &command).await?;
                     let present = match binding {
                         "kv" => state["kv"][mode] == json!({"receipt":command}),
                         "sql" => state["sql"].as_array().context("SQL receipts")?.iter().any(|row|row["command"] == command),
@@ -157,18 +168,18 @@ pub(super) fn child() -> Result<()> {
                     // work. Neither outcome changes the unknown SDK verdict.
                     // Reconciliation must converge in both cases.
                     ensure!(value(&client, &url, &format!("/reconcile/{binding}/{mode}")).await? == true);
-                    drained(&client, &url).await?;
+                    drained(&client, &url, &format!("reconcile {command}")).await?;
                 }
                 ensure!(value(&client, &url, &format!("/burst/{binding}")).await? == json!({"accepted":1,"refused":31}));
-                drained(&client, &url).await?;
+                drained(&client, &url, &format!("burst {binding}")).await?;
             }
-            let before = drained(&client, &url).await?;
+            let before = drained(&client, &url, "before restart").await?;
             ensure!(before["kv"]["before"].is_null(), "cancel-before-submit wrote KV: {before}");
             ensure!(before["sql"] == json!([{"command":"sql-burst"},{"command":"sql-cancel"},{"command":"sql-failure"}]), "SQL replay duplicated effects: {before}");
             ensure!(before["queue"] == json!([{"command":"queue-burst"},{"command":"queue-cancel"},{"command":"queue-failure"},{"command":"seed"}]), "queue replay duplicated effects: {before}");
             stop(node, &monitor).await?;
             let (node, url) = start_graph(&data, application, "binding-faults", Some(bucket), configure).await?;
-            ensure!(drained(&client, &url).await? == before, "binding effects changed across preserving restart");
+            ensure!(drained(&client, &url, "after restart").await? == before, "binding effects changed across preserving restart");
             stop(node, &monitor).await
         })
         },
