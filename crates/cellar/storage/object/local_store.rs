@@ -211,25 +211,33 @@ impl LocalStore {
         Ok(bytes.into())
     }
 
-    fn metadata(&self) -> object_store::Result<Vec<StoredObject>> {
+    fn metadata(&self, prefix: &str) -> object_store::Result<Vec<StoredObject>> {
         let connection = self.connect()?;
-        let mut statement = connection
-            .prepare(
-                "SELECT key, CAST(X'' AS BLOB), etag, modified_ms, attributes, length(body)
-                 FROM __sys_local_objects ORDER BY key",
-            )
-            .map_err(db_error)?;
+        // Restoration lists one cell/epoch at a time. Restrict the indexed
+        // scan before decoding rows so its cost does not grow with unrelated
+        // cells and their histories. BINARY ordering preserves literal '%' and
+        // '_' characters; LIKE would give those characters wildcard semantics.
+        let upper = prefix_upper_bound(prefix);
+        let sql = format!(
+            "SELECT key, CAST(X'' AS BLOB), etag, modified_ms, attributes, length(body)
+             FROM __sys_local_objects WHERE key >= ?1 {} ORDER BY key",
+            if upper.is_some() { "AND key < ?2" } else { "" },
+        );
+        let mut statement = connection.prepare(&sql).map_err(db_error)?;
         let rows = statement
-            .query_map([], |row| {
-                Ok(StoredObject {
-                    key: row.get(0)?,
-                    body: row.get(1)?,
-                    size: row.get(5)?,
-                    etag: row.get(2)?,
-                    modified_ms: row.get(3)?,
-                    attributes: row.get(4)?,
-                })
-            })
+            .query_map(
+                rusqlite::params_from_iter(std::iter::once(prefix).chain(upper.as_deref())),
+                |row| {
+                    Ok(StoredObject {
+                        key: row.get(0)?,
+                        body: row.get(1)?,
+                        size: row.get(5)?,
+                        etag: row.get(2)?,
+                        modified_ms: row.get(3)?,
+                        attributes: row.get(4)?,
+                    })
+                },
+            )
             .map_err(db_error)?;
         rows.collect::<Result<Vec<_>, _>>().map_err(db_error)
     }
@@ -493,21 +501,23 @@ impl ObjectStore for LocalStore {
 
     fn list(&self, prefix: Option<&Path>) -> BoxStream<'static, object_store::Result<ObjectMeta>> {
         let prefix = prefix.cloned();
-        let result = self.metadata().and_then(|objects| {
-            objects
-                .into_iter()
-                .map(|object| object_meta(&object))
-                .filter(|meta| {
-                    meta.as_ref().map_or(true, |meta| {
-                        prefix.as_ref().is_none_or(|prefix| {
-                            meta.location
-                                .prefix_match(prefix)
-                                .is_some_and(|mut remainder| remainder.next().is_some())
+        let result = self
+            .metadata(prefix.as_ref().map_or("", |path| path.as_ref()))
+            .and_then(|objects| {
+                objects
+                    .into_iter()
+                    .map(|object| object_meta(&object))
+                    .filter(|meta| {
+                        meta.as_ref().map_or(true, |meta| {
+                            prefix.as_ref().is_none_or(|prefix| {
+                                meta.location
+                                    .prefix_match(prefix)
+                                    .is_some_and(|mut remainder| remainder.next().is_some())
+                            })
                         })
                     })
-                })
-                .collect::<object_store::Result<Vec<_>>>()
-        });
+                    .collect::<object_store::Result<Vec<_>>>()
+            });
         match result {
             Ok(objects) => stream::iter(objects.into_iter().map(Ok)).boxed(),
             Err(error) => stream::once(async move { Err(error) }).boxed(),
@@ -518,7 +528,7 @@ impl ObjectStore for LocalStore {
         let prefix = prefix.cloned().unwrap_or_default();
         let mut common_prefixes = BTreeSet::new();
         let mut objects = Vec::new();
-        for object in self.metadata()? {
+        for object in self.metadata(prefix.as_ref())? {
             let location = stored_location(&object.key)?;
             let Some(mut remainder) = location.prefix_match(&prefix) else {
                 continue;
@@ -628,6 +638,10 @@ fn domain_error(error: crate::asyncrt::DomainClosed) -> Error {
 #[path = "local_store_read_tests.rs"]
 mod read_tests;
 
+#[cfg(test)]
+#[path = "local_store_list_tests.rs"]
+mod list_tests;
+
 // Shared native-I/O fixture; absent from the production API.
 #[cfg(all(test, not(cellar_internal_tests)))]
 pub(crate) use read_tests::{held_upload_store, UploadGate};
@@ -644,7 +658,7 @@ impl PaginatedListStore for LocalStore {
         let delimiter = options.delimiter.as_deref();
         let limit = options.max_keys.unwrap_or(usize::MAX);
         let mut entries: Vec<(String, Option<Path>, Option<ObjectMeta>)> = Vec::new();
-        for object in self.metadata()? {
+        for object in self.metadata(prefix)? {
             let Some(remainder) = object.key.strip_prefix(prefix) else {
                 continue;
             };
@@ -731,6 +745,21 @@ impl MultipartUpload for LocalUpload {
         self.parts.lock().unwrap().clear();
         Ok(())
     }
+}
+
+// The smallest valid UTF-8 string above every string with this prefix. SQLite
+// BINARY text ordering follows UTF-8/code-point order. Empty/all-maximal
+// prefixes have no upper bound; skipping the surrogate gap keeps the bound a
+// valid SQLite TEXT parameter rather than a differently ordered BLOB.
+fn prefix_upper_bound(prefix: &str) -> Option<String> {
+    let mut upper = prefix.to_owned();
+    while let Some(last) = upper.pop() {
+        if let Some(next) = (u32::from(last) + 1..=u32::from(char::MAX)).find_map(char::from_u32) {
+            upper.push(next);
+            return Some(upper);
+        }
+    }
+    None
 }
 
 fn object_meta(object: &StoredObject) -> object_store::Result<ObjectMeta> {

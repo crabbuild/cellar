@@ -11,8 +11,11 @@ adapter overhead. Successful responses require the normal native output proof.
 Durable results include the development bucket's SQLite writes and disk syncs.
 Clones of one store admit writers in FIFO order before starting SQLite write
 transactions, so local writer contention does not rely on busy-handler retries.
-Separate store instances and processes still coordinate through SQLite. This
-backend is for local development; these measurements do not establish production
+Separate store instances and processes still coordinate through SQLite. Prefix
+listings use the key index before decoding metadata, so restoring one cell does
+not scan every unrelated cell's history. Literal prefixes and delimiter/page
+boundaries retain their object-store semantics. This backend is for local
+development; these measurements do not establish production
 object-store throughput or lease-renewal latency.
 
 The default run measures empty and 4,096-byte echo plus durable counters at
