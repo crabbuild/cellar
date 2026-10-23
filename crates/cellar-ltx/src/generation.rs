@@ -349,6 +349,69 @@ struct Reservation {
     finished: bool,
 }
 
+struct ReclaimEntry {
+    reservation: Reservation,
+    files: Vec<(String, u64)>,
+}
+
+/// Selected names remain busy and fully charged until their common directory
+/// barrier succeeds. Dropping an unfinished selection quarantines the store.
+struct Reclamation {
+    entries: Vec<ReclaimEntry>,
+}
+
+impl Reclamation {
+    fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
+    fn remove(&self, filesystem: &dyn FileSystem, directory: &Path) -> Result<(), GenerationError> {
+        for entry in &self.entries {
+            for (name, _) in &entry.files {
+                remove_if_present(filesystem, &directory.join(name))?;
+            }
+        }
+        Ok(())
+    }
+
+    /// The caller must have completed the directory sync covering every removal.
+    fn finish(&mut self, state: &mut State) -> Result<ReclaimReport, GenerationError> {
+        let mut report = ReclaimReport::default();
+        for selected in &self.entries {
+            let entry = state
+                .entries
+                .get(&selected.reservation.id)
+                .ok_or(GenerationError::Quarantined)?;
+            let bytes: u64 = selected.files.iter().map(|(_, length)| length).sum();
+            if !entry.busy
+                || !Arc::ptr_eq(&entry.token, &selected.reservation.token)
+                || !entry.files.starts_with(&selected.files)
+                || entry.charged < bytes
+            {
+                return Err(GenerationError::Quarantined);
+            }
+            report.files += selected.files.len();
+            report.bytes += bytes;
+        }
+        if state.bytes < report.bytes {
+            return Err(GenerationError::Quarantined);
+        }
+        for selected in &mut self.entries {
+            // The validation pass above and this update hold the same lock.
+            let entry = state.entries.get_mut(&selected.reservation.id).unwrap();
+            entry.files.drain(..selected.files.len());
+            entry.charged -= selected.files.iter().map(|(_, length)| length).sum::<u64>();
+            entry.busy = false;
+            if entry.files.is_empty() {
+                state.entries.remove(&selected.reservation.id);
+            }
+            selected.reservation.finished = true;
+        }
+        state.bytes -= report.bytes;
+        Ok(report)
+    }
+}
+
 impl Drop for Reservation {
     fn drop(&mut self) {
         if !self.finished {
@@ -448,6 +511,18 @@ impl GenerationStore {
         })
     }
 
+    /// Configured bounds for one sealed image's physical replay work.
+    pub fn apply_limits(&self) -> ApplyLimits {
+        self.inner.limits.apply
+    }
+
+    /// Whether this pin belongs to this exact open directory owner. Logical
+    /// image IDs and digests alone do not establish local file ownership.
+    /// This does not select the image as an authoritative retained reference.
+    pub fn owns(&self, pin: &GenerationPin) -> bool {
+        Arc::ptr_eq(&self.inner, &pin.inner)
+    }
+
     /// Build a new image from an exact pinned base. The returned image is fully
     /// fsynced and immutable. The host must separately persist its Raft apply
     /// marker before publishing this pin to readers or settling a command.
@@ -466,11 +541,13 @@ impl GenerationStore {
         self.inner.limits
     }
 
-    /// Apply a bounded sequence to one exclusively owned private image. Every
-    /// intermediate result is verified before applying its successor. Only the
-    /// final image is synced and sealed; no intermediate pin can escape. The
-    /// normal apply byte/page/file limits cover the entire sequence, and disk
-    /// admission reserves twice its largest intermediate image.
+    /// Replay a bounded contiguous chain into one new private image. Every
+    /// intermediate result must pass its full digest and checksum proof before
+    /// the next update runs. Only the final image is synced, sealed and pinned;
+    /// no published image is mutated and no intermediate result is observable.
+    /// File/page/byte limits and peak disk reservation cover the whole chain.
+    /// Eligible retired files share the final directory sync. If admission
+    /// requires their capacity first, reclamation completes before reservation.
     pub fn prepare_chain(
         &self,
         id: ImageId,
@@ -478,19 +555,23 @@ impl GenerationStore {
         updates: &[ImageUpdate<'_>],
     ) -> Result<GenerationPin, GenerationError> {
         let peak = apply::peak_chain_bytes(updates, &self.inner.limits.apply)?;
-        let update = updates.first().ok_or(ApplyError::Limit)?;
+        let first = updates.first().ok_or(ApplyError::Limit)?;
         if let Some(base) = base {
-            if !Arc::ptr_eq(&self.inner, &base.inner) || base.state() != update.base {
+            if !Arc::ptr_eq(&self.inner, &base.inner) || base.state() != first.base {
                 return Err(GenerationError::Identity);
             }
-        } else if update.base != ImageState::empty(update.base.epoch)? {
+        } else if first.base != ImageState::empty(first.base.epoch)? {
             return Err(ApplyError::MissingBase.into());
         }
-        // Two names can coexist before rename or after a crash. Reserving two
-        // full private images conservatively bounds either recovered layout.
+        // Keep the existing conservative temporary-image admission charge.
+        // Publication uses one exclusive name, but does not relax capacity.
         let charge = peak.checked_mul(2).ok_or(GenerationError::Limit)?;
+        if charge > self.inner.limits.max_bytes {
+            return Err(GenerationError::Limit);
+        }
         let token = Arc::new(());
-        {
+        let mut reclaimed_for_capacity = false;
+        loop {
             let mut state = self.lock()?;
             if state.entries.contains_key(&id) {
                 return Err(GenerationError::Exists);
@@ -501,7 +582,13 @@ impl GenerationStore {
                     .checked_add(charge)
                     .is_none_or(|b| b > self.inner.limits.max_bytes)
             {
-                return Err(GenerationError::Limit);
+                if reclaimed_for_capacity {
+                    return Err(GenerationError::Limit);
+                }
+                drop(state);
+                self.reclaim(4096)?;
+                reclaimed_for_capacity = true;
+                continue;
             }
             state.bytes += charge;
             state.entries.insert(
@@ -515,6 +602,7 @@ impl GenerationStore {
                     charged: charge,
                 },
             );
+            break;
         }
         let mut reservation = Reservation {
             inner: self.inner.clone(),
@@ -522,14 +610,16 @@ impl GenerationStore {
             token,
             finished: false,
         };
-        let stage = self.inner.directory.join(stage_name(id));
         let final_path = self.inner.directory.join(final_name(id));
-        let mut stage_owned = false;
-        let mut final_attempted = false;
         let mut final_owned = false;
+        let mut reclamation = None;
         let result = (|| {
-            let mut destination = self.inner.filesystem.create_read_write(&stage)?;
-            stage_owned = true;
+            // The exclusive name is not publication authority. The busy entry
+            // prevents adoption while bytes are incomplete; no pin escapes
+            // until verification and both persistence barriers succeed. Crash
+            // recovery adopts only an independently authoritative exact marker.
+            let mut destination = self.inner.filesystem.create_read_write(&final_path)?;
+            final_owned = true;
             let base_path = base.map(|p| self.inner.directory.join(final_name(p.id())));
             let image = apply::apply_private_chain(
                 self.inner.filesystem.as_ref(),
@@ -540,13 +630,11 @@ impl GenerationStore {
             )?;
             destination.sync_all()?;
             drop(destination);
-            // Atomic exclusive creation proves this final name is ours. Rename
-            // replaces only this unpublished placeholder, never an old image.
-            final_attempted = true;
-            let placeholder = self.inner.filesystem.create_new(&final_path)?;
-            final_owned = true;
-            drop(placeholder);
-            self.inner.filesystem.rename(&stage, &final_path)?;
+            let selected = self.select_reclamation(8)?;
+            reclamation = Some(selected);
+            if let Some(selected) = &reclamation {
+                selected.remove(self.inner.filesystem.as_ref(), &self.inner.directory)?;
+            }
             self.inner.filesystem.sync_all(&self.inner.directory)?;
             Ok::<_, GenerationError>(image)
         })();
@@ -554,6 +642,9 @@ impl GenerationStore {
             Ok(image) => {
                 let record = Arc::new(ImageRecord { id, state: image });
                 let mut state = self.lock()?;
+                if let Some(selected) = &mut reclamation {
+                    selected.finish(&mut state)?;
+                }
                 let entry = state
                     .entries
                     .get_mut(&id)
@@ -574,18 +665,25 @@ impl GenerationStore {
                 })
             }
             Err(operation) => {
+                // Once reclamation starts, a failed removal/shared barrier has
+                // an uncertain layout. Keep every reservation charged and let
+                // their guards quarantine admission until recovery inventories
+                // the directory. No new image pin has escaped.
+                if reclamation
+                    .as_ref()
+                    .is_some_and(|selected| !selected.is_empty())
+                {
+                    return Err(operation);
+                }
                 // A failed exclusive creation may have created its path before
                 // returning an error. Without a successful handle we cannot
                 // prove ownership or refund its capacity. Reopening under the
                 // directory lock reconciles every surviving name.
-                if !stage_owned || final_attempted && !final_owned {
+                if !final_owned {
                     return Err(operation);
                 }
                 let cleanup = (|| {
-                    if final_owned {
-                        remove_if_present(self.inner.filesystem.as_ref(), &final_path)?;
-                    }
-                    remove_if_present(self.inner.filesystem.as_ref(), &stage)?;
+                    remove_if_present(self.inner.filesystem.as_ref(), &final_path)?;
                     self.inner.filesystem.sync_all(&self.inner.directory)
                 })();
                 if let Err(cleanup) = cleanup {
@@ -711,76 +809,75 @@ impl GenerationStore {
     }
 
     /// Delete at most `max_files` unreferenced names. Deletion and its directory
-    /// sync finish before capacity is refunded. A failure quarantines admission.
+    /// sync finish before capacity is refunded. All selected names share one
+    /// directory barrier. A failure quarantines admission.
     pub fn reclaim(&self, max_files: usize) -> Result<ReclaimReport, GenerationError> {
+        let mut selected = self.select_reclamation(max_files)?;
+        if selected.is_empty() {
+            return Ok(ReclaimReport::default());
+        }
+        selected.remove(self.inner.filesystem.as_ref(), &self.inner.directory)?;
+        self.inner.filesystem.sync_all(&self.inner.directory)?;
+        let mut state = self.lock()?;
+        selected.finish(&mut state)
+    }
+
+    fn select_reclamation(&self, max_files: usize) -> Result<Reclamation, GenerationError> {
         if max_files == 0 || max_files > 4096 {
             return Err(GenerationError::Limit);
         }
-        let mut report = ReclaimReport::default();
-        for _ in 0..max_files {
-            let selected = {
-                let mut state = self.lock()?;
-                let selected = state
-                    .entries
-                    .iter()
-                    .find(|(id, e)| {
-                        !e.retained
-                            && !e.busy
-                            && state
-                                .references
-                                .values()
-                                .all(|reference| !reference.active || reference.image != **id)
-                            && e.image.as_ref().is_none_or(|p| Arc::strong_count(p) == 1)
-                    })
-                    .map(|(id, _)| *id);
-                let Some(id) = selected else {
-                    break;
-                };
-                let entry = state
-                    .entries
-                    .get_mut(&id)
-                    .ok_or(GenerationError::Quarantined)?;
-                let (name, length) = entry
-                    .files
-                    .first()
-                    .cloned()
-                    .ok_or(GenerationError::Layout)?;
-                entry.busy = true;
-                (id, entry.token.clone(), name, length)
-            };
-            let (id, token, name, length) = selected;
-            let mut reservation = Reservation {
-                inner: self.inner.clone(),
-                id,
-                token,
-                finished: false,
-            };
-            remove_if_present(
-                self.inner.filesystem.as_ref(),
-                &self.inner.directory.join(&name),
-            )?;
-            self.inner.filesystem.sync_all(&self.inner.directory)?;
-            let mut state = self.lock()?;
-            let entry = state
-                .entries
-                .get_mut(&id)
-                .ok_or(GenerationError::Quarantined)?;
-            if !Arc::ptr_eq(&entry.token, &reservation.token) {
-                return Err(GenerationError::Quarantined);
+        let mut state = self.lock()?;
+        let mut selected = Vec::new();
+        let mut remaining = max_files;
+        for (id, entry) in &state.entries {
+            if entry.retained
+                || entry.busy
+                || state
+                    .references
+                    .values()
+                    .any(|r| r.active && r.image == *id)
+                || entry
+                    .image
+                    .as_ref()
+                    .is_some_and(|p| Arc::strong_count(p) != 1)
+            {
+                continue;
             }
-            entry.files.remove(0);
-            entry.charged -= length;
-            entry.busy = false;
-            let empty = entry.files.is_empty();
-            state.bytes -= length;
-            if empty {
-                state.entries.remove(&id);
+            if entry.files.is_empty() {
+                return Err(GenerationError::Layout);
             }
-            reservation.finished = true;
-            report.files += 1;
-            report.bytes += length;
+            let files = entry
+                .files
+                .iter()
+                .take(remaining)
+                .cloned()
+                .collect::<Vec<_>>();
+            remaining -= files.len();
+            selected.push((*id, entry.token.clone(), files));
+            if remaining == 0 {
+                break;
+            }
         }
-        Ok(report)
+        for (id, _, _) in &selected {
+            // Selection and reservation hold the same lock: no new pin or
+            // reference can adopt these files between the two passes.
+            state.entries.get_mut(id).unwrap().busy = true;
+        }
+        drop(state);
+        Ok(Reclamation {
+            entries: selected
+                .into_iter()
+                .map(|(id, token, files)| ReclaimEntry {
+                    reservation: Reservation {
+                        inner: self.inner.clone(),
+                        id,
+                        token,
+                        finished: false,
+                    },
+                    files,
+                })
+                .collect(),
+        })
     }
 
     pub fn usage(&self) -> Result<GenerationUsage, GenerationError> {
@@ -809,10 +906,6 @@ impl Inner {
         }
         Ok(state)
     }
-}
-
-fn stage_name(id: ImageId) -> String {
-    format!("{}.stage", id.text())
 }
 
 fn final_name(id: ImageId) -> String {

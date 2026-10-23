@@ -52,9 +52,12 @@ pub(crate) enum Operation {
     DataExchange,
     ControlAdmit,
     DataAdmit,
+    ArchiveAdmissionCheck,
+    ArchiveAdmissionWait,
+    ArchivePublicationBatch,
 }
 
-const OPERATIONS: [Operation; 23] = [
+const OPERATIONS: [Operation; 26] = [
     Operation::EngineQueue,
     Operation::EngineFileSync,
     Operation::EngineDirectorySync,
@@ -78,6 +81,9 @@ const OPERATIONS: [Operation; 23] = [
     Operation::DataExchange,
     Operation::ControlAdmit,
     Operation::DataAdmit,
+    Operation::ArchiveAdmissionCheck,
+    Operation::ArchiveAdmissionWait,
+    Operation::ArchivePublicationBatch,
 ];
 
 impl Operation {
@@ -106,6 +112,9 @@ impl Operation {
             Self::DataExchange => "transport_data_exchange",
             Self::ControlAdmit => "transport_control_admit",
             Self::DataAdmit => "transport_data_admit",
+            Self::ArchiveAdmissionCheck => "archive_admission_check",
+            Self::ArchiveAdmissionWait => "archive_admission_wait",
+            Self::ArchivePublicationBatch => "archive_publication_batch",
         }
     }
 }
@@ -132,9 +141,23 @@ pub(crate) enum Counter {
     DataWriteBytes,
     QueryReadBytes,
     QueryWriteBytes,
+    ArchiveAdmissionGranted,
+    ArchiveAdmissionObservationRefused,
+    ArchiveAdmissionRetainedBytesRefused,
+    ArchiveAdmissionRetainedEntriesRefused,
+    ArchiveAdmissionReservedBytesDeferred,
+    ArchiveAdmissionReservedEntriesDeferred,
+    ArchivePublicationCutSucceeded,
+    ArchivePublicationCutFailed,
+    ArchiveCoverageAdvanced,
+    ArchiveCoverageIndexAdvance,
+    ArchiveCoverageImagePending,
+    ArchiveCoverageRejected,
+    ArchiveCoverageUnchanged,
+    ArchiveCoverageMissingCell,
 }
 
-const COUNTERS: [Counter; 20] = [
+const COUNTERS: [Counter; 34] = [
     Counter::EngineReadBytes,
     Counter::EngineWriteRequestedBytes,
     Counter::EngineWriteCompletedBytes,
@@ -155,6 +178,20 @@ const COUNTERS: [Counter; 20] = [
     Counter::DataWriteBytes,
     Counter::QueryReadBytes,
     Counter::QueryWriteBytes,
+    Counter::ArchiveAdmissionGranted,
+    Counter::ArchiveAdmissionObservationRefused,
+    Counter::ArchiveAdmissionRetainedBytesRefused,
+    Counter::ArchiveAdmissionRetainedEntriesRefused,
+    Counter::ArchiveAdmissionReservedBytesDeferred,
+    Counter::ArchiveAdmissionReservedEntriesDeferred,
+    Counter::ArchivePublicationCutSucceeded,
+    Counter::ArchivePublicationCutFailed,
+    Counter::ArchiveCoverageAdvanced,
+    Counter::ArchiveCoverageIndexAdvance,
+    Counter::ArchiveCoverageImagePending,
+    Counter::ArchiveCoverageRejected,
+    Counter::ArchiveCoverageUnchanged,
+    Counter::ArchiveCoverageMissingCell,
 ];
 
 impl Counter {
@@ -180,6 +217,28 @@ impl Counter {
             Self::DataWriteBytes => "transport_data_write_bytes",
             Self::QueryReadBytes => "transport_query_read_bytes",
             Self::QueryWriteBytes => "transport_query_write_bytes",
+            Self::ArchiveAdmissionGranted => "archive_admission_granted",
+            Self::ArchiveAdmissionObservationRefused => "archive_admission_observation_refused",
+            Self::ArchiveAdmissionRetainedBytesRefused => {
+                "archive_admission_retained_bytes_refused"
+            }
+            Self::ArchiveAdmissionRetainedEntriesRefused => {
+                "archive_admission_retained_entries_refused"
+            }
+            Self::ArchiveAdmissionReservedBytesDeferred => {
+                "archive_admission_reserved_bytes_deferred"
+            }
+            Self::ArchiveAdmissionReservedEntriesDeferred => {
+                "archive_admission_reserved_entries_deferred"
+            }
+            Self::ArchivePublicationCutSucceeded => "archive_publication_cut_succeeded",
+            Self::ArchivePublicationCutFailed => "archive_publication_cut_failed",
+            Self::ArchiveCoverageAdvanced => "archive_coverage_advanced",
+            Self::ArchiveCoverageIndexAdvance => "archive_coverage_index_advance",
+            Self::ArchiveCoverageImagePending => "archive_coverage_image_pending",
+            Self::ArchiveCoverageRejected => "archive_coverage_rejected",
+            Self::ArchiveCoverageUnchanged => "archive_coverage_unchanged",
+            Self::ArchiveCoverageMissingCell => "archive_coverage_missing_cell",
         }
     }
 }

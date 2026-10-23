@@ -4,6 +4,8 @@
 mod fault;
 #[path = "support/raft_ltx_fixture.rs"]
 mod fixture;
+#[path = "support/raft_reclaim.rs"]
+mod reclaim;
 
 use anyhow::Result;
 use cellar_ltx::apply::ApplyError;
@@ -747,6 +749,67 @@ fn ltx_checksum_corruption() -> Result<()> {
 }
 
 #[test]
+fn immutable_image_preparation_uses_one_exclusive_file() -> Result<()> {
+    use fixture::*;
+    use std::sync::atomic::Ordering;
+    let directory = tempfile::tempdir()?;
+    let faults = fault::Faults::new(directory.path().join("images"), None);
+    let store = GenerationStore::open(
+        faults.directory.clone(),
+        Arc::new(fault::FaultFileSystem {
+            faults: faults.clone(),
+        }),
+        GenerationLimits::default(),
+    )?;
+    let mut bytes = image(
+        None,
+        "CREATE TABLE counter(value INTEGER);INSERT INTO counter VALUES(0)",
+    )?;
+    let mut pin = store.prepare(id(1), None, &Cut::new(&[], &bytes, 0, true, true).update())?;
+    for next in 2..=9 {
+        let updated = image(Some(&bytes), "UPDATE counter SET value=value+1")?;
+        let cut = Cut::new(&bytes, &updated, next as u64 - 1, true, true);
+        let observed_store = store.clone();
+        let expected = cut.result;
+        *faults.before_directory_sync.lock().unwrap() = Some(Box::new(move || {
+            assert!(
+                matches!(
+                    observed_store.adopt(id(next), expected),
+                    Err(GenerationError::Busy)
+                ),
+                "a complete but not directory-synced image must remain inaccessible"
+            );
+        }));
+        let prepared = store.prepare(id(next), Some(&pin), &cut.update())?;
+        assert_eq!(read(&prepared)?, updated);
+        assert_eq!(
+            read(&pin)?,
+            bytes,
+            "preparation must not mutate the previous image"
+        );
+        store.retire(pin.id())?;
+        pin = prepared;
+        bytes = updated;
+    }
+    assert_eq!(
+        faults.image_seals.lock().unwrap().len(),
+        9,
+        "each image still needs its content sync"
+    );
+    assert_eq!(
+        faults.image_creates.load(Ordering::Acquire),
+        9,
+        "each new image needs only one exclusively owned file"
+    );
+    assert_eq!(
+        faults.image_renames.load(Ordering::Acquire),
+        0,
+        "an unreferenced exclusive file needs no rename publication"
+    );
+    Ok(())
+}
+
+#[test]
 fn image_sync_before_marker() -> Result<()> {
     use fixture::*;
     use std::sync::atomic::Ordering;
@@ -791,15 +854,16 @@ fn image_sync_before_marker() -> Result<()> {
         assert_eq!(read(&second)?, last);
         assert_eq!(
             *faults.events.lock().unwrap(),
-            ["image-sync", "rename", "directory-sync"]
+            ["image-sync", "directory-sync"]
         );
         save_marker(directory.path(), &second)?;
         assert_eq!(load_marker(directory.path())?.0, id(2));
     }
-    // Crash cuts run real fsync/rename calls in a separately killed process.
+    // Crash cuts run real writes and fsync calls in a separately killed process.
     for mode in [
+        fault::AFTER_IMAGE_WRITE,
         fault::BEFORE_IMAGE_SYNC,
-        fault::AFTER_RENAME,
+        fault::AFTER_IMAGE_SYNC,
         fault::AFTER_DIRECTORY_SYNC,
         fault::AFTER_MARKER_SYNC,
     ] {
@@ -1137,7 +1201,7 @@ fn private_image_chain_verifies_intermediate_results_and_preserves_base() -> Res
         assert_eq!(last.state(), shrink.result);
         assert_eq!(
             *faults.events.lock().unwrap(),
-            ["image-sync", "rename", "directory-sync"]
+            ["image-sync", "directory-sync"]
         );
         assert_eq!(
             store.usage()?.generations,

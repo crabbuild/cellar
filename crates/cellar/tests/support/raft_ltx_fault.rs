@@ -11,12 +11,15 @@ use std::sync::atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 pub const BEFORE_IMAGE_SYNC: u8 = 1;
-pub const AFTER_RENAME: u8 = 2;
+pub const AFTER_IMAGE_SYNC: u8 = 2;
+pub const AFTER_IMAGE_WRITE: u8 = 10;
 pub const AFTER_DIRECTORY_SYNC: u8 = 3;
 pub const AFTER_MARKER_SYNC: u8 = 4;
 pub const FAIL_IMAGE_SYNC: u8 = 5;
 pub const FAIL_DIRECTORY_SYNC: u8 = 6;
 pub const FAIL_AFTER_FINAL_CREATE: u8 = 7;
+pub const FAIL_REMOVE: u8 = 8;
+pub const AFTER_REMOVE: u8 = 9;
 
 pub struct Faults {
     pub directory: PathBuf,
@@ -24,7 +27,15 @@ pub struct Faults {
     pub fail_reads: AtomicBool,
     pub collision: AtomicBool,
     pub reads: AtomicUsize,
+    pub image_creates: AtomicUsize,
+    pub image_renames: AtomicUsize,
+    pub private_ltx_readbacks: AtomicUsize,
+    pub private_image_copies: AtomicUsize,
     pub events: Mutex<Vec<&'static str>>,
+    pub image_seals: Mutex<Vec<PathBuf>>,
+    pub synced_paths: Mutex<Vec<PathBuf>>,
+    pub removed_paths: Mutex<Vec<PathBuf>>,
+    pub before_directory_sync: Mutex<Option<Box<dyn FnOnce() + Send>>>,
     pub signal: Option<PathBuf>,
 }
 
@@ -36,7 +47,15 @@ impl Faults {
             fail_reads: AtomicBool::new(false),
             collision: AtomicBool::new(false),
             reads: AtomicUsize::new(0),
+            image_creates: AtomicUsize::new(0),
+            image_renames: AtomicUsize::new(0),
+            private_ltx_readbacks: AtomicUsize::new(0),
+            private_image_copies: AtomicUsize::new(0),
             events: Mutex::new(Vec::new()),
+            image_seals: Mutex::new(Vec::new()),
+            synced_paths: Mutex::new(Vec::new()),
+            removed_paths: Mutex::new(Vec::new()),
+            before_directory_sync: Mutex::new(None),
             signal,
         })
     }
@@ -75,29 +94,52 @@ struct File {
     inner: HostFile,
     path: PathBuf,
     faults: Arc<Faults>,
+    image_output: bool,
 }
 
 impl FaultFileSystem {
-    fn wrap(&self, path: &Path, inner: HostFile) -> HostFile {
+    fn wrap(&self, path: &Path, inner: HostFile, image_output: bool) -> HostFile {
         HostFile::from_io(File {
             inner,
             path: path.into(),
             faults: self.faults.clone(),
+            image_output,
         })
     }
 }
 
 impl HostFileIo for File {
     fn write_all(&mut self, bytes: &[u8]) -> io::Result<()> {
-        self.inner.write_all(bytes)
+        self.inner.write_all(bytes)?;
+        if self.image_output && self.faults.take(AFTER_IMAGE_WRITE) {
+            self.faults.pause()?;
+        }
+        Ok(())
     }
 
     fn write_all_at(&mut self, offset: u64, bytes: &[u8]) -> io::Result<()> {
-        self.inner.write_all_at(offset, bytes)
+        self.inner.write_all_at(offset, bytes)?;
+        if self.image_output && self.faults.take(AFTER_IMAGE_WRITE) {
+            self.faults.pause()?;
+        }
+        Ok(())
     }
 
     fn read_exact_at(&mut self, offset: u64, length: usize) -> io::Result<Vec<u8>> {
         self.faults.reads.fetch_add(1, Ordering::AcqRel);
+        if self
+            .path
+            .extension()
+            .is_some_and(|extension| extension == "ltx")
+            && self
+                .path
+                .components()
+                .any(|part| part.as_os_str() == "private")
+        {
+            self.faults
+                .private_ltx_readbacks
+                .fetch_add(1, Ordering::AcqRel);
+        }
         if self.faults.fail_reads.load(Ordering::Acquire) {
             return Err(io::Error::other("injected image read failure"));
         }
@@ -113,7 +155,7 @@ impl HostFileIo for File {
     }
 
     fn sync_all(&mut self) -> io::Result<()> {
-        if self.path.extension().is_some_and(|p| p == "stage") {
+        if self.image_output {
             if self.faults.take(BEFORE_IMAGE_SYNC) {
                 self.faults.pause()?;
             }
@@ -122,6 +164,14 @@ impl HostFileIo for File {
             }
             self.inner.sync_all()?;
             self.faults.event("image-sync");
+            self.faults
+                .image_seals
+                .lock()
+                .unwrap()
+                .push(self.path.clone());
+            if self.faults.take(AFTER_IMAGE_SYNC) {
+                self.faults.pause()?;
+            }
             return Ok(());
         }
         self.inner.sync_all()
@@ -146,11 +196,40 @@ impl FileSystem for FaultFileSystem {
     }
 
     fn create_read_write(&self, path: &Path) -> io::Result<HostFile> {
-        Ok(self.wrap(path, DirectFileSystem.create_read_write(path)?))
+        let image_output = path.extension().is_some_and(|p| p == "stage")
+            || path.extension().is_some_and(|p| p == "sqlite")
+                && path.file_stem().is_some_and(|name| name.len() == 32);
+        if image_output {
+            self.faults.image_creates.fetch_add(1, Ordering::AcqRel);
+            if self.faults.collision.swap(false, Ordering::AcqRel) {
+                DirectFileSystem.write(path, b"unowned image")?;
+            }
+            if self.faults.take(FAIL_AFTER_FINAL_CREATE) {
+                drop(DirectFileSystem.create_read_write(path)?);
+                return Err(io::Error::other("ambiguous final creation failure"));
+            }
+        }
+        if path
+            .file_name()
+            .is_some_and(|name| name == "working.sqlite")
+            && path
+                .parent()
+                .and_then(Path::file_name)
+                .is_some_and(|name| name == "private")
+        {
+            self.faults
+                .private_image_copies
+                .fetch_add(1, Ordering::AcqRel);
+        }
+        Ok(self.wrap(
+            path,
+            DirectFileSystem.create_read_write(path)?,
+            image_output,
+        ))
     }
 
     fn open_read_write(&self, path: &Path) -> io::Result<HostFile> {
-        Ok(self.wrap(path, DirectFileSystem.open_read_write(path)?))
+        Ok(self.wrap(path, DirectFileSystem.open_read_write(path)?, false))
     }
 
     fn lock_file(&self, path: &Path) -> io::Result<HostFileLock> {
@@ -158,10 +237,13 @@ impl FileSystem for FaultFileSystem {
     }
 
     fn create(&self, path: &Path) -> io::Result<HostFile> {
-        Ok(self.wrap(path, DirectFileSystem.create(path)?))
+        Ok(self.wrap(path, DirectFileSystem.create(path)?, false))
     }
 
     fn create_new(&self, path: &Path) -> io::Result<HostFile> {
+        if path.extension().is_some_and(|p| p == "sqlite") {
+            self.faults.image_creates.fetch_add(1, Ordering::AcqRel);
+        }
         if path.extension().is_some_and(|p| p == "sqlite")
             && self.faults.collision.swap(false, Ordering::AcqRel)
         {
@@ -173,11 +255,11 @@ impl FileSystem for FaultFileSystem {
             drop(DirectFileSystem.create_new(path)?);
             return Err(io::Error::other("ambiguous final creation failure"));
         }
-        Ok(self.wrap(path, DirectFileSystem.create_new(path)?))
+        Ok(self.wrap(path, DirectFileSystem.create_new(path)?, false))
     }
 
     fn open(&self, path: &Path) -> io::Result<HostFile> {
-        Ok(self.wrap(path, DirectFileSystem.open(path)?))
+        Ok(self.wrap(path, DirectFileSystem.open(path)?, false))
     }
 
     fn write(&self, path: &Path, bytes: &[u8]) -> io::Result<()> {
@@ -186,36 +268,54 @@ impl FileSystem for FaultFileSystem {
 
     fn sync_all(&self, path: &Path) -> io::Result<()> {
         if path == self.faults.directory {
+            let observe = self.faults.before_directory_sync.lock().unwrap().take();
+            if let Some(observe) = observe {
+                observe();
+            }
             if self.faults.take(FAIL_DIRECTORY_SYNC) {
                 return Err(io::Error::other("injected directory sync failure"));
             }
             DirectFileSystem.sync_all(path)?;
+            self.faults.synced_paths.lock().unwrap().push(path.into());
             self.faults.event("directory-sync");
             if self.faults.take(AFTER_DIRECTORY_SYNC) {
                 self.faults.pause()?;
             }
             return Ok(());
         }
-        DirectFileSystem.sync_all(path)
+        DirectFileSystem.sync_all(path)?;
+        self.faults.synced_paths.lock().unwrap().push(path.into());
+        Ok(())
     }
 
     fn rename(&self, from: &Path, to: &Path) -> io::Result<()> {
         DirectFileSystem.rename(from, to)?;
         if to.extension().is_some_and(|p| p == "sqlite") {
+            self.faults.image_renames.fetch_add(1, Ordering::AcqRel);
             self.faults.event("rename");
-            if self.faults.take(AFTER_RENAME) {
-                self.faults.pause()?;
-            }
         }
         Ok(())
     }
 
     fn remove_file(&self, path: &Path) -> io::Result<()> {
-        DirectFileSystem.remove_file(path)
+        if path.parent() == Some(self.faults.directory.as_path()) && self.faults.take(FAIL_REMOVE) {
+            return Err(io::Error::other("injected image removal failure"));
+        }
+        DirectFileSystem.remove_file(path)?;
+        self.faults.removed_paths.lock().unwrap().push(path.into());
+        if path.parent() == Some(self.faults.directory.as_path()) && self.faults.take(AFTER_REMOVE)
+        {
+            self.faults.pause()?;
+        }
+        Ok(())
     }
 
     fn remove_dir_all(&self, path: &Path) -> io::Result<()> {
         DirectFileSystem.remove_dir_all(path)
+    }
+
+    fn remove_dir_batch(&self, path: &Path, limit: usize) -> io::Result<bool> {
+        DirectFileSystem.remove_dir_batch(path, limit)
     }
 
     fn create_dir_all(&self, path: &Path) -> io::Result<()> {

@@ -103,6 +103,71 @@ fn bundle_selects_exact_scope_and_payload() -> anyhow::Result<()> {
 }
 
 #[test]
+fn batching_excludes_incompatible_recovery_domains() -> anyhow::Result<()> {
+    let a = archive(10);
+    let mut b = archive(11);
+    b.store = a.store.clone();
+    assert!(a.can_batch_with(&b));
+    for field in 0..6 {
+        let mut incompatible = b.clone();
+        match field {
+            0 => incompatible.root = [77; 32],
+            1 => incompatible.schema = [77; 32],
+            2 => incompatible.scope.cluster = ClusterId::new([77; 16])?,
+            3 => incompatible.scope.namespace = NamespaceId::new([77; 16])?,
+            4 => incompatible.bundle_prefix = "another/archives/bundles".into(),
+            _ => incompatible.store = Arc::new(object_store::memory::InMemory::new()),
+        }
+        assert!(!a.can_batch_with(&incompatible), "domain field {field}");
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn cancelled_bundle_extraction_retains_its_read_reservation() -> anyhow::Result<()> {
+    let domain = crate::asyncrt::ExecutionDomain::new(tokio::runtime::Handle::current());
+    let mut a = archive(10);
+    let b = archive(11);
+    a.io_domain = domain
+        .run(async { crate::asyncrt::services().domain_token() })
+        .await?;
+    let (bytes, refs) = encode(vec![part(&a, b"first"), part(&b, b"second")])?;
+    a.store
+        .put(
+            &a.bundle_key(refs[0].bundle.as_ref().unwrap()),
+            bytes.into(),
+        )
+        .await?;
+    // Hold the physical job independently of its observing future, matching a
+    // blocking executor whose work survives cancellation of its awaiter.
+    let (send, mut jobs) = mpsc::unbounded_channel();
+    a.host = LtxHost::new(
+        || 0,
+        |_| unreachable!(),
+        |_| async { unreachable!() },
+        move |job| {
+            send.send(job).unwrap();
+            std::future::pending()
+        },
+    );
+    let bytes = a.read_memory_bound();
+    let budget = crate::raft::budget::Budget::new(MAX_RECOVERY_READ_BYTES, 1);
+    let a = a.with_read_retention(Arc::new(budget.acquire(bytes).unwrap()));
+    let mut read = Box::pin(async move { a.get_object(&refs[0]).await });
+    let job = crate::asyncrt::select! {
+        result = &mut read => panic!("extraction completed before physical job: {result:?}"),
+        job = jobs.recv() => job.expect("physical extraction was queued"),
+    };
+    drop(read);
+    assert_eq!(budget.usage(), (bytes, 1));
+    assert!(budget.acquire(bytes).is_none());
+    job();
+    assert_eq!(budget.usage(), (0, 0));
+    domain.shutdown().await;
+    Ok(())
+}
+
+#[test]
 fn canonical_checksums_do_not_authorize_bad_bundle_indexes() -> anyhow::Result<()> {
     let a = archive(10);
     let b = archive(11);

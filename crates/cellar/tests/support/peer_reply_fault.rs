@@ -352,6 +352,15 @@ async fn relay_inner(socket: TcpStream, target: SocketAddr, capture: Arc<Capture
             Some("__streamAppend" | "__streamAck" | "__streamNext" | "__streamExtend")
         ) {
             let method = method.unwrap();
+            if reply.head.starts_with(b"HTTP/1.1 503 ")
+                && reply.header("x-cellar-event-error") == Some("Unavailable")
+            {
+                // A host admission refusal is a valid, unsubmitted outcome.
+                // Forward it unchanged so production retry policy sees it;
+                // it cannot consume a cut armed for a proven event reply.
+                reply.write(client.get_mut()).await?;
+                continue;
+            }
             ensure!(
                 reply.head.starts_with(b"HTTP/1.1 200 "),
                 "event RPC did not produce a successful HTTP reply"
@@ -422,6 +431,105 @@ async fn relay_inner(socket: TcpStream, target: SocketAddr, capture: Arc<Capture
             return Ok(());
         }
     }
+    Ok(())
+}
+
+#[tokio::test]
+async fn event_refusal_preserves_listener_and_armed_proven_reply_cut() -> Result<()> {
+    let upstream = TcpListener::bind("127.0.0.1:0").await?;
+    let proxy = Proxy::start(upstream.local_addr()?).await?;
+    proxy.capture.arm("__streamNext");
+    let owner = tokio::spawn(async move {
+        for refused in [true, false] {
+            let (socket, _) = upstream.accept().await?;
+            let mut socket = BufReader::new(socket);
+            let request = message(&mut socket, false)
+                .await?
+                .context("event request missing")?;
+            ensure!(request.header("x-cells-rpc-method") == Some("__streamNext"));
+            let response = if refused {
+                b"HTTP/1.1 503 Service Unavailable\r\nx-cellar-event-error: Unavailable\r\nContent-Length: 9\r\n\r\nnot ready".as_slice()
+            } else {
+                b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\n{}".as_slice()
+            };
+            socket.get_mut().write_all(response).await?;
+            socket.get_mut().shutdown().await?;
+        }
+        Ok::<_, anyhow::Error>(())
+    });
+    let outcome = tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        let request = b"POST /rpc HTTP/1.1\r\nx-cells-rpc-method: __streamNext\r\nContent-Length: 2\r\n\r\n[]";
+        let mut first = BufReader::new(TcpStream::connect(proxy.address).await?);
+        first.get_mut().write_all(request).await?;
+        let refusal = message(&mut first, true)
+            .await?
+            .context("proxy swallowed the original refusal")?;
+        ensure!(refusal.head.starts_with(b"HTTP/1.1 503 "));
+        ensure!(refusal.header("x-cellar-event-error") == Some("Unavailable"));
+        ensure!(refusal.body == b"not ready");
+        ensure!(proxy.capture.exchanges.lock().unwrap().is_empty());
+        ensure!(proxy.capture.entered.available_permits() == 0);
+        drop(first);
+
+        // A refusal is forwarded unchanged; only the later successful reply
+        // consumes the explicitly armed fault and is recorded as proven.
+        let mut second = TcpStream::connect(proxy.address).await?;
+        second.write_all(request).await?;
+        proxy.capture.entered.acquire().await?.forget();
+        {
+            let exchanges = proxy.capture.exchanges.lock().unwrap();
+            ensure!(exchanges.len() == 1);
+            ensure!(exchanges[0].method == "__streamNext");
+            ensure!(exchanges[0].response == b"{}" && exchanges[0].dropped);
+        }
+        proxy.capture.release.add_permits(1);
+        let mut bytes = Vec::new();
+        second.read_to_end(&mut bytes).await?;
+        ensure!(bytes.is_empty(), "armed reply loss was bypassed");
+        Ok::<_, anyhow::Error>(())
+    })
+    .await
+    .context("event refusal/capture exchange stalled")
+    .and_then(|result| result);
+    if outcome.is_err() {
+        owner.abort();
+    }
+    let owner_join = owner.await;
+    let proxy_join = proxy.stop().await;
+    outcome.with_context(|| format!("owner_join={owner_join:?}; proxy_join={proxy_join:?}"))?;
+    owner_join??;
+    proxy_join?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn untyped_event_failure_still_fails_the_proxy() -> Result<()> {
+    let upstream = TcpListener::bind("127.0.0.1:0").await?;
+    let proxy = Proxy::start(upstream.local_addr()?).await?;
+    let owner = tokio::spawn(async move {
+        let (socket, _) = upstream.accept().await?;
+        let mut socket = BufReader::new(socket);
+        ensure!(message(&mut socket, false).await?.is_some());
+        socket
+            .get_mut()
+            .write_all(b"HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\n\r\n")
+            .await?;
+        Ok::<_, anyhow::Error>(())
+    });
+    let mut caller = BufReader::new(TcpStream::connect(proxy.address).await?);
+    caller.get_mut().write_all(b"POST /rpc HTTP/1.1\r\nx-cells-rpc-method: __streamNext\r\nContent-Length: 2\r\n\r\n[]").await?;
+    let response = tokio::time::timeout(
+        std::time::Duration::from_secs(2),
+        message(&mut caller, true),
+    )
+    .await?;
+    owner.await??;
+    let error = proxy
+        .stop()
+        .await
+        .expect_err("untyped failure was treated as a host admission refusal");
+    ensure!(error.to_string() == "event RPC did not produce a successful HTTP reply");
+    ensure!(response?.is_none());
     Ok(())
 }
 

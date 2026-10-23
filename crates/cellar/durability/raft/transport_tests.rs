@@ -3,6 +3,8 @@ use super::*;
 mod directory;
 #[path = "transport_pipeline_tests.rs"]
 mod pipeline;
+#[path = "transport_pipeline_regression_tests.rs"]
+mod pipeline_regressions;
 use crate::raft::options::{LogOpenMode, RaftRuntimeOptions, ReplicaLogOptions};
 use crate::raft::storage::ReplicaLog;
 use cellar_logic::consensus::{DiskLineage, ProcessGeneration};

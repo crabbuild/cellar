@@ -1,8 +1,8 @@
 //! Conditional writes are real InMemory operations; faults lose responses only.
-use futures_util::stream::BoxStream;
+use futures_util::{stream::BoxStream, StreamExt, TryStreamExt};
 use object_store::{
-    path::Path, GetOptions, GetResult, ListResult, MultipartUpload, ObjectMeta, ObjectStore,
-    PutMode, PutMultipartOptions, PutOptions, PutPayload, PutResult,
+    path::Path, GetOptions, GetResult, GetResultPayload, ListResult, MultipartUpload, ObjectMeta,
+    ObjectStore, PutMode, PutMultipartOptions, PutOptions, PutPayload, PutResult,
 };
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
@@ -31,7 +31,16 @@ pub struct Store {
     pub archive_hang: AtomicBool,
     pub archive_resume: tokio::sync::Notify,
     pub archive_attempts: AtomicUsize,
+    pub archive_heads_hang: AtomicBool,
+    pub archive_heads_waiting: AtomicUsize,
+    pub archive_heads_resume: tokio::sync::Notify,
     pub archive_payload_reads: AtomicUsize,
+    pub hold_archive_payloads: AtomicBool,
+    pub active_payload_reads: AtomicUsize,
+    pub peak_payload_reads: AtomicUsize,
+    pub payload_window_resume: tokio::sync::Notify,
+    pub payload_size_delta: AtomicUsize,
+    pub payload_chunks: std::sync::Arc<AtomicUsize>,
     pub refuse_archive_payload_reads: AtomicBool,
     pub hold_next_payload: AtomicBool,
     pub payload_hang: AtomicBool,
@@ -170,6 +179,18 @@ impl ObjectStore for Store {
         }
 
         let head = path.filename() == Some("head");
+        if head && path.as_ref().contains("/archives/") {
+            self.archive_heads_waiting.fetch_add(1, Ordering::AcqRel);
+            loop {
+                let resumed = self.archive_heads_resume.notified();
+                tokio::pin!(resumed);
+                resumed.as_mut().enable();
+                if !self.archive_heads_hang.load(Ordering::Acquire) {
+                    break;
+                }
+                resumed.await;
+            }
+        }
         if head && self.fail_head_confirmation.swap(false, Ordering::AcqRel) {
             self.fail_read.store(true, Ordering::Release);
         }
@@ -223,12 +244,34 @@ impl ObjectStore for Store {
             }
         }
         self.archive_fault(path).await?;
-        if path.as_ref().contains("/archives/")
+        let payload = path.as_ref().contains("/archives/")
             && ["/snapshots/", "/tails/", "/dependencies/", "/bundles/"]
                 .iter()
-                .any(|part| path.as_ref().contains(part))
-        {
+                .any(|part| path.as_ref().contains(part));
+
+        struct PayloadRead<'a>(&'a AtomicUsize);
+
+        impl Drop for PayloadRead<'_> {
+            fn drop(&mut self) {
+                self.0.fetch_sub(1, Ordering::AcqRel);
+            }
+        }
+        let _reading = payload.then(|| {
+            let active = self.active_payload_reads.fetch_add(1, Ordering::AcqRel) + 1;
+            self.peak_payload_reads.fetch_max(active, Ordering::AcqRel);
+            PayloadRead(&self.active_payload_reads)
+        });
+        if payload {
             self.archive_payload_reads.fetch_add(1, Ordering::AcqRel);
+            loop {
+                let resumed = self.payload_window_resume.notified();
+                tokio::pin!(resumed);
+                resumed.as_mut().enable();
+                if !self.hold_archive_payloads.load(Ordering::Acquire) {
+                    break;
+                }
+                resumed.await;
+            }
             if self.hold_next_payload.swap(false, Ordering::AcqRel) {
                 *self.held_payload_path.lock().map_err(|_| failure())? = Some(path.clone());
                 self.payload_waiting.store(true, Ordering::Release);
@@ -256,7 +299,22 @@ impl ObjectStore for Store {
         if self.fail_read.swap(false, Ordering::AcqRel) {
             return Err(failure());
         }
-        self.inner.get_opts(path, options).await
+        let mut result = self.inner.get_opts(path, options).await?;
+        if payload {
+            let delta = self.payload_size_delta.load(Ordering::Acquire) as u64;
+            result.meta.size += delta;
+            result.range.end += delta;
+            let GetResultPayload::Stream(stream) = result.payload;
+            let chunks = self.payload_chunks.clone();
+            result.payload = GetResultPayload::Stream(
+                stream
+                    .inspect_ok(move |_| {
+                        chunks.fetch_add(1, Ordering::AcqRel);
+                    })
+                    .boxed(),
+            );
+        }
+        Ok(result)
     }
 
     async fn delete(&self, path: &Path) -> object_store::Result<()> {

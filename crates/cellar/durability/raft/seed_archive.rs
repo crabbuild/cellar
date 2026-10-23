@@ -108,8 +108,8 @@ impl RaftTransport {
         if !grant.authorized(&state.runtime.log().owner(), grant.local()) {
             return Err(TransportError::Identity.into());
         }
-        let set_bytes = archive.max_set_bytes();
-        if set_bytes > 256 * 1024 * 1024 {
+        let set_bytes = archive.read_memory_bound();
+        if set_bytes > crate::raft::archive::MAX_RECOVERY_READ_BYTES {
             return Err(TransportError::Limit.into());
         }
         let reservation = Arc::new(

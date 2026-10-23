@@ -21,7 +21,7 @@ use cellar_logic::raft_command::CommandState;
 use cellar_ltx::generation::{GenerationLimits, ImageId, ReadServices};
 use futures_util::{future::BoxFuture, stream::FuturesUnordered, StreamExt};
 use rand::RngCore;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::path::PathBuf;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -32,6 +32,14 @@ use tokio::sync::{mpsc, Notify};
 #[cfg(all(test, not(cellar_internal_tests)))]
 #[path = "host_startup_tests.rs"]
 mod startup_tests;
+
+#[cfg(test)]
+#[path = "../../tests/support/raft_storage_fault.rs"]
+#[allow(dead_code)]
+mod storage_fault;
+
+#[path = "host_admission.rs"]
+mod admission;
 
 #[path = "host_controller.rs"]
 mod controller;
@@ -81,7 +89,8 @@ pub struct RaftHostOptions {
     pub node_directory: Option<RaftNodeDirectoryOptions>,
     /// Enable native snapshot recovery and its larger image admission floor.
     pub enable_snapshots: bool,
-    /// Applied entries between automatic checkpoints; zero disables compaction.
+    /// Applied entries between automatic checkpoints. Shared log-cache pressure
+    /// can trigger an earlier checkpoint; zero disables automatic compaction.
     pub checkpoint_entries: u64,
     pub archive: RaftArchiveOptions,
     pub max_groups: usize,
@@ -358,8 +367,8 @@ async fn initialize(
     let domain = service.log.domain();
     let budget = Budget::new(options.max_pending_bytes, options.max_requests);
     let archive_capture_budget = Budget::new(
-        options.archive.limits.max_capture_bytes * options.archive.max_batch_groups,
-        options.archive.max_batch_groups,
+        options.archive.limits.max_capture_bytes * options.archive.max_producers,
+        options.archive.max_producers,
     );
     let query_pins = Budget::new(0, options.max_query_pins);
     let mut pool = Pool::start(
@@ -887,6 +896,8 @@ async fn initialize(
             snapshot_limits,
             snapshot_source: None,
             maintenance_at: 0,
+            admission_at: 0,
+            admission_waiters: VecDeque::new(),
         };
         driver.run(requests, controls, closes).await;
         let result = driver.shutdown().await;
@@ -963,6 +974,7 @@ fn progress(
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Phase {
+    AwaitAdmission,
     Start,
     AwaitStart,
     Staging,
@@ -979,6 +991,12 @@ enum Phase {
 
 struct Pending {
     allow_new: bool,
+    // Unknown until the callback's physical preview is verified. Keep this
+    // bound after proposal submission takes `prepared`, through proof/reply.
+    archive_bytes: Option<u64>,
+    // Only transient admission deferral is timed here, until grant/refusal.
+    // Dropping a cancelled/retired waiter records abandonment, never a grant.
+    admission_wait: Option<super::performance::Timer>,
     system: bool,
     proof: Option<(LogPosition, [u8; 32])>,
     request: Request,
@@ -1000,6 +1018,7 @@ struct Cell {
     retired: bool,
     archive: CellArchive,
     archived: LogIndex,
+    archive_retained: admission::Retained,
     archive_retry_at: u64,
     group: GroupLog,
     schema_digest: [u8; 32],
@@ -1135,6 +1154,8 @@ enum Job {
 
 struct Driver {
     maintenance_at: u64,
+    admission_at: u64,
+    admission_waiters: VecDeque<GroupScope>,
     drain: Option<drain::Drain>,
     effect_scheduler: Option<effect_scheduler::Scheduler>,
     controller: Option<controller::Controller>,
@@ -1581,10 +1602,16 @@ impl Driver {
             }
         }
         self.active.remove(scope);
+        self.admission_waiters.retain(|queued| queued != scope);
+        self.admission_at = 0;
     }
 
+    #[track_caller]
     fn fail(&mut self, scope: &GroupScope) {
         if let Some(cell) = self.cells.get_mut(scope) {
+            if !cell.failed {
+                tracing::error!(group = ?scope.group, location = %std::panic::Location::caller(), "Raft host closed group admission after a failure");
+            }
             cell.failed = true;
             cell.core.close();
             if let Some(pending) = cell.pending.as_mut() {
@@ -1734,10 +1761,19 @@ impl Driver {
             return;
         }
         let system = matches!(&request.kind, Kind::SystemCommand { .. });
-        let allow_new = matches!(
+        let admission = if matches!(
             &request.kind,
             Kind::Command { .. } | Kind::SystemCommand { .. }
-        ) && self.archive_admission();
+        ) {
+            match self.archive_admission() {
+                admission::Decision::Granted if !self.admission_waiters.is_empty() => {
+                    admission::Decision::Deferred
+                }
+                decision => decision,
+            }
+        } else {
+            admission::Decision::Refused
+        };
         if self.closing.load(Ordering::Acquire)
             || self
                 .cells
@@ -1947,7 +1983,13 @@ impl Driver {
                     return;
                 }
                 cell.pending = Some(Pending {
-                    allow_new,
+                    allow_new: admission == admission::Decision::Granted,
+                    archive_bytes: None,
+                    admission_wait: (admission == admission::Decision::Deferred).then(|| {
+                        self.local
+                            .performance
+                            .timer(super::performance::Operation::ArchiveAdmissionWait)
+                    }),
                     system,
                     proof: None,
                     request,
@@ -1958,12 +2000,18 @@ impl Driver {
                     prepared: None,
                     result: None,
                     duplicate: false,
-                    phase: Phase::Start,
+                    phase: if admission == admission::Decision::Deferred {
+                        Phase::AwaitAdmission
+                    } else {
+                        Phase::Start
+                    },
                     _bytes: None,
                 });
                 let sql_idle = !cell.sql_busy;
                 self.active.insert(scope.clone());
-                if sql_idle {
+                if admission == admission::Decision::Deferred {
+                    self.admission_waiters.push_back(scope);
+                } else if sql_idle {
                     self.status(&scope, StatusPurpose::Start);
                 }
             }
@@ -2083,6 +2131,13 @@ impl Driver {
         }
         match purpose {
             StatusPurpose::Start => {
+                // A reader or archive capture may acquire SQL while status is
+                // in flight. Keep one bounded command and recheck authority
+                // after that work physically completes.
+                if cell.sql_busy {
+                    pending.phase = Phase::Start;
+                    return;
+                }
                 let Some(authority) = cell.core.authority().cloned() else {
                     if status.is_leader {
                         pending.phase = Phase::AwaitStart;
@@ -2338,12 +2393,27 @@ impl Driver {
             return;
         };
         cell.sql_busy = false;
+        // A scan while this cell was busy cannot predict when SQL finishes.
+        // Wake archive selection for newly idle retained work instead of
+        // waiting a maintenance interval and missing the collection window.
+        if !matches!(purpose, SqlPurpose::CaptureArchive)
+            && cell
+                .group
+                .applied()
+                .is_ok_and(|applied| applied.position.index > cell.archived)
+        {
+            if let Some(owner) = self.archive_owner.as_mut() {
+                if !owner.inflight.contains(&scope) {
+                    owner.scan_at = 0;
+                }
+            }
+        }
         if let SqlPurpose::CaptureArchive = purpose {
             let Some(owner) = self.archive_owner.as_mut() else {
                 return;
             };
-            owner.busy = false;
             if self.closing.load(Ordering::Acquire) {
+                owner.inflight.remove(&scope);
                 return;
             }
             match result {
@@ -2351,6 +2421,10 @@ impl Driver {
                     value: Value::ArchiveCut(Some(cut)),
                     _bytes,
                 }) => {
+                    if owner.pending.is_empty() {
+                        owner.publish_at = crate::asyncrt::mono_ms()
+                            .saturating_add(super::archive::bundle::COALESCE_MS);
+                    }
                     owner.pending.push(super::host_archive::Captured {
                         scope,
                         archive: cell.archive.clone(),
@@ -2359,6 +2433,8 @@ impl Driver {
                     });
                 }
                 _ => {
+                    owner.inflight.remove(&scope);
+                    owner.scan_at = 0;
                     cell.archive_retry_at =
                         crate::asyncrt::mono_ms().saturating_add(self.options.archive.retry_ms);
                 }
@@ -2444,6 +2520,7 @@ impl Driver {
                     purpose,
                     SqlPurpose::Discard | SqlPurpose::Prepare(_) | SqlPurpose::Publish(_)
                 ) {
+                    tracing::error!(group = ?scope.group, ?error, "Raft image operation failed");
                     self.fail(&scope);
                 } else {
                     self.refuse(&scope, failure(error));
@@ -2453,10 +2530,12 @@ impl Driver {
         };
         match (purpose, value) {
             (SqlPurpose::Stage, Value::Staged(outcome)) => {
+                self.admission_at = 0;
                 if let Some(pending) = cell.pending.as_mut() {
                     pending._bytes = _bytes;
                     match outcome {
                         StageOutcome::Prepared(prepared) => {
+                            pending.archive_bytes = Some(prepared.archive_bytes());
                             pending.prepared = Some(prepared);
                             pending.phase = Phase::BeforeSubmit;
                         }
@@ -2526,7 +2605,13 @@ impl Driver {
             }
             (SqlPurpose::Publish(ticket), Value::Published { view, receipt }) => {
                 cell.image = Some(view);
-                cell.apply_inflight = false;
+                // The runtime can deliver the next committed entry while this
+                // image is being published. Publication consumed the scheduler
+                // slot, so restore it for that queued entry after SQL joins.
+                cell.apply_inflight = cell.apply.is_some();
+                if cell.apply_inflight {
+                    self.applying.insert(scope.clone());
+                }
                 cell.apply_ticket = None;
                 // New durable work invalidates an earlier empty inventory.
                 // Keep per-cell failure backoff and the single producer; only
@@ -2646,7 +2731,10 @@ impl Driver {
                     }
                 }
             }
-            RuntimeEventKind::Failed { replica, .. } => self.fail(&replica.scope),
+            RuntimeEventKind::Failed { replica, error } => {
+                tracing::error!(group = ?replica.scope.group, ?error, "Raft runtime failed");
+                self.fail(&replica.scope);
+            }
             RuntimeEventKind::Snapshot {
                 ticket,
                 snapshot,
@@ -2694,6 +2782,7 @@ impl Driver {
 
     fn pump(&mut self) {
         self.pump_directory();
+        self.pump_admission();
         // Inventory scans are node maintenance, not per-frame work. Repeating
         // them for every heartbeat makes N groups cost O(N²) per tick.
         let now = crate::asyncrt::mono_ms();
@@ -2783,69 +2872,36 @@ impl Driver {
         self.pump_node_drain();
     }
 
-    fn archive_admission(&self) -> bool {
-        let reservation = self
-            .options
-            .execution
-            .max_image_bytes
-            .saturating_add(self.options.execution.envelope.max_payload_bytes as u64)
-            .saturating_add(self.options.execution.envelope.max_header_bytes as u64)
-            .saturating_add(1024);
-        let mut bytes = reservation;
-        let mut entries = 1u64;
-        for cell in self.cells.values() {
-            let Ok(cache) = cell.group.read() else {
-                return false;
-            };
-            let after = cell.archived.get().max(1);
-            if cache.applied.position.index > cell.archived {
-                if let Some(image) = &cache.applied.image {
-                    bytes = bytes.saturating_add(image.length);
-                }
-            }
-            for (_, entry) in cache.entries.range(after.saturating_add(1)..) {
-                bytes =
-                    bytes.saturating_add(u64::from(protobuf::Message::compute_size(entry)) + 128);
-                if entry.get_entry_type() == ::raft::prelude::EntryType::EntryNormal
-                    && !entry.data.is_empty()
-                {
-                    entries = entries.saturating_add(1);
-                }
-            }
-            if cell
-                .pending
-                .as_ref()
-                .is_some_and(|pending| pending.allow_new)
-            {
-                bytes = bytes.saturating_add(reservation);
-                entries = entries.saturating_add(1);
-            }
-            if bytes > self.options.archive.max_unarchived_bytes
-                || entries > self.options.archive.max_unarchived_entries as u64
-            {
-                return false;
-            }
-        }
-        bytes <= self.options.archive.max_unarchived_bytes
-            && entries <= self.options.archive.max_unarchived_entries as u64
-    }
-
     fn pump_archive(&mut self) {
-        let Some(owner) = self.archive_owner.as_mut() else {
-            return;
-        };
-        if owner.busy || self.closing.load(Ordering::Acquire) {
+        if self.closing.load(Ordering::Acquire) {
             return;
         }
         let now = crate::asyncrt::mono_ms();
+        // Already captured cuts must be published even when every slot is
+        // occupied. A partial batch's deadline cannot be renewed by slow SQL.
+        let publish = self.archive_owner.as_ref().is_some_and(|owner| {
+            !owner.pending.is_empty()
+                && (owner.pending.len()
+                    >= self
+                        .options
+                        .archive
+                        .max_batch_groups
+                        .min(self.options.archive.max_producers)
+                    || now >= owner.publish_at)
+        });
+        if publish {
+            self.publish_archive_batch();
+        }
+        let Some(owner) = self.archive_owner.as_mut() else {
+            return;
+        };
+        if owner.inflight.len() >= self.options.archive.max_producers {
+            return;
+        }
         if now < owner.scan_at {
             return;
         }
-        if owner.pending.len() >= self.options.archive.max_batch_groups {
-            self.publish_archive_batch();
-            return;
-        }
-        let eligible = |cell: &&Cell| {
+        let eligible = |cell: &Cell| {
             !cell.failed
                 && !cell.sql_busy
                 && cell.image.is_some()
@@ -2855,65 +2911,65 @@ impl Driver {
                     .applied()
                     .is_ok_and(|applied| applied.position.index > cell.archived)
         };
-        let next = self
-            .cells
-            .iter()
-            .filter(|(scope, _)| {
-                owner.pending.iter().all(|pending| {
-                    pending.scope != **scope
-                        && pending.scope.cluster == scope.cluster
-                        && pending.scope.namespace == scope.namespace
-                })
-            })
-            .filter(|(_, cell)| eligible(cell))
-            .find(|(scope, _)| owner.cursor.as_ref().is_none_or(|cursor| *scope > cursor))
-            .or_else(|| {
-                self.cells.iter().find(|(scope, cell)| {
-                    eligible(cell)
-                        && owner.pending.iter().all(|pending| {
-                            pending.scope != **scope
-                                && pending.scope.cluster == scope.cluster
-                                && pending.scope.namespace == scope.namespace
-                        })
-                })
-            })
-            .map(|(scope, _)| scope.clone());
-        let Some(scope) = next else {
-            if owner.pending.is_empty() {
+        let mut captures = Vec::new();
+        while owner.inflight.len() < self.options.archive.max_producers {
+            let next = super::host_archive::next_scope(
+                &self.cells,
+                owner.cursor.as_ref(),
+                |scope, cell| !owner.inflight.contains(scope) && eligible(cell),
+            )
+            .cloned();
+            let Some(scope) = next else {
                 owner.scan_at = now.saturating_add(self.options.poll_ms);
-            } else {
-                self.publish_archive_batch();
-            }
-            return;
-        };
-        owner.busy = true;
-        // Rotate the global scan by the first member of each batch. A same-
-        // namespace partner can wrap behind it; moving the cursor backwards
-        // there could repeatedly select this namespace and starve other cells.
-        if owner.pending.is_empty() {
+                break;
+            };
+            owner.inflight.insert(scope.clone());
+            // Advance once per selected cell, independently of how completed
+            // captures are partitioned into compatible upload batches.
             owner.cursor = Some(scope.clone());
+            captures.push(scope);
         }
         let limits = self.options.archive.limits;
-        self.sql(
-            &scope,
-            SqlPurpose::CaptureArchive,
-            Action::CaptureArchive { limits },
-        );
+        for scope in captures {
+            self.sql(
+                &scope,
+                SqlPurpose::CaptureArchive,
+                Action::CaptureArchive { limits },
+            );
+        }
     }
 
     fn publish_archive_batch(&mut self) {
         let Some(owner) = self.archive_owner.as_mut() else {
             return;
         };
-        if owner.pending.is_empty() || owner.busy {
-            return;
+        while !owner.pending.is_empty() {
+            let mut pending = vec![owner.pending.remove(0)];
+            while pending.len() < self.options.archive.max_batch_groups {
+                let next = owner
+                    .pending
+                    .iter()
+                    .position(|candidate| pending[0].archive.can_batch_with(&candidate.archive));
+                let Some(next) = next else {
+                    break;
+                };
+                pending.push(owner.pending.remove(next));
+            }
+            // Each cut remains in inflight, and retains its capture permit,
+            // until this entire publication returns through on_job.
+            let verifier = owner.verifier.clone();
+            let timer = self
+                .local
+                .performance
+                .timer(super::performance::Operation::ArchivePublicationBatch);
+            self.jobs.push(Box::pin(async move {
+                let completed = super::host_archive::publish(pending, verifier).await;
+                timer.finish(
+                    !completed.is_empty() && completed.iter().all(|cut| cut.result.is_ok()),
+                );
+                Job::Archived(completed)
+            }));
         }
-        owner.busy = true;
-        let pending = std::mem::take(&mut owner.pending);
-        let verifier = owner.verifier.clone();
-        self.jobs.push(Box::pin(async move {
-            Job::Archived(super::host_archive::publish(pending, verifier).await)
-        }));
     }
 
     fn on_job(&mut self, job: Job) {
@@ -2952,8 +3008,12 @@ impl Driver {
             | Job::SnapshotAbort { .. }
             | Job::Checkpoint { .. }) => self.on_snapshot_job(job),
             Job::Archived(completed) => {
+                self.admission_at = 0;
                 if let Some(owner) = self.archive_owner.as_mut() {
-                    owner.busy = false;
+                    owner.scan_at = 0;
+                    for result in &completed {
+                        owner.inflight.remove(&result.scope);
+                    }
                 }
                 for super::host_archive::Completed {
                     scope,
@@ -2961,32 +3021,69 @@ impl Driver {
                     result,
                 } in completed
                 {
+                    use super::performance::Counter;
+                    self.local.performance.increment(
+                        if result.is_ok() {
+                            Counter::ArchivePublicationCutSucceeded
+                        } else {
+                            Counter::ArchivePublicationCutFailed
+                        },
+                        1,
+                    );
                     let Some(cell) = self.cells.get_mut(&scope) else {
+                        if result.is_ok() {
+                            self.local
+                                .performance
+                                .increment(Counter::ArchiveCoverageMissingCell, 1);
+                        }
                         continue;
                     };
                     if result.is_ok() && position.index > cell.archived {
                         // The proof names the captured local cut, even if another
                         // replica has already archived a later cut of this history.
                         // Never import that replica's later applied progress.
-                        if let Ok(Some(progress)) =
-                            progress(&cell.group, cell.image.as_ref(), position.index)
-                        {
-                            if cell.core.observe_progress(progress).is_ok() {
-                                cell.archived = position.index;
-                                // The confirmed cut resolves this wait. Re-run
-                                // the normal fresh authority/output checks now;
-                                // it is not itself permission to send a result.
-                                if let Some(pending) = cell.pending.as_mut() {
-                                    if pending.phase == Phase::AwaitFinish
-                                        && pending.result.as_ref().is_some_and(|receipt| {
-                                            receipt.position().index <= cell.archived
-                                        })
-                                    {
-                                        pending.phase = Phase::Finish;
+                        match progress(&cell.group, cell.image.as_ref(), position.index) {
+                            Ok(Some(progress)) => {
+                                if cell.core.observe_progress(progress).is_ok() {
+                                    self.local.performance.increment(
+                                        Counter::ArchiveCoverageIndexAdvance,
+                                        position.index.get() - cell.archived.get(),
+                                    );
+                                    self.local
+                                        .performance
+                                        .increment(Counter::ArchiveCoverageAdvanced, 1);
+                                    cell.archived = position.index;
+                                    // The confirmed cut resolves this wait. Re-run
+                                    // the normal fresh authority/output checks now;
+                                    // it is not itself permission to send a result.
+                                    if let Some(pending) = cell.pending.as_mut() {
+                                        if pending.phase == Phase::AwaitFinish
+                                            && pending.result.as_ref().is_some_and(|receipt| {
+                                                receipt.position().index <= cell.archived
+                                            })
+                                        {
+                                            pending.phase = Phase::Finish;
+                                        }
                                     }
+                                } else {
+                                    self.local
+                                        .performance
+                                        .increment(Counter::ArchiveCoverageRejected, 1);
                                 }
                             }
+                            Ok(None) => self
+                                .local
+                                .performance
+                                .increment(Counter::ArchiveCoverageImagePending, 1),
+                            Err(_) => self
+                                .local
+                                .performance
+                                .increment(Counter::ArchiveCoverageRejected, 1),
                         }
+                    } else if result.is_ok() {
+                        self.local
+                            .performance
+                            .increment(Counter::ArchiveCoverageUnchanged, 1);
                     }
                     // A confirmed cut may already have newer work waiting. Keep it
                     // eligible for the next fair scan; back off failures or a proof
@@ -3054,7 +3151,8 @@ impl Driver {
                 result,
             } => self.on_sql(scope, purpose, *result),
             Job::Installed { scope, result } => {
-                if result.is_err() {
+                if let Err(error) = result {
+                    tracing::error!(group = ?scope.group, ?error, "Raft durable apply completion failed");
                     self.fail(&scope);
                 }
             }
@@ -3136,7 +3234,12 @@ impl Driver {
                 }
             }
             self.pump();
-            let Ok(timer) = self.log.domain().sleep_until(poll_at) else {
+            let wake_at = self
+                .archive_owner
+                .as_ref()
+                .filter(|owner| !owner.pending.is_empty())
+                .map_or(poll_at, |owner| poll_at.min(owner.publish_at));
+            let Ok(timer) = self.log.domain().sleep_until(wake_at) else {
                 return;
             };
             crate::asyncrt::select! {
@@ -3145,7 +3248,9 @@ impl Driver {
                 close=closes.recv(),if closes_open=>if close.is_some(){return;}else{closes_open=false;},
                 event=self.events.recv()=>match event{Some(event)=>self.on_event(event),None=>return},
                 job=self.jobs.next(),if !self.jobs.is_empty()=>if let Some(job)=job{self.on_job(job)},
-                _=timer=>{let Ok(now)=self.log.domain().mono_ms() else{return;};poll_at=now.saturating_add(self.options.poll_ms);
+                _=timer=>{let Ok(now)=self.log.domain().mono_ms() else{return;};
+                    if now < poll_at { continue; }
+                    poll_at=now.saturating_add(self.options.poll_ms);
                     for scope in self.active.clone(){
                         let purpose=self.cells.get(&scope).filter(|cell|!cell.status_busy).and_then(|cell|cell.pending.as_ref()).and_then(|pending|match pending.phase {
                             Phase::AwaitStart=>Some(StatusPurpose::Start),Phase::AwaitSubmit=>Some(StatusPurpose::Submit),Phase::AwaitFinish=>Some(StatusPurpose::Finish),Phase::Waiting=>Some(StatusPurpose::Poll),_=>None,

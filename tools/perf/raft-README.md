@@ -43,6 +43,51 @@ additional scheduling delays. This trades failover speed for lower protocol
 traffic. The runner retains the SDK-oriented 100-ms default for small smoke
 runs. Record the chosen interval with every result.
 
+`--archive-producers` selects one to four concurrent cell publications per node
+(default two). Publications for the same cell remain serial, and physical replay
+uses one exclusive verification workspace. Each producer has a bounded capture
+and recovery set, so aggregate archive memory scales with this setting. The
+runner records it and requires the same value when continuing incomplete setup.
+Use one and two with the same image to isolate the effect of overlapping I/O.
+
+`--archive-max-unarchived-mib` controls the node-wide retained history and
+command reservation budget (default 256 MiB). New callbacks reserve their maximum
+image/envelope size until preparation supplies the verified size. Increasing
+this budget may reduce reservation waiting but permits more retained history
+and concurrent preparation; it is not additional container memory. Compare
+256 and 512 using the same image, and require memory, archive catch-up, replica
+correctness and latency checks. The node reports its configured byte budget at
+`/resources`; the runner and independent analyzer verify it at both boundaries.
+Setup continuation cannot change it. Production defaults remain unchanged.
+
+The [same-image 256/512-MiB experiment](../../plans/multi-raft/tikv-performance.md#larger-admission-budget-shifts-waiting-into-sqlite-work)
+finds no demonstrated throughput improvement: 236.97 versus 237.84 mean TPS,
+with worst p99 increasing from 206 to 234 ms. Both configurations pass exact
+replica/archive checks and zero-error windows, but reduced admission waiting
+is replaced by more SQL queueing and slower staging. Retain the 256-MiB default;
+a larger budget is an experiment, not a qualified performance recommendation.
+
+`--sql-workers` selects one to sixteen fixed SQL owners per node (default two).
+`--sql-worker-queue` bounds queued/executing reservations per owner (default 32).
+To isolate worker concurrency while retaining 64 total reservations, compare
+`--sql-workers 2 --sql-worker-queue 32` with
+`--sql-workers 4 --sql-worker-queue 16` using the same image. CPU, memory and
+business/archive byte budgets remain fixed. The authenticated `/resources`
+fixture endpoint reports actual physical owners and reservation capacity; the
+runner checks these before and after timing, and the independent analyzer
+rejects mismatches. Setup continuation requires the original worker settings.
+
+The latest [bounded-concurrency comparison](../../plans/multi-raft/tikv-performance.md#bounded-sql-and-archive-concurrency-comparison)
+tested `--sql-workers 4 --sql-worker-queue 16 --archive-producers 4` at twelve
+writers for two 180-second windows. It averaged 206.88 successful writes/sec,
+with worst p99 355.05 ms and zero errors, while verifying all 4,500 replica values
+and 1,500 archive positions. It used persistent internal node bind volumes and
+external RustFS; storage backing and shared-host contention affect comparisons.
+The second window slowed substantially, and the 200-ms gate did not pass.
+Treat this as an experimental configuration; defaults remain unchanged.
+Four publishers also double aggregate capture allowance from 8 to 16 MiB and
+increase concurrent bounded recovery sets within the same 3-GiB container cap.
+
 To find an operating point below the latency limit, pace aggregate requests
 while retaining three independent clients:
 
@@ -150,8 +195,10 @@ The bounded-queue profile sets runtime request/event capacity and each transport
 lane to 4,096 items, with 16-MiB peer and 32-MiB node control byte budgets.
 External request admission and the SDK's default image, archive-backlog and
 payload bounds remain active. The default 256-MiB archive backlog budget includes
-an approximately 80-MiB worst-case reservation per pending new command; it can
-refuse additional concurrent writes even when materialized counters are small.
+an approximately 80-MiB worst-case reservation before each new callback runs.
+Preparation reduces that charge to verified image and encoded-entry bytes.
+Commands wait within bounded request admission when only temporary reservations
+prevent execution; a full retained backlog still refuses fresh callbacks.
 Admission rejection rate is therefore part of the result.
 
 Setup seed writes are journaled and may retry the **same** command ID, input and

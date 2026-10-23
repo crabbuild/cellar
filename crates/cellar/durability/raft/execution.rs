@@ -14,9 +14,15 @@ use cellar_logic::consensus::Durability;
 use cellar_logic::consensus::{
     ClientId, CommandFailure, CommandId, LogIndex, LogPosition, ProposalId, ReplicaIdentity, Term,
 };
+use cellar_ltx::apply::ImageState;
 use cellar_ltx::generation::{GenerationPin, GenerationStore, ImageId, ReadServices};
 use cellar_ltx::{HostFileLock, LtxHost};
+use sha2::{Digest, Sha256};
 use std::{fmt, path::PathBuf};
+
+#[cfg(test)]
+#[path = "execution_preview_tests.rs"]
+mod preview_tests;
 
 #[derive(Clone, Copy, Debug)]
 pub struct ExecutionLimits {
@@ -312,6 +318,7 @@ pub struct PreparedCommand {
     pub(crate) ltx_bytes: u64,
     proposal: ProposalId,
     command: Option<CommandId>,
+    archive_bytes: u64,
 }
 
 impl PreparedCommand {
@@ -329,6 +336,12 @@ impl PreparedCommand {
 
     pub fn context(&self) -> Vec<u8> {
         self.proposal.bytes().to_vec()
+    }
+
+    /// Retention bound after the physical preview has verified the image size.
+    /// Includes the encoded log entry and room for its protobuf/context framing.
+    pub(crate) fn archive_bytes(&self) -> u64 {
+        self.archive_bytes
     }
 }
 
@@ -361,9 +374,35 @@ enum Kind {
 
 struct Pending {
     proposal: ProposalId,
-    preview: GenerationPin,
+    // Taking the pin transfers its retention responsibility to ImageApplier.
+    // Private cleanup must never retire a promoted committed generation.
+    preview: Option<GenerationPin>,
+    base: ImageState,
+    result: ImageState,
+    payload_digest: [u8; 32],
     kind: Kind,
     submitted: bool,
+}
+
+impl Pending {
+    fn take_preview(
+        &mut self,
+        images: &GenerationStore,
+        bytes: &[u8],
+        base: ImageState,
+        result: ImageState,
+    ) -> Option<GenerationPin> {
+        let pin = self.preview.as_ref()?;
+        if !self.submitted
+            || self.base != base
+            || self.result != result
+            || !images.owns(pin)
+            || self.payload_digest != <[u8; 32]>::from(Sha256::digest(bytes))
+        {
+            return None;
+        }
+        self.preview.take()
+    }
 }
 
 pub struct PrivateExecutor {
@@ -429,7 +468,7 @@ impl PrivateExecutor {
         }
         let mut previews = Vec::new();
         if let Some(pending) = self.pending.take() {
-            previews.push(pending.preview);
+            previews.extend(pending.preview);
         }
         if let Some(preview) = self.retired_preview.take() {
             previews.push(preview);
@@ -529,12 +568,7 @@ impl PrivateExecutor {
                     )
                 })?;
         }
-        self.stage(attempt, |transaction| {
-            // Receipt lookup precedes this closure. A retry may recover its
-            // stored result while backlog admission refuses new business work.
-            if !allow_new {
-                return Err(anyhow::Error::new(CommandFailure::Overloaded));
-            }
+        self.stage_admitted(attempt, allow_new, |transaction| {
             if system {
                 class.invoke_system_command(
                     &contract,
@@ -608,10 +642,8 @@ impl PrivateExecutor {
                 return Err(storage(error));
             }
             drop(pin);
-            if let Err(error) = self.options.images.reclaim(1) {
-                self.rebuild_required = true;
-                return Err(storage(error));
-            }
+            // The next image preparation reclaims eligible files with its
+            // publication sync, or before reservation if capacity is exhausted.
         }
         if let Err(error) = self
             .working
@@ -647,6 +679,15 @@ impl PrivateExecutor {
     pub fn stage(
         &mut self,
         attempt: CommandAttempt,
+        command: impl FnOnce(&CommandTransaction<'_>) -> anyhow::Result<Vec<u8>>,
+    ) -> Result<StageOutcome, ExecutionError> {
+        self.stage_admitted(attempt, true, command)
+    }
+
+    fn stage_admitted(
+        &mut self,
+        attempt: CommandAttempt,
+        allow_new: bool,
         command: impl FnOnce(&CommandTransaction<'_>) -> anyhow::Result<Vec<u8>>,
     ) -> Result<StageOutcome, ExecutionError> {
         self.ready()?;
@@ -702,6 +743,12 @@ impl PrivateExecutor {
                 .is_none_or(|window| window > self.options.limits.max_retry_window_ms)
         {
             return Err(ExecutionError::Invalid("command retry window"));
+        }
+        // Duplicate receipt lookup above remains available under archive
+        // pressure. A known refusal has not mutated SQL or capture state and
+        // must not force the next request to reconstruct the private image.
+        if !allow_new {
+            return Err(ExecutionError::Refused(CommandFailure::Overloaded));
         }
         self.rebuild_required = true;
         self.working
@@ -780,6 +827,10 @@ impl PrivateExecutor {
         let bytes = update
             .encode(self.options.limits.envelope)
             .map_err(ExecutionError::Protocol)?;
+        let base = match self.base.as_ref() {
+            Some(base) => base.pin().state(),
+            None => ImageState::empty(update.base.epoch).map_err(storage)?,
+        };
         let pin =
             super::working::verify_preview(&self.options, self.base.as_ref(), preview, &update)
                 .map_err(ExecutionError::Storage)?;
@@ -793,9 +844,17 @@ impl PrivateExecutor {
             .retired_preview
             .take()
             .ok_or(ExecutionError::RebuildRequired)?;
+        let archive_bytes = preview
+            .state()
+            .length
+            .saturating_add(bytes.len() as u64)
+            .saturating_add(1024);
         self.pending = Some(Pending {
             proposal,
-            preview,
+            result: preview.state(),
+            preview: Some(preview),
+            base,
+            payload_digest: Sha256::digest(&bytes).into(),
             kind,
             submitted: false,
         });
@@ -809,6 +868,7 @@ impl PrivateExecutor {
             bytes,
             proposal,
             command,
+            archive_bytes,
         })
     }
 
@@ -826,6 +886,25 @@ impl PrivateExecutor {
         Ok(())
     }
 
+    /// Called only after the applier validates its durable committed entry and
+    /// exact apply ticket. A mismatch preserves the private pin and falls back
+    /// to physical replay; a match transfers ownership without publishing it.
+    pub(super) fn take_preview(
+        &mut self,
+        replica: &ReplicaIdentity,
+        images: &GenerationStore,
+        bytes: &[u8],
+        base: ImageState,
+        result: ImageState,
+    ) -> Option<GenerationPin> {
+        if &self.authority.replica != replica {
+            return None;
+        }
+        self.pending
+            .as_mut()?
+            .take_preview(images, bytes, base, result)
+    }
+
     pub fn finish(
         &mut self,
         published: PublishedImage,
@@ -837,7 +916,7 @@ impl PrivateExecutor {
         if published.scope() != &self.authority.replica.scope
             || published.application_digest() != self.options.application_digest
             || published.proposal() != Some(pending.proposal)
-            || published.pin().state() != pending.preview.state()
+            || published.pin().state() != pending.result
             || published.position().index <= self.authority.applied.position.index
             || published.position().term < self.authority.term
         {
@@ -857,7 +936,7 @@ impl PrivateExecutor {
             .pending
             .take()
             .ok_or(ExecutionError::Invalid("pending proposal changed"))?;
-        self.retired_preview = Some(pending.preview);
+        self.retired_preview = pending.preview;
         self.base = Some(published);
         // A new caught-up authority observation is required before another
         // callback; finish cannot turn an old pre-proposal observation current.
@@ -903,7 +982,7 @@ impl PrivateExecutor {
         }
         self.rebuild_required = true;
         if let Some(pending) = self.pending.take() {
-            self.retired_preview = Some(pending.preview);
+            self.retired_preview = pending.preview;
         }
         if let Some(working) = self.working.take() {
             working.close().map_err(ExecutionError::Storage)?;

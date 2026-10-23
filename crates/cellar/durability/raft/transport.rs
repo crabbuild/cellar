@@ -26,6 +26,8 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{mpsc, oneshot, watch, Notify, Semaphore};
 
+#[path = "transport_control_send.rs"]
+mod control_sender;
 #[path = "transport_directory.rs"]
 mod directory;
 #[path = "inspection_transport.rs"]
@@ -457,7 +459,10 @@ impl RaftTransport {
             claim: Mutex::new(Some(claim)),
             snapshot_source: Mutex::new(None),
             snapshot_source_budget: Budget::new(snapshot_memory, 1),
-            snapshot_receive_budget: Budget::new(snapshot_memory + 256 * 1024 * 1024, 1),
+            snapshot_receive_budget: Budget::new(
+                snapshot_memory + super::archive::MAX_RECOVERY_READ_BYTES,
+                1,
+            ),
             snapshot_connections: Arc::new(Semaphore::new(1)),
             seed_metadata: Budget::new(seeds::META_BYTES, 1),
         });

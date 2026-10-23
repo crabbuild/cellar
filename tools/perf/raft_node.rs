@@ -108,6 +108,40 @@ async fn main() -> Result<()> {
     let queue_items: usize = std::env::var("RAFT_QUEUE_ITEMS")
         .unwrap_or_else(|_| "256".into())
         .parse()?;
+    let archive_producers: usize = std::env::var("RAFT_ARCHIVE_PRODUCERS")
+        .unwrap_or_else(|_| RaftArchiveOptions::default().max_producers.to_string())
+        .parse()?;
+    ensure!(
+        (1..=4).contains(&archive_producers),
+        "invalid archive producer limit"
+    );
+    let archive_batch_groups: usize = std::env::var("RAFT_ARCHIVE_BATCH_GROUPS")
+        .unwrap_or_else(|_| RaftArchiveOptions::default().max_batch_groups.to_string())
+        .parse()?;
+    ensure!(
+        (1..=2).contains(&archive_batch_groups),
+        "invalid archive batch size"
+    );
+    let archive_max_unarchived_mib: u64 = std::env::var("RAFT_ARCHIVE_MAX_UNARCHIVED_MIB")
+        .unwrap_or_else(|_| {
+            (RaftArchiveOptions::default().max_unarchived_bytes / (1024 * 1024)).to_string()
+        })
+        .parse()?;
+    ensure!(
+        (1..=16_384).contains(&archive_max_unarchived_mib),
+        "invalid archive byte budget"
+    );
+    let archive_max_unarchived_bytes = archive_max_unarchived_mib * 1024 * 1024;
+    let sql_workers: usize = std::env::var("RAFT_SQL_WORKERS")
+        .unwrap_or_else(|_| RaftHostOptions::default().blocking_workers.to_string())
+        .parse()?;
+    let sql_worker_queue: usize = std::env::var("RAFT_SQL_WORKER_QUEUE")
+        .unwrap_or_else(|_| RaftHostOptions::default().worker_queue.to_string())
+        .parse()?;
+    ensure!(
+        (1..=16).contains(&sql_workers) && (1..=256).contains(&sql_worker_queue),
+        "invalid SQL worker configuration"
+    );
     let workload = match std::env::var("RAFT_WORKLOAD").as_deref() {
         Ok("reference") => true,
         Ok("counter") | Err(_) => false,
@@ -314,9 +348,14 @@ async fn main() -> Result<()> {
     let mut host = RaftHostOptions {
         max_groups: local_count,
         max_requests: 256,
+        blocking_workers: sql_workers,
+        worker_queue: sql_worker_queue,
         ..Default::default()
     };
     host.close_report.max_groups = local_count;
+    host.archive.max_producers = archive_producers;
+    host.archive.max_batch_groups = archive_batch_groups;
+    host.archive.max_unarchived_bytes = archive_max_unarchived_bytes;
     let service = node
         .start_raft_cells(
             RaftCellsConfig {
@@ -386,6 +425,29 @@ async fn main() -> Result<()> {
         }
     }));
     let admin = service.clone();
+    let resources = service.clone();
+    let resource_secret = secret.clone();
+    let router = router.route(
+        "/resources",
+        axum::routing::get(move |request: axum::extract::Request| {
+            let service = resources.clone();
+            let secret = resource_secret.clone();
+            async move {
+                let authorized = request
+                    .headers()
+                    .get("authorization")
+                    .and_then(|v| v.to_str().ok())
+                    == Some(format!("Bearer {secret}").as_str());
+                if !authorized {
+                    return (axum::http::StatusCode::FORBIDDEN, "unauthorized".to_owned());
+                }
+                let mut usage = serde_json::json!(service.resource_usage());
+                usage["archive_max_unarchived_bytes"] = archive_max_unarchived_bytes.into();
+                usage["archive_batch_groups"] = archive_batch_groups.into();
+                (axum::http::StatusCode::OK, usage.to_string())
+            }
+        }),
+    );
     let probe_domain = Arc::new(ExecutionDomain::new(tokio::runtime::Handle::current()));
     let admin_domain = probe_domain.clone();
     let probes = raft_probe::Probes::new(service.performance().source);
@@ -482,7 +544,9 @@ async fn main() -> Result<()> {
                     Ok::<_,anyhow::Error>(serde_json::json!({"cell":id, "node":i, "registered":true, "voters":voters, "leader":status.leader.map(MemberId::get),
                         "replication":replication,
                         "ready": status.command_ready, "role":format!("{:?}",status.role),
-                        "term":status.term.get(), "committed":status.committed.get(), "applied":status.applied.index.get(), "archived":status.archived.get()}))
+                        "term":status.term.get(), "persisted":status.persisted.get(),
+                        "checkpoint":status.checkpoint.index.get(), "committed":status.committed.get(),
+                        "applied":status.applied.index.get(), "archived":status.archived.get()}))
                 }.await;
                 if let Some(probe) = &probe { probe.finish(result.is_ok()); }
                 match result { Ok(v) => (axum::http::StatusCode::OK, v.to_string()),
@@ -492,11 +556,14 @@ async fn main() -> Result<()> {
         }));
     let listener = tokio::net::TcpListener::bind("0.0.0.0:8082").await?;
     cellar::note!(
-        "raft_perf_ready node={} groups={} tick_ms={} queue_items={} durability={:?} archive=rustfs",
+        "raft_perf_ready node={} groups={} tick_ms={} queue_items={} archive_producers={} sql_workers={} sql_worker_queue={} durability={:?} archive=rustfs",
         i,
         local_count,
         tick_ms,
         queue_items,
+        archive_producers,
+        sql_workers,
+        sql_worker_queue,
         durability
     );
     let served = axum::serve(listener, router)

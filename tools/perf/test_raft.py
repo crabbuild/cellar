@@ -42,6 +42,16 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual(self.run_evidence(self.fixture())['acknowledged_writes_including_seed'], 4)
         self.assertEqual(self.run_evidence(self.fixture())['best_observed_below_limit']['concurrency'], 1)
 
+    def test_two_windows_cannot_reuse_one_receipt_file(self):
+        evidence = self.fixture()
+        evidence['report.json']['measurements'].append(
+            copy.deepcopy(evidence['report.json']['measurements'][0]))
+        for replica in evidence['replica-verification.json']:
+            if replica['cell'] == 0:
+                replica['value'] = 3
+        with self.assertRaisesRegex(AssertionError, 'reused measurement evidence'):
+            self.run_evidence(evidence)
+
     def test_latency_limit_is_strict(self):
         evidence = self.fixture()
         evidence['write-r1-c1.json']['samples_ms'] = [200.0]
@@ -86,6 +96,62 @@ class EvidenceTests(unittest.TestCase):
                 with self.assertRaises((AssertionError, ValueError)):
                     self.run_evidence(evidence)
 
+    def test_archive_budget_requires_matching_node_observations(self):
+        evidence = self.fixture()
+        report = evidence['report.json']
+        report['archive_max_unarchived_mib'] = 512
+        for phase in ('initial_resources', 'final_resources'):
+            report[phase] = [{'archive_max_unarchived_bytes': 512 * 1024**2}
+                             for _ in range(3)]
+        self.assertTrue(self.run_evidence(evidence)['verified'])
+        for phase in ('initial_resources', 'final_resources'):
+            changed = copy.deepcopy(evidence)
+            changed['report.json'][phase][1]['archive_max_unarchived_bytes'] = 256 * 1024**2
+            with self.subTest(phase=phase), self.assertRaises(AssertionError):
+                self.run_evidence(changed)
+
+    def test_archive_batch_size_requires_matching_node_observations(self):
+        evidence = self.fixture()
+        report = evidence['report.json']
+        report['archive_batch_groups'] = 1
+        for phase in ('initial_resources', 'final_resources'):
+            report[phase] = [{'archive_batch_groups': 1} for _ in range(3)]
+        self.assertTrue(self.run_evidence(evidence)['verified'])
+        for phase in ('initial_resources', 'final_resources'):
+            for wrong in (None, 2):
+                changed = copy.deepcopy(evidence)
+                changed['report.json'][phase][1]['archive_batch_groups'] = wrong
+                with self.subTest(phase=phase, wrong=wrong), self.assertRaises(AssertionError):
+                    self.run_evidence(changed)
+        for wrong in (0, 3):
+            changed = copy.deepcopy(evidence)
+            changed['report.json']['archive_batch_groups'] = wrong
+            with self.subTest(wrong=wrong), self.assertRaises(AssertionError):
+                self.run_evidence(changed)
+
+    def test_sql_configuration_requires_matching_physical_owners(self):
+        evidence = self.fixture()
+        report = evidence['report.json']
+        report.update(sql_workers=4, sql_worker_queue=16)
+        for phase in ('initial_resources', 'final_resources'):
+            report[phase] = [{'sql': {'running_workers': 4, 'worker_capacity': 4,
+                'work_reservations': 0, 'work_capacity': 64, 'queue_closed': False}}
+                for _ in range(3)]
+        self.assertTrue(self.run_evidence(evidence)['verified'])
+        corruptions = {
+            'wrong_workers': lambda r: r['initial_resources'][0]['sql'].update(running_workers=2),
+            'larger_queue': lambda r: r['final_resources'][1]['sql'].update(work_capacity=128),
+            'closed_queue': lambda r: r['final_resources'][2]['sql'].update(queue_closed=True),
+            'missing_observer': lambda r: r['initial_resources'][0].update(sql=None),
+            'missing_node': lambda r: r['final_resources'].pop(),
+        }
+        for name, corrupt in corruptions.items():
+            with self.subTest(name=name):
+                changed = copy.deepcopy(evidence)
+                corrupt(changed['report.json'])
+                with self.assertRaises(AssertionError):
+                    self.run_evidence(changed)
+
 
 class PlacementTests(unittest.TestCase):
     def test_cached_readiness_requires_a_fresh_complete_scan(self):
@@ -111,6 +177,23 @@ class PlacementTests(unittest.TestCase):
 
 
 class LoadTests(unittest.TestCase):
+    def test_repeated_settings_preserve_every_measurement(self):
+        from raft import save_measurement
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            first = {'repeat': 1, 'concurrency': 12, 'offered_rate': 0,
+                     'receipts': [{'command_id': 'first'}]}
+            last = {**first, 'receipts': [{'command_id': 'last'}]}
+            save_measurement(root, first, 1)
+            save_measurement(root, last, 3)
+            self.assertNotEqual(first['evidence_file'], last['evidence_file'])
+            self.assertEqual(json.loads((root / first['evidence_file']).read_text())['receipts'],
+                             [{'command_id': 'first'}])
+            with self.assertRaises(FileExistsError):
+                save_measurement(root, last, 3)
+            self.assertEqual(json.loads((root / last['evidence_file']).read_text())['receipts'],
+                             [{'command_id': 'last'}])
+
     def test_paced_load_keeps_the_full_measurement_interval_and_command_ids(self):
         from raft import load
         class Connection:

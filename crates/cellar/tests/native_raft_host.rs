@@ -1,11 +1,15 @@
 //! Host integration starts with immutable catalog and initial-member admission.
 #![allow(clippy::disallowed_methods)]
+#[path = "support/raft_cache_pressure.rs"]
+mod cache_pressure;
 #[path = "support/raft_cluster.rs"]
 mod cluster;
 #[path = "../../../examples/raft-counter/counter.rs"]
 mod counter_example;
 #[path = "support/raft_inspection_native.rs"]
 mod inspection;
+#[path = "support/raft_preview_reuse.rs"]
+mod preview_reuse;
 #[path = "support/raft_node.rs"]
 mod public_node;
 #[path = "support/raft_catalog_fault.rs"]

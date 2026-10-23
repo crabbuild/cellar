@@ -47,12 +47,14 @@ impl Working {
                 <[u8; 32]>::from(hash.finalize()) == state.digest,
                 "private base SHA-256 mismatch"
             );
-            target.sync_all()?;
+            // Only the independently sealed base is a recovery authority.
+            // This copy is discarded on every reopen, including after a crash.
         }
-        let mut capture = match options.sqlite_vfs.as_deref() {
-            Some(vfs) => Db::open_with_host_and_vfs(&path, options.host.clone(), vfs)?,
-            None => Db::open_with_host(&path, options.host.clone())?,
-        };
+        let mut capture = Db::open_disposable_with_host(
+            &path,
+            options.host.clone(),
+            options.sqlite_vfs.as_deref(),
+        )?;
         let database = CommandDatabase::open(
             &path,
             options.sqlite_vfs.as_deref(),
@@ -104,7 +106,7 @@ impl Working {
                 filesystem.remove_file(&directory.join(name))?;
             }
         }
-        filesystem.sync_all(&directory)?;
+        // Capture history is private bookkeeping; rebuilding deletes it again.
         Ok(())
     }
 
@@ -115,7 +117,10 @@ impl Working {
         proposal: ProposalId,
         base: Option<&PublishedImage>,
     ) -> Result<CellUpdate> {
-        self.capture.capture()?;
+        let limits = options.limits.envelope;
+        let captured = self
+            .capture
+            .capture_with_files(limits.max_files, limits.max_payload_bytes)?;
         let result_position = self.capture.pos()?;
         let base_state = base
             .map(|b| b.pin().state())
@@ -124,50 +129,25 @@ impl Working {
             result_position.txid > base_state.txid,
             "command produced no complete LTX cut"
         );
-        let directory = l0_directory(&self.capture);
-        let filesystem = options.host.filesystem();
         let mut files = BTreeMap::new();
         let mut encoded = 0_usize;
         let mut pages = 0_u64;
         let mut decoded = 0_u64;
-        let limits = options.limits.envelope;
-        for (count, entry) in filesystem.read_dir_iter(&directory)?.enumerate() {
-            ensure!(
-                count <= limits.max_files,
-                "private capture inventory exceeds bound"
-            );
-            let entry = entry?;
-            ensure!(!entry.is_dir, "unexpected L0 directory");
-            let name = entry.file_name.to_str().context("non-UTF8 L0 name")?;
-            let (min, max) = ltx::parse_filename(name)?;
-            if max <= base_state.txid {
-                continue;
-            }
+        for captured in captured {
+            let min = captured.txid;
+            let max = captured.txid;
             ensure!(
                 min > base_state.txid && max <= result_position.txid,
                 "capture range crosses base/result"
             );
-            let mut file = filesystem.open(&directory.join(name))?;
-            let length = usize::try_from(file.file_len()?)?;
+            let bytes = captured.bytes.into_vec();
+            let length = bytes.len();
             encoded = encoded
                 .checked_add(length)
                 .context("encoded capture overflow")?;
             ensure!(
                 encoded <= limits.max_payload_bytes,
                 "encoded command delta exceeds bound"
-            );
-            let mut bytes = Vec::with_capacity(length);
-            let mut offset = 0;
-            while offset < length {
-                let count = (length - offset).min(64 * 1024);
-                let part = file.read_exact_at(offset as u64, count)?;
-                ensure!(part.len() == count, "short capture file read");
-                bytes.extend(part);
-                offset += count;
-            }
-            ensure!(
-                file.file_len()? == length as u64,
-                "capture file changed during read"
             );
             let verified = ltx::decode_file_bounded(
                 &bytes,
@@ -181,7 +161,7 @@ impl Working {
             )?;
             ensure!(
                 verified.header().min_txid == min && verified.header().max_txid == max,
-                "L0 name/header mismatch"
+                "captured L0 identity/header mismatch"
             );
             pages = pages
                 .checked_add(verified.pages().len() as u64)
@@ -308,7 +288,8 @@ fn clean(filesystem: &dyn FileSystem, directory: &Path, path: &Path) -> Result<(
     }
     for _ in 0..32 {
         if filesystem.remove_dir_batch(&meta, 256)? {
-            filesystem.sync_all(directory)?;
+            // Cleanup need not survive a crash: the next open repeats it before
+            // admitting a callback or reading any private capture history.
             return Ok(());
         }
     }

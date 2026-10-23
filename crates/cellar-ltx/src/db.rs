@@ -236,7 +236,7 @@ pub struct SyncTiming {
     /// 6 checkpoint boundary, 7 other, 8 WAL restarted before the passive
     /// checkpoint barrier.
     pub snapshot_reason: u8,
-    /// The cut file's fsync (zero under lazy capture).
+    /// The cut file's fsync (zero for disposable capture).
     pub fsync_us: u64,
     /// `checkpoint_if_needed`: SQLite's checkpoint, including its own
     /// writes and fsyncs through the SQLite VFS.
@@ -265,8 +265,30 @@ pub struct SyncTiming {
     pub checkpoint_restarts: u64,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum CaptureDurability {
+    Durable,
+    Disposable,
+}
+
+/// One encoded L0 cut produced during a capture, including checkpoint writes.
+/// These are the encoder's bytes, not a read-back verification of the local file.
+#[derive(Debug)]
+pub struct CapturedLtx {
+    pub txid: TXID,
+    pub bytes: Box<[u8]>,
+}
+
+struct CaptureOutput {
+    max_files: usize,
+    remaining_bytes: usize,
+    files: Vec<CapturedLtx>,
+}
+
 pub struct Db {
     host: crate::LtxHost,
+    durability: CaptureDurability,
+    capture_output: Option<CaptureOutput>,
     path: PathBuf,
     meta_path: PathBuf,
     /// Main connection: writes, PRAGMAs, checkpoints, page-size reads.
@@ -394,7 +416,7 @@ impl Db {
     /// This call must succeed before another writer opens the database.
     /// See [`Db::open`] for the startup ordering requirement.
     pub fn open_with_host(path: impl AsRef<Path>, host: crate::LtxHost) -> Result<Db> {
-        Self::open_with_host_and_optional_vfs(path, host, None)
+        Self::open_with_host_and_optional_vfs(path, host, None, CaptureDurability::Durable)
     }
 
     /// Opens both managed connections through a named SQLite VFS. Used by the
@@ -407,16 +429,55 @@ impl Db {
         host: crate::LtxHost,
         vfs: &str,
     ) -> Result<Db> {
-        Self::open_with_host_and_optional_vfs(path, host, Some(vfs))
+        Self::open_with_host_and_optional_vfs(path, host, Some(vfs), CaptureDurability::Durable)
+    }
+
+    /// Opens disposable capture state rebuilt from an independently authoritative
+    /// image. Managed SQLite connections and local LTX files omit disk syncs.
+    /// WAL capture, checksums, checkpointing and atomic file replacement still run.
+    ///
+    /// The caller must discard the entire workspace after a crash or failed
+    /// mutation, and durably persist the captured bytes elsewhere before any
+    /// acknowledgement. A database copied from an authoritative image is allowed;
+    /// existing sidecars or capture metadata are refused before opening SQLite.
+    /// Every other writer connection must also use `synchronous=OFF` if its
+    /// transactions should avoid local syncs. This mode does not make a durable
+    /// database, and must not be used to resume an existing capture history.
+    pub fn open_disposable_with_host(
+        path: impl AsRef<Path>,
+        host: crate::LtxHost,
+        vfs: Option<&str>,
+    ) -> Result<Db> {
+        Self::open_with_host_and_optional_vfs(path, host, vfs, CaptureDurability::Disposable)
     }
 
     fn open_with_host_and_optional_vfs(
         path: impl AsRef<Path>,
         host: crate::LtxHost,
         vfs: Option<&str>,
+        durability: CaptureDurability,
     ) -> Result<Db> {
         let path = path.as_ref().to_path_buf();
         let meta_path = Self::meta_path_for(&path);
+        if durability == CaptureDurability::Disposable {
+            let mut leftovers = vec![meta_path.clone()];
+            for suffix in ["-wal", "-shm", "-journal"] {
+                let mut sidecar = path.as_os_str().to_owned();
+                sidecar.push(suffix);
+                leftovers.push(PathBuf::from(sidecar));
+            }
+            for leftover in leftovers {
+                match host.metadata(&leftover) {
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => (),
+                    Err(error) => return Err(error.into()),
+                    Ok(_) => {
+                        return Err(Error::Other(
+                            "disposable capture requires discarded sidecars and metadata".into(),
+                        ))
+                    }
+                }
+            }
+        }
 
         let open = |path: &Path| match vfs {
             Some(vfs) => Connection::open_with_flags_and_vfs(path, OpenFlags::default(), vfs),
@@ -424,6 +485,10 @@ impl Db {
         };
         let conn = open(&path).map_err(sql_err)?;
         disable_lookaside(&conn)?;
+        if durability == CaptureDurability::Disposable {
+            conn.pragma_update(None, "synchronous", "OFF")
+                .map_err(sql_err)?;
+        }
         // Cap the page cache at 64 KiB; SQLite's default (-2000) lets each
         // connection grow to 2 MiB, and every resident cell owns this
         // connection, so the default repeats a dead-weight cost at fleet
@@ -460,6 +525,11 @@ impl Db {
         // Dedicated read-lock connection (mirrors a second pooled connection).
         let rtx_conn = open(&path).map_err(sql_err)?;
         disable_lookaside(&rtx_conn)?;
+        if durability == CaptureDurability::Disposable {
+            rtx_conn
+                .pragma_update(None, "synchronous", "OFF")
+                .map_err(sql_err)?;
+        }
         // This connection runs one tiny read to take the read lock and then
         // idles for the whole residency, so SQLite's default page-cache limit
         // (-2000 = up to 2 MiB) is dead weight repeated per resident cell.
@@ -474,6 +544,8 @@ impl Db {
 
         let mut db = Db {
             host,
+            durability,
+            capture_output: None,
             path,
             meta_path,
             conn,
@@ -937,7 +1009,7 @@ impl Db {
         // Write the baseline file atomically (db.go:1260-1286).
         let local_path = self.ltx_path(0, min_txid, max_txid);
         let tmp_path = format!("{local_path}.tmp");
-        let _ = write_file_atomic(&self.host, &tmp_path, &local_path, data)?;
+        let _ = write_file_atomic(&self.host, &tmp_path, &local_path, data, self.durability)?;
         self.last_l0_header = None;
         self.invalidate_pos_cache();
         Ok(())
@@ -1003,6 +1075,37 @@ impl Db {
     /// [`Self::checkpoint_if_due`] under the same exclusive database ownership.
     pub fn capture(&mut self) -> Result<()> {
         self.sync_capture(None, false)
+    }
+
+    /// Capture and return the newly encoded cuts without reopening their files.
+    /// The batch includes every cut emitted by size-triggered checkpoints, in
+    /// TXID order. Local writes retain this database's configured durability.
+    /// The caller must still validate and independently persist disposable cuts
+    /// before acknowledging work.
+    ///
+    /// Both bounds must be nonzero. Exceeding either bound or failing capture
+    /// returns no batch, although SQLite or local capture may already have
+    /// advanced; callers must retain their ordinary failure/rebuild policy.
+    pub fn capture_with_files(
+        &mut self,
+        max_files: usize,
+        max_encoded_bytes: usize,
+    ) -> Result<Vec<CapturedLtx>> {
+        if max_files == 0 || max_encoded_bytes == 0 || self.capture_output.is_some() {
+            return Err(Error::Other("invalid or active capture output".into()));
+        }
+        self.capture_output = Some(CaptureOutput {
+            max_files,
+            remaining_bytes: max_encoded_bytes,
+            files: Vec::new(),
+        });
+        let result = self.capture();
+        let output = self
+            .capture_output
+            .take()
+            .ok_or_else(|| Error::Other("capture output owner missing".into()))?;
+        result?;
+        Ok(output.files)
     }
 
     /// `sync` with an optional hook that runs between `verify` and the
@@ -1582,6 +1685,11 @@ impl Db {
 
         // Encode the LTX file (with HeaderFlagNoChecksum, so post-apply is 0).
         let encoded = ltx::encode_file(&header, &pages, 0)?;
+        if self.capture_output.as_ref().is_some_and(|output| {
+            output.files.len() >= output.max_files || encoded.len() > output.remaining_bytes
+        }) {
+            return Err(Error::Other("capture output exceeds its bounds".into()));
+        }
         self.last_sync_timing.ltx_encode_us = crate::host::telemetry_us().saturating_sub(phase);
         let phase = crate::host::telemetry_us();
 
@@ -1598,16 +1706,27 @@ impl Db {
         // (db.go:1680-1684); the error path below does that. A directory
         // that vanished under a ready flag is recreated once and the cut
         // retried, so the flag saves a `mkdir` per sync without trusting it.
-        self.last_sync_timing.fsync_us =
-            match write_file_atomic(&self.host, &tmp_filename, &filename, &encoded) {
-                Err(Error::Io(error)) if error.kind() == std::io::ErrorKind::NotFound => {
-                    if let Some(parent) = &parent {
-                        self.host.create_dir_all(parent)?;
-                    }
-                    write_file_atomic(&self.host, &tmp_filename, &filename, &encoded)?
+        self.last_sync_timing.fsync_us = match write_file_atomic(
+            &self.host,
+            &tmp_filename,
+            &filename,
+            &encoded,
+            self.durability,
+        ) {
+            Err(Error::Io(error)) if error.kind() == std::io::ErrorKind::NotFound => {
+                if let Some(parent) = &parent {
+                    self.host.create_dir_all(parent)?;
                 }
-                other => other?,
-            };
+                write_file_atomic(
+                    &self.host,
+                    &tmp_filename,
+                    &filename,
+                    &encoded,
+                    self.durability,
+                )?
+            }
+            other => other?,
+        };
         self.last_sync_timing.file_write_us = crate::host::telemetry_us()
             .saturating_sub(phase)
             .saturating_sub(self.last_sync_timing.fsync_us);
@@ -1659,6 +1778,15 @@ impl Db {
             Err(_) => false,
         };
 
+        if let Some(output) = &mut self.capture_output {
+            // No nested capture runs between the bound check and this handoff.
+            // Shrinking to the encoded length avoids retaining encoder capacity.
+            output.remaining_bytes -= encoded.len();
+            output.files.push(CapturedLtx {
+                txid: tx_id,
+                bytes: encoded.into_boxed_slice(),
+            });
+        }
         Ok(true)
     }
 
@@ -2349,13 +2477,18 @@ fn write_file_atomic(
     tmp_path: &str,
     final_path: &str,
     data: &[u8],
+    durability: CaptureDurability,
 ) -> Result<u64> {
     let result = (|| -> Result<u64> {
         let mut file = host.create(Path::new(tmp_path))?;
         file.write_all(data)?;
-        let fsync = crate::host::telemetry_us();
-        file.sync_all()?;
-        let fsync_us = crate::host::telemetry_us().saturating_sub(fsync);
+        let fsync_us = if durability == CaptureDurability::Durable {
+            let fsync = crate::host::telemetry_us();
+            file.sync_all()?;
+            crate::host::telemetry_us().saturating_sub(fsync)
+        } else {
+            0
+        };
         drop(file);
         host.rename(Path::new(tmp_path), Path::new(final_path))?;
         Ok(fsync_us)

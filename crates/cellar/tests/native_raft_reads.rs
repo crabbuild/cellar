@@ -1030,6 +1030,70 @@ async fn minority_strong_read_refused() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn follower_drains_committed_batch_after_held_reader() -> Result<()> {
+    let (gate, mut entered) = public_node::Gate::new();
+    let release = public_node::Release(gate.clone());
+    let fixture = Fixture::start(Arc::new(move |context, input| {
+        if input == b"hold" {
+            gate.wait()?;
+        }
+        get(context, input)
+    }))
+    .await?;
+    let result = async {
+        let primary = leader(&fixture.handles, None).await?;
+        let follower = (primary + 1) % 3;
+        let pending = fixture.handles[follower].query(
+            fixture.definition.get.clone(), b"hold".to_vec(), QueryOptions {
+                timeout: Duration::from_secs(30),
+                ..at_least(&fixture.initial)
+            },
+        );
+        tokio::time::timeout(Duration::from_secs(5), entered.recv()).await?
+            .context("follower reader did not enter")?;
+        let mut newest = fixture.initial.clone();
+        // The other two durable voters acknowledge while this follower's SQL
+        // owner is held. Release a real backlog through prepare/marker/publish.
+        for sequence in 2..=33 {
+            newest = fixture.write(primary, sequence, 1).await
+                .with_context(|| format!("write backlog sequence {sequence}"))?;
+            assert_eq!(newest.result, (sequence as i64).to_be_bytes());
+        }
+        release.0.release();
+        assert_eq!(pending.await.context("held reader completion")?.result, 1_i64.to_be_bytes());
+        for (index, handle) in fixture.handles.iter().enumerate() {
+            let read = handle.query(fixture.definition.get.clone(), vec![], QueryOptions {
+                timeout: Duration::from_secs(10),
+                ..at_least(&newest)
+            }).await;
+            if let Err(error) = &read {
+                let mut statuses = Vec::new();
+                for handle in &fixture.handles {
+                    statuses.push(handle.status().await.map(|status| (
+                        status.committed,
+                        status.applied.index,
+                        status.version.map(|version| version.position.index),
+                        status.command_ready,
+                    )));
+                }
+                anyhow::bail!("replica {index} did not drain backlog: {error:?}; committed/applied/image/ready={statuses:?}");
+            }
+            let read = read?;
+            assert_eq!(read.result, 33_i64.to_be_bytes());
+        }
+        let final_write = fixture.write(primary, 34, 1).await?;
+        let read = fixture.handles[follower].query(
+            fixture.definition.get.clone(), vec![], at_least(&final_write),
+        ).await?;
+        assert_eq!(read.result, 34_i64.to_be_bytes());
+        Ok::<_, anyhow::Error>(())
+    }.await;
+    release.0.release();
+    let cleanup = fixture.close().await;
+    result.and(cleanup)
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
 async fn stale_is_committed_prefix() -> Result<()> {
     let (gate, mut entered) = public_node::Gate::new();
     let _release = public_node::Release(gate.clone());

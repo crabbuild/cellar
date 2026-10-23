@@ -79,7 +79,9 @@ fn bounded(service: &RaftCells) -> Result<(usize, usize)> {
     ensure!(transport.snapshot_source.max_items == 1);
     ensure!(transport.snapshot_receive.max_items == 1);
     ensure!(transport.snapshot_source.max_bytes <= 384 * 1024 * 1024);
-    ensure!(transport.snapshot_receive.max_bytes <= 640 * 1024 * 1024);
+    // Archive seed admission also retains four full 8-MiB bundle buffers
+    // through physical extraction, separately from logical recovery bytes.
+    ensure!(transport.snapshot_receive.max_bytes == (640 + 32) * 1024 * 1024);
     let sql = usage.sql.context("live SQL resource view")?;
     ensure!(sql.work_reservations <= sql.work_capacity);
     Ok((

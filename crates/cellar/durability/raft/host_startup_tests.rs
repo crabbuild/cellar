@@ -1,5 +1,6 @@
 //! A startup error owns infrastructure until actual file-lock release.
 #![allow(clippy::disallowed_methods)]
+use super::storage_fault as fault;
 use super::*;
 use crate::raft::{
     options::{LogOpenMode, RaftRuntimeOptions, ReplicaLogOptions},
@@ -9,9 +10,6 @@ use crate::raft::{
 };
 use anyhow::Context as _;
 use std::time::Duration;
-#[path = "../../tests/support/raft_storage_fault.rs"]
-#[allow(dead_code)]
-mod fault;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn failed_preflight_joins_infrastructure_with_retained_handles() -> anyhow::Result<()> {
@@ -388,7 +386,20 @@ async fn peer_traffic_waits_until_all_local_groups_attach() -> anyhow::Result<()
             .map_err(|error| anyhow::anyhow!("startup failed: {error:#}"))?;
         for scope in [&first, &second] {
             anyhow::ensure!(host.cell(scope.namespace, &scope.cell).is_ok());
-            local.runtime.status(scope).await?;
+            // Startup is complete, but this one-slot runtime is now shared
+            // with the host's own status work. Retain the successful-status
+            // assertion and bound only retries of this read-only admission.
+            tokio::time::timeout(Duration::from_secs(5), async {
+                loop {
+                    match local.runtime.status(scope).await {
+                        Err(RuntimeError::Overloaded) => {
+                            tokio::time::sleep(Duration::from_millis(2)).await;
+                        }
+                        result => return result,
+                    }
+                }
+            })
+            .await??;
         }
         let mut message = Message {
             from: 2,

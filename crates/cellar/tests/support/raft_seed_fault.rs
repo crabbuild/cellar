@@ -25,7 +25,7 @@ struct Armed {
     images: image_fault::FaultFileSystem,
     log: log_fault::FaultFileSystem,
     cut: String,
-    renamed: AtomicBool,
+    image_created: AtomicBool,
     engine_armed: AtomicBool,
 }
 
@@ -34,8 +34,9 @@ impl Filesystem {
         let images = image_fault::Faults::new(image_directory, Some(signal.clone()));
         let mode = match cut {
             "image-before-sync" => image_fault::BEFORE_IMAGE_SYNC,
-            "image-after-rename" => image_fault::AFTER_RENAME,
-            // Arm after rename, so initial directory creation cannot trigger it.
+            "image-after-write" => image_fault::AFTER_IMAGE_WRITE,
+            "image-after-file-sync" => image_fault::AFTER_IMAGE_SYNC,
+            // Arm after image creation, so initial directory creation cannot trigger it.
             _ => 0,
         };
         images.mode.store(mode, Ordering::Release);
@@ -46,7 +47,7 @@ impl Filesystem {
                 gate: log_fault::Gate::new(Some(signal)),
             },
             cut: cut.into(),
-            renamed: AtomicBool::new(false),
+            image_created: AtomicBool::new(false),
             engine_armed: AtomicBool::new(false),
         };
         assert!(self.armed.set(armed).is_ok(), "fixture armed twice");
@@ -67,7 +68,22 @@ impl Filesystem {
 
 impl FileSystem for Filesystem {
     fn create_read_write(&self, path: &Path) -> io::Result<HostFile> {
-        self.select(path).create_read_write(path)
+        let file = self.select(path).create_read_write(path)?;
+        if let Some(armed) = self.armed.get() {
+            if path.parent() == Some(armed.images.faults.directory.as_path())
+                && path.extension().is_some_and(|e| e == "sqlite")
+            {
+                if armed.cut == "image-after-directory-sync" {
+                    armed
+                        .images
+                        .faults
+                        .mode
+                        .store(image_fault::AFTER_DIRECTORY_SYNC, Ordering::Release);
+                }
+                armed.image_created.store(true, Ordering::Release);
+            }
+        }
+        Ok(file)
     }
 
     fn open_read_write(&self, path: &Path) -> io::Result<HostFile> {
@@ -135,22 +151,6 @@ impl FileSystem for Filesystem {
     }
 
     fn rename(&self, from: &Path, to: &Path) -> io::Result<()> {
-        if let Some(armed) = self.armed.get() {
-            if to.parent() == Some(armed.images.faults.directory.as_path())
-                && to.extension().is_some_and(|e| e == "sqlite")
-            {
-                if armed.cut == "image-after-directory-sync" {
-                    armed
-                        .images
-                        .faults
-                        .mode
-                        .store(image_fault::AFTER_DIRECTORY_SYNC, Ordering::Release);
-                }
-                self.select(from).rename(from, to)?;
-                armed.renamed.store(true, Ordering::Release);
-                return Ok(());
-            }
-        }
         self.select(from).rename(from, to)
     }
 
@@ -158,7 +158,7 @@ impl FileSystem for Filesystem {
         self.select(path).sync_all(path)?;
         if let Some(armed) = self.armed.get() {
             if path == armed.images.faults.directory
-                && armed.renamed.load(Ordering::Acquire)
+                && armed.image_created.load(Ordering::Acquire)
                 && !armed.engine_armed.swap(true, Ordering::AcqRel)
             {
                 let mode = match armed.cut.as_str() {

@@ -1,9 +1,10 @@
-//! Bounded control pipelining on the existing authenticated peer connection.
+//! Bounded pipelining on each existing authenticated peer connection.
 use super::*;
 
 // Drain only already-admitted frames; never wait to fill a window. Every frame
-// retains its node/peer byte and item permits. Bulk data remains one at a time.
-const CONTROL_WINDOW: usize = 8;
+// retains its node/peer byte and item permits. A large data frame travels alone.
+const DATA_WINDOW: usize = 16;
+const DATA_WINDOW_BYTES: usize = 1024 * 1024;
 
 impl State {
     pub(super) async fn send_loop(
@@ -12,26 +13,45 @@ impl State {
         lane: Lane,
         mut requests: mailbox::Receiver<SendRequest>,
     ) {
+        if lane == Lane::Control {
+            return self.send_control(pool, requests).await;
+        }
         let mut stop = self.stop.subscribe();
         let mut peer_stop = pool.stop.subscribe();
         let mut connection = None;
+        let mut deferred = None;
         loop {
             if *stop.borrow() || *peer_stop.borrow() {
                 return;
             }
-            let first = crate::asyncrt::select! {
+            let first = if let Some(request) = deferred.take() {
+                request
+            } else {
+                crate::asyncrt::select! {
                 _ = stop.changed() => return,
                 _ = peer_stop.changed() => return,
                 request = requests.recv() => match request { Some(request) => request, None => return },
-            };
-            let mut window = vec![first];
-            if lane == Lane::Control {
-                while window.len() < CONTROL_WINDOW {
-                    match requests.try_recv() {
-                        Ok(request) => window.push(request),
-                        Err(_) => break,
-                    }
                 }
+            };
+            let charge = |request: &SendRequest| {
+                request.body.len() + self.options.max_header_bytes + frame::PREFIX + frame::TAG
+            };
+            let (max_frames, max_bytes) = (DATA_WINDOW, DATA_WINDOW_BYTES);
+            let mut bytes = charge(&first);
+            let mut window = vec![first];
+            while window.len() < max_frames && bytes < max_bytes {
+                let Ok(request) = requests.try_recv() else {
+                    break;
+                };
+                let size = charge(&request);
+                if bytes.saturating_add(size) > max_bytes {
+                    // Keep FIFO order, queue timing and the original permits.
+                    // Cancellation/peer revocation still releases this owner.
+                    deferred = Some(request);
+                    break;
+                }
+                bytes += size;
+                window.push(request);
             }
             // Queue residence ends on selection, independently of the later
             // peer exchange. Cancellation of a Delivery does not end either.
@@ -154,7 +174,7 @@ impl State {
         Ok(())
     }
 
-    async fn finish_delivery(
+    pub(super) async fn finish_delivery(
         &self,
         pool: &Pool,
         mut request: SendRequest,

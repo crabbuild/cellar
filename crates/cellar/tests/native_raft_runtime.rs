@@ -17,6 +17,43 @@ use raft::Storage;
 use std::sync::Arc;
 use std::time::Duration;
 
+#[tokio::test]
+async fn queued_groups_share_the_first_persistence_batch() -> Result<()> {
+    let ids = [10, 11, 12, 13, 14, 15, 16, 17];
+    let mut cluster = Cluster::new(1, &ids).await?;
+    for &id in &ids {
+        cluster.elect(id, 0).await?;
+    }
+    cluster.settled(&ids).await?;
+    cluster.persisted.clear();
+    let runtime = cluster.hosts[0].runtime.clone();
+    // The current-thread executor polls every call into the mailbox before
+    // letting the production worker run. No disk stall creates this batch.
+    let accepted = futures_util::future::try_join_all(ids.iter().map(|&id| {
+        let runtime = runtime.clone();
+        async move { runtime.propose(&scope(id), vec![id], vec![id; 32]).await }
+    }))
+    .await?;
+    for (&id, proposal) in ids.iter().zip(accepted) {
+        cluster
+            .applied_to(id, 0, proposal.position.index.get())
+            .await?;
+    }
+    let mut first = std::collections::BTreeMap::new();
+    for &(_, group, sequence) in &cluster.persisted {
+        first.entry(group).or_insert(sequence);
+    }
+    ensure!(first.len() == ids.len(), "every group must persist");
+    let sequences = first.values().collect::<std::collections::BTreeSet<_>>();
+    let shared = sequences.len() == 1;
+    cluster.close().await?;
+    ensure!(
+        shared,
+        "queued groups split across initial syncs: {first:?}"
+    );
+    Ok(())
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn ready_persistence_order() -> Result<()> {
     let mut cluster = Cluster::new(3, &[10, 11, 12]).await?;
@@ -885,6 +922,125 @@ async fn runtime_close_fences_full_queue() -> Result<()> {
     cluster.hosts[0].domain.shutdown().await;
     assert_eq!(runtime.status(&scope(10)).await, Err(RuntimeError::Closed));
     Ok(())
+}
+
+async fn prepared_apply_burst() -> Result<(Cluster, Vec<ApplyCompletion>)> {
+    let ids = (10..27u8).collect::<Vec<_>>();
+    let mut cluster = Cluster::new(1, &ids).await?;
+    for &id in &ids {
+        cluster.elect(id, 0).await?;
+    }
+    cluster.settled(&ids).await?;
+    for &id in &ids {
+        cluster.hold_apply.insert((0, scope(id).group));
+        cluster.hosts[0]
+            .runtime
+            .propose(&scope(id), vec![id], vec![id; 32])
+            .await?;
+    }
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while cluster.held_apply.len() < ids.len() {
+            cluster.pump().await?;
+        }
+        Ok::<_, anyhow::Error>(())
+    })
+    .await??;
+    let completed = std::mem::take(&mut cluster.held_apply)
+        .into_iter()
+        .map(|(_, ticket)| {
+            let image = write_image(&cluster.hosts[0].path, &ticket)?;
+            Ok(ApplyCompletion { ticket, image })
+        })
+        .collect::<Result<Vec<_>>>()?;
+    Ok((cluster, completed))
+}
+
+#[tokio::test]
+async fn completed_apply_burst_waits_for_reserved_capacity() -> Result<()> {
+    let (mut cluster, completed) = prepared_apply_burst().await?;
+    let runtime = cluster.hosts[0].runtime.clone();
+    // Actual already-fsynced image completions from many groups can arrive in
+    // one host turn. Poll all callers before the current-thread worker runs;
+    // the fixed completion queue must defer the excess, not lose their tickets.
+    let results = futures_util::future::join_all(
+        completed
+            .iter()
+            .cloned()
+            .map(|completion| runtime.complete_apply(completion)),
+    )
+    .await;
+    if results.iter().all(Result::is_ok) {
+        for completion in &completed {
+            let id = completion.ticket.replica().scope.group.bytes()[0];
+            cluster
+                .applied_to(id, 0, completion.ticket.position().index.get())
+                .await?;
+        }
+    }
+    cluster.close().await?;
+    ensure!(
+        results.iter().all(Result::is_ok),
+        "physical apply completions were refused: {results:?}"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn cancelling_completion_capacity_waiter_releases_its_place() -> Result<()> {
+    let (mut cluster, completed) = prepared_apply_burst().await?;
+    let runtime = cluster.hosts[0].runtime.clone();
+    let mut pending = completed
+        .iter()
+        .cloned()
+        .map(|completion| runtime.complete_apply(completion).boxed())
+        .collect::<Vec<_>>();
+    for call in &mut pending {
+        ensure!(call.as_mut().now_or_never().is_none());
+    }
+    // Eight requests own the reserved slots. Cancel a waiter before it can
+    // publish its completion, then submit that exact ticket again.
+    drop(pending.remove(8));
+    pending.push(runtime.complete_apply(completed[8].clone()).boxed());
+    tokio::time::timeout(
+        Duration::from_secs(5),
+        futures_util::future::try_join_all(pending),
+    )
+    .await??;
+    for completion in &completed {
+        let id = completion.ticket.replica().scope.group.bytes()[0];
+        cluster
+            .applied_to(id, 0, completion.ticket.position().index.get())
+            .await?;
+    }
+    cluster.close().await
+}
+
+#[tokio::test]
+async fn runtime_close_wakes_completion_capacity_waiters() -> Result<()> {
+    let (cluster, completed) = prepared_apply_burst().await?;
+    let runtime = cluster.hosts[0].runtime.clone();
+    let mut pending = completed
+        .into_iter()
+        .map(|completion| runtime.complete_apply(completion).boxed())
+        .collect::<Vec<_>>();
+    for call in &mut pending {
+        ensure!(call.as_mut().now_or_never().is_none());
+    }
+    let mut closing = runtime.close().boxed();
+    ensure!(closing.as_mut().now_or_never().is_none());
+    // Closing admission wakes unsubmitted completions synchronously, even
+    // before this executor lets the worker release its eight queued requests.
+    for call in &mut pending[8..] {
+        ensure!(call.as_mut().now_or_never() == Some(Err(RuntimeError::Closed)));
+    }
+    pending.truncate(8);
+    closing.await?;
+    // The first eight were already published to the mailbox. The worker may
+    // admit them before joining; that success is not an applied-marker proof.
+    for result in futures_util::future::join_all(pending).await {
+        ensure!(matches!(result, Ok(()) | Err(RuntimeError::Closed)));
+    }
+    cluster.close().await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

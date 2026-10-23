@@ -9,7 +9,7 @@ pub(crate) const MAX_GROUPS: usize = 2;
 pub(crate) const MAX_BYTES: usize = 8 * 1024 * 1024;
 const MAX_INDEX_BYTES: usize = 16 * 1024;
 const MAGIC: &[u8; 8] = b"CLRBDL01";
-const COALESCE_MS: u64 = 5;
+pub(crate) const COALESCE_MS: u64 = 5;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -299,7 +299,7 @@ async fn flush(mut requests: Vec<Request>) {
                     .put_opts(&path, bytes.into(), PutOptions::from(PutMode::Create)),
             )
             .await;
-        match archive.read(&path, limit).await? {
+        match archive.read(&path, limit, Some(length as u64)).await? {
             Some((observed, _)) => {
                 archive
                     .host
@@ -340,7 +340,7 @@ async fn flush(mut requests: Vec<Request>) {
 }
 
 #[cfg(test)]
-#[path = "archive_bundle_tests.rs"]
+#[path = "bundle_tests.rs"]
 mod tests;
 
 impl CellArchive {
@@ -353,11 +353,9 @@ impl CellArchive {
     ) -> Result<Vec<Result<ArchiveRecoverySet, ArchiveError>>, ArchiveError> {
         let first = inputs.first().ok_or(ArchiveError::Limit)?;
         if inputs.len() > MAX_GROUPS
-            || inputs.iter().any(|(archive, _)| {
-                archive.bundle_prefix != first.0.bundle_prefix
-                    || archive.root != first.0.root
-                    || !Arc::ptr_eq(&archive.store, &first.0.store)
-            })
+            || inputs
+                .iter()
+                .any(|(archive, _)| !archive.can_batch_with(&first.0))
             || inputs.len() == 2 && inputs[0].0.scope == inputs[1].0.scope
         {
             return Err(ArchiveError::Invalid("archive batch namespace/count"));

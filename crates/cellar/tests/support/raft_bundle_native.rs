@@ -24,6 +24,8 @@ impl Drop for Release {
     fn drop(&mut self) {
         self.0.archive_hang.store(false, Ordering::Release);
         self.0.archive_resume.notify_waiters();
+        self.0.archive_heads_hang.store(false, Ordering::Release);
+        self.0.archive_heads_resume.notify_waiters();
     }
 }
 
@@ -117,8 +119,9 @@ pub async fn run() -> Result<()> {
                 first.clone(),
             )
             .await?;
-        // Freeze the first producer after capture. Both later cuts will be due
-        // together when the old single-cell publication is allowed to finish.
+        // Freeze each producer after capture, then finish the old heads together.
+        // Concurrent publishers otherwise complete their physical replay at
+        // different times and need not batch the next cuts.
         tokio::time::timeout(Duration::from_secs(5), async {
             while store.archive_attempts.load(Ordering::Acquire) == 0 {
                 tokio::time::sleep(Duration::from_millis(2)).await;
@@ -133,6 +136,13 @@ pub async fn run() -> Result<()> {
                 first,
             )
             .await?;
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while store.archive_attempts.load(Ordering::Acquire) < 2 {
+                tokio::time::sleep(Duration::from_millis(2)).await;
+            }
+        })
+        .await
+        .context("captured both old archive cuts")?;
         let second = public_node::options(2)?;
         for (cell, value) in cells.iter().zip([3_i64, 7]) {
             cell.command(
@@ -143,6 +153,16 @@ pub async fn run() -> Result<()> {
             .await?;
         }
         store.fail_bundle_after.store(true, Ordering::Release);
+        store.archive_heads_hang.store(true, Ordering::Release);
+        store.archive_hang.store(false, Ordering::Release);
+        store.archive_resume.notify_waiters();
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while store.archive_heads_waiting.load(Ordering::Acquire) < 2 {
+                tokio::time::sleep(Duration::from_millis(2)).await;
+            }
+        })
+        .await
+        .context("both old archive heads reached publication")?;
         drop(release);
         // Upgrade retries to S3 without changing command identity, input or
         // deadline. The lost bundle PUT response must be reconciled by readback.

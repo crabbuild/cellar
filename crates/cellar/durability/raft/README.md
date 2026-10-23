@@ -247,9 +247,10 @@ the runtime tests use an explicitly separate application stub.
 
 `ImageApplier` supplies this physical verifier for committed data entries. It
 checks the complete replica/ticket/entry identity against the durable committed
-apply head, decodes the scoped application envelope and applies its exact LTX
-base/result through `GenerationStore`. Preparation returns a runtime completion,
-not a readable image pin. `publish` releases a `PublishedImage` only after the
+apply head, decodes the scoped application envelope and proves its exact LTX
+base/result through `GenerationStore`, either by replay or by transferring the
+matching sealed private preview described below. Preparation returns a runtime
+completion, not a readable image pin. `publish` releases a `PublishedImage` only after the
 engine's synced marker names that exact prepared generation. A delayed event
 can be reconciled against the durable cache; later protocol-only entries may
 cover the same image. Recovery adopts both the applied image and the independent
@@ -265,10 +266,16 @@ query consistency or a successful SDK command.
 
 `PrivateExecutor` owns an exclusively locked writable directory. Opening or
 rebuilding it copies the marker-selected immutable base, verifies that copy,
-opens the ordinary WAL capture engine and seeds its continuation at the exact
+opens WAL capture in disposable mode and seeds its continuation at the exact
 committed LTX position. Opening/control writes join the next proposed cut; a
 zero-page continuation file is never replicated as data. No Fleet uploader,
 maintenance timer or output ticket can operate on this private image.
+Private SQLite connections use `synchronous=OFF`; local capture files, copied
+bases and cleanup do not require disk syncs. Every reopen discards those files
+before reading private history or admitting a callback. Captured bytes still
+pass physical preview verification, durable Raft commitment and committed-image
+publication before acknowledgement. The immutable image and log persistence
+barriers are unchanged; disposable state never supplies a recovery proof.
 
 A checked `CommandAuthority` observes a current-term, caught-up leader and binds
 the replica, term, applied marker and command base. One synchronous callback
@@ -278,6 +285,32 @@ reserved tables, attach another database, write temporary state or invoke SQL's
 ambient clock/random functions. Native application code remains trusted; this
 facade is not an OS sandbox. Callback errors, panics and oversized results roll
 back. Any uncertain private state requires rebuilding before another callback.
+
+Archive admission exposes two fixed-size duration histograms. The
+`archive_admission_check` timer covers each complete node-wide policy evaluation,
+including grants, deferrals and refusals; its success means evaluation completed,
+not that a callback was granted. Existing decision counters retain the reason.
+`archive_admission_wait` starts only when a command joins the bounded deferred
+FIFO and ends when admission grants or refuses it, before authority/SQL work.
+A cancelled or retired waiter records abandonment when its owner is released.
+The wait includes fairness behind existing waiters; it does not include the
+subsequent SQL queue, command execution or archive publication.
+
+Archive publication exposes an `archive_publication_batch` timer from scheduling
+until every captured cut returns, including object I/O, replay and waiting for
+the shared verifier. A successful batch means all its cuts verified; it does not
+mean the host accepted every local progress observation. Fixed counters record
+succeeded/failed cuts separately from coverage that advances, is unchanged,
+waits for a coherent applied image, is rejected, or names a removed cell.
+`archive_coverage_index_advance` sums advanced Raft index distances, including
+protocol entries; it is not the admission count of retained data-bearing entries.
+These observations do not change publication, retry or admission policy. Live
+snapshots may cross a counter update and are not atomic multi-counter proofs.
+
+A known archive-admission refusal still permits duplicate receipt lookup, then
+refuses new work before opening a transaction or invalidating private capture
+state. It does not require a private-image rebuild. Failures after mutation
+begins retain the existing rebuild requirement.
 
 The transaction stores the command ID, operation/contract/request digests,
 bounded encoded result, minimum requested durability and retry deadline beside
@@ -289,10 +322,16 @@ only an expired contiguous prefix; its client floor remains after receipt remova
 
 After local commit, capture includes every intervening complete LTX file. Bounds
 are checked before reading/decompressing; SQLite's frozen logical image supplies
-the mandatory result digest. A separate retained preview generation verifies the
-entire physical apply before proposal submission. This correctness-first path
-materializes both a preview and the eventual committed generation; its cost is
-part of release qualification, not a performance claim.
+the mandatory result digest. A retained preview generation verifies and seals
+the entire physical apply before proposal submission. The SQL owner can transfer
+that exact generation to committed apply after validating the durable ticket,
+entry, schema and current base. Reuse additionally requires the original replica,
+submitted proposal, complete encoded payload digest, exact base/result states and
+the same open image-store owner. A mismatch keeps the preview private and uses
+ordinary physical replay, as followers and recovery do. The transfer removes the
+pin from private cleanup ownership; the durable applied marker and publication
+still precede acknowledgement. Reusing a sealed preview removes one copy, replay
+and seal on the leader path without relaxing a persistence barrier.
 
 `mark_submitted` runs before awaiting the runtime. A lost response or cancelled
 waiter keeps the single command slot occupied. Abandoning that submission needs
@@ -339,6 +378,13 @@ domain. `host.rs` owns serial command producers and effect dispatch;
 status and joined local closure. Admission is synchronous, including when a
 returned future is not polled. Attempt deadlines are checked by the dispatcher
 and SQL owner; cancellation cannot release a slot while its callback still runs.
+
+Each SQL owner prioritizes queued publication, retirement, submission, discard
+and archive capture over unrelated ordinary work. It never passes an earlier
+request for the same cell, and after three priority selections it serves the
+oldest request. This scheduling adds no collection delay or admission capacity:
+queued and executing requests retain the same worker semaphore reservations,
+including when the queue moves work into its bounded local batch.
 
 Business commands/queries and administrative operations have independent host
 admission. `max_control_requests` defaults to 16 and `max_control_bytes` to 16 MiB;
@@ -533,6 +579,18 @@ local member identity and durable configuration. Unknown groups never create
 storage or fetch a bucket object. Each physical peer has separate incoming and
 outgoing banks, so full outbound queues cannot consume inbound response capacity.
 
+Control transmission holds at most eight selected frames and refills a slot as
+soon as its FIFO authenticated reply and physical write finish. A later held
+reply cannot delay that refill. Each selected frame keeps its original I/O
+deadline, node/peer reservations and route identity. The reader and writer make
+progress together, retaining partially completed I/O across scheduling events;
+failed connections close before pending reservations are released and never
+blindly replay selected frames. Data transmission retains its separate 16-frame /
+1-MiB bounded batches, with oversized frames alone. The control-exchange timer
+measures individual selected frames; the data-exchange timer measures batches.
+Queue timers remain per frame. Older control measurements used batch timers, so
+their exchange counts and means are not directly comparable.
+
 The marker-1 wire uses TLS 1.3 with verified server certificates and no early
 data. A distinct HMAC domain authenticates each request and response with the
 existing fleet secret, a normal TLS exporter and length-framed inputs. Requests
@@ -605,9 +663,13 @@ failure domains.
 
 ## Committed archives and S3 output
 
-`host_archive.rs` owns one archive producer and an exclusive verification
-workspace per node. SQL workers capture immutable published image/engine cuts;
-`archive.rs` performs bounded object I/O and physical verification, and
+`host_archive.rs` owns a bounded window of archive producers and one exclusive
+verification workspace per node. `RaftArchiveOptions::max_producers` permits
+one to four concurrent publications across distinct cells (default two). A
+slot stays occupied from capture through completion, preventing duplicate
+publication of one cell. Object I/O overlaps; physical replay remains serialized
+by the verifier owner. SQL workers capture immutable published image/engine cuts;
+`archive/mod.rs` performs bounded object I/O and physical verification, and
 `manifest.rs` describes complete snapshot/tail/dependency sets. A conditional
 head advances only after referenced bytes are read back, validated and replayed.
 Lost object/head responses are reconciled by exact reads. The supplied
@@ -622,14 +684,44 @@ membership/leadership authority. Snapshot installation and fresh-member recovery
 remain separate operations.
 
 `RaftHostOptions::archive` configures `RaftArchiveOptions` and `ArchiveLimits`.
-Defaults allow one producer with at most two retained cuts/recovery sets, 4 MiB
-of captured log bytes per cut (8 MiB node-wide), 128 MiB logical objects, a
-256-MiB recovery set per cell, 32 tails, 1,024 tail entries and 128 dependencies.
-`max_batch_groups = 1` selects independent publication with one capture slot. New
-callbacks reserve against 256 MiB of unarchived log/image admission and 4,096
+Defaults allow two retained cell cuts across capture and publication, with up
+to two compatible cells per immutable-object batch. Each cut reserves 4 MiB of
+captured log bytes (8 MiB node-wide by default). Logical objects are bounded at
+128 MiB and each cell recovery set at 256 MiB, 32 tails, 1,024 tail entries and
+128 dependencies. `max_batch_groups = 1` selects independent publication;
+`max_producers` still bounds all retained cuts. A completed capture waits at most
+5 ms for a companion capture before it becomes eligible for publication.
+`ArchiveLimits::max_tail_image_ratio` also bounds the projected encoded tail
+bytes relative to the current image's uncompressed length (default 2; accepted
+range 1–128). Crossing that ratio selects a new snapshot before the hard
+tail-count or recovery-set limit is reached. It bounds repeated history reads
+and replay for small images while allowing short tails for large images.
+Higher ratios trade fewer snapshot writes for more retained-history work.
+Size-triggered rotation physically verifies the complete eligible extension,
+including intermediate updates, before replacing its tails with a snapshot.
+It then validates the new recovery proof before advancing the head. Changing
+this producer policy does not invalidate an existing archive.
+New callbacks reserve against 256 MiB of unarchived log/image admission and 4,096
 data-bearing entries. Protocol entries consume bytes too. Existing duplicate
 lookup remains available under backpressure. Incoming replication also has the
 transport/log/per-image hard bounds; this cap is not total process or disk usage.
+The node capture bank reserves `max_producers * max_capture_bytes` across at
+most `max_producers` cuts. Each producer retains its own bounded recovery sets;
+their aggregate memory scales with this explicit concurrency limit. All
+producers share cancellation and are joined before the single replay workspace
+is released. Setting the limit to one retains serial publication.
+Recovery reads overlap at most four objects. Each may temporarily retain an
+8-MiB containing bundle while selecting its logical object, so archive seed
+admission reserves an additional 32 MiB above the logical recovery-set bound.
+The reservation remains held through physical extraction after cancellation.
+This does not change the logical archive format or its accepted size limits.
+
+Retained log/image charges are reused for the same group cache, durable cache
+revision and archive position. Storage publishes the revision under its cache
+write lock after a successful sync; append, replacement, apply and snapshot
+changes therefore invalidate prior accounting. Each admission still checks
+closure, cache poisoning and current pending reservations. This avoids walking
+unchanged histories while preserving the existing admission decisions.
 
 The producer gathers at most two due cuts from the same namespace. Small snapshot
 and tail uploads can share a content-addressed bundle under the namespace archive
@@ -655,9 +747,29 @@ experimental namespace/prefix and local state. Earlier measurement evidence keep
 its original executable and storage format; no migration reader is provided.
 
 Archive captures have an independent budget from command/query output. Reads
-have one 10-second deadline including their stream; failed archive attempts retry
-after 100 ms. Shutdown cancels I/O and joins blocking work, then releases the
-workspace before returning. Startup reclaims verification copies under their
+have one 10-second deadline including their stream. Recovery material uses at
+most four concurrent object reads, collected in manifest order. Each object's
+declared length is checked before body allocation, preserving the validated
+aggregate recovery-set budget. Error or cancellation drops all pending reads;
+digest, coverage and physical replay checks still precede head publication.
+Extending a tail uses validated manifest metadata for planning and downloads
+retained payloads once during complete final verification. Reusing a covering
+head still downloads and physically verifies its material. Snapshot rotation
+also checks the prior payloads before replacing them, preserving refusal of
+missing or corrupt prior history.
+`archive/replay.rs` materializes bounded batches into a private image and seals
+only each batch's final generation. Every intermediate image still passes its
+full SHA-256 and checksum proof. Batches retain at most 64 decoded envelopes or
+4 MiB of encoded entry bytes, splitting sooner at the destination's aggregate
+file/page/byte limits. A larger valid envelope runs alone under its existing
+per-entry limits. Snapshot bytes are borrowed from the recovery set. Image
+shrink boundaries also end a batch, preserving the disk capacity required by
+entry-by-entry replay before a later growth. No intermediate image becomes an
+activation or acknowledgement proof.
+
+Failed archive attempts retry after 100 ms. Shutdown cancels I/O and joins
+blocking work, then releases the workspace before returning. Startup reclaims
+verification copies under their
 exclusive owner and preserves the authoritative engine image before retiring
 unreferenced application generations. Live pins survive retirement. Capacity
 pressure can defer an already committed apply while retaining its original
@@ -713,7 +825,9 @@ Empty/configuration-only snapshot descriptors carry no image or encoded payload.
 They preserve configuration/index/term without allocating a SQLite database; the
 first committed LTX update can subsequently establish the initial image.
 `recovery.rs` validates coherent engine-selected reference sets before startup GC.
-Native checkpoint scheduling defaults to one cut per 256 applied entries;
+Native checkpoint scheduling defaults to one cut per 256 applied entries. When
+the aggregate durable log cache reaches half its byte capacity, eligible groups
+above an average share also checkpoint before reaching that entry count;
 `checkpoint_entries = 0` disables automatic compaction. The host pins and registers
 the exact requested source cut before sending `MsgSnapshot`. The receiver validates
 the descriptor against its local ticket, fetches ordered chunks and seals on its

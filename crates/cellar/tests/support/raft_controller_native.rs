@@ -1,7 +1,7 @@
 //! Six actual nodes. All sources use identical advertised physical endpoints;
 //! data cuts leave direct control/inspection connections live.
 #![allow(clippy::disallowed_methods)]
-use super::{cluster, faults as archive_faults, public_node};
+use super::{cluster, faults as archive_faults, log_fault, public_node};
 use anyhow::{ensure, Context as _, Result};
 use cellar::sdk::{
     consensus::*, Node, NodeOutcome, NodeRaftConfig, NodeRaftListeners, ShutdownMode,
@@ -25,6 +25,11 @@ struct Fixture {
     _entered: tokio::sync::mpsc::UnboundedReceiver<()>,
 }
 
+struct CaptureFixture {
+    gates: Vec<Arc<log_fault::Gate>>,
+    store: Arc<dyn object_store::ObjectStore>,
+}
+
 struct SqlHold {
     store: Arc<archive_faults::Store>,
     reads: Vec<Arc<super::log_fault::Gate>>,
@@ -41,8 +46,14 @@ impl Drop for ArchiveRelease {
 
 impl Fixture {
     async fn start(groups: usize, balance: bool, draining: Option<usize>) -> Result<Self> {
-        Self::start_with_report_limits(groups, balance, draining, RaftCloseReportLimits::default())
-            .await
+        Self::start_with_report_limits(
+            groups,
+            balance,
+            draining,
+            RaftCloseReportLimits::default(),
+            None,
+        )
+        .await
     }
 
     async fn start_with_report_limits(
@@ -50,8 +61,9 @@ impl Fixture {
         balance: bool,
         draining: Option<usize>,
         report_limits: RaftCloseReportLimits,
+        capture: Option<&CaptureFixture>,
     ) -> Result<Self> {
-        Self::start_configured(groups, balance, draining, report_limits, None).await
+        Self::start_configured(groups, balance, draining, report_limits, None, capture).await
     }
 
     async fn start_configured(
@@ -60,7 +72,9 @@ impl Fixture {
         draining: Option<usize>,
         report_limits: RaftCloseReportLimits,
         hold: Option<SqlHold>,
+        capture: Option<&CaptureFixture>,
     ) -> Result<Self> {
+        ensure!(hold.is_none() || capture.is_none());
         ensure!((1..=16).contains(&groups));
         let (gate, entered) = public_node::Gate::new();
         gate.release();
@@ -68,7 +82,11 @@ impl Fixture {
         let definitions = calls
             .iter()
             .map(|calls| {
-                public_node::counter_with_blobs(calls.clone(), gate.clone(), hold.is_some())
+                public_node::counter_with_blobs(
+                    calls.clone(),
+                    gate.clone(),
+                    hold.is_some() || capture.is_some(),
+                )
             })
             .collect::<Result<Vec<_>>>()?;
         let namespace = NamespaceConfig::new(
@@ -104,9 +122,10 @@ impl Fixture {
                 })
             })
             .collect::<Result<Vec<_>>>()?;
-        let store: Arc<dyn object_store::ObjectStore> = match &hold {
-            Some(hold) => hold.store.clone(),
-            None => Arc::new(object_store::memory::InMemory::new()),
+        let store: Arc<dyn object_store::ObjectStore> = match (&hold, capture) {
+            (Some(hold), _) => hold.store.clone(),
+            (None, Some(capture)) => capture.store.clone(),
+            (None, None) => Arc::new(object_store::memory::InMemory::new()),
         };
         let mut fixture = Self {
             nodes: vec![],
@@ -124,11 +143,14 @@ impl Fixture {
         for index in 0..6 {
             let root = tempfile::tempdir()?;
             let label = format!("automatic-native-{}", index + 1);
-            let filesystem: Arc<dyn cellar_ltx::FileSystem> = match &hold {
-                Some(hold) => Arc::new(super::log_fault::FaultFileSystem {
+            let filesystem: Arc<dyn cellar_ltx::FileSystem> = match (&hold, capture) {
+                (Some(hold), _) => Arc::new(log_fault::FaultFileSystem {
                     gate: hold.reads[index].clone(),
                 }),
-                None => Arc::new(cellar_ltx::DirectFileSystem),
+                (None, Some(capture)) => Arc::new(log_fault::FaultFileSystem {
+                    gate: capture.gates[index].clone(),
+                }),
+                (None, None) => Arc::new(cellar_ltx::DirectFileSystem),
             };
             let node = public_node::node_declared_with_filesystem(
                 root.path(),
@@ -479,7 +501,36 @@ pub async fn no_traffic_repair() -> Result<()> {
 }
 
 pub async fn shutdown_handoff() -> Result<()> {
-    let mut fixture = Fixture::start(1, false, None).await?;
+    shutdown_handoff_scenario(None, false).await
+}
+
+// The membership target shares this fixture but does not run shutdown cases.
+#[allow(dead_code)]
+pub async fn shutdown_handoff_during_archive_capture(
+    store: Arc<dyn object_store::ObjectStore>,
+    exhaust_group_budget: bool,
+) -> Result<()> {
+    let capture = CaptureFixture {
+        gates: (0..6).map(|_| log_fault::Gate::new(None)).collect(),
+        store,
+    };
+    shutdown_handoff_scenario(Some(capture), exhaust_group_budget).await
+}
+
+async fn shutdown_handoff_scenario(
+    capture: Option<CaptureFixture>,
+    exhaust_group_budget: bool,
+) -> Result<()> {
+    let mut fixture = Fixture::start_with_report_limits(
+        1,
+        false,
+        None,
+        RaftCloseReportLimits::default(),
+        capture.as_ref(),
+    )
+    .await?;
+    let mut held = None;
+    let mut shutdown = None;
     let result = async {
         fixture.enable(false).await?;
         let receipt = fixture.write(0, 1, 7).await?;
@@ -498,25 +549,92 @@ pub async fn shutdown_handoff() -> Result<()> {
                 .await?;
             ensure!(read.result == 7i64.to_be_bytes());
         }
-        let outcome = fixture.nodes[primary]
-            .take()
-            .context("node")?
-            .shutdown(ShutdownMode::Preserve)
-            .await?;
+        if let Some(capture) = &capture {
+            // All application calls have completed. An unavailable archive
+            // keeps retrying this cut; the Blob-enabled class opens the actual
+            // immutable SQL image while capturing its dependency closure.
+            held = Some(capture.gates[primary].arm(log_fault::HOLD_IMAGE_READ));
+            tokio::time::timeout(
+                Duration::from_secs(5),
+                capture.gates[primary].entered.notified(),
+            )
+            .await
+            .context("archive capture did not enter the physical reader")?;
+        }
+        let node = fixture.nodes[primary].take().context("node")?;
+        shutdown = Some(tokio::spawn(async move {
+            node.shutdown(ShutdownMode::Preserve).await
+        }));
+        if held.is_some() {
+            let service = fixture.service(primary)?;
+            tokio::time::timeout(Duration::from_secs(3), async {
+                while !service.is_closed() {
+                    tokio::time::sleep(Duration::from_millis(5)).await;
+                }
+            })
+            .await
+            .context("shutdown did not seal admission")?;
+            if exhaust_group_budget {
+                tokio::time::timeout(Duration::from_secs(3), async {
+                    while !service
+                        .resource_usage()
+                        .sql
+                        .is_some_and(|sql| sql.queue_closed)
+                    {
+                        tokio::time::sleep(Duration::from_millis(5)).await;
+                    }
+                })
+                .await
+                .context("busy group extended the bounded handoff turn")?;
+            } else {
+                tokio::time::sleep(Duration::from_millis(100)).await;
+                ensure!(
+                    service
+                        .resource_usage()
+                        .sql
+                        .is_some_and(|sql| !sql.queue_closed),
+                    "drain skipped a temporary archive capture"
+                );
+            }
+            ensure!(
+                !shutdown.as_ref().context("shutdown")?.is_finished(),
+                "shutdown did not join its physical reader"
+            );
+            drop(held.take());
+        }
+        let observed = tokio::time::timeout(
+            Duration::from_secs(10),
+            shutdown.as_mut().context("shutdown")?,
+        )
+        .await?;
+        shutdown.take();
+        let outcome = observed??;
         let NodeOutcome::Stopped(report) = outcome else {
             anyhow::bail!("unexpected stop: {outcome:?}")
         };
         let raft = report.raft.context("missing Raft report")?;
         let handoff = raft.drain.context("missing handoff result")??;
-        ensure!(
-            handoff.groups_examined == 1
-                && handoff.handoff_attempts == 1
-                && handoff.handoffs_accepted == 1
-                && handoff.leadership_released == 1
-                && handoff.unavailable_groups == 0
-                && !handoff.deadline_elapsed,
-            "handoff did not complete: {handoff:?}"
-        );
+        if exhaust_group_budget {
+            ensure!(
+                handoff.groups_examined == 1
+                    && handoff.handoff_attempts == 0
+                    && handoff.handoffs_accepted == 0
+                    && handoff.leadership_released == 0
+                    && handoff.unavailable_groups == 1
+                    && !handoff.deadline_elapsed,
+                "busy handoff did not keep its original group budget: {handoff:?}"
+            );
+        } else {
+            ensure!(
+                handoff.groups_examined == 1
+                    && handoff.handoff_attempts == 1
+                    && handoff.handoffs_accepted == 1
+                    && handoff.leadership_released == 1
+                    && handoff.unavailable_groups == 0
+                    && !handoff.deadline_elapsed,
+                "handoff did not complete: {handoff:?}"
+            );
+        }
         let closed = raft.result?;
         ensure!(closed.unfinished.is_empty());
         ensure!(
@@ -534,6 +652,10 @@ pub async fn shutdown_handoff() -> Result<()> {
         Ok(())
     }
     .await;
+    drop(held);
+    if let Some(shutdown) = shutdown {
+        shutdown.await??;
+    }
     fixture.close().await?;
     result
 }
@@ -556,6 +678,7 @@ pub async fn shutdown_handoff_with_busy_sql(expire: bool) -> Result<()> {
             store: store.clone(),
             reads: reads.clone(),
         }),
+        None,
     )
     .await?;
     let result = async {
@@ -606,9 +729,9 @@ pub async fn shutdown_handoff_with_busy_sql(expire: bool) -> Result<()> {
         }
         let after = image_paths()?;
         let added: Vec<_> = after.difference(&before).cloned().collect();
-        // Staging and committed apply each create an image. Neither belonged
-        // to the first archive cut, which must finish before this capture.
-        ensure!(added.len() == 2, "expected preview and committed images");
+        // Committed apply reuses the exactly matched sealed leader preview.
+        // It did not belong to the first cut, which must finish before capture.
+        ensure!(added.len() == 1, "expected one reused committed preview");
         *reads[primary].image_read_paths.lock().unwrap() = added;
         release_read = Some(reads[primary].arm(super::log_fault::HOLD_IMAGE_READ));
         drop(release_archive.take());
@@ -712,6 +835,7 @@ pub async fn bounded_shutdown_report() -> Result<()> {
             max_groups: 1,
             max_bytes: 4096,
         },
+        None,
     )
     .await?;
     let result = async {
