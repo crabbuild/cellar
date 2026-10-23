@@ -53,6 +53,23 @@ struct Store {
 }
 
 fn check_bulk(storage: &Storage) -> Result<()> {
+    assert!(storage.get_json("json-missing")?.is_none());
+    let large = json!({"text": "é\"\n☃".repeat(32_768), "numbers": [i64::MIN, i64::MAX, u64::MAX], "null": null});
+    storage.put_json("json-large", &large)?;
+    let retained = storage.get_json("json-large")?.unwrap();
+    storage.delete("json-large")?;
+    assert_eq!(retained, large); // The returned value owns its data after the row is released.
+    storage.put_json("json-null", &serde_json::Value::Null)?;
+    assert_eq!(
+        storage.get_json("json-null")?,
+        Some(serde_json::Value::Null)
+    );
+    storage.put_clone("json-clone", &cycle())?;
+    assert!(storage
+        .get_json("json-clone")
+        .unwrap_err()
+        .to_string()
+        .contains("structured clone"));
     storage.put_many_json(&[
         ("a:1".into(), json!(1)),
         ("a:2".into(), json!(2)),

@@ -380,13 +380,7 @@ impl Storage {
     }
 
     pub fn get_json(&self, key: &str) -> Result<Option<serde_json::Value>> {
-        match self.get(key)? {
-            Some(crate::storage::StoredValue::Json(json)) => Ok(Some(serde_json::from_str(&json)?)),
-            Some(crate::storage::StoredValue::Structured(_)) => {
-                Err(anyhow!("stored value is a structured clone; use get_clone"))
-            }
-            None => Ok(None),
-        }
+        crate::storage::get_json_value(self.scope()?, key)
     }
 
     pub fn get_clone(&self, key: &str) -> Result<Option<StoredClone>> {
