@@ -56,12 +56,22 @@ curl http://127.0.0.1:9876/jobs
 curl http://127.0.0.1:9876/cron
 ```
 
-Counter reads fetch `count` and `alarms` together with `read_json_many`, avoiding
-one Python/native round trip. Increment requests keep receipt lookup first so
-retries return the saved response, then batch the counter fields and use checked
-`apply` for the write. A batched read does not reserve its keys; checked writes
-still detect changes by other writers. Its combined reply must fit the SDK value
-limit, so split reads when loading unrelated large values.
+The compiled host declares `count` and `alarms` with `cell_initial_reads` for
+counter HTTP events. Cellar captures them before Python dispatch and exposes
+them as `ctx.initial_storage`, avoiding a storage SDK request and reply. The
+[package descriptor](descriptor.json) carries the same declaration; verified
+startup rejects a mismatch.
+
+Increment handlers check receipts before constructing a new response, so retries
+return the saved response. New increments use the captured count in checked
+`apply`; an intervening writer causes a conflict. Snapshots do not reserve keys
+or refresh after an await. Alarm-scheduling responses use `read_json_many` for
+fresh state after scheduling, and alarm handlers retain their live reads.
+
+Capture runs before handler validation or receipt lookup. Choose small, bounded
+fields that every read needs: captured state, invocation metadata and the body
+share the SDK value limit. Other applications can keep normal reads when they
+need conditional access or fresh state after awaiting other work.
 
 The named counter survives preserving restarts. Scheduling an alarm commits a
 checked occurrence sequence, current intent and native alarm together. Its handler

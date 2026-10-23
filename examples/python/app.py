@@ -97,7 +97,9 @@ class Counter:
                     return Response.json({"error": "idempotency-key already used for a different increment"}, 409)
                 sealed = receipt.value["response"]
                 return Response(sealed["body"], sealed["status"], sealed["headers"])
-            snapshots = await storage.read_json_many(("count", "alarms"))
+            # Captured before dispatch. Receipt lookup may yield to another
+            # writer, so the checked batch below must still compare count.
+            snapshots = ctx.initial_storage
             snapshot, alarms = snapshots["count"], snapshots["alarms"]
             count = (snapshot.value if snapshot.present else 0) + change.amount
             response = Response.json({"count": count, "alarms": alarms.value if alarms.present else 0})
@@ -116,7 +118,11 @@ class Counter:
             except Conflict:
                 return Response.json({"error": "conflicting update; reconcile using the same idempotency-key"}, 409)
             return response
-        snapshots = await storage.read_json_many(("count", "alarms"))
+        # Alarm scheduling above awaits host work. Read fresh state for its
+        # response; ordinary reads can use the declared dispatch snapshots.
+        snapshots = (await storage.read_json_many(("count", "alarms"))
+                     if request.method == "POST" and request.path.endswith("/alarm")
+                     else ctx.initial_storage)
         return Response.json({key: snapshot.value if snapshot.present else 0
                               for key, snapshot in snapshots.items()})
 

@@ -37,6 +37,7 @@ fn main() -> Result<()> {
             Source::new(include_str!("app.py"), "app.py")
                 .events([EventKind::Fetch, EventKind::Queue, EventKind::Scheduled])
                 .cell_events("Counter", [EventKind::Fetch, EventKind::Alarm])
+                .cell_initial_reads("Counter", EventKind::Fetch, ["count", "alarms"])
                 .require_distribution("pydantic", "2.12.3")
                 .require_distribution("pydantic-core", "2.41.4")
                 .require_distribution("annotated-types", "0.7.0")

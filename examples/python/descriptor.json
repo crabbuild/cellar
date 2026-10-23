@@ -1,7 +1,8 @@
 {
   "handlers": {
     "events": ["fetch", "queue", "scheduled"],
-    "cells": {"Counter": ["fetch", "alarm"]}
+    "cells": {"Counter": ["fetch", "alarm"]},
+    "initial_reads": {"Counter": {"fetch": ["count", "alarms"]}}
   },
   "distributions": [
     ["pydantic", "2.12.3"],
