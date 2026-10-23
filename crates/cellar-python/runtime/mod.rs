@@ -290,7 +290,7 @@ impl Runtime {
         self.starts
             .try_send(start)
             .context("Python invocation admission is full or closed")?;
-        self.notify();
+        self.wakeup.admit();
         Ok(())
     }
 
@@ -354,6 +354,10 @@ impl Inbox {
 
     fn take_lifecycle(&self) -> u8 {
         self.runtime.wakeup.take_lifecycle()
+    }
+
+    fn pump_needed(&self) -> bool {
+        self.runtime.wakeup.pump_needed()
     }
 
     fn wakeup_fd(&self) -> i32 {
