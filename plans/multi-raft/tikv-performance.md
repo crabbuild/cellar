@@ -1,20 +1,74 @@
 # TiKV comparison and Cellar performance investigation
 
 Status: PR #98's conflicts are resolved through main `1455fb0`. The combined
-capture/admission-reuse candidate `8a34732` passes its first complete paired
-qualification: 253.70 mean TPS versus 234.78 for control, an observed 8.06%
-increase. Candidate p99 is higher, at 260.35/296.57 ms versus 199.22/226.49 ms,
-but stays below the accepted 500-ms bound. Shared-host variation and test order
-require confirmation before treating this gain as repeatable. The
-[combined evidence](evidence/tikv-capture-reuse.json) preserves every window.
+capture/admission-reuse candidate `8a34732` is rejected after reversed-order
+confirmation. Its first pair's 8.06% mean TPS increase did not qualify a repeatable
+improvement: confirmation window two reached 941.58-ms p99 with seven ambiguous
+writes. The runtime is restored byte-for-byte to the verified admission-reuse
+control `230cd4f`; all capture experiments and raw evidence remain preserved.
 
-The original ephemeral candidate `68b82e1` failed at both 24 and 16 writers and
-was reverted by `69192d2`; the new candidate reintroduces capture savings only
-after the refusal/rebuild fix. The [rejected capture evidence](evidence/tikv-ephemeral-capture.json)
-retains those failures. The admission-reuse fix alone was effectively neutral
-at 246.43 versus 244.52 mean TPS in its [own comparison](evidence/tikv-admission-reuse.json).
+## Reversed-order capture confirmation
 
-## Combined capture and admission-reuse candidate
+The [confirmation evidence](evidence/tikv-capture-confirmation.json) records
+control first, then candidate, with the same frozen images and load AST as the
+[first pair](evidence/tikv-capture-reuse.json). Each cohort starts fresh persistent
+volumes and a cold benchmark VM: three 1-vCPU / 3-GiB nodes, 500 leaders and
+1,000 followers each, 24 writers, two 180-second windows, four SQL workers /
+64 reservations and four archive-cut slots. No timed mutation retries occur.
+
+| Build | TPS, windows 1 / 2 | p99 ms, windows 1 / 2 | Errors |
+| --- | --- | --- | --- |
+| Control `230cd4f` | 248.85 / 226.54 | 209.29 / 253.99 | 0 / 0 |
+| Rejected capture `8a34732` | 281.40 / 197.25 | 213.73 / 941.58 | 0 / 7 |
+
+All seven errors are HTTP 503 Ambiguous, returned after about five seconds.
+Reconciliation uses only the original uncertain identities, inputs and deadlines,
+outside timing. Both cohorts ultimately verify all 4,500 replica values and
+1,500 RustFS archive positions and stop cleanly with their volumes retained.
+Successful reconciliation does not convert the failed timed window into a pass.
+The failed report has no peak-memory measurement. No OOM kill is reported.
+
+The strongest new lead is control-message queue residence. In the failed window,
+1,223,767 completed queue observations average 384.08 ms; 487,535 exceed 100 ms
+and 147,639 exceed one second. The preceding candidate window averages 38.44 ms
+with none over one second. The fresh control windows average 34.73 / 44.89 ms,
+also with none over one second. Only 26 SQL queue observations exceed one second;
+no other measured operation has a completed observation over one second.
+These overlapping operation counts are not distinct client requests or additive
+request latency. The sender currently processes fixed windows of eight control
+frames and waits for the entire window before selecting more work. A bounded
+sliding window is the next falsifiable transport experiment, preserving FIFO
+reply authentication, permits, deadlines, revocation and physical cancellation.
+
+Neither confirmation build records retained-history or observation refusals.
+Candidate byte-reservation deferral decisions are 161,423 / 102,510, including
+rechecks; these do not measure distinct requests or wait duration. Other builds
+appear in 0/36 and 16/36 candidate samples within the metric brackets, versus
+0/36 and 0/36 for control. Shared-host pressure, tick bursts and transport
+service remain alternative explanations; the queue association alone does not
+prove the candidate caused the failure.
+
+A proposed issue-time phase analysis was quarantined as invalid: the harness
+sorts successful latency samples independently from receipts, so those arrays
+cannot be joined by position. Its phase findings are not used. Error records
+contain their own durations; aggregate histograms and benchmark percentiles
+remain valid. Aligned successful-request timing is an attribution gap.
+
+The candidate's first attempt stopped before load at the unchanged 5-GiB host
+free-space guard. A separately recorded retry followed verified relocation of
+107 closed host-only artifact directories (24,123 files, 4,709,456,257 logical
+bytes) to the workspace volume. Content, metadata and inventories were checked,
+and original paths remain symlinks. No Docker image, volume, node backing data
+or VM mount was removed or changed. The confirmation evidence hashes both the
+failed preflight and the relocation record. The restored runtime matches
+`230cd4f` exactly; its archive-refusal/workspace-reuse regression passes freshly.
+
+The original ephemeral candidate `68b82e1` also failed at 24 and 16 writers and
+was reverted by `69192d2`; [that evidence](evidence/tikv-ephemeral-capture.json)
+remains available. Admission reuse alone was effectively neutral at 246.43 versus
+244.52 mean TPS in its [own comparison](evidence/tikv-admission-reuse.json).
+
+## Rejected combined capture and admission-reuse candidate (first pair)
 
 Candidate `8a34732` reintroduces bounded ephemeral capture on top of `230cd4f`.
 Its fresh control is that admission-reuse build, isolating capture savings from
@@ -70,8 +124,8 @@ log persistence and object PUT time all increase. Other builds appear in 3/37
 and 21/36 candidate samples inside the metric brackets, versus 3/36 and 0/36
 for control. This association does not prove the slowdown's cause. The observed
 8.06% mean TPS gain comes with higher p99 and cannot be treated as a repeatable
-causal effect from one sequential pair. A reversed-order confirmation remains
-necessary; the preferred sustained sub-200-ms p99 target remains unmet.
+causal effect from one sequential pair. The reversed-order confirmation above
+subsequently failed; the preferred sustained sub-200-ms p99 target remains unmet.
 
 Neither build records observation failures, retained-byte/entry refusals or
 reservation-entry deferrals. Temporary byte-reservation deferral decisions are
@@ -92,7 +146,7 @@ the capture/checkpoint coverage above.
 
 ## Admission-reuse candidate
 
-The current candidate addresses refusal amplification without removing private
+The retained admission-reuse change addresses refusal amplification without removing private
 LTX files or relaxing archive limits. Registered commands check a known archive
 refusal after duplicate receipt lookup and validation, before mutation begins.
 The serial SQL worker retains an owner only when staging has joined, no proposal

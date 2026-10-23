@@ -1713,7 +1713,6 @@ async fn private_recovery_discards_corrupt_working_state() -> Result<()> {
         )?;
     }
     let metadata = cellar_ltx::Db::meta_path_for_path(private.join("working.sqlite"));
-    std::fs::create_dir_all(metadata.join("ltx/0"))?;
     std::fs::write(metadata.join("ltx/0/incomplete.tmp"), b"torn capture")?;
 
     let mut recovered = Host::open(root.path(), true).await?;
