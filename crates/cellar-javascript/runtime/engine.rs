@@ -1,3 +1,5 @@
+//! Embedded V8 pump. Isolate handles and promise resolvers stay on this thread;
+//! native SDK work crosses bounded channels back to its owning invocation.
 use super::*;
 use anyhow::Context as _;
 use std::{
@@ -29,6 +31,8 @@ struct State {
     objects: HashMap<u64, Life>,
 }
 
+// V8 callbacks share state only within the isolate thread. Never hold a borrow
+// across application JavaScript, including property access or value conversion.
 type Shared = Rc<RefCell<State>>;
 
 fn refuse(scope: &v8::PinScope, message: &str) {
@@ -46,6 +50,8 @@ fn operation(
     let Some(state) = scope.get_slot::<Shared>().cloned() else {
         return;
     };
+    // Promise continuations carry their invocation ID. A facade saved by another
+    // invocation must not borrow the currently executing call's authority.
     let current = scope.get_continuation_preserved_embedder_data();
     let Some(current) = current.number_value(scope) else {
         return refuse(scope, "ContextExpired");
@@ -56,6 +62,7 @@ fn operation(
     if current != requested {
         return refuse(scope, "ContextMismatch");
     }
+
     let invocation = current as u64;
     // Require primitive strings: no user conversion while native state is borrowed.
     let Ok(name) = v8::Local::<v8::String>::try_from(args.get(1)) else {
@@ -81,6 +88,7 @@ fn operation(
     {
         return refuse(scope, "ContextExpired");
     }
+
     let mutation = !cellar_guest::operations::is_read(&name);
     if active.pending >= runtime.options.max_pending_operations
         || active.operations >= runtime.options.max_operations
@@ -90,6 +98,7 @@ fn operation(
     if mutation && active.mutation {
         return refuse(scope, "ConcurrentMutation");
     }
+
     let Ok(bytes) = runtime.reserve(payload.len()) else {
         return refuse(scope, "BridgeLimit");
     };
@@ -112,6 +121,7 @@ fn operation(
     {
         return refuse(scope, "OperationLimit");
     }
+
     active.operations += 1;
     active.pending += 1;
     active.mutation |= mutation;
@@ -241,6 +251,8 @@ pub(super) fn run(
         // One fresh handle scope per pump iteration: no retained transient handles.
         let parent: &mut v8::PinScope = scope;
         v8::scope!(let turn, parent);
+        // One budget covers the entire pump pass, including all admitted calls
+        // and the microtask checkpoint below. It is not a per-handler I/O timeout.
         *deadline.lock().unwrap() = Some(Instant::now() + runtime.options.turn_timeout);
         // Service replies before admission. Never wait for one invocation to finish.
         for reply in replies
@@ -276,6 +288,7 @@ pub(super) fn run(
                 }
             }
         }
+
         for start in starts.try_iter().take(runtime.options.max_invocations) {
             if !start.active.load(Ordering::Acquire) || !start.owner.load(Ordering::Acquire) {
                 continue;
@@ -319,12 +332,15 @@ pub(super) fn run(
             state.borrow_mut().invocations.get_mut(&id).unwrap().promise =
                 Some(v8::Global::new(turn, promise));
         }
+
+        // Clear ambient authority; queued continuations restore their own IDs.
         turn.set_continuation_preserved_embedder_data(undefined.into());
         turn.perform_microtask_checkpoint();
         ensure!(
             !turn.is_execution_terminating(),
             "JavaScript engine turn exceeded execution budget"
         );
+
         let mut finished = Vec::new();
         for (&id, invocation) in &state.borrow().invocations {
             if !invocation.start.active.load(Ordering::Acquire)
@@ -343,6 +359,7 @@ pub(super) fn run(
             if promise.state() == v8::PromiseState::Pending {
                 continue;
             }
+            // A handler must await its SDK operations before reporting completion.
             let failed = promise.state() == v8::PromiseState::Rejected || invocation.pending != 0;
             invocation.start.active.store(false, Ordering::Release);
             let result = promise.result(turn);
@@ -373,6 +390,7 @@ pub(super) fn run(
                 state.operations.retain(|_, op| op.invocation != id);
             }
         }
+
         let retired: Vec<_> = state
             .borrow()
             .objects

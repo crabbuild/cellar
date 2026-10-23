@@ -346,3 +346,9 @@ Capacity HAProxy setup aligns its initial cursor with at most two extra manifest
 GETs, then requires the thirty critical requests to select node2/node3/node1
 in order. This fixes cross-run identity rotation; selected backends and actual
 owners are still verified independently outside measured traffic.
+
+## JavaScript and TypeScript adapters
+
+The [JS/TS bridge benchmark](javascript/README.md) compares embedded V8 and Node.js
+with identical typed workloads, buffered HTTP throughput, durable counter TPS,
+latency distributions, resource samples and cold-storage reconciliation.

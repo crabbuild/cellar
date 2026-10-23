@@ -20,7 +20,9 @@ use transport::Transport;
 /// ordinary external effects, outside Cellar's durability and cancellation proof.
 #[derive(Clone, Debug)]
 pub struct NodeOptions {
+    /// Node executable path, or a command name resolved through PATH.
     pub executable: PathBuf,
+    /// Absolute path to the built application module imported by the worker.
     pub entry: PathBuf,
     /// Optional absolute working directory for packages using relative OS paths.
     /// When absent, the process inherits the host's working directory.
@@ -33,6 +35,7 @@ pub struct NodeOptions {
 }
 
 impl NodeOptions {
+    /// Use `node` from PATH with default supervision and an explicit entry module.
     pub fn new(entry: impl Into<PathBuf>) -> Self {
         Self {
             executable: "node".into(),
@@ -49,6 +52,8 @@ impl NodeOptions {
 pub struct NodeRuntime;
 
 impl NodeRuntime {
+    /// Start and authenticate the worker, then call `host` after module validation.
+    /// The owned process group is terminated and reaped when the host exits.
     pub fn run<T>(
         options: Options,
         node: NodeOptions,
@@ -105,6 +110,7 @@ impl Drop for Process {
 struct InvocationState {
     start: Start,
     operations: usize,
+    // Operation ID -> whether its unresolved outcome is a mutation.
     pending: HashMap<u64, bool>,
     mutation: bool,
 }
@@ -123,7 +129,17 @@ fn string<'a>(value: &'a Value, field: &str) -> Result<&'a str> {
 }
 
 fn reject(transport: &mut Transport, invocation: u64, id: u64, code: &str) -> Result<()> {
-    transport.send(json!({"type":"reply","invocation":invocation,"id":id,"payload":json!({"ok":false,"code":code,"outcome":"not_committed"}).to_string()}))
+    // Only refusals before native admission can promise `not_committed`.
+    transport.send(json!({
+        "type": "reply",
+        "invocation": invocation,
+        "id": id,
+        "payload": json!({
+            "ok": false,
+            "code": code,
+            "outcome": "not_committed"
+        }).to_string()
+    }))
 }
 
 fn run(
@@ -143,6 +159,7 @@ fn run(
         .iter()
         .map(|v| format!("{v:02x}"))
         .collect::<String>();
+
     // The factory is captured before importing application modules. The channel
     // secret is delivered only over inherited stdin, never argv or the environment.
     let script = format!(
@@ -176,7 +193,19 @@ fn run(
             .spawn()
             .context("could not start Node executable")?,
     );
-    let config = json!({"port":listener.local_addr()?.port(), "secret":secret, "entry":node.entry, "descriptor":source.descriptor().to_string(), "maximum":runtime.options.max_objects, "valueLimit":runtime.options.max_value_bytes, "bridgeLimit":runtime.options.max_bridge_bytes, "pendingLimit":runtime.options.max_pending_operations, "operationLimit":runtime.options.max_operations, "invocationLimit":runtime.options.max_invocations});
+
+    let config = json!({
+        "port": listener.local_addr()?.port(),
+        "secret": secret,
+        "entry": node.entry,
+        "descriptor": source.descriptor().to_string(),
+        "maximum": runtime.options.max_objects,
+        "valueLimit": runtime.options.max_value_bytes,
+        "bridgeLimit": runtime.options.max_bridge_bytes,
+        "pendingLimit": runtime.options.max_pending_operations,
+        "operationLimit": runtime.options.max_operations,
+        "invocationLimit": runtime.options.max_invocations
+    });
     let mut stdin = process.0.stdin.take().context("Node stdin missing")?;
     let config = serde_json::to_vec(&config)?;
     ensure!(
@@ -195,6 +224,7 @@ fn run(
             "Node bootstrap pipe configuration failed"
         );
     }
+
     let mut remaining = config.as_slice();
     while !remaining.is_empty() {
         ensure!(Instant::now() < deadline, "Node bootstrap timed out");
@@ -207,6 +237,7 @@ fn run(
             Err(error) => return Err(error.into()),
         }
     }
+    // EOF completes the bootstrap document; the worker then opens the IPC socket.
     drop(stdin);
     let socket = loop {
         ensure!(Instant::now() < deadline, "Node startup timed out");
@@ -219,6 +250,7 @@ fn run(
         }
     };
     drop(listener);
+
     // JSON string escaping can expand an encoded payload by up to 6x.
     let maximum = runtime
         .options
@@ -231,6 +263,7 @@ fn run(
         maximum.min(runtime.options.max_bridge_bytes),
         runtime.options.max_bridge_bytes,
     )?;
+
     let mut authenticated = false;
     let mut initialized = false;
     let mut heartbeat = Instant::now();
@@ -249,6 +282,7 @@ fn run(
             },
             "Node event loop or initialization timed out"
         );
+
         // Retire authority before processing any newly received operations.
         let cancelled: Vec<_> = invocations
             .iter()
@@ -271,6 +305,8 @@ fn run(
             objects.remove(&id);
             transport.send(json!({"type":"retire","id":id}))?;
         }
+
+        // Resolve existing work before admitting more calls into the worker.
         for reply in replies
             .try_iter()
             .take(runtime.options.max_invocations * runtime.options.max_pending_operations)
@@ -280,10 +316,16 @@ fn run(
                     if mutation {
                         state.mutation = false;
                     }
-                    transport.send(json!({"type":"reply","invocation":reply.invocation,"id":reply.id,"payload":reply.payload}))?;
+                    transport.send(json!({
+                        "type": "reply",
+                        "invocation": reply.invocation,
+                        "id": reply.id,
+                        "payload": reply.payload
+                    }))?;
                 }
             }
         }
+
         if initialized {
             for start in starts.try_iter().take(runtime.options.max_invocations) {
                 if !start.active.load(Ordering::Acquire) || !start.owner.load(Ordering::Acquire) {
@@ -307,7 +349,11 @@ fn run(
                     invocations.len() < runtime.options.max_invocations,
                     "Node invocation capacity exhausted"
                 );
-                transport.send(json!({"type":"start","id":start.id,"payload":start.payload}))?;
+                transport.send(json!({
+                    "type": "start",
+                    "id": start.id,
+                    "payload": start.payload
+                }))?;
                 invocations.insert(
                     start.id,
                     InvocationState {
@@ -319,7 +365,9 @@ fn run(
                 );
             }
         }
+
         transport.flush()?;
+        // Bound each receive pass so a busy peer cannot starve shutdown or replies.
         for _ in 0..256 {
             let Some(message) = transport.receive()? else {
                 break;
@@ -351,6 +399,8 @@ fn run(
                         reject(&mut transport, invocation, id, "ContextExpired")?;
                         continue;
                     };
+                    // Recheck authority and limits in Rust even though the worker
+                    // also enforces them before sending an operation.
                     let mutation = !cellar_guest::operations::is_read(name);
                     let refusal = if !state.start.active.load(Ordering::Acquire)
                         || !state.start.owner.load(Ordering::Acquire)
@@ -397,6 +447,7 @@ fn run(
                     let id = number(&message, "id")?;
                     if let Some(state) = invocations.remove(&id) {
                         state.start.active.store(false, Ordering::Release);
+                        // Returning with unawaited SDK work cannot report success.
                         let failed = message["failed"]
                             .as_bool()
                             .context("invalid Node completion")?

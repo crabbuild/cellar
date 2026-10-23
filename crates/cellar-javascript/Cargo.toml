@@ -1,6 +1,6 @@
 [package]
 name = "cellar-javascript"
-version = "0.6.2"
+version = "0.1.0"
 edition = "2021"
 rust-version = "1.94.1"
 license = "Apache-2.0"
@@ -40,3 +40,8 @@ required-features = ["node"]
 name = "cellar-pi-agent-example"
 path = "../../examples/pi-agent/main.rs"
 required-features = ["node"]
+
+[[bin]]
+name = "cellar-javascript-perf"
+path = "../../tools/perf/javascript/host.rs"
+required-features = ["embed", "node"]
