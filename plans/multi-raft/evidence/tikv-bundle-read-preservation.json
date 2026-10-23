@@ -1,0 +1,28 @@
+{
+  "method": "Transparent native APFS compression of closed, verified historical Raft logs. Paths and logical bytes remain unchanged; fresh timed backing is unchanged.",
+  "files": 230,
+  "volumes": 6,
+  "read_only_volume_probes": 12,
+  "allocated_bytes_saved": 2665418752,
+  "verified_metadata": [
+    "SHA-256",
+    "size",
+    "mode",
+    "uid",
+    "gid",
+    "mtime_ns"
+  ],
+  "directory_fsync": true,
+  "all_volume_options_unchanged": true,
+  "all_images_and_volumes_retained": true,
+  "free_before": {
+    ".": 5890088960,
+    "/Volumes/Workspace": 7250403328
+  },
+  "free_after": {
+    ".": 6444699648,
+    "/Volumes/Workspace": 5748109312
+  },
+  "raw_record_sha256": "9741f9f81dc4f639230d81d6b4a8b55bbed6ebaba04d7fe8f41f9a75a5fb5870",
+  "script_sha256": "6e5041c3b6f0acea2988a037c9594915df1340c27fded8ba38200aa6a8cd50cd"
+}

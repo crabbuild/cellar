@@ -2427,7 +2427,10 @@ impl Driver {
                     }
                     owner.pending.push(super::host_archive::Captured {
                         scope,
-                        archive: cell.archive.clone(),
+                        archive: cell
+                            .archive
+                            .clone()
+                            .with_bundle_read_performance(self.local.performance.clone()),
                         cut: *cut,
                         reservation: _bytes,
                     });

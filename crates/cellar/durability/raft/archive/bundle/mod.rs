@@ -5,6 +5,8 @@ use crate::application::consensus::protocol::WireScope;
 use futures_util::{stream::FuturesUnordered, StreamExt};
 use tokio::sync::{mpsc, oneshot};
 
+mod reads;
+
 pub(crate) const MAX_GROUPS: usize = 2;
 pub(crate) const MAX_BYTES: usize = 8 * 1024 * 1024;
 const MAX_INDEX_BYTES: usize = 16 * 1024;
@@ -209,9 +211,27 @@ struct Request {
 }
 
 #[derive(Clone)]
-pub(super) struct Client(mpsc::Sender<Request>);
+pub(super) struct Client {
+    sender: mpsc::Sender<Request>,
+    reads: reads::Reads,
+}
 
 impl Client {
+    fn new(sender: mpsc::Sender<Request>) -> Self {
+        Self {
+            sender,
+            reads: reads::Reads::default(),
+        }
+    }
+
+    pub(super) async fn read(
+        &self,
+        archive: &CellArchive,
+        reference: &Reference,
+    ) -> Result<Arc<Vec<u8>>, ArchiveError> {
+        self.reads.read(archive, reference).await
+    }
+
     pub(super) async fn put(
         &self,
         archive: &CellArchive,
@@ -221,7 +241,7 @@ impl Client {
         let (reply, result) = oneshot::channel();
         let mut archive = archive.clone();
         archive.bundle_client = None;
-        self.0
+        self.sender
             .send(Request {
                 archive,
                 object,
@@ -340,7 +360,6 @@ async fn flush(mut requests: Vec<Request>) {
 }
 
 #[cfg(test)]
-#[path = "bundle_tests.rs"]
 mod tests;
 
 impl CellArchive {
@@ -366,14 +385,17 @@ impl CellArchive {
         }
         let domain = first.0.io_domain.clone().ok_or(ArchiveError::Stopped)?;
         let (sender, mut receiver) = mpsc::channel(MAX_GROUPS);
+        // Share only the pending reads of this already validated batch domain.
+        // A later batch, recovery call or completed read receives no cache.
+        let client = Client::new(sender);
         let mut jobs = FuturesUnordered::new();
         let mut completed: Vec<Option<Result<ArchiveRecoverySet, ArchiveError>>> =
             (0..inputs.len()).map(|_| None).collect();
         for (number, (mut archive, cut)) in inputs.into_iter().enumerate() {
-            archive.bundle_client = Some(Client(sender.clone()));
+            archive.bundle_client = Some(client.clone());
             jobs.push(async move { (number, archive.publish(cut, verifier).await) });
         }
-        drop(sender);
+        drop(client);
         while !jobs.is_empty() {
             let request = crate::asyncrt::select! {
                 done = jobs.next() => {

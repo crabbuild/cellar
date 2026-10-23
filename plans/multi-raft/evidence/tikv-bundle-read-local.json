@@ -1,0 +1,93 @@
+{
+  "change": "Share only overlapping exact bundle GETs in one compatible publication batch, with bounded owners/waiters, independent member validation/replay and no completed cache.",
+  "baseline": "51385591f572721bc6c064dc152874d1d8c65dd3",
+  "tikv_source_revision": "b3995dab28308f09cbb7c125bf32f789dbc203fe",
+  "tikv_reference": "components/raftstore/src/store/async_io/write.rs::write_to_db shares engine I/O and notifies each region Ready after persistence. Cellar adapts the principle to object reads; the TiKV source is an engine-write path.",
+  "runtime_source_sha256": {
+    "crates/cellar/durability/raft/archive/bundle/mod.rs": "1f2c7f7c9c818e9e4ec5f8e32680450aec56127c70fd944c726848626ce6e0e8",
+    "crates/cellar/durability/raft/archive/bundle/reads.rs": "49dcd2819c4155c88bacf4cb0ed9f7a77ce716baea043e2cdf6d85423ab885b4",
+    "crates/cellar/durability/raft/archive/mod.rs": "92346ea306fcffd116d72cedab12ffde4ba5db59de3a4b45100af3a542e0b6a0",
+    "crates/cellar/durability/raft/host.rs": "7e4c9cd6a7c30dd5a41dcad2065051201d5d448db05c9b9de008d92abaf664f2",
+    "crates/cellar/durability/raft/performance.rs": "f93319c9fbf5da9dfff87031600deecfa85aae3405b8d39adb8c1ced10374a39"
+  },
+  "regressions": {
+    "overlapping_bundle_reads": {
+      "baseline_physical_gets": 2,
+      "candidate_physical_gets": 1,
+      "seam": "Actual CellArchive object read and canonical extraction with a held InMemory store; both member payloads verified after the gate releases."
+    },
+    "unpolled_joined_deadline": {
+      "before": "A ready response wins over an expired timer and permits late extraction.",
+      "after": "An explicit monotonic clock check refuses the shared bytes before extraction."
+    },
+    "new_cases": 11,
+    "other_coverage": [
+      "completed read eviction and later deletion",
+      "wrong-history member binding",
+      "shared corruption and fresh recovery read",
+      "owner cancellation releases and refuses waiters",
+      "waiter cancellation leaves owner live",
+      "continuously polled independent deadline",
+      "cancellation with a ready shared body",
+      "physical extraction retains each reservation",
+      "bounded waiter capacity and cancelled-slot reuse"
+    ],
+    "native_sdk": "Existing two-cell fixture enters observed read context, reconciles lost PUT response, executes four callbacks and independently restores both histories after close."
+  },
+  "validation": {
+    "library": 529,
+    "native_archive": 53,
+    "native_execution": 19,
+    "native_host": 29,
+    "native_multigroup": 9,
+    "test_threads": 1,
+    "ignored_crash_child_helpers": 3,
+    "strict_all_target_all_feature_clippy": true,
+    "format_files": 873,
+    "layout": true,
+    "native_dependency_packages": 454,
+    "docs": true
+  },
+  "retained_invocations": [
+    {
+      "log": "bundle-read-red.log",
+      "result": "Unqualified exact filter selected zero tests; not regression evidence."
+    },
+    {
+      "log": "bundle-read-red-r2.log",
+      "result": "One selected regression fails with two GETs instead of one."
+    },
+    {
+      "log": "bundle-read-green.log",
+      "result": "First 13 bundle tests pass."
+    },
+    {
+      "log": "bundle-read-native.log",
+      "result": "First full pass: 528 library, 53 archive, 19 execution, 29 host, nine multi-group."
+    },
+    {
+      "log": "bundle-read-deadline-red.log",
+      "result": "One selected additional regression fails before the explicit deadline check."
+    }
+  ],
+  "measurement_limits": [
+    "Local GET reduction is not a sustained TPS or latency result.",
+    "Read-owner/joined counters count admissions, including later failure or cancellation, not successful GETs or saved bytes.",
+    "Each member still independently hashes/decodes and physically replays; this experiment targets physical GET overlap only."
+  ],
+  "sustained_performance_qualified": false,
+  "logs_sha256": {
+    "bundle-read-red.log": "411bb17cd895b4e7efa1df3a72b8ff22c380b13f068449d7478b904cf43d1ccc",
+    "bundle-read-red-r2.log": "0f41dcd43c8cbee9a652455e37862dcb9e7a61ea1dd2a2d16ab2260ee87dbad0",
+    "bundle-read-green.log": "fb74fba31d54d6c1a52ce129a77a51f49c42b26270f166136d5eef4f94c19b34",
+    "bundle-read-native.log": "6daa5f028708681b01300c7702dcb2f7b22f29626ac766876634cefe67878374",
+    "bundle-read-deadline-red.log": "58724b9a86bb93925f9a247a68ead22c35e114168f7fc4e8aa2996aa2617dff3",
+    "bundle-read-native-final.log": "8a0c0d447658108b4e5496843007179c416240d5f443d1ddd2e176cda622c8f5",
+    "bundle-read-clippy.log": "fe02249980ad06207bcc704749878cc10f0cd96bd24a64e3e93b7b9cad45ae5c",
+    "bundle-read-format-final.log": "3133d57d5b179d3310bd80f4a6b50bfc8fde4e9ee735dd917494bbb30ea44f6a",
+    "bundle-read-format-check.log": "1f5fc5677b14a217b42f23d2a18dd4ef224405827ab024e69152390025cdd0f4",
+    "bundle-read-layout.log": "b945f884799dec80dda29bb23da6daa2bd6600233c0934d3b6d4ed548d360f8b",
+    "bundle-read-dependencies.log": "c89cc03184e053868a70f06a0a35e3efb0df8c314bf9848020a292f114c118a4",
+    "bundle-read-docs-final.log": "63e463cfef099868ca9c4d1d9d5f2b77ee32e082036abe39b072603f96291a09"
+  }
+}

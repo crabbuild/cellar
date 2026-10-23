@@ -203,6 +203,11 @@ pub async fn run() -> Result<()> {
         };
         ensure!(counter("object_put_requested_bytes") > counter("object_put_confirmed_bytes"));
         ensure!(counter("object_get_body_bytes") > 0);
+        ensure!(counter("archive_bundle_read_owner") > 0);
+        ensure!(
+            counter("archive_bundle_read_owner") + counter("archive_bundle_read_joined") >= 2,
+            "native bundle members did not enter the observed read context"
+        );
         ensure!(
             performance
                 .operations

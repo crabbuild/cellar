@@ -2,6 +2,9 @@
 use super::*;
 use cellar_logic::consensus::*;
 
+#[path = "read_tests.rs"]
+mod reads;
+
 fn archive(id: u8) -> CellArchive {
     CellArchive {
         store: Arc::new(object_store::memory::InMemory::new()),
@@ -29,6 +32,7 @@ fn archive(id: u8) -> CellArchive {
         io_domain: None,
         read_retention: None,
         bundle_client: None,
+        bundle_read_performance: None,
     }
 }
 

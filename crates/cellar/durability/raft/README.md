@@ -731,6 +731,22 @@ second ready payload; lone or large objects use direct publication. Dependencies
 and conditional heads remain separate. Successful cuts with newer backlog become
 eligible immediately; failed attempts retain the configured retry delay.
 
+Within one compatible publication batch, overlapping reads of the same exact
+bundle digest and length share one physical GET. `archive/bundle/reads.rs` bounds
+the context to eight owners/waiters, matching two four-read member windows.
+Completed reads are evicted before notifying waiters; later reads and later
+batches consult storage again. Upload confirmation is separate. Each member
+still checks its own object limit, full bundle/index and history binding, then
+physically replays its own recovery set. Existing per-member memory reservations
+remain held through physical extraction, including after cancellation.
+Joined readers retain their own I/O deadline and cancellation. Dropping a waiter
+does not cancel the physical owner; dropping the owner cancels its read and
+refuses joined readers as unconfirmed. No task or completed-byte cache survives
+the batch. Fixed counters `archive_bundle_read_owner` and
+`archive_bundle_read_joined` count shared-context admissions, including attempts
+that later fail or cancel. They are not successful GET or saved-byte counts;
+object-store measurements record the actual physical I/O separately.
+
 The marker-1 index binds cluster, namespace, cell, group, incarnation, namespace
 root, birth, schema, object kind, exact term/index range, offset, length and
 payload checksum. Ordered, non-overlapping members partition the body exactly.

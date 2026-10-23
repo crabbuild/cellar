@@ -1,14 +1,91 @@
 # TiKV comparison and Cellar performance investigation
 
-Status: PR #98's conflicts are resolved through main `1455fb0`. Bounded
-retained-history waiting passed local correctness checks but failed its fresh
-three-node performance comparison. Candidate `6747573` delivered 14.84% lower
-mean successful TPS, a 565.52-ms worst p99 and 24 deadline expirations. The control
-also failed qualification with 4,443 refusals. Shared-host interference prevents
-causal attribution. The admission experiment is removed from active code, restoring
-production code and its tests exactly to `9c9630f`; its source, image, regression
-cases and raw evidence remain preserved. No repeatable throughput gain is claimed.
-Two-cell archive batching and the 256-MiB admission budget remain unchanged.
+Status: PR #98's conflicts are resolved through main `1455fb0`. The current
+candidate shares overlapping bundle GETs within one compatible publication batch.
+The deterministic read regression changes two physical GETs to one; final local
+suites pass 529 library, 53 archive, 19 execution, 29 host and nine multi-group
+tests. Strict Clippy and repository checks pass; a frozen three-node comparison
+is pending.
+No sustained TPS or latency improvement is claimed. The previous admission-waiting
+experiment is rejected in `5138559` after failing both the error and tail gates.
+Two-cell archive batching, four retained cuts in the benchmark and the 256-MiB
+admission budget remain unchanged.
+
+## Share overlapping archive bundle reads
+
+Three ranked hypotheses motivate this experiment: two members may independently
+fetch the same immutable bundle; duplicate bundle decoding/hashing may consume
+CPU; or physical replay may dominate so reducing GETs will not improve throughput.
+The first change isolates physical reads. Each member still independently verifies
+all bundle bytes, index ordering, object/history bindings and replay proofs.
+
+At pinned TiKV revision `b3995dab28308f09cbb7c125bf32f789dbc203fe`,
+`components/raftstore/src/store/async_io/write.rs::write_to_db` shares bounded
+engine I/O and notifies each region's Ready after durable work returns. This
+candidate applies the shared-I/O/per-region-completion principle to Cellar's
+existing archive bundles. The referenced TiKV code handles engine writes;
+Cellar's implementation is specific to overlapping object reads.
+
+A deterministic regression polls two actual `CellArchive::get_object` paths
+against a held InMemory object-store adapter, then releases and verifies both
+member payloads. The baseline performs two physical GETs and fails the one-read
+assertion. The candidate performs one. The first test invocation accidentally
+selected zero tests with an unqualified exact filter; that invocation is retained
+and is not counted as regression evidence. The corrected invocation selects and
+fails the intended test before the implementation changes.
+
+`archive/bundle/reads.rs` owns a map keyed by exact bundle digest and length,
+scoped to one already-compatible publication batch. It bounds owners plus waiters
+to eight, matching two four-read windows. Locks are released before I/O and
+notification. Only overlapping requests share the physical body. Completion
+removes the map entry before waking waiters; later readers and later batches
+read storage again. Upload confirmation remains an independent store read. No
+new background task, completed-byte cache, larger budget or format change exists.
+
+Each caller still validates its own size limit and receives its own independently
+bound member. Per-member extraction reservations remain owned through physical
+blocking return. A cancelled waiter cannot cancel the owner. A cancelled owner
+drops its read and refuses joined callers as unconfirmed; no waiter is stranded.
+Joined readers keep their own I/O deadlines and cancellation. A second failing
+regression exposed a ready response winning over an expired timer when a waiter
+was not polled. An explicit clock check before extraction fixes that boundary;
+both a continuously polled deadline and the unpolled case now pass.
+
+Eleven new cases cover duplicate reads, eviction after completion and subsequent
+deletion, wrong-history binding, corrupt bytes followed by a fresh read, owner
+and waiter cancellation, both deadline cases, cancellation with a ready response,
+physical extraction reservation ownership, and bounded/cancellation-reusable
+waiter capacity. The real SDK bundle fixture verifies the observed context is
+entered, preserves four callback executions, handles a lost PUT response, and
+restores each history independently after close. The archive component uses the
+repository's directory layout for production submodules; public Rust paths remain
+unchanged.
+
+Fixed counters `archive_bundle_read_owner` and `archive_bundle_read_joined` record
+context admissions, including later failure/cancellation. They do not count
+successful GETs or saved bytes. Existing object-store operations measure physical
+I/O. The next cluster comparison must show that sharing occurs, reconcile the
+resulting physical I/O and archive durations, and pass successful-TPS, p99,
+zero-timed-error, exact-state and clean-stop gates. Local GET reduction alone
+does not establish end-to-end performance.
+
+The first complete local pass has 528 library, 53 archive, 19 execution, 29 host
+and nine multi-group successes. After the extra deadline regression and fix,
+the final pass has 529 library and the same native counts. Cases run serially
+as directed by the qualification guide; concurrency and deadlines inside each
+case are unchanged. Three ignored entries are crash-process helpers exercised
+by parent tests. Strict all-target/all-feature Clippy, formatting/layout across
+873 Rust files, the 454-package native dependency policy and docs pass.
+[Local evidence](evidence/tikv-bundle-read-local.json) retains the two real red
+regressions and every validation invocation.
+
+Before the next pair, verified transparent compression preserves 230 closed Raft
+logs in the two previous cohorts' six node volumes, recovering 2.48 GiB.
+[Preservation evidence](evidence/tikv-bundle-read-preservation.json) records content,
+size, mode, owner and mtime match; twelve read-only probes through original volume
+identities pass, and image/volume inventories remain unchanged. All source,
+images, volumes and raw outcomes remain. Fresh timed backing is unchanged.
+
 
 ## Rejected bounded admission under retained-history pressure
 

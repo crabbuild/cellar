@@ -155,9 +155,11 @@ pub(crate) enum Counter {
     ArchiveCoverageRejected,
     ArchiveCoverageUnchanged,
     ArchiveCoverageMissingCell,
+    ArchiveBundleReadOwner,
+    ArchiveBundleReadJoined,
 }
 
-const COUNTERS: [Counter; 34] = [
+const COUNTERS: [Counter; 36] = [
     Counter::EngineReadBytes,
     Counter::EngineWriteRequestedBytes,
     Counter::EngineWriteCompletedBytes,
@@ -192,6 +194,8 @@ const COUNTERS: [Counter; 34] = [
     Counter::ArchiveCoverageRejected,
     Counter::ArchiveCoverageUnchanged,
     Counter::ArchiveCoverageMissingCell,
+    Counter::ArchiveBundleReadOwner,
+    Counter::ArchiveBundleReadJoined,
 ];
 
 impl Counter {
@@ -239,6 +243,8 @@ impl Counter {
             Self::ArchiveCoverageRejected => "archive_coverage_rejected",
             Self::ArchiveCoverageUnchanged => "archive_coverage_unchanged",
             Self::ArchiveCoverageMissingCell => "archive_coverage_missing_cell",
+            Self::ArchiveBundleReadOwner => "archive_bundle_read_owner",
+            Self::ArchiveBundleReadJoined => "archive_bundle_read_joined",
         }
     }
 }
