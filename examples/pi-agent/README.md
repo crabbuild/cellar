@@ -59,7 +59,22 @@ To use a live model, set `CELLAR_PI_PROVIDER=openai`, `CELLAR_PI_MODEL` to a mod
 ID in the pinned Pi catalog, and `OPENAI_API_KEY` through your secret manager,
 then restart the host. The provider is configured at process startup. Credentials
 are not written to task state. Live provider calls incur normal provider costs;
-the automated qualification uses no credentials or paid model calls.
+the default CI qualification uses no credentials or paid model calls.
+
+An opt-in live qualification runs two real model/tool conversations and kills
+the host after the tool commit and after task completion. It checks nonzero
+provider token usage, saved decision replay, final answers and duplicate
+submission. Use a local environment file containing `OPENAI_API_KEY`:
+
+```sh
+CELLAR_PI_HOST="$CARGO_TARGET_DIR/debug/cellar-pi-agent-example" \
+CELLAR_PI_PROVIDER=openai CELLAR_PI_MODEL=gpt-4.1-mini CELLAR_PI_TEST_LIVE=1 \
+  node --env-file=/path/to/openai.env examples/pi-agent/test/process.mjs
+```
+
+This opt-in command makes paid provider calls and is not enabled in CI. Set
+`CELLAR_PI_TEST_REPORT` to an output JSON path to retain the test transcripts;
+the report contains task messages and usage, never environment variables.
 
 ## Recovery design
 
@@ -169,3 +184,22 @@ and the locked npm tree, then bind their inventory to the Rust executable.
 Provision live provider credentials at runtime. The process recovery suite uses
 the development host and bucket; it does not qualify production secrets,
 external tools or live model-provider availability.
+
+To exercise the installed package, move the captured runtime aside to force
+restoration from its archive (choose a fresh backup name):
+
+```sh
+mv .cellar/pi-agent-runtime .cellar/pi-agent-runtime-captured
+CELLAR_PI_PACKAGE="$PWD/.cellar/pi-agent-package" \
+  cargo test --locked -p cellar-javascript --no-default-features --features node \
+    --test fleet_package pi_agent_package -- --ignored --nocapture
+```
+
+This test publishes the staged package to a private development bucket, restores
+the runtime, installs and validates the executable, then runs the packaged
+`app.ts` entry without fault hooks. Eight concurrent HTTP tasks must complete
+with a model/tool/final-answer transcript. It checks malformed requests and
+conflicting task IDs, kills the host, and recovers every transcript on a new
+node with empty local storage. Thirty-two concurrent duplicate submissions must
+leave all results unchanged. The model service is still the deterministic
+fixture; this test does not make a live LLM call.
