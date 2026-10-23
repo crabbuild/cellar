@@ -86,8 +86,33 @@ pub fn output_body(
     );
     ensure!(bytes.len() <= limit, "guest response body exceeds limit");
     let response_headers: Vec<(String, String)> = serde_json::from_value(value["headers"].clone())?;
+    output_headers(context, status as u16, bytes, response_headers)
+}
+
+/// Apply the same native HTTP validation to directly transported metadata.
+pub fn output_parts(
+    context: &Context,
+    status: u16,
+    bytes: Vec<u8>,
+    response_headers: Vec<(String, String)>,
+    limit: usize,
+) -> Result<cellar::engine_api::HttpResponse> {
+    ensure!(
+        (200..=599).contains(&status),
+        "guest response status must be 200..599"
+    );
+    ensure!(bytes.len() <= limit, "guest response body exceeds limit");
+    output_headers(context, status, bytes, response_headers)
+}
+
+fn output_headers(
+    context: &Context,
+    status: u16,
+    bytes: Vec<u8>,
+    response_headers: Vec<(String, String)>,
+) -> Result<cellar::engine_api::HttpResponse> {
     headers(&response_headers)?;
-    Response::new(status as u16, bytes, response_headers).into_http(context)
+    Response::new(status, bytes, response_headers).into_http(context)
 }
 
 pub async fn response(

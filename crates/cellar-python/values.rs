@@ -43,11 +43,62 @@ pub(crate) fn envelope_size(metadata: usize, body: usize) -> Result<usize> {
         .context("Python HTTP envelope size overflow")
 }
 
+// Every admitted direct response has a three-digit status and an empty metadata
+// body. Header order changes no length. Retain CPython ensure_ascii charging,
+// including DEL, control escapes and two UTF-16 escapes for astral characters.
+pub(crate) const HTTP_METADATA_BASE_BYTES: usize =
+    br#"{"status":200,"headers":[],"body":""}"#.len();
+
+pub(crate) fn response_header_size(name: &str, value: &str) -> Result<usize> {
+    fn string_size(value: &str) -> Result<usize> {
+        value.chars().try_fold(2usize, |size, ch| {
+            let escaped = match ch {
+                '"' | '\\' | '\u{8}' | '\u{c}' | '\n' | '\r' | '\t' => 2,
+                '\u{20}'..='\u{7e}' => 1,
+                '\0'..='\u{ffff}' => 6,
+                _ => 12,
+            };
+            size.checked_add(escaped)
+                .context("Python HTTP metadata size overflow")
+        })
+    }
+    string_size(name)?
+        .checked_add(string_size(value)?)
+        .and_then(|bytes| bytes.checked_add(3)) // brackets and comma
+        .context("Python HTTP metadata size overflow")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use base64::{engine::general_purpose::STANDARD, Engine as _};
     use serde_json::json;
+
+    #[test]
+    fn direct_metadata_charge_matches_python_ascii_json() {
+        // Golden strings use CPython json.dumps(..., separators=(",", ":"))
+        // with its default ensure_ascii=True, not serde_json's UTF-8 output.
+        let cases = [
+            ("", "", r#"["",""]"#),
+            ("x", "plain /~", r#"["x","plain /~"]"#),
+            (
+                "x",
+                "\0\u{8}\u{c}\n\r\t\"\\\u{7f}é☃😀",
+                r#"["x","\u0000\b\f\n\r\t\"\\\u007f\u00e9\u2603\ud83d\ude00"]"#,
+            ),
+        ];
+        for (name, value, encoded) in cases {
+            assert_eq!(response_header_size(name, value).unwrap(), encoded.len());
+        }
+        let encoded = r#"{"status":599,"headers":[["x","plain /~"],["",""]],"body":""}"#;
+        assert_eq!(
+            HTTP_METADATA_BASE_BYTES
+                + 1
+                + response_header_size("x", "plain /~").unwrap()
+                + response_header_size("", "").unwrap(),
+            encoded.len()
+        );
+    }
 
     #[test]
     fn binary_http_charge_matches_encoded_envelope() {

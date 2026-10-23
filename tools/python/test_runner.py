@@ -59,6 +59,9 @@ def continuous_arrivals(mode):
                 assert body == b"ok"
                 self.inbox.completed += 1
 
+        def complete_response(self, status, headers, body):
+            self.complete(json.dumps(dict(status=status, headers=headers, body="")), False, body)
+
         def expire(self):
             if mode == "cleanup-failure" and not self.inbox.cleanup_failed:
                 self.inbox.cleanup_failed = True

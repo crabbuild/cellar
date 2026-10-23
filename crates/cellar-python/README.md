@@ -156,6 +156,12 @@ base64-equivalent envelope, preserving admission limits without allocating that
 encoded body. The interpreter copies the body while its native reservation is
 held; queued, refused and cancelled invocations release that reservation normally.
 HTTP completions likewise pass an immutable byte body beside their metadata.
+Ordinary response status and headers cross as owned native values, avoiding a
+JSON encode/decode round trip. Python snapshots header containers into immutable
+tuples first. Native admission still charges the exact ASCII-escaped JSON
+equivalent, including surrogate-pair escapes, before copying headers or body;
+unusual metadata retains the JSON validation path. Both paths use the same
+native HTTP validation and invocation scope checks.
 Native byte and mailbox capacity are reserved before copying it into Rust; the
 reservation remains owned through response validation. Completion metadata and
 the body share the same base64-equivalent envelope limit as encoded delivery.
