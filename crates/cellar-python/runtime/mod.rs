@@ -32,6 +32,7 @@ mod initialization_output;
 mod inventory;
 mod telemetry;
 pub use telemetry::{LatencyReport, OperationReport};
+mod scope;
 mod snapshot;
 pub use snapshot::InterpreterSnapshot;
 mod memory;
@@ -320,6 +321,7 @@ struct Inbox {
     replies: Mutex<mpsc::Receiver<Reply>>,
     done: Arc<AtomicBool>,
     runtime: Arc<Runtime>,
+    scope: Option<scope::CallerScope>,
 }
 
 type StartDelivery = (u64, Py<PyString>, Py<PyBytes>, Py<InvocationBridge>);
@@ -327,6 +329,17 @@ type ReplyDelivery = (u64, u64, Py<PyString>);
 
 #[pymethods]
 impl Inbox {
+    fn __traverse__(&self, visit: pyo3::PyVisit<'_>) -> Result<(), pyo3::PyTraverseError> {
+        if let Some(scope) = &self.scope {
+            scope.traverse(&visit)?;
+        }
+        Ok(())
+    }
+
+    fn __clear__(&mut self) {
+        self.scope = None;
+    }
+
     fn take_retirements(&self) -> bool {
         self.runtime.wakeup.take_retirements()
     }
@@ -370,11 +383,11 @@ impl Inbox {
             .ok();
         next.map(|mut start| {
             let _reservation = start.reservation;
-            start.bridge.event_loop = Some(
-                py.import("asyncio")?
-                    .call_method0("get_running_loop")?
-                    .unbind(),
-            );
+            let scope = self.scope.as_ref().ok_or_else(|| {
+                pyo3::exceptions::PyRuntimeError::new_err("Python caller scope cleared")
+            })?;
+            start.bridge.event_loop = Some(scope.running_loop(py)?.unbind());
+            start.bridge.scope = Some(scope.clone_ref(py));
             let bridge = Py::new(py, start.bridge)?;
             let payload = PyString::new(py, &start.payload).unbind();
             // Copy on the interpreter thread. No borrowed native buffer or
@@ -558,6 +571,7 @@ impl PythonRuntime {
             let modules = py.import("sys")?.getattr("modules")?;
             let facade = PyModule::from_code(py, &CString::new(FACADE)?, c"cellar.py", c"cellar")?;
             modules.set_item("cellar", &facade)?;
+            let scope = scope::CallerScope::capture(py, &facade)?;
             let runner = PyModule::from_code(
                 py,
                 &CString::new(RUNNER)?,
@@ -599,6 +613,7 @@ impl PythonRuntime {
                         replies: Mutex::new(replies_rx),
                         done: done.clone(),
                         runtime: runtime.clone(),
+                        scope: Some(scope),
                     },
                 )?;
                 let application = Arc::new(PythonApplication::new(runtime.clone(), source));

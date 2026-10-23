@@ -253,6 +253,7 @@ impl PythonApplication {
                 max_bytes: self.runtime.options.max_value_bytes,
                 budget: self.runtime.budget.clone(),
                 event_loop: None,
+                scope: None,
                 clock_origin: cellar::asyncrt::instant(),
             },
         })?;

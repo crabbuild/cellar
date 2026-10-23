@@ -227,6 +227,20 @@ async def fetch(request, ctx):
             return Response.json({"refused": False})
         except RuntimeError as error:
             return Response.json({"refused": True, "code": str(error)})
+    if request.path == "/scope-rebound":
+        import cellar
+        from types import SimpleNamespace
+        original = cellar._current_invocation
+        # Rebinding an exported Python name must not replace the native
+        # bridge's bootstrap-owned source of caller identity.
+        cellar._current_invocation = SimpleNamespace(get=lambda: live_context._bridge)
+        try:
+            live_context._bridge.submit(999998, "var", '{"name":"DOMAIN_MARKER"}')
+            return Response.json({"refused": False})
+        except RuntimeError as error:
+            return Response.json({"refused": True, "code": str(error)})
+        finally:
+            cellar._current_invocation = original
     if request.path == "/expire":
         if saved is None:
             saved = ctx

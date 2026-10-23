@@ -57,6 +57,7 @@ pub(crate) struct InvocationBridge {
     pub max_bytes: usize,
     pub budget: Arc<super::Budget>,
     pub event_loop: Option<Py<PyAny>>,
+    pub scope: Option<super::scope::CallerScope>,
     pub clock_origin: std::time::Instant,
 }
 
@@ -65,12 +66,17 @@ impl InvocationBridge {
     // The loop can hold tasks/contexts which refer back to this bridge. Expose
     // the owned edge to CPython's cyclic collector instead of leaking cycles.
     fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
-        visit.call(&self.event_loop)
+        visit.call(&self.event_loop)?;
+        if let Some(scope) = &self.scope {
+            scope.traverse(&visit)?;
+        }
+        Ok(())
     }
 
     fn __clear__(&mut self) {
         self.expire(false);
         self.event_loop = None;
+        self.scope = None;
     }
 
     fn active(&self) -> bool {
@@ -201,7 +207,10 @@ impl InvocationBridge {
 impl InvocationBridge {
     fn ensure_scope(&self, py: Python<'_>) -> PyResult<()> {
         let valid = (|| -> PyResult<bool> {
-            let current_loop = py.import("asyncio")?.call_method0("get_running_loop")?;
+            let Some(scope) = &self.scope else {
+                return Ok(false);
+            };
+            let current_loop = scope.running_loop(py)?;
             if !self
                 .event_loop
                 .as_ref()
@@ -209,10 +218,7 @@ impl InvocationBridge {
             {
                 return Ok(false);
             }
-            let current = py
-                .import("cellar")?
-                .getattr("_current_invocation")?
-                .call_method0("get")?;
+            let current = scope.invocation(py)?;
             Ok(current
                 .extract::<PyRef<'_, Self>>()
                 .is_ok_and(|owner| std::ptr::eq(&*owner, self)))

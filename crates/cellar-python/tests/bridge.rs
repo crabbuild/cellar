@@ -939,6 +939,12 @@ async fn context_isolation(client: &reqwest::Client, holder: &str, other: &str) 
             .await?
             .json()
             .await?;
+        let rebound: Value = client
+            .get(format!("{other}/scope-rebound"))
+            .send()
+            .await?
+            .json()
+            .await?;
         client
             .get(format!("{other}/scope-release"))
             .send()
@@ -951,6 +957,10 @@ async fn context_isolation(client: &reqwest::Client, holder: &str, other: &str) 
         ensure!(
             direct == json!({"refused":true,"code":"ContextMismatch"}),
             "native sender crossed domains: {direct}"
+        );
+        ensure!(
+            rebound == json!({"refused":true,"code":"ContextMismatch"}),
+            "rebound module attribute replaced native caller identity: {rebound}"
         );
         Ok::<_, anyhow::Error>(())
     };

@@ -55,7 +55,10 @@ returning handler are discarded; always await SDK operations. Do not retain
 contexts or binding handles between invocations. Live handles used by another invocation or asyncio
 loop are refused at both the Python API and native sender. The invocation scope
 is an additional caller check; native SDK authority still comes from the original
-Rust context.
+Rust context. The native sender captures the original caller-identity accessors
+at bootstrap and checks their current values on every operation. Rebinding a
+Python module attribute cannot replace those checks; Python application code is
+still trusted code, not a security sandbox.
 
 `ctx.storage` creates a lightweight handle on access. A handle keeps
 its originating context alive, but the context does not cache the handle, so
