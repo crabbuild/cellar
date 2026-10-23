@@ -135,68 +135,44 @@ impl State {
             if *stop.borrow() || *peer_stop.borrow() {
                 return Err(TransportError::Closed);
             }
-            // Several replies can arrive before one gathered write finishes.
-            // Drain their completed prefix before sleeping or refilling again.
-            while pending
+            if pending
                 .front()
-                .is_some_and(|p| p.written && p.outcome.is_some())
+                .is_some_and(|p| p.written && p.outcome.is_some() && !self.current(&p.request))
             {
-                if !self.current(&pending.front().expect("completed frame").request) {
-                    return Err(TransportError::StalePeer);
-                }
-                let mut completed = pending.pop_front().expect("completed frame");
+                return Err(TransportError::StalePeer);
+            }
+            if let Some(mut completed) = pending.pop_front_if(|p| p.written && p.outcome.is_some())
+            {
                 let result = completed.outcome.take().expect("observed reply");
                 completed.exchange.finish(result.is_ok());
                 self.finish_delivery(pool, completed.request, result).await;
             }
-            if writer.is_some() && !input_closed {
-                // Amortize TLS/socket work across frames already admitted to
-                // this peer. Never wait for a batch or exceed the reply window.
-                while pending.len() < WINDOW {
-                    match requests.try_recv() {
-                        Ok(request) => pending.push_back(Pending::new(self, request)),
-                        Err(mpsc::error::TryRecvError::Empty) => break,
-                        Err(mpsc::error::TryRecvError::Disconnected) => {
-                            input_closed = true;
-                            break;
-                        }
-                    }
-                }
-            }
             if pending.is_empty() {
-                return Ok(());
-            }
-            if writer.is_some() {
-                let mut frames = Vec::new();
-                for next in pending.iter_mut().filter(|p| p.tag.is_none()) {
-                    if !self.current(&next.request) {
-                        return Err(TransportError::StalePeer);
-                    }
-                    let head = frame::request_head(
-                        &self.auth,
-                        exporter,
-                        &next.request.header,
-                        next.request.body.len(),
-                        &self.options,
-                    )?;
-                    next.tag = Some(head.tag);
-                    frames.push((head, std::mem::take(&mut next.request.body)));
-                }
-                if !frames.is_empty() {
-                    writing = Some(Box::pin(write_control(
-                        writer.take().expect("one control writer"),
-                        frames,
-                    )));
+                match requests.try_recv() {
+                    Ok(request) => pending.push_back(Pending::new(self, request)),
+                    Err(_) => return Ok(()),
                 }
             }
-            // A reply may arrive before the gathered write finishes flushing.
-            // Keep reading subsequent FIFO replies so a small duplex buffer
-            // cannot deadlock the peer's reply writer against our next frame.
-            if reading.is_none()
-                && pending
-                    .iter()
-                    .any(|p| p.tag.is_some() && p.outcome.is_none())
-            {
+            if let Some(next) = pending.back_mut().filter(|p| p.tag.is_none()) {
+                if !self.current(&next.request) {
+                    return Err(TransportError::StalePeer);
+                }
+                let head = frame::request_head(
+                    &self.auth,
+                    exporter,
+                    &next.request.header,
+                    next.request.body.len(),
+                    &self.options,
+                )?;
+                next.tag = Some(head.tag);
+                let body = std::mem::take(&mut next.request.body);
+                writing = Some(Box::pin(write_control(
+                    writer.take().expect("one control writer"),
+                    head,
+                    body,
+                )));
+            }
+            if reading.is_none() && pending.front().is_some_and(|p| p.outcome.is_none()) {
                 reading = Some(Box::pin(read_control(
                     reader.take().expect("one control reader"),
                     &self.options,
@@ -218,17 +194,13 @@ impl State {
                     writing = None;
                     writer = Some(next_writer);
                     result?;
-                    // No new frame can enter while the writer is owned by this
-                    // future. Payloads stay owned until the physical flush ends.
-                    for frame in pending.iter_mut().filter(|p| p.tag.is_some()) {
-                        frame.written = true;
-                    }
+                    pending.back_mut().expect("writing frame").written = true;
                 },
                 result = async { reading.as_mut().expect("active reader").await }, if reading.is_some() => {
                     let (next_reader, response) = result;
                     reading = None;
                     reader = Some(next_reader);
-                    let next = pending.iter_mut().find(|p| p.outcome.is_none()).expect("reply owner");
+                    let next = pending.front_mut().expect("reply owner");
                     let result = match response?.response(
                         &self.auth, exporter, &next.request.header, &next.tag.expect("sent frame tag"),
                     )? {
@@ -254,34 +226,10 @@ impl State {
 
 async fn write_control<W: AsyncWrite + Unpin>(
     mut writer: W,
-    frames: Vec<(FrameHead, Vec<u8>)>,
+    head: FrameHead,
+    body: Vec<u8>,
 ) -> (W, Result<(), TransportError>) {
-    let result = async {
-        // Only slice descriptors are gathered. Each payload moves from its
-        // already-charged request into this bounded physical I/O owner.
-        let mut slices = frames
-            .iter()
-            .flat_map(|(head, body)| {
-                [
-                    IoSlice::new(&head.prefix),
-                    IoSlice::new(&head.header),
-                    IoSlice::new(&head.tag),
-                    IoSlice::new(body),
-                ]
-            })
-            .collect::<Vec<_>>();
-        let mut remaining = &mut slices[..];
-        while remaining.iter().any(|slice| !slice.is_empty()) {
-            let written = writer.write_vectored(remaining).await?;
-            if written == 0 {
-                return Err(std::io::Error::from(std::io::ErrorKind::WriteZero).into());
-            }
-            IoSlice::advance_slices(&mut remaining, written);
-        }
-        writer.flush().await?;
-        Ok(())
-    }
-    .await;
+    let result = write_frame(&mut writer, &head, &body).await;
     (writer, result)
 }
 

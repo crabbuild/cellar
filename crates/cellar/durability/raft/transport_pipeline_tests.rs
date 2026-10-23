@@ -555,77 +555,6 @@ async fn control_window_cancellation_retains_permits_until_joined_close() -> any
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn control_window_drives_both_directions_with_one_byte_buffers() -> anyhow::Result<()> {
-    control_window_duplex(1, None).await
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn control_window_coalesces_already_queued_frames() -> anyhow::Result<()> {
-    control_window_duplex(64 * 1024, Some(1)).await
-}
-
-/// Model a vectored TLS writer over a real duplex stream. Count only writes
-/// accepted by the underlying stream; small capacities still force partial I/O.
-struct CountedDuplex {
-    inner: tokio::io::DuplexStream,
-    gather_limit: usize,
-    writes: usize,
-}
-
-impl AsyncRead for CountedDuplex {
-    fn poll_read(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buffer: &mut tokio::io::ReadBuf<'_>,
-    ) -> Poll<std::io::Result<()>> {
-        Pin::new(&mut self.inner).poll_read(cx, buffer)
-    }
-}
-
-impl AsyncWrite for CountedDuplex {
-    fn poll_write(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        bytes: &[u8],
-    ) -> Poll<std::io::Result<usize>> {
-        let result = Pin::new(&mut self.inner).poll_write(cx, bytes);
-        if matches!(result, Poll::Ready(Ok(n)) if n > 0) {
-            self.writes += 1;
-        }
-        result
-    }
-
-    fn poll_write_vectored(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        slices: &[IoSlice<'_>],
-    ) -> Poll<std::io::Result<usize>> {
-        // The duplex stream cannot accept more than its entire capacity.
-        // Avoid copying the rest of the window on every one-byte partial write.
-        let bytes = slices
-            .iter()
-            .flat_map(|slice| slice.iter().copied())
-            .take(self.gather_limit)
-            .collect::<Vec<_>>();
-        self.poll_write(cx, &bytes)
-    }
-
-    fn is_write_vectored(&self) -> bool {
-        true
-    }
-
-    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
-        Pin::new(&mut self.inner).poll_flush(cx)
-    }
-
-    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
-        Pin::new(&mut self.inner).poll_shutdown(cx)
-    }
-}
-
-async fn control_window_duplex(
-    capacity: usize,
-    expected_writes: Option<usize>,
-) -> anyhow::Result<()> {
     let (fixture, _listener, scopes) = setup().await?;
     let state = &fixture.transport.handle.0;
     let mut requests = Vec::new();
@@ -678,12 +607,7 @@ async fn control_window_duplex(
     let result = fixture
         .domain
         .run(crate::asyncrt::timeout(Duration::from_secs(3), async {
-            let (client, mut server) = tokio::io::duplex(capacity);
-            let mut client = CountedDuplex {
-                inner: client,
-                gather_limit: capacity,
-                writes: 0,
-            };
+            let (mut client, mut server) = tokio::io::duplex(1);
             let exporter = [7; 32];
             let (sender, mut inbox) = mailbox::channel(WINDOW);
             let pool = state.registry.lock().unwrap().pools[&requests[0].peer.replica.node].clone();
@@ -709,13 +633,6 @@ async fn control_window_duplex(
             sent?;
             received?;
             anyhow::ensure!(pending.is_empty());
-            if let Some(expected) = expected_writes {
-                anyhow::ensure!(
-                    client.writes == expected,
-                    "ready control window used {} writes instead of {expected}",
-                    client.writes
-                );
-            }
             Ok::<_, anyhow::Error>(())
         }))
         .await;

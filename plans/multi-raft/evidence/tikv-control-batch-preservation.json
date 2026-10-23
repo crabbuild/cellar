@@ -13,5 +13,22 @@
   "limits": [
     "Shared-host disk usage changes independently; free-space deltas are not the size of relocated data.",
     "No fresh timed backing changes. All historical logical contents, metadata and original paths remain."
-  ]
+  ],
+  "additional_preservation": {
+    "raw_record": ".cellar/raft-perf/diagnosis/control-batch-cohort-preservation-r2.json",
+    "sha256": "f4d569e7c583346e7192015a98c2a010119ef7b48cd7f8b150e52e24aeb6b21c",
+    "completed": true,
+    "volumes": 15,
+    "original_volume_options_verified": true,
+    "readonly_probes": 45,
+    "internal_free_after": 7688990720,
+    "external_free_after": 51998072832
+  },
+  "failed_capacity_preflight": {
+    "raw_record": ".cellar/raft-perf/diagnosis/control-batch-control-preflight-1/control-batch-control.json",
+    "sha256": "4b21e7eff47caa2a6ec9e3b30ceaa3e493325c55f487be32b1a77c50676247c8",
+    "timed_requests_started": false,
+    "reserve_bytes": 5368709120,
+    "observed_free_bytes": 4948615168
+  }
 }

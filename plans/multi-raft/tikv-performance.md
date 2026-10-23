@@ -1,14 +1,13 @@
 # TiKV comparison and Cellar performance investigation
 
-Status: PR #98's conflicts are resolved through main `1455fb0`. Same-binary
-`0b07410` archive batch-size comparison is complete. Two-cell batches reach
-286.08 / 208.53 TPS with 177.65 / 508.56-ms p99 and 169 / zero refusals;
-singletons reach 222.15 / 173.47 TPS with 219.38 / 408.45-ms p99 and zero errors.
-Both verify exact 4,500-replica / 1,500-archive state and stop cleanly. Singleton
-passes this run's 500-ms gate but has 20.01% lower mean successful TPS; keep the
-production default two. This is not a repeatable throughput improvement.
-Shared-host differences and the unreversed order limit attribution. Earlier
-failures and the publication/coverage diagnostic remain preserved below.
+Status: PR #98's conflicts are resolved through main `1455fb0`. The fresh
+control-frame gathering comparison is complete: candidate `3ceba4e` has 18.71%
+lower mean successful TPS and misses the 500-ms p99 gate in its first window.
+The control has 1,910 overload refusals. Both verify exact 4,500-replica /
+1,500-archive state and stop cleanly without OOM. Gathered writes are reverted;
+the existing per-reply sliding control window remains. No repeatable performance
+gain is claimed. Two-cell archive batching remains the production default after
+the separate singleton experiment reduced mean TPS by 20.01%.
 
 ## Gather already-queued control frames
 
@@ -23,7 +22,7 @@ remain separate hypotheses; these overlapping durations do not decompose p99.
 TiKV's `AsyncRaftSender::fill_msg` drains already-queued messages into its bounded
 buffer and flushes the batch into a readiness-controlled gRPC stream. Cellar
 already gathers a single frame's prefix/header/tag/body into vectored I/O. The
-new candidate gathers several complete control frames, up to the existing eight
+experimental candidate `3ceba4e` gathers several complete control frames, up to the existing eight
 selected slots, into one vectored write and flush. It moves charged payloads
 rather than copying them; only bounded slice descriptors are added. It does not
 wait to fill a batch or increase the window, byte limits or deadlines.
@@ -46,18 +45,58 @@ all-target/all-feature Clippy, formatting, layout, dependency and docs checks.
 The first full suite passed 518 cases but timed out the counting adapter's
 one-byte case; its unnecessary quadratic copying was removed. The deadline,
 capacity and assertions remain unchanged, and the full rerun passes.
-End-to-end qualification is still pending; reduced write calls alone cannot
-establish higher successful TPS. Queue residence ends
-earlier when several frames are selected together, so exchange time and client
-outcomes must be compared as well to avoid mistaking moved waiting for a gain.
+The [fresh paired measurement](evidence/tikv-control-batch.json) compares
+`0b07410` with `3ceba4e`, keeping archive batch size two, four cut slots,
+256-MiB/4,096-entry admission limits, 24 writers and two 180-second windows.
 
-[Preservation evidence](evidence/tikv-control-batch-preservation.json) verifies
-18 stopped historical node volumes across six cohorts, including 54 read-only
-probes through their original Docker names. Data and metadata move into the
-existing external VM mount; original aliases/options and image/volume inventories
-remain. Fresh measured nodes will still use internal storage. A clean control
-worktree at `0b07410` matches all 118 frozen inputs of the existing control image.
-Both fresh cohorts will retain two-cell archive batches and the original limits.
+| Build | Successful TPS, windows 1 / 2 | Successful-request p99 ms | Errors |
+| --- | --- | --- | --- |
+| Control | 257.83 / 235.57 | 305.10 / 375.90 | 216 / 1,694 |
+| Gathered control writes | 209.75 / 191.35 | 500.36 / 357.97 | 0 / 0 |
+
+Mean successful TPS falls **18.71%**. Neither full cohort qualifies: the control
+has refusals and the candidate exceeds 500 ms in window one. All control errors
+are known `Overloaded` responses and match node one's retained-entry refusal
+counter exactly in each window. Both cohorts verify all 4,500 replica values and
+1,500 RustFS positions without reconciliation and stop cleanly without OOM.
+Peak node memory is 1.71 / 1.38 GB and final archive catch-up is 0.70 / 0.51 s.
+The gathering implementation, its added test adapter and its active-contract
+documentation are reverted. The original sliding control window remains; the
+experiment and regression remain available in commit `3ceba4e` and frozen source.
+
+Control queue means are 50.58 / 180.48 ms versus 97.34 / 55.51 ms for gathering.
+Exchange means are 3.06 / 3.98 ms versus 3.56 / 3.55 ms; neither cohort has
+failed control exchanges. The second-window queue tail shrinks, but this does
+not establish lower client latency or more work completed. Gathering also ends queue residence earlier,
+shifting some waiting into exchange timing. Candidate image preparation averages
+6.12 / 6.90 ms versus control 5.13 / 5.35 ms; SQL queue residence is 8.24 / 8.92 ms
+versus 6.83 / 7.20 ms. Shared persistence is 1.32 / 1.48 ms versus 1.07 / 1.21 ms.
+These durations overlap, and the control's failed stages must not be divided by
+successful-write counts. The result does not isolate the cause of the slowdown.
+
+Other builds overlap 23/37 and 11/36 control samples versus 14/36 and 2/36
+candidate samples. Swap remains roughly 7.7–8.3 GiB. The control-first order,
+shared-host scheduling and lack of reversed confirmation limit attribution.
+Reduced write calls in the local test therefore do not justify retaining the
+extra implementation complexity as a throughput improvement.
+
+[Preservation evidence](evidence/tikv-control-batch-preservation.json) covers
+33 stopped historical node volumes before both cohorts, with verified contents,
+metadata, original Docker volume options and 99 read-only probes. One control
+preflight stopped at the unchanged 5-GiB internal reserve before creating a fleet
+or issuing writes. Further closed evidence was preserved, then both runs used
+fresh internal node storage and the unchanged external RustFS backing. No builds,
+profiling or preservation by this task overlapped either timed cohort. All raw
+outcomes, images and volumes remain. The clean control worktree matches all
+118 frozen inputs of its image; only the sender and test source differ in the
+candidate manifest.
+
+The next priorities remain archive completion granularity while retaining bundled
+uploads, bounded retained-pressure admission that preserves duplicate lookup and
+callback at-most-once behavior, and repeated per-cell image/replay work. Transport
+gathering alone has not resolved the throughput gap. Coordinated idle-group
+hibernation is a separate protocol change requiring wakeup, election and quorum
+qualification; increasing the tick interval would not implement that mechanism.
 
 ## Distinguish publication from local archive coverage
 
