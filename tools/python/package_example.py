@@ -60,4 +60,3 @@ def package(example, binary):
     run(target / "debug/cellar", "build", project, "--output", output)
     run(python, tool, "verify", inventory)
     print(f"Built {output}; install with --python-root {prefix}", flush=True)
-
