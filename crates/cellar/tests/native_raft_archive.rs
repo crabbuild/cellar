@@ -373,7 +373,12 @@ fn restored(set: &ArchiveRecoverySet, expected: i64) -> Result<Vec<u8>> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn archive_replay_seals_one_generation_for_a_bounded_tail_batch() -> Result<()> {
-    let mut fixture = Fixture::new(ArchiveLimits::default()).await?;
+    let mut fixture = Fixture::new(ArchiveLimits {
+        // Exercise replay batching with a retained twenty-entry tail.
+        max_tail_image_ratio: 128,
+        ..Default::default()
+    })
+    .await?;
     let first = fixture.commit(1, vec![]).await?;
     fixture.publish(first).await?;
     for value in 2..=20 {
@@ -622,7 +627,12 @@ async fn committed_archive_restores_snapshot_and_physical_tail() -> Result<()> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn archive_extension_reads_retained_payloads_once() -> Result<()> {
-    let mut fixture = Fixture::new(ArchiveLimits::default()).await?;
+    let mut fixture = Fixture::new(ArchiveLimits {
+        // Keep the history needed to count retained-payload reads.
+        max_tail_image_ratio: 128,
+        ..Default::default()
+    })
+    .await?;
     let first = fixture
         .commit(7, vec![ArchiveDependency(b"retained dependency".to_vec())])
         .await?;
@@ -671,9 +681,20 @@ async fn archive_extension_reads_retained_payloads_once() -> Result<()> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn archive_publication_rechecks_prior_payloads_before_head_success() -> Result<()> {
-    for operation in ["covered", "extend", "extend-with-dependency", "rotate"] {
+    for operation in [
+        "covered",
+        "extend",
+        "extend-with-dependency",
+        "rotate",
+        "rotate-by-size",
+    ] {
         let mut fixture = Fixture::new(ArchiveLimits {
             max_tails: if operation == "rotate" { 1 } else { 32 },
+            max_tail_image_ratio: if operation == "rotate-by-size" {
+                2
+            } else {
+                128
+            },
             ..Default::default()
         })
         .await?;
@@ -889,6 +910,91 @@ async fn archive_cut_pins_retired_image_during_outage() -> Result<()> {
     // The first image was retired and is no longer the current engine marker.
     // Its immutable captured receipt still pins the bytes needed for archiving.
     restored(&fixture.publish(first).await?, 7)?;
+    fixture.close().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn archive_size_rotation_reduces_repeated_payload_reads() -> Result<()> {
+    let mut reads = Vec::new();
+    for ratio in [2, 128] {
+        let mut fixture = Fixture::new(ArchiveLimits {
+            max_tail_image_ratio: ratio,
+            ..Default::default()
+        })
+        .await?;
+        for value in 1..=20 {
+            let cut = fixture.commit(value, vec![]).await?;
+            let set = fixture.publish(cut).await?;
+            ensure!(restored(&set, value)? == fixture.bytes);
+        }
+        let count = fixture.store.archive_payload_reads.load(Ordering::Acquire);
+        eprintln!("archive tail/image ratio={ratio}, payload reads={count}");
+        reads.push(count);
+        fixture.close().await?;
+    }
+    ensure!(
+        reads[0] < reads[1],
+        "size-based rotation did not reduce repeated payload reads: {reads:?}"
+    );
+    Ok(())
+}
+
+#[test]
+fn archive_tail_image_ratio_has_explicit_bounds() {
+    for ratio in [0, 1, 2, 128, 129, u32::MAX] {
+        let result = ArchiveLimits {
+            max_tail_image_ratio: ratio,
+            ..Default::default()
+        }
+        .validate();
+        if (1..=128).contains(&ratio) {
+            assert!(result.is_ok());
+        } else {
+            assert!(matches!(result, Err(ArchiveError::Limit)));
+        }
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn archive_small_updates_rotate_before_tail_count_limit() -> Result<()> {
+    let mut fixture = Fixture::new(ArchiveLimits::default()).await?;
+    let mut rotations = 0;
+    for value in 7..=22 {
+        let cut = fixture.commit(value, vec![]).await?;
+        let set = fixture.publish(cut).await?;
+        ensure!(restored(&set, value)? == fixture.bytes);
+        if value > 7 && set.tail_entries() == 0 {
+            rotations += 1;
+        }
+    }
+    ensure!(
+        rotations > 0,
+        "small images accumulated fifteen tails without a size-based snapshot"
+    );
+    let expected = fixture.bytes.clone();
+    let archive = fixture.archive.clone();
+    fixture.close().await?;
+    let set = archive.recovery_set().await?.context("archive head")?;
+    ensure!(restored(&set, 22)? == expected);
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn archive_large_image_keeps_short_efficient_tails() -> Result<()> {
+    let mut fixture = Fixture::new(ArchiveLimits::default()).await?;
+    let next = images::image(
+        None,
+        "CREATE TABLE counter(value INTEGER);INSERT INTO counter VALUES(7);\
+         CREATE TABLE padding(bytes BLOB);INSERT INTO padding VALUES(zeroblob(65536))",
+    )?;
+    let cut = fixture.commit_bytes(next, vec![], |_| {}).await?;
+    fixture.publish(cut).await?;
+    for value in 8..=18 {
+        let cut = fixture.commit(value, vec![]).await?;
+        let set = fixture.publish(cut).await?;
+        ensure!(set.tail_entries() == (value - 7) as usize);
+        ensure!(restored(&set, value)? == fixture.bytes);
+    }
     fixture.close().await
 }
 

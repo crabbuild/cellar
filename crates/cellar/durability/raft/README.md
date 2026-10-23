@@ -640,8 +640,18 @@ remain separate operations.
 
 `RaftHostOptions::archive` configures `RaftArchiveOptions` and `ArchiveLimits`.
 Defaults allow two producers, 4 MiB of captured log bytes per producer, 128 MiB
-objects, a 256-MiB recovery set, 32 tails, 1,024 tail entries and 128 dependencies. New
-callbacks reserve against 256 MiB of unarchived log/image admission and 4,096
+objects, a 256-MiB recovery set, 32 tails, 1,024 tail entries and 128 dependencies.
+`ArchiveLimits::max_tail_image_ratio` also bounds the projected encoded tail
+bytes relative to the current image's uncompressed length (default 2; accepted
+range 1–128). Crossing that ratio selects a new snapshot before the hard
+tail-count or recovery-set limit is reached. It bounds repeated history reads
+and replay for small images while allowing short tails for large images.
+Higher ratios trade fewer snapshot writes for more retained-history work.
+Size-triggered rotation physically verifies the complete eligible extension,
+including intermediate updates, before replacing its tails with a snapshot.
+It then validates the new recovery proof before advancing the head. Changing
+this producer policy does not invalidate an existing archive.
+New callbacks reserve against 256 MiB of unarchived log/image admission and 4,096
 data-bearing entries. Protocol entries consume bytes too. Existing duplicate
 lookup remains available under backpressure. Incoming replication also has the
 transport/log/per-image hard bounds; this cap is not total process or disk usage.

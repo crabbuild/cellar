@@ -3,7 +3,12 @@ use super::*;
 use std::time::Duration;
 
 async fn history() -> Result<(Fixture, ArchiveReference)> {
-    let mut fixture = Fixture::new(ArchiveLimits::default()).await?;
+    let mut fixture = Fixture::new(ArchiveLimits {
+        // Retain six tails so the bounded download/cancellation window is full.
+        max_tail_image_ratio: 128,
+        ..Default::default()
+    })
+    .await?;
     let first = fixture
         .commit(
             1,

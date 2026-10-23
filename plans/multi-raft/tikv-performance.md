@@ -205,6 +205,64 @@ documentation checks, plus the frozen Linux image build and all four real-cluste
 runs. These checks do not replace longer soak, power-loss, failover or broader
 application/payload qualification.
 
+### Tuned sustained diagnostic and size-based archive rotation
+
+The [nine-minute diagnostic](evidence/tikv-tuned-pressure-diagnosis.json) freezes
+`206d126` with four SQL owners, 64 total work reservations and four archive
+publishers. Three 180-second windows verify every replica value and archive
+position with zero write errors, then stop cleanly while retaining volumes.
+The instrumented image selects an experiment; it does not qualify throughput.
+
+| Window | Diagnostic TPS | p99 | SQL staging mean | Archive publication mean | Material loading mean | Mean tail objects |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | 253.95 | 130.67 ms | 16.48 ms | 24.78 ms | 6.09 ms | 8.12 |
+| 2 | 219.18 | 151.95 ms | 17.70 ms | 50.25 ms | 15.11 ms | 17.79 |
+| 3 | 200.96 | 151.15 ms | 20.36 ms | 41.94 ms | 8.60 ms | 9.74 |
+
+Retained entries peak at 3,736, below the 4,096-entry admission limit; no
+instrumented refusal fires. The diagnostic therefore does not explain earlier
+overload bursts. Archive material averages about 29/92/72 kB versus current
+images of 25/32/36 kB, respectively (decimal units). Existing count-based
+rotation occurs 1,501 times in the second window and 3,365 times in the third.
+Material loading and replay fall as tails reset, while SQL staging and head
+publication remain more expensive. Stage means are nested, not additive.
+
+Unrelated builds appear in 1/36, 21/35 and 19/35 host samples. Swap stays near
+9.56 GiB. This variation and the continuing staging slowdown prevent attributing
+the full TPS decline to archive history. Nevertheless, each extra tail adds an
+object read to complete verification, providing a direct operation-count target.
+
+TiKV's pinned
+[`on_raft_gc_log_tick`](https://github.com/tikv/tikv/blob/b3995dab28308f09cbb7c125bf32f789dbc203fe/components/raftstore/src/store/fsm/peer.rs)
+uses count and size thresholds for leader-coordinated history compaction and
+caps it at persisted progress. Cellar's candidate applies a related size-based
+retention policy to archive tails: a projected encoded tail set larger than
+twice the current uncompressed image selects a new snapshot. Absolute tail,
+entry and set bounds remain. Prior payload validation, physical replay, exact
+head CAS, membership checks and local history-release proofs remain unchanged.
+Before a size-triggered rotation, the complete eligible extension is physically
+verified so an intermediate update overwritten later in the same capture cannot
+escape its digest check. That private replay input never becomes an archive
+reference or advances the selected head.
+
+The new small-image regression fails before the change because fifteen tails
+accumulate without size-based rotation. A complementary case retains short,
+efficient tails for a large image. A twenty-update differential case uses 68
+payload reads at ratio two versus 230 at ratio 128, with exact physical recovery
+after every publication. This 70.4% operation-count reduction is not a TPS claim.
+
+The [validation record](evidence/tikv-tail-cost-validation.json) preserves the
+failing regression and the first candidate's intermediate-digest failure. The
+corrected candidate passes all 48 archive, 18 execution, 29 host and 43 snapshot
+cases (138 total); four child-process fixtures run through parent scenarios.
+Tests that specifically require long tails select a high ratio while retaining
+their existing download/replay assertions. Default-policy intermediate-digest
+refusal stays active, and prior-payload corruption cases now include size-based
+rotation. Strict all-target/all-feature Clippy, formatting/layout, dependency,
+documentation and nine performance-harness checks pass. An uninstrumented
+control/candidate comparison remains required before claiming a throughput
+improvement or finalizing this policy.
+
 ## Scope and reproducible baseline
 
 Compare three native Cellar nodes, each limited to one vCPU and 3 GiB, with

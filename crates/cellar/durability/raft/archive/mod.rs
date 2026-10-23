@@ -58,6 +58,11 @@ pub struct ArchiveLimits {
     pub max_set_bytes: usize,
     pub max_entries: usize,
     pub max_tails: usize,
+    /// Maximum encoded tail bytes as a multiple of the current image length.
+    /// Rotate earlier for small images so repeated recovery-set reads and
+    /// replay do not grow to the absolute set limit. Larger values trade fewer
+    /// snapshot writes for more retained-history work; other limits still apply.
+    pub max_tail_image_ratio: u32,
     pub max_dependencies: usize,
 }
 
@@ -72,6 +77,7 @@ impl Default for ArchiveLimits {
             max_set_bytes: 256 * 1024 * 1024,
             max_entries: 1024,
             max_tails: 32,
+            max_tail_image_ratio: 2,
             max_dependencies: 128,
         }
     }
@@ -91,6 +97,7 @@ impl ArchiveLimits {
             || self.max_set_bytes > 256 * 1024 * 1024
             || !(1..=4096).contains(&self.max_entries)
             || !(1..=128).contains(&self.max_tails)
+            || !(1..=128).contains(&self.max_tail_image_ratio)
             || self.max_dependencies > 1024
         {
             return Err(ArchiveError::Limit);
@@ -584,20 +591,33 @@ impl CellArchive {
                     .tails
                     .iter()
                     .try_fold(entries.len(), |count, tail| count.checked_add(tail.entries))?;
-                // Rotate the base before a growing tail makes the complete
-                // recovery set exceed its byte budget. Dependencies retained
-                // by the old base may be released only by this new snapshot.
-                let mut bytes = metadata.manifest.snapshot.object.length;
+                // Bound repeated tail reads/replay relative to the current
+                // complete image as well as the absolute recovery-set budget.
+                // The 44-byte framing and each length prefix match encode_tail.
+                let mut tail_bytes = 44u64;
                 for tail in &metadata.manifest.tails {
-                    bytes = bytes.checked_add(tail.object.length)?;
+                    tail_bytes = tail_bytes.checked_add(tail.object.length)?;
                 }
+                for entry in &entries {
+                    tail_bytes = tail_bytes.checked_add(u64::from(entry.compute_size()) + 4)?;
+                }
+                let image_budget = cut
+                    .image
+                    .pin()
+                    .state()
+                    .length
+                    .checked_mul(u64::from(self.limits.max_tail_image_ratio))?;
+                // Dependencies retained by the old base may be released only
+                // by a new snapshot, whose prior material is checked below.
+                let mut bytes = metadata
+                    .manifest
+                    .snapshot
+                    .object
+                    .length
+                    .checked_add(tail_bytes)?;
                 for dependency in &metadata.manifest.dependencies {
                     bytes = bytes.checked_add(dependency.length)?;
                 }
-                for entry in &entries {
-                    bytes = bytes.checked_add(u64::from(entry.compute_size()) + 4)?;
-                }
-                bytes = bytes.checked_add(44)?;
                 for dependency in &cut.dependencies {
                     bytes = bytes.checked_add(dependency.0.len() as u64)?;
                 }
@@ -613,7 +633,7 @@ impl CellArchive {
                     && metadata.manifest.tails.len() < self.limits.max_tails
                     && bytes <= self.limits.max_set_bytes as u64
                     && count <= self.limits.max_entries)
-                    .then_some(entries)
+                    .then_some((entries, tail_bytes > image_budget))
             });
             let mode = previous
                 .as_ref()
@@ -621,7 +641,17 @@ impl CellArchive {
                     PutMode::Update(version.clone())
                 });
             let mut manifest = match (tail, previous) {
-                (Some(entries), Some((metadata, _, _))) => {
+                (Some((entries, true)), Some((metadata, _, _))) => {
+                    // A cost-based checkpoint replaces an otherwise valid
+                    // extension. Verify every intermediate transition before
+                    // discarding those tails, including an update overwritten
+                    // by a later entry in this capture.
+                    let previous = self.load_material(metadata).await?;
+                    self.verify_extension(previous, entries, &cut, verifier)
+                        .await?;
+                    self.snapshot_manifest(&cut).await?
+                }
+                (Some((entries, false)), Some((metadata, _, _))) => {
                     let first = entries
                         .first()
                         .ok_or(ArchiveError::Corrupt("empty archive tail"))?;
@@ -664,41 +694,7 @@ impl CellArchive {
                     if let Some((metadata, _, _)) = previous {
                         self.load_material(metadata).await?;
                     }
-                    let input = cut.clone();
-                    let limits = self.limits;
-                    let body = self
-                        .host
-                        .run_blocking(move || input.snapshot(limits))
-                        .await
-                        .map_err(ArchiveError::Worker)??;
-                    let position = cut.position.into();
-                    let object = self
-                        .put_object(
-                            ObjectKind::Snapshot,
-                            &body,
-                            Some(PositionRange {
-                                first: position,
-                                last: position,
-                            }),
-                        )
-                        .await?;
-                    Manifest {
-                        scope: (&self.scope).into(),
-                        root_digest: self.root,
-                        birth_digest: self.birth,
-                        schema_digest: self.schema,
-                        snapshot: Snapshot {
-                            position: cut.position.into(),
-                            image: cut.image.pin().state().into(),
-                            conf_state: cut.conf_state.clone(),
-                            membership: cut.membership.clone(),
-                            object,
-                        },
-                        tails: Vec::new(),
-                        position: cut.position.into(),
-                        image: cut.image.pin().state().into(),
-                        dependencies: Vec::new(),
-                    }
+                    self.snapshot_manifest(&cut).await?
                 }
             };
             let mut dependencies: BTreeMap<_, _> = manifest
@@ -778,6 +774,71 @@ impl CellArchive {
             }
         }
         Err(ArchiveError::Unconfirmed)
+    }
+
+    async fn snapshot_manifest(&self, cut: &CommittedArchiveCut) -> Result<Manifest, ArchiveError> {
+        let input = cut.clone();
+        let limits = self.limits;
+        let body = self
+            .host
+            .run_blocking(move || input.snapshot(limits))
+            .await
+            .map_err(ArchiveError::Worker)??;
+        let position = cut.position.into();
+        let object = self
+            .put_object(
+                ObjectKind::Snapshot,
+                &body,
+                Some(PositionRange {
+                    first: position,
+                    last: position,
+                }),
+            )
+            .await?;
+        Ok(Manifest {
+            scope: (&self.scope).into(),
+            root_digest: self.root,
+            birth_digest: self.birth,
+            schema_digest: self.schema,
+            snapshot: Snapshot {
+                position: cut.position.into(),
+                image: cut.image.pin().state().into(),
+                conf_state: cut.conf_state.clone(),
+                membership: cut.membership.clone(),
+                object,
+            },
+            tails: Vec::new(),
+            position: cut.position.into(),
+            image: cut.image.pin().state().into(),
+            dependencies: Vec::new(),
+        })
+    }
+
+    async fn verify_extension(
+        &self,
+        mut previous: ArchiveRecoverySet,
+        entries: Vec<Entry>,
+        cut: &CommittedArchiveCut,
+        verifier: &ArchiveVerifier,
+    ) -> Result<(), ArchiveError> {
+        let position = cut.position;
+        let image = Image::from(cut.image.pin().state());
+        let verifier = verifier.clone();
+        self.host
+            .run_blocking(move || {
+                // This private replay input is consumed here. Its old object
+                // reference is never returned as a proof for the new position.
+                // The planner already bounded total encoded bytes/entries and
+                // required contiguous normal entries and identical membership.
+                previous.entries.extend(entries);
+                previous.position = position;
+                previous.manifest.position = position.into();
+                previous.manifest.image = image;
+                previous.validate_payloads()?;
+                verifier.verify(&previous)
+            })
+            .await
+            .map_err(ArchiveError::Worker)?
     }
 
     async fn verify_set(
