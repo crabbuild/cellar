@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Exercise the packaged Python application through the real Cellar dev host."""
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 import http.client
 import http.server
 import socket
@@ -60,8 +61,31 @@ def receipt_request(origin, amount, key, status=200, *, wire=False, path="/count
         response = error
     with response:
         body = response.read()
-        assert response.status == status, (response.status, body)
+        expected = status if isinstance(status, tuple) else (status,)
+        assert response.status in expected, (response.status, body)
         return (response.status, body, receipt_headers(response)) if wire else json.loads(body)
+
+
+def concurrent_receipt(origin):
+    # Both ingress paths must contend on one durable identity. Conflicts are
+    # allowed; every acknowledged/replayed response must describe one effect.
+    ready = threading.Barrier(8, timeout=10)
+
+    def increment(index):
+        ready.wait()
+        path = "/native-counters/racing" if index % 2 else "/counters/racing"
+        return receipt_request(origin, 13, "concurrent", status=(200, 409), wire=True, path=path)
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        responses = list(pool.map(increment, range(8)))
+    acknowledged = [response for response in responses if response[0] == 200]
+    assert acknowledged, responses
+    sealed = acknowledged[0]
+    assert all(response == sealed for response in acknowledged), responses
+    assert json.loads(sealed[1]) == {"count": 13, "alarms": 0}, sealed
+    assert request(origin, "/counters/racing") == {"count": 13, "alarms": 0}
+    assert receipt_request(origin, 13, "concurrent", wire=True, path="/native-counters/racing") == sealed
+    return sealed
 
 
 def lose_committed_response(origin, path="/counters/receipt"):
@@ -139,6 +163,7 @@ def main():
             native_receipt = lose_committed_response(origin, "/native-counters/receipt-native")
             assert receipt_request(origin, 9, "lost-response", wire=True, path="/native-counters/receipt-native") == native_receipt
             assert receipt_request(origin, 9, "lost-response", wire=True, path="/counters/receipt-native") == native_receipt
+            racing_receipt = concurrent_receipt(origin)
             assert call("/counters/b")["count"] == 0
             call("/counters/a/alarm", method="POST")
             eventually(lambda: call("/counters/a"), lambda value: value["alarms"] == 1)
@@ -166,6 +191,8 @@ def main():
             assert request(origin, "/counters/a") == {"count": 7, "alarms": 1}
             assert request(origin, "/native-counters/a") == {"count": 7, "alarms": 1}
             assert request(origin, "/native-counters/direct") == {"count": 3, "alarms": 1}
+            assert request(origin, "/counters/racing") == {"count": 13, "alarms": 0}
+            assert receipt_request(origin, 13, "concurrent", wire=True, path="/counters/racing") == racing_receipt
             assert receipt_request(origin, 9, "lost-response", wire=True, path="/native-counters/receipt-native") == native_receipt
             assert receipt_request(origin, 9, "lost-response", wire=True, path="/counters/receipt-native") == native_receipt
             receipt_request(origin, 8, "lost-response", status=409, path="/native-counters/receipt-native")

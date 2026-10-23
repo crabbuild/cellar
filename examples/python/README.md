@@ -56,6 +56,13 @@ curl http://127.0.0.1:9876/jobs
 curl http://127.0.0.1:9876/cron
 ```
 
+Counter reads fetch `count` and `alarms` together with `read_json_many`, avoiding
+one Python/native round trip. Increment requests keep receipt lookup first so
+retries return the saved response, then batch the counter fields and use checked
+`apply` for the write. A batched read does not reserve its keys; checked writes
+still detect changes by other writers. Its combined reply must fit the SDK value
+limit, so split reads when loading unrelated large values.
+
 The named counter survives preserving restarts. Scheduling an alarm commits a
 checked occurrence sequence, current intent and native alarm together. Its handler
 increments `alarms` once per persisted occurrence receipt. Native retries can
