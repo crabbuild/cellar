@@ -10,20 +10,39 @@ pub const MIN_RESULT_BYTES: usize = 128;
 /// Result validation happens after native execution. A rejected result cannot
 /// establish rollback, even when its size/depth is the reason for refusal.
 pub fn result(name: &str, result: anyhow::Result<Value>, limit: usize) -> anyhow::Result<String> {
-    let result = result.and_then(|value| {
+    result_parts(name, result.map(|value| (value, None)), limit).map(|(encoded, _)| encoded)
+}
+
+/// Preserve result limits and uncertain mutation outcomes for binary transports.
+/// The byte body is charged as base64 without constructing the encoded copy.
+pub fn result_parts(
+    name: &str,
+    result: anyhow::Result<(Value, Option<Vec<u8>>)>,
+    limit: usize,
+) -> anyhow::Result<(String, Option<Vec<u8>>)> {
+    let result = result.and_then(|(value, body)| {
         crate::values::check_depth(&value)?;
-        Ok(value)
+        Ok((value, body))
     });
-    let value = match result {
-        Ok(value) => json!({"ok":true,"value":value}),
-        Err(error) => envelope(name, &error),
+    let (value, body) = match result {
+        Ok((value, body)) => (json!({"ok":true,"value":value}), body),
+        Err(error) => (envelope(name, &error), None),
     };
-    match encode(&value, limit) {
-        Ok(encoded) => Ok(encoded),
+    let encoded = encode(&value, limit).and_then(|encoded| {
+        anyhow::ensure!(
+            crate::values::envelope_size(encoded.len(), body.as_ref().map_or(0, Vec::len))?
+                <= limit,
+            "SDK result exceeds value limit"
+        );
+        Ok(encoded)
+    });
+    match encoded {
+        Ok(encoded) => Ok((encoded, body)),
         Err(_) => encode(
             &envelope(name, &anyhow::anyhow!("SDK result unavailable")),
             limit,
-        ),
+        )
+        .map(|encoded| (encoded, None)),
     }
 }
 
@@ -80,7 +99,16 @@ pub fn envelope(name: &str, error: &Error) -> Value {
             RequestError::DurabilityUnproven => ("Ambiguous", "unknown"),
             _ => submitted(name),
         }
-    } else if cellar::sdk::ApplicationOverloaded::matches(error) {
+    } else if cellar::sdk::ApplicationOverloaded::matches(error)
+        || error.chain().any(|cause| {
+            cause
+                .downcast_ref::<cellar::engine_api::CellOverloaded>()
+                .is_some()
+                || cause
+                    .to_string()
+                    .contains(cellar::engine_api::CELL_OVERLOAD_ERROR_MARKER)
+        })
+    {
         // A parent may have committed before its nested invocation was refused.
         ("Overloaded", "unknown")
     } else {
@@ -101,6 +129,57 @@ fn submitted(name: &str) -> (&'static str, &'static str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn binary_results_preserve_exact_encoded_limits_and_uncertainty() {
+        use base64::{engine::general_purpose::STANDARD, Engine as _};
+        for size in [0, 1, 2, 3, 4095, 4096, 4097] {
+            let bytes: Vec<u8> = (0..size).map(|value| value as u8).collect();
+            let metadata = json!({"status":200,"headers":[["x","é\"".repeat(40)]],"body":""});
+            let mut wire = metadata.clone();
+            wire["body"] = json!(STANDARD.encode(&bytes));
+            let legacy = result("cell.fetch", Ok(wire), usize::MAX).unwrap();
+            let (encoded, body) = result_parts(
+                "cell.fetch",
+                Ok((metadata.clone(), Some(bytes.clone()))),
+                legacy.len(),
+            )
+            .unwrap();
+            assert_eq!(body.as_deref(), Some(bytes.as_slice()));
+            assert_eq!(
+                serde_json::from_str::<Value>(&encoded).unwrap(),
+                json!({"ok":true,"value":metadata})
+            );
+            assert_eq!(
+                crate::values::envelope_size(encoded.len(), bytes.len()).unwrap(),
+                legacy.len()
+            );
+
+            let (encoded, body) =
+                result_parts("cell.fetch", Ok((metadata, Some(bytes))), legacy.len() - 1).unwrap();
+            assert!(body.is_none(), "refused result retained its binary payload");
+            let value: Value = serde_json::from_str(&encoded).unwrap();
+            assert_eq!(
+                value,
+                json!({"ok":false,"error":"Ambiguous","code":"Ambiguous","outcome":"unknown"})
+            );
+            assert!(encoded.len() <= MIN_RESULT_BYTES);
+        }
+    }
+
+    #[test]
+    fn invalid_binary_metadata_drops_body_without_claiming_rollback() {
+        let mut value = Value::Null;
+        for _ in 0..65 {
+            value = json!([value]);
+        }
+        let (encoded, body) =
+            result_parts("cell.fetch", Ok((value, Some(vec![42; 4096]))), 65536).unwrap();
+        assert!(body.is_none());
+        let value: Value = serde_json::from_str(&encoded).unwrap();
+        assert_eq!(value["code"], "Ambiguous");
+        assert_eq!(value["outcome"], "unknown");
+    }
 
     #[test]
     fn result_limits_preserve_uncertainty_and_exact_utf8_boundaries() {
@@ -188,5 +267,27 @@ mod tests {
         );
         let gated = refused.context(RoutedRequestError(RequestError::DurabilityUnproven));
         assert_eq!(envelope("cell.fetch", &gated)["code"], "Ambiguous");
+    }
+
+    #[test]
+    fn cell_capacity_refusal_stays_typed_across_guest_and_peer_boundaries() {
+        for refused in [
+            Error::new(cellar::engine_api::CellOverloaded).context("private caller"),
+            anyhow::anyhow!(
+                "peer handler failed: {}",
+                cellar::engine_api::CellOverloaded
+            ),
+        ] {
+            assert_eq!(
+                envelope("cell.fetch", &refused),
+                json!({"ok":false,"error":"Overloaded","code":"Overloaded","outcome":"unknown"})
+            );
+            let gated = refused.context(RoutedRequestError(RequestError::DurabilityUnproven));
+            assert_eq!(envelope("cell.fetch", &gated)["code"], "Ambiguous");
+        }
+        assert_eq!(
+            envelope("cell.fetch", &anyhow::anyhow!("cell overload"))["code"],
+            "Ambiguous"
+        );
     }
 }

@@ -114,6 +114,56 @@ client process, so it warms server code but not the measured connection pool.
 It does not replace durable-write, recovery, activation-churn or multi-node
 qualification.
 
+For cell reads, add `--read-cells 32 --body-bytes 0` and choose a new output
+directory. The driver first populates 1–64 local-only cells, then sends GETs
+through the Python/native root handler, cell dispatch and JSON storage read.
+Every response must match the fresh counter value, and telemetry must confirm
+the full resident population before and after each measurement. Python must
+retire every created object at shutdown. The same scheduling, failure accounting
+and rotated comparisons apply. This measures read dispatch and bridge overhead;
+it does not test durable mutations or fleet recovery.
+
+For nested HTTP bodies, add `--cell-echo --body-bytes 65536` and choose a new
+output directory. The root handler forwards each POST to one resident cell,
+which echoes the exact request bytes without storage access. The driver checks
+that cell's residency, two Python handler completions per successful request,
+and joined object retirement. Empty through 65,536-byte bodies are supported;
+`--cell-echo` cannot be combined with `--read-cells`. This isolates nested body
+transport from database work while retaining real native cell dispatch.
+
+On Linux, pass `--host-cpus 0,1 --client-cpus 2,3` to place the host and client
+on disjoint logical CPU sets. Choose IDs from `os.sched_getaffinity(0)` on the
+measurement machine; both lists are required, and unavailable or overlapping
+IDs refuse the run. Placement happens before either executable starts its
+threads. The report records the requested sets; `host-affinity.json` and each
+`*.affinity.json` retain the child PID and kernel-observed mask before exec.
+Host readiness also checks its live mask. Executable hashes still identify the
+actual Rust binaries. Without these options placement is unchanged on all OSes.
+Affinity is not exclusive CPU allocation, a CPU-time quota, memory isolation or
+protection from shared-runner noise. It reduces direct client/server competition
+but does not establish production capacity. Compare both implementations with
+the same masks, body sizes, rates, build profile and repetition count.
+
+The SDK workflow's `python-load` mode applies disjoint CPU sets on Linux.
+Set `load_read_cells` to 1–64 to select the resident-cell read workload; its
+default of zero retains echo. Set `load_cell_echo=true` with zero read cells to
+forward echoes through one resident cell. `load_body_bytes` selects the echo
+body size (0–65,536, default 4,096); cell reads always use zero request bytes.
+Live host thread masks are checked before and after each measured phase for all
+workloads.
+Set its optional `load_baseline_sha` to a full commit SHA to build another Python
+host on that same runner and include it in the rotated offered-load comparison.
+Both revisions use the selected matrix interpreter and toolchain. The job
+refuses differing measurement fixtures or Cargo build profiles, freezes each
+binary before another build can replace it, and retains source revisions and
+binary hashes in `builds.json`. Reference builds use a separate target directory;
+shared Cargo artifacts can otherwise reuse an executable with stale embedded
+Python source. Before measuring, the job verifies that each frozen Python
+executable contains its checkout's exact facade and runner bytes and that the
+native executable contains neither. Source hashes and byte offsets are retained
+in the build record. This compares revisions under one resource
+placement; shared-runner noise and all client drops still qualify the results.
+
 Every planned arrival has an outcome in `measured-RATE.json`: success, client
 capacity, client lateness, timeout, transport error, HTTP status or body mismatch.
 The client never waits for an admission slot, never sends after the measurement

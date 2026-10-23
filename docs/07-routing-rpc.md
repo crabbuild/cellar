@@ -25,6 +25,12 @@ their records independently. Route-cache size does not bound residents or
 whole-process memory. Applications select this policy explicitly; the CLI
 defaults to 2,048.
 
+A placement route carries the exact peer load-sample timestamp used to select
+its epoch-zero candidate. The dispatcher returns that timestamp with a capacity
+refusal even if the idle route has already been evicted. The core then excludes
+the rejected sample without retaining per-cell history. A delayed refusal cannot
+invalidate a newer sample's route or reservations, or act as an ownership epoch.
+
 ## Choose the call shape
 
 | Surface | Appropriate use | Contract to define |

@@ -56,6 +56,23 @@ curl http://127.0.0.1:9876/jobs
 curl http://127.0.0.1:9876/cron
 ```
 
+The compiled host declares `count` and `alarms` with `cell_initial_reads` for
+counter HTTP events. Cellar captures them before Python dispatch and exposes
+them as `ctx.initial_storage`, avoiding a storage SDK request and reply. The
+[package descriptor](descriptor.json) carries the same declaration; verified
+startup rejects a mismatch.
+
+Increment handlers check receipts before constructing a new response, so retries
+return the saved response. New increments use the captured count in checked
+`apply`; an intervening writer causes a conflict. Snapshots do not reserve keys
+or refresh after an await. Alarm-scheduling responses use `read_json_many` for
+fresh state after scheduling, and alarm handlers retain their live reads.
+
+Capture runs before handler validation or receipt lookup. Choose small, bounded
+fields that every read needs: captured state, invocation metadata and the body
+share the SDK value limit. Other applications can keep normal reads when they
+need conditional access or fresh state after awaiting other work.
+
 The named counter survives preserving restarts. Scheduling an alarm commits a
 checked occurrence sequence, current intent and native alarm together. Its handler
 increments `alarms` once per persisted occurrence receipt. Native retries can
@@ -65,6 +82,33 @@ development state or explicit application reconciliation when updating them.
 `/jobs` shows queue effects in KV; `/cron` shows the latest real minute occurrence.
 Queue and cron deliveries can repeat; production business effects need
 idempotency keys. Counter increment POST requests accept an `idempotency-key` header (1..128 ASCII letters, digits, `-`, `_`, `.`). The rendered response status, body bytes and ordered application headers commit atomically with the receipt and increment; matching retries return those retained fields, including after restart or later writes. Transport-generated metadata such as Date is outside this application receipt. Reusing a key for a different amount returns 409. Retain receipt keys for the application's complete retry/reconciliation window. Each successful alarm scheduling POST creates a new occurrence and replaces the pending native alarm.
+
+## Route directly to Python cells
+
+The same running example also serves `/native-counters/NAME` and
+`/native-counters/NAME/alarm`. These explicit routes use the Rust
+[counter gateway](gateway.rs) to call `context.namespace("COUNTERS")`; Cellar
+then invokes the same Python `Counter` class. Names contain 1–128 ASCII letters,
+digits, `-` or `_`. Other paths go to the Python module's `fetch` handler.
+
+```sh
+curl -X POST http://127.0.0.1:9876/native-counters/demo \
+  -H 'content-type: application/json' -H 'idempotency-key: native-increment-1' -d '{"amount":3}'
+curl http://127.0.0.1:9876/counters/demo
+```
+
+Both routes address the same cell identity, checked storage and persisted
+receipts. Pydantic validation and alarm handling stay in Python. The gateway
+retains deployment validation and uses the original native SDK context for
+ownership, cancellation and the response durability proof.
+
+Choose the native route when the public handler only selects a cell. It avoids
+one Python invocation and one SDK operation per request. It does **not** run the
+module's Python HTTP handler: place required authentication and middleware in
+the native gateway or in the Python cell, or use `/counters/NAME` to retain that
+handler. FastAPI applications can continue to use their normal Python ingress.
+The [load tools](../../tools/python/baseline.md) describe how to measure the
+workload; routing gains depend on its work and do not establish native parity.
 
 ## Validate and package
 
@@ -80,6 +124,8 @@ cargo run -p cellar --bin cellar --locked -- \
 
 The smoke test uses fresh private state, exercises Pydantic validation, native NumPy matrix work, pure Python inspection, bindings,
 queue delivery, alarms and cron, restarts the host and verifies retained state.
+It checks both HTTP routes, shared cell identity, validation errors and persisted
+receipt reconciliation after a committed response is lost through either route.
 The Rust bridge test also checks atomic conflict rollback, missing versus null,
 binary HTTP, native-library imports, handler failures, body limits, cancellation,
 context expiration and clean shutdown.

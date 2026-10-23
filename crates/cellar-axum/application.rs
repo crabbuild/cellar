@@ -65,6 +65,11 @@ impl Application for AxumApplication {
         crate::builder::validate_bindings(&self.bindings, options)
     }
 
+    fn validate_deployment(&self, deployment: &cellar::fleet::LoadedDeployment) -> Result<()> {
+        self.delegate.validate_deployment(deployment)?;
+        crate::builder::validate_bindings(&self.bindings, &deployment.options)
+    }
+
     fn invoke(self: Arc<Self>, context: Context, invocation: Invocation) -> HandlerFuture<Output> {
         let router = match &invocation {
             Invocation::Fetch(request) => {

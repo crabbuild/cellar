@@ -903,6 +903,9 @@ pub enum Event {
         cell: CellId,
         node: NodeId,
         epoch: Epoch,
+        /// Exact dispatched placement sample for an epoch-zero candidate.
+        /// This travels with the request independently of the route cache.
+        capacity_sample_ms: Option<u64>,
     },
     NodeFenced,
     /// The node is shutting down: release every resident cell and wait for a
@@ -927,6 +930,9 @@ pub enum Route {
         addr: String,
         epoch: Epoch,
         peer_protocol: u16,
+        /// An epoch-zero capacity hint carries its observation identity, not
+        /// ownership authority. Ordinary owner routes carry `None`.
+        capacity_sample_ms: Option<u64>,
     },
 }
 

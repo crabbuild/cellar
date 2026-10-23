@@ -52,6 +52,7 @@ async-trait.workspace = true
 bytes.workspace = true
 object_store.workspace = true
 reqwest = { workspace = true, features = ["json"] }
+rusqlite.workspace = true
 tempfile.workspace = true
 tikv-jemallocator.workspace = true
 tracing-subscriber.workspace = true
@@ -59,6 +60,11 @@ tracing-subscriber.workspace = true
 [[example]]
 name = "python-baseline"
 path = "../../tools/python/baseline.rs"
+
+[[example]]
+name = "python-fleet"
+path = "../../tools/python/fleet.rs"
+required-features = ["embed"]
 
 [[example]]
 name = "python-offered-load"

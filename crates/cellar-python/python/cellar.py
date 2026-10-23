@@ -6,6 +6,7 @@ import json as _json
 from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Any, Iterable, Mapping, TypeAlias, TypedDict
+from types import MappingProxyType
 from urllib.parse import urlsplit
 
 
@@ -153,6 +154,7 @@ class Snapshot:
 
 
 MISSING = Snapshot(False)
+_EMPTY_INITIAL_STORAGE = MappingProxyType({})
 
 
 class Request:
@@ -175,6 +177,12 @@ class Request:
     def _wire(self):
         return dict(url=self.url, method=self.method, headers=self.headers,
                     body=base64.b64encode(self.body).decode())
+
+    def _parts(self):
+        body = self.body
+        if not isinstance(body, bytes):
+            body = memoryview(body).tobytes()
+        return dict(url=self.url, method=self.method, headers=self.headers, body=""), body
 
     @classmethod
     def _from_wire(cls, value, body):
@@ -202,8 +210,8 @@ class Response:
         return dict(status=self.status, headers=self.headers, body=""), body
 
     @classmethod
-    def _from_wire(cls, value):
-        return cls(base64.b64decode(value["body"]), value["status"], value["headers"])
+    def _from_parts(cls, value, body):
+        return cls(body, value["status"], value["headers"])
 
 
 class Storage:
@@ -213,6 +221,13 @@ class Storage:
     async def read_json(self, key: str) -> Snapshot:
         value = await self._context._call("storage.read", key=key)
         return Snapshot(value["present"], value["value"])
+
+    async def read_json_many(self, keys: Iterable[str]) -> dict[str, Snapshot]:
+        """Read bounded snapshots in one host call; duplicate keys share one entry."""
+        if isinstance(keys, (str, bytes)):
+            raise ValidationError("keys must be an iterable of strings")
+        value = await self._context._call("storage.read_many", keys=list(keys))
+        return {key: Snapshot(row["present"], row["value"]) for key, row in value.items()}
 
     async def get_json(self, key: str, default: JSON = None) -> JSON:
         snapshot = await self.read_json(key)
@@ -253,8 +268,10 @@ class _Cell:
         self._context, self._binding, self._name = context, binding, name
 
     async def fetch(self, request: Request) -> Response:
-        return Response._from_wire(await self._context._call(
-            "cell.fetch", binding=self._binding, name=self._name, request=request._wire()))
+        metadata, body = request._parts()
+        value, body = await self._context._call(
+            "cell.fetch", _body=body, binding=self._binding, name=self._name, request=metadata)
+        return Response._from_parts(value, body)
 
 
 class _Namespace:
@@ -335,15 +352,23 @@ class Scheduled:
 
 
 class Context:
-    def __init__(self, bridge: Any, identity: dict[str, Any] | None) -> None:
+    def __init__(self, bridge: Any, identity: dict[str, Any] | None, initial_storage=None) -> None:
         self._bridge = bridge
         self._loop = asyncio.get_running_loop()
         self._pending = {}
         self._sequence = 0
         self.identity: CellIdentity | None = CellIdentity(identity["name"], identity["class"], identity["scope"], identity["epoch"]) if identity else None
-        self.storage = Storage(self)
+        self.initial_storage: Mapping[str, Snapshot] = (MappingProxyType({
+            key: Snapshot(row["present"], row["value"]) for key, row in initial_storage.items()
+        }) if initial_storage else _EMPTY_INITIAL_STORAGE)
 
-    async def _call(self, operation: str, **payload: Any) -> Any:
+    @property
+    def storage(self) -> Storage:
+        # A handle retains its invocation, but the invocation must not retain
+        # the handle: that cycle otherwise delays every request's reclamation.
+        return Storage(self)
+
+    async def _call(self, operation: str, *, _body: bytes | None = None, **payload: Any) -> Any:
         if asyncio.get_running_loop() is not self._loop:
             raise SDKError("Cellar SDK calls must use the invocation's asyncio loop", "NotSubmitted")
         if not self._bridge.active():
@@ -357,7 +382,10 @@ class Context:
         try:
             encoded = _encode(payload)
             try:
-                self._bridge.submit(sequence, operation, encoded)
+                if _body is None:
+                    self._bridge.submit(sequence, operation, encoded)
+                else:
+                    self._bridge.submit(sequence, operation, encoded, _body)
             except BlockingIOError as error:
                 raise Overloaded(outcome="not_committed") from error
             except ValueError as error:
@@ -368,13 +396,13 @@ class Context:
         finally:
             self._pending.pop(sequence, None)
 
-    def _reply(self, sequence, payload):
+    def _reply(self, sequence, payload, body=None):
         future = self._pending.get(sequence)
         if future is None or future.done():
             return
         value = _json.loads(payload)
         if value["ok"]:
-            future.set_result(value["value"])
+            future.set_result(value["value"] if body is None else (value["value"], body))
         else:
             error = value["error"]
             code = value["code"]
@@ -385,11 +413,18 @@ class Context:
                           "OwnershipLost": OwnershipLost}.get(code, SDKError)
             future.set_exception(error_type(error, code, value["outcome"]))
 
-    def _close(self):
+    def _close(self, finished=False):
+        if not self._pending:
+            self._bridge.expire(finished)
+            return
+        # Revoke authority before cancelling work. Only successful managed
+        # cleanup may suppress the native driver's final cancellation wakeup.
         self._bridge.expire()
         for future in tuple(self._pending.values()):
             future.cancel()
         self._pending.clear()
+        if finished:
+            self._bridge.expire(True)
 
     async def now_ms(self) -> int:
         return await self._call("clock.now")

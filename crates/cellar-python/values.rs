@@ -1,6 +1,6 @@
 use anyhow::{ensure, Context as _, Result};
 use cellar::sdk::{Context, Request};
-pub(crate) use cellar_guest::values::queue_body;
+pub(crate) use cellar_guest::values::{envelope_size, queue_body};
 use serde_json::Value;
 
 pub(crate) async fn request(
@@ -31,16 +31,6 @@ pub(crate) fn output(
     );
     let bytes = body.context("Python response needs a byte body")?;
     cellar_guest::values::output_body(context, value, bytes, limit)
-}
-
-/// Preserve encoded-envelope admission while carrying an HTTP body as bytes.
-/// Base64 has no JSON escapes, so its length can be charged without encoding it.
-pub(crate) fn envelope_size(metadata: usize, body: usize) -> Result<usize> {
-    body.checked_add(2)
-        .map(|rounded| rounded / 3)
-        .and_then(|groups| groups.checked_mul(4))
-        .and_then(|encoded| metadata.checked_add(encoded))
-        .context("Python HTTP envelope size overflow")
 }
 
 #[cfg(test)]

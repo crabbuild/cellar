@@ -118,6 +118,9 @@ and the resumed answer, then checks receipt replay, four independent agents and
 cancellation. Both processes must produce complete native/Python shutdown reports.
 Unit tests inject atomic write failure, duplicate alarms, model cancellation,
 concurrent cancellation, invalid tool batches and provider failure/retry exhaustion.
+They also inject a lost acknowledgment after creation, model checkpoint and tool
+checkpoint commits: the next invocation reloads saved state, replays the creation
+receipt, and resumes without repeating the committed model or notebook step.
 This process-replacement test does not qualify multi-node failover or production
 provider availability.
 
@@ -125,6 +128,27 @@ For a manual restart drill, set `"step_delay_ms":10000` in a new job, stop after
 GET reports `"phase":"tools"`, then restart the same project without `--clean`.
 Its persisted alarm completes the job. `--clean` intentionally deletes tutorial
 state; do not use it for recovery tests.
+
+## Build your own agent
+
+Start from [app.py](app.py) and keep the durable phase transitions around your
+PydanticAI model and tools:
+
+| Change | Where | Contract to preserve |
+| --- | --- | --- |
+| Job input | `Start` | Validate before committing; a name identifies one immutable request. |
+| Agent instructions and tool schemas | `make_agent` | Tools raise `CallDeferred` before doing any business work. |
+| Provider and model settings | `model_step` | Use saved history/results, bound requests, and close the client within the invocation. |
+| Local business tools | The `tools` branch in `DurableAgent.alarm` | Validate the whole batch, then commit effects, receipts and the next alarm together. |
+| Status returned to users | `DurableAgent.fetch` | Read durable state; keep provider credentials and internal errors out of responses. |
+
+The execution path is `POST → model → tools → model → complete`; a model may
+request additional bounded tool rounds. The saved `phase`, `history`, `calls`
+and `results` let a new Python object continue the job. Cellar owns persistence
+and wakeups; PydanticAI owns model messages, tool schemas and response parsing.
+Do not move durable work into an unawaited `asyncio` task: those tasks disappear
+with the process. External tools need the intent/idempotency/reconciliation
+protocol described above.
 
 ## Package and deploy
 

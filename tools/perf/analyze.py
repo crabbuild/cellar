@@ -11,7 +11,7 @@ import json
 import pathlib
 import statistics
 import re
-from run import routing_cache_checkpoints, validate_routing_cache
+from run import routing_cache_checkpoints, validate_routing_cache, validate_python_outcomes
 
 
 def summarize(root):
@@ -38,6 +38,13 @@ def summarize(root):
                 label = f"{checkpoint['label']}-node{checkpoint['node']}"
                 failures[(checkpoint["scenario"], label)] = {"operation": "state_snapshot",
                     "scenario": checkpoint["scenario"], "label": label, "error": str(error)}
+    if metadata["arguments"].get("runtime") == "python":
+        try:
+            validate_python_outcomes(root, results.get("shutdown_outcomes", []),
+                metadata["arguments"].get("scenario"), metadata["arguments"]["max_requests"],
+                metadata["arguments"]["shutdown_ms"])
+        except Exception as error:
+            failures[("python", "shutdown")] = {"operation": "python_shutdown", "error": str(error)}
     groups = collections.defaultdict(list)
     for measurement in results["measurements"]:
         groups[(measurement["scenario"], measurement["concurrency"])].append(measurement)
@@ -101,11 +108,13 @@ def summarize(root):
         "analysis_sha256": hashlib.sha256(pathlib.Path(__file__).read_bytes()).hexdigest(),
         "source_dirty": metadata["dirty"], "image_labels": metadata.get("image_labels"),
         "completed": False if failures else results.get("completed"), "failures": list(failures.values()),
+        "executable_sha256": metadata.get("executable_sha256"),
         "cellar_image": metadata["image"], "rustfs_image": metadata["rustfs_image"],
         "environment": {"architecture": metadata["docker"]["Architecture"], "vm_cpus": metadata["docker"]["NCPU"],
             "vm_memory_bytes": metadata["docker"]["MemTotal"], "node_limits": metadata["node_limits"],
             "load_generator_limits": metadata["load_generator_limits"], "rustfs_limits": metadata["rustfs_limits"]},
-        "workload": {"cells": metadata["arguments"]["cells"], "payload_bytes": metadata["arguments"]["bytes"],
+        "workload": {"runtime": metadata["arguments"].get("runtime", "native"),
+            "cells": metadata["arguments"]["cells"], "payload_bytes": metadata["arguments"]["bytes"],
             "phase_seconds": metadata["arguments"]["seconds"], "repetitions": metadata["arguments"]["repeats"],
             "concurrency": metadata["arguments"]["concurrency"], "warmup_seconds": metadata["arguments"].get("warmup_seconds", 10),
             "max_resident_cells_per_node": metadata["arguments"].get("max_resident", 256),

@@ -1,7 +1,10 @@
 //! Compiled host: Python source participates in the native executable digest.
+mod gateway;
+
 use anyhow::{ensure, Result};
 use cellar::sdk::Host;
 use cellar_python::{Environment, EventKind, Options, PythonRuntime, Source};
+use std::sync::Arc;
 
 const APPLICATION_VERSION: &str = match option_env!("CELLAR_APPLICATION_VERSION") {
     Some(version) => version,
@@ -34,6 +37,7 @@ fn main() -> Result<()> {
             Source::new(include_str!("app.py"), "app.py")
                 .events([EventKind::Fetch, EventKind::Queue, EventKind::Scheduled])
                 .cell_events("Counter", [EventKind::Fetch, EventKind::Alarm])
+                .cell_initial_reads("Counter", EventKind::Fetch, ["count", "alarms"])
                 .require_distribution("pydantic", "2.12.3")
                 .require_distribution("pydantic-core", "2.41.4")
                 .require_distribution("annotated-types", "0.7.0")
@@ -50,7 +54,7 @@ fn main() -> Result<()> {
                     )?;
                 }
                 host.register("python-example", APPLICATION_VERSION, move || {
-                    Ok(application.clone())
+                    Ok(Arc::new(gateway::CounterGateway::new(application.clone())))
                 })?
                 .run_until_observed(stop.cancelled(), move |outcome| {
                     monitor.record_node(outcome)

@@ -210,61 +210,62 @@ fn node_archives_reject_missing_duplicate_unlisted_and_special_entries() -> Resu
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn node_publish_and_install_require_verified_runtime_before_selector_or_executable(
 ) -> Result<()> {
+    // This fixture shares the library test process with the CLI bootstrap
+    // contract. Own and join its domain instead of installing a second process
+    // singleton or leaving services attached to this test's dropped runtime.
     let domain = crate::asyncrt::ExecutionDomain::new(tokio::runtime::Handle::current());
-    let result = domain
-        .run(async {
-            let fixture = Fixture::new()?;
-            let host = fixture.output.join("host");
-            std::fs::write(&host, b"native fixture")?;
-            let artifact = crate::native_deploy::executable_identity(
-                &host,
-                crate::native_deploy::current_target(),
-            )?;
-            std::fs::copy(&host, fixture.output.join(&artifact.sha256))?;
-            let config: crate::native_deploy::ApplicationConfig = serde_json::from_value(
-                serde_json::json!({"script_name":"node-fixture","application_version":"v1"}),
-            )?;
-            let mut manifest = config.manifest(vec![artifact.clone()])?;
-            fixture
-                .prepared
-                .stage(&mut manifest, &artifact, &fixture.output)?;
-            let package = crate::native_deploy::Package {
-                primary: manifest,
-                cohosted: vec![],
-            };
-            package.validate()?;
-            let bucket = Bucket::open_dev(&fixture.output.join("bucket.sqlite"))?;
-            let archive = &fixture.prepared.archive_path;
-            let saved = archive.with_extension("saved");
-            std::fs::rename(archive, &saved)?;
-            assert!(package
-                .publish_staged(&bucket, &fixture.output)
-                .await
-                .is_err());
-            assert!(bucket.get("deploy/current.json").await?.is_none());
-            std::fs::rename(saved, archive)?;
-            package.publish_staged(&bucket, &fixture.output).await?;
-            let installed = fixture.output.join("installed");
-            assert!(package
-                .install(&bucket, crate::native_deploy::current_target(), &installed)
-                .await
-                .is_err());
-            assert!(!installed.exists());
-            std::fs::remove_dir_all(&fixture.root)?;
-            package
-                .install_with_runtimes(
-                    &bucket,
-                    crate::native_deploy::current_target(),
-                    &installed,
-                    None,
-                    Some(&fixture.root),
-                )
-                .await?;
-            assert_eq!(std::fs::read(installed)?, b"native fixture");
-            verify_inventory_files(&fixture.prepared.checked.inventory)?;
-            Ok(())
-        })
-        .await;
+    let result = domain.run(verify_publish_and_install()).await;
     domain.shutdown().await;
     result?
+}
+
+async fn verify_publish_and_install() -> Result<()> {
+    let fixture = Fixture::new()?;
+    let host = fixture.output.join("host");
+    std::fs::write(&host, b"native fixture")?;
+    let artifact =
+        crate::native_deploy::executable_identity(&host, crate::native_deploy::current_target())?;
+    std::fs::copy(&host, fixture.output.join(&artifact.sha256))?;
+    let config: crate::native_deploy::ApplicationConfig = serde_json::from_value(
+        serde_json::json!({"script_name":"node-fixture","application_version":"v1"}),
+    )?;
+    let mut manifest = config.manifest(vec![artifact.clone()])?;
+    fixture
+        .prepared
+        .stage(&mut manifest, &artifact, &fixture.output)?;
+    let package = crate::native_deploy::Package {
+        primary: manifest,
+        cohosted: vec![],
+    };
+    package.validate()?;
+    let bucket = Bucket::open_dev(&fixture.output.join("bucket.sqlite"))?;
+    let archive = &fixture.prepared.archive_path;
+    let saved = archive.with_extension("saved");
+    std::fs::rename(archive, &saved)?;
+    assert!(package
+        .publish_staged(&bucket, &fixture.output)
+        .await
+        .is_err());
+    assert!(bucket.get("deploy/current.json").await?.is_none());
+    std::fs::rename(saved, archive)?;
+    package.publish_staged(&bucket, &fixture.output).await?;
+    let installed = fixture.output.join("installed");
+    assert!(package
+        .install(&bucket, crate::native_deploy::current_target(), &installed)
+        .await
+        .is_err());
+    assert!(!installed.exists());
+    std::fs::remove_dir_all(&fixture.root)?;
+    package
+        .install_with_runtimes(
+            &bucket,
+            crate::native_deploy::current_target(),
+            &installed,
+            None,
+            Some(&fixture.root),
+        )
+        .await?;
+    assert_eq!(std::fs::read(installed)?, b"native fixture");
+    verify_inventory_files(&fixture.prepared.checked.inventory)?;
+    Ok(())
 }

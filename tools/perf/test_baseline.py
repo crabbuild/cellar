@@ -104,11 +104,45 @@ class History(unittest.TestCase):
             return 200, {'state': expected, 'changed': changed, 'durability': 'bucket', 'sequence': state[cell]['sequence'] + 1}
         with tempfile.TemporaryDirectory() as directory:
             ledger = Ledger(Path(directory) / 'ledger')
-            result = run_load(profile, 'measurement', .01, state, ledger, send, 'run', position=position)
+            # This tests baseline receipt accounting. A descheduled CI worker
+            # must not turn its sole arrival into a scheduling rejection.
+            result = run_load(profile, 'measurement', .01, state, ledger, send, 'run',
+                              position=position, clock=lambda: 0., sleep=lambda _: None)
             ledger.close()
         self.assertEqual(result['completed'], 1)
         self.assertEqual(state[0]['sequence'], 2)
         self.assertNotIn('version_token', state[0])
+
+    def test_shared_scheduler_rejects_late_arrival_before_transport(self):
+        source = read_json(Path(__file__).with_name('raft_profiles.json'))['profiles']['local-q0']
+        source['cells'] = {'total': 1, 'active': 1}
+        profile = effective_profile(source, 'bucket')
+        state = {0: {'state': self.events()[-1]['response']['state'], 'next_sequence': 2, 'sequence': 1}}
+        before = copy.deepcopy(state)
+        send = Mock()
+        calls = 0
+        def clock():
+            nonlocal calls
+            calls += 1
+            return 0. if calls == 1 else 1.
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'ledger'
+            ledger = Ledger(path)
+            try:
+                result = run_load(profile, 'measurement', .01, state, ledger, send, 'run',
+                                  position=position, clock=clock, sleep=lambda _: None)
+            finally:
+                ledger.close()
+            events = [json.loads(line) for line in path.read_text().splitlines()]
+        self.assertEqual(result['offered'], 1)
+        self.assertEqual(result['generator_rejected'], 1)
+        self.assertEqual(result['submitted'], 0)
+        self.assertEqual(result['completed'], 0)
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]['event'], 'reject')
+        self.assertEqual(events[0]['reason'], 'scheduler_late')
+        self.assertEqual(state, before)
+        send.assert_not_called()
 
 
 class Comparisons(unittest.TestCase):

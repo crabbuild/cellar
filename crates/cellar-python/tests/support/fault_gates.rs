@@ -24,8 +24,15 @@ pub struct Gate {
     mode: AtomicU8,
     pub entered: AtomicUsize,
     pub completed: AtomicUsize,
+    pub lost_acks: AtomicUsize,
     pub members: Mutex<BTreeSet<String>>,
     changed: Notify,
+}
+
+enum Admission {
+    Proceed,
+    Fail,
+    CommitThenFail,
 }
 
 impl Gate {
@@ -43,14 +50,29 @@ impl Gate {
         self.changed.notify_waiters();
     }
 
+    /// Let object-store `put_opts` commit, then return an error instead of its
+    /// receipt. Lease renewal and reads remain outside this data fault.
+    pub fn lose_ack(&self) {
+        self.mode.store(3, Ordering::Release);
+        self.changed.notify_waiters();
+    }
+
     async fn enter(&self) -> Result<()> {
+        match self.admission().await {
+            Admission::Proceed => Ok(()),
+            _ => anyhow::bail!("controlled durability transport failure"),
+        }
+    }
+
+    async fn admission(&self) -> Admission {
         self.entered.fetch_add(1, Ordering::Relaxed);
         loop {
             let changed = self.changed.notified();
             match self.mode.load(Ordering::Acquire) {
-                0 => return Ok(()),
+                0 => return Admission::Proceed,
                 1 => changed.await,
-                _ => anyhow::bail!("controlled durability transport failure"),
+                3 => return Admission::CommitThenFail,
+                _ => return Admission::Fail,
             }
         }
     }
@@ -146,8 +168,23 @@ impl ObjectStore for Store {
         payload: PutPayload,
         options: PutOptions,
     ) -> object_store::Result<PutResult> {
-        self.admit(path).await?;
+        let admission = if path.as_ref().starts_with("nodes/") {
+            Admission::Proceed
+        } else {
+            self.gate.admission().await
+        };
+        let failure = || object_store::Error::Generic {
+            store: "durability qualification",
+            source: anyhow::anyhow!("controlled durability transport failure").into(),
+        };
+        if matches!(admission, Admission::Fail) {
+            return Err(failure());
+        }
         let result = self.inner.put_opts(path, payload, options).await?;
+        if matches!(admission, Admission::CommitThenFail) {
+            self.gate.lost_acks.fetch_add(1, Ordering::Relaxed);
+            return Err(failure());
+        }
         self.gate.completed.fetch_add(1, Ordering::Relaxed);
         Ok(result)
     }

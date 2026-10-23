@@ -9,11 +9,26 @@ use tokio::sync::{mpsc, watch};
 
 pub(crate) type Life = Arc<AtomicBool>;
 
+/// Resident Python objects observe retirement without retaining an invocation's
+/// mailbox, caller scope or event loop. This token grants no SDK authority.
+#[pyclass(frozen)]
+struct OwnerLifetime {
+    active: Life,
+}
+
+#[pymethods]
+impl OwnerLifetime {
+    fn active(&self) -> bool {
+        self.active.load(Ordering::Acquire)
+    }
+}
+
 pub(crate) enum Event {
     Operation {
         id: u64,
         name: String,
         payload: String,
+        body: Option<Vec<u8>>,
         mutation: Option<Mutation>,
         reservation: super::Reservation,
         observation: super::telemetry::Operation,
@@ -47,7 +62,8 @@ pub(crate) struct Start {
 #[pyclass]
 pub(crate) struct InvocationBridge {
     pub sender: mpsc::Sender<Event>,
-    pub active: Life,
+    pub active: Arc<super::InvocationState>,
+    pub lifecycle: Arc<std::sync::atomic::AtomicU8>,
     pub cancelled: watch::Sender<bool>,
     pub completion_enqueued: AtomicBool,
     pub owner: Life,
@@ -57,6 +73,7 @@ pub(crate) struct InvocationBridge {
     pub max_bytes: usize,
     pub budget: Arc<super::Budget>,
     pub event_loop: Option<Py<PyAny>>,
+    pub scope: Option<super::scope::CallerScope>,
     pub clock_origin: std::time::Instant,
 }
 
@@ -65,20 +82,33 @@ impl InvocationBridge {
     // The loop can hold tasks/contexts which refer back to this bridge. Expose
     // the owned edge to CPython's cyclic collector instead of leaking cycles.
     fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
-        visit.call(&self.event_loop)
+        visit.call(&self.event_loop)?;
+        if let Some(scope) = &self.scope {
+            scope.traverse(&visit)?;
+        }
+        Ok(())
     }
 
     fn __clear__(&mut self) {
-        self.expire();
+        self.expire(false);
         self.event_loop = None;
+        self.scope = None;
     }
 
     fn active(&self) -> bool {
-        self.active.load(Ordering::Acquire) && self.owner.load(Ordering::Acquire)
+        self.active.active() && self.owner.load(Ordering::Acquire)
     }
 
-    fn expire(&self) {
-        self.active.store(false, Ordering::Release);
+    #[pyo3(signature = (finished=false))]
+    fn expire(&self, finished: bool) {
+        self.active.expire(finished);
+        if !finished {
+            // Direct Python expiration is visible even if the native driver
+            // has not yet consumed cancellation. This flag owns no descriptor
+            // or runtime and cannot keep either alive through a retained context.
+            self.lifecycle
+                .fetch_or(super::wakeup::INVALIDATED, Ordering::AcqRel);
+        }
         // Completion remains in the ordered mailbox. Cancellation needs a
         // separate wakeup: application code can retain this sender after the
         // task ends, and a full mailbox must not delay revocation.
@@ -91,7 +121,21 @@ impl InvocationBridge {
         self.owner.load(Ordering::Acquire)
     }
 
-    fn submit(&self, py: Python<'_>, id: u64, name: &str, payload: &str) -> PyResult<()> {
+    fn owner_lifetime(&self) -> OwnerLifetime {
+        OwnerLifetime {
+            active: self.owner.clone(),
+        }
+    }
+
+    #[pyo3(signature = (id, name, payload, body=None))]
+    fn submit(
+        &self,
+        py: Python<'_>,
+        id: u64,
+        name: &str,
+        payload: &str,
+        body: Option<&Bound<'_, PyBytes>>,
+    ) -> PyResult<()> {
         if !self.active() {
             return Err(pyo3::exceptions::PyRuntimeError::new_err("ContextExpired"));
         }
@@ -101,7 +145,17 @@ impl InvocationBridge {
                 "Python SDK operation name must be 1..64 bytes",
             ));
         }
-        if payload.len() > self.max_bytes {
+        let body = body.map(|body| body.as_bytes());
+        if body.is_some() != (name == "cell.fetch") {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "Only cell.fetch requires a byte body",
+            ));
+        }
+        let charge = crate::values::envelope_size(payload.len(), body.map_or(0, <[u8]>::len))
+            .map_err(|_| {
+                pyo3::exceptions::PyValueError::new_err("Python operation size overflow")
+            })?;
+        if charge > self.max_bytes {
             return Err(pyo3::exceptions::PyValueError::new_err(
                 "Python SDK value budget exceeded",
             ));
@@ -111,7 +165,7 @@ impl InvocationBridge {
                 "Python SDK operation budget exceeded",
             ));
         }
-        let reservation = self.budget.reserve(payload.len()).map_err(|_| {
+        let reservation = self.budget.reserve(charge).map_err(|_| {
             pyo3::exceptions::PyBlockingIOError::new_err(
                 "Python aggregate bridge byte budget exhausted",
             )
@@ -142,11 +196,13 @@ impl InvocationBridge {
             id,
             name: name.to_owned(),
             payload: payload.to_owned(),
+            body: body.map(<[u8]>::to_vec),
             mutation,
             reservation,
             observation: self.budget.metrics.admit(self.clock_origin),
         });
-        self.budget.copied_input(name.len() + payload.len());
+        self.budget
+            .copied_input(name.len() + payload.len() + body.map_or(0, <[u8]>::len));
         Ok(())
     }
 
@@ -200,7 +256,10 @@ impl InvocationBridge {
 impl InvocationBridge {
     fn ensure_scope(&self, py: Python<'_>) -> PyResult<()> {
         let valid = (|| -> PyResult<bool> {
-            let current_loop = py.import("asyncio")?.call_method0("get_running_loop")?;
+            let Some(scope) = &self.scope else {
+                return Ok(false);
+            };
+            let current_loop = scope.running_loop(py)?;
             if !self
                 .event_loop
                 .as_ref()
@@ -208,10 +267,7 @@ impl InvocationBridge {
             {
                 return Ok(false);
             }
-            let current = py
-                .import("cellar")?
-                .getattr("_current_invocation")?
-                .call_method0("get")?;
+            let current = scope.invocation(py)?;
             Ok(current
                 .extract::<PyRef<'_, Self>>()
                 .is_ok_and(|owner| std::ptr::eq(&*owner, self)))

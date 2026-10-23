@@ -1,10 +1,13 @@
 """Exact native codec and batch-byte boundaries, including refused effects."""
 from cellar import Ambiguous, Request, Response, SDKError, ValidationError, _encode
+import json
 
 visits = 0
 
 
 async def fetch(request, ctx):
+    if request.path == "/nested-echo-buffer":
+        request.body = memoryview(bytearray(request.body))
     if request.path == "/echo":
         return Response(request.body)
     if request.path == "/echo-buffer":
@@ -51,6 +54,41 @@ async def fetch(request, ctx):
                 raise AssertionError("over-limit request entered a native cell")
         assert visits == before + 3
         return Response.json(True)
+    if request.path == "/nested-envelope":
+        body = bytes(range(256)) * 16
+        metadata, _ = Request("http://cell/", body=body)._parts()
+        payload = dict(binding="COUNTERS", name="limits", request=metadata, padding="")
+        charge = len(_encode(payload).encode()) + 4 * ((len(body) + 2) // 3)
+        payload["padding"] = "x" * (65536 - charge)
+        before = visits
+        await ctx._call("cell.fetch", _body=body, **payload)
+        assert visits == before + 1
+        payload["padding"] += "x"
+        try:
+            await ctx._call("cell.fetch", _body=body, **payload)
+        except ValidationError as error:
+            assert error.outcome == "not_committed"
+        else:
+            raise AssertionError("oversized binary operation reached the callee")
+        assert visits == before + 1
+        return Response.json(True)
+    if request.path == "/nested-result":
+        cell = ctx.namespace("COUNTERS").get_by_name("limits")
+        before = json.loads((await cell.fetch(Request("http://cell/binary-result/state"))).body)
+        for index, suffix in enumerate(("exact", "over", "exact"), 1):
+            try:
+                result = await cell.fetch(Request("http://cell/binary-result/" + suffix))
+            except Ambiguous as error:
+                assert suffix == "over" and error.outcome == "unknown"
+                assert error.code == "Ambiguous" and str(error) == "Ambiguous"
+            else:
+                assert suffix == "exact", "oversized result was accepted"
+                assert result.status == 201 and result.body == bytes(range(256)) * 16
+                assert len(_encode(dict(ok=True, value=result._wire())).encode()) == 65536
+            # Every call commits exactly once, even the one whose reply fails.
+            count = json.loads((await cell.fetch(Request("http://cell/binary-result/state"))).body)
+            assert count == before + index
+        return Response.json(True)
     if request.path == "/sdk-results":
         await ctx.namespace("COUNTERS").get_by_name("limits").fetch(Request("http://cell/seed-results"))
     return await ctx.namespace("COUNTERS").get_by_name("limits").fetch(request)
@@ -60,6 +98,11 @@ class Counter:
     async def fetch(self, request, ctx):
         global visits
         visits += 1
+        if request.path.startswith("/nested-echo"):
+            response = Response(request.body)
+            if request.path.endswith("buffer"):
+                response.body = memoryview(bytearray(response.body))
+            return response
         if request.path == "/sdk-results":
             storage = ctx.storage
             exact = await storage.read_json("result-exact")
@@ -85,6 +128,23 @@ class Counter:
                 assert error.code == "HostError" and error.outcome == "unknown"
             else:
                 raise AssertionError("over-depth SDK result was accepted")
+            batch = await storage.read_json_many(["batch-result-exact"])
+            encoded = dict(ok=True, value={key: dict(present=row.present, value=row.value) for key, row in batch.items()})
+            assert len(_encode(encoded).encode()) == 65536
+            for keys in (["batch-result-over"], ["batch-result-exact", "missing"], ["result-depth-exact"]):
+                try:
+                    await storage.read_json_many(keys)
+                except SDKError as error:
+                    assert error.code == "HostError" and error.outcome == "unknown"
+                    assert "xxxx" not in str(error)
+                else:
+                    raise AssertionError("oversized or over-depth read batch accepted")
+            assert (await storage.read_json_many(["batch-result-exact"])) == batch
+            depth = (await storage.read_json_many(["batch-depth-exact"]))["batch-depth-exact"].value
+            for _ in range(62):
+                assert len(depth) == 1
+                depth = depth[0]
+            assert depth is None
             await storage.sql("CREATE TABLE result_effects (payload TEXT)")
             try:
                 await storage.sql("INSERT INTO result_effects VALUES (printf('%.*c', 65536, 'x')) RETURNING payload")

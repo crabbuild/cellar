@@ -11,7 +11,7 @@ import threading
 import time
 import unittest
 
-from offered import observed_idle, summarize
+from offered import observed_idle, read_targets, summarize
 
 CLIENT = Path(sys.argv.pop(1)).resolve(strict=True) if len(sys.argv) > 1 else None
 
@@ -69,19 +69,48 @@ class NativeArrivalTests(unittest.TestCase):
     def test_idle_telemetry_from_before_the_workload_is_not_reused(self):
         class Host:
             calls = 0
+            population = 0
 
             def observations(self):
                 self.calls += 1
-                return {"native_resident_cells": 0, "runtime": {"kind": "python",
+                return {"native_resident_cells": self.population, "runtime": {"kind": "python",
                         "interpreter": {"age_ns": 0, "generation": 7 if self.calls < 3 else 8,
-                                        "work": {"resident_objects": 0, "active_invocations": 0,
+                                        "work": {"resident_objects": self.population, "active_invocations": 0,
                                                  "pending_retirements": 0}}}}
 
-        host = Host()
-        self.assertEqual(observed_idle(host)["runtime"]["interpreter"]["generation"], 8)
-        self.assertEqual(host.calls, 3)
+        for population in (0, 32):
+            host = Host()
+            host.population = population
+            self.assertEqual(observed_idle(host, population)["runtime"]["interpreter"]["generation"], 8)
+            self.assertEqual(host.calls, 3)
 
-    def run_client(self, mode, *, inflight=16, timeout=500, body_bytes=137, reads=False):
+    def test_read_population_bounds_and_targets(self):
+        self.assertEqual(read_targets(0), [])
+        for count in (1, 32, 64):
+            targets = read_targets(count)
+            self.assertEqual(len(targets), count)
+            self.assertEqual({target["path"] for target in targets},
+                             {f"/cells/resident-{index}" for index in range(count)})
+            self.assertEqual({bytes(target["expected_body"]) for target in targets}, {b'{"value":0}'})
+        for invalid in (-1, 65):
+            with self.assertRaises(RuntimeError):
+                read_targets(invalid)
+
+    def test_invalid_read_workload_refuses_before_starting_host(self):
+        with tempfile.TemporaryDirectory() as root:
+            output = Path(root) / "output"
+            base = [sys.executable, "-B", str(Path(__file__).with_name("offered.py")),
+                    "--client", str(CLIENT), "--native-host", str(CLIENT),
+                    "--python-host", f"python={CLIENT}", "--build-profile", "lab", "--output", str(output)]
+            for arguments in (["--read-cells", "-1"], ["--read-cells", "65"],
+                              ["--read-cells", "32", "--body-bytes", "1"],
+                              ["--read-cells", "1", "--body-bytes", "0", "--cell-echo"]):
+                with self.subTest(arguments=arguments):
+                    result = subprocess.run([*base, *arguments], capture_output=True, timeout=10)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertFalse(output.exists(), result.stderr.decode())
+
+    def run_client(self, mode, *, inflight=16, timeout=500, body_bytes=137, reads=False, cell_echo=False):
         server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         server.mode, server.received, server.lock = mode, 0, threading.Lock()
         server.paths = []
@@ -91,7 +120,8 @@ class NativeArrivalTests(unittest.TestCase):
         try:
             with tempfile.TemporaryDirectory() as root:
                 output = Path(root) / "samples.json"
-                command = [str(CLIENT), f"http://127.0.0.1:{server.server_port}",
+                origin = f"http://127.0.0.1:{server.server_port}" + ("/cell-echo" if cell_echo else "")
+                command = [str(CLIENT), origin,
                            "100", "500", str(inflight), str(0 if reads else body_bytes), str(timeout), "200", str(output)]
                 if reads:
                     manifest = Path(root) / "reads.json"
@@ -109,6 +139,8 @@ class NativeArrivalTests(unittest.TestCase):
                     self.assertEqual(server.received, dispatched, "redirect or hidden resend")
                     if reads:
                         self.assertEqual(set(server.paths), {("GET", path) for path in server.reads})
+                    else:
+                        self.assertEqual(set(server.paths), {("POST", "/cell-echo" if cell_echo else "/echo")})
                 # Existing evidence must be refused before another request.
                 again = subprocess.run(command, capture_output=True, timeout=10)
                 self.assertNotEqual(again.returncode, 0)
@@ -150,6 +182,32 @@ class NativeArrivalTests(unittest.TestCase):
         _, summary = self.run_client("echo", body_bytes=0)
         self.assertGreater(summary["outcomes"].get("success", 0), 0)
         self.assertFalse(set(summary["outcomes"]) - {"success", "client_late", "client_capacity"})
+
+    def test_cell_echo_keeps_route_and_checks_empty_and_binary_bodies(self):
+        for size in (0, 4096):
+            with self.subTest(body_bytes=size):
+                report, summary = self.run_client("echo", body_bytes=size, cell_echo=True)
+                self.assertTrue(report["workload"]["url"].endswith("/cell-echo"))
+                self.assertEqual(report["workload"]["body_bytes"], size)
+                self.assertGreater(summary["outcomes"].get("success", 0), 0)
+                self.assertFalse(set(summary["outcomes"]) - {"success", "client_late", "client_capacity"})
+        _, summary = self.run_client("wrong", cell_echo=True)
+        self.assertGreater(summary["outcomes"].get("body_mismatch", 0), 0)
+        self.assertNotIn("success", summary["outcomes"])
+
+    def test_cell_echo_cannot_mix_read_manifest_or_accept_other_paths(self):
+        with tempfile.TemporaryDirectory() as root:
+            manifest, output = Path(root) / "reads.json", Path(root) / "samples.json"
+            manifest.write_text(json.dumps([dict(path="/orders/one", expected_body=[1])]))
+            for route, reads in (("/cell-echo", True), ("/other", False),
+                                 ("/cell-echo/", False), ("/cell-echo?x=1", False)):
+                command = [str(CLIENT), "http://127.0.0.1:9" + route, "1", "1000", "1",
+                           "0", "100", "1", str(output)]
+                if reads:
+                    command.append(str(manifest))
+                result = subprocess.run(command, capture_output=True, timeout=5)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse(output.exists(), result.stderr.decode())
 
     def test_http_redirects_are_not_followed(self):
         _, summary = self.run_client("redirect")

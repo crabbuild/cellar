@@ -13,11 +13,43 @@ pub struct State {
 
 /// Only operations known to have no business effects may overlap a mutation.
 /// Arbitrary SQL and nested fetches are conservatively mutation-class operations.
+/// Python's bounded reply adapter implements `storage.read_many` separately.
 pub fn is_read(name: &str) -> bool {
     matches!(
         name,
-        "clock.now" | "storage.read" | "alarm.get" | "var" | "kv.get" | "kv.list"
+        "clock.now"
+            | "storage.read"
+            | "storage.read_many"
+            | "alarm.get"
+            | "var"
+            | "kv.get"
+            | "kv.list"
     )
+}
+
+/// A binary cell fetch uses the same pre-effect validation and original SDK
+/// authority as the JSON transport. Result collection can fail after effects.
+pub async fn fetch_bytes(
+    context: &Context,
+    value: Value,
+    body: Vec<u8>,
+    options: &Limits,
+) -> Result<(Value, Vec<u8>)> {
+    let request = (|| {
+        validate("cell.fetch", &value)?;
+        ensure!(
+            field(&value["request"], "body")?.is_empty(),
+            "binary request metadata contains a body"
+        );
+        values::input_body(&value["request"], body, options.max_body_bytes)
+    })()
+    .context(crate::failure::Validation)?;
+    let result = context
+        .namespace(field(&value, "binding")?)?
+        .get_by_name(field(&value, "name")?)
+        .fetch(context, request)
+        .await?;
+    values::response_parts(result, options.max_body_bytes).await
 }
 
 pub async fn execute(

@@ -66,7 +66,12 @@ async def fetch(request, ctx):
     return await _previous_watchdog_fetch(request, ctx)
 '''
     (output / "app.py").write_text(source)
-    shutil.copyfile(example / "main.rs", output / "main.rs")
+    # The copied binary root can declare sibling or nested Rust modules.
+    # Keep its module tree intact in the standalone rolling application.
+    for source_path in example.rglob("*.rs"):
+        destination = output / source_path.relative_to(example)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(source_path, destination)
     workspace_manifest = tomllib.loads((root / "Cargo.toml").read_text())
     baseline = workspace_manifest["workspace"]["dependencies"]
     dependencies = []

@@ -55,7 +55,22 @@ returning handler are discarded; always await SDK operations. Do not retain
 contexts or binding handles between invocations. Live handles used by another invocation or asyncio
 loop are refused at both the Python API and native sender. The invocation scope
 is an additional caller check; native SDK authority still comes from the original
-Rust context. SDK errors do not automatically retry mutations:
+Rust context. The native sender captures the original caller-identity accessors
+at bootstrap and checks their current values on every operation. Rebinding a
+Python module attribute cannot replace those checks; Python application code is
+still trusted code, not a security sandbox.
+
+`ctx.storage` creates a lightweight handle on access. A handle keeps
+its originating context alive, but the context does not cache the handle, so
+ordinary request cleanup does not depend on collecting a storage/context cycle.
+Bind `storage = ctx.storage` locally when reusing it within one invocation.
+The resident-object registry retains only an owner-lifetime token alongside each
+cell. It releases completed invocation senders, caller scopes and event-loop
+references even while the cell stays resident; application-retained contexts
+still live until the application releases them. Owner retirement revokes the
+token and wakes the pump to release the cell.
+
+SDK errors do not automatically retry mutations:
 a failed response may follow a committed write. `SDKError.code` distinguishes
 `ValidationError`, `Overloaded`, `OwnershipLost`, `Ambiguous`, `HostError`,
 `ContextExpired`, `ContextMismatch`, `NotSubmitted` and `Conflict`. Validation,
@@ -89,6 +104,8 @@ Import `Request`, `Response`, `Conflict`, `SDKError`, `Snapshot` and `MISSING` f
 | API | Behavior |
 | --- | --- |
 | `await ctx.storage.read_json(key)` | Presence-aware snapshot; JSON null differs from missing |
+| `await ctx.storage.read_json_many(keys)` | One host call returning a snapshot per distinct key, including missing keys |
+| `ctx.initial_storage` | Declared snapshots captured before this cell event starts; empty when none are configured |
 | `await ctx.storage.get_json(key, default=None)` | Read a JSON value |
 | `await ctx.storage.apply(checks={key: snapshot}, puts={...}, deletes=[...])` | One atomic checked batch; `Conflict` applies no mutations |
 | `await ctx.storage.put_json(key, value)` / `delete(key)` | Unconditional batch mutation |
@@ -109,6 +126,11 @@ existing at-least-once semantics. Use idempotency keys for business effects.
 Queue acknowledgements are settlement decisions inside the current delivery;
 the broker persists them when dispatch returns. An acknowledgement followed by
 a handler exception is retained; a timeout that drops dispatch can redeliver.
+An unknown storage outcome can preserve a queue lease across owner recovery,
+even when the consumer has not started. Redelivery waits for that stored lease
+to expire. Its lifetime covers native admission, handler and settlement budgets;
+recovery does not extend it. Include this interval when setting recovery SLOs,
+and reconcile unknown producer outcomes with business idempotency keys.
 The first conflicting message/batch ack or retry decision wins. Cron retries
 retain the original occurrence timestamp across timeout, activation recreation
 and owner recovery. The native scheduling cell checkpoints completed expressions
@@ -128,6 +150,33 @@ read/compute/write sequence is not automatically atomic: pass its snapshots to
 `apply` combines mutations in a single transaction; multiple SQL calls are
 separate operations.
 
+For handlers that always need the same keys, register
+`Source::cell_initial_reads("Counter", EventKind::Fetch, ["count"])` alongside
+the cell's event registration. The original native invocation reads those keys
+before dispatching to Python, avoiding a separate SDK request and reply. A handler
+can use `snapshot = ctx.initial_storage["count"]` and pass that snapshot to
+`await ctx.storage.apply(checks={"count": snapshot}, puts={"count": next_value})`.
+
+The map's keys cannot be changed, and its snapshots contain owned data. They
+describe state at capture, not a reservation or a live cache. They do not refresh
+after an await or the handler's own writes; use normal storage reads when fresh
+state is needed. An intervening writer causes a checked write to conflict.
+Retaining a snapshot grants no authority to use an expired or foreign context.
+Missing keys and JSON null remain distinct.
+
+Capture happens before handler logic, including validation and authentication.
+A failed read, excessive nesting, or excessive combined invocation size refuses
+dispatch before the Python handler runs. The declared key count is bounded by
+`max_batch_operations`; metadata, captured state and the encoded-equivalent body
+share `max_value_bytes`. Capture streams one decoded row at a time rather than
+collecting every stored value before enforcing the encoded limit. These byte
+limits are not whole-process memory limits.
+
+For a verified package, include the matching declaration in the descriptor's
+`handlers.initial_reads`, for example
+`{"Counter":{"fetch":["count"]}}`. The inventory binds that declaration along
+with the source and existing handler registrations; a mismatch refuses startup.
+
 ## Resource and deployment contract
 
 `Options` bounds concurrent invocations, request/response bytes, bridge value
@@ -141,6 +190,11 @@ serve an independent HTTP request. Capacity refusal uses the native SDK's
 committed before a nested call was refused. The adapter does not retry it,
 and ownership/output-proof failures still take precedence. Closed runtime
 admission is a lifecycle failure, distinct from capacity exhaustion.
+Peer placement candidates that refuse cell capacity may be retried only within
+the original fetch routing budget. Exhaustion returns a typed overload instead
+of cycling indefinitely between peers. Native cell-capacity refusals retain
+`Overloaded/unknown` across the Python bridge, including forwarded failures;
+they do not establish that a parent invocation made no writes.
 `max_pending_operations` bounds each invocation's
 operation/completion mailbox (32 entries by default); zero and unsupported
 capacities are refused before bootstrap. The result mailbox holds at most twice
@@ -154,6 +208,11 @@ HTTP completions likewise pass an immutable byte body beside their metadata.
 Native byte and mailbox capacity are reserved before copying it into Rust; the
 reservation remains owned through response validation. Completion metadata and
 the body share the same base64-equivalent envelope limit as encoded delivery.
+Nested cell fetches also carry immutable request and reply bytes separately from
+their metadata, with the same encoded-envelope and aggregate reservation limits.
+Mutable buffers are copied into immutable bytes before submission. An oversized
+request is refused before native dispatch; an oversized reply can follow a
+committed write and returns `Ambiguous/unknown` without replaying the operation.
 Ordinary HTTP metadata uses a shallow encoder with owned header snapshots and
 identical JSON escaping and key order. Unusual metadata and subclasses retain
 the general SDK encoder; native HTTP validation and byte limits still apply.
@@ -161,6 +220,15 @@ the general SDK encoder; native HTTP validation and byte limits still apply.
 batch, rather than each row separately. `max_batch_operations` counts checks,
 puts, deletes and an optional alarm decision together. Rejected oversized
 batches apply no partial writes or alarm changes.
+
+`read_json_many` counts all supplied keys, including duplicates, against
+`max_batch_operations`. It reads synchronously in the original native invocation
+and returns a dictionary of snapshots usable in `apply(checks=...)`. Missing keys
+remain distinct from JSON null. The complete reply must fit `max_value_bytes`;
+collection stops at that limit and an error returns no partial result. The host
+retains at most one decoded stored value beside the bounded encoded reply.
+Like a single read, this is not a reservation against later writers: use checked
+`apply` to reject stale snapshots. No Python HTTP handler or middleware is bypassed.
 
 SDK results also enforce a depth of 64 on the returned value (before its transport
 envelope) and `max_value_bytes` on the complete encoded success envelope. The
@@ -193,11 +261,17 @@ request data or SDK authority. Producers never acquire the GIL, call Python or
 wait for the interpreter. SDK operations still execute in their original native
 invocation. Notification failures fail the runtime instead of claiming a clean
 shutdown, and the loop removes its reader before the runtime closes the sockets.
-Native proxy destruction also publishes a coalesced retirement flag. The loop
-scans resident objects only after consuming that flag, so ordinary requests do
-not check every idle cell. Consuming the flag before the scan preserves concurrent
-retirements for another pass. Each SDK operation still checks its native owner
-and invocation authority independently of this cleanup optimization.
+Managed invocation cleanup records completion only after revoking authority and
+cancelling pending SDK futures. A native return can then skip its redundant
+cancellation notification. Expiration alone never suppresses that notification:
+a still-running task must wake promptly even if its bridge was already expired.
+Native cancellation and proxy destruction publish coalesced lifecycle flags.
+The loop scans waiting invocations after invalidation and resident objects after
+owner retirement. Ordinary replies do not scan unrelated waiting invocations;
+a completion queue releases finished tasks and contexts. Consuming the flags
+before scanning preserves concurrent invalidations for another pass. Failed
+cleanup remains registered for shutdown. Each SDK operation and reply still
+checks its invocation authority independently of these cleanup optimizations.
 
 The pump admits at most 64 starts before yielding to the event loop. Continuous
 arrivals, including requests rejected at task capacity, cannot indefinitely

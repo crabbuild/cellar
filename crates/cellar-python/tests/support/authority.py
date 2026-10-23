@@ -51,6 +51,7 @@ class Counter:
         if request.path == "/state":
             return Response.json({key: await ctx.storage.get_json(key) for key in ("seed", "queued", "late", "late-raw")})
         assert request.path == "/queued"
+        assert ctx.initial_storage["seed"].present and ctx.initial_storage["seed"].value == 7
         submit, release = asyncio.Event(), asyncio.Event()
         with _lock:
             _context, _loop, _submit, _release = ctx, asyncio.get_running_loop(), submit, release
@@ -67,7 +68,7 @@ class Counter:
                 except asyncio.CancelledError:
                     pass
             try:
-                await ctx.storage.put_json("late", True)
+                await ctx.storage.apply(checks={"seed": ctx.initial_storage["seed"]}, puts={"late": True})
             except SDKError as error:
                 assert error.code == "ContextExpired"
             else:
@@ -78,6 +79,18 @@ class Counter:
                 assert str(error) == "ContextExpired"
             else:
                 raise AssertionError("expired native sender admitted a late mutation")
+            try:
+                await ctx.storage.read_json_many(["seed"])
+            except SDKError as error:
+                assert error.code == "ContextExpired"
+            else:
+                raise AssertionError("expired invocation admitted a batch read")
+            try:
+                ctx._bridge.submit(10001, "storage.read_many", '{"keys":["seed"]}')
+            except RuntimeError as error:
+                assert str(error) == "ContextExpired"
+            else:
+                raise AssertionError("expired native sender admitted a batch read")
             with _lock:
                 _refused = True
             return Response.json(False)

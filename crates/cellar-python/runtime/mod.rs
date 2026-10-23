@@ -22,14 +22,17 @@ use tokio::sync::{mpsc as async_mpsc, watch, Semaphore};
 mod bridge;
 mod budget;
 mod identity;
+mod lifetime;
 pub use budget::BridgeReport;
 pub(crate) use budget::{Budget, Reservation};
+pub(crate) use lifetime::{InvocationState, Lifetime};
 mod environment;
 mod initialization;
 mod initialization_output;
 mod inventory;
 mod telemetry;
 pub use telemetry::{LatencyReport, OperationReport};
+mod scope;
 mod snapshot;
 pub use snapshot::InterpreterSnapshot;
 mod memory;
@@ -259,6 +262,14 @@ pub(crate) struct Runtime {
 }
 
 impl Runtime {
+    pub(crate) fn lifecycle(&self) -> Arc<std::sync::atomic::AtomicU8> {
+        self.wakeup.lifecycle()
+    }
+
+    pub(crate) fn invalidate(&self) {
+        self.wakeup.invalidate();
+    }
+
     pub(crate) fn retire(&self) {
         self.wakeup.retire();
     }
@@ -279,7 +290,7 @@ impl Runtime {
         self.starts
             .try_send(start)
             .context("Python invocation admission is full or closed")?;
-        self.notify();
+        self.wakeup.admit();
         Ok(())
     }
 
@@ -287,15 +298,18 @@ impl Runtime {
         &self,
         invocation: u64,
         operation: u64,
-        value: String,
+        output: (String, Option<Vec<u8>>),
         observation: telemetry::Operation,
     ) -> Result<()> {
+        let (value, body) = output;
+        let charge = crate::values::envelope_size(value.len(), body.as_ref().map_or(0, Vec::len))?;
         self.replies
             .try_send(Reply {
                 invocation,
                 operation,
-                reservation: self.budget.reserve(value.len())?,
+                reservation: self.budget.reserve(charge)?,
                 value,
+                body,
                 observation,
             })
             .context("Python result channel is full or closed")?;
@@ -308,6 +322,7 @@ struct Reply {
     invocation: u64,
     operation: u64,
     value: String,
+    body: Option<Vec<u8>>,
     reservation: Reservation,
     observation: telemetry::Operation,
 }
@@ -318,15 +333,31 @@ struct Inbox {
     replies: Mutex<mpsc::Receiver<Reply>>,
     done: Arc<AtomicBool>,
     runtime: Arc<Runtime>,
+    scope: Option<scope::CallerScope>,
 }
 
 type StartDelivery = (u64, Py<PyString>, Py<PyBytes>, Py<InvocationBridge>);
-type ReplyDelivery = (u64, u64, Py<PyString>);
+type ReplyDelivery = (u64, u64, Py<PyString>, Option<Py<PyBytes>>);
 
 #[pymethods]
 impl Inbox {
-    fn take_retirements(&self) -> bool {
-        self.runtime.wakeup.take_retirements()
+    fn __traverse__(&self, visit: pyo3::PyVisit<'_>) -> Result<(), pyo3::PyTraverseError> {
+        if let Some(scope) = &self.scope {
+            scope.traverse(&visit)?;
+        }
+        Ok(())
+    }
+
+    fn __clear__(&mut self) {
+        self.scope = None;
+    }
+
+    fn take_lifecycle(&self) -> u8 {
+        self.runtime.wakeup.take_lifecycle()
+    }
+
+    fn pump_needed(&self) -> bool {
+        self.runtime.wakeup.pump_needed()
     }
 
     fn wakeup_fd(&self) -> i32 {
@@ -368,11 +399,11 @@ impl Inbox {
             .ok();
         next.map(|mut start| {
             let _reservation = start.reservation;
-            start.bridge.event_loop = Some(
-                py.import("asyncio")?
-                    .call_method0("get_running_loop")?
-                    .unbind(),
-            );
+            let scope = self.scope.as_ref().ok_or_else(|| {
+                pyo3::exceptions::PyRuntimeError::new_err("Python caller scope cleared")
+            })?;
+            start.bridge.event_loop = Some(scope.running_loop(py)?.unbind());
+            start.bridge.scope = Some(scope.clone_ref(py));
             let bridge = Py::new(py, start.bridge)?;
             let payload = PyString::new(py, &start.payload).unbind();
             // Copy on the interpreter thread. No borrowed native buffer or
@@ -401,9 +432,12 @@ impl Inbox {
             .map(|reply| {
                 let _reservation = reply.reservation;
                 let payload = PyString::new(py, &reply.value).unbind();
-                self.runtime.budget.copied_output(reply.value.len());
+                self.runtime
+                    .budget
+                    .copied_output(reply.value.len() + reply.body.as_ref().map_or(0, Vec::len));
+                let body = reply.body.map(|body| PyBytes::new(py, &body).unbind());
                 reply.observation.delivered();
-                (reply.invocation, reply.operation, payload)
+                (reply.invocation, reply.operation, payload, body)
             })
             .collect())
     }
@@ -487,6 +521,7 @@ impl PythonRuntime {
     {
         options.validate()?;
         source.validate()?;
+        source.validate_initial_reads(options.max_batch_operations)?;
         initialization::ensure_main_thread()?;
         inventory::verify(&options, &source)
             .map_err(|_| anyhow::anyhow!("Python runtime inventory verification failed"))?;
@@ -556,6 +591,7 @@ impl PythonRuntime {
             let modules = py.import("sys")?.getattr("modules")?;
             let facade = PyModule::from_code(py, &CString::new(FACADE)?, c"cellar.py", c"cellar")?;
             modules.set_item("cellar", &facade)?;
+            let scope = scope::CallerScope::capture(py, &facade)?;
             let runner = PyModule::from_code(
                 py,
                 &CString::new(RUNNER)?,
@@ -597,6 +633,7 @@ impl PythonRuntime {
                         replies: Mutex::new(replies_rx),
                         done: done.clone(),
                         runtime: runtime.clone(),
+                        scope: Some(scope),
                     },
                 )?;
                 let application = Arc::new(PythonApplication::new(runtime.clone(), source));

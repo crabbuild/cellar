@@ -28,6 +28,8 @@ mod fencing;
 #[path = "../../cellar/tests/support/html.rs"]
 #[allow(dead_code)]
 mod fixture;
+#[path = "support/initial_reads.rs"]
+mod initial_reads;
 #[path = "support/lifetimes.rs"]
 mod lifetimes;
 #[path = "support/limits.rs"]
@@ -40,6 +42,10 @@ mod privacy;
 mod proof_authority;
 #[path = "support/python_control.rs"]
 mod python_control;
+#[path = "support/queue_lost_ack.rs"]
+mod queue_lost_ack;
+#[path = "support/queue_observation.rs"]
+mod queue_observation;
 #[path = "support/routing.rs"]
 mod routing;
 #[path = "support/schedule_recovery.rs"]
@@ -226,6 +232,9 @@ fn main() -> Result<()> {
     if mode == "--runtime-contract" {
         return contract();
     }
+    if mode == "--runtime-initial-reads" {
+        return initial_reads::child();
+    }
     if mode == "--runtime-wakeups" {
         return wakeups::child();
     }
@@ -295,6 +304,9 @@ fn main() -> Result<()> {
     }
     if mode == "--runtime-binding-faults" {
         return binding_faults::child();
+    }
+    if mode == "--runtime-queue-lost-ack" {
+        return queue_lost_ack::child();
     }
     if mode == "--runtime-limits" {
         return limits::child();
@@ -464,7 +476,9 @@ fn main() -> Result<()> {
         "--runtime-schedules",
         "--runtime-schedule-recovery",
         "--runtime-binding-faults",
+        "--runtime-queue-lost-ack",
         "--runtime-limits",
+        "--runtime-initial-reads",
         "--runtime-cycles",
         "--runtime-cycles-fence",
         "--runtime-cycles-inner-cancel",
@@ -614,6 +628,7 @@ fn contract() -> Result<()> {
                 ensure!(response_json::<u32>(call("/duplicate-alarm").send().await?).await? == 1);
                 ensure!(response_json::<bool>(call("/generator").send().await?).await?);
                 ensure!(call("/atomic").send().await?.error_for_status().context("atomic storage")?.json::<bool>().await?);
+                ensure!(response_json::<bool>(call("/read-batch").send().await?).await?);
                 ensure!(call("/batch-validation").send().await?.error_for_status().context("batch validation")?.json::<bool>().await?);
                 ensure!(call("/protocol-validation").send().await?.error_for_status().context("protocol validation")?.json::<bool>().await?);
                 ensure!(response_json::<bool>(call("/unawaited").send().await?).await?);
@@ -851,6 +866,7 @@ fn lifecycle_mode(mode: &str) -> Result<()> {
                 | "--runtime-routing"
                 | "--runtime-bindings"
                 | "--runtime-delivery"
+                | "--runtime-queue-lost-ack"
                 | "--runtime-schedules"
                 | "--runtime-lifetimes"
                 | "--runtime-lifetimes-close"
@@ -939,6 +955,12 @@ async fn context_isolation(client: &reqwest::Client, holder: &str, other: &str) 
             .await?
             .json()
             .await?;
+        let rebound: Value = client
+            .get(format!("{other}/scope-rebound"))
+            .send()
+            .await?
+            .json()
+            .await?;
         client
             .get(format!("{other}/scope-release"))
             .send()
@@ -951,6 +973,10 @@ async fn context_isolation(client: &reqwest::Client, holder: &str, other: &str) 
         ensure!(
             direct == json!({"refused":true,"code":"ContextMismatch"}),
             "native sender crossed domains: {direct}"
+        );
+        ensure!(
+            rebound == json!({"refused":true,"code":"ContextMismatch"}),
+            "rebound module attribute replaced native caller identity: {rebound}"
         );
         Ok::<_, anyhow::Error>(())
     };

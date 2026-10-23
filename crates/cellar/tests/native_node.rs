@@ -11,6 +11,8 @@ mod node_assets;
 mod node_events;
 #[path = "support/node_http.rs"]
 mod node_http;
+#[path = "support/node_preserve.rs"]
+mod node_preserve;
 use anyhow::{ensure, Context as _, Result};
 use cellar::bucket::Bucket;
 use cellar::engine_api::HttpResponse;
@@ -26,12 +28,14 @@ struct Executor(Option<tokio::runtime::Runtime>);
 
 impl Executor {
     fn new(label: &str) -> Result<Self> {
-        // Keep renewal timing and fencing evidence in failed fleet tests.
+        // Keep renewal and readback timing in failed fleet tests. CAS timing
+        // alone cannot show whether ambiguity reconciliation reached the store
+        // before the authority deadline.
         static TRACE: std::sync::Once = std::sync::Once::new();
         TRACE.call_once(|| {
             let _ = tracing_subscriber::fmt()
                 .with_env_filter(
-                    "cellar::actor::effects=info,cellar::actor=warn,cellar::node::driver=info",
+                    "cellar::actor::effects=info,cellar::actor=warn,cellar::node::driver=info,store=debug",
                 )
                 .with_ansi(false)
                 .with_test_writer()

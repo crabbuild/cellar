@@ -32,6 +32,10 @@ data volume and workload identical when comparing builds. See the
 
 ## Fleet validation
 
+The [Python fleet fixture](../python/fleet.md) runs the same counter, host,
+load generator and recovery scenarios with embedded CPython. It includes a
+small functional S3 test and a resource-controlled native/Python comparison.
+
 For revision comparisons, record native executable hashes as well as source and
 image digests. Archived source retains old timestamps; a shared Cargo target
 cache can otherwise reuse a newer executable. The performance Dockerfiles

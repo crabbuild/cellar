@@ -544,6 +544,7 @@ dependencies = [
  "pyo3",
  "pyo3-build-config",
  "reqwest",
+ "rusqlite",
  "serde",
  "serde_json",
  "sha2",

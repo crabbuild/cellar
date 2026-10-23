@@ -13,6 +13,8 @@ async def fetch(request, ctx):
                               "gil_enabled": sys._is_gil_enabled()})
     if request.path == "/echo" and request.method == "POST":
         return Response(request.body, headers=[("content-type", "application/octet-stream")])
+    if request.path == "/cell-echo" and request.method == "POST":
+        return await ctx.namespace("ENTITIES").get_by_name("echo").fetch(request)
     if request.path == "/defaults/cpu":
         return Response.json({"value": sum((index ^ 7) % 97 for index in range(2000))})
     if request.path.startswith("/defaults/held/"):
@@ -45,6 +47,8 @@ async def fetch(request, ctx):
 
 class Entity:
     async def fetch(self, request, ctx):
+        if request.path == "/cell-echo" and request.method == "POST":
+            return Response(request.body, headers=[("content-type", "application/octet-stream")])
         previous = await ctx.storage.read_json("count")
         value = previous.value if previous.present else 0
         if request.method == "POST":

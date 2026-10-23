@@ -303,7 +303,8 @@ async fn peer_traffic_waits_until_all_local_groups_attach() -> anyhow::Result<()
         .bootstrap_member(&births[0], &remote.log)
         .await?
         .attach(&remote.runtime)
-        .await?;
+        .await
+        .context("attach remote startup member")?;
     remote.transport.install_group(membership::route(
         &remote.log.group(&first)?,
         &births[0],
@@ -386,20 +387,22 @@ async fn peer_traffic_waits_until_all_local_groups_attach() -> anyhow::Result<()
             .map_err(|error| anyhow::anyhow!("startup failed: {error:#}"))?;
         for scope in [&first, &second] {
             anyhow::ensure!(host.cell(scope.namespace, &scope.cell).is_ok());
-            // Startup is complete, but this one-slot runtime is now shared
-            // with the host's own status work. Retain the successful-status
-            // assertion and bound only retries of this read-only admission.
-            tokio::time::timeout(Duration::from_secs(5), async {
+            // The active host's background inspection shares this fixture's
+            // single request slot. Read-only overload is temporary contention,
+            // not evidence that startup failed to attach the group.
+            tokio::time::timeout(Duration::from_secs(3), async {
                 loop {
                     match local.runtime.status(scope).await {
                         Err(RuntimeError::Overloaded) => {
-                            tokio::time::sleep(Duration::from_millis(2)).await;
+                            tokio::time::sleep(Duration::from_millis(10)).await;
                         }
                         result => return result,
                     }
                 }
             })
-            .await??;
+            .await
+            .with_context(|| format!("startup status deadline for {}", scope.cell))?
+            .with_context(|| format!("inspect attached startup group {}", scope.cell))?;
         }
         let mut message = Message {
             from: 2,

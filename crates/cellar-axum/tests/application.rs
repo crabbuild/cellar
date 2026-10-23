@@ -9,10 +9,78 @@ use axum::{
     routing::get,
     Router,
 };
-use cellar::sdk::{Cell, Context, HandlerFuture, Invocation, Output};
-use cellar_axum::{ApplicationBuilder, ApplicationDefinition, AxumCell, CellContext};
+use cellar::sdk::{Application, Cell, CellIdentity, Context, HandlerFuture, Invocation, Output};
+use cellar_axum::{
+    ApplicationBuilder, ApplicationDefinition, AxumApplication, AxumCell, CellContext,
+};
 use std::sync::Arc;
 use tokio::sync::Notify;
+
+struct FetchOnly;
+
+impl Application for FetchOnly {
+    fn validate_configuration(
+        &self,
+        options: &cellar::engine_api::WorkerConfigOptions,
+    ) -> Result<()> {
+        ensure!(options.do_classes == ["Counter"], "unregistered class");
+        Ok(())
+    }
+
+    fn validate_deployment(&self, deployment: &cellar::fleet::LoadedDeployment) -> Result<()> {
+        self.validate_configuration(&deployment.options)?;
+        ensure!(
+            deployment.crons.is_empty(),
+            "scheduled handler is not registered"
+        );
+        Ok(())
+    }
+
+    fn invoke(self: Arc<Self>, _: Context, _: Invocation) -> HandlerFuture<Output> {
+        Box::pin(async { anyhow::bail!("validation must not invoke handlers") })
+    }
+
+    fn supports_cell(&self, class: &str) -> bool {
+        class == "Counter"
+    }
+
+    fn create_cell(&self, _: Context, _: &CellIdentity) -> Result<Arc<dyn Cell>> {
+        anyhow::bail!("validation must not construct cells")
+    }
+}
+
+#[test]
+fn http_wrapper_preserves_delegate_deployment_validation() -> Result<()> {
+    let application = AxumApplication::with_application(Router::new(), Arc::new(FetchOnly));
+    let mut graph = support::graph();
+    application.validate_deployment(&graph.primary)?;
+    graph.primary.crons.push("* * * * *".into());
+    let error = application
+        .validate_deployment(&graph.primary)
+        .expect_err("wrapping HTTP must not admit schedules rejected by the application delegate");
+    ensure!(error.to_string() == "scheduled handler is not registered");
+    graph.primary.crons.clear();
+    graph.primary.options.do_classes.clear();
+    let error = application
+        .validate_deployment(&graph.primary)
+        .expect_err("deployment validation must retain the delegate's configuration requirements");
+    ensure!(error.to_string() == "unregistered class");
+    Ok(())
+}
+
+#[test]
+fn deployment_validation_retains_gateway_binding_requirements() -> Result<()> {
+    let application = ApplicationBuilder::default()
+        .cell("Counter", |_, _| Ok(Arc::new(AxumCell::new(Router::new()))))?
+        .cell_route("/counters/{name}", "COUNTERS", "Counter", "name")?
+        .build()?
+        .instantiate()?;
+    let mut graph = support::graph();
+    application.validate_deployment(&graph.primary)?;
+    graph.primary.options.bindings.clear();
+    ensure!(application.validate_deployment(&graph.primary).is_err());
+    Ok(())
+}
 
 async fn auth(request: axum::extract::Request, next: Next) -> Response {
     if request

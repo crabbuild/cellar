@@ -1148,6 +1148,29 @@ where
         flush_connections,
     )
     .await;
+    // Retaining shutdown must publish each resident cell's final per-cell
+    // position before the log seal scans retained bundles. Bundle credits prove
+    // bucket durability, but do not satisfy the seal's per-cell coverage guard.
+    // Admission and application work are already drained; the certificate is
+    // still withheld until the subsequent durability quiesce succeeds.
+    let prepared_reload = if drained && shutdown_mode == ShutdownMode::Preserve {
+        let presence = before_process_deadline(process_deadline, app.presence()).await;
+        match (&app.runtime, presence) {
+            (Some(runtime), Some(Some(presence))) => {
+                before_process_deadline(
+                    process_deadline,
+                    runtime.prepare_clean_reload(&presence.cells),
+                )
+                .await
+            }
+            (_, Some(None)) | (None, Some(Some(_))) => Some(Err(anyhow::anyhow!(
+                "clean reload requires a runtime and a resident snapshot"
+            ))),
+            (_, None) => None,
+        }
+    } else {
+        None
+    };
     // The graceful-shutdown drain point: seal our node-log record so the
     // next incarnation starts with no gather. Guarded inside — it seals
     // only when every shipped frame is bucket-covered.
@@ -1177,21 +1200,7 @@ where
     // to reconcile the preserved files against bucket coverage.
     let mut clean_reload_prepared = false;
     if clean_reload_is_eligible(durability_quiesced, drained, shutdown_mode) {
-        let presence = before_process_deadline(process_deadline, app.presence()).await;
-        let prepared = match (&app.runtime, presence) {
-            (Some(runtime), Some(Some(presence))) => {
-                before_process_deadline(
-                    process_deadline,
-                    runtime.prepare_clean_reload(&presence.cells),
-                )
-                .await
-            }
-            (_, Some(None)) | (None, Some(Some(_))) => Some(Err(anyhow::anyhow!(
-                "clean reload requires a runtime and a resident snapshot"
-            ))),
-            (_, None) => None,
-        };
-        match prepared {
+        match prepared_reload {
             Some(Ok(pruned)) => {
                 match before_process_deadline(process_deadline, app.healthy()).await {
                     Some(true) => match crate::runtime::write_clean_reload_marker(

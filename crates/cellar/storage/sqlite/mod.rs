@@ -25,6 +25,8 @@ mod event_schema;
 mod identity_tests;
 mod immutable;
 pub(crate) mod inbox;
+#[cfg(test)]
+mod json_reads_tests;
 pub use immutable::{open_immutable_generation, ImmutableQuery, ImmutableQueryOptions};
 pub(crate) mod outbox;
 pub(crate) mod outbox_control;
@@ -1525,6 +1527,22 @@ fn stored_value(value: rusqlite::types::ValueRef<'_>) -> StoredValue {
             StoredValue::Json(String::from_utf8_lossy(bytes).into_owned())
         }
         value => StoredValue::Json(vref_to_json(value).to_string()),
+    }
+}
+
+// Decode while the row is borrowed. Valid UTF-8 stays borrowed rather than
+// copying the complete persisted JSON text before allocating the parsed value.
+fn stored_json(value: rusqlite::types::ValueRef<'_>) -> anyhow::Result<serde_json::Value> {
+    match value {
+        rusqlite::types::ValueRef::Text(bytes) => {
+            Ok(serde_json::from_str(&String::from_utf8_lossy(bytes))?)
+        }
+        rusqlite::types::ValueRef::Blob(_) => {
+            anyhow::bail!("stored value is a structured clone; use get_clone")
+        }
+        // Keep the existing JSON conversion for non-text SQLite scalars,
+        // including floating-point canonicalization and non-finite values.
+        value => Ok(serde_json::from_str(&vref_to_json(value).to_string())?),
     }
 }
 
@@ -3445,6 +3463,19 @@ pub fn get_stored(scope: &str, key: &str) -> anyhow::Result<Option<StoredValue>>
             .query_row([scope, key], |row| Ok(stored_value(row.get_ref(0)?)))
             .optional()
             .map_err(Into::into)
+    })
+    .unwrap_or_else(|| Err(anyhow::anyhow!("no db for {scope}")))
+}
+
+/// Read JSON without retaining an owned copy of the persisted text.
+/// Parsing is synchronous under the original cell turn; no row borrow escapes.
+pub(crate) fn get_json_value(scope: &str, key: &str) -> anyhow::Result<Option<serde_json::Value>> {
+    with(scope, |connection| {
+        connection
+            .prepare_cached(KV_GET_SQL)?
+            .query_row([scope, key], |row| Ok(stored_json(row.get_ref(0)?)))
+            .optional()?
+            .transpose()
     })
     .unwrap_or_else(|| Err(anyhow::anyhow!("no db for {scope}")))
 }

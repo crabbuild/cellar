@@ -216,6 +216,7 @@ pub enum CallAttempt {
         addr: String,
         epoch: Epoch,
         peer_protocol: u16,
+        capacity_sample_ms: Option<u64>,
         payload: CallPayload,
     },
 }
@@ -309,11 +310,13 @@ pub async fn dispatch_call_attempt(
             addr,
             epoch,
             peer_protocol,
+            capacity_sample_ms,
         } => CallAttempt::Remote {
             node,
             addr,
             epoch,
             peer_protocol,
+            capacity_sample_ms,
             payload,
         },
     }

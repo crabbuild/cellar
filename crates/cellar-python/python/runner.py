@@ -1,5 +1,7 @@
 """One interpreter and asyncio loop; no Cellar operations run on this thread."""
 import asyncio
+from collections import deque
+from functools import partial
 import inspect
 import json
 import resource
@@ -96,7 +98,7 @@ async def _invoke(module, objects, payload, body, bridge, context, stats, maximu
                 if len(objects) >= maximum:
                     stats["budget_exhaustions"] += 1
                     raise RuntimeError("Cellar Python object capacity exhausted")
-                objects[key] = (getattr(module, payload["class"])(), bridge)
+                objects[key] = (getattr(module, payload["class"])(), bridge.owner_lifetime())
                 stats["objects_created"] += 1
             target = objects[key][0]
         kind, value = payload["kind"], payload["event"]
@@ -131,7 +133,7 @@ async def _invoke(module, objects, payload, body, bridge, context, stats, maximu
         elapsed = time.perf_counter_ns() - started
         metrics["handler_wall_ns_sum"] += elapsed
         metrics["handler_wall_ns_max"] = max(metrics["handler_wall_ns_max"], elapsed)
-        context._close()
+        context._close(finished=True)
         _current_invocation.reset(token)
 
 
@@ -146,23 +148,68 @@ def _observe_delay(histogram, ns):
 
 async def _serve(module, inbox, interval, shutdown, stats, maximum, telemetry, sample):
     invocations, objects = {}, {}
+    completed_invocations = deque()
     loop = asyncio.get_running_loop()
     ready = asyncio.Event()
     descriptor = inbox.wakeup_fd()
 
+    def deliver_replies():
+        # Keep delivery locals out of the long-lived pump frame so a completed
+        # or cancelled task cannot retain its cell until the next native reply.
+        for invocation, operation, result, body in inbox.replies():
+            entry = invocations.get(invocation)
+            if entry:
+                if entry[2].active():
+                    entry[1]._reply(operation, result, body)
+                else:
+                    entry[0].cancel()
+
     def readable():
         try:
             inbox.drain_wakeup()
-        finally:
+            # Queue SDK continuations before waking the admission pump. Host
+            # operations still run in their original native invocation futures.
+            done = inbox.done()
+            if not done and not any(_failures.values()):
+                deliver_replies()
+            # Replies resume their own tasks. Completion callbacks release
+            # those tasks; admissions and revocations have native dirty hints.
+            # Avoid rebuilding the admission pump's timer for every SDK reply.
+            if done or any(_failures.values()) or inbox.pump_needed():
+                ready.set()
+        except BaseException:
             ready.set()
+            raise
 
-    def completed(task):
+    def completed(invocation, task):
+        completed_invocations.append(invocation)
         ready.set()
+
+    def release_completed():
+        # A short-lived frame releases task/context references before waiting.
+        while completed_invocations:
+            invocation = completed_invocations.popleft()
+            entry = invocations.get(invocation)
+            if entry and not entry[0].cancelled():
+                error = entry[0].exception()
+                if error:
+                    # Keep failed cleanup registered for the final close pass.
+                    raise error
+            invocations.pop(invocation, None)
+
+    def cancel_invalidated():
+        for task, _, bridge in invocations.values():
+            if not task.done() and not bridge.active():
+                task.cancel()
 
     def observe_ready(expected):
         _observe_delay(stats["interpreter"]["loop_delay"], max(0, time.perf_counter_ns() - expected))
 
+    timer = None
+
     def deadline_ready(expected):
+        nonlocal timer
+        timer = None
         observe_ready(expected)
         ready.set()
 
@@ -178,18 +225,16 @@ async def _serve(module, inbox, interval, shutdown, stats, maximum, telemetry, s
     try:
         while not inbox.done():
             ready.clear()
+            # Consume hints before the queues: publication during admission
+            # must survive for the next readiness callback, including when a
+            # producer enqueues just after take() observes an empty queue.
+            lifecycle = inbox.take_lifecycle()
             now = time.perf_counter_ns()
             if any(_failures.values()):
                 stats["runtime_failed"] = True
                 inbox.stop()
                 break
-            for invocation, operation, result in inbox.replies():
-                entry = invocations.get(invocation)
-                if entry:
-                    entry[1]._reply(operation, result)
-                # A cancelled task can retain its cell through its traceback.
-                # An idle pump may receive no later reply to overwrite entry.
-                del entry, result
+            deliver_replies()
             # Rejections free native admission immediately. A continuously
             # replenished inbox must still yield to replies, timers and cleanup.
             for _ in range(64):
@@ -199,7 +244,7 @@ async def _serve(module, inbox, interval, shutdown, stats, maximum, telemetry, s
                 invocation, payload, body, bridge = start
                 del start
                 payload = json.loads(payload)
-                context = Context(bridge, payload["identity"])
+                context = Context(bridge, payload["identity"], payload.get("initial_storage"))
                 try:
                     # The managed factory checks all live tasks, including
                     # application-created ones, immediately before construction.
@@ -211,39 +256,41 @@ async def _serve(module, inbox, interval, shutdown, stats, maximum, telemetry, s
                     try:
                         bridge.complete('"Python task capacity exhausted"', True)
                     finally:
-                        context._close()
+                        context._close(finished=True)
                         _current_invocation.reset(token)
                     del context, bridge, payload, body
                     continue
-                if not task.done():
-                    task.add_done_callback(completed)
+                if task.done() and not task.cancelled() and task.exception() is None:
+                    # Eager completion already ran _invoke's context cleanup.
+                    # Release it before admitting another request. Failed
+                    # cleanup stays registered for the supervisor's final pass.
+                    del task, context, bridge, payload, body
+                    continue
                 invocations[invocation] = (task, context, bridge)
+                if task.done():
+                    completed_invocations.append(invocation)
+                else:
+                    task.add_done_callback(partial(completed, invocation))
                 del task, context, bridge, payload, body
             else:
                 # Defer the continuation so ready.wait() actually yields. No
                 # additional native notification is required for queued starts.
                 loop.call_soon(ready.set)
-            for invocation, (task, context, bridge) in tuple(invocations.items()):
-                if not bridge.active() and not task.done():
-                    task.cancel()
-                if task.done():
-                    # Retrieve exceptions, including failures while delivering a completion.
-                    if not task.cancelled():
-                        error = task.exception()
-                        if error:
-                            raise error
-                    invocations.pop(invocation)
-                # Registry removal must also release this iteration's strong
-                # references; an empty next iteration cannot overwrite them.
-                del task, context, bridge
+            release_completed()
+            # Ordinary admissions and replies do not revoke authority. Consume
+            # native invalidation hints before scanning so concurrent revocation
+            # remains visible on the next pass. Every SDK call and reply still
+            # checks its own invocation authority.
+            if lifecycle & 1:
+                cancel_invalidated()
             # Native owner drops publish a bounded dirty hint after revoking
             # authority. Consume it before scanning so a concurrent drop is
             # retained for another pass. _invoke checks authority before object
             # construction and does not yield before registering the object;
             # a queued invocation cannot register after consuming its own
             # retirement hint. SDK calls still check authority individually.
-            retiring = ([key for key, (_, bridge) in objects.items() if not bridge.owner_active()]
-                        if inbox.take_retirements() else [])
+            retiring = ([key for key, (_, owner) in objects.items() if not owner.active()]
+                        if lifecycle & 2 else [])
             if retiring:
                 # Publish before destructors can block. Rust can observe a stale
                 # snapshot with pending cleanup without acquiring the GIL.
@@ -254,18 +301,21 @@ async def _serve(module, inbox, interval, shutdown, stats, maximum, telemetry, s
             if now >= next_sample:
                 publish_work()
                 next_sample = now + int(telemetry * 1_000_000_000)
-            delay = min(interval, max(0, (next_sample - time.perf_counter_ns()) / 1_000_000_000))
             # Queue the checkpoint after resumed tasks, using the start of this
             # pump turn to include inline handler work. Host I/O awaits yield
             # the loop and do not contribute their elapsed wait to this sample.
             loop.call_soon(observe_ready, now)
-            now = time.perf_counter_ns()
-            timer = loop.call_later(delay, deadline_ready, now + int(delay * 1_000_000_000))
-            try:
-                await ready.wait()
-            finally:
-                timer.cancel()
+            # Native readiness does not extend housekeeping's deadline. Retain
+            # its one handle until it fires instead of cancelling/reallocating
+            # a timer for every admission, completion and SDK reply.
+            if timer is None:
+                now = time.perf_counter_ns()
+                delay = min(interval, max(0, (next_sample - now) / 1_000_000_000))
+                timer = loop.call_later(delay, deadline_ready, now + int(delay * 1_000_000_000))
+            await ready.wait()
     finally:
+        if timer is not None:
+            timer.cancel()
         # The runtime retains the descriptor until the loop has removed it.
         loop.remove_reader(descriptor)
         # Includes child tasks created directly by application code. Awaiting is

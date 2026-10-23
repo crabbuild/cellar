@@ -227,6 +227,20 @@ async def fetch(request, ctx):
             return Response.json({"refused": False})
         except RuntimeError as error:
             return Response.json({"refused": True, "code": str(error)})
+    if request.path == "/scope-rebound":
+        import cellar
+        from types import SimpleNamespace
+        original = cellar._current_invocation
+        # Rebinding an exported Python name must not replace the native
+        # bridge's bootstrap-owned source of caller identity.
+        cellar._current_invocation = SimpleNamespace(get=lambda: live_context._bridge)
+        try:
+            live_context._bridge.submit(999998, "var", '{"name":"DOMAIN_MARKER"}')
+            return Response.json({"refused": False})
+        except RuntimeError as error:
+            return Response.json({"refused": True, "code": str(error)})
+        finally:
+            cellar._current_invocation = original
     if request.path == "/expire":
         if saved is None:
             saved = ctx
@@ -372,6 +386,31 @@ class Counter:
         if request.path == "/fence-state":
             return Response.json({"count": await storage.get_json("count"),
                                   "late": (await storage.read_json("fenced-write")).present})
+        if request.path == "/read-batch":
+            await storage.apply(puts={"read-null": None, "é\"": "☃"})
+            assert await storage.read_json_many([]) == {}
+            values = await storage.read_json_many(["read-missing", "read-null", "é\"", "read-null"])
+            assert values["read-missing"] == MISSING
+            assert values["read-null"].present and values["read-null"].value is None
+            assert values["é\""].value == "☃" and len(values) == 3
+            await storage.apply(checks={"read-null": values["read-null"]}, puts={"read-null": 1})
+            for payload in ({}, {"keys": "a"}, {"keys": ["a", 1]},
+                            {"keys": [], "extra": True}, {"keys": ["same"] * 5}):
+                try:
+                    await ctx._call("storage.read_many", **payload)
+                except ValidationError as error:
+                    assert error.outcome == "not_committed"
+                else:
+                    raise AssertionError("invalid read batch accepted")
+            for invalid in ("abc", b"abc"):
+                try:
+                    await storage.read_json_many(invalid)
+                except ValidationError:
+                    pass
+                else:
+                    raise AssertionError("string accepted as key collection")
+            assert await storage.get_json("read-null") == 1
+            return Response.json(True)
         if request.path == "/batch-validation":
             original_alarm = await storage.get_alarm()
             try:
@@ -414,7 +453,9 @@ class Counter:
             await storage.delete_alarm()
             return Response.json(True)
         if request.path == "/native-conflict":
-            snapshot = await storage.read_json("native-conflict")
+            original = await storage.read_json("native-conflict")
+            snapshot = (await storage.read_json_many(["native-conflict"]))["native-conflict"]
+            assert snapshot == original
             native_snapshot_ready.set()
             await native_snapshot_release.wait()
             try:

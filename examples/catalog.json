@@ -260,6 +260,14 @@
       "route": "/orders/order-42",
       "status": "requires-python-runtime",
       "guide": "python-fastapi/README.md"
+    },
+    {
+      "name": "python-agent",
+      "project": "python-agent/project.json",
+      "source": "python-agent/app.py",
+      "route": "/agents/demo",
+      "status": "requires-python-runtime",
+      "guide": "python-agent/README.md"
     }
   ]
 }
