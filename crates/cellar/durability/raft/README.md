@@ -728,7 +728,17 @@ and tail uploads can share a content-addressed bundle under the namespace archiv
 prefix. A bundle is at most 8 MiB including its bounded index, and also fits each
 member's object limit. The coordinator uses a 5 ms coalescing deadline for a
 second ready payload; lone or large objects use direct publication. Dependencies, manifests
-and conditional heads remain separate. Successful cuts with newer backlog become
+and conditional heads remain separate. Each cut delivers its own fully verified
+completion and releases its capture reservation as soon as that member's physical
+publication returns. The host releases its producer slot only after consuming
+that notification; a slow or failed partner cannot retain an already completed
+cut's slot or revoke its proof. Member futures remain polled while the one bounded
+upload flush is pending. Members using that flush still await the reply sent
+only after its physical upload and confirmation return. The batch job remains
+owned and joined through
+all remaining members, including shutdown. The public `publish_batch` API still
+returns input-ordered results after joining the batch. The batch-duration metric
+also retains that full-owner boundary. Successful cuts with newer backlog become
 eligible immediately; failed attempts retain the configured retry delay.
 
 The marker-1 index binds cluster, namespace, cell, group, incarnation, namespace

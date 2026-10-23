@@ -1,6 +1,9 @@
 # TiKV comparison and Cellar performance investigation
 
-Status: PR #98's conflicts are resolved through main `1455fb0`. The fresh
+Status: PR #98's conflicts are resolved through main `1455fb0`. The new archive
+completion candidate passes local qualification: 521 library, 53 archive, 29 host
+and nine multi-group tests, strict Clippy and repository checks. Fresh sustained
+three-node performance is still pending. The previous fresh
 control-frame gathering comparison is complete: candidate `3ceba4e` has 18.71%
 lower mean successful TPS and misses the 500-ms p99 gate in its first window.
 The control has 1,910 overload refusals. Both verify exact 4,500-replica /
@@ -8,6 +11,66 @@ The control has 1,910 overload refusals. Both verify exact 4,500-replica /
 the existing per-reply sliding control window remains. No repeatable performance
 gain is claimed. Two-cell archive batching remains the production default after
 the separate singleton experiment reduced mean TPS by 20.01%.
+
+## Independent completion within archive bundles
+
+The next candidate preserves two-cell immutable uploads and separates completion
+from the remaining member's lifetime. The prior host retained both capture
+permits and all recovery results until the entire `publish_batch` returned,
+even when one cell's physical verification and conditional head had finished.
+
+A shared real-engine/SQLite fixture now exercises the production host publication
+adapter directly. Two cuts share one bundle; one head write is held before CAS.
+The baseline fails with “verified cut waited for unrelated held head” after five
+seconds. With per-cut completion, the other member reports its verified scope
+and releases only its own capture permit in 0.14 seconds; the held member keeps
+its permit. Both owners are released and joined even on a failed assertion.
+The companion cancellation case confirms the completed proof survives a stopped
+partner and all reservations are released. The first full library run exposed
+unowned fixture timers borrowing another test's shutting-down runtime; both
+cases now use an explicit execution domain without relaxing their assertions.
+The corrected library run passes 520 tests. The archive suite passes 52 of 53;
+its existing 500-ms retry test misses its attempt-count bound under the full
+load, then passes unchanged alone. This failure remains in the evidence and
+broader qualification is still in progress.
+
+A second regression holds a new upload while an already-covered member resumes
+reading and physically validating its own proof. It fails because the coordinator
+awaits `flush` without polling member futures. The candidate now polls completions
+beside the single owned flush. Members whose payloads use that flush still await
+the reply sent after physical upload/confirmation returns. No upload task is
+detached, and the pending partner retains its reservation. All three focused tests pass in 0.23 seconds. The final full suites pass 521
+library, 53 archive, 29 host and nine multi-group tests with four simultaneous
+test cases; one ignored multi-group case is the external harness child entry.
+Test-internal concurrency, deadlines and assertions are unchanged. Strict
+all-target/all-feature Clippy, formatting/layout across 873 Rust files, the native
+dependency policy and docs checks pass. Clippy required the domain-aware select
+macro and one shared fault-store module; both were fixed without suppressing the
+warnings. The final host-focused run passes 25 tests after those test-only edits.
+[Local qualification and retained failures](evidence/tikv-archive-completion-local.json)
+record the limits; sustained three-node performance remains unmeasured.
+
+[Storage preservation](evidence/tikv-archive-completion-preservation.json) verifies
+six stopped historical node volumes, their content/metadata, original Docker
+options and 18 read-only probes. All raw evidence, images and volume identities
+remain; fresh measured storage will use the original backing.
+
+The host keeps one bounded completion waiter per retained cut, plus the physical
+batch job in its existing joined job set. Only consuming a cut's completion frees
+that cell's in-flight slot and runs the existing local image/progress checks.
+Recovery sets are consumed before releasing their capture reservation. Every
+remaining member still owns its slot and reservation. A later batch/member
+failure does not revoke a proof already independently verified. Shutdown retains
+cancellation and joins the physical owner and all completion waiters. Public
+`publish_batch` results remain ordered and wait for the full batch; batch-duration
+metrics still measure that full lifetime. No byte, entry or producer limit changes.
+
+The relevant TiKV mechanism is shared I/O with per-region completion notification:
+`async_io/write.rs::write_to_db` notifies each `(region_id, peer_id, ready_number)`
+after the shared durable write. This is an analogy in ownership and notification,
+not a claim that TiKV implements Cellar's SQLite/RustFS archive path. Cellar still
+requires each independent archive head and physical recovery proof. Sustained
+TPS, p99, error rate and exact three-node recovery qualification remain pending.
 
 ## Gather already-queued control frames
 

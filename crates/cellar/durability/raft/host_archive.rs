@@ -21,7 +21,8 @@ pub struct RaftArchiveOptions {
     pub retry_ms: u64,
     /// Maximum distinct cells retained across capture, pending batches and
     /// publication (1..=4). Each slot retains its complete capture reservation
-    /// and bounded recovery sets until publication completes.
+    /// and bounded recovery sets until that cut's publication completes. A
+    /// finished cut releases independently of an unfinished bundle partner.
     /// Object I/O overlaps; physical replay shares one exclusive workspace.
     pub max_producers: usize,
     /// New callbacks reserve their maximum image/envelope size, reduced to the
@@ -111,54 +112,63 @@ pub(super) fn next_scope<'a, T>(
     next.map(|(scope, _)| scope)
 }
 
-pub(crate) async fn publish(captured: Vec<Captured>, verifier: ArchiveVerifier) -> Vec<Completed> {
-    let mut identities = Vec::with_capacity(captured.len());
-    let mut reservations = Vec::with_capacity(captured.len());
+pub(crate) async fn publish_each(
+    captured: Vec<Captured>,
+    verifier: ArchiveVerifier,
+    mut complete: impl FnMut(Completed),
+) -> bool {
+    let mut owners = Vec::with_capacity(captured.len());
     let inputs = captured
         .into_iter()
         .map(|capture| {
-            identities.push((capture.scope, capture.cut.position()));
-            reservations.push(capture.reservation);
+            owners.push(Some((
+                capture.scope,
+                capture.cut.position(),
+                capture.reservation,
+            )));
             (capture.archive, capture.cut)
         })
         .collect();
-    let result = CellArchive::publish_batch(inputs, &verifier).await;
-    let results = match result {
-        Ok(results) if results.len() == identities.len() => results,
-        Ok(_) => (0..identities.len())
-            .map(|_| Err(ArchiveError::Unconfirmed))
-            .collect(),
-        Err(error) => {
-            let mut error = Some(error);
-            (0..identities.len())
-                .map(|_| Err(error.take().unwrap_or(ArchiveError::Unconfirmed)))
-                .collect()
-        }
-    };
-    // The reservations remain owned through physical replay and every head CAS.
-    let completed = identities
-        .into_iter()
-        .zip(results)
-        .map(|((scope, position), result)| {
-            let result = result.and_then(|set| {
-                if set.scope() != &scope
-                    || set.position().index < position.index
-                    || set.position().index == position.index
-                        && set.position().term != position.term
-                {
-                    return Err(ArchiveError::Corrupt("archive output coverage"));
-                }
-                Ok(())
-            });
-            Completed {
-                scope,
-                position,
-                result,
+    let mut success = !owners.is_empty();
+    let result = CellArchive::publish_batch_each(inputs, &verifier, |number, result| {
+        let Some((scope, position, reservation)) = owners[number].take() else {
+            success = false;
+            return;
+        };
+        let result = result.and_then(|set| {
+            if set.scope() != &scope
+                || set.position().index < position.index
+                || set.position().index == position.index && set.position().term != position.term
+            {
+                return Err(ArchiveError::Corrupt("archive output coverage"));
             }
-        })
-        .collect();
-    drop(reservations);
-    completed
+            Ok(())
+        });
+        success &= result.is_ok();
+        // This member's physical future has returned and its recovery set was
+        // consumed above. Retain the partner's permit until its own completion.
+        drop(reservation);
+        complete(Completed {
+            scope,
+            position,
+            result,
+        });
+    })
+    .await;
+    // A batch-level failure cannot revoke results already verified and delivered.
+    // Complete each remaining owner exactly once after the batch future returns.
+    let mut error = result.err();
+    success &= error.is_none();
+    for (scope, position, reservation) in owners.into_iter().flatten() {
+        success = false;
+        drop(reservation);
+        complete(Completed {
+            scope,
+            position,
+            result: Err(error.take().unwrap_or(ArchiveError::Unconfirmed)),
+        });
+    }
+    success
 }
 
 impl Owner {
@@ -297,3 +307,7 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "host_archive_completion_tests.rs"]
+mod completion_tests;

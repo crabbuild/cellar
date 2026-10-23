@@ -1,0 +1,14 @@
+{
+  "completed": true,
+  "raw_record": ".cellar/raft-perf/diagnosis/archive-completion-cohort-preservation.json",
+  "raw_record_sha256": "954a146521f8fdaf0218fe2d2f15a9050404c7df9af8151e8b3fecf49552aae3",
+  "purpose": "Preserve two closed verified historical transport-comparison cohorts before further local validation and future measurements. Fresh node backing unchanged.",
+  "volumes": 6,
+  "readonly_probes": 18,
+  "content_and_metadata_verified": true,
+  "original_volume_options_verified": true,
+  "docker_inventory_unchanged": true,
+  "internal_free_before": 497635328,
+  "internal_free_after": 4954398720,
+  "external_free_after": 43260973056
+}

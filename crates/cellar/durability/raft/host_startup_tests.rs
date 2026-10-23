@@ -1,5 +1,6 @@
 //! A startup error owns infrastructure until actual file-lock release.
 #![allow(clippy::disallowed_methods)]
+use super::catalog_fault;
 use super::storage_fault as fault;
 use super::*;
 use crate::raft::{
@@ -132,10 +133,6 @@ async fn failed_preflight_joins_infrastructure_with_retained_handles() -> anyhow
     );
     Ok(())
 }
-
-#[allow(dead_code)]
-#[path = "../../tests/support/raft_catalog_fault.rs"]
-mod catalog_fault;
 
 struct StartupNode {
     root: tempfile::TempDir,

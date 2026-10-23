@@ -11,9 +11,9 @@
 
 #[path = "execution/select.rs"]
 mod tokio_select;
-// The retained externally supplied daemon conformance sources previously
-// ran in the binary and may name its library dependency explicitly.
-#[cfg(cellar_internal_tests)]
+// Shared physical test fixtures and externally supplied conformance sources
+// name the library explicitly, whether compiled inside it or as integration tests.
+#[cfg(any(test, cellar_internal_tests))]
 extern crate self as cellar;
 #[doc(hidden)]
 pub use tokio_select::__asyncrt_select_support;
