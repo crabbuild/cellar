@@ -25,8 +25,12 @@ def analyze(root, p99_limit_ms=200):
             latest[c] = item['response']['index']
     assert set(seeds) == set(range(report['cells']))
     windows = []
+    measured_files = set()
     for summary in report['measurements']:
-        raw = json.loads((root / summary.get('evidence_file', f"write-r{summary['repeat']}-c{summary['concurrency']}.json")).read_text())
+        path = (root / summary.get('evidence_file', f"write-r{summary['repeat']}-c{summary['concurrency']}.json")).resolve()
+        assert path not in measured_files, 'reused measurement evidence'
+        measured_files.add(path)
+        raw = json.loads(path.read_text())
         samples = sorted(raw['samples_ms'])
         assert len(samples) == len(raw['receipts']) == summary['successful_writes'] > 0
         assert summary['tps'] == len(samples) / raw['elapsed_seconds']

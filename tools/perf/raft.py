@@ -65,6 +65,15 @@ def wait_for_placement(total, balance, deadline, log, scan=parallel,
         sleep(2)
 
 
+def save_measurement(root, result, ordinal):
+    """Retain each window even when one sweep repeats a load setting."""
+    rate = result['offered_rate']
+    suffix = f'-q{rate:g}' if rate else ''
+    result['evidence_file'] = f"write-w{ordinal}-r{result['repeat']}-c{result['concurrency']}{suffix}.json"
+    with (root / result['evidence_file']).open('x') as stream:
+        stream.write(json.dumps(result) + '\n')
+
+
 def load(config, seconds, concurrency, rate=0):
     """Closed-loop HTTP/1.1 keepalive clients, no write retries."""
     stop = time.monotonic() + seconds
@@ -358,9 +367,7 @@ def main():
                         'python:3.12-slim','python','/work/raft.py','--load-config','/config/load.json',
                         '--seconds',str(args.seconds),'--concurrency',str(concurrency),'--rates',str(rate))
                     result=json.loads(raw);result['repeat']=repeat+1
-                    suffix=f'-q{rate:g}' if rate else ''
-                    result['evidence_file']=f'write-r{repeat+1}-c{concurrency}{suffix}.json'
-                    (root/result['evidence_file']).write_text(json.dumps(result)+'\n')
+                    save_measurement(root, result, len(report['measurements']) + 1)
                     for r in result.pop('receipts'):
                         c=r.pop('cell');expected[c]+=1
                         if r['index']>latest[c]['index']: latest[c]=r

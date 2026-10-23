@@ -42,6 +42,16 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual(self.run_evidence(self.fixture())['acknowledged_writes_including_seed'], 4)
         self.assertEqual(self.run_evidence(self.fixture())['best_observed_below_limit']['concurrency'], 1)
 
+    def test_two_windows_cannot_reuse_one_receipt_file(self):
+        evidence = self.fixture()
+        evidence['report.json']['measurements'].append(
+            copy.deepcopy(evidence['report.json']['measurements'][0]))
+        for replica in evidence['replica-verification.json']:
+            if replica['cell'] == 0:
+                replica['value'] = 3
+        with self.assertRaisesRegex(AssertionError, 'reused measurement evidence'):
+            self.run_evidence(evidence)
+
     def test_latency_limit_is_strict(self):
         evidence = self.fixture()
         evidence['write-r1-c1.json']['samples_ms'] = [200.0]
@@ -134,6 +144,23 @@ class PlacementTests(unittest.TestCase):
 
 
 class LoadTests(unittest.TestCase):
+    def test_repeated_settings_preserve_every_measurement(self):
+        from raft import save_measurement
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            first = {'repeat': 1, 'concurrency': 12, 'offered_rate': 0,
+                     'receipts': [{'command_id': 'first'}]}
+            last = {**first, 'receipts': [{'command_id': 'last'}]}
+            save_measurement(root, first, 1)
+            save_measurement(root, last, 3)
+            self.assertNotEqual(first['evidence_file'], last['evidence_file'])
+            self.assertEqual(json.loads((root / first['evidence_file']).read_text())['receipts'],
+                             [{'command_id': 'first'}])
+            with self.assertRaises(FileExistsError):
+                save_measurement(root, last, 3)
+            self.assertEqual(json.loads((root / last['evidence_file']).read_text())['receipts'],
+                             [{'command_id': 'last'}])
+
     def test_paced_load_keeps_the_full_measurement_interval_and_command_ids(self):
         from raft import load
         class Connection:
