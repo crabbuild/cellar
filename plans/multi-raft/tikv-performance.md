@@ -1314,13 +1314,47 @@ volumes. Candidate archive catch-up after measurement took 5.79 seconds.
 Other builds appeared in 65 of 99 candidate samples and 52 of 94 control samples;
 recorded host swap usage and paging also differed. Shared-host conditions still
 prevent an isolated causal estimate. The longer comparison uses two 180-second
-windows at twelve writers per image, control first, and remains pending.
+windows at twelve writers per image, control first. Both subsequently failed as
+recorded below.
 
 The older `accelerated` baseline image carries revision label `a849cc2`, while
 its later run report names `fb660b1` with a nonempty working diff. Its exact
 relationship to clean current `main` has not been re-established here. It will
 not serve as the final overall baseline without fresh source-provenance proof;
 a clean current-main build is required for that comparison.
+
+## Longer shared-barrier confirmation failures
+
+The [retained longer runs](evidence/tikv-shared-image-long-failures.json) use two
+180-second windows at twelve writers on each image, with the same internal node
+storage and external RustFS placement. Both cohorts failed the repeated latency
+and zero-error gate; the shorter sweep's result did not reproduce here.
+
+| Image | Repeat | TPS | p99 (ms) | Write errors |
+| --- | --- | --- | --- | --- |
+| Control `c6aed34` | 1 | 122.69 | 512.22 | 0 |
+| Control `c6aed34` | 2 | 56.03 | 1,534.67 | 47 ambiguous, 1 overloaded |
+| Shared barrier `12d6e87` | 1 | 131.08 | 234.94 | 0 |
+| Shared barrier `12d6e87` | 2 | 52.97 | 2,942.36 | 1 ambiguous |
+
+All 49 unsuccessful requests reconciled outside measurement using only their
+original identities, inputs and unexpired deadlines. The control subsequently
+verified all 4,500 replica values and 1,500 archive positions. The candidate's
+first read-only scan matched 4,499 replica values and received one 503 from node
+one for cell 952. A separate full read-only scan, with the original scan retained,
+verified all 4,500 values and 1,500 archive positions. Neither reconciliation nor
+read-only repetition converts a timed failure into a performance pass. Both
+cohorts stopped cleanly with no OOM kills and retained every volume.
+
+Control errors span all three nodes across a 31-second interval. All six host
+samples in that interval observed other builds and about 13.6–14.1 GiB of swap
+usage; sampled node CPU was also high. This correlation does not establish the
+cause. After these experiments the benchmark VM reported about 13.5 GiB of page
+cache, with 2.3 GiB used outside that cache. The next comparison will cold-start
+only this benchmark VM before each cohort, preserving its 8-CPU / 16-GiB settings,
+all images and volumes, external disk backing, and the active Docker context.
+Other profiles and workloads stay untouched. This tests carryover from the long
+benchmark sequence; it does not assume that page cache explains the regression.
 
 ## Remaining qualification
 
