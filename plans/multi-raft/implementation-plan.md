@@ -84,7 +84,7 @@ work to queue bursts and repeatable latency within the authorized five-node
 Colima/RustFS scope. MR-13 and MR-14 remain in progress. This order reflects the
 requested MR-14 focus; it does not waive MR-13's release dependency.
 
-1. **Resolve control-queue bursts and latency variability.** The sender now
+1. **Fix startup admission, then resolve queue bursts and latency variability.** The sender now
    pipelines at most eight already-admitted control frames on its existing peer
    connection. Seven regressions cover ordering, authentication, partial outcomes,
    stale routes, deadlines, cancellation and bidirectional progress. The unchanged
@@ -97,8 +97,15 @@ requested MR-14 focus; it does not waive MR-13's release dependency.
    the cause. Preserve durability, authentication, budgets and numeric SLOs.
    [Bounded control/data timers](evidence/MR-14-transport-timing-progress.json)
    now separate sender queue residence, exchange windows and receiver runtime
-   admission. Use their deltas in the next density experiment; they do not yet
-   attribute or resolve the observed slowdown.
+   admission. The [phase-timed density runs](evidence/MR-14-phase-progress.json)
+   now expose a startup failure before the 1,500-cell measurement: one node exits
+   with catalog `Runtime(Overloaded)`, while the other four start 900 groups each.
+   Group routes become reachable before all attachments finish and before the
+   host consumes Raft events. Reproduce and correct that admission ordering first;
+   do not increase queue limits or assign a capacity result to failed startup.
+   The 500-cell run narrowly misses the latency target and the repeated 150-cell
+   control also fails traffic objectives. Phase deltas do not yet establish
+   the cause of latency variability.
    The [persistence-wait regression](evidence/MR-14-persistence-progress.json)
    reproduces and removes redundant runnable-queue visits during disk waits;
    its contribution to the physical bursts remains unproven.
@@ -1312,6 +1319,25 @@ These observations restrict attribution, not the numeric acceptance gates. The
 dedicated profile remains stopped and other profiles were not mutated. This
 change proves removal of redundant scheduler work during persistence waits; it
 does not prove the cause or resolution of the physical queue/latency bursts.
+
+The [phase-timed density evidence](evidence/MR-14-phase-progress.json) pins
+source `81f29b6` and the same image for four fresh attempts. All five Cellar
+containers retain one CPU, 3 GiB, no swap and the unchanged workload. The initial
+150-cell control passes at 1,200/1,200 and 70.981 ms p99. The 500-cell run verifies
+all 1,500 replicas but misses the 200 ms target at 201.343 ms, with three generator
+rejections. Its aggregate sender queue means are 2.6–3.3 ms, receiver admission
+means 32–39 microseconds, and SQL staging means 11–24 ms. These independent
+observations do not establish per-command causality.
+
+The 1,500-cell attempt fails its original startup deadline before measurement:
+node 1 exits with catalog `Runtime(Overloaded)`, exit code 1 and no OOM; four
+other nodes report 900 groups ready. The repeated 150-cell control completes
+1,165/1,200 at 247.441 ms p99 with 35 generator rejections. Startup and traffic
+failures remain failed, including after capsule extraction and independent
+analysis. No repeatable capacity or cross-revision speedup is claimed. Exact
+owned containers are stopped, empty owned networks removed, and volumes retained;
+only the dedicated profile was controlled. Startup admission ordering is the
+next bounded regression before another physical density run.
 
 The [all-owner restart evidence](evidence/MR-14-restart-progress.json), source
 `aaa83f8`, records two three-node bucket runs under an explicit twelve-second
