@@ -4,6 +4,19 @@ use cellar::sdk::{http::Response, Context, Request};
 use futures_util::StreamExt;
 use serde_json::{json, Value};
 
+/// An incoming body exceeded the configured limit. Adapters can preserve their
+/// public diagnostic without inspecting or rewriting arbitrary error strings.
+#[derive(Debug)]
+pub struct RequestBodyLimit;
+
+impl std::fmt::Display for RequestBodyLimit {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("guest request body exceeds limit")
+    }
+}
+
+impl std::error::Error for RequestBodyLimit {}
+
 pub async fn request(context: &Context, request: Request, limit: usize) -> Result<Value> {
     headers(&request.headers)?;
     let mut stream = context.take_body(request.body)?;
@@ -12,7 +25,7 @@ pub async fn request(context: &Context, request: Request, limit: usize) -> Resul
         let chunk = chunk.map_err(anyhow::Error::msg)?;
         ensure!(
             bytes.len().saturating_add(chunk.len()) <= limit,
-            "guest request body exceeds limit"
+            RequestBodyLimit
         );
         bytes.extend(chunk);
     }
@@ -23,7 +36,7 @@ pub async fn request(context: &Context, request: Request, limit: usize) -> Resul
 
 pub fn input(value: &Value, limit: usize) -> Result<Request> {
     let bytes = STANDARD.decode(field(value, "body")?)?;
-    ensure!(bytes.len() <= limit, "guest request body exceeds limit");
+    ensure!(bytes.len() <= limit, RequestBodyLimit);
     let request_headers: Vec<(String, String)> = serde_json::from_value(value["headers"].clone())?;
     headers(&request_headers)?;
     Ok(Request {
@@ -140,7 +153,10 @@ mod tests {
         let mut request = json!({"url":"http://cell/", "method":"POST", "headers":[], "body":STANDARD.encode(vec![0; 4096])});
         assert!(input(&request, 4096).is_ok());
         request["body"] = json!(STANDARD.encode(vec![0; 4097]));
-        assert!(input(&request, 4096).is_err());
+        assert!(input(&request, 4096)
+            .err()
+            .unwrap()
+            .is::<RequestBodyLimit>());
         assert!(headers(&vec![("x".into(), "y".into()); 128]).is_ok());
         assert!(headers(&vec![("x".into(), "y".into()); 129]).is_err());
         assert!(headers(&[("x".into(), "y".repeat(32767))]).is_ok());
