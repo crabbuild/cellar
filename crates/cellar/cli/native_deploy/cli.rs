@@ -68,8 +68,8 @@ pub async fn run(arguments: Vec<String>) -> Result<()> {
              cellar dev PROJECT.json [--host IP] [--port PORT] [--logs] [--no-watch]\n\
              cellar supervise --health-url URL [OPTIONS] -- PROGRAM [ARG...]\n\
              cellar deploy DIRECTORY --bucket NAME [--endpoint URL] [--region REGION]\n\
-             cellar install DIRECTORY --bucket NAME --output EXECUTABLE [--target TRIPLE] [--python-root PREFIX]\n\n\
-             Build compiles Rust without JavaScript-engine dependencies. Deploy publishes\n\
+             cellar install DIRECTORY --bucket NAME --output EXECUTABLE [--target TRIPLE] [--python-root PREFIX] [--node-root PREFIX]\n\n\
+             Build compiles Rust with explicitly selected runtime adapters. Deploy publishes\n\
              verified executables, assets and configuration. Install verifies downloaded code and\n\
              writes a new executable path; use your process supervisor to activate it.\n\n\
              cellar cell|sql|kv|queue|outbox|stream|subscription|blob COMMAND [OPTIONS]\n\
@@ -85,6 +85,7 @@ pub async fn run(arguments: Vec<String>) -> Result<()> {
     );
     let mut output = None;
     let mut python_root = None;
+    let mut node_root = None;
     let mut bucket = None;
     let mut endpoint = None;
     let mut region = std::env::var("AWS_REGION").unwrap_or_else(|_| "us-east-1".into());
@@ -96,6 +97,7 @@ pub async fn run(arguments: Vec<String>) -> Result<()> {
         match flag.as_str() {
             "--output" => output = Some(PathBuf::from(value)),
             "--python-root" => python_root = Some(PathBuf::from(value)),
+            "--node-root" => node_root = Some(PathBuf::from(value)),
             "--bucket" => bucket = Some(value),
             "--endpoint" => endpoint = Some(value),
             "--region" => region = value,
@@ -138,11 +140,12 @@ pub async fn run(arguments: Vec<String>) -> Result<()> {
         }
         "install" => {
             package
-                .install_with_python(
+                .install_with_runtimes(
                     &bucket,
                     &target,
                     &output.context("native install requires --output")?,
                     python_root.as_deref(),
+                    node_root.as_deref(),
                 )
                 .await?
         }

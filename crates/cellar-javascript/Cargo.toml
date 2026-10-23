@@ -10,7 +10,7 @@ path = "lib.rs"
 [features]
 default = []
 embed = ["dep:v8", "dep:cellar-guest"]
-node = ["dep:cellar-guest", "dep:getrandom", "dep:libc"]
+node = ["dep:cellar-guest", "dep:getrandom", "dep:libc", "dep:sha2"]
 [dependencies]
 anyhow.workspace = true
 cellar.workspace = true
@@ -18,6 +18,7 @@ cellar-guest = { workspace = true, optional = true }
 futures-util.workspace = true
 getrandom = { workspace = true, optional = true }
 libc = { workspace = true, optional = true }
+sha2 = { workspace = true, optional = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 tokio = { workspace = true, features = ["sync"] }

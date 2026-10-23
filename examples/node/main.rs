@@ -8,29 +8,38 @@ const APPLICATION_VERSION: &str = match option_env!("CELLAR_APPLICATION_VERSION"
 };
 
 fn main() -> Result<()> {
-    // Configuration is explicit at the executable boundary, never read by SDK operations.
-    let entry = std::env::var_os("CELLAR_NODE_ENTRY")
-        .context("set CELLAR_NODE_ENTRY to the absolute application module path")?;
-    let mut node = NodeOptions::new(std::path::PathBuf::from(entry));
-    node.working_directory = node
-        .entry
-        .parent()
-        .and_then(|path| path.parent())
-        .map(|path| path.to_path_buf());
-    if let Some(executable) = std::env::var_os("CELLAR_NODE_EXECUTABLE") {
-        node.executable = executable.into();
-    }
+    let (node, inventory) = match NodeOptions::packaged()? {
+        Some((node, sha)) => (node, Some(sha)),
+        None => {
+            let entry = std::env::var_os("CELLAR_NODE_ENTRY")
+                .context("set CELLAR_NODE_ENTRY to the absolute application module path")?;
+            let mut node = NodeOptions::new(std::path::PathBuf::from(entry));
+            node.working_directory = node
+                .entry
+                .parent()
+                .and_then(|path| path.parent())
+                .map(|path| path.to_path_buf());
+            if let Some(executable) = std::env::var_os("CELLAR_NODE_EXECUTABLE") {
+                node.executable = executable.into();
+            }
+            (node, None)
+        }
+    };
     NodeRuntime::run(
         Options::default(),
         node,
         Source::module().events([EventKind::Fetch]).cell("Counter"),
         |application| {
             let stop = application.clone();
-            Host::local(graph())
-                .register("node-example", APPLICATION_VERSION, move || {
-                    Ok(application.clone())
-                })?
-                .run_until(async move { stop.stopped().await })
+            let host = if let Some(sha) = inventory {
+                Host::fleet().runtime_inventory(cellar::protocol::FEATURE_NODE_V1, sha)?
+            } else {
+                Host::local(graph())
+            };
+            host.register("node-example", APPLICATION_VERSION, move || {
+                Ok(application.clone())
+            })?
+            .run_until(async move { stop.stopped().await })
         },
     )
 }

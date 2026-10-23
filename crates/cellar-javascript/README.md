@@ -1,15 +1,18 @@
 # JavaScript and TypeScript runtimes
 
 `cellar-javascript` implements the native `Application` and `Cell` contracts
-using optional, pinned `rusty_v8`. TypeScript and npm dependencies are checked
-and bundled at build time. Rust owns every SDK operation and durability gate.
+using optional V8 and Node.js backends. Embedded V8 applications use the pinned
+`rusty_v8` engine and build-time bundles; Node applications retain normal npm
+module loading. Rust owns every SDK operation and durability gate.
 The default crate features do not activate an engine. Enable `embed` for V8,
 or `node` for an actual supervised Node.js process. The Node-only dependency
 graph does not link V8.
 
 The [Node.js example and delivery guide](../../examples/node/README.md) covers
 normal ESM/CommonJS/npm loading, dynamic imports, Node built-ins, native addons,
-and React server rendering. It uses the same Rust operation boundary and typed
+and React server rendering. Native fleet builds capture its runtime and npm graph
+into an inventory-bound executable and archive; install restores the exact prefix.
+It uses the same Rust operation boundary and typed
 SDK with a separate authenticated IPC channel. The sections below describe the
 embedded V8 profile unless stated otherwise.
 

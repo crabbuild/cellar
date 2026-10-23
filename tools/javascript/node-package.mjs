@@ -17,11 +17,11 @@ const seen=new Set();
 async function walk(base){for(const entry of await readdir(join(root,base),{withFileTypes:true})){const path=base?base+'/'+entry.name:entry.name; if(path==='node-package.json')continue; const full=join(root,path);const info=await lstat(full); if(info.isDirectory()){await walk(path);continue;} if(!info.isFile())throw new Error('Package contains unsupported file: '+path); const expected=manifest.files[path];if(!expected)throw new Error('Untracked package file: '+path); const actual=createHash('sha256').update(await readFile(full)).digest('hex');if(actual!==expected.sha256 || info.size!==expected.bytes)throw new Error('Package checksum mismatch: '+path);seen.add(path);}}
 await walk(''); if(seen.size!==Object.keys(manifest.files).length)throw new Error('Package file missing');
 `;
-export async function pack(configFile, outputDirectory) {
+export async function pack(configFile, outputDirectory, {runtimeOnly = false} = {}) {
   const base = dirname(resolve(configFile));
   const config = JSON.parse(await readFile(configFile,'utf8'));
   for (const key of Object.keys(config)) if (!['host','node','application','entry','files'].includes(key)) throw new Error('Unknown Node package field: '+key);
-  for (const key of ['host','application','entry']) if (typeof config[key] !== 'string') throw new Error('Missing '+key);
+  for (const key of (runtimeOnly ? ['application','entry'] : ['host','application','entry'])) if (typeof config[key] !== 'string') throw new Error('Missing '+key);
   if (!Array.isArray(config.files) || !config.files.length) throw new Error('Explicit application files required');
   const safe = path => typeof path==='string' && path.length>0 && !isAbsolute(path) && !/[\n\r\x00]/.test(path) && !path.split(/[\\/]/).some(p=>p==='..'||p==='.'||p==='');
   if (!safe(config.entry) || !config.files.every(safe)) throw new Error('Application paths must be relative and contained');
@@ -32,7 +32,7 @@ export async function pack(configFile, outputDirectory) {
   const stage=await mkdtemp(join(dirname(output),'.node-package-'));
   try {
     await mkdir(join(stage,'bin')); await mkdir(join(stage,'app'));
-    await cp(resolve(base,config.host),join(stage,'bin','cellar-host'),{dereference:true});
+    if (!runtimeOnly) await cp(resolve(base,config.host),join(stage,'bin','cellar-host'),{dereference:true});
     const node= config.node ? resolve(base,config.node) : process.execPath;
     // Metadata is tied to the tool's actual Node runtime; reject a different
     // executable rather than silently writing incorrect ABI/platform metadata.
@@ -43,8 +43,8 @@ export async function pack(configFile, outputDirectory) {
     if(!(await lstat(join(stage,'app',config.entry))).isFile())throw new Error('Entry module missing');
     await writeFile(join(stage,'verify.mjs'),verifier);
     const shellEntry = "'" + config.entry.replaceAll("'", "'\"'\"'") + "'";
-    await writeFile(join(stage,'launch.sh'),`#!/bin/sh\nset -eu\nROOT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)\nunset NODE_OPTIONS NODE_PATH\n"$ROOT/bin/node" "$ROOT/verify.mjs"\nexport CELLAR_NODE_EXECUTABLE="$ROOT/bin/node"\nexport CELLAR_NODE_ENTRY="$ROOT/app/"${shellEntry}\nexec "$ROOT/bin/cellar-host" "$@"\n`);
-    await chmod(join(stage,'launch.sh'),0o755);
+    if (!runtimeOnly) await writeFile(join(stage,'launch.sh'),`#!/bin/sh\nset -eu\nROOT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)\nunset NODE_OPTIONS NODE_PATH\n"$ROOT/bin/node" "$ROOT/verify.mjs"\nexport CELLAR_NODE_EXECUTABLE="$ROOT/bin/node"\nexport CELLAR_NODE_ENTRY="$ROOT/app/"${shellEntry}\nexec "$ROOT/bin/cellar-host" "$@"\n`);
+    if (!runtimeOnly) await chmod(join(stage,'launch.sh'),0o755);
     const files={};
     async function walk(directory) {
       for(const entry of (await readdir(directory,{withFileTypes:true})).sort((a,b)=>a.name.localeCompare(b.name))) {
@@ -62,6 +62,8 @@ export async function pack(configFile, outputDirectory) {
   } catch(error) {await rm(stage,{recursive:true,force:true});throw error;}
 }
 if(process.argv[1] && resolve(process.argv[1])===fileURLToPath(import.meta.url)) {
-  if(process.argv.length!==4)throw new Error('Usage: node node-package.mjs project.json output-directory');
-  await pack(process.argv[2],process.argv[3]);
+  const runtimeOnly=process.argv[2]==='--runtime';
+  const args=process.argv.slice(runtimeOnly?3:2);
+  if(args.length!==2)throw new Error('Usage: node node-package.mjs [--runtime] project.json output-directory');
+  await pack(args[0],args[1],{runtimeOnly});
 }

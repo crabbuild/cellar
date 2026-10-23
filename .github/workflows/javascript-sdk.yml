@@ -41,6 +41,13 @@ jobs:
         run: cargo test --locked -p cellar-guest -p cellar-javascript --features cellar-javascript/embed,cellar-javascript/node
       - name: Node-only feature
         run: cargo test --locked -p cellar-javascript --no-default-features --features node
+      - name: Runtime archive and admission boundaries
+        run: |
+          cargo test --locked -p cellar --lib node_environment
+          cargo test --locked -p cellar --lib runtime_inventory
+          cargo test --locked -p cellar --lib python_environment::archive
+          cargo test --locked -p cellar --lib runtime_directories
+          cargo test --locked -p cellar --test native_artifacts
       - name: Quality and engine boundaries
         run: |
           cargo clippy --locked -p cellar-guest -p cellar-javascript --features cellar-javascript/embed,cellar-javascript/node --all-targets -- -D warnings
@@ -62,5 +69,12 @@ jobs:
           node tools/javascript/node-package.mjs .cellar/node-delivery.json .cellar/node-delivery
           .cellar/node-delivery/launch.sh --help
           CELLAR_TEST_NODE_ENTRY="$PWD/.cellar/node-delivery/app/dist/app.js" CELLAR_TEST_NODE_EXECUTABLE="$PWD/.cellar/node-delivery/bin/node" cargo test --locked -p cellar-javascript --no-default-features --features node --test node_runtime
+      - name: Node fleet publish, restore and process recovery
+        run: |
+          node tools/javascript/node-package.mjs --runtime examples/node/runtime.json .cellar/node-runtime
+          cargo run --locked -p cellar -- build examples/node/project.json --output .cellar/node-fleet-package
+          # Restore from the published archive, without the captured source tree.
+          mv .cellar/node-runtime .cellar/node-runtime-captured
+          CELLAR_NODE_PACKAGE="$PWD/.cellar/node-fleet-package" cargo test --locked -p cellar-javascript --no-default-features --features node --test fleet_package -- --ignored
       - name: SDK archive
         run: npm pack ./packages/cellar-sdk --pack-destination .cellar --ignore-scripts

@@ -17,10 +17,13 @@ use std::sync::OnceLock;
 use std::time::Duration;
 
 mod build;
+mod filesystem;
 mod images;
+mod node_environment;
 mod python_environment;
 pub use build::{verify_native_dependencies, Project};
 pub use images::ContainerProject;
+pub use node_environment::{verify_inventory_files as verify_node_inventory_files, NodeProject};
 pub use python_environment::{
     verify_inventory_files as verify_python_inventory_files,
     verify_loaded_libraries as verify_loaded_python_libraries,
@@ -228,6 +231,7 @@ impl ApplicationConfig {
             application_version: self.application_version.clone(),
             artifacts,
             python: Vec::new(),
+            node: Vec::new(),
         };
         let mut manifest = Manifest {
             schema_version: 1,
@@ -374,6 +378,7 @@ impl Package {
             BTreeMap::new(),
             BTreeMap::new(),
             BTreeMap::new(),
+            BTreeMap::new(),
         )
         .await
     }
@@ -386,9 +391,11 @@ impl Package {
         let mut executables = BTreeMap::new();
         let mut images = BTreeMap::new();
         let mut python = BTreeMap::new();
+        let mut node = BTreeMap::new();
         for manifest in std::iter::once(&self.primary).chain(&self.cohosted) {
             images.extend(images::load_staged(manifest, directory)?);
             python.extend(python_environment::load_staged(manifest, directory)?);
+            node.extend(node_environment::load_staged(manifest, directory)?);
             if let Some(staged) = assets::load_staged(manifest, directory)? {
                 resources.insert(manifest.script_name.clone(), staged);
             }
@@ -396,7 +403,7 @@ impl Package {
                 executables.insert(artifact.sha256.clone(), directory.join(&artifact.sha256));
             }
         }
-        self.publish_resources(bucket, &executables, resources, images, python)
+        self.publish_resources(bucket, &executables, resources, images, python, node)
             .await
     }
 
@@ -407,9 +414,16 @@ impl Package {
         mut assets: BTreeMap<String, crate::deploy::BuiltAssets>,
         images: BTreeMap<String, PathBuf>,
         python: BTreeMap<String, PathBuf>,
+        node: BTreeMap<String, PathBuf>,
     ) -> Result<()> {
         self.validate()?;
         for manifest in std::iter::once(&self.primary).chain(&self.cohosted) {
+            for reference in &manifest.native.as_ref().unwrap().node {
+                let path = node
+                    .get(&reference.archive_sha256)
+                    .context("Node environments require publish_staged")?;
+                node_environment::verify_file(reference, path)?;
+            }
             for reference in &manifest.native.as_ref().unwrap().python {
                 let path = python
                     .get(&reference.archive_sha256)
@@ -461,6 +475,12 @@ impl Package {
                     .await?;
             }
         }
+        for manifest in std::iter::once(&self.primary).chain(&self.cohosted) {
+            for reference in &manifest.native.as_ref().unwrap().node {
+                node_environment::publish(bucket, reference, &node[&reference.archive_sha256])
+                    .await?;
+            }
+        }
         for manifest in self.cohosted.iter().chain(std::iter::once(&self.primary)) {
             let built = crate::deploy::Built {
                 script_name: manifest.script_name.clone(),
@@ -499,6 +519,19 @@ impl Package {
         output: &Path,
         python_root: Option<&Path>,
     ) -> Result<()> {
+        self.install_with_runtimes(bucket, target, output, python_root, None)
+            .await
+    }
+
+    /// Restore exact runtime resources before atomically publishing a new executable.
+    pub async fn install_with_runtimes(
+        &self,
+        bucket: &Bucket,
+        target: &str,
+        output: &Path,
+        python_root: Option<&Path>,
+        node_root: Option<&Path>,
+    ) -> Result<()> {
         self.validate()?;
         let artifacts = &self.primary.native.as_ref().unwrap().artifacts;
         let matches: Vec<_> = artifacts.iter().filter(|a| a.target == target).collect();
@@ -531,6 +564,27 @@ impl Package {
                 "Python runtime restoration requires --python-root matching the compiled prefix"
             ),
             (None, Some(_)) => anyhow::bail!("native target has no Python environment"),
+            (None, None) => {}
+        }
+        let node_environment =
+            self.primary
+                .native
+                .as_ref()
+                .unwrap()
+                .node
+                .iter()
+                .find(|environment| {
+                    environment.target == artifact.target
+                        && environment.executable_sha256 == artifact.sha256
+                });
+        match (node_environment, node_root) {
+            (Some(environment), Some(prefix)) => {
+                node_environment::install(bucket, environment, prefix).await?
+            }
+            (Some(_), None) => anyhow::bail!(
+                "Node runtime restoration requires --node-root matching the compiled prefix"
+            ),
+            (None, Some(_)) => anyhow::bail!("native target has no Node environment"),
             (None, None) => {}
         }
         let parent = output

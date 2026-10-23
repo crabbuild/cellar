@@ -1,6 +1,6 @@
 # 008: JavaScript and TypeScript above the native Cellar SDK
 
-Status: buffered JS/TS adapter implemented; broader production gates remain open.
+Status: V8 and Node backends implemented, with native Node fleet packaging; broader production gates remain open.
 Current implementation contract: [adapter guide](../crates/cellar-javascript/README.md)
 and [ADR 005](../docs/adr/005-embedded-javascript.md). The research below records
 the wider target architecture; it must not be read as a completed qualification report.
@@ -31,10 +31,13 @@ and [AGENTS.md](../AGENTS.md), together with a scoped dependency guard. Those
 native-only rules remain in effect. ADR 005 records the scoped optional-engine
 amendment. Implementation does not establish production qualification.
 
-If the primary requirement becomes running existing Express/Nest applications,
-Node built-ins and native npm addons unchanged, select a **Node-owned host with
-a Rust addon** instead. That is a distinct hosting product and deployment model.
-Using the same engine as Node does not provide Node compatibility.
+For Node built-ins and native npm addons, the implemented `node` backend uses
+an actual supervised Node process beside the Rust host. This supersedes the
+initial Node-owned-host/Rust-addon recommendation below and preserves Cellar's
+Rust process entry point. npm module compatibility does not automatically adapt
+an existing Express/Nest server to Cellar's request and durable-cell contracts;
+framework ingress adapters remain separate integrations. Bare V8 alone does not
+provide Node compatibility.
 
 ### Maintenance correction, 2026-10-22
 
@@ -91,9 +94,9 @@ judgment. No engine performance measurements were made in this investigation.
 | Rust host + `deno_core`/V8 | ESM, promises, Rust operations and an event-loop substrate inside the existing executable | Deno runtime development wind-down, unresolved crate maintenance, engine builds and API churn | Technical reference; no longer the default recommendation |
 | Rust host + `rquickjs` | Embedding API with modules, pending jobs and runtime resource controls | Cellar must build its host APIs and qualify library compatibility, performance and maintenance | Evaluate alongside direct V8 in JS-0 |
 | Rust host + Boa | Rust ECMAScript interpreter | Upstream describes it as experimental; compatibility and operational fit need independent qualification | Research option, not first delivery |
-| Node process + `napi-rs` addon | Existing Node/npm ecosystem; JS owns process entry | New host/package lifecycle, Node event-loop integration, process-wide failure domain | Choose when Node compatibility is the product requirement |
+| Node process + `napi-rs` addon | Existing Node/npm ecosystem; JS owns process entry | New host/package lifecycle, Node event-loop integration, process-wide failure domain | Alternative; the implemented backend keeps Rust in charge with a supervised Node child |
 | Rust host embeds libnode | Node APIs inside a Rust-owned process | C++ glue, libuv/V8 lifecycle and Node-major embedder changes | Defer unless both embedded hosting and Node compatibility are required |
-| Separate JS worker process | Independent kill/restart and dependency isolation | IPC, authentication, call cancellation, flow control and deployment coordination | Appropriate for stronger failure isolation |
+| Separate JS worker process | Independent kill/restart and dependency isolation | IPC, authentication, call cancellation, flow control and deployment coordination | Implemented for Node compatibility; buffered Cellar operations cross authenticated IPC |
 | JS-in-Wasm | Potential portable execution boundary | Additional runtime/tooling and compatibility work | No demonstrated benefit for this trusted embedded use case |
 
 `deno_core::JsRuntime` is `!Send` and `!Sync`; upstream also requires process-wide
@@ -824,9 +827,9 @@ The executable example exercises TypeScript, Zod, CommonJS Lodash, React SSR,
 Argon2 native addons, dynamic imports, Node built-ins and durable cell routing.
 The directory packager includes Node, the Rust host, emitted code and installed
 packages with a checked file inventory. This external-runtime delivery format
-is distinct from native fleet packages. Fleet provisioning/inventory binding,
-Windows process supervision and expanded Cellar streaming/event APIs remain
-open. The [Node guide](../examples/node/README.md) is the operational contract.
+is distinct from native fleet packages. Native fleet provisioning/inventory binding
+is implemented in the follow-up below. Windows process supervision and expanded
+Cellar streaming/event APIs remain open. The [Node guide](../examples/node/README.md) is the operational contract.
 
 
 Node delivery validation on macOS arm64 / Node 24.13.1 / Rust 1.98.1:
@@ -849,10 +852,62 @@ Node delivery validation on macOS arm64 / Node 24.13.1 / Rust 1.98.1:
   emitted application and npm dependencies.
 - Formatter, module layout, native-only dependency guard, documentation links and
   whitespace checks passed. The npm installation audit reported zero known
-  vulnerabilities at validation time. Remote Linux CI is configured but has not
-  run in this session; Windows and production multi-node fault qualification
-  remain open.
+  vulnerabilities at validation time. The initial PR subsequently passed Linux
+  JavaScript/Node and Python example CI; Windows and production multi-node fault
+  qualification remain open.
 
 The generated local delivery is `.cellar/node-delivery/`; no release was published
 and no fleet was modified. The package is specific to macOS arm64. Use the same
 build and checks on the deployment target to produce a Linux artifact.
+
+
+## Follow-up: native fleet delivery for Node
+
+PR #99 adds a `node_environment` project input and `node-runtime-v1` deployment
+resource. Build captures the immutable Node/application/npm tree before Cargo;
+the adapter embeds that inventory, verifies it before spawning Node, and binds
+its digest to host admission. Native publish uploads verified content-addressed
+archives before the selector. Install requires `--node-root` matching the compiled
+prefix, restores checked regular files atomically without overwrite, and publishes
+the executable only after runtime restoration succeeds. Python installation keeps
+its existing API and now shares the atomic directory publication helper.
+
+This supersedes the earlier external-Node fleet packaging limitation. Relocatable
+local-graph directories remain supported. Windows supervision, system shared
+library closure capture, Cellar streaming/WebSocket/workflow/RPC APIs, and broader
+production fleet qualification remain open. Linux JavaScript/Node CI passed for
+the initial implementation on PR #99 before this follow-up.
+
+
+The initial full SDK CI run exposed an error-message regression after extracting
+shared guest request conversion: Python's over-limit request diagnostic had
+changed. The shared boundary now returns a typed `RequestBodyLimit`, and the
+Python wrapper preserves its existing diagnostic. The operating-defaults
+qualification passes without changing its assertions: mixed requests at
+concurrency 1/4/16/32, exact body boundary, saturation/refusal, killed-owner
+recovery after disk deletion, and joined shutdown. Its six report guards pass.
+
+
+Follow-up validation on macOS arm64 / Node 24.13.1:
+
+- The native package was built, published to a private SQLite development bucket,
+  and installed with the captured runtime directory moved aside. The installer
+  restored the real Node binary, application and npm files from the archive.
+- The installed executable passed its native-package check and served CommonJS,
+  React SSR and the native Argon2 addon. A second process with a distinct node
+  identity and fresh data directory recovered the acknowledged counter from
+  bucket storage and committed another update. Both processes drained and joined.
+- Four Node archive tests cover integrity, malformed entries, path escape,
+  symlinks, tampering, and missing-runtime publication/installation refusal.
+  Admission and protocol tests require an exact executable/inventory pairing.
+  Five Python archive regression tests pass with the shared publication helper;
+  a separate test checks directory permissions after private staging.
+- The 24-test combined adapter suite, 11-test Node-only suite, seven npm tooling
+  tests and Python operating-defaults qualification pass. Clippy passes for the
+  combined adapters, core library and Python adapter. The Linux workflow now
+  explicitly runs native Node publication, archive restoration and process
+  recovery in addition to the existing Node/npm compatibility tests.
+
+These are local development-bucket checks, not live fleet rollout or production
+fault/performance qualification. System prerequisites, Windows, broader Cellar
+transport APIs and the production gates above remain outstanding.

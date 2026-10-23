@@ -25,6 +25,8 @@ pub struct Project {
     #[serde(default)]
     pub python_environment: Option<PythonProject>,
     #[serde(default)]
+    pub node_environment: Option<NodeProject>,
+    #[serde(default)]
     pub cohosted: Vec<ApplicationConfig>,
 }
 
@@ -167,6 +169,17 @@ impl Project {
             .as_ref()
             .map(|config| config.prepare(base))
             .transpose()?;
+        let node = project
+            .node_environment
+            .as_ref()
+            .map(|config| {
+                config.prepare(
+                    base,
+                    output,
+                    project.target.as_deref().unwrap_or(current_target()),
+                )
+            })
+            .transpose()?;
         if dev {
             std::fs::create_dir_all(output)?;
             std::fs::write(
@@ -211,6 +224,11 @@ impl Project {
             }
         } else {
             build.env_remove("CELLAR_PYTHON_INVENTORY");
+        }
+        if let Some(node) = &node {
+            build.env("CELLAR_NODE_INVENTORY", &node.inventory_path);
+        } else {
+            build.env_remove("CELLAR_NODE_INVENTORY");
         }
         if let Some(target) = &project.target {
             build.arg("--target").arg(target);
@@ -274,6 +292,11 @@ impl Project {
         if let Some(python) = &python {
             for manifest in std::iter::once(&mut package.primary).chain(&mut package.cohosted) {
                 python.stage(manifest, &artifact, output)?;
+            }
+        }
+        if let Some(node) = &node {
+            for manifest in std::iter::once(&mut package.primary).chain(&mut package.cohosted) {
+                node.stage(manifest, &artifact, output)?;
             }
         }
         package.validate()?;

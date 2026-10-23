@@ -11,8 +11,8 @@ TypeScript and closed npm dependency graphs at build time. Embed the bundle
 into the existing native executable; executable digests cover its engine, SDK
 facade and source. Deployment does not load JavaScript from remote manifests.
 A project must explicitly set `javascript: true` to package an engine dependency.
-The native protocol format remains unchanged because the executable remains the
-entire serving runtime artifact. The build inventory is informational provenance,
+In this embedded V8 profile, the native protocol format remains unchanged because
+the executable remains the entire serving runtime artifact. The build inventory is informational provenance,
 not a separately loaded artifact or an attestation of arbitrary external inputs.
 
 Direct V8 was selected after the Deno team's announced runtime maintenance
@@ -44,7 +44,7 @@ bounds are for trusted application operation, not hostile tenant isolation.
 
 ## Consequences and delivery gates
 
-The implemented buffered profile covers the same event and operation categories
+The implemented buffered V8 profile covers the same event and operation categories
 as the existing Python bridge. It is deliberately explicit about unsupported
 Node APIs, streams, workflows, RPC and JavaScript Raft handlers. The delivery
 contract, runnable commands and verification matrix live in the
@@ -66,6 +66,8 @@ Application stdout and stderr are independent of the protocol.
 This is a trusted OS process, not an implementation of Node APIs inside V8. Direct
 Node effects are outside Cellar durability. Unix process-group teardown and a
 heartbeat bound worker shutdown and event-loop stalls. No effects are replayed
-when a worker fails. External Node resources use a separately verified directory
-package; automatic fleet deployment inventory/provisioning is not implemented.
+when a worker fails. External Node resources can use a relocatable directory or
+a native fleet package. Fleet builds embed the captured inventory, declare `node-runtime-v1`,
+publish content-addressed runtime archives, and restore the exact compiled prefix
+with `--node-root`. Admission refuses a mismatched process inventory.
 See the [Node guide](../../examples/node/README.md) for delivery and limits.

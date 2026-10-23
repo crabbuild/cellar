@@ -30,6 +30,13 @@ pub use python_prerequisites::{
     MAX_PYTHON_NATIVE_LIBRARIES,
 };
 
+#[path = "node_environment.rs"]
+mod node_environment;
+pub use node_environment::{
+    NodeEnvironmentRef, NodeFile, NodeInventory, FEATURE_NODE_V1, MAX_NODE_ARCHIVE_BYTES,
+    MAX_NODE_EXPANDED_BYTES, MAX_NODE_FILES, MAX_NODE_INVENTORY_BYTES,
+};
+
 /// `deploy/<script>/<version>/manifest.json` — the normalized thing cellar reads
 /// to know what to run. The script name is deployment identity, not a fleet
 /// selector: one fleet has one current application.
@@ -87,6 +94,7 @@ pub struct Manifest {
 /// partially and fail (or misbehave) at worker load instead.
 pub const SUPPORTED_DEPLOYMENT_FEATURES: &[&str] = &[
     FEATURE_NATIVE_V1,
+    FEATURE_NODE_V1,
     FEATURE_EMBEDDED_PYTHON_V1,
     FEATURE_EVENT_DELIVERY_V1,
     FEATURE_ASSETS_V1,
@@ -119,6 +127,8 @@ pub struct NativeDeployment {
     pub artifacts: Vec<NativeArtifact>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub python: Vec<PythonEnvironmentRef>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub node: Vec<NodeEnvironmentRef>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -190,6 +200,21 @@ impl NativeDeployment {
                 "duplicate Python environment identity"
             );
         }
+        let mut nodes = std::collections::BTreeSet::new();
+        for environment in &self.node {
+            environment.validate()?;
+            anyhow::ensure!(
+                self.artifacts
+                    .iter()
+                    .any(|artifact| artifact.target == environment.target
+                        && artifact.sha256 == environment.executable_sha256),
+                "Node environment has no matching native executable"
+            );
+            anyhow::ensure!(
+                nodes.insert((&environment.target, &environment.executable_sha256)),
+                "duplicate Node environment identity"
+            );
+        }
         let mut identities = std::collections::BTreeSet::new();
         for artifact in &self.artifacts {
             artifact.key()?;
@@ -222,6 +247,14 @@ pub fn validate_execution_manifest(manifest: &Manifest) -> anyhow::Result<()> {
                 .any(|feature| feature == FEATURE_EMBEDDED_PYTHON_V1),
         "embedded Python requires a native manifest"
     );
+    anyhow::ensure!(
+        manifest.native.is_some()
+            || !manifest
+                .required_features
+                .iter()
+                .any(|feature| feature == FEATURE_NODE_V1),
+        "Node runtime requires a native manifest"
+    );
     let gated = manifest
         .required_features
         .iter()
@@ -229,6 +262,14 @@ pub fn validate_execution_manifest(manifest: &Manifest) -> anyhow::Result<()> {
     match &manifest.native {
         Some(native) => {
             native.validate()?;
+            anyhow::ensure!(
+                manifest
+                    .required_features
+                    .iter()
+                    .any(|feature| feature == FEATURE_NODE_V1)
+                    == !native.node.is_empty(),
+                "Node environment requires its explicit feature gate"
+            );
             anyhow::ensure!(
                 manifest
                     .required_features
