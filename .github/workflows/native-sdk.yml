@@ -402,7 +402,7 @@ jobs:
           from build_identity import inspect_binary, validate_comparison
           root = Path(os.environ['RUNNER_TEMP'])
           source = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
-          builds = [('native', 'load-native', source), ('selected', 'load-python', source)]
+          builds = [('native', 'load-native', source), ('selected', 'load-python', source), ('selected-direct', 'load-python', source)]
           if os.environ['CELLAR_LOAD_BASELINE_SHA']:
               builds.append(('baseline', 'load-python-before', os.environ['CELLAR_LOAD_BASELINE_SHA']))
           report = dict(profile='lab', rustc=subprocess.check_output(['rustc', '-vV'], text=True),
@@ -451,7 +451,7 @@ jobs:
             "${comparison[@]}" "${workload[@]}" \
             --output "$RUNNER_TEMP/python-load/offered" --build-profile lab \
             --host-cpus "$CELLAR_LOAD_HOST_CPUS" --client-cpus "$CELLAR_LOAD_CLIENT_CPUS" \
-            --rates 500 5000 15000 --duration-ms 5000 --warmup-ms 500 --max-inflight 64 --repetitions "$CELLAR_LOAD_REPETITIONS"
+            --rates 500 30000 45000 --duration-ms 5000 --warmup-ms 500 --max-inflight 64 --repetitions "$CELLAR_LOAD_REPETITIONS"
           python - "$RUNNER_TEMP/python-load/offered/offered.json" <<'PY'
           import json, os, sys
           from pathlib import Path

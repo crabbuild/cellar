@@ -49,7 +49,9 @@ class Entity:
     async def fetch(self, request, ctx):
         if request.path == "/cell-echo" and request.method == "POST":
             return Response(request.body, headers=[("content-type", "application/octet-stream")])
-        previous = await ctx.storage.read_json("count")
+        previous = ctx.initial_storage.get("count")
+        if previous is None:
+            previous = await ctx.storage.read_json("count")
         value = previous.value if previous.present else 0
         if request.method == "POST":
             value += 1
