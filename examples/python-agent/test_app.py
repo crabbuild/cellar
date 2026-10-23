@@ -20,6 +20,7 @@ class Storage:
         self.state = None
         self.alarm = None
         self.fail = False
+        self.lose_ack = False
 
     async def read_json(self, key):
         return SimpleNamespace(present=self.state is not None, value=deepcopy(self.state))
@@ -32,6 +33,9 @@ class Storage:
             raise Conflict("changed")
         self.state = deepcopy(puts["agent"])
         self.alarm = alarm_at_ms
+        if self.lose_ack:
+            self.lose_ack = False
+            raise RuntimeError("injected after commit; outcome unknown")
 
 
 class Context:
@@ -90,6 +94,61 @@ class DurableAgentTests(unittest.IsolatedAsyncioTestCase):
         await self.agent.alarm(987, self.ctx)
         self.assertEqual(self.ctx.storage.state, after)
         self.assertEqual(len(after["notes"]), 1)
+
+    async def test_lost_creation_ack_reconciles_same_request(self):
+        self.ctx.storage = Storage()
+        self.ctx.storage.lose_ack = True
+        with patch.dict(app.os.environ, {"CELLAR_AGENT_MODEL": "demo"}):
+            with self.assertRaisesRegex(RuntimeError, "outcome unknown"):
+                await self.agent.fetch(self.start, self.ctx)
+        accepted = deepcopy(self.ctx.storage.state)
+        wakeup = self.ctx.storage.alarm
+        response = await app.DurableAgent().fetch(self.start, self.ctx)
+        self.assertEqual(response.status, 202)
+        self.assertEqual(json.loads(response.body), {"accepted": True, "agent": "demo"})
+        self.assertEqual(self.ctx.storage.state, accepted)
+        self.assertEqual(self.ctx.storage.alarm, wakeup)
+        for _ in range(3):
+            await self.tick()
+        self.assertEqual(self.ctx.storage.state["phase"], "complete")
+
+    async def test_lost_model_checkpoint_ack_does_not_repeat_model(self):
+        original = app.model_step
+
+        async def lose_ack_after_model(state):
+            result = await original(state)
+            self.ctx.storage.lose_ack = True
+            return result
+
+        with patch.object(app, "model_step", side_effect=lose_ack_after_model) as model:
+            with self.assertRaisesRegex(RuntimeError, "outcome unknown"):
+                await self.tick()
+            self.assertEqual(self.ctx.storage.state["phase"], "tools")
+            self.assertEqual(self.ctx.storage.state["attempts"], 1)
+            # A recreated cell reloads the committed tool intent, rather than
+            # repeating the model request whose checkpoint lost its response.
+            await self.tick()
+            self.assertEqual(model.await_count, 1)
+        await self.tick()
+        self.assertEqual(self.ctx.storage.state["answer"], "Saved note: remember coffee")
+        self.assertEqual(self.ctx.storage.state["attempts"], 2)
+
+    async def test_lost_tool_checkpoint_ack_preserves_effect_and_receipt(self):
+        await self.tick()
+        self.ctx.storage.lose_ack = True
+        with self.assertRaisesRegex(RuntimeError, "outcome unknown"):
+            await self.tick()
+        committed = deepcopy(self.ctx.storage.state)
+        self.assertEqual(committed["phase"], "model")
+        self.assertEqual(committed["notes"], {"demo-note": {"text": "remember coffee"}})
+        self.assertEqual(committed["results"], committed["notes"])
+        await app.DurableAgent().alarm(123, self.ctx)
+        self.assertEqual(self.ctx.storage.state, committed)
+        await self.tick()
+        self.assertEqual(self.ctx.storage.state["phase"], "complete")
+        self.assertEqual(self.ctx.storage.state["notes"], committed["notes"])
+        self.assertEqual(self.ctx.storage.state["steps"], 3)
+        self.assertIsNone(self.ctx.storage.alarm)
 
     async def test_cancellation_fences_inflight_model(self):
         entered, release = asyncio.Event(), asyncio.Event()
