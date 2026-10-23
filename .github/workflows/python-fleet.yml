@@ -1,0 +1,150 @@
+name: Python fleet recovery
+
+on:
+  workflow_call:
+    inputs:
+      revision:
+        required: false
+        type: string
+  workflow_dispatch:
+    inputs:
+      revision:
+        description: Optional full commit SHA to build and verify
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+# A new diagnostic run must not cancel an earlier run's recovery evidence.
+concurrency:
+  group: cellar-python-fleet-${{ github.run_id }}-${{ github.run_attempt }}
+  cancel-in-progress: false
+
+jobs:
+  recovery:
+    name: S3 recovery image (${{ matrix.runtime }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        runtime: ['3.14.5', '3.14.5t']
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      SELECTED_REVISION: ${{ inputs.revision }}
+      PYTHON_RUNTIME: ${{ matrix.runtime }}
+      RUSTFS_IMAGE: rustfs/rustfs:1.0.0-beta.8-glibc
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.revision || github.sha }}
+          persist-credentials: false
+      - name: Verify source and test evidence validation
+        run: |
+          python3 - <<'PY'
+          import os, re, subprocess
+          requested = os.environ['SELECTED_REVISION']
+          actual = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
+          if requested and (not re.fullmatch('[0-9a-f]{40}', requested) or requested != actual):
+              raise SystemExit('revision must match the full checked-out commit SHA')
+          print(f'Python fleet source {actual}', flush=True)
+          PY
+          python3 -m unittest discover -s tools/perf -p 'test_*.py'
+      - name: Build the runtime image and both measuring applications
+        run: |
+          mkdir -p "$RUNNER_TEMP/python-fleet-evidence"
+          docker build -f tools/python/fleet.Dockerfile \
+            --build-arg PYTHON_RUNTIME="$PYTHON_RUNTIME" \
+            --build-arg SOURCE_REVISION="$(git rev-parse HEAD)" \
+            --build-arg TARGET_CACHE_ID="cellar-python-fleet-${GITHUB_RUN_ID}-${PYTHON_RUNTIME}" \
+            -t cellar-python-fleet:verified . \
+            2>&1 | tee "$RUNNER_TEMP/python-fleet-evidence/image-build.log"
+          docker image inspect cellar-python-fleet:verified \
+            > "$RUNNER_TEMP/python-fleet-evidence/image.json"
+          docker pull "$RUSTFS_IMAGE"
+      - name: Check the image runtime and export the exact executables
+        run: |
+          docker run --rm -i --network none --entrypoint /bin/sh cellar-python-fleet:verified \
+            -c 'exec "$(cat /usr/local/share/cellar/python-executable)" -I -S -B -' \
+            > "$RUNNER_TEMP/python-fleet-evidence/image-runtime.json" <<'PY'
+          import json, ssl, sqlite3, sys
+          print(json.dumps({'version':list(sys.version_info[:3]),
+                            'free_threaded':'t' in sys.abiflags, 'gil_enabled':sys._is_gil_enabled()}))
+          PY
+          docker run --rm --network none --entrypoint sha256sum cellar-python-fleet:verified \
+            /usr/local/bin/python-fleet /usr/local/bin/cellar-perf-cells /usr/local/bin/cellar-perf-load \
+            > "$RUNNER_TEMP/python-fleet-evidence/image-binaries.sha256"
+          export_container="cellar-python-export-${GITHUB_RUN_ID}"
+          docker create --name "$export_container" cellar-python-fleet:verified
+          trap 'docker rm -f "$export_container" >/dev/null' EXIT
+          test ! -e /opt/cellar-python
+          sudo mkdir /opt/cellar-python
+          sudo docker cp "$export_container:/opt/cellar-python/." /opt/cellar-python/
+          mkdir "$RUNNER_TEMP/fleet-bin"
+          docker cp "$export_container:/usr/local/bin/." "$RUNNER_TEMP/fleet-bin/"
+          docker cp "$export_container:/etc/ld.so.conf.d/cellar-python.conf" "$RUNNER_TEMP/cellar-python.conf"
+          echo "LD_LIBRARY_PATH=$(paste -sd: "$RUNNER_TEMP/cellar-python.conf")" >> "$GITHUB_ENV"
+          python3 - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          root = Path(os.environ['RUNNER_TEMP'])
+          evidence = root / 'python-fleet-evidence'
+          runtime = json.loads((evidence / 'image-runtime.json').read_text())
+          free = os.environ['PYTHON_RUNTIME'].endswith('t')
+          if runtime != {'version':[3,14,5], 'free_threaded':free, 'gil_enabled':not free}:
+              raise SystemExit(f'Unexpected image runtime: {runtime}')
+          lines = (evidence / 'image-binaries.sha256').read_text().splitlines()
+          expected = {'/usr/local/bin/' + name for name in
+                      ('python-fleet', 'cellar-perf-cells', 'cellar-perf-load')}
+          if len(lines) != 3 or {line.split()[1] for line in lines} != expected:
+              raise SystemExit('Missing or duplicate executable identities from the image')
+          for line in lines:
+              digest, original = line.split()
+              path = root / 'fleet-bin' / Path(original).name
+              if hashlib.sha256(path.read_bytes()).hexdigest() != digest:
+                  raise SystemExit(f'Exported executable differs from image: {path.name}')
+          PY
+      - name: Native S3 recovery control
+        run: |
+          python3 tools/python/fleet_smoke.py \
+            --host "$RUNNER_TEMP/fleet-bin/cellar-perf-cells" \
+            --load "$RUNNER_TEMP/fleet-bin/cellar-perf-load" --runtime native \
+            --rustfs-image "$RUSTFS_IMAGE" --output "$RUNNER_TEMP/python-fleet-evidence/native"
+      - name: Python S3 recovery and joined shutdown
+        run: |
+          python3 tools/python/fleet_smoke.py \
+            --host "$RUNNER_TEMP/fleet-bin/python-fleet" \
+            --load "$RUNNER_TEMP/fleet-bin/cellar-perf-load" --runtime python \
+            --rustfs-image "$RUSTFS_IMAGE" --output "$RUNNER_TEMP/python-fleet-evidence/python"
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          results = json.loads((Path(os.environ['RUNNER_TEMP']) /
+                                'python-fleet-evidence/python/results.json').read_text())
+          free = os.environ['PYTHON_RUNTIME'].endswith('t')
+          policies = results.get('node_policies', [])
+          if not policies or results.get('completed') is not True:
+              raise SystemExit('Missing completed Python fleet startup observations')
+          for policy in policies:
+              runtime = policy['python']
+              if (runtime['version'].split()[0] != '3.14.5'
+                      or runtime['free_threaded'] is not free
+                      or runtime['gil_enabled'] is not (not free)):
+                  raise SystemExit('Embedded host runtime differs from the selected image ABI')
+          PY
+      - name: Retain bounded fixture evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: python-fleet-${{ matrix.runtime }}-${{ github.run_id }}
+          if-no-files-found: warn
+          path: |
+            ${{ runner.temp }}/python-fleet-evidence/**/*.json
+            ${{ runner.temp }}/python-fleet-evidence/**/*.log
+            ${{ runner.temp }}/python-fleet-evidence/**/*.stderr
+            ${{ runner.temp }}/python-fleet-evidence/*.sha256

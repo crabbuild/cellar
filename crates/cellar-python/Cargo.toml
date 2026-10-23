@@ -61,6 +61,11 @@ name = "python-baseline"
 path = "../../tools/python/baseline.rs"
 
 [[example]]
+name = "python-fleet"
+path = "../../tools/python/fleet.rs"
+required-features = ["embed"]
+
+[[example]]
 name = "python-offered-load"
 path = "../../tools/python/offered_load.rs"
 

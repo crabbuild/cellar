@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: Qualification, native-event investigation, or optimized Python load
+        description: Qualification, native-event investigation, Python load or S3 recovery
         type: choice
         default: qualification
         options:
@@ -15,6 +15,7 @@ on:
           - clock-replay
           - reliability-replay
           - python-load
+          - python-fleet
       load_repetitions:
         description: Optimized Python load repetitions (1-5)
         type: number
@@ -24,7 +25,7 @@ on:
         type: number
         default: 20
       replay_sha:
-        description: Optional full repository commit SHA for isolated replay or load
+        description: Optional full repository commit SHA for isolated replay, load or S3 recovery
         type: string
         default: ''
 
@@ -43,6 +44,11 @@ env:
   CARGO_PROFILE_TEST_DEBUG: "0"
 
 jobs:
+  python_fleet:
+    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'python-fleet'
+    uses: ./.github/workflows/python-fleet.yml
+    with:
+      revision: ${{ inputs.replay_sha }}
   check:
     if: github.event_name != 'workflow_dispatch' || inputs.mode == 'qualification'
     name: Rust framework and SDK (${{ matrix.python }})

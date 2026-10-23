@@ -6,6 +6,8 @@ deployment commands using the workflow below.
 
 For reproducible native/Python latency, throughput, memory, bridge-copy and
 owner-loss recovery measurements, use the [baseline harness](baseline.md).
+For S3 durability, rolling replacement and joined native/Python shutdown, use
+the [Python fleet fixture](fleet.md).
 
 `environment.py` inventories a provisioned CPython 3.14 or free-threaded CPython 3.14t and explicit
 package roots. `CELLAR_PYTHON_INVENTORY` binds that inventory into the Rust host at

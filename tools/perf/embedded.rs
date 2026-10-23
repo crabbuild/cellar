@@ -56,7 +56,7 @@ impl Arguments {
     }
 }
 
-fn setting<T: std::str::FromStr>(name: &str, default: T) -> Result<T>
+pub(super) fn setting<T: std::str::FromStr>(name: &str, default: T) -> Result<T>
 where
     T::Err: std::error::Error + Send + Sync + 'static,
 {
@@ -104,6 +104,17 @@ pub(super) fn run(
     graph: DeploymentGraph,
     factory: fn(Arc<str>) -> Result<Arc<dyn Application>>,
 ) -> Result<()> {
+    run_observed(graph, factory, std::future::pending(), |_| {})
+}
+
+/// The same host for an embedded adapter: its stop signal participates in node
+/// shutdown, and its supervisor records the actual joined native outcome.
+pub(super) fn run_observed(
+    graph: DeploymentGraph,
+    factory: impl Fn(Arc<str>) -> Result<Arc<dyn Application>> + Send + Sync + 'static,
+    shutdown: impl std::future::Future<Output = ()>,
+    observe: impl FnOnce(NodeOutcome),
+) -> Result<()> {
     let arguments = Arguments::parse()?;
     let node: Arc<str> = std::env::var("CELLAR_PERF_NODE")?.into();
     let directory = PathBuf::from(std::env::var("CELLAR_PERF_DATA_DIR")?);
@@ -114,7 +125,7 @@ pub(super) fn run(
     let shutdown_ms = setting("CELLAR_PERF_SHUTDOWN_MS", 30_000u64)?;
     let log_level = setting(
         "CELLAR_PERF_LOG_LEVEL",
-        tracing::level_filters::LevelFilter::WARN,
+        tracing_subscriber::filter::LevelFilter::WARN,
     )?;
     ensure!(
         threads > 0 && resident > 0 && requests > 0 && shutdown_ms > 0,
@@ -270,11 +281,16 @@ pub(super) fn run(
             cellar::asyncrt::select! {
                 _ = terminate.recv() => {},
                 _ = tokio::signal::ctrl_c() => {},
+                _ = shutdown => {},
             }
             #[cfg(not(unix))]
-            let _ = tokio::signal::ctrl_c().await;
+            cellar::asyncrt::select! {
+                _ = tokio::signal::ctrl_c() => {},
+                _ = shutdown => {},
+            }
             ShutdownMode::Handoff
         }).await?;
+        observe(outcome.clone());
         let executors_alive = tokio::time::timeout(Duration::from_secs(2), async {
             Ok::<_, anyhow::Error>(host.handle().spawn(async { true }).await?
                 && core.handle().spawn(async { true }).await?)

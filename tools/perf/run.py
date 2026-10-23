@@ -105,6 +105,88 @@ def validate_shutdown(proof, exit_code, mode):
         raise RuntimeError("preserving shutdown did not prepare an exact local reload")
 
 
+def validate_python_startup(text, requests, shutdown_ms):
+    value = event_report(text, "embedded_python_started")
+    if (not value or not isinstance(value.get("version"), str)
+            or not value["version"].startswith("3.14.")
+            or type(value.get("free_threaded")) is not bool
+            or type(value.get("gil_enabled")) is not bool
+            or value["gil_enabled"] == value["free_threaded"]):
+        raise RuntimeError("missing or unexpected Python ABI/GIL observation")
+    limits = value.get("limits", {})
+    expected = {"max_requests": requests, "max_invocations": requests * 2,
+                "max_tasks": max(1024, requests * 4 + 1), "max_objects": 4096,
+                "max_bridge_bytes": 32 * 1024 * 1024, "shutdown_timeout_ms": shutdown_ms}
+    if limits != expected or any(type(n) is not int for n in limits.values()):
+        raise RuntimeError("Python admission limits differ from the requested workload")
+    return value
+
+
+def validate_python_shutdown(proof, native):
+    if not proof or proof.get("complete") is not True:
+        raise RuntimeError("missing or incomplete joined Python outcome")
+    try:
+        value = proof["report"]
+        zero = [value[key] for key in ("pending_tasks", "pending_objects", "pending_threads",
+                                      "unraisable_errors", "thread_errors")]
+        zero += [value["work"][key] for key in ("active_tasks", "active_invocations",
+                                              "resident_objects", "pending_retirements")]
+        bridge, outcomes = value["bridge"], value["native_outcomes"]
+        zero += [bridge["queued_bytes"], bridge["pending_reservations"]]
+        operations = bridge["operations"]
+        zero += [operations[key] for key in ("pending", "queued", "running", "replies_pending")]
+        native_fields = ("outcome", "mode", "ingress_drained", "application_work_drained",
+            "pending_application_events", "cells_drained", "pending_dispatches", "log_quiesced",
+            "local_durability_closed", "clean_reload_prepared", "drain_timed_out", "deadline_elapsed")
+        expected_native = dict(complete=True, **{key: native[key] for key in native_fields})
+        counters = [operations[key] for key in ("admitted", "started", "succeeded", "failed",
+                    "delivered", "abandoned_queued", "abandoned_running", "undelivered")]
+        complete = (all(type(n) is int and n == 0 for n in zero)
+            and all(type(n) is int and n >= 0 for n in counters)
+            and value["host_failed"] is False and value["runtime_failed"] is False
+            and type(value["objects_created"]) is int and value["objects_created"] >= 0
+            and type(value["objects_retired"]) is int
+            and value["objects_created"] == value["objects_retired"]
+            and outcomes == [expected_native]
+            and operations["admitted"] == sum(operations[key] for key in
+                ("delivered", "abandoned_queued", "abandoned_running", "undelivered"))
+            and operations["started"] == sum(operations[key] for key in
+                ("succeeded", "failed", "abandoned_running")))
+    except (KeyError, TypeError, IndexError):
+        complete = False
+    if not complete:
+        raise RuntimeError("unsettled Python work or inconsistent native shutdown evidence")
+
+
+def validate_python_outcomes(root, outcomes, scenarios, requests, shutdown_ms):
+    expected = {}
+    for name, count, _ in SCENARIOS:
+        if scenarios and name not in scenarios:
+            continue
+        if count > 1:
+            expected.update({(name + "-rolling", i + 1): "handoff" for i in range(count)})
+        expected.update({(name + "-drained", i + 1): "preserve" if i == count - 1 else "handoff"
+                         for i in range(count)})
+        expected[(name + "-preserve-reloaded", count)] = "preserve"
+    seen = {(outcome["label"], outcome["node"]): outcome for outcome in outcomes}
+    if len(seen) != len(outcomes) or set(seen) != set(expected):
+        raise RuntimeError("missing or duplicate Python fleet shutdown checkpoints")
+    startup = None
+    for key, mode in expected.items():
+        outcome = seen[key]
+        text = (root / f"{key[0]}-node{key[1]}.log").read_text()
+        native = event_report(text, "embedded_node_stopped")
+        python = event_report(text, "embedded_python_stopped")
+        if native != outcome["proof"] or python != outcome.get("python"):
+            raise RuntimeError("saved shutdown proof differs from its process log")
+        validate_shutdown(native, outcome["exit_code"], mode)
+        validate_python_shutdown(python, native)
+        observed = validate_python_startup(text, requests, shutdown_ms)
+        if startup is not None and observed != startup:
+            raise RuntimeError("Python ABI or limits changed across shutdown checkpoints")
+        startup = observed
+
+
 def request(url, method="GET", timeout=5):
     with urllib.request.urlopen(urllib.request.Request(url, method=method), timeout=timeout) as response:
         return response.read().decode()
@@ -134,9 +216,9 @@ def create_bucket(endpoint, name, access, secret):
 
 
 class Harness:
-    def __init__(self, args, node_binary="cellar-perf-cells"):
+    def __init__(self, args, node_binary=None):
         self.args = args
-        self.node_binary = node_binary
+        self.node_binary = node_binary or ("python-fleet" if getattr(args, "runtime", "native") == "python" else "cellar-perf-cells")
         self.tag = "cellar-perf-" + datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d-%H%M%S") + "-" + secrets.token_hex(3)
         self.output = pathlib.Path(args.output or f".cellar/perf/{self.tag}").resolve()
         self.output.mkdir(parents=True, exist_ok=False)
@@ -240,7 +322,13 @@ df -B1 {shlex.quote(self.vm_root)}/node{{1,2,3}}
         proof = validate_node_limits(logs(self.nodes[i]), self.args.max_resident,
                                      self.args.max_cached_routes, self.args.max_requests,
                                      getattr(self.args, "log_level", None))
-        self.node_policies.append({"scenario": scenario, "node": i + 1, "proof": proof})
+        policy = {"scenario": scenario, "node": i + 1, "proof": proof}
+        if self.node_binary == "python-fleet":
+            policy["python"] = validate_python_startup(logs(self.nodes[i]), self.args.max_requests,
+                                                       self.args.shutdown_ms)
+            if any(previous.get("python") != policy["python"] for previous in self.node_policies):
+                raise RuntimeError("Python ABI or admission limits changed across fleet processes")
+        self.node_policies.append(policy)
 
     def start_node(self, i, bucket, durability):
         command("docker", "run", "-d", "--name", self.nodes[i], "--network", self.network,
@@ -314,10 +402,15 @@ df -B1 {shlex.quote(self.vm_root)}/node{{1,2,3}}
         proof = None
         if graceful:
             proof = shutdown_proof(text)
-            self.shutdown_outcomes.append({"label": label, "node": i + 1, "exit_code": exit_code, "proof": proof})
+            outcome = {"label": label, "node": i + 1, "exit_code": exit_code, "proof": proof}
+            if self.node_binary == "python-fleet":
+                outcome["python"] = event_report(text, "embedded_python_stopped")
+            self.shutdown_outcomes.append(outcome)
         command("docker", "rm", "-f", self.nodes[i], check=False)
         if graceful:
             validate_shutdown(proof, exit_code, mode)
+            if self.node_binary == "python-fleet":
+                validate_python_shutdown(outcome["python"], proof)
 
     def clear_disks(self):
         # Only the fresh harness-owned state directories, never arbitrary paths.
@@ -403,6 +496,7 @@ df -B1 {shlex.quote(self.vm_root)}/node{{1,2,3}}
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--image", default="cellar-embedded-perf:local")
+    parser.add_argument("--runtime", choices=["native", "python"], default="native")
     parser.add_argument("--rustfs-image", default="rustfs/rustfs@sha256:1803faef57627e2d9c2e7d89d655d712ddded5389040054987163043fecb6a3c")
     parser.add_argument("--cells", type=int, default=200)
     parser.add_argument("--max-resident", type=int, default=256)
@@ -427,6 +521,8 @@ def main():
         parser.error("max-cached-routes must be nonnegative")
     if any(value <= 0 or value > args.cells for value in args.concurrency):
         parser.error("concurrency must be between 1 and the cell count")
+    if args.runtime == "python" and (args.max_requests > 2048 or args.max_resident > 4096):
+        parser.error("Python fleet limits require max-requests <= 2048 and max-resident <= 4096")
     harness = Harness(args)
     image = json.loads(command("docker", "image", "inspect", args.image))[0]
     metadata = {
@@ -442,6 +538,17 @@ def main():
         "image_labels": image["Config"].get("Labels"),
         "rustfs_image": json.loads(command("docker", "image", "inspect", args.rustfs_image))[0]["Id"],
     }
+    if args.runtime == "python":
+        metadata["source_sha256"].update({name: hashlib.sha256(pathlib.Path(name).read_bytes()).hexdigest()
+            for name in ("tools/python/fleet.rs", "tools/python/fleet_app.py", "tools/python/fleet.Dockerfile")})
+    binaries = [f"/usr/local/bin/{harness.node_binary}", "/usr/local/bin/cellar-perf-load"]
+    checksums = command("docker", "run", "--rm", "--network", "none", "--entrypoint", "sha256sum",
+                        args.image, *binaries)
+    metadata["executable_sha256"] = {line.split()[1]: line.split()[0] for line in checksums.splitlines()}
+    if (set(metadata["executable_sha256"]) != set(binaries)
+            or any(len(value) != 64 or any(c not in "0123456789abcdef" for c in value)
+                   for value in metadata["executable_sha256"].values())):
+        raise RuntimeError("missing executable identities from measurement image")
     (harness.output / "metadata.json").write_text(json.dumps(metadata, indent=2) + "\n")
     print(f"Artifacts: {harness.output}", flush=True)
     completed = False
@@ -452,6 +559,9 @@ def main():
                 harness.scenario(name, count, durability)
         for checkpoint in routing_cache_checkpoints(args.scenario):
             validate_routing_cache(json.loads((harness.output / checkpoint["file"]).read_text()), args.max_cached_routes)
+        if args.runtime == "python":
+            validate_python_outcomes(harness.output, harness.shutdown_outcomes, args.scenario,
+                                     args.max_requests, args.shutdown_ms)
         completed = True
     finally:
         (harness.output / "results.json").write_text(json.dumps({"completed": completed, "measurements": harness.results, "recovery": harness.recovery, "shutdown_outcomes": harness.shutdown_outcomes, "node_policies": harness.node_policies, "routing_cache_snapshots": harness.routing_cache_snapshots, "failures": harness.failures}, indent=2) + "\n")
