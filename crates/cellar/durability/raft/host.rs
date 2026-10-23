@@ -994,6 +994,9 @@ struct Pending {
     // Unknown until the callback's physical preview is verified. Keep this
     // bound after proposal submission takes `prepared`, through proof/reply.
     archive_bytes: Option<u64>,
+    // Only transient admission deferral is timed here, until grant/refusal.
+    // Dropping a cancelled/retired waiter records abandonment, never a grant.
+    admission_wait: Option<super::performance::Timer>,
     system: bool,
     proof: Option<(LogPosition, [u8; 32])>,
     request: Request,
@@ -1982,6 +1985,11 @@ impl Driver {
                 cell.pending = Some(Pending {
                     allow_new: admission == admission::Decision::Granted,
                     archive_bytes: None,
+                    admission_wait: (admission == admission::Decision::Deferred).then(|| {
+                        self.local
+                            .performance
+                            .timer(super::performance::Operation::ArchiveAdmissionWait)
+                    }),
                     system,
                     proof: None,
                     request,

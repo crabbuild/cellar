@@ -52,9 +52,11 @@ pub(crate) enum Operation {
     DataExchange,
     ControlAdmit,
     DataAdmit,
+    ArchiveAdmissionCheck,
+    ArchiveAdmissionWait,
 }
 
-const OPERATIONS: [Operation; 23] = [
+const OPERATIONS: [Operation; 25] = [
     Operation::EngineQueue,
     Operation::EngineFileSync,
     Operation::EngineDirectorySync,
@@ -78,6 +80,8 @@ const OPERATIONS: [Operation; 23] = [
     Operation::DataExchange,
     Operation::ControlAdmit,
     Operation::DataAdmit,
+    Operation::ArchiveAdmissionCheck,
+    Operation::ArchiveAdmissionWait,
 ];
 
 impl Operation {
@@ -106,6 +110,8 @@ impl Operation {
             Self::DataExchange => "transport_data_exchange",
             Self::ControlAdmit => "transport_control_admit",
             Self::DataAdmit => "transport_data_admit",
+            Self::ArchiveAdmissionCheck => "archive_admission_check",
+            Self::ArchiveAdmissionWait => "archive_admission_wait",
         }
     }
 }

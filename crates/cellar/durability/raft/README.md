@@ -286,6 +286,16 @@ ambient clock/random functions. Native application code remains trusted; this
 facade is not an OS sandbox. Callback errors, panics and oversized results roll
 back. Any uncertain private state requires rebuilding before another callback.
 
+Archive admission exposes two fixed-size duration histograms. The
+`archive_admission_check` timer covers each complete node-wide policy evaluation,
+including grants, deferrals and refusals; its success means evaluation completed,
+not that a callback was granted. Existing decision counters retain the reason.
+`archive_admission_wait` starts only when a command joins the bounded deferred
+FIFO and ends when admission grants or refuses it, before authority/SQL work.
+A cancelled or retired waiter records abandonment when its owner is released.
+The wait includes fairness behind existing waiters; it does not include the
+subsequent SQL queue, command execution or archive publication.
+
 A known archive-admission refusal still permits duplicate receipt lookup, then
 refuses new work before opening a transaction or invalidating private capture
 state. It does not require a private-image rebuild. Failures after mutation

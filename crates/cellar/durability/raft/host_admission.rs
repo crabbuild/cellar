@@ -2,7 +2,7 @@
 use super::{Driver, Phase};
 use crate::raft::{
     cache::{CachedGroup, GroupLog},
-    performance::Counter as MeasuredCounter,
+    performance::{Counter as MeasuredCounter, Operation as MeasuredOperation},
     storage::LogError,
 };
 use cellar_logic::consensus::LogIndex;
@@ -84,6 +84,18 @@ pub(super) enum Decision {
 
 impl Driver {
     pub(super) fn archive_admission(&mut self) -> Decision {
+        let timer = self
+            .local
+            .performance
+            .timer(MeasuredOperation::ArchiveAdmissionCheck);
+        let decision = self.check_archive_admission();
+        // This measures completed policy evaluation, including refusal and
+        // deferral. Decision counters retain the reason; success is not a grant.
+        timer.finish(true);
+        decision
+    }
+
+    fn check_archive_admission(&mut self) -> Decision {
         let reservation = self
             .options
             .execution
@@ -178,6 +190,9 @@ impl Driver {
                 .and_then(|cell| cell.pending.as_mut())
             {
                 pending.allow_new = decision == Decision::Granted;
+                if let Some(timer) = pending.admission_wait.take() {
+                    timer.finish(pending.allow_new);
+                }
                 pending.phase = Phase::Start;
             }
         }

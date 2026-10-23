@@ -1878,6 +1878,13 @@ async fn check_unknown_reservation(cancel_waiter: bool) -> Result<()> {
         tokio::time::timeout(Duration::from_secs(5), native.entered.recv())
             .await?
             .context("first callback did not enter")?;
+        let wait_before = native
+            .service
+            .performance()
+            .operations
+            .into_iter()
+            .find(|operation| operation.name == "archive_admission_wait")
+            .context("missing archive admission wait timing")?;
         tasks.push(tokio::spawn(cells[1].command(
             native.definition.increment.clone(),
             1_i64.to_be_bytes().to_vec(),
@@ -1885,8 +1892,13 @@ async fn check_unknown_reservation(cancel_waiter: bool) -> Result<()> {
         )));
         tokio::time::timeout(Duration::from_secs(5), async {
             loop {
-                if native.service.performance().counters.iter().any(|counter| {
+                let metrics = native.service.performance();
+                if metrics.counters.iter().any(|counter| {
                     counter.name == "archive_admission_reserved_bytes_deferred" && counter.value > 0
+                }) && metrics.operations.iter().any(|operation| {
+                    operation.name == "archive_admission_wait"
+                        && operation.started == wait_before.started + 1
+                        && operation.count == wait_before.count
                 }) {
                     break;
                 }
@@ -1942,6 +1954,31 @@ async fn check_unknown_reservation(cancel_waiter: bool) -> Result<()> {
                 .await?;
             ensure!(receipt.result == 2_i64.to_be_bytes());
         }
+        let metrics = native.service.performance();
+        let wait_after = metrics
+            .operations
+            .iter()
+            .find(|operation| operation.name == "archive_admission_wait")
+            .context("missing completed archive admission wait")?;
+        ensure!(wait_after.started == wait_before.started + 1);
+        ensure!(wait_after.failed == wait_before.failed);
+        ensure!(wait_after.succeeded == wait_before.succeeded + u64::from(!cancel_waiter));
+        ensure!(wait_after.abandoned == wait_before.abandoned + u64::from(cancel_waiter));
+        ensure!(wait_after.count == wait_before.count + 1);
+        ensure!(wait_after.sum_us > wait_before.sum_us);
+        let checks = metrics
+            .operations
+            .iter()
+            .find(|operation| operation.name == "archive_admission_check")
+            .context("missing archive admission check timing")?;
+        let decisions: u64 = metrics
+            .counters
+            .iter()
+            .filter(|counter| counter.name.starts_with("archive_admission_"))
+            .map(|counter| counter.value)
+            .sum();
+        ensure!(checks.succeeded == decisions);
+        ensure!(checks.failed == 0 && checks.abandoned == 0);
         ensure!(native.calls.load(Ordering::SeqCst) == 4);
         Ok::<_, anyhow::Error>(())
     }

@@ -10,6 +10,42 @@ control's 237.70. The [transport evidence](evidence/tikv-control-sliding.json)
 distinguishes the local progress fix, the passing cohort and the unproven relative
 performance effect. Every earlier experiment and raw outcome remains preserved.
 
+## Archive-admission timing and restored benchmark headroom
+
+The next observation separates time in admission policy evaluation from time a
+command spends awaiting a reservation. Fixed `archive_admission_check` and
+`archive_admission_wait` histograms add no group/request labels or new admission
+budget. Check completion includes grants, deferrals and refusals; decision
+counters still distinguish the outcome. Wait starts once per deferred command,
+ends on grant/refusal and records abandonment on owner release after cancellation
+or retirement. It excludes subsequent authority/SQL work. The native gated
+reservation regression first fails because the wait timing is missing, then
+passes for both a granted waiter and a cancelled waiter that never executes.
+
+Prior diagnostics measured admission scans around 0.10 ms and archive inventory
+scans around 0.16–0.17 ms on an older build. Current decision counts alone cannot
+show whether reservation wait or scan CPU is significant. The ranked hypotheses
+are reservation wait, repeated scan work, then post-admission image/archive work;
+measure the current runtime before choosing a throughput change. The inventory
+selector also checks eligibility before rejecting keys preceding its cursor,
+but its impact needs qualification rather than assuming it dominates.
+
+[Artifact preservation evidence](evidence/tikv-node-artifact-relocation.json)
+records relocation of three stopped, verified cohorts: nine node volumes,
+63,351 files and 7,208,229,865 logical bytes. The scoped external archive mount
+is added only to the idle benchmark VM. Its existing home mount, CPU/memory/disk
+settings, other profiles and selected Docker context are unchanged. Every
+existing image and volume is retained. Original node paths remain symlinks;
+content, names, permissions, ownership, modification times, absent extended
+attributes and internal hardlink topology are verified before releasing the
+redundant source copies. Read-only Docker probes through every original named
+volume return the expected hashes. Historical benchmark records remain immutable.
+Fresh node data still uses real directories on the original internal filesystem.
+Host free space rises from 3.61 to 10.46 GiB, restoring the unchanged 5-GiB gate.
+The first relocation attempt stops before copying because Python lacks xattr
+APIs; the separately recorded retry uses the native xattr command to verify the
+same metadata condition. No logical data or evidence is pruned.
+
 ## Bounded control-window refill experiment
 
 The failed confirmation motivates three ranked hypotheses: the fixed control
