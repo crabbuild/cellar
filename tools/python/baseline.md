@@ -127,6 +127,15 @@ protection from shared-runner noise. It reduces direct client/server competition
 but does not establish production capacity. Compare both implementations with
 the same masks, body sizes, rates, build profile and repetition count.
 
+The SDK workflow's `python-load` mode applies disjoint CPU sets on Linux.
+Set its optional `load_baseline_sha` to a full commit SHA to build another Python
+host on that same runner and include it in the rotated offered-load comparison.
+Both revisions use the selected matrix interpreter and toolchain. The job
+refuses differing measurement fixtures or Cargo build profiles, freezes each
+binary before another build can replace it, and retains source revisions and
+binary hashes in `builds.json`. This compares revisions under one resource
+placement; shared-runner noise and all client drops still qualify the results.
+
 Every planned arrival has an outcome in `measured-RATE.json`: success, client
 capacity, client lateness, timeout, transport error, HTTP status or body mismatch.
 The client never waits for an admission slot, never sends after the measurement
