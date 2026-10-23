@@ -1452,6 +1452,15 @@ unfinished. Containers exit normally, volumes remain and the dedicated profile
 is stopped. Executor responsiveness and client socket admission need separate
 regressions; no production performance fix or capacity is claimed from this run.
 
+Fresh-head CI also exposed a [read-accounting fixture race](evidence/MR-14-read-accounting-progress.json):
+completion fsync can legitimately keep the cell busy at the next 10 ms arrival.
+An injected fsync delay reproduces one timed-out read where the test assumed
+three. The accounting case now controls clock and executor completion and still
+requires three timeouts, zero ambiguity and unchanged cell state. Separate real
+thread tests retain slow-server admission coverage. The delayed-fsync reproducer,
+201 performance cases (one opt-in Docker skip), docs/plan checks and all 17 plan
+tests pass at `4dcaf1d`. No production scheduling or timeout contract changes.
+
 The [all-owner restart evidence](evidence/MR-14-restart-progress.json), source
 `aaa83f8`, records two three-node bucket runs under an explicit twelve-second
 RustFS pause. All owners join an expired-lease fence before the exact containers
