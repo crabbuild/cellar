@@ -1,13 +1,13 @@
 # TiKV comparison and Cellar performance investigation
 
-Status: PR #98's conflicts are resolved through main `1455fb0`; GitHub reports
-it mergeable. The frozen integrated runtime `86297e7` passes two 180-second,
-24-writer windows at 240.21/213.90 successful TPS and 226.93/252.26 ms p99,
-with zero write errors. All 4,500 replica values and 1,500 archive positions
-verify, and shutdown is clean with volumes retained. This passes the accepted
-500-ms gate, misses the preferred 200-ms gate, and still slows 10.95% between
-windows. It does not establish an additional TPS gain over pre-merge `3aeb3ad`.
-Shared-host contention remains recorded in the [integrated evidence](evidence/tikv-main-integration.json).
+Status: PR #98's conflicts are resolved through main `1455fb0`. The ephemeral
+capture candidate `68b82e1` removes private LTX output files but fails the
+sustained zero-error gate at both 24 and 16 writers. It is reverted by `69192d2`;
+the runtime matches the previously qualified `86297e7`/`57dcfa5` state. Fresh
+control runs pass at 253.43/236.85 TPS (24 writers) and 238.90/204.46 TPS
+(16 writers), with all p99 values below 500 ms. No additional end-to-end
+performance gain is promoted. The [paired evidence](evidence/tikv-ephemeral-capture.json)
+retains failed windows, operation counters, host activity and exact verification.
 
 ## Current performance priorities
 
@@ -33,7 +33,7 @@ limit is yet a proven explanation for those refusals.
 | --- | --- | --- |
 | 1 | Archive publication grows from 25 to 50 ms as mean tail count grows from 8 to 18 in the tuned diagnostic. Size-based rotation reduces payload reads by 70.4% in a deterministic test, but earlier overload bursts remain unexplained and the latest candidate still slows 14.2%. | Measure steady-state archive lag and retained history on every replica. Evaluate coordinated publication and fewer repeated object reads/replays, preserving follower recovery proofs and publisher failover. Retain refusal counters to distinguish retained bytes/entries, reservations and deadline expiry; the diagnostic has not reproduced those refusals. |
 | 2 | With four SQL owners, committed preparation waits 6.0–6.9 ms, publication 5.5–6.0 ms and archive capture 8.6–10.2 ms in the tuned diagnostic. Bounded priority now passes the measured 500-ms gate at 229.64 mean TPS, but misses 200 ms. | Retain the fair scheduling candidate and validate it after integration with main. Measure queue and execution tails separately under sustained offered load; keep per-cell order, 64 total reservations, byte budgets and physical joins. A deeper queue alone is not a latency improvement. |
-| 3 | Tuned staging averages 16.5–20.4 ms. The earlier deeper profile attributes 5.1–5.4 ms to preview construction and about 1.5–1.6 ms each to private-file cleanup and private LTX writes. | Reduce disposable file creation/cleanup and image copying. The bounded encoded-capture handoff already removes read-back; evaluate avoiding disposable output writes with exact checkpoint-cut, receipt and restart tests. Keep authoritative image/log barriers intact. |
+| 3 | Tuned staging averages 16.5–20.4 ms. The earlier deeper profile attributes 5.1–5.4 ms to preview construction and about 1.5–1.6 ms each to private-file cleanup and private LTX writes. | Reduce disposable file creation/cleanup and image copying. The bounded encoded-capture handoff already removes read-back; the ephemeral-output experiment below removes these writes but fails sustained admission qualification and is reverted. Diagnose refusal/rebuild amplification before retrying it. Keep authoritative image/log barriers intact. |
 | 4 | Shared Raft persistence averages 0.71–0.72 ms but handles only about 1.24 groups per batch. | Improve bounded coalescing and investigate combined progress writes. Measure the benefit before adding delay; avoid busy spinning on a one-vCPU node. |
 | 5 | Every command still constructs immutable images across replicas. | Explore separate applied and checkpointed progress with Raft-log replay, following TiKV's recovery model. This needs explicit replay retention, snapshot/GC boundaries and power-loss recovery tests before changing acknowledgement semantics. |
 
@@ -120,6 +120,80 @@ Cellar to discard its only acknowledged image without a retained, verifiable
 replay path. Avoiding disposable LTX output also needs an explicit bounded
 in-memory capture continuation: the current `Db` reads its last L0 cut while
 checking capture/checkpoint progress, so simply skipping file writes is unsafe.
+
+### Rejected ephemeral-capture experiment
+
+Candidate `68b82e1` changes only disposable private capture output: bounded
+encoded cuts transfer directly to validation without creating local LTX files.
+An exclusive owner retains continuation metadata, refuses file-history fallback
+and fails closed after partial capture. Authoritative log/image and
+acknowledgement barriers remain unchanged. The native regression observes eight
+private LTX writes before the change and zero afterward, then verifies duplicate
+receipts and a fresh command after restart. LTX tests cover forced multi-cut
+checkpoints, empty captures, seeded continuation, bounds failures and restoration.
+
+The [paired frozen-runtime runs](evidence/tikv-ephemeral-capture.json) use the same
+load AST, three 1-vCPU / 3-GiB nodes, 500 leaders and 1,000 followers each, four
+SQL workers / 64 reservations and four archive-cut slots. Each cohort starts
+from a cold benchmark VM and fresh persistent node volumes, drains seed archives,
+and runs two 180-second windows. Candidate runs precede their matching controls.
+The only setting changed between pairs is client concurrency.
+
+| Writers | Build | TPS, windows 1 / 2 | p99 ms, windows 1 / 2 | Errors, windows 1 / 2 |
+| --- | --- | --- | --- | --- |
+| 24 | Candidate `68b82e1` | 276.86 / 228.35 | 249.79 / 425.70 | 0 / 448 |
+| 24 | Control `86297e7` | 253.43 / 236.85 | 211.26 / 239.37 | 0 / 0 |
+| 16 | Candidate `68b82e1` | 184.92 / 239.82 | 770.32 / 220.45 | 1,939 / 0 |
+| 16 | Control `86297e7` | 238.90 / 204.46 | 189.13 / 237.96 | 0 / 0 |
+
+TPS counts successful writes; latency percentiles describe successful responses,
+with failures reported separately. The 24-writer candidate's failed window has
+437 overload refusals, 10 unavailable outcomes and one ambiguous outcome. Only
+the uncertain original command is reconciled outside timing, using its original
+identity, input and deadline. Exact 4,500 replica values and 1,500 RustFS positions
+then verify, including 92,484 acknowledged mutations with seed and reconciliation.
+That timed run remains failed. The 16-writer candidate's 1,939 failures are all
+overload refusals. Both controls and the other candidate verify the same complete
+replica/archive sets. All cohorts stop cleanly without OOM kills, retaining
+volumes, images and raw evidence.
+
+Existing metrics sampled outside each timed process show a local cost reduction:
+the first 24-writer window averages 12.02 ms staging versus 15.72 ms for control
+(23.5% lower), while committed preparation is 5.61 versus 5.74 ms and shared-log
+persistence 0.90 versus 0.91 ms. This does not establish a sustained gain: failed
+candidate windows have worse staging and queue costs, and one faster clean
+window cannot replace the zero-error cohort gate. The 24-writer candidate has
+other builds in 33/88 host samples, its control 0/88; the 16-writer candidate has
+0/105 and its control 30/87. Host swap remains about 10.6 GiB. Sequential order
+and host contention limit causal attribution; neither is used to excuse errors.
+
+The experiment passes 13 LTX tests, 514 library tests and native host (29),
+archive (51), LTX (26), multi-group (9) and snapshot (44) cases. Execution passes
+19 on rerun, after reproducing the earlier directory-lock failure; the affected
+restart case then passes 30 isolated repetitions. Strict all-target/all-feature
+Clippy, formatting, layout, dependency policy and documentation checks pass.
+A local link initially failed when the workspace disk filled; only this
+checkout's rebuildable incremental cache was removed, preserving evidence,
+images, volumes and other checkouts. Correctness tests do not qualify throughput.
+The candidate is reverted pending admission diagnosis and a sustained passing run.
+
+The next investigation should distinguish retained-byte, retained-entry,
+reservation and execution failures with bounded counters at their decision
+sites. The failed 24-writer window contains 432 failed SQL staging operations;
+engine persistence and committed-image preparation have no failed operations.
+Boundary archive snapshots cannot identify transient admission peaks.
+
+A concrete code opportunity is visible in
+[`stage_registered_kind`](../../crates/cellar/durability/raft/execution.rs):
+`allow_new == false` is checked inside the transaction callback, after `stage`
+marks the private owner as requiring rebuild. Consequently a known admission
+refusal can force a later private-image reconstruction without executing business
+logic. A regression should prove duplicate receipt lookup still succeeds while
+new work is refused, the private owner stays reusable, and actual callback or
+capture failure still requires rebuild. Move only the known refusal check after
+receipt lookup and before mutation; do not change archive bounds or durability.
+This inefficiency is established by code inspection, but is not yet proven to
+cause the measured overload bursts.
 
 ### Integrated runtime qualification
 
