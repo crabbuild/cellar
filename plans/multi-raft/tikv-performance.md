@@ -4,11 +4,13 @@ Status: PR #98's conflicts are resolved through main `1455fb0`. The ephemeral
 capture candidate `68b82e1` removes private LTX output files but fails the
 sustained zero-error gate at both 24 and 16 writers. It is reverted by `69192d2`;
 that revert restored the previously qualified `86297e7`/`57dcfa5` state.
-The admission-reuse candidate below now awaits its own throughput qualification. Fresh
-control runs pass at 253.43/236.85 TPS (24 writers) and 238.90/204.46 TPS
-(16 writers), with all p99 values below 500 ms. No additional end-to-end
-performance gain is promoted. The [paired evidence](evidence/tikv-ephemeral-capture.json)
-retains failed windows, operation counters, host activity and exact verification.
+The admission-reuse candidate `230cd4f` passes two sustained windows with zero
+errors and exact replica/archive verification. Its mean 246.43 TPS versus
+244.52 TPS for control does not establish a throughput improvement on this
+shared host. Both builds meet the accepted 500-ms p99 gate and miss the preferred
+200-ms gate. The [admission-reuse evidence](evidence/tikv-admission-reuse.json)
+records the fresh comparison; the [rejected capture evidence](evidence/tikv-ephemeral-capture.json)
+retains the earlier failed windows. No additional end-to-end gain is promoted.
 
 ## Admission-reuse candidate
 
@@ -42,7 +44,9 @@ TiKV's pinned v1 `apply.rs::process_raft_cmd` uses write-batch savepoints and
 rollback on command failure while preserving the shared engine. Cellar's change
 is narrower: it preserves only a private owner that has not begun mutation;
 it does not assume arbitrary SQLite/capture failures can reuse the workspace.
-End-to-end throughput qualification for this candidate is pending.
+Its paired throughput qualification appears below. The deterministic refusal
+regression establishes avoided copies; the timed workload does not exercise
+retained-limit refusal and cannot measure that benefit.
 
 A repeated archive-suite run also reproduced the prior producer-shutdown
 fixture failure. Its `committed > 1` observation included the startup leader
@@ -54,6 +58,68 @@ exposed a second fixture assumption: bundled cuts can share one object read, so
 an exact read count cannot measure occupied group slots. This producer-limit
 case now explicitly uses one group per batch; separate bundle regressions retain
 their normal batching settings. The full 52-case archive suite and 30 consecutive producer-shutdown repetitions pass. Original failed runs remain in diagnostic evidence.
+
+### Admission-reuse paired qualification
+
+Frozen candidate `230cd4f` and control `86297e7` each run two 180-second windows
+with 24 writers, three 1-vCPU / 3-GiB nodes, 500 leaders and 1,000 followers per
+node, four SQL workers with 64 total reservations, and four archive-cut slots.
+The load-function AST matches; each cohort starts with fresh persistent node
+volumes and a cold benchmark VM. There are no timed mutation retries.
+
+| Build | TPS, windows 1 / 2 | p99 ms, windows 1 / 2 | Errors |
+| --- | --- | --- | --- |
+| Admission reuse | 251.67 / 241.18 | 214.73 / 220.32 | 0 / 0 |
+| Integrated control | 257.43 / 231.62 | 202.72 / 247.56 | 0 / 0 |
+
+Both verify all 4,500 replica values and 1,500 RustFS archive positions and stop
+cleanly. All images, volumes and raw outcomes remain retained. Peak node memory
+stays below 1.75 GB, with no OOM kills. The candidate's mean TPS is 0.78% higher;
+that difference is not evidence of a causal gain. Other builds appear in 52/88
+candidate host samples and 0/91 control samples. Swap is approximately
+9.4–10.4 GiB for the candidate, versus about 9.4 GiB for control; raw MiB values
+are in the evidence. Sequential order
+and shared-host variation prevent a non-regression guarantee from one pair.
+
+The initial control attempt stops before loading data at the two-million-free-
+inode guard, with 1,800,324 free. A separately named retry preserves that record
+and requires 1,486,856 free inodes: four times the candidate's observed 321,714
+consumption plus 200,000 spare. No runtime capacity or workload changes; no
+data is pruned. The retry completes and verifies normally.
+
+The candidate reports 151,897 and 143,901 temporary byte-reservation deferral
+decisions, including waiter rechecks. Retained-byte, retained-entry, observation
+failure and reservation-entry refusal/defer counters remain zero. These are
+decision counts, not distinct requests or wait durations. The control lacks
+these counters; its missing values mean unavailable, not zero. Boundary archive
+lag stays below ten entries per group in the candidate, but boundary samples
+and final catch-up do not establish a continuous steady-state lag bound.
+
+| Candidate operation | Mean ms, windows 1 / 2 | Interpretation |
+| --- | --- | --- |
+| Command staging | 15.65 / 15.68 | Private SQL, capture and preview construction remain substantial. |
+| Committed image preparation | 5.72 / 5.80 | Each replica still prepares its own image. |
+| SQL worker queue | 7.93 / 7.21 | Includes different SQL work types; not a command-only queue measure. |
+| Shared-log persistence | 0.90 / 0.98 | Lower per-operation cost than image work; different counts prevent adding or directly attributing request latency. |
+
+The next experiments, in order, are:
+
+1. Re-evaluate disposable capture writes with the refusal/rebuild fix retained.
+   The rejected capture candidate reduced first-window staging from 15.72 to
+   12.02 ms, but failed sustained admission qualification. Require complete
+   zero-error cohorts before retaining the combined change.
+2. Measure time spent awaiting archive admission and distinguish archive read
+   purposes before changing budgets. Worst-case image/envelope reservations
+   defer callbacks despite small actual commands; current counters cannot
+   attribute their latency. `object_get` combines GET, HEAD and range reads,
+   so its count alone cannot establish payload amplification or RustFS saturation.
+3. Reduce repeated archive material loading and replay without skipping stored
+   dependency verification, missing-object refusal, or publisher failover.
+4. Evaluate applied-versus-checkpointed progress as a separate architectural
+   change. TiKV's shared write batch amortizes state-machine work across regions;
+   Cellar's shared Raft log does not amortize independent SQLite image copies.
+   Log replay retention, snapshot/GC boundaries and crash recovery must be
+   designed and tested before delaying authoritative image persistence.
 
 ## Current performance priorities
 
