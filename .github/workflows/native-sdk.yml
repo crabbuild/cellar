@@ -285,6 +285,7 @@ jobs:
           python-version: ${{ matrix.python }}
       - name: Validate bounded workload and source
         run: |
+          python tools/python/test_affinity.py
           python - <<'PY'
           import os, subprocess
           repetitions = int(os.environ['CELLAR_LOAD_REPETITIONS'])
@@ -295,6 +296,13 @@ jobs:
           if expected and actual != expected:
               raise SystemExit('Load checkout differs from requested SHA')
           print(f'Optimized load source {actual}', flush=True)
+          cpus = sorted(os.sched_getaffinity(0))
+          if len(cpus) < 2:
+              raise SystemExit('Offered load requires disjoint host/client CPU sets')
+          width = len(cpus) // 2
+          with open(os.environ['GITHUB_ENV'], 'a') as environment:
+              environment.write('CELLAR_LOAD_HOST_CPUS=' + ','.join(map(str, cpus[:width])) + '\n')
+              environment.write('CELLAR_LOAD_CLIENT_CPUS=' + ','.join(map(str, cpus[width:2*width])) + '\n')
           PY
       - name: Build fixed optimized native and Python artifacts
         id: build_hosts
@@ -328,6 +336,7 @@ jobs:
           python tools/python/offered.py --client target/lab/examples/python-offered-load \
             --native-host "$RUNNER_TEMP/load-native" --python-host "selected=$RUNNER_TEMP/load-python" \
             --output "$RUNNER_TEMP/python-load/offered" --build-profile lab \
+            --host-cpus "$CELLAR_LOAD_HOST_CPUS" --client-cpus "$CELLAR_LOAD_CLIENT_CPUS" \
             --rates 500 5000 15000 --duration-ms 5000 --warmup-ms 500 --max-inflight 64 --repetitions "$CELLAR_LOAD_REPETITIONS"
           python - "$RUNNER_TEMP/python-load/offered/offered.json" <<'PY'
           import json, sys

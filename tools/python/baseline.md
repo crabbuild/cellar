@@ -114,6 +114,19 @@ client process, so it warms server code but not the measured connection pool.
 It does not replace durable-write, recovery, activation-churn or multi-node
 qualification.
 
+On Linux, pass `--host-cpus 0,1 --client-cpus 2,3` to place the host and client
+on disjoint logical CPU sets. Choose IDs from `os.sched_getaffinity(0)` on the
+measurement machine; both lists are required, and unavailable or overlapping
+IDs refuse the run. Placement happens before either executable starts its
+threads. The report records the requested sets; `host-affinity.json` and each
+`*.affinity.json` retain the child PID and kernel-observed mask before exec.
+Host readiness also checks its live mask. Executable hashes still identify the
+actual Rust binaries. Without these options placement is unchanged on all OSes.
+Affinity is not exclusive CPU allocation, a CPU-time quota, memory isolation or
+protection from shared-runner noise. It reduces direct client/server competition
+but does not establish production capacity. Compare both implementations with
+the same masks, body sizes, rates, build profile and repetition count.
+
 Every planned arrival has an outcome in `measured-RATE.json`: success, client
 capacity, client lateness, timeout, transport error, HTTP status or body mismatch.
 The client never waits for an admission slot, never sends after the measurement

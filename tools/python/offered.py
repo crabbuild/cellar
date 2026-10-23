@@ -16,6 +16,7 @@ import subprocess
 import time
 
 from baseline import Host, digest, require, save
+import affinity
 from residency import resident
 
 
@@ -105,12 +106,16 @@ def summarize(report):
 
 
 def measure(client, host, args, rate, duration, path):
-    command = [str(client), host.origin, str(rate), str(duration), str(args.max_inflight),
+    cpus = args.cpu_placement["client"] if args.cpu_placement else None
+    evidence = path.with_suffix(".affinity.json")
+    command = [*affinity.prefix(cpus, evidence), str(client), host.origin, str(rate), str(duration), str(args.max_inflight),
                str(args.body_bytes), str(args.timeout_ms), str(args.max_lag_ms), str(path)]
     result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                             timeout=(duration + args.timeout_ms) / 1000 + 30)
     path.with_suffix(".log").write_bytes(result.stdout)
     require(result.returncode == 0, f"native client failed ({result.returncode}); see {path}")
+    if cpus is not None:
+        affinity.verify(evidence, cpus)
     report = json.loads(path.read_text())
     require(report["debug_assertions"] == (args.build_profile == "dev"), "client build profile mismatch")
     require(report["workload"] == {"url": host.origin.rstrip("/") + "/echo", "rate": rate,
@@ -120,10 +125,17 @@ def measure(client, host, args, rate, duration, path):
 
 
 def run_case(client, executable, mode, args, root, case):
-    host = Host(executable, mode + "-resident", root, "primary")
+    cpus = args.cpu_placement["host"] if args.cpu_placement else None
+    evidence = root / "host-affinity.json"
+    host = Host(executable, mode + "-resident", root, "primary",
+                command_prefix=affinity.prefix(cpus, evidence))
     case.update(status="running", phases=[], load_average_before=list(os.getloadavg()))
     try:
         case["startup_ns"] = host.readiness()
+        if cpus is not None:
+            case["cpu_affinity"] = affinity.verify(evidence, cpus, host.process.pid)
+            require(sorted(os.sched_getaffinity(host.process.pid)) == cpus,
+                    "host changed CPU affinity after startup")
         case["host"] = host.ready
         require(host.ready["embed_compiled"] == (mode == "python")
                 and host.ready["debug_assertions"] == (args.build_profile == "dev")
@@ -167,7 +179,10 @@ def main():
     parser.add_argument("--timeout-ms", type=int, default=1000)
     parser.add_argument("--max-lag-ms", type=int, default=5)
     parser.add_argument("--repetitions", type=int, default=3)
+    parser.add_argument("--host-cpus", help="Linux CPU IDs, e.g. 0,1; requires disjoint --client-cpus")
+    parser.add_argument("--client-cpus", help="Linux CPU IDs, e.g. 2,3; requires --host-cpus")
     args = parser.parse_args()
+    args.cpu_placement = affinity.placement(args.host_cpus, args.client_cpus)
     require(1 <= args.repetitions <= 20 and 1 <= args.max_inflight <= 512
             and 0 <= args.body_bytes <= 65536 and 1 <= args.timeout_ms <= 10000
             and 1 <= args.max_lag_ms <= 1000, "invalid workload limits")
@@ -182,14 +197,15 @@ def main():
         require(label and all(c.isascii() and (c.isalnum() or c in "-_") for c in label), "invalid label")
         hosts.append((label, "python", Path(path).resolve(strict=True)))
     require(len({label for label, _, _ in hosts}) == len(hosts), "duplicate label")
+    args.output = args.output.resolve()
     args.output.mkdir(parents=True, exist_ok=False)
     report = {"format": 1, "status": "running", "environment": {"platform": platform.platform(),
-        "cpu_count": os.cpu_count(), "build_profile": args.build_profile,
+        "cpu_count": os.cpu_count(), "cpu_placement": args.cpu_placement, "build_profile": args.build_profile,
         "source_git_sha": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
         "source_diff_sha256": hashlib.sha256(subprocess.check_output(["git", "diff", "HEAD"])).hexdigest()},
         "client": {"path": str(client), "sha256": digest(client)},
         "measurement_sources": {name: digest(Path(__file__).with_name(name))
-                                for name in ("offered.py", "offered_load.rs", "baseline.py", "residency.py")},
+                                for name in ("offered.py", "offered_load.rs", "baseline.py", "residency.py", "affinity.py")},
         "hosts": [{"label": label, "mode": mode, "path": str(path), "sha256": digest(path)}
                   for label, mode, path in hosts], "cases": [],
         "limits": ["Local-only loopback echo; no durable-write, network-store or multi-node capacity claim.",
@@ -198,6 +214,8 @@ def main():
                    "Both request latency and latency from scheduled arrival are reported; delays are never omitted.",
                    "Tokio timer granularity may group arrivals; dispatch delay must qualify the requested rate.",
                    "Warmup and measured requests use separate client processes and connection pools."]}
+    if args.cpu_placement:
+        report["limits"].append("CPU affinity limits eligible logical CPUs, not exclusive cores, CPU quota or memory; other work can still compete.")
     path = args.output / "offered.json"
     try:
         for repetition in range(args.repetitions):
