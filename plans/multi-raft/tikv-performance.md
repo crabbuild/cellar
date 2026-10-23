@@ -1,13 +1,13 @@
 # TiKV comparison and Cellar performance investigation
 
-Status: PR #98's conflicts are resolved through main `1455fb0`. Current runtime
-`7bbf71e` includes bounded control-window refill and admission timing. Fixture
-`6f57b79` exposes the existing archive byte budget without changing its default.
-The latest same-image 256/512-MiB comparison passes correctness and the accepted
-sub-500-ms gate, but **does not demonstrate a throughput improvement**: mean TPS
-is 236.97 versus 237.84 (+0.37%), while worst p99 increases from 206 to 234 ms.
-The production default remains 256 MiB. All earlier experiments, including the
-rejected capture candidate `8a34732`, remain preserved.
+Status: PR #98's conflicts are resolved through main `1455fb0`. Direct-image
+candidate `71074d6` reduces physical preparation cost and raises observed
+successful throughput, but **fails end-to-end performance qualification**:
+window two has 5,697 known overload refusals at node one's retained-entry gate.
+All 4,500 replica values and 1,500 archive positions verify without reconciliation.
+The candidate remains unqualified; no repeatable, error-free TPS gain is claimed.
+The archive budget remains 256 MiB. Earlier comparisons and failures remain
+preserved, including the rejected capture candidate `8a34732`.
 
 ## Direct exclusive image creation experiment
 
@@ -51,13 +51,54 @@ The first incomplete integration attempt selected the write-only creation API;
 its failed read-back results are retained. The final code uses the existing
 exclusive `create_read_write` API, which already supplied the stage handle.
 
-The performance comparison will use frozen control `6f57b79`, the same 256-MiB
+The [completed comparison](evidence/tikv-direct-image.json) uses frozen control
+`6f57b79` and candidate `71074d6`, the same 256-MiB
 archive budget, four SQL workers / 64 reservations, four archive-cut slots,
 three pinned 1-vCPU / 3-GiB nodes and 1,500 three-voter groups. Each fresh cohort
 uses two 180-second windows at 24 writers and requires exact 4,500 replica and
 1,500 RustFS archive checks. The only manifested production source difference
-is `crates/cellar-ltx/src/generation.rs`. No end-to-end gain is claimed before
-measurement and confirmation.
+is `crates/cellar-ltx/src/generation.rs`.
+
+| Build | TPS, windows 1 / 2 | Successful-request p99 ms, windows 1 / 2 | Errors |
+| --- | --- | --- | --- |
+| Control `6f57b79` | 249.64 / 207.66 | 190.78 / 230.12 | 0 / 0 |
+| Direct image `71074d6` | 291.97 / 258.20 | 159.84 / 207.93 | 0 / 5,697 |
+
+Mean successful TPS rises 20.31%, but this is descriptive and **not a qualified
+gain**. Every failure is a known `Overloaded` HTTP 503 from node one, within a
+4.9-second issuance span. Its retained-entry refusal counter increases by exactly
+5,697; the configured node-wide limit is 4,096 data-bearing entries. There are no
+ambiguous outcomes and no timed retries. Both cohorts verify exact data, stop
+cleanly without OOM and retain all images, volumes and raw evidence. Peak node
+memory is 1.58 GB for control and 1.92 GB for candidate. Final archive catch-up
+takes 0.41 versus 5.76 seconds; neither proves continuous backlog behavior.
+
+In error-free window one, committed-image preparation drops from 6.07 to 4.63 ms,
+staging from 16.70 to 14.63 ms and SQL queue residence from 8.07 to 6.30 ms. Shared
+Raft persistence stays near 0.97 ms. In window two, preparation is 7.13 versus
+4.94 ms, but candidate staging includes 5,650 refused attempts and admission wait
+includes 12 failed outcomes. Its all-outcome staging mean cannot be called
+successful-write service time; success-weighted admission formulas are omitted.
+The first analyzer correctly rejected its all-success assumptions; the retained
+second analysis reconciles successful/failed counts and keeps the failure gate.
+
+Other builds occur in 6/37 and 0/36 control samples, versus 3/36 and 29/36 candidate
+samples. One host sample overlaps the refusal burst and observes another build;
+this is insufficient causal evidence. Candidate node CPU usage is 72–83% of its
+allocation, with one throttled period across both windows. Completed control
+queue observations never exceed one second. The next diagnostic must distinguish
+archive publication/coverage lag from delayed retained-entry release or local
+scheduling stalls. Current boundary group lag is not the admission entry count,
+and cannot identify which explanation caused the brief cap breach. A reversed
+performance confirmation is deferred until the zero-error gate passes.
+
+Between cohorts, [closed host evidence was returned to internal storage](evidence/tikv-host-artifact-return.json)
+to restore external physical headroom. All 24,124 files match content, mode,
+owner and modification time; symlink targets and original access paths remain.
+Docker images/volumes and fresh node/RustFS backing remain unchanged. The first
+copy check caught seven reset symlink timestamps and refused release; after
+repair, complete inventories match before the redundant original is released.
+This intervening preservation and the shared host limit causal attribution.
 
 [First](evidence/tikv-closed-log-compression.json) and
 [second](evidence/tikv-closed-log-compression-r2.json) preservation records retain
