@@ -358,7 +358,6 @@ pub struct CellArchive {
     io_domain: Option<crate::asyncrt::DomainToken>,
     read_retention: Option<Arc<super::budget::Permit>>,
     bundle_client: Option<bundle::Client>,
-    bundle_read_performance: Option<Arc<super::performance::Registry>>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -487,7 +486,6 @@ impl CellArchive {
             io_domain: crate::asyncrt::runtime_services().domain_token(),
             read_retention: None,
             bundle_client: None,
-            bundle_read_performance: None,
         }
     }
 
@@ -507,14 +505,6 @@ impl CellArchive {
 
     pub(crate) fn with_read_retention(mut self, retention: Arc<super::budget::Permit>) -> Self {
         self.read_retention = Some(retention);
-        self
-    }
-
-    pub(crate) fn with_bundle_read_performance(
-        mut self,
-        performance: Arc<super::performance::Registry>,
-    ) -> Self {
-        self.bundle_read_performance = Some(performance);
         self
     }
 
@@ -1134,10 +1124,15 @@ impl CellArchive {
             if reference.length > self.limits.max_object_bytes as u64 {
                 return Err(ArchiveError::Limit);
             }
-            let bytes = match &self.bundle_client {
-                Some(client) => client.read(self, reference).await?,
-                None => self.read_bundle(reference).await?,
-            };
+            let bytes = self
+                .read(
+                    &self.bundle_key(reference),
+                    bundle::MAX_BYTES.min(self.limits.max_object_bytes),
+                    Some(reference.length),
+                )
+                .await?
+                .ok_or(ArchiveError::Corrupt("missing archive bundle"))?
+                .0;
             let archive = self.clone();
             let expected = object.clone();
             let retention = self.read_retention.clone();
@@ -1165,20 +1160,6 @@ impl CellArchive {
             })
             .await
             .map_err(ArchiveError::Worker)?
-    }
-
-    async fn read_bundle(
-        &self,
-        reference: &bundle::Reference,
-    ) -> Result<Arc<Vec<u8>>, ArchiveError> {
-        self.read(
-            &self.bundle_key(reference),
-            bundle::MAX_BYTES.min(self.limits.max_object_bytes),
-            Some(reference.length),
-        )
-        .await?
-        .map(|(bytes, _)| Arc::new(bytes))
-        .ok_or(ArchiveError::Corrupt("missing archive bundle"))
     }
 
     async fn read(

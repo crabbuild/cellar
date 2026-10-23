@@ -1,18 +1,77 @@
 # TiKV comparison and Cellar performance investigation
 
-Status: PR #98's conflicts are resolved through main `1455fb0`. The current
-candidate shares overlapping bundle GETs within one compatible publication batch.
-The deterministic read regression changes two physical GETs to one; final local
-suites pass 529 library, 53 archive, 19 execution, 29 host and nine multi-group
-tests. Strict Clippy and repository checks pass. The frozen three-node comparison
-is complete, with mixed results and overload refusals in both first windows.
-Read sharing remains experimental; no sustained TPS or latency improvement is
-claimed. The previous admission-waiting
-experiment is rejected in `5138559` after failing both the error and tail gates.
+Status: PR #98's conflicts are resolved through main `1455fb0`. The benchmark
+profile has been recreated with its preserved disk and verified inventories.
+The overlapping bundle-read experiment is rejected after a second paired run
+fails to establish a qualified sustained gain. Runtime source is restored to
+`5138559`, matching all 118 frozen inputs of control `0b07410`. Candidate
+`3d3ba9e`, its local correctness tests, frozen image and both paired measurements
+remain preserved. No repeatable, error-free throughput improvement is claimed.
 Two-cell archive batching, four retained cuts in the benchmark and the 256-MiB
 admission budget remain unchanged.
 
-## Bundle-read paired measurement and remaining work
+## Control-first 20-writer comparison and rejection
+
+[Paired evidence](evidence/tikv-bundle-read-c20.json) records two 180-second
+windows per build after the authorized profile recreation. Control runs first,
+then candidate, with a cold VM and fresh node volumes for each. The frozen
+sources/images, load AST and recorded RustFS/Python image identities match the
+previous comparison. Three pinned 1-vCPU / 3-GiB nodes each own 500 leaders and
+1,000 followers; all 1,500 groups have three voters. No timed mutation retries,
+budget increases or durability changes are introduced.
+
+| Build | Successful TPS, windows 1 / 2 | Successful-request p99 ms | Timed overload refusals |
+| --- | --- | --- | --- |
+| Control | 265.86 / 235.77 | 175.69 / 220.76 | 22,919 / 944 |
+| Shared bundle reads | 256.86 / 168.99 | 206.78 / 279.41 | 11,749 / 0 |
+
+Mean successful TPS is 250.81 for control and 212.92 for candidate, a descriptive
+**15.11% decrease**. Candidate p99 is higher in both windows. Neither complete
+repeat set qualifies at 200 or 500 ms because both contain timed errors. The
+candidate's error-free second window alone is not a sustained qualification.
+Together with the mixed 24-writer pair, this does not justify retaining the
+read-sharing implementation. The runtime and component documentation return to
+the previous control; this is an experimental rejection, not proof that sharing
+caused the observed slowdown.
+
+The candidate records 7,097 / 4,180 joined reads, or 6.16% / 5.65% of bundle-read
+admissions. These include later failure/cancellation and are not successful GET
+or avoided-byte counts. Retained-entry counters explain all control refusals
+and 11,748 of the candidate's 11,749 first-window refusals. The remaining refusal
+is not attributed to that counter. No publication failures or rejected coverage
+updates occur. Sharing a modest fraction of reads does not remove the repeated
+per-cell download, validation and replay work needed for archive progress.
+
+Both cohorts verify all 4,500 exact replica values and 1,500 archive positions
+without reconciliation or mutation retries, then stop cleanly with no OOM.
+Peak node memory is 1.74 GB for control and 1.48 GB for candidate. Final archive
+checks take 5.94 / 0.64 seconds; these post-load checks do not measure steady-state
+drain capacity. Independent raw analyses retain failed gates at both bounds.
+
+Compiler activity overlaps 37/37 and 38/40 control boundary samples versus
+32/37 and 15/36 candidate samples; host swap ranges from 7.53 to 7.86 GiB across
+the pair. Other shared-host work is uncontrolled. The candidate's second window
+has higher CPU use and longer SQL preparation/queue and engine-persistence
+means, so the observations cannot isolate archive read sharing as the cause.
+Operation durations overlap and are not additive client-latency components.
+No builds, profiling or preservation by this task run during timed cohorts.
+
+The next useful measurement is a fixed offered-rate sweep of the restored
+control, with repeated error-free windows, bounded archive lag and p99 below
+the selected bound. Reducing writer count alone has not prevented refusal
+bursts. Implementation opportunities remain reducing repeated archive service
+work and independent SQLite image work; simply raising retention limits does
+not increase service capacity.
+
+Restoration validation passes 518 library, 53 archive, 19 execution, 29 host and
+nine multi-group tests, run serially. Three ignored entries are crash-test child
+helpers exercised by their parents. Strict all-target/all-feature Clippy for
+Cellar, formatting, layout, native dependency policy and docs checks pass. All
+118 frozen control source inputs match. This validates restoration behavior;
+it does not change the failed performance gates.
+
+## Earlier 24-writer bundle-read comparison
+
 
 [Paired evidence](evidence/tikv-bundle-read.json) compares frozen candidate
 `3d3ba9e` with control `0b07410`, candidate first. Both use three pinned
@@ -66,12 +125,15 @@ and volume options. The evidence links all three raw preservation records.
 After both cohorts completed and stopped, the user's separate Colima cleanup
 request removed the benchmark profile and Docker context. The raw record/report
 hashes are unchanged, all six host node directories still exist, and the external
-VM disk file remains. Its contents and current Docker image/volume inventory
-have not been reverified. The retention assertions above describe the verified
-shutdown state, not current Docker availability. A 20-writer, control-first
-driver is prepared but has not run; recreating the intentionally removed profile
-awaits the user's choice. The evidence records this later environment change
-separately from the completed measurements.
+VM disk file remains. The user subsequently authorized recreation. The
+[restoration record](evidence/tikv-benchmark-profile-recreation.json) verifies the
+same 352-GiB external disk, all 414 expected volumes and 58 images, both frozen
+binary hashes, and the original home/archive mounts. The VM again has eight
+CPUs and 16 GiB; measured node limits remain one CPU and 3 GiB each. The default
+profile and selected Docker context remain unchanged. This inventory verification
+is not a full content audit of every historical volume. The 20-writer,
+control-first comparison is complete and recorded above, separately from the
+24-writer measurements.
 
 The next work should distinguish sustainable capacity from transient overload:
 
@@ -94,9 +156,10 @@ The next work should distinguish sustainable capacity from transient overload:
    image checkpoints likewise need distinct applied/checkpointed progress,
    replay retention and crash qualification.
 
-## Share overlapping archive bundle reads
+## Rejected experiment: share overlapping archive bundle reads
 
-Three ranked hypotheses motivate this experiment: two members may independently
+Preserved candidate `3d3ba9e` implements the following experiment; it is no longer
+in the active runtime. Three ranked hypotheses motivated it: two members may independently
 fetch the same immutable bundle; duplicate bundle decoding/hashing may consume
 CPU; or physical replay may dominate so reducing GETs will not improve throughput.
 The first change isolates physical reads. Each member still independently verifies

@@ -1,0 +1,69 @@
+{
+  "completed": true,
+  "authorization": "User explicitly requested recreating cellar-raft-perf after the profile reset.",
+  "started_unix": 1792792256.713803,
+  "finished_unix": 1792792295.834954,
+  "method": "Restore original symlink and disk_formatted/docker store metadata; reuse existing ext4 data disk without formatting. Source verified against installed Colima 0.10.3 commit 00f6c297e92a82c04a4ab507db0a61435650d7e8 and Lima v2.1.4.",
+  "disk": "/Volumes/Workspace/CrabData/colima-cellar-raft-perf/datadisk",
+  "disk_before": {
+    "size": 377957122048,
+    "inode": 389698156,
+    "blocks": 381673016
+  },
+  "profiles_before": [
+    {
+      "name": "default",
+      "status": "Running",
+      "arch": "aarch64",
+      "cpus": 2,
+      "memory": 2147483648,
+      "disk": 107374182400,
+      "runtime": "docker"
+    }
+  ],
+  "profiles_after": [
+    {
+      "name": "default",
+      "status": "Running",
+      "arch": "aarch64",
+      "cpus": 2,
+      "memory": 2147483648,
+      "disk": 107374182400,
+      "runtime": "docker"
+    },
+    {
+      "name": "cellar-raft-perf",
+      "status": "Running",
+      "arch": "aarch64",
+      "cpus": 8,
+      "memory": 17179869184,
+      "disk": 377957122048,
+      "runtime": "docker"
+    }
+  ],
+  "active_context_before": "colima",
+  "active_context_after": "colima",
+  "mount_targets": [
+    "/Users/haipingfu",
+    "/Volumes/Workspace/CrabData/cellar-raft-node-archive-ios-7da4ddb5"
+  ],
+  "frozen_images": {
+    "tikv-archive-batch": {
+      "image": "sha256:82dab2a3b65db74bfa4ef800c61feb3950c49531eba2e9f09d84afc4e044928b",
+      "binary_sha256": "f2c5611e3ca108a6217d2990c351e7ebbc8b78774ffe146a5800caa43c080113"
+    },
+    "tikv-bundle-read": {
+      "image": "sha256:a00fe4fd04e1bbe25f4b3b8f2dc7309fc735b5ec0693e2cfd5dd558b4d207c6d",
+      "binary_sha256": "757018501604d436ee118384956ca85cde3603c002442a48ea32c8bf0df67111"
+    }
+  },
+  "df": "Filesystem        1B-blocks         Used    Available Use% Mounted on\n/dev/vdb1      371418464256 189545119744 165879889920  54% /var/lib/docker",
+  "inodes": "Filesystem       Inodes    IUsed   IFree IUse% Mounted on\n/dev/vdb1      23068672 20030887 3037785   87% /var/lib/docker",
+  "raw_record": ".cellar/raft-perf/diagnosis/benchmark-profile-recreation.json",
+  "raw_record_sha256": "ebe7ac31395a7cbc6ef059f0bb695f8872095ce0a141a93848aca48e5da6a5ce",
+  "retained_volume_count": 414,
+  "retained_image_count": 58,
+  "volumes_sha256": "fc5a763d79da94aec3bc62fda6b2a7a0242f9c72779eceff8f34f389d0298b7c",
+  "images_sha256": "30f95045995878b97a45e9522b106e212c9fd2f61ecd0be2ed9491b0325f7a7e",
+  "limits": "Image and volume inventories, frozen binary digests and mount targets are verified. This is not a full rehash of every historical volume or a new recovery qualification."
+}
