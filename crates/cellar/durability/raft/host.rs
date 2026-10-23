@@ -48,6 +48,7 @@ mod inspection;
 mod load;
 #[path = "host_readiness.rs"]
 mod readiness;
+pub(crate) use load::GroupResourceObserver;
 pub use load::RaftInspectionScanOptions;
 #[path = "host_membership.rs"]
 mod membership;
@@ -67,7 +68,8 @@ pub struct RaftHostOptions {
     pub effects: Option<super::effects::RaftEffectOptions>,
     /// Opt in to bounded automatic repair and optional leadership balancing.
     pub controller: Option<RaftControllerOptions>,
-    /// Bounded complete node-wide status scans when inspection is enabled.
+    /// Bounded complete node-wide resource scans. Peer inspection still requires
+    /// its independent explicit profile and grants.
     pub inspection_scan: RaftInspectionScanOptions,
     /// Explicit inbound metadata permissions. Discovery and query grants do not
     /// enable inspection. Each peer must match the configured trusted endpoint.
@@ -355,7 +357,10 @@ async fn initialize(
     );
     let domain = service.log.domain();
     let budget = Budget::new(options.max_pending_bytes, options.max_requests);
-    let archive_capture_budget = Budget::new(options.archive.limits.max_capture_bytes, 1);
+    let archive_capture_budget = Budget::new(
+        options.archive.limits.max_capture_bytes * options.archive.max_batch_groups,
+        options.archive.max_batch_groups,
+    );
     let query_pins = Budget::new(0, options.max_query_pins);
     let mut pool = Pool::start(
         domain.clone(),
@@ -367,10 +372,12 @@ async fn initialize(
             archive_capture: archive_capture_budget.clone(),
             query_pins: query_pins.clone(),
         },
+        service.log.performance(),
     )?;
     let mut cells = BTreeMap::new();
     let mut standbys = BTreeMap::new();
     let mut bindings = BTreeMap::new();
+    let mut routes = Vec::new();
     let mut archive_owner = None;
     let mut node_directory = None;
     let peer_count = peers.len();
@@ -709,14 +716,14 @@ async fn initialize(
             let Value::Initialized(image) = output.value else {
                 anyhow::bail!("SQL initialization response")
             };
-            service.transport.install_group(membership::route(
+            routes.push(membership::route(
                 &group,
                 &birth,
                 &peers,
                 class.schema_digest(),
                 &label,
                 &service.transport,
-            )?)?;
+            )?);
             bindings.insert(
                 (scope.namespace, scope.cell.clone()),
                 Binding {
@@ -749,6 +756,7 @@ async fn initialize(
                 ltx_host(),
                 ImageId::new(nonce)?,
                 options.images.apply,
+                pool.image_accounting(),
             )
             .await?;
             for cell in cells.values_mut() {
@@ -758,6 +766,13 @@ async fn initialize(
                     .with_cancellation(owner.cancellation.subscribe());
             }
             archive_owner = Some(owner);
+        }
+        // The host cannot drain runtime events until initialization completes.
+        // Publishing earlier lets peer traffic retain the ordinary request
+        // budget behind that drain and reject later group attachments. Keep
+        // routes private until every local group and the archive owner are ready.
+        for route in routes {
+            service.transport.install_group(route)?;
         }
         Ok::<_, anyhow::Error>(())
     }
@@ -780,6 +795,7 @@ async fn initialize(
         changed: Notify::new(),
     });
     let handle = Arc::new(client::Handle {
+        performance: service.log.performance(),
         requests: sender,
         control_requests: control_sender,
         control_budget: control_budget.clone(),
@@ -793,6 +809,8 @@ async fn initialize(
         archive_capture_budget,
         query_pins,
         sql: Some(pool.resource_observer()),
+        groups: load::GroupResourceObserver::default(),
+        controller: Mutex::new(None),
         transport: service.transport.resource_observer(),
         max_input_bytes: options.max_input_bytes,
         bindings,
@@ -839,10 +857,7 @@ async fn initialize(
                 .controller
                 .as_ref()
                 .map(|options| controller::Controller::new(options.clone(), &local)),
-            leader_load: options
-                .node_profile
-                .as_ref()
-                .map(|_| load::Scanner::new(options.inspection_scan.clone())),
+            leader_load: Some(load::Scanner::new(options.inspection_scan.clone())),
             directory: node_directory,
             peers,
             label,
@@ -1076,11 +1091,7 @@ enum Job {
         scope: GroupScope,
         result: Result<(), RuntimeError>,
     },
-    Archived {
-        scope: GroupScope,
-        position: LogPosition,
-        result: Result<(), ArchiveError>,
-    },
+    Archived(Vec<super::host_archive::Completed>),
     Routed {
         request: Box<Request>,
         result: Result<super::query_route::RoutedOutput, CommandFailure>,
@@ -1928,7 +1939,10 @@ impl Driver {
                 input,
                 options,
             } => {
-                if cell.pending.is_some() || cell.sql_busy {
+                // Background SQL does not consume the one business-command slot.
+                // Keep the bounded request until the physical worker completes;
+                // pump() rechecks its original deadline before staging.
+                if cell.pending.is_some() {
                     reply(&mut request, Err(CommandFailure::Overloaded));
                     return;
                 }
@@ -1947,8 +1961,11 @@ impl Driver {
                     phase: Phase::Start,
                     _bytes: None,
                 });
+                let sql_idle = !cell.sql_busy;
                 self.active.insert(scope.clone());
-                self.status(&scope, StatusPurpose::Start);
+                if sql_idle {
+                    self.status(&scope, StatusPurpose::Start);
+                }
             }
         }
     }
@@ -2325,35 +2342,23 @@ impl Driver {
             let Some(owner) = self.archive_owner.as_mut() else {
                 return;
             };
+            owner.busy = false;
+            if self.closing.load(Ordering::Acquire) {
+                return;
+            }
             match result {
                 Ok(sql::Output {
                     value: Value::ArchiveCut(Some(cut)),
                     _bytes,
                 }) => {
-                    let position = cut.position();
-                    let archive = cell.archive.clone();
-                    let verifier = owner.verifier.clone();
-                    self.jobs.push(Box::pin(async move {
-                        let _bytes = _bytes;
-                        let result = archive.publish(*cut, &verifier).await.and_then(|set| {
-                            if set.scope() != &scope
-                                || set.position().index < position.index
-                                || set.position().index == position.index
-                                    && set.position().term != position.term
-                            {
-                                return Err(ArchiveError::Corrupt("archive output coverage"));
-                            }
-                            Ok(())
-                        });
-                        Job::Archived {
-                            scope,
-                            position,
-                            result,
-                        }
-                    }));
+                    owner.pending.push(super::host_archive::Captured {
+                        scope,
+                        archive: cell.archive.clone(),
+                        cut: *cut,
+                        reservation: _bytes,
+                    });
                 }
                 _ => {
-                    owner.busy = false;
                     cell.archive_retry_at =
                         crate::asyncrt::mono_ms().saturating_add(self.options.archive.retry_ms);
                 }
@@ -2523,6 +2528,12 @@ impl Driver {
                 cell.image = Some(view);
                 cell.apply_inflight = false;
                 cell.apply_ticket = None;
+                // New durable work invalidates an earlier empty inventory.
+                // Keep per-cell failure backoff and the single producer; only
+                // idle scanning should wait for the maintenance interval.
+                if let Some(owner) = &mut self.archive_owner {
+                    owner.scan_at = 0;
+                }
                 if let Ok(Some(progress)) =
                     progress(&cell.group, cell.image.as_ref(), cell.archived)
                 {
@@ -2622,6 +2633,11 @@ impl Driver {
                             })
                     });
                     if protocol && ticket.replica() == cell.group.identity() {
+                        if cell.image.is_some() {
+                            if let Some(owner) = &mut self.archive_owner {
+                                owner.scan_at = 0;
+                            }
+                        }
                     } else if cell.apply_ticket.as_ref() == Some(ticket) {
                         cell.publication = Some(ticket.clone());
                         self.applying.insert(scope);
@@ -2762,6 +2778,7 @@ impl Driver {
         self.pump_reads();
         self.pump_leader_load();
         self.pump_controller();
+        self.publish_controller_resources();
         self.pump_effects();
         self.pump_node_drain();
     }
@@ -2824,6 +2841,10 @@ impl Driver {
         if now < owner.scan_at {
             return;
         }
+        if owner.pending.len() >= self.options.archive.max_batch_groups {
+            self.publish_archive_batch();
+            return;
+        }
         let eligible = |cell: &&Cell| {
             !cell.failed
                 && !cell.sql_busy
@@ -2837,22 +2858,62 @@ impl Driver {
         let next = self
             .cells
             .iter()
+            .filter(|(scope, _)| {
+                owner.pending.iter().all(|pending| {
+                    pending.scope != **scope
+                        && pending.scope.cluster == scope.cluster
+                        && pending.scope.namespace == scope.namespace
+                })
+            })
             .filter(|(_, cell)| eligible(cell))
             .find(|(scope, _)| owner.cursor.as_ref().is_none_or(|cursor| *scope > cursor))
-            .or_else(|| self.cells.iter().find(|(_, cell)| eligible(cell)))
+            .or_else(|| {
+                self.cells.iter().find(|(scope, cell)| {
+                    eligible(cell)
+                        && owner.pending.iter().all(|pending| {
+                            pending.scope != **scope
+                                && pending.scope.cluster == scope.cluster
+                                && pending.scope.namespace == scope.namespace
+                        })
+                })
+            })
             .map(|(scope, _)| scope.clone());
         let Some(scope) = next else {
-            owner.scan_at = now.saturating_add(self.options.poll_ms);
+            if owner.pending.is_empty() {
+                owner.scan_at = now.saturating_add(self.options.poll_ms);
+            } else {
+                self.publish_archive_batch();
+            }
             return;
         };
         owner.busy = true;
-        owner.cursor = Some(scope.clone());
+        // Rotate the global scan by the first member of each batch. A same-
+        // namespace partner can wrap behind it; moving the cursor backwards
+        // there could repeatedly select this namespace and starve other cells.
+        if owner.pending.is_empty() {
+            owner.cursor = Some(scope.clone());
+        }
         let limits = self.options.archive.limits;
         self.sql(
             &scope,
             SqlPurpose::CaptureArchive,
             Action::CaptureArchive { limits },
         );
+    }
+
+    fn publish_archive_batch(&mut self) {
+        let Some(owner) = self.archive_owner.as_mut() else {
+            return;
+        };
+        if owner.pending.is_empty() || owner.busy {
+            return;
+        }
+        owner.busy = true;
+        let pending = std::mem::take(&mut owner.pending);
+        let verifier = owner.verifier.clone();
+        self.jobs.push(Box::pin(async move {
+            Job::Archived(super::host_archive::publish(pending, verifier).await)
+        }));
     }
 
     fn on_job(&mut self, job: Job) {
@@ -2890,30 +2951,52 @@ impl Driver {
             | Job::SnapshotAuthorized { .. }
             | Job::SnapshotAbort { .. }
             | Job::Checkpoint { .. }) => self.on_snapshot_job(job),
-            Job::Archived {
-                scope,
-                position,
-                result,
-            } => {
+            Job::Archived(completed) => {
                 if let Some(owner) = self.archive_owner.as_mut() {
                     owner.busy = false;
                 }
-                let Some(cell) = self.cells.get_mut(&scope) else {
-                    return;
-                };
-                cell.archive_retry_at =
-                    crate::asyncrt::mono_ms().saturating_add(self.options.archive.retry_ms);
-                if result.is_ok() && position.index > cell.archived {
-                    // The proof names the captured local cut, even if another
-                    // replica has already archived a later cut of this history.
-                    // Never import that replica's later applied progress.
-                    if let Ok(Some(progress)) =
-                        progress(&cell.group, cell.image.as_ref(), position.index)
-                    {
-                        if cell.core.observe_progress(progress).is_ok() {
-                            cell.archived = position.index;
+                for super::host_archive::Completed {
+                    scope,
+                    position,
+                    result,
+                } in completed
+                {
+                    let Some(cell) = self.cells.get_mut(&scope) else {
+                        continue;
+                    };
+                    if result.is_ok() && position.index > cell.archived {
+                        // The proof names the captured local cut, even if another
+                        // replica has already archived a later cut of this history.
+                        // Never import that replica's later applied progress.
+                        if let Ok(Some(progress)) =
+                            progress(&cell.group, cell.image.as_ref(), position.index)
+                        {
+                            if cell.core.observe_progress(progress).is_ok() {
+                                cell.archived = position.index;
+                                // The confirmed cut resolves this wait. Re-run
+                                // the normal fresh authority/output checks now;
+                                // it is not itself permission to send a result.
+                                if let Some(pending) = cell.pending.as_mut() {
+                                    if pending.phase == Phase::AwaitFinish
+                                        && pending.result.as_ref().is_some_and(|receipt| {
+                                            receipt.position().index <= cell.archived
+                                        })
+                                    {
+                                        pending.phase = Phase::Finish;
+                                    }
+                                }
+                            }
                         }
                     }
+                    // A confirmed cut may already have newer work waiting. Keep it
+                    // eligible for the next fair scan; back off failures or a proof
+                    // that the local state machine could not accept.
+                    let now = crate::asyncrt::mono_ms();
+                    cell.archive_retry_at = if result.is_ok() && position.index <= cell.archived {
+                        now
+                    } else {
+                        now.saturating_add(self.options.archive.retry_ms)
+                    };
                 }
             }
             Job::Routed {
@@ -3080,8 +3163,9 @@ impl Driver {
             controller.stop();
         }
         self.close_configurations();
-        if let Some(owner) = &self.archive_owner {
+        if let Some(owner) = &mut self.archive_owner {
             let _ = owner.cancellation.send(true);
+            owner.pending.clear();
         }
         for (_, mut read) in std::mem::take(&mut self.reads) {
             read.request.control.cancel();

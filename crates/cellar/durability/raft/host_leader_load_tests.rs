@@ -16,6 +16,19 @@ fn identity(group: u8) -> ReplicaIdentity {
     }
 }
 
+fn counters(status: &GroupStatus) -> Option<RaftGroupResources> {
+    let lag = u64::from(status.replica.scope.group.bytes()[0]);
+    Some(RaftGroupResources {
+        leaders: usize::from(status.is_leader),
+        voters: usize::from(!status.is_leader),
+        apply_lag_entries: lag,
+        max_apply_lag_entries: lag,
+        archive_lag_entries: lag * 2,
+        max_archive_lag_entries: lag * 2,
+        ..Default::default()
+    })
+}
+
 fn sample(group: u8, leader: bool) -> (ReplicaIdentity, Result<GroupStatus, RuntimeError>) {
     let replica = identity(group);
     let status = GroupStatus {
@@ -61,6 +74,7 @@ fn partial_and_failed_scans_never_refresh_or_replace_a_complete_sample() {
         110,
         population,
         false,
+        counters,
     );
     assert!(scanner.view(110, population, false, 8).is_none());
     assert!(scanner.begin(111, population, false));
@@ -72,6 +86,7 @@ fn partial_and_failed_scans_never_refresh_or_replace_a_complete_sample() {
         120,
         population,
         false,
+        counters,
     );
     assert_eq!(
         scanner.view(130, population, false, 8),
@@ -82,6 +97,26 @@ fn partial_and_failed_scans_never_refresh_or_replace_a_complete_sample() {
         })
     );
     assert!(scanner.begin(400, population, false));
+    let complete = scanner.cached.as_ref().unwrap();
+    assert_eq!(complete.resources.attached_groups, 2);
+    assert_eq!(
+        (complete.resources.leaders, complete.resources.voters),
+        (1, 1)
+    );
+    assert_eq!(
+        (
+            complete.resources.apply_lag_entries,
+            complete.resources.max_apply_lag_entries
+        ),
+        (3, 2)
+    );
+    assert_eq!(
+        (
+            complete.resources.archive_lag_entries,
+            complete.resources.max_archive_lag_entries
+        ),
+        (6, 4)
+    );
     scanner.accept(
         Completed {
             sequence: 2,
@@ -90,6 +125,7 @@ fn partial_and_failed_scans_never_refresh_or_replace_a_complete_sample() {
         410,
         population,
         false,
+        counters,
     );
     assert_eq!(scanner.view(410, population, false, 8).unwrap().leaders, 1);
     scanner.accept(
@@ -100,6 +136,7 @@ fn partial_and_failed_scans_never_refresh_or_replace_a_complete_sample() {
         420,
         population,
         false,
+        counters,
     );
     assert_eq!(
         scanner.view(450, population, false, 8),
@@ -110,6 +147,12 @@ fn partial_and_failed_scans_never_refresh_or_replace_a_complete_sample() {
         })
     );
     assert!(scanner.view(99, population, false, 8).is_none());
+    let observer = GroupResourceObserver::default();
+    let cached = scanner.cached.as_ref().unwrap();
+    *observer.0.lock().unwrap() = Some((cached.started, cached.resources));
+    assert_eq!(observer.capture(450).unwrap().sample_age_ms, 350);
+    assert_eq!(observer.capture(450).unwrap().apply_lag_entries, 3);
+    assert!(observer.capture(99).is_none());
 }
 
 #[test]
@@ -132,6 +175,7 @@ fn population_change_and_old_batches_cannot_complete_a_new_scan() {
         110,
         old,
         false,
+        counters,
     );
     assert!(!scanner.begin(120, current, false));
     assert!(scanner.view(120, current, false, 8).is_none());
@@ -145,6 +189,7 @@ fn population_change_and_old_batches_cannot_complete_a_new_scan() {
         410,
         current,
         false,
+        counters,
     );
     assert!(scanner.busy);
     assert!(scanner.view(410, current, false, 8).is_none());
@@ -156,6 +201,7 @@ fn population_change_and_old_batches_cannot_complete_a_new_scan() {
         420,
         current,
         false,
+        counters,
     );
     assert!(scanner.view(420, current, false, 8).is_none());
     scanner.accept(
@@ -166,6 +212,7 @@ fn population_change_and_old_batches_cannot_complete_a_new_scan() {
         430,
         current,
         false,
+        counters,
     );
     assert_eq!(
         scanner.view(450, current, false, 8),
@@ -177,6 +224,60 @@ fn population_change_and_old_batches_cannot_complete_a_new_scan() {
     );
     assert!(scanner.view(450, old, false, 8).is_none());
     assert!(scanner.view(450, current, true, 8).is_none());
+}
+
+#[test]
+fn aggregate_overflow_and_unavailable_contributions_preserve_old_age() {
+    for unavailable in [false, true] {
+        let mut scanner = Scanner::new(RaftInspectionScanOptions::default());
+        let population = Population {
+            cells: 2,
+            groups: 3,
+        };
+        assert!(scanner.begin(100, population, false));
+        scanner.accept(
+            Completed {
+                sequence: 1,
+                result: vec![sample(1, true), sample(2, false)],
+            },
+            110,
+            population,
+            false,
+            counters,
+        );
+        assert_eq!(scanner.cached.as_ref().unwrap().resources.parked_groups, 1);
+        assert!(scanner.begin(400, population, false));
+        scanner.accept(
+            Completed {
+                sequence: 2,
+                result: vec![sample(1, true), sample(2, false)],
+            },
+            410,
+            population,
+            false,
+            |status| {
+                if unavailable {
+                    return None;
+                }
+                Some(RaftGroupResources {
+                    apply_lag_entries: if status.is_leader { u64::MAX } else { 1 },
+                    ..Default::default()
+                })
+            },
+        );
+        assert!(scanner.cycle.is_none());
+        assert_eq!(
+            scanner.cached.as_ref().unwrap().resources.apply_lag_entries,
+            3
+        );
+        assert_eq!(
+            scanner
+                .view(450, population, false, 8)
+                .unwrap()
+                .sample_age_ms,
+            350
+        );
+    }
 }
 
 #[test]
@@ -206,6 +307,7 @@ fn scan_refuses_deadline_identity_order_and_cardinality_errors() {
             now,
             population,
             false,
+            counters,
         );
         assert!(!scanner.busy);
         assert!(scanner.cycle.is_none());

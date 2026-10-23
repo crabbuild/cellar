@@ -1,0 +1,322 @@
+{
+  "task_id": "MR-14",
+  "source_revision": "bd7868f03db1b58437892526ffebabdabe0453a7",
+  "completion": "partial",
+  "scope": "Three-voter groups distributed over five physical Cellar processes in one local Colima VM; bounded healthy workload observations.",
+  "implementation": [
+    "A cell registers on exactly three cyclically assigned nodes. Each node leads 30 cells and follows 60 in the 150-cell local profiles. The 4,096-group host limit is unchanged.",
+    "The native diagnostic reads actual registration and leader-local runtime voter membership. Full before/after scans, 450 replica reads and physical durable/attached group counts verify the placement.",
+    "The runner and independent analyzer require all five nodes, exact CPU sets, 1-vCPU/3-GiB/no-swap node caps, separate 2-vCPU/4-GiB RustFS resources, matching receipt durability and actual follower reads.",
+    "Profiles retain 30-second warmup, 120-second measurement, 30 active cells, 10 offered operations/second and all original safety/traffic assertions."
+  ],
+  "validation": {
+    "python_tests_run": 140,
+    "python_passed": 139,
+    "python_skipped": 1,
+    "rust_tests_passed": 2,
+    "clippy": "Affected native fixture, all features, warnings denied; dependency warnings are retained.",
+    "repository_checks": [
+      "816 Rust files: format and layout",
+      "Native dependency policy",
+      "Documentation integrity and plan package checks are recorded in the accompanying documentation change."
+    ],
+    "capsule_reanalysis": "Every extracted raw run reanalyzed independently and matched retained verification."
+  },
+  "local_runs": [
+    {
+      "run": "mr14-local-five-20261022-001",
+      "profile": "local-five",
+      "build": {
+        "image_id": "sha256:39a5a90ecbc87a11ffef5da4648be0a15ff0eaa607246d4c5c43ea305b620c47",
+        "binary_sha256": "9f627e8325291526a05c36978672027d7ff351e67be528aea1d367e301e63df8",
+        "source_manifest_sha256": "3162b6d12ddffda99154ef7d77a3558d239b70f10eb4b4a773f829517798c9d0",
+        "build_profile": "lab",
+        "source_revision": "bd7868f03db1b58437892526ffebabdabe0453a7",
+        "working_tree_dirty": false
+      },
+      "profile_sha256": "c1c3025c95109a618dd5d3d122e19630055563c1384abe57c8671cd8a6295b30",
+      "completed": true,
+      "reconciled": true,
+      "traffic_objectives_met": true,
+      "summary": {
+        "counts": {
+          "submitted": 1200,
+          "completed": 1200,
+          "offered": 1200
+        },
+        "latency_ms": {
+          "p50": 12.699291991884465,
+          "p95": 28.08300000324948,
+          "p99": 64.70133400289058,
+          "p99_9": 199.9070839927306
+        },
+        "latency_by_operation_ms": {
+          "command": {
+            "p50": 19.102416999523086,
+            "p95": 41.2218339915853,
+            "p99": 147.1627090038936,
+            "p99_9": 202.51849999768012
+          },
+          "query": {
+            "p50": 8.951958996476606,
+            "p95": 14.003125004819594,
+            "p99": 22.885709005635135,
+            "p99_9": 33.53404199297216
+          }
+        },
+        "completed_per_second": 10.0,
+        "offered_per_second": 10.0,
+        "error_fraction": 0.0
+      },
+      "commands_including_seed": 923,
+      "queries": 727,
+      "replicas": 450,
+      "placement": [
+        {
+          "node": 1,
+          "leader_cells": 30,
+          "replica_cells": 90
+        },
+        {
+          "node": 2,
+          "leader_cells": 30,
+          "replica_cells": 90
+        },
+        {
+          "node": 3,
+          "leader_cells": 30,
+          "replica_cells": 90
+        },
+        {
+          "node": 4,
+          "leader_cells": 30,
+          "replica_cells": 90
+        },
+        {
+          "node": 5,
+          "leader_cells": 30,
+          "replica_cells": 90
+        }
+      ],
+      "memory_peak_bytes": [
+        39825408,
+        41566208,
+        44421120,
+        38998016,
+        35930112
+      ],
+      "cleanup": [
+        {
+          "container": "cellar-mr14-3014cd665e9e1bcb569c10d2-node5",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-3014cd665e9e1bcb569c10d2-node4",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-3014cd665e9e1bcb569c10d2-node3",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-3014cd665e9e1bcb569c10d2-node2",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-3014cd665e9e1bcb569c10d2-node1",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-3014cd665e9e1bcb569c10d2-store",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        }
+      ]
+    },
+    {
+      "run": "mr14-local-five-s3-20261022-001",
+      "profile": "local-five-s3",
+      "build": {
+        "image_id": "sha256:39a5a90ecbc87a11ffef5da4648be0a15ff0eaa607246d4c5c43ea305b620c47",
+        "binary_sha256": "9f627e8325291526a05c36978672027d7ff351e67be528aea1d367e301e63df8",
+        "source_manifest_sha256": "3162b6d12ddffda99154ef7d77a3558d239b70f10eb4b4a773f829517798c9d0",
+        "build_profile": "lab",
+        "source_revision": "bd7868f03db1b58437892526ffebabdabe0453a7",
+        "working_tree_dirty": false
+      },
+      "profile_sha256": "5b5547af2452ea23ad60e48389a355be9c782f2df4085676646b51fde5314183",
+      "completed": true,
+      "reconciled": true,
+      "traffic_objectives_met": false,
+      "summary": {
+        "counts": {
+          "submitted": 1158,
+          "completed": 1158,
+          "generator_rejected": 42,
+          "offered": 1200
+        },
+        "latency_ms": {
+          "p50": 43.70933400350907,
+          "p95": 156.31562499329732,
+          "p99": 232.7329170046113,
+          "p99_9": 356.72499999345763
+        },
+        "latency_by_operation_ms": {
+          "command": {
+            "p50": 69.76633399608545,
+            "p95": 191.15958400652744,
+            "p99": 260.2047499938607,
+            "p99_9": 356.7847499973134
+          },
+          "query": {
+            "p50": 9.0566249942583,
+            "p95": 18.089500005586956,
+            "p99": 35.68325000524197,
+            "p99_9": 72.58612500444883
+          }
+        },
+        "completed_per_second": 9.65,
+        "offered_per_second": 10.0,
+        "error_fraction": 0.035
+      },
+      "commands_including_seed": 888,
+      "queries": 698,
+      "replicas": 450,
+      "placement": [
+        {
+          "node": 1,
+          "leader_cells": 30,
+          "replica_cells": 90
+        },
+        {
+          "node": 2,
+          "leader_cells": 30,
+          "replica_cells": 90
+        },
+        {
+          "node": 3,
+          "leader_cells": 30,
+          "replica_cells": 90
+        },
+        {
+          "node": 4,
+          "leader_cells": 30,
+          "replica_cells": 90
+        },
+        {
+          "node": 5,
+          "leader_cells": 30,
+          "replica_cells": 90
+        }
+      ],
+      "memory_peak_bytes": [
+        38780928,
+        40943616,
+        44158976,
+        38772736,
+        35639296
+      ],
+      "cleanup": [
+        {
+          "container": "cellar-mr14-5ed22ed6e2ef041392f5abff-node5",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-5ed22ed6e2ef041392f5abff-node4",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-5ed22ed6e2ef041392f5abff-node3",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-5ed22ed6e2ef041392f5abff-node2",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-5ed22ed6e2ef041392f5abff-node1",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-5ed22ed6e2ef041392f5abff-store",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        }
+      ]
+    }
+  ],
+  "comparison": {
+    "matched_contract": false,
+    "differences": {
+      "durability_contract": {
+        "left": {
+          "authority": "raft-majority",
+          "local_durable_copies_at_ack": "majority-of-3",
+          "object_store_at_ack": false,
+          "receipts": "raft-command",
+          "reads": "at-least"
+        },
+        "right": {
+          "authority": "raft-majority",
+          "local_durable_copies_at_ack": "majority-of-3",
+          "object_store_at_ack": true,
+          "receipts": "raft-command",
+          "reads": "at-least"
+        }
+      }
+    },
+    "limitation": "These observations are not an equivalent-guarantee speedup."
+  },
+  "raw_output": [
+    {
+      "path": "evidence/MR-14-five-node-validation.json.gz",
+      "bytes": 53566,
+      "sha256": "1b836c3d61391796d97485d79c46a39a36c25edc9440eed8309cdd3c9497d0e3"
+    },
+    {
+      "path": "evidence/MR-14-five-node-local-runs.json.gz",
+      "bytes": 1547265,
+      "sha256": "22e8c8444c2969f30f110551514338d8558bce594286eacb0b49f6ca3811f0b4"
+    }
+  ],
+  "ci_finding": {
+    "source_revision": "97ddff23bcde115fc35dc68d90591248a80f4e7e",
+    "job_url": "https://github.com/crabbuild/cellar/actions/runs/39819702945/job/119967963447",
+    "failure": "Python 3.14 baseline wrong counter acknowledgement; original job omitted response details and uploaded no raw artifact.",
+    "local_reproduction": "Same mixed-workload parameters with three repetitions passed, including killed-owner recovery and joined shutdown. Local macOS/Python 3.14.6 differs from Ubuntu/Python 3.14.9; this does not resolve the CI failure.",
+    "change": "Preserve original assertions; include bounded failure response details and upload private fixture failure reports/logs in CI."
+  },
+  "limitations": [
+    "Shared Mac with other Colima profiles and host swap: no steady-state, causal speedup or production capacity claim.",
+    "One VM and RustFS do not qualify independent failure domains or real Amazon S3. Quorum and S3 results are different contracts; comparison deliberately supplies no speedup ratio.",
+    "Owned containers and profile stopped after measurements; volumes and raw evidence retained. Other profiles unchanged."
+  ],
+  "remaining": [
+    "Controlled slow-follower measurements and equivalent-contract baselines, measurement overhead/full-device attribution and sustained density evidence.",
+    "Q1 remains six processes and 10,000 three-voter cells, averaging 5,000 replicas per process against the unchanged 4,096 bound; the agreed physical scope remains at most five nodes.",
+    "Resolve the retained baseline CI failure if reproduced; do not classify local passing repetitions as a CI repair.",
+    "Remaining MR-13 operations/restore and MR-15 through MR-17 gates remain open."
+  ]
+}

@@ -1,0 +1,91 @@
+{
+  "task_id": "MR-13",
+  "source_revision": "b4aacc029bb263dc02311882a5cfbb3b9d037689",
+  "completion": "partial",
+  "scope": "Separate Colima profile and private RustFS object-store preparation only. Zero Cellar nodes launched by this component; no end-to-end, release or scale qualification.",
+  "source_files": [
+    {
+      "path": "tools/multi-raft/local.py",
+      "sha256": "2cd53f6fdcae0044073db9af49f2e71ccb1ff1eaab84ac351bad9d97332c4077"
+    },
+    {
+      "path": "tools/multi-raft/store_probe.py",
+      "sha256": "89f3421e30fd533d37bf69f79894bdd4b86ab17434122ecba6b8deaabf678fa2"
+    },
+    {
+      "path": "tools/multi-raft/README.md",
+      "sha256": "9b92da98d2eafcca5c3a1a69b0823c1454b4fae597ee1b0b42142f989f45929e"
+    }
+  ],
+  "environment": {
+    "profile": "cellar-multi-raft",
+    "context": "colima-cellar-multi-raft",
+    "vm_cpus": 6,
+    "vm_memory_bytes": 12513533952,
+    "architecture": "aarch64",
+    "docker_version": "29.5.2",
+    "kernel": "6.8.0-117-generic",
+    "planned_nodes": 3,
+    "node_limits": {
+      "cpus": 1,
+      "memory_bytes": 3221225472
+    },
+    "rustfs_limits": {
+      "cpus": 1,
+      "memory_bytes": 2147483648
+    },
+    "rustfs_image": "ghcr.io/rustfs/rustfs@sha256:bffcab0c9d647aab0055d1c69d340b202d0909966b385932d4ead1aeb7602858",
+    "image_id": "sha256:bffcab0c9d647aab0055d1c69d340b202d0909966b385932d4ead1aeb7602858"
+  },
+  "validation": {
+    "backend_health": "passed",
+    "captured_rustfs_limits": "1 CPU; 2 GiB memory; no additional swap",
+    "s3_protocol": [
+      {
+        "operation": "create-bucket",
+        "status": 200
+      },
+      {
+        "operation": "create-only",
+        "status": 200
+      },
+      {
+        "operation": "get-matching",
+        "status": 200
+      },
+      {
+        "operation": "refuse-overwrite",
+        "status": 412
+      },
+      {
+        "operation": "compare-and-swap",
+        "status": 200
+      },
+      {
+        "operation": "refuse-stale-cas",
+        "status": 412
+      },
+      {
+        "operation": "read-after-cas",
+        "status": 200
+      }
+    ],
+    "five_node_preflight": "Expected refusal: current VM has 6 CPUs / 11.65 GiB available guest memory; need 7 CPUs / 17.5 GiB. No five-node qualification claimed.",
+    "credential_file_mode": "0600; generated credentials absent from public environment record",
+    "docker_context": "User active context remains colima; all new resources use colima-cellar-multi-raft explicitly",
+    "log": "MR-13-local-backend-validation.log.gz",
+    "log_uncompressed_sha256": "58af64e893be878ce3b61dc5a56d58983a0634a143bc74eae5ceabdfe4961e64"
+  },
+  "remaining": [
+    "Compiled per-container Cellar application and node launch",
+    "Actual node cgroup capture at 1 CPU / 3 GiB each",
+    "Command/receipt/version/follower-read history and failure/recovery checks",
+    "Five-node VM resize and run when that stage is ready",
+    "Verified old-deployment fence and disaster restore"
+  ],
+  "limits": [
+    "RustFS is on one shared local VM. This does not qualify Amazon S3, host power loss, independent zones or 30/100/1000-node scale.",
+    "No performance comparison or SLO claim.",
+    "MR-13 through MR-17 remain open."
+  ]
+}

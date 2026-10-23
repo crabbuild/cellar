@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "baseline_revision": "f8f8958c6ef336f5764b463999f543856a3c7a76",
+  "baseline_revision": "1391e94b471b49f0ca8de6432af7b0dbc8e2b564",
   "status_values": [
     "TODO",
     "IN_PROGRESS",
@@ -2010,7 +2010,27 @@
         "crates/cellar/tests/support/raft_cluster.rs",
         "crates/cellar/durability/raft/budget.rs",
         "crates/cellar/durability/raft/host_sql.rs",
-        "crates/cellar/node/mod.rs"
+        "crates/cellar/node/mod.rs",
+        "crates/cellar-ltx/README.md",
+        "crates/cellar-ltx/src/lib.rs",
+        "crates/cellar-ltx/src/generation.rs",
+        "crates/cellar/durability/raft/host_leader_load.rs",
+        "crates/cellar/durability/raft/host_leader_load_tests.rs",
+        "crates/cellar/durability/raft/transport_tests.rs",
+        "crates/cellar/durability/raft/host_archive.rs",
+        "crates/cellar-python/tests/support/watchdog.rs",
+        "crates/cellar/Cargo.toml",
+        "crates/cellar/README.md",
+        "crates/cellar/cli/daemon.rs",
+        "crates/cellar/execution/domain.rs",
+        "crates/cellar/node/native.rs",
+        "crates/cellar/runtime/generation.rs",
+        "crates/cellar/sdk.rs",
+        "docs/23-cli-reference.md",
+        "crates/cellar/durability/raft/execution.rs",
+        "crates/cellar/durability/raft/receipts.rs",
+        "crates/cellar/tests/native_raft_execution.rs",
+        "crates/cellar/tests/support/raft_seed_crash.rs"
       ],
       "creates": [
         "crates/cellar/durability/raft/operations.rs",
@@ -2033,7 +2053,18 @@
         "crates/cellar/tests/support/raft_metrics_native.rs",
         "crates/cellar/application/consensus/resource_metrics.rs",
         "crates/cellar/application/consensus/resources_tests.rs",
-        "crates/cellar/durability/raft/transport_resources.rs"
+        "crates/cellar/durability/raft/transport_resources.rs",
+        "crates/cellar-ltx/src/generation_accounting.rs",
+        "crates/cellar/node/native_raft.rs",
+        "crates/cellar/node/raft_startup.rs",
+        "crates/cellar/tests/native_raft_daemon.rs",
+        "crates/cellar/durability/raft/receipt_maintenance.rs",
+        "crates/cellar/durability/raft/receipt_maintenance_tests.rs",
+        "crates/cellar/durability/raft/receipts_tests.rs",
+        "plans/multi-raft/receipt-maintenance-design.md",
+        "tools/multi-raft/local.py",
+        "tools/multi-raft/store_probe.py",
+        "tools/multi-raft/README.md"
       ],
       "steps": [
         "Expose explicit limits and metrics for groups, byte queues, apply/archive lag, query pins, snapshot and repair budgets.",
@@ -2198,6 +2229,24 @@
             "I13",
             "I14"
           ]
+        },
+        {
+          "name": "node_shutdown_handoff_waits_for_physical_sql",
+          "oracle": "A held archive-capture worker retains the handoff turn; release permits exact published-voter handoff and joined closure",
+          "invariants": [
+            "I07",
+            "I11",
+            "I14"
+          ]
+        },
+        {
+          "name": "node_shutdown_handoff_sql_wait_is_bounded",
+          "oracle": "A stalled archive capture consumes the original one-second group turn without renewing the Node deadline or inventing a transfer",
+          "invariants": [
+            "I07",
+            "I11",
+            "I14"
+          ]
         }
       ],
       "verification": [
@@ -2232,14 +2281,16 @@
         "evidence/MR-13-metrics-progress.json",
         "evidence/MR-13-resources-progress.json",
         "evidence/PR-91-ci-repair.json",
-        "evidence/PR-91-fixture-repair.json"
+        "evidence/PR-91-fixture-repair.json",
+        "evidence/MR-13-resource-views-progress.json",
+        "evidence/MR-14-handoff-progress.json"
       ]
     },
     {
       "id": "MR-14",
       "title": "Batch multi-group work and deliver the workload harness",
       "phase": "v1",
-      "status": "TODO",
+      "status": "IN_PROGRESS",
       "depends_on": [
         "MR-13"
       ],
@@ -2249,14 +2300,103 @@
         "crates/cellar/durability/raft/transport.rs",
         "crates/cellar/Cargo.toml",
         "tools/perf/README.md",
-        "crates/cellar/durability/raft/host.rs"
+        "crates/cellar/durability/raft/host.rs",
+        "crates/cellar/durability/raft/runtime_scheduler_tests.rs",
+        "tools/perf/raft_node.rs",
+        "tools/perf/raft.Dockerfile",
+        "crates/cellar/application/consensus/protocol.rs",
+        "crates/cellar/durability/raft/archive.rs",
+        "crates/cellar/durability/raft/catalog.rs",
+        "crates/cellar/durability/raft/catalog_wire.rs",
+        "crates/cellar/durability/raft/host_archive.rs",
+        "crates/cellar/durability/raft/manifest.rs",
+        "crates/cellar/tests/native_raft_archive.rs",
+        "crates/cellar/tests/support/raft_catalog_fault.rs",
+        "crates/cellar/tests/support/raft_resources_native.rs",
+        "crates/cellar/application/consensus/client.rs",
+        "crates/cellar/application/consensus/mod.rs",
+        "crates/cellar/durability/raft/execution.rs",
+        "crates/cellar/durability/raft/filesystem.rs",
+        "crates/cellar/durability/raft/host_sql.rs",
+        "crates/cellar/durability/raft/mod.rs",
+        "crates/cellar/durability/raft/operations.rs",
+        "crates/cellar/durability/raft/transport_inspection_tests.rs",
+        "crates/cellar/execution/domain.rs",
+        "crates/cellar/node/raft_metrics.rs",
+        "crates/cellar/tests/native_raft_storage.rs",
+        "crates/cellar/tests/support/raft_metrics_native.rs",
+        "crates/cellar/durability/raft/controller_action.rs",
+        "crates/cellar/durability/raft/host_controller.rs",
+        "crates/cellar/durability/raft/inspection_transport.rs",
+        "crates/cellar/durability/raft/query_transport.rs",
+        "crates/cellar/durability/raft/seed_transport.rs",
+        "crates/cellar/durability/raft/snapshot_transport.rs",
+        "crates/cellar/node/embedded.rs",
+        "crates/cellar/node/raft_startup.rs",
+        "crates/cellar/tests/native_raft_reads.rs",
+        "crates/cellar/tests/support/raft_controller_native.rs",
+        "crates/cellar/tests/support/raft_repair_native.rs",
+        "crates/cellar-ltx/src/apply.rs",
+        "crates/cellar-ltx/src/generation.rs",
+        "crates/cellar-ltx/README.md",
+        "crates/cellar/tests/native_raft_ltx.rs",
+        "crates/cellar/durability/raft/transport_tests.rs",
+        "crates/cellar/durability/raft/replica.rs"
       ],
       "creates": [
         "tools/perf/raft_run.py",
         "tools/perf/raft_workload.rs",
         "tools/perf/test_raft_run.py",
         "tools/perf/raft_profiles.json",
-        "crates/cellar/tests/native_raft_multigroup.rs"
+        "crates/cellar/tests/native_raft_multigroup.rs",
+        "tools/perf/raft_workload.py",
+        "tools/perf/raft_analyze.py",
+        "tools/perf/raft-performance.md",
+        "crates/cellar/tests/support/raft_repair_load.rs",
+        "crates/cellar/durability/raft/archive_bundle.rs",
+        "crates/cellar/durability/raft/archive_bundle_tests.rs",
+        "crates/cellar/tests/support/raft_bundle_native.rs",
+        "crates/cellar/application/consensus/performance.rs",
+        "crates/cellar/durability/raft/performance.rs",
+        "crates/cellar/durability/raft/performance_tests.rs",
+        "tools/perf/raft_metrics.py",
+        "tools/perf/test_raft_metrics.py",
+        "crates/cellar/durability/raft/object_metrics.rs",
+        "crates/cellar/durability/raft/object_metrics_tests.rs",
+        "crates/cellar/durability/raft/transport_metrics.rs",
+        "crates/cellar/durability/raft/transport_metrics_tests.rs",
+        "crates/cellar/tests/support/raft_background_admission.rs",
+        "tools/perf/reference_workload.rs",
+        "tools/perf/baseline_node.rs",
+        "tools/perf/baseline_workload.rs",
+        "tools/perf/baseline_tests.rs",
+        "tools/perf/baseline_run.py",
+        "tools/perf/baseline_history.py",
+        "tools/perf/baseline_analyze.py",
+        "tools/perf/compare_runs.py",
+        "tools/perf/test_baseline.py",
+        "tools/perf/raft_topology.py",
+        "crates/cellar/tests/support/raft_archive_wakeup.rs",
+        "tools/perf/raft_faults.py",
+        "tools/perf/raft_slow_follower.json",
+        "tools/perf/test_raft_faults.py",
+        "tools/perf/raft_docker.py",
+        "tools/perf/test_raft_docker.py",
+        "tools/perf/raft_kernel.py",
+        "tools/perf/test_raft_kernel.py",
+        "crates/cellar/durability/raft/transport_send.rs",
+        "crates/cellar/durability/raft/transport_pipeline_tests.rs",
+        "crates/cellar/durability/raft/runtime_persistence_tests.rs",
+        "tools/perf/store_faults.py",
+        "tools/perf/store_fault_profile.json",
+        "tools/perf/test_store_faults.py",
+        "tools/perf/workload_recovery.py",
+        "tools/perf/test_workload_recovery.py",
+        "tools/perf/store_recovery_profile.json",
+        "tools/perf/baseline_restart.py",
+        "tools/perf/baseline_resume.py",
+        "tools/perf/test_baseline_restart.py",
+        "tools/perf/store_fenced_recovery_profile.json"
       ],
       "steps": [
         "Optimize shared log batches, pooled transport and fair scheduling while retaining per-group Ready ordering.",
@@ -2317,6 +2457,15 @@
           "invariants": [
             "I01"
           ]
+        },
+        {
+          "name": "archived_progress_wakes_commands_without_maintenance_poll",
+          "oracle": "Eight sequential S3 commands publish actual SQLite/LTX state and confirm archive coverage without waiting for the deliberately slow host maintenance poll; fresh authority and output-proof checks still gate each response",
+          "invariants": [
+            "I05",
+            "I09",
+            "I13"
+          ]
         }
       ],
       "verification": [
@@ -2343,7 +2492,34 @@
           "--test-threads=1"
         ]
       ],
-      "evidence": []
+      "evidence": [
+        "evidence/MR-14-performance-progress.json",
+        "evidence/MR-14-repair-budget-progress.json",
+        "evidence/MR-14-archive-bundle-progress.json",
+        "evidence/MR-14-performance-metrics-progress.json",
+        "evidence/MR-14-io-metrics-progress.json",
+        "evidence/MR-14-io-local-progress.json",
+        "evidence/MR-14-background-admission-progress.json",
+        "evidence/MR-14-handoff-progress.json",
+        "evidence/MR-14-baseline-progress.json",
+        "evidence/MR-14-replay-progress.json",
+        "evidence/MR-14-five-node-progress.json",
+        "evidence/MR-14-wakeup-progress.json",
+        "evidence/MR-14-slow-follower-progress.json",
+        "evidence/MR-14-density-progress.json",
+        "evidence/MR-14-pipeline-progress.json",
+        "evidence/MR-14-persistence-progress.json",
+        "evidence/MR-14-store-fault-progress.json",
+        "evidence/MR-14-store-physical-progress.json",
+        "evidence/MR-14-recovery-progress.json",
+        "evidence/MR-14-restart-progress.json",
+        "evidence/MR-14-transport-timing-progress.json",
+        "evidence/MR-14-probe-progress.json",
+        "evidence/MR-14-client-progress.json",
+        "evidence/MR-14-main-merge-progress.json",
+        "evidence/MR-14-client-run-progress.json",
+        "evidence/MR-14-read-accounting-progress.json"
+      ]
     },
     {
       "id": "MR-15",

@@ -1,0 +1,1669 @@
+{
+  "task_id": "MR-14",
+  "source_revision": "97d00b498707ddbc642bb038e4bb7587741ca880",
+  "completion": "partial",
+  "scope": "Controlled slow-follower performance observations with bounded process pauses, planned-role cohorts, healthy-majority command witnesses and exact replica recovery.",
+  "implementation": [
+    "Linux freezer capability is verified on a fresh tagged network-isolated process before workload resources exist. Lost creation/pause responses trigger inspected cleanup.",
+    "The joined fault worker retains every scheduled and observed pause/release/probe. Whole-process pauses affect leader and query-follower cells too; those cohorts remain separate.",
+    "A witness starts after a confirmed pause, completes before a leader probe, and matches its group/incarnation/term. Both healthy voters cover the exact receipt index while the third remains behind. Samples never grant an SDK proof.",
+    "Recovery starts before final unpause and ends after exact reads of every assigned replica; the upper bound includes release, scan and remaining workload time.",
+    "Independent analysis rejects unsupported scenarios, incomplete injection, wrong ownership, excessive timing, missing progress/lag and failed recovery. Comparison includes scenario/probe configuration and refuses mismatched contracts.",
+    "Persistent local Engine API control binds the exact owner/name to an immutable container ID. Ambiguous POSTs are never blindly retried. CLI lifecycle/cleanup remains independent."
+  ],
+  "diagnosis": {
+    "original_revision": "8beeee3e2b382e93f89c4dbdee01d50fa27f66e3",
+    "failure": "Original five-node slow run exceeded the unchanged 750 ms bound in eight cycles. It remains unfinished/rejected in raw evidence.",
+    "stage_evidence": "In the worst cycle, control/inspection stages took about 717 ms, leader probes 85 ms, and held wait/journal about 259 ms; total 1061 ms. Shared-host pressure also varied.",
+    "one_variable_probe": {
+      "cli": {
+        "cycles": 8,
+        "mean_total_ms": 400.47684362434666,
+        "max_total_ms": 446.96120801381767
+      },
+      "api": {
+        "cycles": 8,
+        "mean_total_ms": 296.36113038577605,
+        "max_total_ms": 338.45783400465734
+      }
+    },
+    "setup_failure": "An additional S3 fault attempt failed before workload creation because retained networks exhausted Docker address pools. Six exact tagged empty networks were inspected/removed; stopped containers and volumes were preserved. The retry uses a fresh output directory. No global prune or other profile mutation.",
+    "probe_scope": "Eight alternating cycles per control path on the same fresh owned network-isolated sleep process, including the same 250 ms hold. This supports a control-overhead explanation; it is not Cellar latency/correctness qualification.",
+    "original_scenario_rerun": "The same five-node profile, 250/750 ms bounds, workload and 116-cycle schedule are rerun at the new source; all outcomes remain below."
+  },
+  "validation": {
+    "original_python_passed": 149,
+    "final_python_passed": 154,
+    "python_skipped": 1,
+    "skip_scope": "Existing opt-in Docker guard; actual Colima runs recorded separately.",
+    "rust_fixture_passed": 2,
+    "fixture_source_revision": "8beeee3e2b382e93f89c4dbdee01d50fa27f66e3",
+    "fixture_binary_sha256": "de863503bfe8603e583feaf77eeb3510f2f891e3e049236347a17bf991cef26f",
+    "rust_scope": "Benchmark placement and noncommutative SQLite reopen; no production consensus change. Earlier full Raft matrix retains its separate source pin.",
+    "negative_cases": "Missing/short/excessive pauses, wrong owner/role/voters, lost action replies, early resume, no majority/lag, mismatched receipt, bad clocks/recovery, unsupported scenario, changed comparison, unbound/changed immutable identity and ambiguous API POST. A real Unix HTTP server verifies persistent connection reuse."
+  },
+  "checks": [
+    {
+      "name": "python",
+      "command": [
+        "python3",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "tools/perf",
+        "-p",
+        "test_*.py"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 3.768188953399658,
+      "sha256": "a9009bdbf94a87eb03dba8e4bc301710645992979a71cbc477a94f52f898cfd7",
+      "source_revision": "8beeee3e2b382e93f89c4dbdee01d50fa27f66e3",
+      "output": "evidence/MR-14-slow-follower-validation.json.gz",
+      "log_member": "slow-python"
+    },
+    {
+      "name": "fixture",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "cellar",
+        "--bin",
+        "cellar-perf-raft",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 380.83480405807495,
+      "sha256": "7e49102cf6a850ebcd26a7d1c6ef6f7972ca3e6aa34b65dc7772133eff12da1d",
+      "source_revision": "8beeee3e2b382e93f89c4dbdee01d50fa27f66e3",
+      "output": "evidence/MR-14-slow-follower-validation.json.gz",
+      "log_member": "slow-fixture"
+    },
+    {
+      "name": "clippy",
+      "command": [
+        "cargo",
+        "clippy",
+        "--locked",
+        "-p",
+        "cellar",
+        "--bin",
+        "cellar-perf-raft",
+        "--all-features",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 215.58720898628235,
+      "sha256": "4d2d1a2a800d293583e5b6b68cea33be8b1a84197c017239015fb4fe04d01cfa",
+      "source_revision": "8beeee3e2b382e93f89c4dbdee01d50fa27f66e3",
+      "output": "evidence/MR-14-slow-follower-validation.json.gz",
+      "log_member": "slow-clippy"
+    },
+    {
+      "name": "format",
+      "command": [
+        "cargo",
+        "format",
+        "--check"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 43.44890594482422,
+      "sha256": "64fb5ca1b817ac01d04baf236bbba03f4ccccdfe482ec7a342291ea8838ab2fa",
+      "source_revision": "8beeee3e2b382e93f89c4dbdee01d50fa27f66e3",
+      "output": "evidence/MR-14-slow-follower-validation.json.gz",
+      "log_member": "slow-format"
+    },
+    {
+      "name": "layout",
+      "command": [
+        "cargo",
+        "check-layout"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 2.7283411026000977,
+      "sha256": "c3f76df5f01fa4420d9d65ec0af6f02bb77b22c38cad24ef7744c75c56f03567",
+      "source_revision": "8beeee3e2b382e93f89c4dbdee01d50fa27f66e3",
+      "output": "evidence/MR-14-slow-follower-validation.json.gz",
+      "log_member": "slow-layout"
+    },
+    {
+      "name": "dependencies",
+      "command": [
+        "python3",
+        "tools/check_native_dependencies.py"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 0.4103550910949707,
+      "sha256": "faf9bdb8df5819a63d590ede5d4a5f43eb4e8b00d8a6f44ccfb36bd8c4c5c238",
+      "source_revision": "8beeee3e2b382e93f89c4dbdee01d50fa27f66e3",
+      "output": "evidence/MR-14-slow-follower-validation.json.gz",
+      "log_member": "slow-dependencies"
+    },
+    {
+      "name": "docs",
+      "command": [
+        "python3",
+        "tools/docs/check.py"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 0.08499002456665039,
+      "sha256": "701e55367b1b8c08dcd388c3084250c7209af81cb161e4ba73339783b537eeb3",
+      "source_revision": "8beeee3e2b382e93f89c4dbdee01d50fa27f66e3",
+      "output": "evidence/MR-14-slow-follower-validation.json.gz",
+      "log_member": "slow-docs"
+    },
+    {
+      "name": "plan",
+      "command": [
+        "python3",
+        "plans/multi-raft/plan.py",
+        "validate"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 0.12319707870483398,
+      "sha256": "c8861463f48bf4ebbc61c2cf2cc62459f91ac121f6037762bbcffd7b5f99938b",
+      "source_revision": "8beeee3e2b382e93f89c4dbdee01d50fa27f66e3",
+      "output": "evidence/MR-14-slow-follower-validation.json.gz",
+      "log_member": "slow-plan"
+    },
+    {
+      "name": "python",
+      "command": [
+        "python3",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "tools/perf",
+        "-p",
+        "test_*.py"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 2.754750967025757,
+      "sha256": "d7bdda816ad3be2178bbc19831b5276d166ba081261938001334d8a8df1456e3",
+      "source_revision": "97d00b498707ddbc642bb038e4bb7587741ca880",
+      "output": "evidence/MR-14-slow-follower-validation.json.gz",
+      "log_member": "engine-python"
+    },
+    {
+      "name": "docs",
+      "command": [
+        "python3",
+        "tools/docs/check.py"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 0.08012700080871582,
+      "sha256": "701e55367b1b8c08dcd388c3084250c7209af81cb161e4ba73339783b537eeb3",
+      "source_revision": "97d00b498707ddbc642bb038e4bb7587741ca880",
+      "output": "evidence/MR-14-slow-follower-validation.json.gz",
+      "log_member": "engine-docs"
+    },
+    {
+      "name": "plan",
+      "command": [
+        "python3",
+        "plans/multi-raft/plan.py",
+        "validate"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 0.13480305671691895,
+      "sha256": "c8861463f48bf4ebbc61c2cf2cc62459f91ac121f6037762bbcffd7b5f99938b",
+      "source_revision": "97d00b498707ddbc642bb038e4bb7587741ca880",
+      "output": "evidence/MR-14-slow-follower-validation.json.gz",
+      "log_member": "engine-plan"
+    }
+  ],
+  "raw_output": [
+    {
+      "path": "evidence/MR-14-slow-follower-validation.json.gz",
+      "bytes": 28947,
+      "sha256": "5a050c22e76a656939fad31e35230cc3d52d92c3a3c9958e48d9721f0dc0ad08"
+    },
+    {
+      "path": "evidence/MR-14-slow-follower-local-runs.json.gz",
+      "bytes": 4982225,
+      "sha256": "93f015811f8ce4084f4a380c09557f24230dd7e2429860ba8f0dcacb946ac3bf"
+    }
+  ],
+  "local_runs": [
+    {
+      "offered_routes_sha256": "d253d214fa47d2f4819db0e19f2fc2cab908b140640c8915ee4f761327df11ad",
+      "run": "mr14-slow-local-q0-slow-follower-20261022-001",
+      "profile": "local-q0",
+      "scenario": "slow-follower",
+      "build": {
+        "image_id": "sha256:8d9e39804aa3ba1553e4e4ddb7ae516e4468063b9391eeb770b603253b48a1a5",
+        "binary_sha256": "23530bc1126649eadc1c52570897f811c16f1a0b2135ca843a12574aa5ae098b",
+        "source_manifest_sha256": "d3794c32410eac617adb326dc8af1160f496e1cd9fe13c32bed44376891595d6",
+        "build_profile": "lab",
+        "source_revision": "8beeee3e2b382e93f89c4dbdee01d50fa27f66e3",
+        "working_tree_dirty": false
+      },
+      "profile_sha256": "1c3657717825fffede206222cf9e5419a46f1cab4b27d02e21c5ac795098ae09",
+      "fault_profile": {
+        "format": 1,
+        "node": 3,
+        "pause_ms": 250,
+        "max_pause_ms": 750,
+        "interval_ms": 1000,
+        "start_after_seconds": 2,
+        "stop_before_seconds": 2,
+        "max_start_lateness_ms": 500
+      },
+      "fault_profile_sha256": "e9fcf43183efb751d867b08e1ce95d3c9b5c27df187b3006bf8c2f924a54e849",
+      "completed": true,
+      "reconciled": true,
+      "traffic_objectives_met": false,
+      "summary": {
+        "counts": {
+          "submitted": 196,
+          "completed": 196,
+          "generator_rejected": 4,
+          "offered": 200
+        },
+        "latency_ms": {
+          "p50": 13.775749987690489,
+          "p95": 118.72324998839723,
+          "p99": 319.7266669943932,
+          "p99_9": 326.7710419953804
+        },
+        "latency_by_operation_ms": {
+          "command": {
+            "p50": 18.809500004863366,
+            "p95": 29.067125014261563,
+            "p99": 296.88454198767465,
+            "p99_9": 296.88454198767465
+          },
+          "query": {
+            "p50": 9.472084004665149,
+            "p95": 213.07862498797547,
+            "p99": 319.7266669943932,
+            "p99_9": 326.7710419953804
+          }
+        },
+        "completed_per_second": 9.8,
+        "offered_per_second": 10.0,
+        "error_fraction": 0.02
+      },
+      "analysis_rejection": null,
+      "fault_rejection": null,
+      "largest_observed_cycle_ms": 470.2632080006879,
+      "failure": null,
+      "measured": true,
+      "cycles_over_bound": 0,
+      "host_environment": {
+        "before": {
+          "unix_time": 1792696810.965436,
+          "platform": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+          "hardware_and_swap": "hw.ncpu: 12\nhw.memsize: 34359738368\nvm.swapusage: total = 11264.00M  used = 10410.81M  free = 853.19M  (encrypted)\n",
+          "load": "12:20  up 1 day, 13:39, 3 users, load averages: 3.39 2.91 4.04\n",
+          "vm_statistics": "Mach Virtual Memory Statistics: (page size of 16384 bytes)\nPages free:                                     3698.\nPages active:                                 855060.\nPages inactive:                               725100.\nPages speculative:                            129274.\nPages throttled:                                   0.\nPages wired down:                             164551.\nPages purgeable:                                2402.\n\"Translation faults\":                     4333779968.\nPages copy-on-write:                       178567553.\nPages zero filled:                        2088948450.\nPages reactivated:                         394866940.\nPages purged:                               10922613.\nFile-backed pages:                            833451.\nAnonymous pages:                              875983.\nPages stored in compressor:                  1337589.\nPages occupied by compressor:                 182983.\nDecompressions:                            310888359.\nCompressions:                              362025511.\nPageins:                                   144513125.\nPageouts:                                     897811.\nSwapins:                                     8179971.\nSwapouts:                                    9671811.\n"
+        },
+        "note": "Shared Mac and other independent Colima profiles; only cellar-multi-raft controlled. No steady-state capacity or causal speedup claim.",
+        "after": {
+          "unix_time": 1792696848.484649,
+          "platform": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+          "hardware_and_swap": "hw.ncpu: 12\nhw.memsize: 34359738368\nvm.swapusage: total = 11264.00M  used = 10410.81M  free = 853.19M  (encrypted)\n",
+          "load": "12:20  up 1 day, 13:39, 3 users, load averages: 3.60 3.03 4.04\n",
+          "vm_statistics": "Mach Virtual Memory Statistics: (page size of 16384 bytes)\nPages free:                                     6231.\nPages active:                                 856067.\nPages inactive:                               717321.\nPages speculative:                            139804.\nPages throttled:                                   0.\nPages wired down:                             164079.\nPages purgeable:                                2537.\n\"Translation faults\":                     4334497893.\nPages copy-on-write:                       178615828.\nPages zero filled:                        2089189467.\nPages reactivated:                         394867603.\nPages purged:                               10923544.\nFile-backed pages:                            824787.\nAnonymous pages:                              888405.\nPages stored in compressor:                  1325515.\nPages occupied by compressor:                 177299.\nDecompressions:                            310899898.\nCompressions:                              362025513.\nPageins:                                   144726114.\nPageouts:                                     898086.\nSwapins:                                     8180163.\nSwapouts:                                    9671811.\n"
+        }
+      },
+      "cleanup": [
+        {
+          "container": "cellar-mr14-eeaaa88939f18c0de8ebc28c-node3",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-eeaaa88939f18c0de8ebc28c-node2",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-eeaaa88939f18c0de8ebc28c-node1",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-eeaaa88939f18c0de8ebc28c-store",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        }
+      ],
+      "commands_including_seed": 137,
+      "queries": 121,
+      "replicas": 36,
+      "cycles": 16,
+      "majority_witnesses": 13,
+      "witness_cells": [
+        0
+      ],
+      "max_observed_lag_entries": 2,
+      "recovery_upper_seconds": 2.722577292006463,
+      "cohorts": {
+        "target_leader": {
+          "counts": {
+            "submitted": 20,
+            "completed": 20,
+            "offered": 20
+          },
+          "p99_ms": 296.88454198767465,
+          "completed_per_second": 1.0
+        },
+        "target_query_follower": {
+          "counts": {
+            "submitted": 82,
+            "completed": 82,
+            "generator_rejected": 4,
+            "offered": 86
+          },
+          "p99_ms": 326.7710419953804,
+          "completed_per_second": 4.1
+        },
+        "target_third_voter": {
+          "counts": {
+            "submitted": 94,
+            "completed": 94,
+            "offered": 94
+          },
+          "p99_ms": 61.308000003919005,
+          "completed_per_second": 4.7
+        }
+      }
+    },
+    {
+      "offered_routes_sha256": "bdb1b41349e69bbc78833dbc046d7edcb73750eada07abb47c567fbf6096720e",
+      "run": "mr14-slow-local-five-healthy-20261022-001",
+      "profile": "local-five",
+      "scenario": "healthy",
+      "build": {
+        "image_id": "sha256:8d9e39804aa3ba1553e4e4ddb7ae516e4468063b9391eeb770b603253b48a1a5",
+        "binary_sha256": "23530bc1126649eadc1c52570897f811c16f1a0b2135ca843a12574aa5ae098b",
+        "source_manifest_sha256": "d3794c32410eac617adb326dc8af1160f496e1cd9fe13c32bed44376891595d6",
+        "build_profile": "lab",
+        "source_revision": "8beeee3e2b382e93f89c4dbdee01d50fa27f66e3",
+        "working_tree_dirty": false
+      },
+      "profile_sha256": "c1c3025c95109a618dd5d3d122e19630055563c1384abe57c8671cd8a6295b30",
+      "fault_profile": {
+        "format": 1,
+        "node": 3,
+        "pause_ms": 250,
+        "max_pause_ms": 750,
+        "interval_ms": 1000,
+        "start_after_seconds": 2,
+        "stop_before_seconds": 2,
+        "max_start_lateness_ms": 500
+      },
+      "fault_profile_sha256": "e9fcf43183efb751d867b08e1ce95d3c9b5c27df187b3006bf8c2f924a54e849",
+      "completed": true,
+      "reconciled": true,
+      "traffic_objectives_met": true,
+      "summary": {
+        "counts": {
+          "submitted": 1200,
+          "completed": 1200,
+          "offered": 1200
+        },
+        "latency_ms": {
+          "p50": 12.25591598776532,
+          "p95": 23.374875006266116,
+          "p99": 70.05487499991148,
+          "p99_9": 197.44970799074224
+        },
+        "latency_by_operation_ms": {
+          "command": {
+            "p50": 17.362415982645985,
+            "p95": 27.804916008609126,
+            "p99": 138.93470800830698,
+            "p99_9": 214.97333300067112
+          },
+          "query": {
+            "p50": 9.04204099206396,
+            "p95": 13.164041010895744,
+            "p99": 16.956500004738473,
+            "p99_9": 57.53391601028568
+          }
+        },
+        "completed_per_second": 10.0,
+        "offered_per_second": 10.0,
+        "error_fraction": 0.0
+      },
+      "analysis_rejection": null,
+      "fault_rejection": null,
+      "largest_observed_cycle_ms": 476.92233297857456,
+      "failure": null,
+      "measured": true,
+      "cycles_over_bound": 0,
+      "host_environment": {
+        "before": {
+          "unix_time": 1792696884.196298,
+          "platform": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+          "hardware_and_swap": "hw.ncpu: 12\nhw.memsize: 34359738368\nvm.swapusage: total = 11264.00M  used = 10410.81M  free = 853.19M  (encrypted)\n",
+          "colima_profiles": "PROFILE              STATUS     ARCH       CPUS    MEMORY    DISK      RUNTIME    ADDRESS\ndefault              Running    aarch64    2       2GiB      100GiB    docker     \ncellar-multi-raft    Running    aarch64    8       22GiB     60GiB     docker     \ncellar-raft-perf     Stopped    aarch64    8       16GiB     120GiB    docker     \n",
+          "load": "12:21  up 1 day, 13:40, 3 users, load averages: 2.56 2.83 3.92\n",
+          "vm_statistics": "Mach Virtual Memory Statistics: (page size of 16384 bytes)\nPages free:                                     6095.\nPages active:                                 861266.\nPages inactive:                               727698.\nPages speculative:                            133670.\nPages throttled:                                   0.\nPages wired down:                             164630.\nPages purgeable:                                2839.\n\"Translation faults\":                     4334833944.\nPages copy-on-write:                       178634070.\nPages zero filled:                        2089339262.\nPages reactivated:                         394868068.\nPages purged:                               10924150.\nFile-backed pages:                            806411.\nAnonymous pages:                              916223.\nPages stored in compressor:                  1301870.\nPages occupied by compressor:                 167412.\nDecompressions:                            310923370.\nCompressions:                              362025513.\nPageins:                                   144897327.\nPageouts:                                     898195.\nSwapins:                                     8180483.\nSwapouts:                                    9671811.\n"
+        },
+        "note": "Shared Mac and other independent Colima profiles; only cellar-multi-raft controlled. No steady-state capacity or causal speedup claim.",
+        "after": {
+          "unix_time": 1792697051.895097,
+          "platform": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+          "hardware_and_swap": "hw.ncpu: 12\nhw.memsize: 34359738368\nvm.swapusage: total = 11264.00M  used = 10330.81M  free = 933.19M  (encrypted)\n",
+          "colima_profiles": "PROFILE              STATUS     ARCH       CPUS    MEMORY    DISK      RUNTIME    ADDRESS\ndefault              Running    aarch64    2       2GiB      100GiB    docker     \ncellar-multi-raft    Running    aarch64    8       22GiB     60GiB     docker     \ncellar-raft-perf     Stopped    aarch64    8       16GiB     120GiB    docker     \n",
+          "load": "12:24  up 1 day, 13:43, 3 users, load averages: 2.97 2.79 3.69\n",
+          "vm_statistics": "Mach Virtual Memory Statistics: (page size of 16384 bytes)\nPages free:                                     7331.\nPages active:                                 865485.\nPages inactive:                               814787.\nPages speculative:                             50766.\nPages throttled:                                   0.\nPages wired down:                             162573.\nPages purgeable:                               10537.\n\"Translation faults\":                     4338728661.\nPages copy-on-write:                       178871836.\nPages zero filled:                        2090713554.\nPages reactivated:                         394871701.\nPages purged:                               10926964.\nFile-backed pages:                            755696.\nAnonymous pages:                              975342.\nPages stored in compressor:                  1272982.\nPages occupied by compressor:                 159499.\nDecompressions:                            310949755.\nCompressions:                              362025513.\nPageins:                                   145853128.\nPageouts:                                     899038.\nSwapins:                                     8185636.\nSwapouts:                                    9671811.\n"
+        }
+      },
+      "cleanup": [
+        {
+          "container": "cellar-mr14-74a8ed73ebbd6c7026261900-node5",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-74a8ed73ebbd6c7026261900-node4",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-74a8ed73ebbd6c7026261900-node3",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-74a8ed73ebbd6c7026261900-node2",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-74a8ed73ebbd6c7026261900-node1",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-74a8ed73ebbd6c7026261900-store",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        }
+      ],
+      "commands_including_seed": 923,
+      "queries": 727,
+      "replicas": 450,
+      "cycles": 116,
+      "majority_witnesses": 0,
+      "witness_cells": [],
+      "max_observed_lag_entries": 0,
+      "recovery_upper_seconds": 3.1825871669861954,
+      "cohorts": {
+        "target_leader": {
+          "counts": {
+            "submitted": 352,
+            "completed": 352,
+            "offered": 352
+          },
+          "p99_ms": 25.65604100236385,
+          "completed_per_second": 2.933333333333333
+        },
+        "target_query_follower": {
+          "counts": {
+            "submitted": 336,
+            "completed": 336,
+            "offered": 336
+          },
+          "p99_ms": 30.06529100239419,
+          "completed_per_second": 2.8
+        },
+        "target_third_voter": {
+          "counts": {
+            "submitted": 406,
+            "completed": 406,
+            "offered": 406
+          },
+          "p99_ms": 30.880458001050215,
+          "completed_per_second": 3.3833333333333333
+        },
+        "unaffected": {
+          "counts": {
+            "submitted": 106,
+            "completed": 106,
+            "offered": 106
+          },
+          "p99_ms": 197.44970799074224,
+          "completed_per_second": 0.8833333333333333
+        }
+      }
+    },
+    {
+      "offered_routes_sha256": "bdb1b41349e69bbc78833dbc046d7edcb73750eada07abb47c567fbf6096720e",
+      "run": "mr14-slow-local-five-slow-follower-20261022-001",
+      "profile": "local-five",
+      "scenario": "slow-follower",
+      "build": {
+        "image_id": "sha256:8d9e39804aa3ba1553e4e4ddb7ae516e4468063b9391eeb770b603253b48a1a5",
+        "binary_sha256": "23530bc1126649eadc1c52570897f811c16f1a0b2135ca843a12574aa5ae098b",
+        "source_manifest_sha256": "d3794c32410eac617adb326dc8af1160f496e1cd9fe13c32bed44376891595d6",
+        "build_profile": "lab",
+        "source_revision": "8beeee3e2b382e93f89c4dbdee01d50fa27f66e3",
+        "working_tree_dirty": false
+      },
+      "profile_sha256": "c1c3025c95109a618dd5d3d122e19630055563c1384abe57c8671cd8a6295b30",
+      "fault_profile": {
+        "format": 1,
+        "node": 3,
+        "pause_ms": 250,
+        "max_pause_ms": 750,
+        "interval_ms": 1000,
+        "start_after_seconds": 2,
+        "stop_before_seconds": 2,
+        "max_start_lateness_ms": 500
+      },
+      "fault_profile_sha256": "e9fcf43183efb751d867b08e1ce95d3c9b5c27df187b3006bf8c2f924a54e849",
+      "completed": false,
+      "reconciled": false,
+      "traffic_objectives_met": null,
+      "summary": {
+        "counts": {
+          "submitted": 1153,
+          "completed": 1153,
+          "generator_rejected": 47,
+          "offered": 1200
+        },
+        "latency_ms": {
+          "p50": 13.287124998171862,
+          "p95": 210.03208400797746,
+          "p99": 355.0699590181523,
+          "p99_9": 749.5617089967652
+        },
+        "latency_by_operation_ms": {
+          "command": {
+            "p50": 18.270792008843628,
+            "p95": 245.08050000295611,
+            "p99": 491.00533400196866,
+            "p99_9": 826.6877089918125
+          },
+          "query": {
+            "p50": 9.100541996303946,
+            "p95": 104.25575000699894,
+            "p99": 305.33066701028133,
+            "p99_9": 481.3371669908548
+          }
+        },
+        "completed_per_second": 9.608333333333333,
+        "offered_per_second": 10.0,
+        "error_fraction": 0.03916666666666667
+      },
+      "analysis_rejection": "unfinished run",
+      "fault_rejection": "pause exceeded declared bound",
+      "largest_observed_cycle_ms": 1061.2550420046318,
+      "failure": "pause exceeded declared bound",
+      "measured": true,
+      "cycles_over_bound": 8,
+      "host_environment": {
+        "before": {
+          "unix_time": 1792697160.002496,
+          "platform": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+          "hardware_and_swap": "hw.ncpu: 12\nhw.memsize: 34359738368\nvm.swapusage: total = 11264.00M  used = 10322.81M  free = 941.19M  (encrypted)\n",
+          "colima_profiles": "PROFILE              STATUS     ARCH       CPUS    MEMORY    DISK      RUNTIME    ADDRESS\ndefault              Running    aarch64    2       2GiB      100GiB    docker     \ncellar-multi-raft    Running    aarch64    8       22GiB     60GiB     docker     \ncellar-raft-perf     Stopped    aarch64    8       16GiB     120GiB    docker     \n",
+          "load": "12:26  up 1 day, 13:44, 3 users, load averages: 2.98 3.05 3.70\n",
+          "vm_statistics": "Mach Virtual Memory Statistics: (page size of 16384 bytes)\nPages free:                                     6791.\nPages active:                                 847303.\nPages inactive:                               797354.\nPages speculative:                             88923.\nPages throttled:                                   0.\nPages wired down:                             162905.\nPages purgeable:                               11332.\n\"Translation faults\":                     4344932152.\nPages copy-on-write:                       179529135.\nPages zero filled:                        2091978737.\nPages reactivated:                         394879777.\nPages purged:                               10930596.\nFile-backed pages:                            740477.\nAnonymous pages:                              993103.\nPages stored in compressor:                  1265492.\nPages occupied by compressor:                 157320.\nDecompressions:                            310955956.\nCompressions:                              362025513.\nPageins:                                   146355163.\nPageouts:                                     900531.\nSwapins:                                     8186585.\nSwapouts:                                    9671811.\n"
+        },
+        "note": "Shared Mac and other independent Colima profiles; only cellar-multi-raft controlled. No steady-state capacity or causal speedup claim.",
+        "after": {
+          "unix_time": 1792697333.056135,
+          "platform": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+          "hardware_and_swap": "hw.ncpu: 12\nhw.memsize: 34359738368\nvm.swapusage: total = 11264.00M  used = 10282.81M  free = 981.19M  (encrypted)\n",
+          "colima_profiles": "PROFILE              STATUS     ARCH       CPUS    MEMORY    DISK      RUNTIME    ADDRESS\ndefault              Running    aarch64    2       2GiB      100GiB    docker     \ncellar-multi-raft    Running    aarch64    8       22GiB     60GiB     docker     \ncellar-raft-perf     Stopped    aarch64    8       16GiB     120GiB    docker     \n",
+          "load": "12:28  up 1 day, 13:47, 3 users, load averages: 10.87 5.05 4.31\n",
+          "vm_statistics": "Mach Virtual Memory Statistics: (page size of 16384 bytes)\nPages free:                                     6672.\nPages active:                                 713960.\nPages inactive:                               667203.\nPages speculative:                             45891.\nPages throttled:                                   0.\nPages wired down:                             176703.\nPages purgeable:                                 212.\n\"Translation faults\":                     4354987164.\nPages copy-on-write:                       179793086.\nPages zero filled:                        2098092804.\nPages reactivated:                         395235192.\nPages purged:                               10943785.\nFile-backed pages:                            541630.\nAnonymous pages:                              885424.\nPages stored in compressor:                  1655044.\nPages occupied by compressor:                 450316.\nDecompressions:                            311007290.\nCompressions:                              362483762.\nPageins:                                   147337819.\nPageouts:                                     901846.\nSwapins:                                     8188727.\nSwapouts:                                    9671811.\n"
+        }
+      },
+      "cleanup": [
+        {
+          "container": "cellar-mr14-32cfe9907abd1042bddc101e-node5",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-32cfe9907abd1042bddc101e-node4",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-32cfe9907abd1042bddc101e-node3",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-32cfe9907abd1042bddc101e-node2",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-32cfe9907abd1042bddc101e-node1",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-32cfe9907abd1042bddc101e-store",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        }
+      ]
+    },
+    {
+      "offered_routes_sha256": "bdb1b41349e69bbc78833dbc046d7edcb73750eada07abb47c567fbf6096720e",
+      "run": "mr14-engine-local-five-healthy-20261022-001",
+      "profile": "local-five",
+      "scenario": "healthy",
+      "build": {
+        "image_id": "sha256:74c7d63b5f7453ddac010c1cbbaf9422075e9acfd8d67ee00eff491d087f3e1d",
+        "binary_sha256": "23530bc1126649eadc1c52570897f811c16f1a0b2135ca843a12574aa5ae098b",
+        "source_manifest_sha256": "8aafc1c2bafb088401e6e787ab49350018415d6dfe19b2453c685ccfe1843cf6",
+        "build_profile": "lab",
+        "source_revision": "97d00b498707ddbc642bb038e4bb7587741ca880",
+        "working_tree_dirty": false
+      },
+      "profile_sha256": "c1c3025c95109a618dd5d3d122e19630055563c1384abe57c8671cd8a6295b30",
+      "fault_profile": {
+        "format": 1,
+        "node": 3,
+        "pause_ms": 250,
+        "max_pause_ms": 750,
+        "interval_ms": 1000,
+        "start_after_seconds": 2,
+        "stop_before_seconds": 2,
+        "max_start_lateness_ms": 500
+      },
+      "fault_profile_sha256": "e9fcf43183efb751d867b08e1ce95d3c9b5c27df187b3006bf8c2f924a54e849",
+      "completed": true,
+      "reconciled": true,
+      "traffic_objectives_met": true,
+      "summary": {
+        "counts": {
+          "submitted": 1194,
+          "completed": 1194,
+          "generator_rejected": 6,
+          "offered": 1200
+        },
+        "latency_ms": {
+          "p50": 14.613832999017973,
+          "p95": 81.891499977786,
+          "p99": 169.79124998324568,
+          "p99_9": 262.15441699605435
+        },
+        "latency_by_operation_ms": {
+          "command": {
+            "p50": 27.905041998019797,
+            "p95": 104.3066669953987,
+            "p99": 185.20737497601658,
+            "p99_9": 362.64741699559977
+          },
+          "query": {
+            "p50": 9.200791985495727,
+            "p95": 21.832124982026357,
+            "p99": 61.15533297415965,
+            "p99_9": 104.14804198080674
+          }
+        },
+        "completed_per_second": 9.95,
+        "offered_per_second": 10.0,
+        "error_fraction": 0.005
+      },
+      "analysis_rejection": null,
+      "fault_rejection": null,
+      "largest_observed_cycle_ms": 382.8585419978481,
+      "failure": null,
+      "measured": true,
+      "cycles_over_bound": 0,
+      "host_environment": {
+        "before": {
+          "unix_time": 1792698269.4119308,
+          "platform": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+          "hardware_and_swap": "hw.ncpu: 12\nhw.memsize: 34359738368\nvm.swapusage: total = 11264.00M  used = 10098.81M  free = 1165.19M  (encrypted)\n",
+          "colima_profiles": "PROFILE              STATUS     ARCH       CPUS    MEMORY    DISK      RUNTIME    ADDRESS\ndefault              Running    aarch64    2       2GiB      100GiB    docker     \ncellar-multi-raft    Running    aarch64    8       22GiB     60GiB     docker     \ncellar-raft-perf     Running    aarch64    8       16GiB     120GiB    docker     \n",
+          "load": "12:44  up 1 day, 14:03, 3 users, load averages: 4.03 4.96 4.74\n",
+          "vm_statistics": "Mach Virtual Memory Statistics: (page size of 16384 bytes)\nPages free:                                     8674.\nPages active:                                 625639.\nPages inactive:                               578557.\nPages speculative:                             47127.\nPages throttled:                                   0.\nPages wired down:                             162816.\nPages purgeable:                                2853.\n\"Translation faults\":                     4390186684.\nPages copy-on-write:                       181061780.\nPages zero filled:                        2116031580.\nPages reactivated:                         397634562.\nPages purged:                               10975912.\nFile-backed pages:                            730426.\nAnonymous pages:                              520897.\nPages stored in compressor:                  1905793.\nPages occupied by compressor:                 637966.\nDecompressions:                            313183110.\nCompressions:                              365407358.\nPageins:                                   158960514.\nPageouts:                                     930156.\nSwapins:                                     8199870.\nSwapouts:                                    9671811.\n"
+        },
+        "note": "Shared Mac and other independent Colima profiles; only cellar-multi-raft controlled. No steady-state capacity or causal speedup claim.",
+        "after": {
+          "unix_time": 1792698439.9791832,
+          "platform": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+          "hardware_and_swap": "hw.ncpu: 12\nhw.memsize: 34359738368\nvm.swapusage: total = 11264.00M  used = 10090.81M  free = 1173.19M  (encrypted)\n",
+          "colima_profiles": "PROFILE              STATUS     ARCH       CPUS    MEMORY    DISK      RUNTIME    ADDRESS\ndefault              Running    aarch64    2       2GiB      100GiB    docker     \ncellar-multi-raft    Running    aarch64    8       22GiB     60GiB     docker     \ncellar-raft-perf     Running    aarch64    8       16GiB     120GiB    docker     \n",
+          "load": "12:47  up 1 day, 14:06, 3 users, load averages: 3.80 4.85 4.76\n",
+          "vm_statistics": "Mach Virtual Memory Statistics: (page size of 16384 bytes)\nPages free:                                   264918.\nPages active:                                 517912.\nPages inactive:                               429672.\nPages speculative:                             95396.\nPages throttled:                                   0.\nPages wired down:                             169779.\nPages purgeable:                                2576.\n\"Translation faults\":                     4397505768.\nPages copy-on-write:                       181755990.\nPages zero filled:                        2117711980.\nPages reactivated:                         397635173.\nPages purged:                               10977181.\nFile-backed pages:                            398649.\nAnonymous pages:                              644331.\nPages stored in compressor:                  1795852.\nPages occupied by compressor:                 583099.\nDecompressions:                            313291350.\nCompressions:                              365407358.\nPageins:                                   159092720.\nPageouts:                                     930163.\nSwapins:                                     8200504.\nSwapouts:                                    9671811.\n"
+        }
+      },
+      "cleanup": [
+        {
+          "container": "cellar-mr14-c5eb35363a52449d8b0b592a-node5",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-c5eb35363a52449d8b0b592a-node4",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-c5eb35363a52449d8b0b592a-node3",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-c5eb35363a52449d8b0b592a-node2",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-c5eb35363a52449d8b0b592a-node1",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-c5eb35363a52449d8b0b592a-store",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        }
+      ],
+      "commands_including_seed": 913,
+      "queries": 721,
+      "replicas": 450,
+      "cycles": 116,
+      "majority_witnesses": 0,
+      "witness_cells": [],
+      "max_observed_lag_entries": 0,
+      "recovery_upper_seconds": 3.1866493750130758,
+      "cohorts": {
+        "target_leader": {
+          "counts": {
+            "submitted": 349,
+            "completed": 349,
+            "generator_rejected": 3,
+            "offered": 352
+          },
+          "p99_ms": 121.84041697182124,
+          "completed_per_second": 2.908333333333333
+        },
+        "target_query_follower": {
+          "counts": {
+            "submitted": 333,
+            "completed": 333,
+            "generator_rejected": 3,
+            "offered": 336
+          },
+          "p99_ms": 114.66612499789264,
+          "completed_per_second": 2.775
+        },
+        "target_third_voter": {
+          "counts": {
+            "submitted": 406,
+            "completed": 406,
+            "offered": 406
+          },
+          "p99_ms": 113.71674998081005,
+          "completed_per_second": 3.3833333333333333
+        },
+        "unaffected": {
+          "counts": {
+            "submitted": 106,
+            "completed": 106,
+            "offered": 106
+          },
+          "p99_ms": 262.15441699605435,
+          "completed_per_second": 0.8833333333333333
+        }
+      }
+    },
+    {
+      "offered_routes_sha256": "bdb1b41349e69bbc78833dbc046d7edcb73750eada07abb47c567fbf6096720e",
+      "run": "mr14-engine-local-five-slow-follower-20261022-001",
+      "profile": "local-five",
+      "scenario": "slow-follower",
+      "build": {
+        "image_id": "sha256:74c7d63b5f7453ddac010c1cbbaf9422075e9acfd8d67ee00eff491d087f3e1d",
+        "binary_sha256": "23530bc1126649eadc1c52570897f811c16f1a0b2135ca843a12574aa5ae098b",
+        "source_manifest_sha256": "8aafc1c2bafb088401e6e787ab49350018415d6dfe19b2453c685ccfe1843cf6",
+        "build_profile": "lab",
+        "source_revision": "97d00b498707ddbc642bb038e4bb7587741ca880",
+        "working_tree_dirty": false
+      },
+      "profile_sha256": "c1c3025c95109a618dd5d3d122e19630055563c1384abe57c8671cd8a6295b30",
+      "fault_profile": {
+        "format": 1,
+        "node": 3,
+        "pause_ms": 250,
+        "max_pause_ms": 750,
+        "interval_ms": 1000,
+        "start_after_seconds": 2,
+        "stop_before_seconds": 2,
+        "max_start_lateness_ms": 500
+      },
+      "fault_profile_sha256": "e9fcf43183efb751d867b08e1ce95d3c9b5c27df187b3006bf8c2f924a54e849",
+      "completed": true,
+      "reconciled": true,
+      "traffic_objectives_met": false,
+      "summary": {
+        "counts": {
+          "submitted": 1165,
+          "completed": 1165,
+          "generator_rejected": 35,
+          "offered": 1200
+        },
+        "latency_ms": {
+          "p50": 13.686875021079459,
+          "p95": 199.06945900292783,
+          "p99": 311.8540420255158,
+          "p99_9": 523.3238750020987
+        },
+        "latency_by_operation_ms": {
+          "command": {
+            "p50": 23.193542007362566,
+            "p95": 223.40279201162616,
+            "p99": 340.7339590252363,
+            "p99_9": 673.7624589994056
+          },
+          "query": {
+            "p50": 7.905334001407027,
+            "p95": 88.61641700495682,
+            "p99": 215.29879200389246,
+            "p99_9": 323.7077920057345
+          }
+        },
+        "completed_per_second": 9.708333333333334,
+        "offered_per_second": 10.0,
+        "error_fraction": 0.029166666666666667
+      },
+      "analysis_rejection": null,
+      "fault_rejection": null,
+      "largest_observed_cycle_ms": 642.1635830192827,
+      "failure": null,
+      "measured": true,
+      "cycles_over_bound": 0,
+      "host_environment": {
+        "before": {
+          "unix_time": 1792698088.4491808,
+          "platform": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+          "hardware_and_swap": "hw.ncpu: 12\nhw.memsize: 34359738368\nvm.swapusage: total = 11264.00M  used = 10154.81M  free = 1109.19M  (encrypted)\n",
+          "colima_profiles": "PROFILE              STATUS     ARCH       CPUS    MEMORY    DISK      RUNTIME    ADDRESS\ndefault              Running    aarch64    2       2GiB      100GiB    docker     \ncellar-multi-raft    Running    aarch64    8       22GiB     60GiB     docker     \ncellar-raft-perf     Stopped    aarch64    8       16GiB     120GiB    docker     \n",
+          "load": "12:41  up 1 day, 14 hrs, 3 users, load averages: 7.26 5.36 4.79\n",
+          "vm_statistics": "Mach Virtual Memory Statistics: (page size of 16384 bytes)\nPages free:                                     6712.\nPages active:                                 573584.\nPages inactive:                               558517.\nPages speculative:                             14459.\nPages throttled:                                   0.\nPages wired down:                             165379.\nPages purgeable:                                 371.\n\"Translation faults\":                     4385982693.\nPages copy-on-write:                       180877552.\nPages zero filled:                        2114645440.\nPages reactivated:                         397121632.\nPages purged:                               10968765.\nFile-backed pages:                            587133.\nAnonymous pages:                              559427.\nPages stored in compressor:                  2181802.\nPages occupied by compressor:                 741977.\nDecompressions:                            312495327.\nCompressions:                              364745498.\nPageins:                                   153955682.\nPageouts:                                     927016.\nSwapins:                                     8196434.\nSwapouts:                                    9671811.\n"
+        },
+        "note": "Shared Mac and other independent Colima profiles; only cellar-multi-raft controlled. No steady-state capacity or causal speedup claim.",
+        "after": {
+          "unix_time": 1792698261.9347358,
+          "platform": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+          "hardware_and_swap": "hw.ncpu: 12\nhw.memsize: 34359738368\nvm.swapusage: total = 11264.00M  used = 10098.81M  free = 1165.19M  (encrypted)\n",
+          "colima_profiles": "PROFILE              STATUS     ARCH       CPUS    MEMORY    DISK      RUNTIME    ADDRESS\ndefault              Running    aarch64    2       2GiB      100GiB    docker     \ncellar-multi-raft    Running    aarch64    8       22GiB     60GiB     docker     \ncellar-raft-perf     Running    aarch64    8       16GiB     120GiB    docker     \n",
+          "load": "12:44  up 1 day, 14:03, 3 users, load averages: 3.95 4.96 4.74\n",
+          "vm_statistics": "Mach Virtual Memory Statistics: (page size of 16384 bytes)\nPages free:                                    32359.\nPages active:                                 603266.\nPages inactive:                               568066.\nPages speculative:                             36854.\nPages throttled:                                   0.\nPages wired down:                             165542.\nPages purgeable:                                2262.\n\"Translation faults\":                     4389448945.\nPages copy-on-write:                       180989805.\nPages zero filled:                        2115908155.\nPages reactivated:                         397634554.\nPages purged:                               10975543.\nFile-backed pages:                            717907.\nAnonymous pages:                              490279.\nPages stored in compressor:                  1916524.\nPages occupied by compressor:                 654707.\nDecompressions:                            313173239.\nCompressions:                              365407358.\nPageins:                                   158950763.\nPageouts:                                     930156.\nSwapins:                                     8199846.\nSwapouts:                                    9671811.\n"
+        }
+      },
+      "cleanup": [
+        {
+          "container": "cellar-mr14-fdc1b9b9635c9f4268711584-node5",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-fdc1b9b9635c9f4268711584-node4",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-fdc1b9b9635c9f4268711584-node3",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-fdc1b9b9635c9f4268711584-node2",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-fdc1b9b9635c9f4268711584-node1",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-fdc1b9b9635c9f4268711584-store",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        }
+      ],
+      "commands_including_seed": 902,
+      "queries": 713,
+      "replicas": 450,
+      "cycles": 116,
+      "majority_witnesses": 44,
+      "witness_cells": [
+        0,
+        5,
+        10,
+        15,
+        20
+      ],
+      "max_observed_lag_entries": 3,
+      "recovery_upper_seconds": 3.1552411669981666,
+      "cohorts": {
+        "target_leader": {
+          "counts": {
+            "submitted": 336,
+            "completed": 336,
+            "generator_rejected": 16,
+            "offered": 352
+          },
+          "p99_ms": 326.16858402616344,
+          "completed_per_second": 2.8
+        },
+        "target_query_follower": {
+          "counts": {
+            "submitted": 320,
+            "completed": 320,
+            "generator_rejected": 16,
+            "offered": 336
+          },
+          "p99_ms": 307.8968340123538,
+          "completed_per_second": 2.6666666666666665
+        },
+        "target_third_voter": {
+          "counts": {
+            "submitted": 403,
+            "completed": 403,
+            "generator_rejected": 3,
+            "offered": 406
+          },
+          "p99_ms": 112.67958402750367,
+          "completed_per_second": 3.3583333333333334
+        },
+        "unaffected": {
+          "counts": {
+            "submitted": 106,
+            "completed": 106,
+            "offered": 106
+          },
+          "p99_ms": 309.98737501795404,
+          "completed_per_second": 0.8833333333333333
+        }
+      }
+    },
+    {
+      "offered_routes_sha256": "bdb1b41349e69bbc78833dbc046d7edcb73750eada07abb47c567fbf6096720e",
+      "run": "mr14-engine-local-five-s3-healthy-20261022-001",
+      "profile": "local-five-s3",
+      "scenario": "healthy",
+      "build": {
+        "image_id": "sha256:74c7d63b5f7453ddac010c1cbbaf9422075e9acfd8d67ee00eff491d087f3e1d",
+        "binary_sha256": "23530bc1126649eadc1c52570897f811c16f1a0b2135ca843a12574aa5ae098b",
+        "source_manifest_sha256": "8aafc1c2bafb088401e6e787ab49350018415d6dfe19b2453c685ccfe1843cf6",
+        "build_profile": "lab",
+        "source_revision": "97d00b498707ddbc642bb038e4bb7587741ca880",
+        "working_tree_dirty": false
+      },
+      "profile_sha256": "5b5547af2452ea23ad60e48389a355be9c782f2df4085676646b51fde5314183",
+      "fault_profile": {
+        "format": 1,
+        "node": 3,
+        "pause_ms": 250,
+        "max_pause_ms": 750,
+        "interval_ms": 1000,
+        "start_after_seconds": 2,
+        "stop_before_seconds": 2,
+        "max_start_lateness_ms": 500
+      },
+      "fault_profile_sha256": "e9fcf43183efb751d867b08e1ce95d3c9b5c27df187b3006bf8c2f924a54e849",
+      "completed": true,
+      "reconciled": true,
+      "traffic_objectives_met": true,
+      "summary": {
+        "counts": {
+          "submitted": 1198,
+          "completed": 1198,
+          "generator_rejected": 2,
+          "offered": 1200
+        },
+        "latency_ms": {
+          "p50": 20.272875012594227,
+          "p95": 64.779499999716,
+          "p99": 146.81637499597855,
+          "p99_9": 242.44662499404512
+        },
+        "latency_by_operation_ms": {
+          "command": {
+            "p50": 38.413166993990444,
+            "p95": 83.72962499852576,
+            "p99": 174.2014590126928,
+            "p99_9": 351.9234170205898
+          },
+          "query": {
+            "p50": 9.033709007780999,
+            "p95": 12.872709002110128,
+            "p99": 13.935041998053066,
+            "p99_9": 18.86691701365706
+          }
+        },
+        "completed_per_second": 9.983333333333333,
+        "offered_per_second": 10.0,
+        "error_fraction": 0.0016666666666666668
+      },
+      "analysis_rejection": null,
+      "fault_rejection": null,
+      "largest_observed_cycle_ms": 322.3744999850169,
+      "failure": null,
+      "measured": true,
+      "cycles_over_bound": 0,
+      "host_environment": {
+        "before": {
+          "unix_time": 1792698451.419008,
+          "platform": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+          "hardware_and_swap": "hw.ncpu: 12\nhw.memsize: 34359738368\nvm.swapusage: total = 11264.00M  used = 10082.81M  free = 1181.19M  (encrypted)\n",
+          "colima_profiles": "PROFILE              STATUS     ARCH       CPUS    MEMORY    DISK      RUNTIME    ADDRESS\ndefault              Running    aarch64    2       2GiB      100GiB    docker     \ncellar-multi-raft    Running    aarch64    8       22GiB     60GiB     docker     \ncellar-raft-perf     Running    aarch64    8       16GiB     120GiB    docker     \n",
+          "load": "12:47  up 1 day, 14:06, 3 users, load averages: 3.69 4.78 4.74\n",
+          "vm_statistics": "Mach Virtual Memory Statistics: (page size of 16384 bytes)\nPages free:                                   234145.\nPages active:                                 536585.\nPages inactive:                               436871.\nPages speculative:                             99433.\nPages throttled:                                   0.\nPages wired down:                             170983.\nPages purgeable:                                2540.\n\"Translation faults\":                     4397664398.\nPages copy-on-write:                       181767155.\nPages zero filled:                        2117773382.\nPages reactivated:                         397635322.\nPages purged:                               10977501.\nFile-backed pages:                            408121.\nAnonymous pages:                              664768.\nPages stored in compressor:                  1791968.\nPages occupied by compressor:                 582725.\nDecompressions:                            313295247.\nCompressions:                              365407358.\nPageins:                                   159107553.\nPageouts:                                     930163.\nSwapins:                                     8201272.\nSwapouts:                                    9671811.\n"
+        },
+        "note": "Shared Mac and other independent Colima profiles; only cellar-multi-raft controlled. No steady-state capacity or causal speedup claim.",
+        "after": {
+          "unix_time": 1792698618.8983092,
+          "platform": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+          "hardware_and_swap": "hw.ncpu: 12\nhw.memsize: 34359738368\nvm.swapusage: total = 11264.00M  used = 10050.81M  free = 1213.19M  (encrypted)\n",
+          "colima_profiles": "PROFILE              STATUS     ARCH       CPUS    MEMORY    DISK      RUNTIME    ADDRESS\ndefault              Running    aarch64    2       2GiB      100GiB    docker     \ncellar-multi-raft    Running    aarch64    8       22GiB     60GiB     docker     \ncellar-raft-perf     Running    aarch64    8       16GiB     120GiB    docker     \n",
+          "load": "12:50  up 1 day, 14:09, 3 users, load averages: 2.13 3.76 4.32\n",
+          "vm_statistics": "Mach Virtual Memory Statistics: (page size of 16384 bytes)\nPages free:                                   171431.\nPages active:                                 575441.\nPages inactive:                               453049.\nPages speculative:                            121867.\nPages throttled:                                   0.\nPages wired down:                             169852.\nPages purgeable:                                3175.\n\"Translation faults\":                     4399119831.\nPages copy-on-write:                       181831325.\nPages zero filled:                        2118374461.\nPages reactivated:                         397636149.\nPages purged:                               10978550.\nFile-backed pages:                            446119.\nAnonymous pages:                              704238.\nPages stored in compressor:                  1757531.\nPages occupied by compressor:                 569060.\nDecompressions:                            313328671.\nCompressions:                              365407358.\nPageins:                                   159170157.\nPageouts:                                     930163.\nSwapins:                                     8202912.\nSwapouts:                                    9671811.\n"
+        }
+      },
+      "cleanup": [
+        {
+          "container": "cellar-mr14-6b772b23a17a55bd60dabad8-node5",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-6b772b23a17a55bd60dabad8-node4",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-6b772b23a17a55bd60dabad8-node3",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-6b772b23a17a55bd60dabad8-node2",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-6b772b23a17a55bd60dabad8-node1",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-6b772b23a17a55bd60dabad8-store",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        }
+      ],
+      "commands_including_seed": 920,
+      "queries": 726,
+      "replicas": 450,
+      "cycles": 116,
+      "majority_witnesses": 0,
+      "witness_cells": [],
+      "max_observed_lag_entries": 0,
+      "recovery_upper_seconds": 3.2140993750072084,
+      "cohorts": {
+        "target_leader": {
+          "counts": {
+            "submitted": 352,
+            "completed": 352,
+            "offered": 352
+          },
+          "p99_ms": 96.58574999775738,
+          "completed_per_second": 2.933333333333333
+        },
+        "target_query_follower": {
+          "counts": {
+            "submitted": 335,
+            "completed": 335,
+            "generator_rejected": 1,
+            "offered": 336
+          },
+          "p99_ms": 127.12316701072268,
+          "completed_per_second": 2.7916666666666665
+        },
+        "target_third_voter": {
+          "counts": {
+            "submitted": 405,
+            "completed": 405,
+            "generator_rejected": 1,
+            "offered": 406
+          },
+          "p99_ms": 86.33766699931655,
+          "completed_per_second": 3.375
+        },
+        "unaffected": {
+          "counts": {
+            "submitted": 106,
+            "completed": 106,
+            "offered": 106
+          },
+          "p99_ms": 242.44662499404512,
+          "completed_per_second": 0.8833333333333333
+        }
+      }
+    },
+    {
+      "offered_routes_sha256": "bdb1b41349e69bbc78833dbc046d7edcb73750eada07abb47c567fbf6096720e",
+      "run": "mr14-engine-local-five-s3-slow-follower-20261022-002",
+      "profile": "local-five-s3",
+      "scenario": "slow-follower",
+      "build": {
+        "image_id": "sha256:74c7d63b5f7453ddac010c1cbbaf9422075e9acfd8d67ee00eff491d087f3e1d",
+        "binary_sha256": "23530bc1126649eadc1c52570897f811c16f1a0b2135ca843a12574aa5ae098b",
+        "source_manifest_sha256": "8aafc1c2bafb088401e6e787ab49350018415d6dfe19b2453c685ccfe1843cf6",
+        "build_profile": "lab",
+        "source_revision": "97d00b498707ddbc642bb038e4bb7587741ca880",
+        "working_tree_dirty": false
+      },
+      "profile_sha256": "5b5547af2452ea23ad60e48389a355be9c782f2df4085676646b51fde5314183",
+      "fault_profile": {
+        "format": 1,
+        "node": 3,
+        "pause_ms": 250,
+        "max_pause_ms": 750,
+        "interval_ms": 1000,
+        "start_after_seconds": 2,
+        "stop_before_seconds": 2,
+        "max_start_lateness_ms": 500
+      },
+      "fault_profile_sha256": "e9fcf43183efb751d867b08e1ce95d3c9b5c27df187b3006bf8c2f924a54e849",
+      "completed": true,
+      "reconciled": true,
+      "traffic_objectives_met": false,
+      "summary": {
+        "counts": {
+          "submitted": 1176,
+          "completed": 1176,
+          "generator_rejected": 24,
+          "offered": 1200
+        },
+        "latency_ms": {
+          "p50": 23.801750008715317,
+          "p95": 182.99020798876597,
+          "p99": 332.45829099905677,
+          "p99_9": 400.30787498690756
+        },
+        "latency_by_operation_ms": {
+          "command": {
+            "p50": 36.457540991250426,
+            "p95": 227.32741598738926,
+            "p99": 343.53470799396746,
+            "p99_9": 438.4678330097813
+          },
+          "query": {
+            "p50": 9.077541000442224,
+            "p95": 16.340582992413033,
+            "p99": 209.06054101069492,
+            "p99_9": 300.1609579951037
+          }
+        },
+        "completed_per_second": 9.8,
+        "offered_per_second": 10.0,
+        "error_fraction": 0.02
+      },
+      "analysis_rejection": null,
+      "fault_rejection": null,
+      "largest_observed_cycle_ms": 344.06245799618773,
+      "failure": null,
+      "measured": true,
+      "cycles_over_bound": 0,
+      "host_environment": {
+        "before": {
+          "unix_time": 1792698723.893077,
+          "platform": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+          "hardware_and_swap": "hw.ncpu: 12\nhw.memsize: 34359738368\nvm.swapusage: total = 11264.00M  used = 10050.81M  free = 1213.19M  (encrypted)\n",
+          "colima_profiles": "PROFILE              STATUS     ARCH       CPUS    MEMORY    DISK      RUNTIME    ADDRESS\ndefault              Running    aarch64    2       2GiB      100GiB    docker     \ncellar-multi-raft    Running    aarch64    8       22GiB     60GiB     docker     \ncellar-raft-perf     Running    aarch64    8       16GiB     120GiB    docker     \n",
+          "load": "12:52  up 1 day, 14:10, 3 users, load averages: 1.55 3.09 3.99\n",
+          "vm_statistics": "Mach Virtual Memory Statistics: (page size of 16384 bytes)\nPages free:                                     7450.\nPages active:                                 662912.\nPages inactive:                               537918.\nPages speculative:                            124277.\nPages throttled:                                   0.\nPages wired down:                             169831.\nPages purgeable:                                3210.\n\"Translation faults\":                     4400207035.\nPages copy-on-write:                       181898818.\nPages zero filled:                        2118853626.\nPages reactivated:                         397636815.\nPages purged:                               10979345.\nFile-backed pages:                            497778.\nAnonymous pages:                              827329.\nPages stored in compressor:                  1749066.\nPages occupied by compressor:                 558345.\nDecompressions:                            313335489.\nCompressions:                              365407358.\nPageins:                                   159265394.\nPageouts:                                     930163.\nSwapins:                                     8203257.\nSwapouts:                                    9671811.\n"
+        },
+        "note": "Shared Mac and other independent Colima profiles; only cellar-multi-raft controlled. No steady-state capacity or causal speedup claim.",
+        "after": {
+          "unix_time": 1792698894.113847,
+          "platform": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+          "hardware_and_swap": "hw.ncpu: 12\nhw.memsize: 34359738368\nvm.swapusage: total = 11264.00M  used = 10050.81M  free = 1213.19M  (encrypted)\n",
+          "colima_profiles": "PROFILE              STATUS     ARCH       CPUS    MEMORY    DISK      RUNTIME    ADDRESS\ndefault              Running    aarch64    2       2GiB      100GiB    docker     \ncellar-multi-raft    Running    aarch64    8       22GiB     60GiB     docker     \ncellar-raft-perf     Running    aarch64    8       16GiB     120GiB    docker     \n",
+          "load": "12:54  up 1 day, 14:13, 3 users, load averages: 2.72 2.87 3.73\n",
+          "vm_statistics": "Mach Virtual Memory Statistics: (page size of 16384 bytes)\nPages free:                                   259134.\nPages active:                                 538008.\nPages inactive:                               495525.\nPages speculative:                             42561.\nPages throttled:                                   0.\nPages wired down:                             169564.\nPages purgeable:                                3398.\n\"Translation faults\":                     4402970982.\nPages copy-on-write:                       181971654.\nPages zero filled:                        2120488356.\nPages reactivated:                         397662269.\nPages purged:                               10981693.\nFile-backed pages:                            366461.\nAnonymous pages:                              709633.\nPages stored in compressor:                  1733563.\nPages occupied by compressor:                 556021.\nDecompressions:                            313354706.\nCompressions:                              365413337.\nPageins:                                   159473893.\nPageouts:                                     930716.\nSwapins:                                     8203686.\nSwapouts:                                    9671811.\n"
+        }
+      },
+      "cleanup": [
+        {
+          "container": "cellar-mr14-f8cbc8e5858353fdd90d98af-node5",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-f8cbc8e5858353fdd90d98af-node4",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-f8cbc8e5858353fdd90d98af-node3",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-f8cbc8e5858353fdd90d98af-node2",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-f8cbc8e5858353fdd90d98af-node1",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-f8cbc8e5858353fdd90d98af-store",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        }
+      ],
+      "commands_including_seed": 910,
+      "queries": 715,
+      "replicas": 450,
+      "cycles": 116,
+      "majority_witnesses": 45,
+      "witness_cells": [
+        0,
+        5,
+        10,
+        15,
+        20
+      ],
+      "max_observed_lag_entries": 3,
+      "recovery_upper_seconds": 3.212543583009392,
+      "cohorts": {
+        "target_leader": {
+          "counts": {
+            "submitted": 337,
+            "completed": 337,
+            "generator_rejected": 15,
+            "offered": 352
+          },
+          "p99_ms": 382.6445410144572,
+          "completed_per_second": 2.808333333333333
+        },
+        "target_query_follower": {
+          "counts": {
+            "submitted": 327,
+            "completed": 327,
+            "generator_rejected": 9,
+            "offered": 336
+          },
+          "p99_ms": 210.74387501576552,
+          "completed_per_second": 2.725
+        },
+        "target_third_voter": {
+          "counts": {
+            "submitted": 406,
+            "completed": 406,
+            "offered": 406
+          },
+          "p99_ms": 79.54587501589572,
+          "completed_per_second": 3.3833333333333333
+        },
+        "unaffected": {
+          "counts": {
+            "submitted": 106,
+            "completed": 106,
+            "offered": 106
+          },
+          "p99_ms": 231.1333749908897,
+          "completed_per_second": 0.8833333333333333
+        }
+      }
+    },
+    {
+      "offered_routes_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "run": "mr14-engine-local-five-s3-slow-follower-20261022-001",
+      "profile": "local-five-s3",
+      "scenario": "slow-follower",
+      "build": {
+        "image_id": "sha256:74c7d63b5f7453ddac010c1cbbaf9422075e9acfd8d67ee00eff491d087f3e1d",
+        "binary_sha256": "23530bc1126649eadc1c52570897f811c16f1a0b2135ca843a12574aa5ae098b",
+        "source_manifest_sha256": "8aafc1c2bafb088401e6e787ab49350018415d6dfe19b2453c685ccfe1843cf6",
+        "build_profile": "lab",
+        "source_revision": "97d00b498707ddbc642bb038e4bb7587741ca880",
+        "working_tree_dirty": false
+      },
+      "profile_sha256": "5b5547af2452ea23ad60e48389a355be9c782f2df4085676646b51fde5314183",
+      "fault_profile": {
+        "format": 1,
+        "node": 3,
+        "pause_ms": 250,
+        "max_pause_ms": 750,
+        "interval_ms": 1000,
+        "start_after_seconds": 2,
+        "stop_before_seconds": 2,
+        "max_start_lateness_ms": 500
+      },
+      "fault_profile_sha256": "e9fcf43183efb751d867b08e1ce95d3c9b5c27df187b3006bf8c2f924a54e849",
+      "completed": false,
+      "reconciled": false,
+      "traffic_objectives_met": null,
+      "summary": null,
+      "analysis_rejection": "unfinished run",
+      "fault_rejection": null,
+      "largest_observed_cycle_ms": null,
+      "failure": "Docker network failed (arguments and environment omitted)",
+      "measured": false,
+      "cycles_over_bound": 0,
+      "host_environment": {
+        "before": {
+          "unix_time": 1792698628.11658,
+          "platform": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+          "hardware_and_swap": "hw.ncpu: 12\nhw.memsize: 34359738368\nvm.swapusage: total = 11264.00M  used = 10050.81M  free = 1213.19M  (encrypted)\n",
+          "colima_profiles": "PROFILE              STATUS     ARCH       CPUS    MEMORY    DISK      RUNTIME    ADDRESS\ndefault              Running    aarch64    2       2GiB      100GiB    docker     \ncellar-multi-raft    Running    aarch64    8       22GiB     60GiB     docker     \ncellar-raft-perf     Running    aarch64    8       16GiB     120GiB    docker     \n",
+          "load": "12:50  up 1 day, 14:09, 3 users, load averages: 1.96 3.67 4.28\n",
+          "vm_statistics": "Mach Virtual Memory Statistics: (page size of 16384 bytes)\nPages free:                                   169814.\nPages active:                                 577605.\nPages inactive:                               455561.\nPages speculative:                            121474.\nPages throttled:                                   0.\nPages wired down:                             167425.\nPages purgeable:                                3866.\n\"Translation faults\":                     4399238781.\nPages copy-on-write:                       181841127.\nPages zero filled:                        2118414142.\nPages reactivated:                         397636149.\nPages purged:                               10978870.\nFile-backed pages:                            446627.\nAnonymous pages:                              708013.\nPages stored in compressor:                  1756459.\nPages occupied by compressor:                 568818.\nDecompressions:                            313329746.\nCompressions:                              365407358.\nPageins:                                   159177994.\nPageouts:                                     930163.\nSwapins:                                     8202920.\nSwapouts:                                    9671811.\n"
+        },
+        "note": "Shared Mac and other independent Colima profiles; only cellar-multi-raft controlled. No steady-state capacity or causal speedup claim.",
+        "after": {
+          "unix_time": 1792698629.556845,
+          "platform": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+          "hardware_and_swap": "hw.ncpu: 12\nhw.memsize: 34359738368\nvm.swapusage: total = 11264.00M  used = 10050.81M  free = 1213.19M  (encrypted)\n",
+          "colima_profiles": "PROFILE              STATUS     ARCH       CPUS    MEMORY    DISK      RUNTIME    ADDRESS\ndefault              Running    aarch64    2       2GiB      100GiB    docker     \ncellar-multi-raft    Running    aarch64    8       22GiB     60GiB     docker     \ncellar-raft-perf     Running    aarch64    8       16GiB     120GiB    docker     \n",
+          "load": "12:50  up 1 day, 14:09, 3 users, load averages: 1.96 3.67 4.28\n",
+          "vm_statistics": "Mach Virtual Memory Statistics: (page size of 16384 bytes)\nPages free:                                   168666.\nPages active:                                 576733.\nPages inactive:                               455117.\nPages speculative:                            121556.\nPages throttled:                                   0.\nPages wired down:                             169839.\nPages purgeable:                                2951.\n\"Translation faults\":                     4399329058.\nPages copy-on-write:                       181849671.\nPages zero filled:                        2118438823.\nPages reactivated:                         397636149.\nPages purged:                               10978870.\nFile-backed pages:                            446773.\nAnonymous pages:                              706633.\nPages stored in compressor:                  1756046.\nPages occupied by compressor:                 568839.\nDecompressions:                            313330159.\nCompressions:                              365407358.\nPageins:                                   159184429.\nPageouts:                                     930163.\nSwapins:                                     8203068.\nSwapouts:                                    9671811.\n"
+        }
+      },
+      "cleanup": []
+    }
+  ],
+  "comparisons": {
+    "local-five": {
+      "matched_contract": false,
+      "differences": {
+        "workload_contract": {
+          "left": {
+            "cells": {
+              "total": 150,
+              "active": 30
+            },
+            "database_bytes": [
+              4096
+            ],
+            "write_bytes": [
+              64,
+              1024
+            ],
+            "read_fraction": 0.5,
+            "read_consistency": "at-least",
+            "skew": {
+              "hot_fraction": 0.1,
+              "hot_probability": 0.8
+            },
+            "arrival": {
+              "rate_per_second": 10,
+              "max_inflight": 8,
+              "max_lateness_ms": 100
+            },
+            "timing": {
+              "warmup_seconds": 30,
+              "measurement_seconds": 120,
+              "soak_seconds": 0,
+              "request_timeout_ms": 5000,
+              "retry_window_ms": 300000,
+              "startup_seconds": 600
+            },
+            "seed": 14,
+            "tick_ms": 100,
+            "scenario": "healthy",
+            "fault_profile": {
+              "format": 1,
+              "node": 3,
+              "pause_ms": 250,
+              "max_pause_ms": 750,
+              "interval_ms": 1000,
+              "start_after_seconds": 2,
+              "stop_before_seconds": 2,
+              "max_start_lateness_ms": 500
+            }
+          },
+          "right": {
+            "cells": {
+              "total": 150,
+              "active": 30
+            },
+            "database_bytes": [
+              4096
+            ],
+            "write_bytes": [
+              64,
+              1024
+            ],
+            "read_fraction": 0.5,
+            "read_consistency": "at-least",
+            "skew": {
+              "hot_fraction": 0.1,
+              "hot_probability": 0.8
+            },
+            "arrival": {
+              "rate_per_second": 10,
+              "max_inflight": 8,
+              "max_lateness_ms": 100
+            },
+            "timing": {
+              "warmup_seconds": 30,
+              "measurement_seconds": 120,
+              "soak_seconds": 0,
+              "request_timeout_ms": 5000,
+              "retry_window_ms": 300000,
+              "startup_seconds": 600
+            },
+            "seed": 14,
+            "tick_ms": 100,
+            "scenario": "slow-follower",
+            "fault_profile": {
+              "format": 1,
+              "node": 3,
+              "pause_ms": 250,
+              "max_pause_ms": 750,
+              "interval_ms": 1000,
+              "start_after_seconds": 2,
+              "stop_before_seconds": 2,
+              "max_start_lateness_ms": 500
+            }
+          }
+        }
+      },
+      "limitation": "These observations are not an equivalent-guarantee speedup."
+    },
+    "local-five-s3": {
+      "matched_contract": false,
+      "differences": {
+        "workload_contract": {
+          "left": {
+            "cells": {
+              "total": 150,
+              "active": 30
+            },
+            "database_bytes": [
+              4096
+            ],
+            "write_bytes": [
+              64,
+              1024
+            ],
+            "read_fraction": 0.5,
+            "read_consistency": "at-least",
+            "skew": {
+              "hot_fraction": 0.1,
+              "hot_probability": 0.8
+            },
+            "arrival": {
+              "rate_per_second": 10,
+              "max_inflight": 8,
+              "max_lateness_ms": 100
+            },
+            "timing": {
+              "warmup_seconds": 30,
+              "measurement_seconds": 120,
+              "soak_seconds": 0,
+              "request_timeout_ms": 5000,
+              "retry_window_ms": 300000,
+              "startup_seconds": 600
+            },
+            "seed": 14,
+            "tick_ms": 100,
+            "scenario": "healthy",
+            "fault_profile": {
+              "format": 1,
+              "node": 3,
+              "pause_ms": 250,
+              "max_pause_ms": 750,
+              "interval_ms": 1000,
+              "start_after_seconds": 2,
+              "stop_before_seconds": 2,
+              "max_start_lateness_ms": 500
+            }
+          },
+          "right": {
+            "cells": {
+              "total": 150,
+              "active": 30
+            },
+            "database_bytes": [
+              4096
+            ],
+            "write_bytes": [
+              64,
+              1024
+            ],
+            "read_fraction": 0.5,
+            "read_consistency": "at-least",
+            "skew": {
+              "hot_fraction": 0.1,
+              "hot_probability": 0.8
+            },
+            "arrival": {
+              "rate_per_second": 10,
+              "max_inflight": 8,
+              "max_lateness_ms": 100
+            },
+            "timing": {
+              "warmup_seconds": 30,
+              "measurement_seconds": 120,
+              "soak_seconds": 0,
+              "request_timeout_ms": 5000,
+              "retry_window_ms": 300000,
+              "startup_seconds": 600
+            },
+            "seed": 14,
+            "tick_ms": 100,
+            "scenario": "slow-follower",
+            "fault_profile": {
+              "format": 1,
+              "node": 3,
+              "pause_ms": 250,
+              "max_pause_ms": 750,
+              "interval_ms": 1000,
+              "start_after_seconds": 2,
+              "stop_before_seconds": 2,
+              "max_start_lateness_ms": 500
+            }
+          }
+        }
+      },
+      "limitation": "These observations are not an equivalent-guarantee speedup."
+    },
+    "different_durability": {
+      "matched_contract": false,
+      "differences": {
+        "durability_contract": {
+          "left": {
+            "authority": "raft-majority",
+            "local_durable_copies_at_ack": "majority-of-3",
+            "object_store_at_ack": false,
+            "receipts": "raft-command",
+            "reads": "at-least"
+          },
+          "right": {
+            "authority": "raft-majority",
+            "local_durable_copies_at_ack": "majority-of-3",
+            "object_store_at_ack": true,
+            "receipts": "raft-command",
+            "reads": "at-least"
+          }
+        }
+      },
+      "limitation": "These observations are not an equivalent-guarantee speedup."
+    }
+  },
+  "limitations": [
+    "Short shared-Mac observations in one Colima VM with RustFS do not establish steady state, independent failure domains, Amazon S3 qualification, capacity ceiling or cross-architecture speedup.",
+    "The whole process pauses; this is not a disk-only or network-only follower fault. Only witnessed third-voter cohorts establish majority progress during observed lag.",
+    "All exact workload containers exited zero without OOM; the owned profile is stopped and volumes remain. Seven empty experiment networks were removed after recording exact identities; stopped containers remain. Other profiles were not mutated by this work."
+  ],
+  "remaining": [
+    "Sustained SLOs, controlled Fleet/bucket fault baselines with explicit acknowledgement/read contracts, instrumentation overhead and full-device attribution.",
+    "Density/Q1 remains unqualified: six processes and 10,000 three-voter cells, 5,000 average replicas/process versus unchanged 4,096 bound and agreed five-node physical ceiling.",
+    "MR-13 operations/restore and MR-15 through MR-17 remain open."
+  ],
+  "validation_environment": {
+    "platform": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+    "python": "3.14.6 (main, Jun 10 2026, 10:03:53) [Clang 16.0.0 (clang-1600.0.26.6)]",
+    "rust_toolchain": "1.98.1",
+    "cargo_target_dir": "$HOME/Workspace/crabbuild-target/cellar-23c7-multi-raft",
+    "dev_and_test_debug": 0,
+    "incremental": false,
+    "build_jobs": 3,
+    "embedded_python": "/opt/homebrew/bin/python3.14"
+  },
+  "offered_route_check": "All six measured five-node attempts have identical ordered offered IDs, cells, operation kinds and scheduled times, including generator rejections. This does not assert identical admitted histories."
+}

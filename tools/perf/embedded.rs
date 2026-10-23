@@ -263,6 +263,7 @@ pub(super) fn run(
             "max_resident": resident, "max_cached_routes": cached_routes,
             "max_requests": requests,
             "lease_ttl_ms": 10_000,
+            "lease_generation": node.info().lease_generation,
             "log_level": log_level.to_string(),
         }))?;
         let outcome = node.run_until(async {

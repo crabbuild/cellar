@@ -1,0 +1,159 @@
+{
+  "task_id": "MR-14",
+  "source_revision": "64d1620092f1e80f194d7c0aa05e26adf9669f06",
+  "completion": "partial",
+  "scope": "Shared bounded RustFS process-pause scheduling and independent acknowledgement-window evidence for Raft, Fleet and bucket benchmark adapters. Harness implementation only; zero new physical runs.",
+  "implementation": [
+    "Both launchers accept s3-outage and healthy controls with a checked object-store fault profile; unsupported capabilities, missing profiles and invalid bounds refuse before workload resources.",
+    "A joined fault owner uses the existing persistent Docker API adapter to bind exact name, ownership and immutable ID. Lost pause/resume replies are inspected. Failed or cancelled attempts retain their evidence and cannot qualify.",
+    "Every scheduled window requires a fresh successful command dispatched after the observed hold and before release starts. The journal records the post-fsync dispatch timestamp; generator admission, scheduled arrival and journal delay cannot substitute for that observation.",
+    "S3 and bucket policies refuse acknowledgements during the observed hold. Quorum and Fleet may acknowledge using their distinct contracts; no per-write Fleet proof is inferred from aggregate counters.",
+    "Existing serialized histories, ambiguity quarantine, output-proof errors, final replica/archive or owner-route reconciliation, resource limits and recovery/traffic SLOs remain required. Fault profiles enter comparisons for every adapter; distinct authority, copy, read, receipt or executable contracts still refuse ratios."
+  ],
+  "validation": {
+    "python_tests": 173,
+    "passed": 172,
+    "skipped": 1,
+    "new_store_fault_tests": 11,
+    "regressions": [
+      "four acknowledgement policies retain distinct guarantees",
+      "early acknowledgements, wrong targets/owners/IDs, incomplete windows and invalid clocks refuse",
+      "every cycle needs its own post-journal dispatch witness",
+      "healthy controls cannot masquerade as pauses",
+      "lost control replies, cancellation, foreign ownership and already-paused targets",
+      "both CLIs refuse invalid/missing profiles before Docker or output creation",
+      "real joined Python fault/workload threads, fsynced ledger, exact application history and independent baseline reanalysis without mutation retries",
+      "comparison retains baseline fault parameters and cross-contract refusal"
+    ],
+    "initial_result": "The first full tooling run had one obsolete expectation that s3-outage was wholly unsupported. The capability test now reserves that assertion for still-unimplemented scenarios; new tests enforce missing/invalid store profiles before resources in both launchers. The initial failure log is retained.",
+    "test_environment": "Python control adapters and reference responses are fixtures, including synthetic cgroup/proof metadata for analyzer testing; they are not physical Docker, RustFS, native acknowledgement or deployment qualification.",
+    "rust": "No Rust source changed. Native integration/Clippy results remain separately pinned to the preceding persistence component; they were not rerun or pooled here."
+  },
+  "toolchain": "Python 3.14.6; repository format/layout commands use Rust 1.98.1",
+  "physical_runs": 0,
+  "checks": [
+    {
+      "name": "format-check",
+      "argv": [
+        "cargo",
+        "format",
+        "--check"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 45.64378916702117,
+      "sha256": "e28721c922366ae7c8e0826e1617f374e82678a0eefd6bb2f187a5056e793a75",
+      "output": "evidence/MR-14-store-fault-validation.json.gz",
+      "log_member": "format-check"
+    },
+    {
+      "name": "layout",
+      "argv": [
+        "cargo",
+        "check-layout"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 0.2755901670025196,
+      "sha256": "a5e63c378d503f33a2c2a112951194a3f02446da24a0dc1943d381b30982eec5",
+      "output": "evidence/MR-14-store-fault-validation.json.gz",
+      "log_member": "layout"
+    },
+    {
+      "name": "dependencies",
+      "argv": [
+        "python3",
+        "tools/check_native_dependencies.py"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 0.29503829198074527,
+      "sha256": "faf9bdb8df5819a63d590ede5d4a5f43eb4e8b00d8a6f44ccfb36bd8c4c5c238",
+      "output": "evidence/MR-14-store-fault-validation.json.gz",
+      "log_member": "dependencies"
+    },
+    {
+      "name": "docs",
+      "argv": [
+        "python3",
+        "tools/docs/check.py"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 6.667e-06,
+      "sha256": "701e55367b1b8c08dcd388c3084250c7209af81cb161e4ba73339783b537eeb3",
+      "output": "evidence/MR-14-store-fault-validation.json.gz",
+      "log_member": "docs"
+    },
+    {
+      "name": "plan-tests",
+      "argv": [
+        "python3",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "plans/multi-raft",
+        "-p",
+        "test_plan.py"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 0.053895458,
+      "sha256": "6a4624a4fb11be09ed9fdd670c2d627ed4d0103055dce261f017cdfff7618e35",
+      "output": "evidence/MR-14-store-fault-validation.json.gz",
+      "log_member": "plan-tests"
+    },
+    {
+      "name": "plan-validate",
+      "argv": [
+        "python3",
+        "plans/multi-raft/plan.py",
+        "validate"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 0.035643584,
+      "sha256": "704d9cd76f44ad5723f86f2c7fa5b7bea6c901b6e0d3714a9f8aa56792ec806a",
+      "output": "evidence/MR-14-store-fault-validation.json.gz",
+      "log_member": "plan-validate"
+    },
+    {
+      "name": "plan-preflight",
+      "argv": [
+        "python3",
+        "plans/multi-raft/plan.py",
+        "preflight"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 0.045878959,
+      "sha256": "c4c5c6d31bf30cccd0f6d0fe6013bca803055b06fb16bab07102fd046ac01c11",
+      "output": "evidence/MR-14-store-fault-validation.json.gz",
+      "log_member": "plan-preflight"
+    }
+  ],
+  "python_command": {
+    "argv": [
+      "python3",
+      "-m",
+      "unittest",
+      "discover",
+      "-s",
+      "tools/perf",
+      "-p",
+      "test_*.py",
+      "-v"
+    ],
+    "exit_code": 0,
+    "output": "evidence/MR-14-store-fault-validation.json.gz",
+    "log_member": "python-final",
+    "sha256": "fd3f70ccd375f4e5c326ab51db0291f5b6baa738199717e4b71403d35f5e97c3"
+  },
+  "capsule": {
+    "path": "evidence/MR-14-store-fault-validation.json.gz",
+    "bytes": 7701,
+    "sha256": "fad656485268e55593ec55a0bfe0eb0f37b42ba88b522bcc47f599c9e127d671"
+  },
+  "limitations": [
+    "No new VM, container or cloud resource was started. The dedicated Colima profile remains stopped; unrelated profiles were not controlled.",
+    "The schedule models a bounded RustFS process freeze. Crash, packet loss, disk loss, Amazon S3 and independent failure domains remain unqualified.",
+    "Physical healthy/outage execution, ambiguous-outcome recovery drills, sustained S3 acceptance, equivalent service-contract comparisons, instrumentation overhead and repeatable latency/capacity remain open.",
+    "The code records dispatch immediately before calling the HTTP adapter, not a packet-level transmit timestamp. Witness delay is an observation, not causal attribution of the whole latency to storage.",
+    "Q1 still requires six processes/10,000 three-voter cells: 5,000 average replicas per node exceeds the unchanged 4,096 bound and the authorized five-node physical scope.",
+    "MR-13 operations/disaster fencing, MR-15 release gates and MR-16/MR-17 scale/federation remain incomplete. Earlier physical results and CI findings retain their original source pins and outcomes."
+  ]
+}

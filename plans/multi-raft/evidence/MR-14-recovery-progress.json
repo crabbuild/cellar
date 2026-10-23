@@ -1,0 +1,805 @@
+{
+  "task_id": "MR-14",
+  "source_revision": "149045732a775b1d1574c5957d456076bb68a74a",
+  "completion": "partial",
+  "scope": "Post-measurement recovery of ambiguous commands through original IDs, inputs and deadlines; Raft S3 and bucket three-node RustFS pause experiments. Measurement failures remain visible; not capacity or equivalent-contract qualification.",
+  "raw_output": [
+    {
+      "path": "evidence/MR-14-recovery-runs.json.gz",
+      "bytes": 267534,
+      "sha256": "2767912f019bc4fbf9f373546ebf56239c8a2f414002bd0ea55046feef75e7ef"
+    },
+    {
+      "path": "evidence/MR-14-recovery-validation.json.gz",
+      "bytes": 38531,
+      "sha256": "a1c2c5b5307a768a25e6b192f3e131ac3a7d0f8463880bdaf4b9183c3e317e4f"
+    }
+  ],
+  "local_runs": [
+    {
+      "run": "mr14-recovery-bucket-s3-recovery-20261022-001",
+      "adapter": "bucket",
+      "durability": "bucket",
+      "scenario": "s3-recovery",
+      "build": {
+        "image_id": "sha256:d06670f70b05fc8c6e1fedee4a1b23d8728060d42330ba461aeb2dccc1a5916b",
+        "binary_sha256": "8f30b10e609ef913f4592cd73dfff54358f50fb3576d905ca41ea8e3d4172f36",
+        "source_manifest_sha256": "2be0e77bb326fd89dcd02082b2174e2fe6e41e8beaf32b9a7c3f2924d04ba392",
+        "build_profile": "lab",
+        "source_revision": "f3bf1298ae9cb945219f861c0a7edc5059f6d1f2",
+        "working_tree_dirty": false
+      },
+      "profile_sha256": "117d6edc1834ac007cac010f749ed5f1b13723d5ebc553ef71e7d2d4a3938be8",
+      "fault_profile_sha256": "b5709279084c5da01803f860c8e2bc8b2210fce9357137c20d36c24fb45f99e3",
+      "completed": true,
+      "reconciled": true,
+      "traffic_objectives_met": false,
+      "failure": null,
+      "analysis_rejection": null,
+      "summary": {
+        "counts": {
+          "submitted": 66,
+          "completed": 61,
+          "generator_rejected": 134,
+          "ambiguous": 4,
+          "timed_out": 5,
+          "failed": 1,
+          "offered": 200
+        },
+        "latency_ms": {
+          "p50": 22.57491600466888,
+          "p95": 287.0039159955926,
+          "p99": 4888.74104100978,
+          "p99_9": 4888.74104100978
+        },
+        "latency_by_operation_ms": {
+          "command": {
+            "p50": 22.703666018787594,
+            "p95": 2286.670083011268,
+            "p99": 4888.74104100978,
+            "p99_9": 4888.74104100978
+          },
+          "query": {
+            "p50": 13.990457996260197,
+            "p95": 214.0432910178789,
+            "p99": 290.28929102350975,
+            "p99_9": 290.28929102350975
+          }
+        },
+        "completed_per_second": 3.05,
+        "offered_per_second": 10.0,
+        "error_fraction": 0.695
+      },
+      "fault": {
+        "cycles": 1,
+        "target": "object-store",
+        "container_id": "761459640e841daa2d3dc306d50465af2789be4b40d8e168cccee26bb1cebb5c",
+        "object_store_required_at_ack": true,
+        "witnesses": [
+          {
+            "cycle": 0,
+            "submitted_during_hold": 7,
+            "acknowledged_during_hold": 0,
+            "commands": [
+              {
+                "cell": 5,
+                "command_id": "2405ab708e1880996b490adff3ae4ac9:3",
+                "ack_after_release_started": true
+              },
+              {
+                "cell": 1,
+                "command_id": "f51994c0242d7a7d728e1a5bf2a29b51:26",
+                "ack_after_release_started": true
+              },
+              {
+                "cell": 0,
+                "command_id": "9911340e30ccb7ad80fa1d60c00f61f7:19",
+                "ack_after_release_started": true
+              },
+              {
+                "cell": 4,
+                "command_id": "d9ca4708d84118ad6b41a13bfae6a890:2",
+                "ack_after_release_started": true
+              },
+              {
+                "cell": 8,
+                "command_id": "5924cc4c5c0a82c6efdba307fc1e5ac3:2",
+                "ack_after_release_started": true
+              },
+              {
+                "cell": 7,
+                "command_id": "baf5a9978ee35d79f0e9da6e88bec33c:2",
+                "ack_after_release_started": true
+              },
+              {
+                "cell": 2,
+                "command_id": "5aa82d49079e1e687f51251ddea37e6c:5",
+                "ack_after_release_started": true
+              }
+            ]
+          }
+        ],
+        "recovery_upper_seconds": 7.754421707999427,
+        "scope": "Bounded RustFS process pauses; fresh serialized commands observed in each window. Final adapter state checks bound recovery. No crash, packet-loss, Amazon S3, causal latency or equivalent-contract claim."
+      },
+      "cleanup": [
+        {
+          "container": "cellar-mr14-23e88ae92b42a9860cd58440-node3",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-23e88ae92b42a9860cd58440-node2",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-23e88ae92b42a9860cd58440-node1",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-23e88ae92b42a9860cd58440-store",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        }
+      ],
+      "network_removed": true,
+      "commands_including_seed": 71,
+      "queries": 55,
+      "replicas": null,
+      "owner_route_reads": 36,
+      "proof_delta": {
+        "started": 28,
+        "bucket": 28,
+        "fleet": 0,
+        "errors": 0,
+        "elapsed_us": 33917212
+      },
+      "recovery": {
+        "original_ambiguous_commands": 4,
+        "resolved_commands": 4,
+        "recovery_requests": 8,
+        "resolutions": [
+          {
+            "original_id": "measurement:54",
+            "cell": 5,
+            "command_id": "2405ab708e1880996b490adff3ae4ac9:3",
+            "receipt_sha256": "a479b0022024bf087c23f6a3072c4c4a06855759c85285c94f003d8e1fae86a8",
+            "first_acknowledged_monotonic_seconds": 149125.406825083,
+            "confirmed_monotonic_seconds": 149125.407997166
+          },
+          {
+            "original_id": "measurement:55",
+            "cell": 1,
+            "command_id": "f51994c0242d7a7d728e1a5bf2a29b51:26",
+            "receipt_sha256": "bbfff01fc267d0356e655090d68b2443c9b7574b5b34f73dda0e570450042e29",
+            "first_acknowledged_monotonic_seconds": 149125.409213041,
+            "confirmed_monotonic_seconds": 149125.411851666
+          },
+          {
+            "original_id": "measurement:58",
+            "cell": 0,
+            "command_id": "9911340e30ccb7ad80fa1d60c00f61f7:19",
+            "receipt_sha256": "5cc618edc52fa1468c86d016b38f63f7619ecab921ebf6e4647e6664e4d355dc",
+            "first_acknowledged_monotonic_seconds": 149125.413567208,
+            "confirmed_monotonic_seconds": 149125.41474875
+          },
+          {
+            "original_id": "measurement:61",
+            "cell": 4,
+            "command_id": "d9ca4708d84118ad6b41a13bfae6a890:2",
+            "receipt_sha256": "d89a1baba873ba356c9a00ea32dfbed32396ece7d8ee0e7ee43e84419e197959",
+            "first_acknowledged_monotonic_seconds": 149125.416004333,
+            "confirmed_monotonic_seconds": 149125.417209875
+          }
+        ],
+        "scope": "Original outcomes remain ambiguous in measurement. Each original identity is resolved and confirmed after workload completion; its prior commit time is unknown."
+      },
+      "recovery_proof_delta": {
+        "started": 0,
+        "bucket": 0,
+        "fleet": 0,
+        "errors": 0,
+        "elapsed_us": 0
+      },
+      "raw_measurement_summary": {
+        "counts": {
+          "submitted": 66,
+          "completed": 61,
+          "generator_rejected": 134,
+          "ambiguous": 4,
+          "timed_out": 5,
+          "failed": 1,
+          "offered": 200
+        },
+        "latency_ms": {
+          "p50": 22.57491600466888,
+          "p95": 287.0039159955926,
+          "p99": 4888.74104100978,
+          "p99_9": 4888.74104100978
+        },
+        "latency_by_operation_ms": {
+          "command": {
+            "p50": 22.703666018787594,
+            "p95": 2286.670083011268,
+            "p99": 4888.74104100978,
+            "p99_9": 4888.74104100978
+          },
+          "query": {
+            "p50": 13.990457996260197,
+            "p95": 214.0432910178789,
+            "p99": 290.28929102350975,
+            "p99_9": 290.28929102350975
+          }
+        },
+        "completed_per_second": 3.05,
+        "offered_per_second": 10.0,
+        "error_fraction": 0.695
+      }
+    },
+    {
+      "run": "mr14-recovery-bucket-s3-recovery-20261022-002",
+      "adapter": "bucket",
+      "durability": "bucket",
+      "scenario": "s3-recovery",
+      "build": {
+        "image_id": "sha256:542e774aad57c13405c46b8f3bc4099f47d73f7b253222ef7261b438c692414f",
+        "binary_sha256": "8f30b10e609ef913f4592cd73dfff54358f50fb3576d905ca41ea8e3d4172f36",
+        "source_manifest_sha256": "eb9a57bf2c90e2338993df79efca86e57d6b7619c460cd315131f83bdba3588e",
+        "build_profile": "lab",
+        "source_revision": "149045732a775b1d1574c5957d456076bb68a74a",
+        "working_tree_dirty": false
+      },
+      "profile_sha256": "117d6edc1834ac007cac010f749ed5f1b13723d5ebc553ef71e7d2d4a3938be8",
+      "fault_profile_sha256": "b5709279084c5da01803f860c8e2bc8b2210fce9357137c20d36c24fb45f99e3",
+      "completed": false,
+      "reconciled": false,
+      "traffic_objectives_met": null,
+      "failure": "<urlopen error [Errno 61] Connection refused>",
+      "analysis_rejection": "ValueError: unfinished baseline run",
+      "summary": null,
+      "fault": null,
+      "cleanup": [
+        {
+          "container": "cellar-mr14-8e2decf83f3a14a3791048ee-node3",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-8e2decf83f3a14a3791048ee-node2",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-8e2decf83f3a14a3791048ee-node1",
+          "running": false,
+          "exit_code": 1,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-8e2decf83f3a14a3791048ee-store",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        }
+      ],
+      "network_removed": true,
+      "raw_measurement_summary": {
+        "counts": {
+          "submitted": 72,
+          "completed": 66,
+          "generator_rejected": 128,
+          "ambiguous": 4,
+          "timed_out": 4,
+          "failed": 2,
+          "offered": 200
+        },
+        "latency_ms": {
+          "p50": 8.509459003107622,
+          "p95": 47.49550000415326,
+          "p99": 5947.414458997082,
+          "p99_9": 5947.414458997082
+        },
+        "latency_by_operation_ms": {
+          "command": {
+            "p50": 9.306834009475962,
+            "p95": 4547.318375000032,
+            "p99": 5947.414458997082,
+            "p99_9": 5947.414458997082
+          },
+          "query": {
+            "p50": 8.335000014631166,
+            "p95": 20.436667010653053,
+            "p99": 29.240999993636052,
+            "p99_9": 29.240999993636052
+          }
+        },
+        "completed_per_second": 3.3,
+        "offered_per_second": 10.0,
+        "error_fraction": 0.67
+      }
+    },
+    {
+      "run": "mr14-recovery-raft-s3-s3-recovery-20261022-001",
+      "adapter": "raft",
+      "durability": "s3",
+      "scenario": "s3-recovery",
+      "build": {
+        "image_id": "sha256:d06670f70b05fc8c6e1fedee4a1b23d8728060d42330ba461aeb2dccc1a5916b",
+        "binary_sha256": "9a1c392078ded1a533a8b0f68762bc876a89dd558d9950fc6b99244a611289cb",
+        "source_manifest_sha256": "2be0e77bb326fd89dcd02082b2174e2fe6e41e8beaf32b9a7c3f2924d04ba392",
+        "build_profile": "lab",
+        "source_revision": "f3bf1298ae9cb945219f861c0a7edc5059f6d1f2",
+        "working_tree_dirty": false
+      },
+      "profile_sha256": "bf73355d7bd02d508af8e40c5508b7ac771b981056309ac42f74dd277c76f411",
+      "fault_profile_sha256": "b5709279084c5da01803f860c8e2bc8b2210fce9357137c20d36c24fb45f99e3",
+      "completed": false,
+      "reconciled": false,
+      "traffic_objectives_met": null,
+      "failure": "confirmation changed the recovered receipt or result",
+      "analysis_rejection": "ValueError: unfinished run",
+      "summary": null,
+      "fault": null,
+      "cleanup": [
+        {
+          "container": "cellar-mr14-45fa224e895d39f3791ac8ec-node3",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-45fa224e895d39f3791ac8ec-node2",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-45fa224e895d39f3791ac8ec-node1",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-45fa224e895d39f3791ac8ec-store",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        }
+      ],
+      "network_removed": true,
+      "raw_measurement_summary": {
+        "counts": {
+          "submitted": 72,
+          "completed": 68,
+          "generator_rejected": 128,
+          "ambiguous": 4,
+          "offered": 200
+        },
+        "latency_ms": {
+          "p50": 10.958082997240215,
+          "p95": 96.4320829894859,
+          "p99": 4604.010707989801,
+          "p99_9": 4604.010707989801
+        },
+        "latency_by_operation_ms": {
+          "command": {
+            "p50": 40.145124978153035,
+            "p95": 2004.192374972627,
+            "p99": 4604.010707989801,
+            "p99_9": 4604.010707989801
+          },
+          "query": {
+            "p50": 6.379290996119391,
+            "p95": 12.045207992195994,
+            "p99": 12.313790974439964,
+            "p99_9": 12.313790974439964
+          }
+        },
+        "completed_per_second": 3.4,
+        "offered_per_second": 10.0,
+        "error_fraction": 0.66
+      }
+    },
+    {
+      "run": "mr14-recovery-raft-s3-s3-recovery-20261022-002",
+      "adapter": "raft",
+      "durability": "s3",
+      "scenario": "s3-recovery",
+      "build": {
+        "image_id": "sha256:542e774aad57c13405c46b8f3bc4099f47d73f7b253222ef7261b438c692414f",
+        "binary_sha256": "9a1c392078ded1a533a8b0f68762bc876a89dd558d9950fc6b99244a611289cb",
+        "source_manifest_sha256": "eb9a57bf2c90e2338993df79efca86e57d6b7619c460cd315131f83bdba3588e",
+        "build_profile": "lab",
+        "source_revision": "149045732a775b1d1574c5957d456076bb68a74a",
+        "working_tree_dirty": false
+      },
+      "profile_sha256": "bf73355d7bd02d508af8e40c5508b7ac771b981056309ac42f74dd277c76f411",
+      "fault_profile_sha256": "b5709279084c5da01803f860c8e2bc8b2210fce9357137c20d36c24fb45f99e3",
+      "completed": true,
+      "reconciled": true,
+      "traffic_objectives_met": false,
+      "failure": null,
+      "analysis_rejection": null,
+      "summary": {
+        "counts": {
+          "submitted": 72,
+          "completed": 68,
+          "generator_rejected": 128,
+          "ambiguous": 4,
+          "offered": 200
+        },
+        "latency_ms": {
+          "p50": 14.678208006080219,
+          "p95": 136.87220800202348,
+          "p99": 4605.982042005053,
+          "p99_9": 4605.982042005053
+        },
+        "latency_by_operation_ms": {
+          "command": {
+            "p50": 44.04979200335224,
+            "p95": 2006.0714170162105,
+            "p99": 4605.982042005053,
+            "p99_9": 4605.982042005053
+          },
+          "query": {
+            "p50": 9.667583019473014,
+            "p95": 15.974458010168835,
+            "p99": 16.103125002700835,
+            "p99_9": 16.103125002700835
+          }
+        },
+        "completed_per_second": 3.4,
+        "offered_per_second": 10.0,
+        "error_fraction": 0.66
+      },
+      "fault": {
+        "cycles": 1,
+        "target": "object-store",
+        "container_id": "6774493adb6818c82e7413d27c2ad7b9d09defe3a09352ca64b06d5fbee31e97",
+        "object_store_required_at_ack": true,
+        "witnesses": [
+          {
+            "cycle": 0,
+            "submitted_during_hold": 6,
+            "acknowledged_during_hold": 0,
+            "commands": [
+              {
+                "cell": 1,
+                "command_id": "5a3ef464ba71b58041856ad63bd06cc0:30",
+                "ack_after_release_started": true
+              },
+              {
+                "cell": 5,
+                "command_id": "9542e21243f32a267edfec2a67b11958:3",
+                "ack_after_release_started": true
+              },
+              {
+                "cell": 0,
+                "command_id": "73aaa1707e214322636d42254fafd083:20",
+                "ack_after_release_started": true
+              },
+              {
+                "cell": 4,
+                "command_id": "a928c97748c3b18af54845c0006e190f:2",
+                "ack_after_release_started": true
+              },
+              {
+                "cell": 8,
+                "command_id": "63ca47b9a7a6ab1daf235ca144577cdf:2",
+                "ack_after_release_started": true
+              },
+              {
+                "cell": 7,
+                "command_id": "a1017cc59ab4f30502f73aa74dcaf19f:2",
+                "ack_after_release_started": true
+              }
+            ]
+          }
+        ],
+        "recovery_upper_seconds": 8.408851584012154,
+        "scope": "Bounded RustFS process pauses; fresh serialized commands observed in each window. Final adapter state checks bound recovery. No crash, packet-loss, Amazon S3, causal latency or equivalent-contract claim."
+      },
+      "cleanup": [
+        {
+          "container": "cellar-mr14-2ed16b864057a5af5e6fd4d5-node3",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-2ed16b864057a5af5e6fd4d5-node2",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-2ed16b864057a5af5e6fd4d5-node1",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-2ed16b864057a5af5e6fd4d5-store",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        }
+      ],
+      "network_removed": true,
+      "commands_including_seed": 76,
+      "queries": 57,
+      "replicas": 36,
+      "owner_route_reads": null,
+      "proof_delta": null,
+      "recovery": {
+        "original_ambiguous_commands": 4,
+        "resolved_commands": 4,
+        "recovery_requests": 8,
+        "resolutions": [
+          {
+            "original_id": "measurement:51",
+            "cell": 1,
+            "command_id": "5a3ef464ba71b58041856ad63bd06cc0:30",
+            "receipt_sha256": "c16dcc3594cd5ab65a4fdca3ee67d9c09e4158fac152d0a8b18497c47017dd68",
+            "first_acknowledged_monotonic_seconds": 149306.204844666,
+            "confirmed_monotonic_seconds": 149306.206829166
+          },
+          {
+            "original_id": "measurement:54",
+            "cell": 5,
+            "command_id": "9542e21243f32a267edfec2a67b11958:3",
+            "receipt_sha256": "4a20b67a2aa27a779ff27f43061183960ebdc2f143dc9f29c7bd084b94a9c765",
+            "first_acknowledged_monotonic_seconds": 149306.209286125,
+            "confirmed_monotonic_seconds": 149306.210752291
+          },
+          {
+            "original_id": "measurement:58",
+            "cell": 0,
+            "command_id": "73aaa1707e214322636d42254fafd083:20",
+            "receipt_sha256": "62e1aaa4bff300472fff96b532679f1624de958d32e4cfe3a6421bccc9b221cb",
+            "first_acknowledged_monotonic_seconds": 149306.21300975,
+            "confirmed_monotonic_seconds": 149306.215199541
+          },
+          {
+            "original_id": "measurement:61",
+            "cell": 4,
+            "command_id": "a928c97748c3b18af54845c0006e190f:2",
+            "receipt_sha256": "5e6f03e5704bd979cfb8c70a73ef0756837479aca2e4a08f00517d008de3c4df",
+            "first_acknowledged_monotonic_seconds": 149306.217595958,
+            "confirmed_monotonic_seconds": 149306.219315166
+          }
+        ],
+        "scope": "Original outcomes remain ambiguous in measurement. Each original identity is resolved and confirmed after workload completion; its prior commit time is unknown."
+      },
+      "recovery_proof_delta": null,
+      "raw_measurement_summary": {
+        "counts": {
+          "submitted": 72,
+          "completed": 68,
+          "generator_rejected": 128,
+          "ambiguous": 4,
+          "offered": 200
+        },
+        "latency_ms": {
+          "p50": 14.678208006080219,
+          "p95": 136.87220800202348,
+          "p99": 4605.982042005053,
+          "p99_9": 4605.982042005053
+        },
+        "latency_by_operation_ms": {
+          "command": {
+            "p50": 44.04979200335224,
+            "p95": 2006.0714170162105,
+            "p99": 4605.982042005053,
+            "p99_9": 4605.982042005053
+          },
+          "query": {
+            "p50": 9.667583019473014,
+            "p95": 15.974458010168835,
+            "p99": 16.103125002700835,
+            "p99_9": 16.103125002700835
+          }
+        },
+        "completed_per_second": 3.4,
+        "offered_per_second": 10.0,
+        "error_fraction": 0.66
+      }
+    }
+  ],
+  "comparisons": [
+    {
+      "left": "mr14-recovery-raft-s3-s3-recovery-20261022-002",
+      "right": "mr14-recovery-bucket-s3-recovery-20261022-002",
+      "rejected": "unfinished baseline run"
+    }
+  ],
+  "validation": {
+    "source_revision": "f3bf1298ae9cb945219f861c0a7edc5059f6d1f2",
+    "checks": [
+      {
+        "check": "dependencies",
+        "argv": [
+          "python3",
+          "tools/check_native_dependencies.py"
+        ],
+        "exit_code": 0,
+        "log": "/tmp/cellar-mr14-recovery-dependencies.log"
+      },
+      {
+        "check": "format",
+        "argv": [
+          "cargo",
+          "format",
+          "--check"
+        ],
+        "exit_code": 0,
+        "log": "/tmp/cellar-mr14-recovery-format.log"
+      },
+      {
+        "check": "layout",
+        "argv": [
+          "cargo",
+          "check-layout"
+        ],
+        "exit_code": 0,
+        "log": "/tmp/cellar-mr14-recovery-layout.log"
+      },
+      {
+        "check": "plan-tests",
+        "argv": [
+          "python3",
+          "-m",
+          "unittest",
+          "discover",
+          "-s",
+          "plans/multi-raft",
+          "-p",
+          "test_*.py",
+          "-v"
+        ],
+        "exit_code": 0,
+        "log": "/tmp/cellar-mr14-recovery-plan-tests.log"
+      }
+    ],
+    "python_suite": {
+      "argv": [
+        "python3",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "tools/perf",
+        "-p",
+        "test_*.py",
+        "-v"
+      ],
+      "passed": 183,
+      "skipped": 1,
+      "new_recovery_tests": 11,
+      "exit_code": 0
+    },
+    "native_suite": {
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--all-features",
+        "--locked",
+        "--test",
+        "native_raft_archive",
+        "--bin",
+        "cellar-perf-baseline",
+        "--",
+        "--test-threads=1"
+      ],
+      "archive_tests": 32,
+      "baseline_tests": 5,
+      "exit_code": 0
+    },
+    "documentation": {
+      "exit_code": 0
+    },
+    "plan": {
+      "exit_code": 0,
+      "tasks": 17,
+      "required_cases": 146,
+      "source_anchors": 85
+    },
+    "limits": "Python changes only. Native archive/receipt cases executed against unchanged production Rust sources. No concurrent history, physical fault or performance claim from fixtures. Native Clippy retains earlier source-pinned results; not rerun for this Python-only change.",
+    "initial_attempts": "Initial dependency command lacked cargo on PATH; retained separately and rerun with explicit Rust toolchain environment. Original nine-case and expanded eleven-case runs retained; counts are not added together.",
+    "token_comparison_fix": {
+      "source_revision": "149045732a775b1d1574c5957d456076bb68a74a",
+      "python_passed": 184,
+      "python_skipped": 1,
+      "recovery_cases": 12,
+      "docs_exit_code": 0,
+      "plan_exit_code": 0,
+      "basis": "RaftHost issues a new observation token on every successful response; VersionKeys includes new issue/expiry times and signature. Durable result/position/term/scope/durability are stable. Both raw tokens remain; final SDK at-least reads authenticate the first. Native production sources unchanged."
+    },
+    "publication_checks": {
+      "docs": 0,
+      "plan_validation": 0,
+      "plan_tests": {
+        "passed": 17,
+        "exit_code": 0
+      },
+      "diff_check": 0,
+      "scope": "Documentation, task manifest and evidence integration after the source-pinned physical attempts. No new Rust changes or runtime qualification."
+    }
+  },
+  "bucket_fence": {
+    "run": "mr14-recovery-bucket-s3-recovery-20261022-002",
+    "source_revision": "149045732a775b1d1574c5957d456076bb68a74a",
+    "failure": "<urlopen error [Errno 61] Connection refused>",
+    "node1_outcome": "NodeLeaseExpired fence code 3; executable exit 1, no OOM",
+    "native_events": {
+      "lease_ttl_ms": 10000,
+      "ambiguous_renewal_elapsed_ms": 2501,
+      "renewal_completed_utc": "2026-10-22T23:10:30.464451Z",
+      "prior_authority_headroom_at_completion_ms": 4162,
+      "watchdog_fenced_utc": "2026-10-22T23:10:34.629509Z"
+    },
+    "observed_store_pause_ms": 7007.349333,
+    "measurement": {
+      "offered": 200,
+      "submitted": 72,
+      "completed": 66,
+      "rejected": 0,
+      "ambiguous": 4,
+      "failed": 2,
+      "timed_out": 4,
+      "generator_rejected": 128,
+      "offered_seconds": 20,
+      "started_monotonic_seconds": 149333.556822166,
+      "elapsed_seconds": 20.00567625000258,
+      "blocked_cells": [
+        0,
+        1,
+        3,
+        5
+      ]
+    },
+    "interpretation": "Store pause overlapped node renewal. The native watchdog fenced expired authority; the runner stopped before recovery at its required post-measurement node snapshot. This is an unqualified recovery attempt, not a safe retry or performance pass. Preserve fencing and add a separate owner restart/restore drill before claiming repeatable long-outage baseline recovery. No fresh attempt was launched merely to obtain a passing sample.",
+    "timing_limit": "Approximate host/client wall alignment places release near lease expiry; clocks and sampling do not prove millisecond causal ordering."
+  },
+  "initial_rejection": {
+    "source_revision": "f3bf1298ae9cb945219f861c0a7edc5059f6d1f2",
+    "failed_run": "mr14-recovery-raft-s3-s3-recovery-20261022-001",
+    "changed_response_fields": [
+      "version_token"
+    ],
+    "stable_receipt_fields_equal": true,
+    "unsigned_diagnostic_only": true,
+    "token_bytes_equal_except_issue_expiry_signature": true,
+    "issue_ms": [
+      1792710329731,
+      1792710329733
+    ],
+    "expiry_ms": [
+      1792796729731,
+      1792796729733
+    ],
+    "basis": [
+      "crates/cellar/durability/raft/host.rs:2242",
+      "crates/cellar/durability/raft/version.rs:238"
+    ],
+    "interpretation": "Comparison incorrectly required equality of response-scoped expiring observation tokens. The original failed run remains incomplete; only one of four commands was retried. No physical result is retroactively qualified."
+  },
+  "limitations": [
+    "One shared Mac and one Colima VM; three Cellar containers each with one CPU, 3 GiB and no swap, plus separate RustFS resources. Unrelated Colima profiles remain active and were not mutated.",
+    "The original 20-second measurement and numeric SLOs are unchanged. Seven-second backend pauses exceed the original request budgets. Unknown command outcomes and quarantined-cell rejections remain measurement failures even when subsequent recovery succeeds.",
+    "Process freeze does not establish crash, packet-loss, power-loss, disk-loss, Amazon S3 or independent-zone resilience. Unresolved outcomes refuse qualification. The explicit recovery drill uses one retry and one confirmation under the original identity and deadline; it cannot determine whether the original request committed before response loss.",
+    "Raft S3 and bucket adapters retain distinct authority, local-copy, read and receipt contracts. Shared fault timing and SQL transitions do not establish equivalence.",
+    "Steady state, causal latency, instrumentation overhead, sustained S3 acceptance and Q1 capacity remain open. MR-13 operating, MR-15 release, MR-16 scale and MR-17 federation gates remain incomplete.",
+    "Exact owned containers are stopped, their empty networks removed and volumes retained. Only the dedicated profile was controlled and it is stopped."
+  ]
+}

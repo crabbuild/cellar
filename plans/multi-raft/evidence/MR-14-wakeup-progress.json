@@ -1,0 +1,1841 @@
+{
+  "task_id": "MR-14",
+  "source_revision": "8424f02a8fb3ebc77b333bcadbf2ad44825d0bcc",
+  "completion": "partial",
+  "scope": "Wake the archive scanner on new committed images/protocol progress and wake covered S3 output checks after accepted archive proof.",
+  "implementation": [
+    "New published SQL images and protocol-only applied entries with an existing image invalidate only the empty-inventory scan deadline. The single producer, fair batch cursor, capture bounds and per-cell archive failure backoff remain unchanged.",
+    "Accepted local archive progress covering a pending receipt moves AwaitFinish to Finish. The normal fresh runtime status, authority, exact receipt, output-proof and waiter deadline checks still decide the response. No success is sent from the archive completion callback."
+  ],
+  "regression": {
+    "base_revision": "b5b71698f9533e7bd0340ff2b98963d53a8a33c0",
+    "patch_sha256": "cd1855e3bd03d2acc28fcc69e7cefd24fc2baa8c049b0dab80e2606432de8fda",
+    "scenario": "Eight sequential actual SQLite/LTX commands with S3 receipts and observed archive coverage, with only the host maintenance poll deliberately set to 1,000 ms. A four-second aggregate bound exposes timer dependence; it is not a production SLO.",
+    "original": "Three failed reproductions; original first run acknowledged 1/8 within four seconds.",
+    "idle_only": "Invalidating the empty scan alone still failed, acknowledging 2/8.",
+    "fixed": "Both wakeups pass the original scenario and 20 consecutive repetitions, with exactly eight business callbacks.",
+    "no_proof_changes": "The existing outage, corrupt/missing archive, lost-response, expired-waiter, failover and shutdown cases remain required."
+  },
+  "rust_passed": 299,
+  "rust_failed": 0,
+  "tests": [
+    {
+      "target": "tests/native_raft_archive.rs",
+      "passed": 32,
+      "failed": 0,
+      "ignored": 0,
+      "binary_sha256": "731c49b9e030add5af74407a76f93a5a738cab5767974e1dea697900803d4fbf"
+    },
+    {
+      "target": "tests/native_raft_contract.rs",
+      "passed": 6,
+      "failed": 0,
+      "ignored": 0,
+      "binary_sha256": "4389093fa1fd2627f714771f3b5daa46c63d545cd65d716ea41a27128d88a0e9"
+    },
+    {
+      "target": "tests/native_raft_directory.rs",
+      "passed": 16,
+      "failed": 0,
+      "ignored": 0,
+      "binary_sha256": "bc9cab49ecfdaadc39c161fdccb7ac6435d6271c22d8bfbd71b48b025f4748d9"
+    },
+    {
+      "target": "tests/native_raft_effects.rs",
+      "passed": 16,
+      "failed": 0,
+      "ignored": 0,
+      "binary_sha256": "6f2659f9e09807e9f96e86c46af55c0ef4a9672bf6856c6449d70564bc085839"
+    },
+    {
+      "target": "tests/native_raft_execution.rs",
+      "passed": 17,
+      "failed": 0,
+      "ignored": 2,
+      "binary_sha256": "6225b358f03f035dcc53bd3df27ec943772bc27c864847f2e1390f24f34f4750"
+    },
+    {
+      "target": "tests/native_raft_host.rs",
+      "passed": 27,
+      "failed": 0,
+      "ignored": 0,
+      "binary_sha256": "31266a107897ea4e4cd4eb61d38d3f12e10b893862c82e5399d030dcd8c71ad7"
+    },
+    {
+      "target": "tests/native_raft_ltx.rs",
+      "passed": 21,
+      "failed": 0,
+      "ignored": 1,
+      "binary_sha256": "9902e6b81d5d574420f3398f39337105fbe72b4be189fa475d0f5327c9345671"
+    },
+    {
+      "target": "tests/native_raft_membership.rs",
+      "passed": 27,
+      "failed": 0,
+      "ignored": 1,
+      "binary_sha256": "e9eb8ecf2d27e06698c7d86e73e25b7cbb8c02e8836659c764f1cd93e89817d1"
+    },
+    {
+      "target": "tests/native_raft_multigroup.rs",
+      "passed": 9,
+      "failed": 0,
+      "ignored": 1,
+      "binary_sha256": "58a78ca2cc6ef093ce1eb021b380867e33d0207bb6efc46365254e8e3b4378c8"
+    },
+    {
+      "target": "tests/native_raft_operations.rs",
+      "passed": 20,
+      "failed": 0,
+      "ignored": 0,
+      "binary_sha256": "25b735f5c23aaed711b92e8c7605723f7a8ff73ad322d0e7fb48363c04c3f4a5"
+    },
+    {
+      "target": "tests/native_raft_reads.rs",
+      "passed": 20,
+      "failed": 0,
+      "ignored": 0,
+      "binary_sha256": "144cac3896a32996982582159c590dcbc85573c72e1d6a7243afdec00dcd3efc"
+    },
+    {
+      "target": "tests/native_raft_runtime.rs",
+      "passed": 15,
+      "failed": 0,
+      "ignored": 1,
+      "binary_sha256": "f9655a88e200675c10de45c651183fa59086f3936bcc8d75af6a4b30719dfc2a"
+    },
+    {
+      "target": "tests/native_raft_snapshot.rs",
+      "passed": 42,
+      "failed": 0,
+      "ignored": 2,
+      "binary_sha256": "79cab1be337f5fb17a2eab358da8512595a6d8f5ae19932d777ab5498737eb54"
+    },
+    {
+      "target": "tests/native_raft_storage.rs",
+      "passed": 17,
+      "failed": 0,
+      "ignored": 1,
+      "binary_sha256": "0a56e0413e9a7c0473d9dcd88082050bc06721338a08b7fc1aacf3a2305a7a41"
+    },
+    {
+      "target": "tests/native_raft_transport.rs",
+      "passed": 14,
+      "failed": 0,
+      "ignored": 1,
+      "binary_sha256": "ecd84598d9410e39b6f527cbfaeae6fd17c5d091d91fc30d50e70f9668fddf17"
+    }
+  ],
+  "non_harness_targets": [
+    {
+      "target": "native_raft_daemon",
+      "exit_code": 0,
+      "binary_sha256": "864b831a2691a23c07169c97a62f27ebf1f9aacc211907e75cb6320de62ebca5",
+      "scope": "Production daemon startup/restart/refusal qualification; excluded from the libtest count."
+    }
+  ],
+  "checks": [
+    {
+      "name": "rust",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "cellar",
+        "--test",
+        "native_raft_archive",
+        "--test",
+        "native_raft_contract",
+        "--test",
+        "native_raft_daemon",
+        "--test",
+        "native_raft_directory",
+        "--test",
+        "native_raft_effects",
+        "--test",
+        "native_raft_execution",
+        "--test",
+        "native_raft_host",
+        "--test",
+        "native_raft_ltx",
+        "--test",
+        "native_raft_membership",
+        "--test",
+        "native_raft_multigroup",
+        "--test",
+        "native_raft_operations",
+        "--test",
+        "native_raft_reads",
+        "--test",
+        "native_raft_runtime",
+        "--test",
+        "native_raft_snapshot",
+        "--test",
+        "native_raft_storage",
+        "--test",
+        "native_raft_transport",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 514.3836989402771,
+      "sha256": "a62ded134623ab2035f013f0f289a59dbac14785998bc6ace9752220c6c2b1b8",
+      "source_revision": "8424f02a8fb3ebc77b333bcadbf2ad44825d0bcc",
+      "output": "evidence/MR-14-wakeup-validation.json.gz",
+      "log_member": "rust"
+    },
+    {
+      "name": "clippy",
+      "command": [
+        "cargo",
+        "clippy",
+        "--locked",
+        "-p",
+        "cellar",
+        "--all-targets",
+        "--all-features",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 51.14774203300476,
+      "sha256": "21f31ece7ec24913a90bf78675a392f7395ecd03ba177671407a9479aa8a1f36",
+      "source_revision": "8424f02a8fb3ebc77b333bcadbf2ad44825d0bcc",
+      "output": "evidence/MR-14-wakeup-validation.json.gz",
+      "log_member": "clippy"
+    },
+    {
+      "name": "native",
+      "command": [
+        "cargo",
+        "check",
+        "--locked",
+        "-p",
+        "cellar",
+        "-p",
+        "cellar-ltx",
+        "--no-default-features",
+        "--lib"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 32.91883587837219,
+      "sha256": "30c7dfbb6e68c0331b8f8e3273b4502eb3b9af081c46d76b1854a4a4ab2199fa",
+      "source_revision": "8424f02a8fb3ebc77b333bcadbf2ad44825d0bcc",
+      "output": "evidence/MR-14-wakeup-validation.json.gz",
+      "log_member": "native"
+    },
+    {
+      "name": "format",
+      "command": [
+        "cargo",
+        "format",
+        "--check"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 45.94792580604553,
+      "sha256": "64fb5ca1b817ac01d04baf236bbba03f4ccccdfe482ec7a342291ea8838ab2fa",
+      "source_revision": "8424f02a8fb3ebc77b333bcadbf2ad44825d0bcc",
+      "output": "evidence/MR-14-wakeup-validation.json.gz",
+      "log_member": "format"
+    },
+    {
+      "name": "layout",
+      "command": [
+        "cargo",
+        "check-layout"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 0.26470398902893066,
+      "sha256": "c3f76df5f01fa4420d9d65ec0af6f02bb77b22c38cad24ef7744c75c56f03567",
+      "source_revision": "8424f02a8fb3ebc77b333bcadbf2ad44825d0bcc",
+      "output": "evidence/MR-14-wakeup-validation.json.gz",
+      "log_member": "layout"
+    },
+    {
+      "name": "dependencies",
+      "command": [
+        "python3",
+        "tools/check_native_dependencies.py"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 0.5622751712799072,
+      "sha256": "faf9bdb8df5819a63d590ede5d4a5f43eb4e8b00d8a6f44ccfb36bd8c4c5c238",
+      "source_revision": "8424f02a8fb3ebc77b333bcadbf2ad44825d0bcc",
+      "output": "evidence/MR-14-wakeup-validation.json.gz",
+      "log_member": "dependencies"
+    },
+    {
+      "name": "docs",
+      "command": [
+        "python3",
+        "tools/docs/check.py"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 0.1042778491973877,
+      "sha256": "701e55367b1b8c08dcd388c3084250c7209af81cb161e4ba73339783b537eeb3",
+      "source_revision": "8424f02a8fb3ebc77b333bcadbf2ad44825d0bcc",
+      "output": "evidence/MR-14-wakeup-validation.json.gz",
+      "log_member": "docs"
+    },
+    {
+      "name": "plan",
+      "command": [
+        "python3",
+        "plans/multi-raft/plan.py",
+        "validate"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 0.15314197540283203,
+      "sha256": "494a44e975d0f69e24f9d6e201f35ff4e5e4dc29ca46e9cc1e410a6d51dbbd22",
+      "source_revision": "8424f02a8fb3ebc77b333bcadbf2ad44825d0bcc",
+      "output": "evidence/MR-14-wakeup-validation.json.gz",
+      "log_member": "plan"
+    },
+    {
+      "name": "package-docs",
+      "command": [
+        "python3",
+        "tools/docs/check.py"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 0.10672807693481445,
+      "source_revision": "8424f02a8fb3ebc77b333bcadbf2ad44825d0bcc",
+      "scope": "Final documentation/evidence working tree after source commit",
+      "output": "evidence/MR-14-wakeup-validation.json.gz",
+      "log_member": "package-docs",
+      "sha256": "701e55367b1b8c08dcd388c3084250c7209af81cb161e4ba73339783b537eeb3"
+    },
+    {
+      "name": "package-plan",
+      "command": [
+        "python3",
+        "plans/multi-raft/plan.py",
+        "validate"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 0.24025297164916992,
+      "source_revision": "8424f02a8fb3ebc77b333bcadbf2ad44825d0bcc",
+      "scope": "Final documentation/evidence working tree after source commit",
+      "output": "evidence/MR-14-wakeup-validation.json.gz",
+      "log_member": "package-plan",
+      "sha256": "c8861463f48bf4ebbc61c2cf2cc62459f91ac121f6037762bbcffd7b5f99938b"
+    },
+    {
+      "name": "package-preflight",
+      "command": [
+        "python3",
+        "plans/multi-raft/plan.py",
+        "preflight"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 0.22254180908203125,
+      "source_revision": "8424f02a8fb3ebc77b333bcadbf2ad44825d0bcc",
+      "scope": "Final documentation/evidence working tree after source commit",
+      "output": "evidence/MR-14-wakeup-validation.json.gz",
+      "log_member": "package-preflight",
+      "sha256": "f49048695c2d43b2f41afde1a9961876817101e37d92dc76b2604d81fd5d8d99"
+    },
+    {
+      "name": "package-listing",
+      "command": [
+        "python3",
+        "plans/multi-raft/plan.py",
+        "check-list",
+        "MR-14",
+        "/tmp/cellar-mr14-wake-list.log"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 0.27723121643066406,
+      "source_revision": "8424f02a8fb3ebc77b333bcadbf2ad44825d0bcc",
+      "scope": "Final documentation/evidence working tree after source commit",
+      "output": "evidence/MR-14-wakeup-validation.json.gz",
+      "log_member": "package-listing",
+      "sha256": "078afbeac7ff7af55e716e4bb244dc5624a6d3df863f5d9a0a25b23dc386a567"
+    },
+    {
+      "name": "package-plan-tests",
+      "command": [
+        "python3",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "plans/multi-raft",
+        "-p",
+        "test_*.py"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 0.44269394874572754,
+      "source_revision": "8424f02a8fb3ebc77b333bcadbf2ad44825d0bcc",
+      "scope": "Final documentation/evidence working tree after source commit",
+      "output": "evidence/MR-14-wakeup-validation.json.gz",
+      "log_member": "package-plan-tests",
+      "sha256": "de8a0d5acbd17dbdcc6daa2e8a7c5e7f65a4da505c8e3c243333b104b10d7d5b"
+    },
+    {
+      "name": "package-diff",
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 0.04378628730773926,
+      "source_revision": "8424f02a8fb3ebc77b333bcadbf2ad44825d0bcc",
+      "scope": "Final documentation/evidence working tree after source commit",
+      "output": "evidence/MR-14-wakeup-validation.json.gz",
+      "log_member": "package-diff",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "raw_output": [
+    {
+      "path": "evidence/MR-14-wakeup-validation.json.gz",
+      "bytes": 28218,
+      "sha256": "ad9b165ddf5c11715fa3b73c69c81c2ec8e9f090a41f1cf2a73501c7290ba862"
+    },
+    {
+      "path": "evidence/MR-14-wakeup-local-runs.json.gz",
+      "bytes": 4647937,
+      "sha256": "e61ffa0293a17dd44fadc260186094fe8d2769419b1e5fca938344ebbe920d14"
+    }
+  ],
+  "local_runs": [
+    {
+      "role": "candidate",
+      "host_environment": {
+        "before": {
+          "unix_time": 1792693032.52529,
+          "platform": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+          "hardware_and_swap": "hw.ncpu: 12\nhw.memsize: 34359738368\nvm.swapusage: total = 13312.00M  used = 12043.44M  free = 1268.56M  (encrypted)\n",
+          "load": "11:17  up 1 day, 12:36, 3 users, load averages: 16.81 9.33 6.64\n",
+          "vm_statistics": "Mach Virtual Memory Statistics: (page size of 16384 bytes)\nPages free:                                     3653.\nPages active:                                 380538.\nPages inactive:                               363604.\nPages speculative:                             15357.\nPages throttled:                                   0.\nPages wired down:                             170738.\nPages purgeable:                                   2.\n\"Translation faults\":                     4176990849.\nPages copy-on-write:                       171286600.\nPages zero filled:                        2024042500.\nPages reactivated:                         375569768.\nPages purged:                               10649093.\nFile-backed pages:                            233198.\nAnonymous pages:                              526301.\nPages stored in compressor:                  2858112.\nPages occupied by compressor:                1126756.\nDecompressions:                            295808056.\nCompressions:                              345301042.\nPageins:                                   133135995.\nPageouts:                                     844328.\nSwapins:                                     7555558.\nSwapouts:                                    8956802.\n"
+        },
+        "note": "Shared Mac and other independent Colima profiles; only cellar-multi-raft controlled. No steady-state capacity or causal speedup claim.",
+        "after": {
+          "unix_time": 1792693213.423994,
+          "platform": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+          "hardware_and_swap": "hw.ncpu: 12\nhw.memsize: 34359738368\nvm.swapusage: total = 15360.00M  used = 13795.69M  free = 1564.31M  (encrypted)\n",
+          "load": "11:20  up 1 day, 12:39, 3 users, load averages: 23.37 13.43 8.71\n",
+          "vm_statistics": "Mach Virtual Memory Statistics: (page size of 16384 bytes)\nPages free:                                     4504.\nPages active:                                 431114.\nPages inactive:                               414762.\nPages speculative:                             15434.\nPages throttled:                                   0.\nPages wired down:                             168455.\nPages purgeable:                                   2.\n\"Translation faults\":                     4188483740.\nPages copy-on-write:                       171456677.\nPages zero filled:                        2027224753.\nPages reactivated:                         379682687.\nPages purged:                               10672635.\nFile-backed pages:                            270428.\nAnonymous pages:                              590882.\nPages stored in compressor:                  2914235.\nPages occupied by compressor:                1026496.\nDecompressions:                            299231214.\nCompressions:                              349027461.\nPageins:                                   133741611.\nPageouts:                                     848357.\nSwapins:                                     7680141.\nSwapouts:                                    9191318.\n"
+        }
+      },
+      "run": "mr14-wake-local-five-20261022-001",
+      "profile": "local-five",
+      "build": {
+        "image_id": "sha256:2e03432b3f196563943a14dadfc837742d770325ad0b5c364c012236429d4dbe",
+        "binary_sha256": "d5bf0b9a3dc66c62cf6af072eae4716bfe059c885859486c6640f7831795084d",
+        "source_manifest_sha256": "8b526ef52ef6755d4b72549d8a52c1962214f696182b6a6248e43b07592594c4",
+        "build_profile": "lab",
+        "source_revision": "8424f02a8fb3ebc77b333bcadbf2ad44825d0bcc",
+        "working_tree_dirty": false
+      },
+      "profile_sha256": "c1c3025c95109a618dd5d3d122e19630055563c1384abe57c8671cd8a6295b30",
+      "completed": true,
+      "reconciled": true,
+      "traffic_objectives_met": false,
+      "summary": {
+        "counts": {
+          "submitted": 1170,
+          "completed": 1170,
+          "generator_rejected": 30,
+          "offered": 1200
+        },
+        "latency_ms": {
+          "p50": 18.9886250183946,
+          "p95": 154.04858401743127,
+          "p99": 432.94004200143377,
+          "p99_9": 841.688625002277
+        },
+        "latency_by_operation_ms": {
+          "command": {
+            "p50": 28.918208996763894,
+            "p95": 191.0479169979169,
+            "p99": 651.1717500048633,
+            "p99_9": 956.3391669944394
+          },
+          "query": {
+            "p50": 8.30245899851434,
+            "p95": 105.27674999903525,
+            "p99": 219.45600002072752,
+            "p99_9": 360.89766701334725
+          }
+        },
+        "completed_per_second": 9.75,
+        "offered_per_second": 10.0,
+        "error_fraction": 0.025
+      },
+      "commands_including_seed": 911,
+      "queries": 709,
+      "replicas": 450,
+      "placement": [
+        {
+          "node": 1,
+          "leader_cells": 30,
+          "replica_cells": 90
+        },
+        {
+          "node": 2,
+          "leader_cells": 30,
+          "replica_cells": 90
+        },
+        {
+          "node": 3,
+          "leader_cells": 30,
+          "replica_cells": 90
+        },
+        {
+          "node": 4,
+          "leader_cells": 30,
+          "replica_cells": 90
+        },
+        {
+          "node": 5,
+          "leader_cells": 30,
+          "replica_cells": 90
+        }
+      ],
+      "memory_peak_bytes": [
+        39718912,
+        41725952,
+        44679168,
+        38469632,
+        35917824
+      ],
+      "cleanup": [
+        {
+          "container": "cellar-mr14-96ca1aeff0ba436fc864ee58-node5",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-96ca1aeff0ba436fc864ee58-node4",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-96ca1aeff0ba436fc864ee58-node3",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-96ca1aeff0ba436fc864ee58-node2",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-96ca1aeff0ba436fc864ee58-node1",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-96ca1aeff0ba436fc864ee58-store",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        }
+      ]
+    },
+    {
+      "role": "candidate",
+      "host_environment": {
+        "before": {
+          "unix_time": 1792693268.474835,
+          "platform": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+          "hardware_and_swap": "hw.ncpu: 12\nhw.memsize: 34359738368\nvm.swapusage: total = 15360.00M  used = 13779.38M  free = 1580.62M  (encrypted)\n",
+          "load": "11:21  up 1 day, 12:40, 3 users, load averages: 15.16 12.79 8.76\n",
+          "vm_statistics": "Mach Virtual Memory Statistics: (page size of 16384 bytes)\nPages free:                                    30850.\nPages active:                                 393425.\nPages inactive:                               366684.\nPages speculative:                             38441.\nPages throttled:                                   0.\nPages wired down:                             174160.\nPages purgeable:                                   2.\n\"Translation faults\":                     4193434409.\nPages copy-on-write:                       171518531.\nPages zero filled:                        2028688919.\nPages reactivated:                         381518718.\nPages purged:                               10681529.\nFile-backed pages:                            282145.\nAnonymous pages:                              516405.\nPages stored in compressor:                  2988106.\nPages occupied by compressor:                1057101.\nDecompressions:                            300781245.\nCompressions:                              350725437.\nPageins:                                   133892716.\nPageouts:                                     851019.\nSwapins:                                     7735591.\nSwapouts:                                    9247346.\n"
+        },
+        "note": "Shared Mac and other independent Colima profiles; only cellar-multi-raft controlled. No steady-state capacity or causal speedup claim.",
+        "after": {
+          "unix_time": 1792693466.2427661,
+          "platform": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+          "hardware_and_swap": "hw.ncpu: 12\nhw.memsize: 34359738368\nvm.swapusage: total = 14336.00M  used = 12959.12M  free = 1376.88M  (encrypted)\n",
+          "load": "11:24  up 1 day, 12:43, 3 users, load averages: 14.65 12.50 9.41\n",
+          "vm_statistics": "Mach Virtual Memory Statistics: (page size of 16384 bytes)\nPages free:                                     5241.\nPages active:                                 381282.\nPages inactive:                               362721.\nPages speculative:                             17556.\nPages throttled:                                   0.\nPages wired down:                             177460.\nPages purgeable:                                   2.\n\"Translation faults\":                     4206257719.\nPages copy-on-write:                       171826432.\nPages zero filled:                        2033900839.\nPages reactivated:                         384402582.\nPages purged:                               10715454.\nFile-backed pages:                            246806.\nAnonymous pages:                              514753.\nPages stored in compressor:                  3014058.\nPages occupied by compressor:                1116417.\nDecompressions:                            303116003.\nCompressions:                              353421630.\nPageins:                                   134459440.\nPageouts:                                     853648.\nSwapins:                                     7802163.\nSwapouts:                                    9262438.\n"
+        }
+      },
+      "run": "mr14-wake-local-five-s3-20261022-001",
+      "profile": "local-five-s3",
+      "build": {
+        "image_id": "sha256:2e03432b3f196563943a14dadfc837742d770325ad0b5c364c012236429d4dbe",
+        "binary_sha256": "d5bf0b9a3dc66c62cf6af072eae4716bfe059c885859486c6640f7831795084d",
+        "source_manifest_sha256": "8b526ef52ef6755d4b72549d8a52c1962214f696182b6a6248e43b07592594c4",
+        "build_profile": "lab",
+        "source_revision": "8424f02a8fb3ebc77b333bcadbf2ad44825d0bcc",
+        "working_tree_dirty": false
+      },
+      "profile_sha256": "5b5547af2452ea23ad60e48389a355be9c782f2df4085676646b51fde5314183",
+      "completed": true,
+      "reconciled": true,
+      "traffic_objectives_met": false,
+      "summary": {
+        "counts": {
+          "submitted": 1142,
+          "completed": 1142,
+          "generator_rejected": 58,
+          "offered": 1200
+        },
+        "latency_ms": {
+          "p50": 34.516833018280124,
+          "p95": 207.16395800118903,
+          "p99": 662.5979170028558,
+          "p99_9": 975.7978330249841
+        },
+        "latency_by_operation_ms": {
+          "command": {
+            "p50": 60.0982080271919,
+            "p95": 368.892625026632,
+            "p99": 721.5037919988418,
+            "p99_9": 1268.9852920069882
+          },
+          "query": {
+            "p50": 6.296750018378816,
+            "p95": 18.040917022155156,
+            "p99": 113.24545799870833,
+            "p99_9": 727.2487920243265
+          }
+        },
+        "completed_per_second": 9.516666666666667,
+        "offered_per_second": 10.0,
+        "error_fraction": 0.04833333333333333
+      },
+      "commands_including_seed": 899,
+      "queries": 691,
+      "replicas": 450,
+      "placement": [
+        {
+          "node": 1,
+          "leader_cells": 30,
+          "replica_cells": 90
+        },
+        {
+          "node": 2,
+          "leader_cells": 30,
+          "replica_cells": 90
+        },
+        {
+          "node": 3,
+          "leader_cells": 30,
+          "replica_cells": 90
+        },
+        {
+          "node": 4,
+          "leader_cells": 30,
+          "replica_cells": 90
+        },
+        {
+          "node": 5,
+          "leader_cells": 30,
+          "replica_cells": 90
+        }
+      ],
+      "memory_peak_bytes": [
+        38789120,
+        41521152,
+        43438080,
+        38035456,
+        35205120
+      ],
+      "cleanup": [
+        {
+          "container": "cellar-mr14-cbcfbe0c7243db3c52e989c9-node5",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-cbcfbe0c7243db3c52e989c9-node4",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-cbcfbe0c7243db3c52e989c9-node3",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-cbcfbe0c7243db3c52e989c9-node2",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-cbcfbe0c7243db3c52e989c9-node1",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-cbcfbe0c7243db3c52e989c9-store",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        }
+      ]
+    },
+    {
+      "role": "original-repeat",
+      "host_environment": {
+        "before": {
+          "unix_time": 1792693739.912201,
+          "platform": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+          "hardware_and_swap": "hw.ncpu: 12\nhw.memsize: 34359738368\nvm.swapusage: total = 13312.00M  used = 12472.25M  free = 839.75M  (encrypted)\n",
+          "load": "11:28  up 1 day, 12:47, 3 users, load averages: 12.13 13.48 10.85\n",
+          "vm_statistics": "Mach Virtual Memory Statistics: (page size of 16384 bytes)\nPages free:                                     4010.\nPages active:                                 404970.\nPages inactive:                               390798.\nPages speculative:                             12587.\nPages throttled:                                   0.\nPages wired down:                             168802.\nPages purgeable:                                   2.\n\"Translation faults\":                     4230333444.\nPages copy-on-write:                       172248820.\nPages zero filled:                        2046045229.\nPages reactivated:                         388991929.\nPages purged:                               10760656.\nFile-backed pages:                            299472.\nAnonymous pages:                              508883.\nPages stored in compressor:                  2940904.\nPages occupied by compressor:                1079571.\nDecompressions:                            306309927.\nCompressions:                              356928700.\nPageins:                                   135081818.\nPageouts:                                     859726.\nSwapins:                                     7938110.\nSwapouts:                                    9368691.\n"
+        },
+        "note": "Shared Mac and other independent Colima profiles; only cellar-multi-raft controlled. No steady-state capacity or causal speedup claim.",
+        "after": {
+          "unix_time": 1792693916.64717,
+          "platform": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+          "hardware_and_swap": "hw.ncpu: 12\nhw.memsize: 34359738368\nvm.swapusage: total = 13312.00M  used = 12350.44M  free = 961.56M  (encrypted)\n",
+          "load": "11:31  up 1 day, 12:50, 3 users, load averages: 4.73 9.81 9.84\n",
+          "vm_statistics": "Mach Virtual Memory Statistics: (page size of 16384 bytes)\nPages free:                                    65029.\nPages active:                                 435750.\nPages inactive:                               420888.\nPages speculative:                             14281.\nPages throttled:                                   0.\nPages wired down:                             167660.\nPages purgeable:                                 865.\n\"Translation faults\":                     4237388047.\nPages copy-on-write:                       172608485.\nPages zero filled:                        2047782551.\nPages reactivated:                         390365977.\nPages purged:                               10782414.\nFile-backed pages:                            274242.\nAnonymous pages:                              596677.\nPages stored in compressor:                  2684434.\nPages occupied by compressor:                 957143.\nDecompressions:                            307767055.\nCompressions:                              358296185.\nPageins:                                   135398990.\nPageouts:                                     862600.\nSwapins:                                     7954246.\nSwapouts:                                    9376767.\n"
+        }
+      },
+      "run": "mr14-wake-baseline-local-five-20261022-001",
+      "profile": "local-five",
+      "build": {
+        "image_id": "sha256:39a5a90ecbc87a11ffef5da4648be0a15ff0eaa607246d4c5c43ea305b620c47",
+        "binary_sha256": "9f627e8325291526a05c36978672027d7ff351e67be528aea1d367e301e63df8",
+        "source_manifest_sha256": "3162b6d12ddffda99154ef7d77a3558d239b70f10eb4b4a773f829517798c9d0",
+        "build_profile": "lab",
+        "source_revision": "bd7868f03db1b58437892526ffebabdabe0453a7",
+        "working_tree_dirty": false
+      },
+      "profile_sha256": "c1c3025c95109a618dd5d3d122e19630055563c1384abe57c8671cd8a6295b30",
+      "completed": true,
+      "reconciled": true,
+      "traffic_objectives_met": true,
+      "summary": {
+        "counts": {
+          "submitted": 1200,
+          "completed": 1200,
+          "offered": 1200
+        },
+        "latency_ms": {
+          "p50": 11.946584022371809,
+          "p95": 20.889125013489718,
+          "p99": 86.39787500724339,
+          "p99_9": 205.36945899948478
+        },
+        "latency_by_operation_ms": {
+          "command": {
+            "p50": 15.97812499967688,
+            "p95": 23.20833402336575,
+            "p99": 145.48529202001959,
+            "p99_9": 215.35233400645737
+          },
+          "query": {
+            "p50": 8.733500016386841,
+            "p95": 12.439834018010743,
+            "p99": 13.714417011939872,
+            "p99_9": 86.39787500724339
+          }
+        },
+        "completed_per_second": 10.0,
+        "offered_per_second": 10.0,
+        "error_fraction": 0.0
+      },
+      "commands_including_seed": 923,
+      "queries": 727,
+      "replicas": 450,
+      "placement": [
+        {
+          "node": 1,
+          "leader_cells": 30,
+          "replica_cells": 90
+        },
+        {
+          "node": 2,
+          "leader_cells": 30,
+          "replica_cells": 90
+        },
+        {
+          "node": 3,
+          "leader_cells": 30,
+          "replica_cells": 90
+        },
+        {
+          "node": 4,
+          "leader_cells": 30,
+          "replica_cells": 90
+        },
+        {
+          "node": 5,
+          "leader_cells": 30,
+          "replica_cells": 90
+        }
+      ],
+      "memory_peak_bytes": [
+        41156608,
+        41742336,
+        43708416,
+        38379520,
+        35717120
+      ],
+      "cleanup": [
+        {
+          "container": "cellar-mr14-b3a809c58b380519ce9bfcb0-node5",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-b3a809c58b380519ce9bfcb0-node4",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-b3a809c58b380519ce9bfcb0-node3",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-b3a809c58b380519ce9bfcb0-node2",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-b3a809c58b380519ce9bfcb0-node1",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-b3a809c58b380519ce9bfcb0-store",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        }
+      ]
+    },
+    {
+      "role": "original-repeat",
+      "host_environment": {
+        "before": {
+          "unix_time": 1792693936.2364469,
+          "platform": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+          "hardware_and_swap": "hw.ncpu: 12\nhw.memsize: 34359738368\nvm.swapusage: total = 13312.00M  used = 12350.44M  free = 961.56M  (encrypted)\n",
+          "load": "11:32  up 1 day, 12:51, 3 users, load averages: 3.72 9.26 9.64\n",
+          "vm_statistics": "Mach Virtual Memory Statistics: (page size of 16384 bytes)\nPages free:                                    20759.\nPages active:                                 459691.\nPages inactive:                               451746.\nPages speculative:                              7398.\nPages throttled:                                   0.\nPages wired down:                             169423.\nPages purgeable:                                1818.\n\"Translation faults\":                     4237577574.\nPages copy-on-write:                       172624199.\nPages zero filled:                        2047840099.\nPages reactivated:                         390366142.\nPages purged:                               10783182.\nFile-backed pages:                            301828.\nAnonymous pages:                              617007.\nPages stored in compressor:                  2662403.\nPages occupied by compressor:                 951782.\nDecompressions:                            307787992.\nCompressions:                              358296185.\nPageins:                                   135424158.\nPageouts:                                     862600.\nSwapins:                                     7954438.\nSwapouts:                                    9376767.\n"
+        },
+        "note": "Shared Mac and other independent Colima profiles; only cellar-multi-raft controlled. No steady-state capacity or causal speedup claim.",
+        "after": {
+          "unix_time": 1792694115.847767,
+          "platform": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+          "hardware_and_swap": "hw.ncpu: 12\nhw.memsize: 34359738368\nvm.swapusage: total = 15360.00M  used = 14529.38M  free = 830.62M  (encrypted)\n",
+          "load": "11:35  up 1 day, 12:54, 3 users, load averages: 6.47 7.48 8.76\n",
+          "vm_statistics": "Mach Virtual Memory Statistics: (page size of 16384 bytes)\nPages free:                                    14753.\nPages active:                                 454858.\nPages inactive:                               444347.\nPages speculative:                              9159.\nPages throttled:                                   0.\nPages wired down:                             170826.\nPages purgeable:                                   2.\n\"Translation faults\":                     4244800722.\nPages copy-on-write:                       172761902.\nPages zero filled:                        2051384607.\nPages reactivated:                         391902318.\nPages purged:                               10810224.\nFile-backed pages:                            433993.\nAnonymous pages:                              474371.\nPages stored in compressor:                  2973121.\nPages occupied by compressor:                 966711.\nDecompressions:                            308670780.\nCompressions:                              359774361.\nPageins:                                   136148569.\nPageouts:                                     868861.\nSwapins:                                     7968297.\nSwapouts:                                    9531803.\n"
+        }
+      },
+      "run": "mr14-wake-baseline-local-five-s3-20261022-001",
+      "profile": "local-five-s3",
+      "build": {
+        "image_id": "sha256:39a5a90ecbc87a11ffef5da4648be0a15ff0eaa607246d4c5c43ea305b620c47",
+        "binary_sha256": "9f627e8325291526a05c36978672027d7ff351e67be528aea1d367e301e63df8",
+        "source_manifest_sha256": "3162b6d12ddffda99154ef7d77a3558d239b70f10eb4b4a773f829517798c9d0",
+        "build_profile": "lab",
+        "source_revision": "bd7868f03db1b58437892526ffebabdabe0453a7",
+        "working_tree_dirty": false
+      },
+      "profile_sha256": "5b5547af2452ea23ad60e48389a355be9c782f2df4085676646b51fde5314183",
+      "completed": true,
+      "reconciled": true,
+      "traffic_objectives_met": false,
+      "summary": {
+        "counts": {
+          "submitted": 1158,
+          "completed": 1158,
+          "generator_rejected": 42,
+          "offered": 1200
+        },
+        "latency_ms": {
+          "p50": 44.79508301592716,
+          "p95": 154.70149999600835,
+          "p99": 367.62858299189816,
+          "p99_9": 1050.9997499932097
+        },
+        "latency_by_operation_ms": {
+          "command": {
+            "p50": 68.56366601423503,
+            "p95": 204.69991599675552,
+            "p99": 427.63700000941185,
+            "p99_9": 799.8597080120824
+          },
+          "query": {
+            "p50": 9.359833004418672,
+            "p95": 18.607583007536732,
+            "p99": 223.56187499826774,
+            "p99_9": 1057.7801250096002
+          }
+        },
+        "completed_per_second": 9.65,
+        "offered_per_second": 10.0,
+        "error_fraction": 0.035
+      },
+      "commands_including_seed": 892,
+      "queries": 701,
+      "replicas": 450,
+      "placement": [
+        {
+          "node": 1,
+          "leader_cells": 30,
+          "replica_cells": 90
+        },
+        {
+          "node": 2,
+          "leader_cells": 30,
+          "replica_cells": 90
+        },
+        {
+          "node": 3,
+          "leader_cells": 30,
+          "replica_cells": 90
+        },
+        {
+          "node": 4,
+          "leader_cells": 30,
+          "replica_cells": 90
+        },
+        {
+          "node": 5,
+          "leader_cells": 30,
+          "replica_cells": 90
+        }
+      ],
+      "memory_peak_bytes": [
+        39428096,
+        41193472,
+        43896832,
+        38707200,
+        35950592
+      ],
+      "cleanup": [
+        {
+          "container": "cellar-mr14-58338d38c7705684c0d67c0a-node5",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-58338d38c7705684c0d67c0a-node4",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-58338d38c7705684c0d67c0a-node3",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-58338d38c7705684c0d67c0a-node2",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-58338d38c7705684c0d67c0a-node1",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-58338d38c7705684c0d67c0a-store",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        }
+      ]
+    },
+    {
+      "role": "candidate-repeat",
+      "host_environment": {
+        "before": {
+          "unix_time": 1792694123.9507542,
+          "platform": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+          "hardware_and_swap": "hw.ncpu: 12\nhw.memsize: 34359738368\nvm.swapusage: total = 15360.00M  used = 14529.38M  free = 830.62M  (encrypted)\n",
+          "load": "11:35  up 1 day, 12:54, 3 users, load averages: 6.27 7.42 8.73\n",
+          "vm_statistics": "Mach Virtual Memory Statistics: (page size of 16384 bytes)\nPages free:                                     5927.\nPages active:                                 462512.\nPages inactive:                               440981.\nPages speculative:                             26053.\nPages throttled:                                   0.\nPages wired down:                             169840.\nPages purgeable:                                  26.\n\"Translation faults\":                     4245108591.\nPages copy-on-write:                       172769850.\nPages zero filled:                        2051589818.\nPages reactivated:                         391902320.\nPages purged:                               10810878.\nFile-backed pages:                            423671.\nAnonymous pages:                              505875.\nPages stored in compressor:                  2946679.\nPages occupied by compressor:                 955447.\nDecompressions:                            308696036.\nCompressions:                              359774362.\nPageins:                                   136156095.\nPageouts:                                     869153.\nSwapins:                                     7968473.\nSwapouts:                                    9531803.\n"
+        },
+        "note": "Shared Mac and other independent Colima profiles; only cellar-multi-raft controlled. No steady-state capacity or causal speedup claim.",
+        "after": {
+          "unix_time": 1792694294.23006,
+          "platform": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+          "hardware_and_swap": "hw.ncpu: 12\nhw.memsize: 34359738368\nvm.swapusage: total = 15360.00M  used = 14225.31M  free = 1134.69M  (encrypted)\n",
+          "load": "11:38  up 1 day, 12:57, 3 users, load averages: 3.65 6.14 7.98\n",
+          "vm_statistics": "Mach Virtual Memory Statistics: (page size of 16384 bytes)\nPages free:                                    42592.\nPages active:                                 495617.\nPages inactive:                               462948.\nPages speculative:                             31841.\nPages throttled:                                   0.\nPages wired down:                             175320.\nPages purgeable:                                1791.\n\"Translation faults\":                     4252933409.\nPages copy-on-write:                       173444111.\nPages zero filled:                        2053631588.\nPages reactivated:                         391903644.\nPages purged:                               10819404.\nFile-backed pages:                            423845.\nAnonymous pages:                              566561.\nPages stored in compressor:                  2705700.\nPages occupied by compressor:                 852549.\nDecompressions:                            308931793.\nCompressions:                              359774375.\nPageins:                                   136351929.\nPageouts:                                     870308.\nSwapins:                                     7990007.\nSwapouts:                                    9531803.\n"
+        }
+      },
+      "run": "mr14-wake-repeat-local-five-20261022-001",
+      "profile": "local-five",
+      "build": {
+        "image_id": "sha256:2e03432b3f196563943a14dadfc837742d770325ad0b5c364c012236429d4dbe",
+        "binary_sha256": "d5bf0b9a3dc66c62cf6af072eae4716bfe059c885859486c6640f7831795084d",
+        "source_manifest_sha256": "8b526ef52ef6755d4b72549d8a52c1962214f696182b6a6248e43b07592594c4",
+        "build_profile": "lab",
+        "source_revision": "8424f02a8fb3ebc77b333bcadbf2ad44825d0bcc",
+        "working_tree_dirty": false
+      },
+      "profile_sha256": "c1c3025c95109a618dd5d3d122e19630055563c1384abe57c8671cd8a6295b30",
+      "completed": true,
+      "reconciled": true,
+      "traffic_objectives_met": true,
+      "summary": {
+        "counts": {
+          "submitted": 1189,
+          "completed": 1189,
+          "generator_rejected": 11,
+          "offered": 1200
+        },
+        "latency_ms": {
+          "p50": 12.316457985434681,
+          "p95": 43.045041989536514,
+          "p99": 190.52674997946895,
+          "p99_9": 426.6378749976809
+        },
+        "latency_by_operation_ms": {
+          "command": {
+            "p50": 17.61899997946159,
+            "p95": 122.1076249959907,
+            "p99": 250.03633300075023,
+            "p99_9": 491.62895798799866
+          },
+          "query": {
+            "p50": 9.420166991183976,
+            "p95": 13.308207987577703,
+            "p99": 20.052416983531884,
+            "p99_9": 37.95324999373406
+          }
+        },
+        "completed_per_second": 9.908333333333333,
+        "offered_per_second": 10.0,
+        "error_fraction": 0.009166666666666667
+      },
+      "commands_including_seed": 912,
+      "queries": 723,
+      "replicas": 450,
+      "placement": [
+        {
+          "node": 1,
+          "leader_cells": 30,
+          "replica_cells": 90
+        },
+        {
+          "node": 2,
+          "leader_cells": 30,
+          "replica_cells": 90
+        },
+        {
+          "node": 3,
+          "leader_cells": 30,
+          "replica_cells": 90
+        },
+        {
+          "node": 4,
+          "leader_cells": 30,
+          "replica_cells": 90
+        },
+        {
+          "node": 5,
+          "leader_cells": 30,
+          "replica_cells": 90
+        }
+      ],
+      "memory_peak_bytes": [
+        39718912,
+        41938944,
+        44236800,
+        39301120,
+        36323328
+      ],
+      "cleanup": [
+        {
+          "container": "cellar-mr14-7f038770e61d4a87afb8adb3-node5",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-7f038770e61d4a87afb8adb3-node4",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-7f038770e61d4a87afb8adb3-node3",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-7f038770e61d4a87afb8adb3-node2",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-7f038770e61d4a87afb8adb3-node1",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-7f038770e61d4a87afb8adb3-store",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        }
+      ]
+    },
+    {
+      "role": "candidate-repeat",
+      "host_environment": {
+        "before": {
+          "unix_time": 1792694322.9119449,
+          "platform": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+          "hardware_and_swap": "hw.ncpu: 12\nhw.memsize: 34359738368\nvm.swapusage: total = 15360.00M  used = 14225.31M  free = 1134.69M  (encrypted)\n",
+          "load": "11:38  up 1 day, 12:57, 3 users, load averages: 3.02 5.76 7.78\n",
+          "vm_statistics": "Mach Virtual Memory Statistics: (page size of 16384 bytes)\nPages free:                                    32399.\nPages active:                                 502553.\nPages inactive:                               467974.\nPages speculative:                             36588.\nPages throttled:                                   0.\nPages wired down:                             170339.\nPages purgeable:                                1673.\n\"Translation faults\":                     4253093899.\nPages copy-on-write:                       173455661.\nPages zero filled:                        2053689614.\nPages reactivated:                         391903806.\nPages purged:                               10821297.\nFile-backed pages:                            429475.\nAnonymous pages:                              577640.\nPages stored in compressor:                  2700648.\nPages occupied by compressor:                 850830.\nDecompressions:                            308936792.\nCompressions:                              359774375.\nPageins:                                   136363740.\nPageouts:                                     870308.\nSwapins:                                     7990371.\nSwapouts:                                    9531803.\n"
+        },
+        "note": "Shared Mac and other independent Colima profiles; only cellar-multi-raft controlled. No steady-state capacity or causal speedup claim.",
+        "after": {
+          "unix_time": 1792694492.9342022,
+          "platform": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+          "hardware_and_swap": "hw.ncpu: 12\nhw.memsize: 34359738368\nvm.swapusage: total = 15360.00M  used = 13993.31M  free = 1366.69M  (encrypted)\n",
+          "load": "11:41  up 1 day, 13 hrs, 3 users, load averages: 4.13 4.65 6.92\n",
+          "vm_statistics": "Mach Virtual Memory Statistics: (page size of 16384 bytes)\nPages free:                                    29915.\nPages active:                                 456069.\nPages inactive:                               390657.\nPages speculative:                             65479.\nPages throttled:                                   0.\nPages wired down:                             173036.\nPages purgeable:                                  76.\n\"Translation faults\":                     4256028051.\nPages copy-on-write:                       173579907.\nPages zero filled:                        2054933813.\nPages reactivated:                         392283024.\nPages purged:                               10845648.\nFile-backed pages:                            394690.\nAnonymous pages:                              517515.\nPages stored in compressor:                  2860539.\nPages occupied by compressor:                 945456.\nDecompressions:                            309184507.\nCompressions:                              360228644.\nPageins:                                   136569502.\nPageouts:                                     871118.\nSwapins:                                     8004057.\nSwapouts:                                    9531803.\n"
+        }
+      },
+      "run": "mr14-wake-repeat-local-five-s3-20261022-001",
+      "profile": "local-five-s3",
+      "build": {
+        "image_id": "sha256:2e03432b3f196563943a14dadfc837742d770325ad0b5c364c012236429d4dbe",
+        "binary_sha256": "d5bf0b9a3dc66c62cf6af072eae4716bfe059c885859486c6640f7831795084d",
+        "source_manifest_sha256": "8b526ef52ef6755d4b72549d8a52c1962214f696182b6a6248e43b07592594c4",
+        "build_profile": "lab",
+        "source_revision": "8424f02a8fb3ebc77b333bcadbf2ad44825d0bcc",
+        "working_tree_dirty": false
+      },
+      "profile_sha256": "5b5547af2452ea23ad60e48389a355be9c782f2df4085676646b51fde5314183",
+      "completed": true,
+      "reconciled": true,
+      "traffic_objectives_met": true,
+      "summary": {
+        "counts": {
+          "submitted": 1194,
+          "completed": 1194,
+          "generator_rejected": 6,
+          "offered": 1200
+        },
+        "latency_ms": {
+          "p50": 23.285249999020152,
+          "p95": 56.135208008342374,
+          "p99": 160.8436250069616,
+          "p99_9": 241.39233300229535
+        },
+        "latency_by_operation_ms": {
+          "command": {
+            "p50": 37.58637500577322,
+            "p95": 124.85149999265843,
+            "p99": 205.5757500056643,
+            "p99_9": 315.22741699590995
+          },
+          "query": {
+            "p50": 8.460292016394533,
+            "p95": 13.10383300879181,
+            "p99": 14.966707996791229,
+            "p99_9": 20.363958011149208
+          }
+        },
+        "completed_per_second": 9.95,
+        "offered_per_second": 10.0,
+        "error_fraction": 0.005
+      },
+      "commands_including_seed": 919,
+      "queries": 724,
+      "replicas": 450,
+      "placement": [
+        {
+          "node": 1,
+          "leader_cells": 30,
+          "replica_cells": 90
+        },
+        {
+          "node": 2,
+          "leader_cells": 30,
+          "replica_cells": 90
+        },
+        {
+          "node": 3,
+          "leader_cells": 30,
+          "replica_cells": 90
+        },
+        {
+          "node": 4,
+          "leader_cells": 30,
+          "replica_cells": 90
+        },
+        {
+          "node": 5,
+          "leader_cells": 30,
+          "replica_cells": 90
+        }
+      ],
+      "memory_peak_bytes": [
+        39751680,
+        41648128,
+        44097536,
+        39120896,
+        35729408
+      ],
+      "cleanup": [
+        {
+          "container": "cellar-mr14-47846f57596e018299121054-node5",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-47846f57596e018299121054-node4",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-47846f57596e018299121054-node3",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-47846f57596e018299121054-node2",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-47846f57596e018299121054-node1",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-47846f57596e018299121054-store",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        }
+      ]
+    }
+  ],
+  "comparisons": {
+    "local-five": {
+      "earlier_original_to_candidate": {
+        "matched_contract": false,
+        "differences": {
+          "hardware": {
+            "left": {
+              "resources": {
+                "node_cpus": 1,
+                "node_memory_bytes": 3221225472,
+                "node_swap_bytes": 0,
+                "store_cpus": 2,
+                "store_memory_bytes": 4294967296
+              },
+              "vm": {
+                "cpus": 8,
+                "memory_bytes": 23036620800
+              },
+              "nodes": 5,
+              "failure_domains": 1,
+              "limits": [
+                {
+                  "NanoCpus": 1000000000,
+                  "CpusetCpus": "0",
+                  "Memory": 3221225472,
+                  "MemorySwap": 3221225472,
+                  "Tmpfs": {}
+                },
+                {
+                  "NanoCpus": 1000000000,
+                  "CpusetCpus": "1",
+                  "Memory": 3221225472,
+                  "MemorySwap": 3221225472,
+                  "Tmpfs": {}
+                },
+                {
+                  "NanoCpus": 1000000000,
+                  "CpusetCpus": "2",
+                  "Memory": 3221225472,
+                  "MemorySwap": 3221225472,
+                  "Tmpfs": {}
+                },
+                {
+                  "NanoCpus": 1000000000,
+                  "CpusetCpus": "3",
+                  "Memory": 3221225472,
+                  "MemorySwap": 3221225472,
+                  "Tmpfs": {}
+                },
+                {
+                  "NanoCpus": 1000000000,
+                  "CpusetCpus": "4",
+                  "Memory": 3221225472,
+                  "MemorySwap": 3221225472,
+                  "Tmpfs": {}
+                }
+              ]
+            },
+            "right": {
+              "resources": {
+                "node_cpus": 1,
+                "node_memory_bytes": 3221225472,
+                "node_swap_bytes": 0,
+                "store_cpus": 2,
+                "store_memory_bytes": 4294967296
+              },
+              "vm": {
+                "cpus": 8,
+                "memory_bytes": 23036628992
+              },
+              "nodes": 5,
+              "failure_domains": 1,
+              "limits": [
+                {
+                  "NanoCpus": 1000000000,
+                  "CpusetCpus": "0",
+                  "Memory": 3221225472,
+                  "MemorySwap": 3221225472,
+                  "Tmpfs": {}
+                },
+                {
+                  "NanoCpus": 1000000000,
+                  "CpusetCpus": "1",
+                  "Memory": 3221225472,
+                  "MemorySwap": 3221225472,
+                  "Tmpfs": {}
+                },
+                {
+                  "NanoCpus": 1000000000,
+                  "CpusetCpus": "2",
+                  "Memory": 3221225472,
+                  "MemorySwap": 3221225472,
+                  "Tmpfs": {}
+                },
+                {
+                  "NanoCpus": 1000000000,
+                  "CpusetCpus": "3",
+                  "Memory": 3221225472,
+                  "MemorySwap": 3221225472,
+                  "Tmpfs": {}
+                },
+                {
+                  "NanoCpus": 1000000000,
+                  "CpusetCpus": "4",
+                  "Memory": 3221225472,
+                  "MemorySwap": 3221225472,
+                  "Tmpfs": {}
+                }
+              ]
+            }
+          },
+          "build_profile": {
+            "left": {
+              "profile": "lab",
+              "source_manifest": "3162b6d12ddffda99154ef7d77a3558d239b70f10eb4b4a773f829517798c9d0",
+              "binary_sha256": "9f627e8325291526a05c36978672027d7ff351e67be528aea1d367e301e63df8"
+            },
+            "right": {
+              "profile": "lab",
+              "source_manifest": "8b526ef52ef6755d4b72549d8a52c1962214f696182b6a6248e43b07592594c4",
+              "binary_sha256": "d5bf0b9a3dc66c62cf6af072eae4716bfe059c885859486c6640f7831795084d"
+            }
+          }
+        },
+        "limitation": "These observations are not an equivalent-guarantee speedup."
+      },
+      "repeated_original_to_candidate": {
+        "matched_contract": false,
+        "differences": {
+          "build_profile": {
+            "left": {
+              "profile": "lab",
+              "source_manifest": "3162b6d12ddffda99154ef7d77a3558d239b70f10eb4b4a773f829517798c9d0",
+              "binary_sha256": "9f627e8325291526a05c36978672027d7ff351e67be528aea1d367e301e63df8"
+            },
+            "right": {
+              "profile": "lab",
+              "source_manifest": "8b526ef52ef6755d4b72549d8a52c1962214f696182b6a6248e43b07592594c4",
+              "binary_sha256": "d5bf0b9a3dc66c62cf6af072eae4716bfe059c885859486c6640f7831795084d"
+            }
+          }
+        },
+        "limitation": "These observations are not an equivalent-guarantee speedup."
+      },
+      "original_variability": {
+        "matched_contract": false,
+        "differences": {
+          "hardware": {
+            "left": {
+              "resources": {
+                "node_cpus": 1,
+                "node_memory_bytes": 3221225472,
+                "node_swap_bytes": 0,
+                "store_cpus": 2,
+                "store_memory_bytes": 4294967296
+              },
+              "vm": {
+                "cpus": 8,
+                "memory_bytes": 23036620800
+              },
+              "nodes": 5,
+              "failure_domains": 1,
+              "limits": [
+                {
+                  "NanoCpus": 1000000000,
+                  "CpusetCpus": "0",
+                  "Memory": 3221225472,
+                  "MemorySwap": 3221225472,
+                  "Tmpfs": {}
+                },
+                {
+                  "NanoCpus": 1000000000,
+                  "CpusetCpus": "1",
+                  "Memory": 3221225472,
+                  "MemorySwap": 3221225472,
+                  "Tmpfs": {}
+                },
+                {
+                  "NanoCpus": 1000000000,
+                  "CpusetCpus": "2",
+                  "Memory": 3221225472,
+                  "MemorySwap": 3221225472,
+                  "Tmpfs": {}
+                },
+                {
+                  "NanoCpus": 1000000000,
+                  "CpusetCpus": "3",
+                  "Memory": 3221225472,
+                  "MemorySwap": 3221225472,
+                  "Tmpfs": {}
+                },
+                {
+                  "NanoCpus": 1000000000,
+                  "CpusetCpus": "4",
+                  "Memory": 3221225472,
+                  "MemorySwap": 3221225472,
+                  "Tmpfs": {}
+                }
+              ]
+            },
+            "right": {
+              "resources": {
+                "node_cpus": 1,
+                "node_memory_bytes": 3221225472,
+                "node_swap_bytes": 0,
+                "store_cpus": 2,
+                "store_memory_bytes": 4294967296
+              },
+              "vm": {
+                "cpus": 8,
+                "memory_bytes": 23036628992
+              },
+              "nodes": 5,
+              "failure_domains": 1,
+              "limits": [
+                {
+                  "NanoCpus": 1000000000,
+                  "CpusetCpus": "0",
+                  "Memory": 3221225472,
+                  "MemorySwap": 3221225472,
+                  "Tmpfs": {}
+                },
+                {
+                  "NanoCpus": 1000000000,
+                  "CpusetCpus": "1",
+                  "Memory": 3221225472,
+                  "MemorySwap": 3221225472,
+                  "Tmpfs": {}
+                },
+                {
+                  "NanoCpus": 1000000000,
+                  "CpusetCpus": "2",
+                  "Memory": 3221225472,
+                  "MemorySwap": 3221225472,
+                  "Tmpfs": {}
+                },
+                {
+                  "NanoCpus": 1000000000,
+                  "CpusetCpus": "3",
+                  "Memory": 3221225472,
+                  "MemorySwap": 3221225472,
+                  "Tmpfs": {}
+                },
+                {
+                  "NanoCpus": 1000000000,
+                  "CpusetCpus": "4",
+                  "Memory": 3221225472,
+                  "MemorySwap": 3221225472,
+                  "Tmpfs": {}
+                }
+              ]
+            }
+          }
+        },
+        "limitation": "These observations are not an equivalent-guarantee speedup."
+      },
+      "candidate_variability": {
+        "matched_contract": true,
+        "throughput_ratio": 1.0162393162393162,
+        "limitation": "Matching recorded inputs does not establish steady state, instrumentation overhead or causal performance on a shared host."
+      },
+      "repeated_original_to_repeated_candidate": {
+        "matched_contract": false,
+        "differences": {
+          "build_profile": {
+            "left": {
+              "profile": "lab",
+              "source_manifest": "3162b6d12ddffda99154ef7d77a3558d239b70f10eb4b4a773f829517798c9d0",
+              "binary_sha256": "9f627e8325291526a05c36978672027d7ff351e67be528aea1d367e301e63df8"
+            },
+            "right": {
+              "profile": "lab",
+              "source_manifest": "8b526ef52ef6755d4b72549d8a52c1962214f696182b6a6248e43b07592594c4",
+              "binary_sha256": "d5bf0b9a3dc66c62cf6af072eae4716bfe059c885859486c6640f7831795084d"
+            }
+          }
+        },
+        "limitation": "These observations are not an equivalent-guarantee speedup."
+      }
+    },
+    "local-five-s3": {
+      "earlier_original_to_candidate": {
+        "matched_contract": false,
+        "differences": {
+          "hardware": {
+            "left": {
+              "resources": {
+                "node_cpus": 1,
+                "node_memory_bytes": 3221225472,
+                "node_swap_bytes": 0,
+                "store_cpus": 2,
+                "store_memory_bytes": 4294967296
+              },
+              "vm": {
+                "cpus": 8,
+                "memory_bytes": 23036620800
+              },
+              "nodes": 5,
+              "failure_domains": 1,
+              "limits": [
+                {
+                  "NanoCpus": 1000000000,
+                  "CpusetCpus": "0",
+                  "Memory": 3221225472,
+                  "MemorySwap": 3221225472,
+                  "Tmpfs": {}
+                },
+                {
+                  "NanoCpus": 1000000000,
+                  "CpusetCpus": "1",
+                  "Memory": 3221225472,
+                  "MemorySwap": 3221225472,
+                  "Tmpfs": {}
+                },
+                {
+                  "NanoCpus": 1000000000,
+                  "CpusetCpus": "2",
+                  "Memory": 3221225472,
+                  "MemorySwap": 3221225472,
+                  "Tmpfs": {}
+                },
+                {
+                  "NanoCpus": 1000000000,
+                  "CpusetCpus": "3",
+                  "Memory": 3221225472,
+                  "MemorySwap": 3221225472,
+                  "Tmpfs": {}
+                },
+                {
+                  "NanoCpus": 1000000000,
+                  "CpusetCpus": "4",
+                  "Memory": 3221225472,
+                  "MemorySwap": 3221225472,
+                  "Tmpfs": {}
+                }
+              ]
+            },
+            "right": {
+              "resources": {
+                "node_cpus": 1,
+                "node_memory_bytes": 3221225472,
+                "node_swap_bytes": 0,
+                "store_cpus": 2,
+                "store_memory_bytes": 4294967296
+              },
+              "vm": {
+                "cpus": 8,
+                "memory_bytes": 23036628992
+              },
+              "nodes": 5,
+              "failure_domains": 1,
+              "limits": [
+                {
+                  "NanoCpus": 1000000000,
+                  "CpusetCpus": "0",
+                  "Memory": 3221225472,
+                  "MemorySwap": 3221225472,
+                  "Tmpfs": {}
+                },
+                {
+                  "NanoCpus": 1000000000,
+                  "CpusetCpus": "1",
+                  "Memory": 3221225472,
+                  "MemorySwap": 3221225472,
+                  "Tmpfs": {}
+                },
+                {
+                  "NanoCpus": 1000000000,
+                  "CpusetCpus": "2",
+                  "Memory": 3221225472,
+                  "MemorySwap": 3221225472,
+                  "Tmpfs": {}
+                },
+                {
+                  "NanoCpus": 1000000000,
+                  "CpusetCpus": "3",
+                  "Memory": 3221225472,
+                  "MemorySwap": 3221225472,
+                  "Tmpfs": {}
+                },
+                {
+                  "NanoCpus": 1000000000,
+                  "CpusetCpus": "4",
+                  "Memory": 3221225472,
+                  "MemorySwap": 3221225472,
+                  "Tmpfs": {}
+                }
+              ]
+            }
+          },
+          "build_profile": {
+            "left": {
+              "profile": "lab",
+              "source_manifest": "3162b6d12ddffda99154ef7d77a3558d239b70f10eb4b4a773f829517798c9d0",
+              "binary_sha256": "9f627e8325291526a05c36978672027d7ff351e67be528aea1d367e301e63df8"
+            },
+            "right": {
+              "profile": "lab",
+              "source_manifest": "8b526ef52ef6755d4b72549d8a52c1962214f696182b6a6248e43b07592594c4",
+              "binary_sha256": "d5bf0b9a3dc66c62cf6af072eae4716bfe059c885859486c6640f7831795084d"
+            }
+          }
+        },
+        "limitation": "These observations are not an equivalent-guarantee speedup."
+      },
+      "repeated_original_to_candidate": {
+        "matched_contract": false,
+        "differences": {
+          "build_profile": {
+            "left": {
+              "profile": "lab",
+              "source_manifest": "3162b6d12ddffda99154ef7d77a3558d239b70f10eb4b4a773f829517798c9d0",
+              "binary_sha256": "9f627e8325291526a05c36978672027d7ff351e67be528aea1d367e301e63df8"
+            },
+            "right": {
+              "profile": "lab",
+              "source_manifest": "8b526ef52ef6755d4b72549d8a52c1962214f696182b6a6248e43b07592594c4",
+              "binary_sha256": "d5bf0b9a3dc66c62cf6af072eae4716bfe059c885859486c6640f7831795084d"
+            }
+          }
+        },
+        "limitation": "These observations are not an equivalent-guarantee speedup."
+      },
+      "original_variability": {
+        "matched_contract": false,
+        "differences": {
+          "hardware": {
+            "left": {
+              "resources": {
+                "node_cpus": 1,
+                "node_memory_bytes": 3221225472,
+                "node_swap_bytes": 0,
+                "store_cpus": 2,
+                "store_memory_bytes": 4294967296
+              },
+              "vm": {
+                "cpus": 8,
+                "memory_bytes": 23036620800
+              },
+              "nodes": 5,
+              "failure_domains": 1,
+              "limits": [
+                {
+                  "NanoCpus": 1000000000,
+                  "CpusetCpus": "0",
+                  "Memory": 3221225472,
+                  "MemorySwap": 3221225472,
+                  "Tmpfs": {}
+                },
+                {
+                  "NanoCpus": 1000000000,
+                  "CpusetCpus": "1",
+                  "Memory": 3221225472,
+                  "MemorySwap": 3221225472,
+                  "Tmpfs": {}
+                },
+                {
+                  "NanoCpus": 1000000000,
+                  "CpusetCpus": "2",
+                  "Memory": 3221225472,
+                  "MemorySwap": 3221225472,
+                  "Tmpfs": {}
+                },
+                {
+                  "NanoCpus": 1000000000,
+                  "CpusetCpus": "3",
+                  "Memory": 3221225472,
+                  "MemorySwap": 3221225472,
+                  "Tmpfs": {}
+                },
+                {
+                  "NanoCpus": 1000000000,
+                  "CpusetCpus": "4",
+                  "Memory": 3221225472,
+                  "MemorySwap": 3221225472,
+                  "Tmpfs": {}
+                }
+              ]
+            },
+            "right": {
+              "resources": {
+                "node_cpus": 1,
+                "node_memory_bytes": 3221225472,
+                "node_swap_bytes": 0,
+                "store_cpus": 2,
+                "store_memory_bytes": 4294967296
+              },
+              "vm": {
+                "cpus": 8,
+                "memory_bytes": 23036628992
+              },
+              "nodes": 5,
+              "failure_domains": 1,
+              "limits": [
+                {
+                  "NanoCpus": 1000000000,
+                  "CpusetCpus": "0",
+                  "Memory": 3221225472,
+                  "MemorySwap": 3221225472,
+                  "Tmpfs": {}
+                },
+                {
+                  "NanoCpus": 1000000000,
+                  "CpusetCpus": "1",
+                  "Memory": 3221225472,
+                  "MemorySwap": 3221225472,
+                  "Tmpfs": {}
+                },
+                {
+                  "NanoCpus": 1000000000,
+                  "CpusetCpus": "2",
+                  "Memory": 3221225472,
+                  "MemorySwap": 3221225472,
+                  "Tmpfs": {}
+                },
+                {
+                  "NanoCpus": 1000000000,
+                  "CpusetCpus": "3",
+                  "Memory": 3221225472,
+                  "MemorySwap": 3221225472,
+                  "Tmpfs": {}
+                },
+                {
+                  "NanoCpus": 1000000000,
+                  "CpusetCpus": "4",
+                  "Memory": 3221225472,
+                  "MemorySwap": 3221225472,
+                  "Tmpfs": {}
+                }
+              ]
+            }
+          }
+        },
+        "limitation": "These observations are not an equivalent-guarantee speedup."
+      },
+      "candidate_variability": {
+        "matched_contract": true,
+        "throughput_ratio": 1.0455341506129596,
+        "limitation": "Matching recorded inputs does not establish steady state, instrumentation overhead or causal performance on a shared host."
+      },
+      "repeated_original_to_repeated_candidate": {
+        "matched_contract": false,
+        "differences": {
+          "build_profile": {
+            "left": {
+              "profile": "lab",
+              "source_manifest": "3162b6d12ddffda99154ef7d77a3558d239b70f10eb4b4a773f829517798c9d0",
+              "binary_sha256": "9f627e8325291526a05c36978672027d7ff351e67be528aea1d367e301e63df8"
+            },
+            "right": {
+              "profile": "lab",
+              "source_manifest": "8b526ef52ef6755d4b72549d8a52c1962214f696182b6a6248e43b07592594c4",
+              "binary_sha256": "d5bf0b9a3dc66c62cf6af072eae4716bfe059c885859486c6640f7831795084d"
+            }
+          }
+        },
+        "limitation": "These observations are not an equivalent-guarantee speedup."
+      }
+    }
+  },
+  "original_repeat_source_revision": "bd7868f03db1b58437892526ffebabdabe0453a7",
+  "measurement_interpretation": "The focused regression establishes removal of timer dependence. The final fixed-image repeats meet both short-run traffic targets, while the first fixed-image pair misses both. All observations remain retained. Varying host load, swap and sync timing prevent attribution; the fixed image is not claimed faster or performance-qualified.",
+  "limitations": [
+    "The focused case demonstrates avoidable timer dependence. Shared-Mac before/after observations, host swap and different binaries do not establish a controlled causal speedup or steady state.",
+    "The unchanged local profiles run five 1-vCPU/3-GiB/no-swap Cellar containers plus RustFS in one Colima VM. They do not qualify independent failure domains or Amazon S3.",
+    "All exact containers and the owned profile are stopped; volumes and raw evidence remain. Other profiles are unchanged."
+  ],
+  "remaining": [
+    "Sustained S3 traffic acceptance, controlled slow-follower and matched-contract benchmarks, overhead/full-device attribution and density/Q1 qualification.",
+    "Q1 remains six processes and 10,000 three-voter cells against the unchanged 4,096-group host bound and agreed five-node physical ceiling.",
+    "MR-13 operations/restore and MR-15 through MR-17 remain open."
+  ],
+  "package_inventory_update": {
+    "from": 145,
+    "to": 146,
+    "reason": "Register the new required wake-up regression; update the exact plan inventory assertion.",
+    "initial_failed_log_member": "package-inventory-before-count-update",
+    "final_plan_tests_passed": 17
+  },
+  "validation_environment": {
+    "platform": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+    "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+    "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)",
+    "embedded_python": "Python 3.14.6",
+    "environment_overrides": {
+      "RUSTUP_TOOLCHAIN": "1.98.1",
+      "CARGO_TARGET_DIR": "$HOME/Workspace/crabbuild-target/cellar-23c7-multi-raft",
+      "CARGO_PROFILE_DEV_DEBUG": "0",
+      "CARGO_PROFILE_TEST_DEBUG": "0",
+      "CARGO_INCREMENTAL": "0",
+      "CARGO_BUILD_JOBS": "3",
+      "PYO3_PYTHON": "/opt/homebrew/bin/python3.14"
+    },
+    "ignored_process_helpers": 10,
+    "ignored_scope": "Process-helper entry points run through their parent crash/recovery cases; not independent passing cases."
+  }
+}

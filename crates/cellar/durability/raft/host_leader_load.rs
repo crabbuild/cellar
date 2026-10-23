@@ -1,8 +1,57 @@
 //! Node-wide leadership observations, collected in bounded owned batches.
 //! A count is published only after every attached history was sampled.
 use super::*;
+use crate::application::consensus::{RaftGroupResources, RaftReplicaRole};
 use crate::raft::inspection::LeaderLoad;
 use std::ops::Bound::{Excluded, Unbounded};
+
+/// Metadata only: retaining an SDK handle cannot retain a group or engine.
+#[derive(Default)]
+pub(crate) struct GroupResourceObserver(Mutex<Option<(u64, RaftGroupResources)>>);
+
+impl GroupResourceObserver {
+    pub(crate) fn capture(&self, now: u64) -> Option<RaftGroupResources> {
+        let (started, mut sample) = (*self.0.lock().ok()?)?;
+        sample.sample_age_ms = now.checked_sub(started)?;
+        Some(sample)
+    }
+}
+
+fn accumulate(total: &mut RaftGroupResources, value: RaftGroupResources) -> Option<()> {
+    for (sum, value) in [
+        (&mut total.leaders, value.leaders),
+        (&mut total.voters, value.voters),
+        (&mut total.learners, value.learners),
+        (&mut total.removed, value.removed),
+        (&mut total.unknown, value.unknown),
+        (&mut total.coherent_images, value.coherent_images),
+        (&mut total.historical_queries, value.historical_queries),
+        (
+            &mut total.recent_source_queries,
+            value.recent_source_queries,
+        ),
+        (&mut total.failed, value.failed),
+        (&mut total.retired, value.retired),
+        (&mut total.sql_busy, value.sql_busy),
+        (&mut total.pending_commands, value.pending_commands),
+        (&mut total.incoming_seeds, value.incoming_seeds),
+        (&mut total.applying, value.applying),
+        (&mut total.archive_pending, value.archive_pending),
+    ] {
+        *sum = sum.checked_add(value)?;
+    }
+    total.apply_lag_entries = total
+        .apply_lag_entries
+        .checked_add(value.apply_lag_entries)?;
+    total.archive_lag_entries = total
+        .archive_lag_entries
+        .checked_add(value.archive_lag_entries)?;
+    total.max_apply_lag_entries = total.max_apply_lag_entries.max(value.max_apply_lag_entries);
+    total.max_archive_lag_entries = total
+        .max_archive_lag_entries
+        .max(value.max_archive_lag_entries);
+    Some(())
+}
 
 #[derive(Clone, Debug)]
 pub struct RaftInspectionScanOptions {
@@ -47,12 +96,14 @@ struct Cycle {
     cursor: Option<GroupScope>,
     visited: usize,
     leaders: u32,
+    resources: RaftGroupResources,
 }
 
 struct Cached {
     population: Population,
     started: u64,
     leaders: u32,
+    resources: RaftGroupResources,
 }
 
 pub(super) struct Scanner {
@@ -124,6 +175,12 @@ impl Scanner {
                 cursor: None,
                 visited: 0,
                 leaders: 0,
+                resources: RaftGroupResources {
+                    durable_groups: population.groups,
+                    attached_groups: population.cells,
+                    parked_groups: population.groups - population.cells,
+                    ..Default::default()
+                },
             });
         }
         if population.cells == 0 {
@@ -139,6 +196,7 @@ impl Scanner {
                 population: cycle.population,
                 started: cycle.started,
                 leaders: cycle.leaders,
+                resources: cycle.resources,
             });
         }
         self.busy = false;
@@ -151,6 +209,7 @@ impl Scanner {
         now: u64,
         population: Population,
         initializing: bool,
+        mut capture: impl FnMut(&GroupStatus) -> Option<RaftGroupResources>,
     ) {
         let Some(cycle) = self.cycle.as_mut() else {
             return;
@@ -184,6 +243,13 @@ impl Scanner {
                     return;
                 }
             };
+            if capture(&status)
+                .and_then(|value| accumulate(&mut cycle.resources, value))
+                .is_none()
+            {
+                self.failed(now);
+                return;
+            }
             cycle.cursor = Some(identity.scope);
             cycle.visited += 1;
             cycle.leaders += u32::from(status.is_leader);
@@ -229,7 +295,15 @@ impl Driver {
         let Some(scanner) = self.leader_load.as_mut() else {
             return;
         };
-        if !scanner.begin(now, population, self.activating.is_some()) {
+        let begins = scanner.begin(now, population, self.activating.is_some());
+        if let Ok(mut source) = self.local.groups.0.lock() {
+            *source = scanner
+                .cached
+                .as_ref()
+                .filter(|cached| cached.population == population && self.activating.is_none())
+                .map(|cached| (cached.started, cached.resources));
+        }
+        if !begins {
             return;
         }
         let Some(cycle) = scanner.cycle.as_ref() else {
@@ -282,7 +356,73 @@ impl Driver {
             groups,
         };
         if let Some(scanner) = self.leader_load.as_mut() {
-            scanner.accept(completed, now, population, self.activating.is_some());
+            scanner.accept(
+                completed,
+                now,
+                population,
+                self.activating.is_some(),
+                |status| {
+                    let cell = self.cells.get(&status.replica.scope)?;
+                    if cell.group.identity() != &status.replica {
+                        return None;
+                    }
+                    let registered = self
+                        .local
+                        .bindings
+                        .get(&(
+                            status.replica.scope.namespace,
+                            status.replica.scope.cell.clone(),
+                        ))
+                        .is_some_and(|binding| binding.class.has_queries());
+                    let (role, queries) = readiness::capture(
+                        cell,
+                        status,
+                        now,
+                        self.options.stale_source_timeout_ms,
+                        self.local.admission.is_draining(),
+                        registered,
+                    )
+                    .ok()?;
+                    let apply_lag = status
+                        .committed
+                        .get()
+                        .checked_sub(status.applied.index.get())?;
+                    let archive_lag = status.committed.get().saturating_sub(cell.archived.get());
+                    Some(RaftGroupResources {
+                        leaders: usize::from(role == RaftReplicaRole::Leader),
+                        voters: usize::from(role == RaftReplicaRole::Voter),
+                        learners: usize::from(role == RaftReplicaRole::Learner),
+                        removed: usize::from(role == RaftReplicaRole::Removed),
+                        unknown: usize::from(role == RaftReplicaRole::Unknown),
+                        coherent_images: usize::from(queries.coherent_image),
+                        historical_queries: usize::from(queries.historical),
+                        recent_source_queries: usize::from(queries.recent_source),
+                        failed: usize::from(cell.failed),
+                        retired: usize::from(cell.retired),
+                        sql_busy: usize::from(cell.sql_busy),
+                        pending_commands: usize::from(cell.pending.is_some()),
+                        incoming_seeds: usize::from(cell.incoming.is_some()),
+                        applying: usize::from(
+                            cell.apply.is_some()
+                                || cell.publication.is_some()
+                                || cell.apply_inflight,
+                        ),
+                        archive_pending: usize::from(archive_lag > 0),
+                        apply_lag_entries: apply_lag,
+                        max_apply_lag_entries: apply_lag,
+                        archive_lag_entries: archive_lag,
+                        max_archive_lag_entries: archive_lag,
+                        ..Default::default()
+                    })
+                },
+            );
+            if let Ok(mut source) = self.local.groups.0.lock() {
+                *source = scanner
+                    .cached
+                    .as_ref()
+                    .filter(|cached| cached.population == population && self.activating.is_none())
+                    .map(|cached| (cached.started, cached.resources));
+            }
         }
     }
 }

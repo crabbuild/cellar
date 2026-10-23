@@ -1,5 +1,10 @@
 # Embedded fleet validation
 
+For MR-14 reference transitions, durable operation ledgers, explicit open-loop
+arrival accounting and executable freshness checks, use the
+[performance runner](raft-performance.md). It retains incomplete qualification
+gates and does not equate Quorum latency with S3-durable latency.
+
 For the independent consensus-backed workload, use the
 [native multi-Raft Colima/RustFS fixture](raft-README.md). It configures three
 1-vCPU/3-GiB nodes with 500 leaders per node and requires exact replica values

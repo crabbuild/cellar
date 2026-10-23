@@ -1,0 +1,556 @@
+{
+  "task_id": "MR-14",
+  "source_revision": "b6e6f797dab1f2e8292df18ea666ed54a2712cf6",
+  "completion": "partial",
+  "broad_validation_revision": "9e51538119a240f2a04fb0fdee1cfb3fd8ec7851",
+  "final_source_focused_passed": 47,
+  "final_source_tests": [
+    {
+      "target": "tests/native_raft_membership.rs",
+      "passed": 27,
+      "failed": 0,
+      "ignored": 1,
+      "binary_sha256": "cbeaf004ebb52ffb89c1458952fc180f08f0e4c303a5fdd18bce5a7a8fd640ea"
+    },
+    {
+      "target": "tests/native_raft_operations.rs",
+      "passed": 20,
+      "failed": 0,
+      "ignored": 0,
+      "binary_sha256": "dd61834fbeb561a0b7a140f178be285d04dca5515d1329923bbed37ccb77b6e7"
+    }
+  ],
+  "validation_revision_note": "The 690-case matrix uses 9e51538. Final source changes only fixture module wiring and the exact plan inventory count; 47 affected operations/membership cases and all-target/all-feature Clippy pass after that cleanup. The earlier duplicate-mod lint and stale expected-count failures remain in the logs.",
+  "scope": "Resolve the shutdown-handoff finding recorded during MR-14 performance instrumentation. Retain physical ownership, original per-group/Node deadlines and exact destination checks. This does not qualify performance or complete MR-13/MR-14.",
+  "environment": {
+    "system": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+    "validation": "Native embedded fixtures with actual SQLite/LTX, Raft-Engine and TLS. The deterministic capture gate uses the real node filesystem and an InMemory object store. No physical Colima run or cloud qualification was added."
+  },
+  "finding": {
+    "previous_record": "evidence/MR-14-io-metrics-progress.json",
+    "test": "node_shutdown_hands_off_to_published_voter",
+    "status": "reproduced and fixed",
+    "cause": "Node handoff advanced past a healthy leader whenever background SQL occupied its physical worker. The original loop and exact source trace showed sql_busy alone, and immediate zero-attempt/unavailable reporting.",
+    "fix": "Retain the current group and its original turn deadline while only SQL is busy. Waiting, inspection and transfer consume one shared one-second budget capped by the original Node deadline. Other ineligible states still refuse; worker completion does not renew either deadline.",
+    "bounds": "One existing cursor plus one optional deadline, no new task/queue per group, unchanged control reservations and eight-candidate limit. All term, membership, authorization, progress and publication checks remain unchanged."
+  },
+  "regressions": [
+    "A real immutable-image read holds SQL archive capture after all application work completes. The source keeps its turn for 600ms, then transfers to an authenticated caught-up published voter after release. Joined shutdown retains exact observations and the successor accepts the next command.",
+    "A permanently held capture exhausts the original one-second turn and reports one unavailable group with zero transfer attempts/acceptances/releases. SQL queue closure precedes physical reader release; final Node shutdown still joins the worker.",
+    "Both fixtures verify the held read belongs to an in-flight SQL archive capture, retain old-cut images outside the gate, and release held resources before asserting stop results.",
+    "The unchanged original scenario passes 80 in-process repetitions; final committed operations and membership targets retain its original strict assertions."
+  ],
+  "rust_passed": 690,
+  "rust_failed": 0,
+  "tests": [
+    {
+      "target": "unittests lib.rs",
+      "passed": 465,
+      "failed": 0,
+      "ignored": 0,
+      "binary_sha256": "482e41fbc56d649ea70e3190356221283e56af56524823a5a403303a1f6688c4"
+    },
+    {
+      "target": "unittests ../../tools/perf/raft_node.rs",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "binary_sha256": "a5dd961ca2570848dbf0e94196b0ed371d3d7a255e029fce49e56b608a839395"
+    },
+    {
+      "target": "tests/native_raft_archive.rs",
+      "passed": 30,
+      "failed": 0,
+      "ignored": 0,
+      "binary_sha256": "94102dcae75c3f31a79d2b951ddaad154435a8bb3b76a3c7bec1f3cb5539c1b3"
+    },
+    {
+      "target": "tests/native_raft_effects.rs",
+      "passed": 16,
+      "failed": 0,
+      "ignored": 0,
+      "binary_sha256": "f58582008210522b2724c9852db8a059beac42e70eda654a515a1a197f7fc94e"
+    },
+    {
+      "target": "tests/native_raft_execution.rs",
+      "passed": 17,
+      "failed": 0,
+      "ignored": 2,
+      "binary_sha256": "35e202a3ac53c361e1808960755c18667617d6b16b45f620a04e97c086c6d55b"
+    },
+    {
+      "target": "tests/native_raft_host.rs",
+      "passed": 27,
+      "failed": 0,
+      "ignored": 0,
+      "binary_sha256": "73cac9071a2e6fc9e1b2ade3ff7c6eeeff173dcdf6e6def9928c8ab7087e9f3c"
+    },
+    {
+      "target": "tests/native_raft_membership.rs",
+      "passed": 27,
+      "failed": 0,
+      "ignored": 1,
+      "binary_sha256": "7f509fc2d351d6c65762d1c410579015284fb42ce7e8cd256663579e823add10"
+    },
+    {
+      "target": "tests/native_raft_multigroup.rs",
+      "passed": 8,
+      "failed": 0,
+      "ignored": 1,
+      "binary_sha256": "ee88c0f8ca16d6a2d7e5defe8a2515bdb1fe51b66ee30c5324bef5d3d91dd44a"
+    },
+    {
+      "target": "tests/native_raft_operations.rs",
+      "passed": 20,
+      "failed": 0,
+      "ignored": 0,
+      "binary_sha256": "ad0e6db27a03f47052ce1055435000c6fb1959e30f0056f80ead02ed81ec7231"
+    },
+    {
+      "target": "tests/native_raft_reads.rs",
+      "passed": 20,
+      "failed": 0,
+      "ignored": 0,
+      "binary_sha256": "d1280adce832cafc99a9dbd2da75dcdf3575442446e92f66d915d9fbc7ba5a67"
+    },
+    {
+      "target": "tests/native_raft_snapshot.rs",
+      "passed": 42,
+      "failed": 0,
+      "ignored": 2,
+      "binary_sha256": "3011d73939566d6aada623bd748ea98ed9f2e207404c3bdcb5842bbf776fab0d"
+    },
+    {
+      "target": "tests/native_raft_storage.rs",
+      "passed": 17,
+      "failed": 0,
+      "ignored": 1,
+      "binary_sha256": "9f7b6e385a721ac0e5472688a51682df3a19f4f547996ea41bcbc4af4fbf8573"
+    }
+  ],
+  "python": {
+    "passed": 128,
+    "skipped": 1,
+    "skip_scope": "Existing opt-in Docker cache check."
+  },
+  "plan_tests_passed": 17,
+  "checks": [
+    {
+      "name": "matrix",
+      "source_revision": "9e51538119a240f2a04fb0fdee1cfb3fd8ec7851",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--all-features",
+        "--locked",
+        "--no-fail-fast",
+        "--lib",
+        "--bin",
+        "cellar-perf-raft",
+        "--test",
+        "native_raft_reads",
+        "--test",
+        "native_raft_operations",
+        "--test",
+        "native_raft_host",
+        "--test",
+        "native_raft_execution",
+        "--test",
+        "native_raft_archive",
+        "--test",
+        "native_raft_multigroup",
+        "--test",
+        "native_raft_membership",
+        "--test",
+        "native_raft_effects",
+        "--test",
+        "native_raft_snapshot",
+        "--test",
+        "native_raft_storage",
+        "--",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "exit_code": 0,
+      "duration_seconds": 652.197,
+      "sha256": "9994441277f33c8b12c973c918e52806557ae5d865e83f1eae6015079a59e711",
+      "log_member": "matrix",
+      "output": "evidence/MR-14-handoff-validation.json.gz"
+    },
+    {
+      "name": "clippy",
+      "source_revision": "9e51538119a240f2a04fb0fdee1cfb3fd8ec7851",
+      "command": [
+        "cargo",
+        "clippy",
+        "-p",
+        "cellar",
+        "--all-targets",
+        "--all-features",
+        "--locked",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 101,
+      "duration_seconds": 48.423,
+      "sha256": "5950f0b2a288e4b3fcb503a2a32f3f36fc1f12038debdcd922676b1fbde9f304",
+      "log_member": "clippy",
+      "output": "evidence/MR-14-handoff-validation.json.gz"
+    },
+    {
+      "name": "native-only",
+      "source_revision": "9e51538119a240f2a04fb0fdee1cfb3fd8ec7851",
+      "command": [
+        "cargo",
+        "check",
+        "-p",
+        "cellar",
+        "--no-default-features",
+        "--lib",
+        "--locked"
+      ],
+      "exit_code": 0,
+      "duration_seconds": 30.684,
+      "sha256": "bc6a48ac9e10411c55e40633ac74ee0ae382a6430f6c9a71d7da770272af3ed5",
+      "log_member": "native-only",
+      "output": "evidence/MR-14-handoff-validation.json.gz"
+    },
+    {
+      "name": "format",
+      "source_revision": "9e51538119a240f2a04fb0fdee1cfb3fd8ec7851",
+      "command": [
+        "cargo",
+        "format",
+        "--check"
+      ],
+      "exit_code": 0,
+      "duration_seconds": 44.359,
+      "sha256": "262e9f114908baa150ecdee443fa2a8ab02c38d93bdc349276e64ff17269b996",
+      "log_member": "format",
+      "output": "evidence/MR-14-handoff-validation.json.gz"
+    },
+    {
+      "name": "layout",
+      "source_revision": "9e51538119a240f2a04fb0fdee1cfb3fd8ec7851",
+      "command": [
+        "cargo",
+        "check-layout"
+      ],
+      "exit_code": 0,
+      "duration_seconds": 0.211,
+      "sha256": "56ad95513f8324f30719b8b597af12e1a442f554ff312cf0f509997ad2ede754",
+      "log_member": "layout",
+      "output": "evidence/MR-14-handoff-validation.json.gz"
+    },
+    {
+      "name": "dependencies",
+      "source_revision": "9e51538119a240f2a04fb0fdee1cfb3fd8ec7851",
+      "command": [
+        "python3",
+        "tools/check_native_dependencies.py"
+      ],
+      "exit_code": 0,
+      "duration_seconds": 0.258,
+      "sha256": "faf9bdb8df5819a63d590ede5d4a5f43eb4e8b00d8a6f44ccfb36bd8c4c5c238",
+      "log_member": "dependencies",
+      "output": "evidence/MR-14-handoff-validation.json.gz"
+    },
+    {
+      "name": "docs",
+      "source_revision": "9e51538119a240f2a04fb0fdee1cfb3fd8ec7851",
+      "command": [
+        "python3",
+        "tools/docs/check.py"
+      ],
+      "exit_code": 0,
+      "duration_seconds": 0.092,
+      "sha256": "701e55367b1b8c08dcd388c3084250c7209af81cb161e4ba73339783b537eeb3",
+      "log_member": "docs",
+      "output": "evidence/MR-14-handoff-validation.json.gz"
+    },
+    {
+      "name": "python",
+      "source_revision": "9e51538119a240f2a04fb0fdee1cfb3fd8ec7851",
+      "command": [
+        "python3",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "tools/perf"
+      ],
+      "exit_code": 0,
+      "duration_seconds": 2.262,
+      "sha256": "a150859395672aee5e77204b3a2cf350eccf42ac8c7f77d826fa124c5748e9d5",
+      "log_member": "python",
+      "output": "evidence/MR-14-handoff-validation.json.gz"
+    },
+    {
+      "name": "plan-tests",
+      "source_revision": "9e51538119a240f2a04fb0fdee1cfb3fd8ec7851",
+      "command": [
+        "python3",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "plans/multi-raft",
+        "-p",
+        "test_plan.py"
+      ],
+      "exit_code": 1,
+      "duration_seconds": 0.152,
+      "sha256": "c907fb82565b390427e0e38ac71d2887f8924c8c0a9a84d9e6769563625c5333",
+      "log_member": "plan-tests",
+      "output": "evidence/MR-14-handoff-validation.json.gz"
+    },
+    {
+      "name": "plan-validate",
+      "source_revision": "9e51538119a240f2a04fb0fdee1cfb3fd8ec7851",
+      "command": [
+        "python3",
+        "plans/multi-raft/plan.py",
+        "validate"
+      ],
+      "exit_code": 0,
+      "duration_seconds": 0.12,
+      "sha256": "f4acd18e116658a2e5be3ff866b06361a1520c9a230f3ffcabb9b521d00c73ce",
+      "log_member": "plan-validate",
+      "output": "evidence/MR-14-handoff-validation.json.gz"
+    },
+    {
+      "name": "repair-focused",
+      "source_revision": "b6e6f797dab1f2e8292df18ea666ed54a2712cf6",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--all-features",
+        "--locked",
+        "--no-fail-fast",
+        "--test",
+        "native_raft_operations",
+        "--test",
+        "native_raft_membership",
+        "--",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "exit_code": 0,
+      "duration_seconds": 124.753,
+      "sha256": "ee38de8ebd452d3b6ec903f9fc58cc2ab0a8982d8b7a92a54c6e2f784e51b30f",
+      "log_member": "repair-focused",
+      "output": "evidence/MR-14-handoff-validation.json.gz"
+    },
+    {
+      "name": "repair-clippy",
+      "source_revision": "b6e6f797dab1f2e8292df18ea666ed54a2712cf6",
+      "command": [
+        "cargo",
+        "clippy",
+        "-p",
+        "cellar",
+        "--all-targets",
+        "--all-features",
+        "--locked",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "duration_seconds": 16.184,
+      "sha256": "49925855027a094ba62e7b57e085e00009db0e63f3835973fc41cdef8f8f60d0",
+      "log_member": "repair-clippy",
+      "output": "evidence/MR-14-handoff-validation.json.gz"
+    },
+    {
+      "name": "repair-format",
+      "source_revision": "b6e6f797dab1f2e8292df18ea666ed54a2712cf6",
+      "command": [
+        "cargo",
+        "format",
+        "--check"
+      ],
+      "exit_code": 0,
+      "duration_seconds": 44.312,
+      "sha256": "262e9f114908baa150ecdee443fa2a8ab02c38d93bdc349276e64ff17269b996",
+      "log_member": "repair-format",
+      "output": "evidence/MR-14-handoff-validation.json.gz"
+    },
+    {
+      "name": "repair-layout",
+      "source_revision": "b6e6f797dab1f2e8292df18ea666ed54a2712cf6",
+      "command": [
+        "cargo",
+        "check-layout"
+      ],
+      "exit_code": 0,
+      "duration_seconds": 0.226,
+      "sha256": "56ad95513f8324f30719b8b597af12e1a442f554ff312cf0f509997ad2ede754",
+      "log_member": "repair-layout",
+      "output": "evidence/MR-14-handoff-validation.json.gz"
+    },
+    {
+      "name": "repair-docs",
+      "source_revision": "b6e6f797dab1f2e8292df18ea666ed54a2712cf6",
+      "command": [
+        "python3",
+        "tools/docs/check.py"
+      ],
+      "exit_code": 0,
+      "duration_seconds": 0.099,
+      "sha256": "701e55367b1b8c08dcd388c3084250c7209af81cb161e4ba73339783b537eeb3",
+      "log_member": "repair-docs",
+      "output": "evidence/MR-14-handoff-validation.json.gz"
+    },
+    {
+      "name": "repair-plan-tests",
+      "source_revision": "b6e6f797dab1f2e8292df18ea666ed54a2712cf6",
+      "command": [
+        "python3",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "plans/multi-raft",
+        "-p",
+        "test_plan.py"
+      ],
+      "exit_code": 0,
+      "duration_seconds": 0.17,
+      "sha256": "d97ec23e7e7b7925713cbccbd5f94cf265d54238759e9e1b3fc4b2d69fed5901",
+      "log_member": "repair-plan-tests",
+      "output": "evidence/MR-14-handoff-validation.json.gz"
+    },
+    {
+      "name": "repair-plan-validate",
+      "source_revision": "b6e6f797dab1f2e8292df18ea666ed54a2712cf6",
+      "command": [
+        "python3",
+        "plans/multi-raft/plan.py",
+        "validate"
+      ],
+      "exit_code": 0,
+      "duration_seconds": 0.129,
+      "sha256": "f4acd18e116658a2e5be3ff866b06361a1520c9a230f3ffcabb9b521d00c73ce",
+      "log_member": "repair-plan-validate",
+      "output": "evidence/MR-14-handoff-validation.json.gz"
+    },
+    {
+      "name": "repair-preflight",
+      "source_revision": "b6e6f797dab1f2e8292df18ea666ed54a2712cf6",
+      "command": [
+        "python3",
+        "plans/multi-raft/plan.py",
+        "preflight"
+      ],
+      "exit_code": 0,
+      "duration_seconds": 0.141,
+      "sha256": "43d48c80e0d20a0caad41e48e81e02ee619981342cd3aef7375bd8d980f00b2d",
+      "log_member": "repair-preflight",
+      "output": "evidence/MR-14-handoff-validation.json.gz"
+    },
+    {
+      "name": "preflight",
+      "source_revision": "9e51538119a240f2a04fb0fdee1cfb3fd8ec7851",
+      "command": [
+        "python3",
+        "plans/multi-raft/plan.py",
+        "preflight"
+      ],
+      "exit_code": 0,
+      "sha256": "71f8d3051f3e66ad25d1e5578b016ddf04948df42b8b3b5a4bcc5039b72f4809",
+      "log_member": "preflight",
+      "output": "evidence/MR-14-handoff-validation.json.gz"
+    }
+  ],
+  "diagnostics": [
+    {
+      "name": "loop-red",
+      "description": "Original shutdown scenario failed on iteration 9 in one process with zero transfer attempts and one unavailable group.",
+      "log_member": "loop-red",
+      "sha256": "1617a2807ffd556bf5d4ef2209721d01f1c9d061d2ec3e19d94449c4f812250f"
+    },
+    {
+      "name": "local-trace",
+      "description": "A targeted local eligibility probe reproduced sql_busy with no pending command, configuration, incoming snapshot, apply or publication.",
+      "log_member": "local-trace",
+      "sha256": "cdf4d06f01bd5ab2e93c23736f2e5d2ab1f71addad31d648e6c7d7bd9b0c51fd"
+    },
+    {
+      "name": "primary-trace",
+      "description": "Primary report tracing disambiguated fixture cleanup from the requested handoff. Iteration 42 failed immediately after the source-only sql_busy refusal.",
+      "log_member": "primary-trace",
+      "sha256": "513b6e58558a1adb8acce5f3126c49c45f36a9d50f0354aef9aff588610ce653"
+    },
+    {
+      "name": "regression-red",
+      "description": "Rejected prototype: a held query and public is_closed observation did not isolate handoff; is_closed also includes admission sealing.",
+      "log_member": "regression-red",
+      "sha256": "032bb31ede694181e684341fd5aa1c3030a4e843f2f845226d19298cb7888a95"
+    },
+    {
+      "name": "archive-red",
+      "description": "Rejected prototype: the command-held worker fixture also confused admission sealing with physical queue closure.",
+      "log_member": "archive-red",
+      "sha256": "c3f44600366391d2eb73a8ee55737405a7d5fa830e6e77eb499e83afe75a431d"
+    },
+    {
+      "name": "physical-red",
+      "description": "Rejected prototype: holding an application command delays Node application drain, so it cannot isolate background SQL at handoff.",
+      "log_member": "physical-red",
+      "sha256": "489188523b24500419f70405cec590ac1701fea494231c9c46e232964b344533"
+    },
+    {
+      "name": "image-red",
+      "description": "The first filesystem gate held an old archive payload read, not SQL archive capture. The in-flight capture assertion correctly rejected this seam.",
+      "log_member": "image-red",
+      "sha256": "549ce71c1fd38b7ab14eb0c1ce56f82a9b3791df9b8b67f67d915a9d3755460c"
+    },
+    {
+      "name": "exact-red",
+      "description": "Image-selection setup initially assumed one new image per command.",
+      "log_member": "exact-red",
+      "sha256": "edfa9daee38e4e2d6dbbb87907048b9151c6f0ae98bce649462a1fc953922814"
+    },
+    {
+      "name": "image-selection",
+      "description": "The actual directory contained a preview and a committed apply image. The final gate excludes old-cut images and verifies an in-flight SQL capture.",
+      "log_member": "image-selection",
+      "sha256": "86d21be5cc9dd2b82c000ead8064e9f452da56ba34c9f31300e35b04a56a8e6e"
+    },
+    {
+      "name": "capture-red",
+      "description": "Final deterministic native regressions reproduced immediate handoff refusal while the physical SQL archive-capture read was held.",
+      "log_member": "capture-red",
+      "sha256": "dcd0d70600c96b17d2b199e1b8d283c702f69fd0b715439596e122b760375fa3"
+    },
+    {
+      "name": "capture-green",
+      "description": "Both final regressions passed after retaining the bounded handoff turn through physical SQL completion.",
+      "log_member": "capture-green",
+      "sha256": "abab1a756f94b62abaec27b1626e4d42cd8af6c79c09a033df96eb853bbc10af"
+    },
+    {
+      "name": "loop-green",
+      "description": "Original scenario passed 80 repetitions in one process with the production and fixture probes removed. The temporary repetition wrapper was removed before final committed validation.",
+      "log_member": "loop-green",
+      "sha256": "aefea5308a080932a095b1cfd4d8b22535d8f778151ee0696aee3da486fd038e"
+    }
+  ],
+  "raw_output": {
+    "path": "evidence/MR-14-handoff-validation.json.gz",
+    "bytes": 48090,
+    "sha256": "351eae266be287ec1f7021f2f1f78cfc73a33ff3a412caed1b8d3a25008ffa41"
+  },
+  "remaining": [
+    "The separate learner/abort admission finding was resolved by the earlier background-admission record; previously recorded concurrent transfer/read/effect/Fleet-event findings retain their separate status.",
+    "MR-14 still needs matched Fleet/bucket executions, instrumentation-overhead and controlled steady-state/density measurements, and Q1 qualification. Historical physical measurements remain pinned to their original binaries.",
+    "Q1 remains six processes and 10,000 three-voter cells, beyond the agreed five-node local scope and the unchanged 4,096-group host bound at 5,000 average replicas per process.",
+    "MR-13 management/receipt/restore gates and MR-15 through MR-17 qualification/scale/federation work remain open."
+  ]
+}

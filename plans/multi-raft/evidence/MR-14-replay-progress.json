@@ -1,0 +1,508 @@
+{
+  "task_id": "MR-14",
+  "source_revision": "1093fde73b1ede17280968fe426bdf3a4c8f0c65",
+  "completion": "partial",
+  "scope": "Bounded private archive replay with unchanged physical identity and durability verification; local S3 acknowledgement observations.",
+  "implementation": [
+    "GenerationStore::prepare_chain validates aggregate file/encoded-byte/decoded-byte/page budgets before I/O and reserves twice the largest intermediate image.",
+    "One exclusively owned file is physically checked at every intermediate result, including SQLite geometry, SHA-256 and optional rolling checksums. Only the final image is synced and sealed; existing single-update prepare delegates to the same path.",
+    "Archive recovery partitions long histories at the destination limits, retains one bounded decoded batch plus one pending envelope, and reclaims each prior sealed batch only after its successor is sealed."
+  ],
+  "regression": {
+    "red_source_revision": "0b3561e88ac8e7e65ce246c5cc6f047567995c98",
+    "red_source_patch_sha256": "8a798aa35af6d94a4264500db8b4827a343da414bec813e5ad5b8c317bf5a08d",
+    "tail_entries": 32,
+    "image_publications_before": 33,
+    "image_publications_after": 1,
+    "oracle": "Exact final ImageState and bytes, one image-sync/rename/directory-sync sequence. No timing threshold.",
+    "additional_cases": [
+      "65-entry archive tails replay under 64-, 7- and 1-file destination budgets and reclaim prior batches.",
+      "An incorrect intermediate digest or checksum with self-consistent successor base and valid final image fails before sealing; the original pinned image remains unchanged.",
+      "Aggregate encoded/decoded/page/file budgets, empty/disconnected chains and largest intermediate disk reservation refuse before publication I/O.",
+      "Growth/truncation, checksum transitions, image/directory sync failures and killed-process publication cuts retain the correct durable marker."
+    ]
+  },
+  "non_harness_targets": [
+    {
+      "target": "native_raft_daemon",
+      "exit_code": 0,
+      "binary_sha256": "87369f31ebb9931f55c5b163df992cc1b33a7216442e97bdade88d849eef6075",
+      "scope": "Production startup/restart/refusal qualification; not included in the libtest case count."
+    }
+  ],
+  "rust_passed": 298,
+  "rust_failed": 0,
+  "tests": [
+    {
+      "target": "tests/native_raft_archive.rs",
+      "passed": 32,
+      "failed": 0,
+      "ignored": 0,
+      "binary_sha256": "ba7c2f322ececbbb53396cb74117a000c37601e653d3f9f5040d4e732ae05ce7"
+    },
+    {
+      "target": "tests/native_raft_contract.rs",
+      "passed": 6,
+      "failed": 0,
+      "ignored": 0,
+      "binary_sha256": "2b8d3af811bc9810b393fb02fc49aa1b70928a10c3ac69826bea39bfacffaec1"
+    },
+    {
+      "target": "tests/native_raft_directory.rs",
+      "passed": 16,
+      "failed": 0,
+      "ignored": 0,
+      "binary_sha256": "d3a5cb87d54a082244f6cdaab69aa4b956eaab32b303c19f0e36236d3ae50999"
+    },
+    {
+      "target": "tests/native_raft_effects.rs",
+      "passed": 16,
+      "failed": 0,
+      "ignored": 0,
+      "binary_sha256": "d18e8354356107053cc07e092fbb9f944b7b51adc1496f6579113974aed597aa"
+    },
+    {
+      "target": "tests/native_raft_execution.rs",
+      "passed": 17,
+      "failed": 0,
+      "ignored": 2,
+      "binary_sha256": "31f526dac02e59dbb2c1d47befc7e1e46647ccfb47f0f7a2449abe212e18ca76"
+    },
+    {
+      "target": "tests/native_raft_host.rs",
+      "passed": 27,
+      "failed": 0,
+      "ignored": 0,
+      "binary_sha256": "fc0d67d8eb27069690bd0f6982bc0f7f93618a533c2652886a63b84831fca6ca"
+    },
+    {
+      "target": "tests/native_raft_ltx.rs",
+      "passed": 21,
+      "failed": 0,
+      "ignored": 1,
+      "binary_sha256": "728d456d73796775b0fe5c8026fe9e74d7f6cc7da3283e60af7dd0359f9d962e"
+    },
+    {
+      "target": "tests/native_raft_membership.rs",
+      "passed": 27,
+      "failed": 0,
+      "ignored": 1,
+      "binary_sha256": "17a4b516a7c67f6f65a1cace1800a7b312a14d2c317f9bb1428b50b0fd10692d"
+    },
+    {
+      "target": "tests/native_raft_multigroup.rs",
+      "passed": 8,
+      "failed": 0,
+      "ignored": 1,
+      "binary_sha256": "38c7cf6c7061c30d44d570859a38e1c52754f2bae81e7a9791c15b274eaf91cc"
+    },
+    {
+      "target": "tests/native_raft_operations.rs",
+      "passed": 20,
+      "failed": 0,
+      "ignored": 0,
+      "binary_sha256": "57f8533cd3bc349d5ab9f05c755ff1522264e3597141a30ff24ab2021d8615d4"
+    },
+    {
+      "target": "tests/native_raft_reads.rs",
+      "passed": 20,
+      "failed": 0,
+      "ignored": 0,
+      "binary_sha256": "22477f334d3e31c4924fb1bf5d4d024602dd0a69ca1e3d51c514964a9896afb0"
+    },
+    {
+      "target": "tests/native_raft_runtime.rs",
+      "passed": 15,
+      "failed": 0,
+      "ignored": 1,
+      "binary_sha256": "2f21a268aa3bcf9353715edf01d7ab5aadcb6da440aaafb67e921324f7db9ada"
+    },
+    {
+      "target": "tests/native_raft_snapshot.rs",
+      "passed": 42,
+      "failed": 0,
+      "ignored": 2,
+      "binary_sha256": "149988d18b44483fb80dfaa0996e37448a3c358144f3c6fe30ed7fd290a256f4"
+    },
+    {
+      "target": "tests/native_raft_storage.rs",
+      "passed": 17,
+      "failed": 0,
+      "ignored": 1,
+      "binary_sha256": "186dca98d09337cc5f8077bdc377eb1244a0c60af3b4c44d31536059172c01bb"
+    },
+    {
+      "target": "tests/native_raft_transport.rs",
+      "passed": 14,
+      "failed": 0,
+      "ignored": 1,
+      "binary_sha256": "145560a1fe27a0533d5b951fbf2849b2b7340911f357b7d4055753a57fa4c986"
+    }
+  ],
+  "checks": [
+    {
+      "name": "rust",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "cellar",
+        "--test",
+        "native_raft_archive",
+        "--test",
+        "native_raft_contract",
+        "--test",
+        "native_raft_daemon",
+        "--test",
+        "native_raft_directory",
+        "--test",
+        "native_raft_effects",
+        "--test",
+        "native_raft_execution",
+        "--test",
+        "native_raft_host",
+        "--test",
+        "native_raft_ltx",
+        "--test",
+        "native_raft_membership",
+        "--test",
+        "native_raft_multigroup",
+        "--test",
+        "native_raft_operations",
+        "--test",
+        "native_raft_reads",
+        "--test",
+        "native_raft_runtime",
+        "--test",
+        "native_raft_snapshot",
+        "--test",
+        "native_raft_storage",
+        "--test",
+        "native_raft_transport",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 670.0671010017395,
+      "sha256": "3785943a355fde7392a1038c957239db16292f604bb191268dd8aaf66a213a5d",
+      "source_revision": "1093fde73b1ede17280968fe426bdf3a4c8f0c65",
+      "output": "evidence/MR-14-replay-validation.json.gz",
+      "log_member": "rust"
+    },
+    {
+      "name": "clippy",
+      "command": [
+        "cargo",
+        "clippy",
+        "--locked",
+        "-p",
+        "cellar",
+        "-p",
+        "cellar-ltx",
+        "--all-targets",
+        "--all-features",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 53.38209295272827,
+      "sha256": "5a173f0b62da01343dde498034d7eb1fcfb154667ec98cd0761bdf645e02791d",
+      "source_revision": "1093fde73b1ede17280968fe426bdf3a4c8f0c65",
+      "output": "evidence/MR-14-replay-validation.json.gz",
+      "log_member": "clippy"
+    },
+    {
+      "name": "native",
+      "command": [
+        "cargo",
+        "check",
+        "--locked",
+        "-p",
+        "cellar",
+        "-p",
+        "cellar-ltx",
+        "--no-default-features",
+        "--lib"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 32.307573318481445,
+      "sha256": "356e725431655ca41cf3a6fb4ae903c7b2c46345dd101675db57fbfdea627fef",
+      "source_revision": "1093fde73b1ede17280968fe426bdf3a4c8f0c65",
+      "output": "evidence/MR-14-replay-validation.json.gz",
+      "log_member": "native"
+    },
+    {
+      "name": "format",
+      "command": [
+        "cargo",
+        "format",
+        "--check"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 42.50082731246948,
+      "sha256": "8f58e34cf595965bac98b0951945613cd0116425f3f7f4eb330268af6e1c4de0",
+      "source_revision": "1093fde73b1ede17280968fe426bdf3a4c8f0c65",
+      "output": "evidence/MR-14-replay-validation.json.gz",
+      "log_member": "format"
+    },
+    {
+      "name": "layout",
+      "command": [
+        "cargo",
+        "check-layout"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 0.11641502380371094,
+      "sha256": "396f32d91a989db5b72aa445fd922941d530aea3daf460d7631acb8aaa7237a0",
+      "source_revision": "1093fde73b1ede17280968fe426bdf3a4c8f0c65",
+      "output": "evidence/MR-14-replay-validation.json.gz",
+      "log_member": "layout"
+    },
+    {
+      "name": "dependencies",
+      "command": [
+        "python3",
+        "tools/check_native_dependencies.py"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 0.21851301193237305,
+      "sha256": "faf9bdb8df5819a63d590ede5d4a5f43eb4e8b00d8a6f44ccfb36bd8c4c5c238",
+      "source_revision": "1093fde73b1ede17280968fe426bdf3a4c8f0c65",
+      "output": "evidence/MR-14-replay-validation.json.gz",
+      "log_member": "dependencies"
+    },
+    {
+      "name": "docs",
+      "command": [
+        "python3",
+        "tools/docs/check.py"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 0.07751297950744629,
+      "sha256": "701e55367b1b8c08dcd388c3084250c7209af81cb161e4ba73339783b537eeb3",
+      "source_revision": "1093fde73b1ede17280968fe426bdf3a4c8f0c65",
+      "output": "evidence/MR-14-replay-validation.json.gz",
+      "log_member": "docs"
+    },
+    {
+      "name": "plan",
+      "command": [
+        "python3",
+        "plans/multi-raft/plan.py",
+        "validate"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 0.12097406387329102,
+      "sha256": "12eb9de64e4063e301cb2684c22ecd2d569c1b57e3147c16e2b79c554da0972a",
+      "source_revision": "1093fde73b1ede17280968fe426bdf3a4c8f0c65",
+      "output": "evidence/MR-14-replay-validation.json.gz",
+      "log_member": "plan"
+    },
+    {
+      "name": "ltx-core",
+      "command": [
+        "cargo",
+        "check",
+        "--locked",
+        "-p",
+        "cellar-ltx",
+        "--no-default-features",
+        "--lib"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 1.8378472328186035,
+      "sha256": "cbdc30ba00f1104f4c47179db5ddfe783c72722b3b6e3797de3b059a0309c64c",
+      "source_revision": "1093fde73b1ede17280968fe426bdf3a4c8f0c65",
+      "output": "evidence/MR-14-replay-validation.json.gz",
+      "log_member": "ltx-core"
+    }
+  ],
+  "local_runs": [
+    {
+      "run": "mr14-s3-replay-20261022-001",
+      "build": {
+        "image_id": "sha256:5bc6e95ffc00f3565109dc570d391eee0fc264928081e766598000f7a972cc95",
+        "binary_sha256": "469323558328192ecd867cea9976fcdb3405326e8c55b8975b584f1191a602f1",
+        "source_manifest_sha256": "9a8b1641b91669c0e6f1df8ed7c9c007acb785ac7304d58f6b30485eb4fd8631",
+        "build_profile": "lab",
+        "source_revision": "0b3561e88ac8e7e65ce246c5cc6f047567995c98",
+        "working_tree_dirty": false
+      },
+      "profile_sha256": "bf73355d7bd02d508af8e40c5508b7ac771b981056309ac42f74dd277c76f411",
+      "completed": true,
+      "reconciled": true,
+      "traffic_objectives_met": false,
+      "summary": {
+        "counts": {
+          "submitted": 183,
+          "completed": 183,
+          "generator_rejected": 17,
+          "offered": 200
+        },
+        "latency_ms": {
+          "p50": 24.610124991159665,
+          "p95": 140.19095800176729,
+          "p99": 263.81558300345273,
+          "p99_9": 266.22762499901
+        },
+        "latency_by_operation_ms": {
+          "command": {
+            "p50": 98.41362500155881,
+            "p95": 152.6441659923874,
+            "p99": 266.22762499901,
+            "p99_9": 266.22762499901
+          },
+          "query": {
+            "p50": 12.97141599352436,
+            "p95": 25.50787499931173,
+            "p99": 35.43312500114554,
+            "p99_9": 64.808458002517
+          }
+        },
+        "completed_per_second": 9.15,
+        "offered_per_second": 10.0,
+        "error_fraction": 0.085
+      },
+      "history_commands_including_seed": 126,
+      "history_queries": 118,
+      "final_replica_observations": 36,
+      "cleanup": [
+        {
+          "container": "cellar-mr14-7a05f2d4d59f13ea20466fb1-node1",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-7a05f2d4d59f13ea20466fb1-node2",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-7a05f2d4d59f13ea20466fb1-node3",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-7a05f2d4d59f13ea20466fb1-store",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        }
+      ]
+    },
+    {
+      "run": "mr14-s3-replay-20261022-002",
+      "build": {
+        "image_id": "sha256:1e9763515fc53d896a00fc5e9d42d07a97e88d83d61af6d3ea37003d4c84bc4a",
+        "binary_sha256": "0b7ebe8fb2152fb65a55d2330bdbf1b4f4644c473a4225cd7109fd479e51fadc",
+        "source_manifest_sha256": "8ad75f93ba0af7157a77afdb967f0c589a50259d67a53a231bcc138359a9d927",
+        "build_profile": "lab",
+        "source_revision": "1093fde73b1ede17280968fe426bdf3a4c8f0c65",
+        "working_tree_dirty": false
+      },
+      "profile_sha256": "bf73355d7bd02d508af8e40c5508b7ac771b981056309ac42f74dd277c76f411",
+      "completed": true,
+      "reconciled": true,
+      "traffic_objectives_met": true,
+      "summary": {
+        "counts": {
+          "submitted": 199,
+          "completed": 199,
+          "generator_rejected": 1,
+          "offered": 200
+        },
+        "latency_ms": {
+          "p50": 16.61620901140848,
+          "p95": 87.36495901248276,
+          "p99": 168.53870901104528,
+          "p99_9": 182.89270900422704
+        },
+        "latency_by_operation_ms": {
+          "command": {
+            "p50": 60.571375011932105,
+            "p95": 98.40366700955272,
+            "p99": 182.89270900422704,
+            "p99_9": 182.89270900422704
+          },
+          "query": {
+            "p50": 8.027375009260318,
+            "p95": 13.415292001447199,
+            "p99": 17.037709010764956,
+            "p99_9": 17.96254200162295
+          }
+        },
+        "completed_per_second": 9.95,
+        "offered_per_second": 10.0,
+        "error_fraction": 0.005
+      },
+      "history_commands_including_seed": 140,
+      "history_queries": 121,
+      "final_replica_observations": 36,
+      "cleanup": [
+        {
+          "container": "cellar-mr14-23e822f38c2f63ec5cdef8fd-node1",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-23e822f38c2f63ec5cdef8fd-node2",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-23e822f38c2f63ec5cdef8fd-node3",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-23e822f38c2f63ec5cdef8fd-store",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        }
+      ]
+    }
+  ],
+  "raw_output": [
+    {
+      "path": "evidence/MR-14-replay-validation.json.gz",
+      "bytes": 23396,
+      "sha256": "d0f24a8abef3aea9a74b196d5013c1b1db23a231bb03e6037b031f73dd8d9541"
+    },
+    {
+      "path": "evidence/MR-14-replay-local-runs.json.gz",
+      "bytes": 231549,
+      "sha256": "931a645271656cf6c4b4a6c293522b7fe023a8009fbdf7d91b3fcfa453574fb1"
+    }
+  ],
+  "limitations": [
+    "Physical work reduction is deterministic. Short sequential latency observations on a shared Mac with other work and swap are not a controlled causal speedup or steady-state qualification.",
+    "Three 1-vCPU/3-GiB/no-swap Cellar containers and RustFS in the owned cellar-multi-raft Colima profile; all exact containers stopped and volumes retained. Other profiles were unchanged.",
+    "RustFS does not qualify real Amazon S3. The same durability profile still requires quorum/image publication, exact object readback and archive head proof.",
+    "Repeated full-image digest scans, object reads, archive polling and competing publisher costs remain; this change removes intermediate image publication/copy/reclamation work only."
+  ],
+  "remaining": [
+    "Controlled S3 latency and slow-follower measurements, equivalent-contract baselines, overhead/full-device attribution and steady-state density evidence.",
+    "Q1 remains six processes and 10,000 three-voter cells against the unchanged 4,096-group bound and the agreed local five-node ceiling.",
+    "MR-13 remaining operations/restore gates and MR-15 through MR-17 remain open."
+  ],
+  "reviewed_source_anchor_changes": {
+    "crates/cellar-ltx/README.md": "Document bounded private replay, intermediate physical verification, aggregate limits and destination-limit partitioning."
+  },
+  "documentation_followup_checks": {
+    "plan_cases": 145,
+    "source_anchors": 85,
+    "plan_tool_tests_passed": 17,
+    "log_member": "documentation-final",
+    "capsule_check_log_member": "capsule-check",
+    "scope": "Documentation and evidence after the source commit; production code unchanged."
+  }
+}

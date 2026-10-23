@@ -146,3 +146,147 @@ async fn heartbeat_without_durable_changes_does_not_write_the_engine() -> anyhow
     domain.shutdown().await;
     Ok(())
 }
+
+#[tokio::test]
+async fn persistence_fifo_reserves_the_next_batch_for_a_large_waiter() -> anyhow::Result<()> {
+    use raft::prelude::{Entry, Message, MessageType};
+    use raft::Storage as _;
+    let root = tempfile::tempdir()?;
+    let domain = crate::asyncrt::ExecutionDomain::new(tokio::runtime::Handle::current());
+    let mut options = ReplicaLogOptions::new(
+        root.path().join("raft"),
+        NodeId::new([1; 16])?,
+        DiskLineage::new([2; 16])?,
+        ProcessGeneration::new([3; 16])?,
+        LogOpenMode::Create,
+    );
+    options.max_batch_bytes = 16 * 1024;
+    let log = domain
+        .run(ReplicaLog::open(
+            options,
+            Arc::new(cellar_ltx::DirectFileSystem),
+        ))
+        .await??;
+    let mut scopes = Vec::new();
+    for id in 1..=3u8 {
+        let scope = GroupScope {
+            cluster: ClusterId::new([1; 16])?,
+            namespace: NamespaceId::new([2; 16])?,
+            cell: format!("Counter:{id}"),
+            group: GroupId::new([id; 16])?,
+            incarnation: IncarnationId::new([4; 16])?,
+        };
+        log.create_group(GroupBootstrap {
+            scope: scope.clone(),
+            member: MemberId::new(1)?,
+            birth_digest: [id; 32],
+            voters: (1..=3).map(MemberId::new).collect::<Result<_, _>>()?,
+            learners: vec![],
+        })
+        .await?;
+        scopes.push(scope);
+    }
+    let (events, _receiver) = mpsc::channel(256);
+    let mut worker = Worker::new(
+        log.clone(),
+        RaftRuntimeOptions::default(),
+        events,
+        log.domain().clone(),
+        true,
+    )?;
+    domain
+        .run(async {
+            for (scope, size) in scopes.iter().zip([8000, 11000, 1000]) {
+                let mut message = Message {
+                    from: 2,
+                    to: 1,
+                    term: 1,
+                    index: 1,
+                    log_term: 1,
+                    ..Default::default()
+                };
+                message.set_msg_type(MessageType::MsgAppend);
+                message.set_entries(
+                    vec![Entry {
+                        index: 2,
+                        term: 1,
+                        data: vec![7; size].into(),
+                        ..Default::default()
+                    }]
+                    .into(),
+                );
+                let (reply, _) = oneshot::channel();
+                worker.dispatch(Request {
+                    command: Command::Group {
+                        scope: scope.clone(),
+                        action: GroupAction::Step(message),
+                    },
+                    reply,
+                    _permit: None,
+                    _inbound: None,
+                });
+            }
+            worker.progress()?;
+            assert_eq!(
+                worker.writes.iter().collect::<Vec<_>>(),
+                scopes.iter().collect::<Vec<_>>()
+            );
+            let sizes = scopes
+                .iter()
+                .map(|scope| {
+                    worker.groups[scope]
+                        .replica
+                        .write
+                        .as_ref()
+                        .unwrap()
+                        .1
+                        .estimated_bytes()
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            assert!(1024 + sizes[0] + sizes[1] > log.limits().max_batch_bytes);
+            assert!(
+                1024 + sizes[0] + sizes[2] <= log.limits().max_batch_bytes,
+                "small waiter could bypass the large one"
+            );
+            assert!(1024 + sizes[1] + sizes[2] <= log.limits().max_batch_bytes);
+            assert!(worker.start_batch()?);
+            assert_eq!(
+                worker.writes.iter().collect::<Vec<_>>(),
+                scopes[1..].iter().collect::<Vec<_>>()
+            );
+            // Many unrelated scheduler passes cannot change persistence order.
+            for _ in 0..20 {
+                worker.progress()?;
+            }
+            assert_eq!(
+                worker.writes.len(),
+                2,
+                "at most one persistence slot per group"
+            );
+            let completed = worker.inflight.take().unwrap().await;
+            assert_eq!(
+                completed.0.iter().map(|job| &job.scope).collect::<Vec<_>>(),
+                vec![&scopes[0]]
+            );
+            worker.finish_batch(completed)?;
+            assert!(worker.start_batch()?);
+            let completed = worker.inflight.take().unwrap().await;
+            assert_eq!(
+                completed.0.iter().map(|job| &job.scope).collect::<Vec<_>>(),
+                scopes[1..].iter().collect::<Vec<_>>()
+            );
+            let sequence = completed.1.as_ref().unwrap().sequence;
+            assert!(sequence > 0);
+            worker.finish_batch(completed)?;
+            assert!(worker.writes.is_empty());
+            for scope in &scopes {
+                assert_eq!(log.group(scope)?.last_index()?, 2);
+            }
+            Ok::<_, anyhow::Error>(())
+        })
+        .await??;
+    drop(worker);
+    log.close().await?;
+    domain.shutdown().await;
+    Ok(())
+}

@@ -1,0 +1,43 @@
+{
+  "task_id": "MR-14",
+  "source_revision": "4dcaf1d8af23595d909a4f581337ecbe536cdfc8",
+  "completion": "partial",
+  "scope": "Deterministic read-timeout accounting fixture; production runner and performance deadlines remain unchanged.",
+  "ci_failure": {
+    "source_revision": "d0eb31000017815c5a2a68dbc0931f5d59f539c3",
+    "run_id": 39891673863,
+    "job_id": 120212644303,
+    "python_mode": "3.14t",
+    "step": "Test performance workload and evidence guards",
+    "full_job_log_sha256": "583defe5d9b35ad40dd17ae891e48f2e433df98016ca30586b0941d8d135fe61",
+    "failure": "Expected three failed reads, observed one; two offered reads may correctly be refused while the first completion fsync owns the cell."
+  },
+  "regression": {
+    "before": "Original case fails deterministically with a 40ms delay after each real fsync: one failed read instead of three. The delay exists only in the retained reproducer.",
+    "after": "The accounting-only case uses controlled clock advancement and completed futures. Three invocations, three timeouts, zero ambiguity, no blocked cell, no generator rejection and unchanged state remain mandatory. Real-thread slow-server/admission coverage remains in separate passing cases.",
+    "production_changes": false
+  },
+  "validation": {
+    "delayed_fsync_reproducer": "pass",
+    "performance_tests_passed": 201,
+    "opt_in_docker_skipped": 1,
+    "plan_tests_passed": 17,
+    "checks": [
+      "documentation",
+      "plan validation",
+      "diff whitespace"
+    ],
+    "test_file_sha256": "b7530b2d18da00071a775f9aae401a4a30aab78893a76a0b231fe606840d8c8e"
+  },
+  "raw_output": [
+    {
+      "path": "evidence/MR-14-read-accounting-validation.json.gz",
+      "bytes": 3090,
+      "sha256": "b375835dde948f96191bb869488efd68d6aa60bd35932141706d692d1d0b0344"
+    }
+  ],
+  "limitations": [
+    "Local Python validation uses 3.14.6, not a free-threaded build. Fresh-head CI must qualify both ABIs.",
+    "This corrects a qualification fixture race; it does not fix the physical status-stage delay or client EADDRNOTAVAIL refusal. The failed physical workload remains unqualified."
+  ]
+}

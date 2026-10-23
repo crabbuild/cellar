@@ -523,7 +523,7 @@ impl State {
     }
 
     pub(super) async fn listen_queries(self: Arc<Self>, listener: TcpListener) {
-        let slots = Arc::new(Semaphore::new(self.options.max_connections_per_lane));
+        let slots = self.query_connections.clone();
         let mut stop = self.stop.subscribe();
         loop {
             if *stop.borrow() {
@@ -549,6 +549,7 @@ impl State {
 
     async fn receive_queries(self: Arc<Self>, tcp: TcpStream) -> Result<(), TransportError> {
         tcp.set_nodelay(true)?;
+        let tcp = self.observed_socket(tcp, metrics::Lane::Query);
         let mut stream = self
             .bounded(None, async {
                 tokio_rustls::TlsAcceptor::from(self.tls.server.clone())
@@ -700,8 +701,10 @@ impl State {
                             return Err(TransportError::StalePeer);
                         }
                         if connection.is_none() {
+                            let owner = self.outgoing_connections.query();
                             let tcp = TcpStream::connect(request.peer.query_address).await?;
                             tcp.set_nodelay(true)?;
+                            let tcp = self.observed_socket(tcp, metrics::Lane::Query);
                             let name = rustls::pki_types::ServerName::try_from(
                                 request.peer.server_name.clone(),
                             )
@@ -715,7 +718,7 @@ impl State {
                                 .1
                                 .export_keying_material([0; 32], wire::EXPORT_LABEL, None)
                                 .map_err(|e| TransportError::Tls(e.to_string()))?;
-                            connection = Some((tls, exporter));
+                            connection = Some((tls, exporter, owner));
                         }
                         let now = self.domain.mono_ms().map_err(|_| TransportError::Closed)?;
                         let remaining = request
@@ -742,7 +745,7 @@ impl State {
                             request.route.schema_digest,
                         )?;
                         let header = wire::RequestHead::new(route, request.sequence, &body);
-                        let (stream, exporter) =
+                        let (stream, exporter, _owner) =
                             connection.as_mut().ok_or(TransportError::Closed)?;
                         let head = wire::request_head(
                             &self.auth,

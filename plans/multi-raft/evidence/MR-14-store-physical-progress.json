@@ -1,0 +1,1607 @@
+{
+  "task_id": "MR-14",
+  "source_revision": "1391e94b471b49f0ca8de6432af7b0dbc8e2b564",
+  "completion": "partial",
+  "scope": "Physical three-node healthy and bounded RustFS outage observations through four acknowledgement policies. Shared-host functional fault validation; not equivalent-contract speedup or capacity qualification.",
+  "raw_output": [
+    {
+      "path": "evidence/MR-14-store-physical-runs.json.gz",
+      "bytes": 759498,
+      "sha256": "831e731f5c96bc5171f50ba96bc1f1a188e42851605359e34f5f78509839d0b5"
+    },
+    {
+      "path": "evidence/MR-14-store-physical-validation.json.gz",
+      "bytes": 13554,
+      "sha256": "a8ac5b399d99bbe02e21ad548d0f3b36b379648c468a01d5b10e75d9c83bf78f"
+    }
+  ],
+  "local_runs": [
+    {
+      "run": "mr14-store-bucket-healthy-20261022-001",
+      "adapter": "bucket",
+      "durability": "bucket",
+      "scenario": "healthy",
+      "build": {
+        "image_id": "sha256:2401aeefdd46f4ee33a0033460b0004b60243503a6634c5b56ad260ea1dafc03",
+        "binary_sha256": "8f30b10e609ef913f4592cd73dfff54358f50fb3576d905ca41ea8e3d4172f36",
+        "source_manifest_sha256": "e6bc98bc9fed775829a26f61caa4f14240d019fd865cb1f19aa8b00bdde95d3e",
+        "build_profile": "lab",
+        "source_revision": "1391e94b471b49f0ca8de6432af7b0dbc8e2b564",
+        "working_tree_dirty": false
+      },
+      "profile_sha256": "117d6edc1834ac007cac010f749ed5f1b13723d5ebc553ef71e7d2d4a3938be8",
+      "fault_profile_sha256": "f13e8af5a09b735adb6b621bb1f9437565c027d07af5a5a0bd46d4a52f8f8b0c",
+      "completed": true,
+      "reconciled": true,
+      "traffic_objectives_met": true,
+      "failure": null,
+      "analysis_rejection": null,
+      "summary": {
+        "counts": {
+          "submitted": 200,
+          "completed": 200,
+          "offered": 200
+        },
+        "latency_ms": {
+          "p50": 9.794417000375866,
+          "p95": 15.622624993556933,
+          "p99": 24.695709010120304,
+          "p99_9": 38.67937501054275
+        },
+        "latency_by_operation_ms": {
+          "command": {
+            "p50": 11.63216700078884,
+            "p95": 16.384708991973085,
+            "p99": 38.67937501054275,
+            "p99_9": 38.67937501054275
+          },
+          "query": {
+            "p50": 8.383000001776608,
+            "p95": 13.459042005706578,
+            "p99": 13.804834004258915,
+            "p99_9": 19.411666993983
+          }
+        },
+        "completed_per_second": 10.0,
+        "offered_per_second": 10.0,
+        "error_fraction": 0.0
+      },
+      "fault": {
+        "cycles": 2,
+        "target": "object-store",
+        "container_id": "6009af754bbbfbdaee427c53389bfb918a85f823eb5d447aa4915ce21f7cb4c0",
+        "object_store_required_at_ack": true,
+        "witnesses": [
+          {
+            "cycle": 0,
+            "submitted_during_hold": 6,
+            "acknowledged_during_hold": 6,
+            "commands": [
+              {
+                "cell": 1,
+                "command_id": "b58a8d945ebafd58dfce1627a8c7b66d:30",
+                "ack_after_release_started": false
+              },
+              {
+                "cell": 5,
+                "command_id": "19837786dba48f126d8bc1f968b975fa:3",
+                "ack_after_release_started": false
+              },
+              {
+                "cell": 1,
+                "command_id": "b58a8d945ebafd58dfce1627a8c7b66d:31",
+                "ack_after_release_started": false
+              },
+              {
+                "cell": 1,
+                "command_id": "b58a8d945ebafd58dfce1627a8c7b66d:32",
+                "ack_after_release_started": false
+              },
+              {
+                "cell": 1,
+                "command_id": "b58a8d945ebafd58dfce1627a8c7b66d:33",
+                "ack_after_release_started": false
+              },
+              {
+                "cell": 0,
+                "command_id": "ee2da0e0de051d1ddc9601bfd5523faf:21",
+                "ack_after_release_started": false
+              }
+            ]
+          },
+          {
+            "cycle": 1,
+            "submitted_during_hold": 4,
+            "acknowledged_during_hold": 3,
+            "commands": [
+              {
+                "cell": 7,
+                "command_id": "fadcedb4d650a4c4eeb2596c8a8c17b8:2",
+                "ack_after_release_started": false
+              },
+              {
+                "cell": 0,
+                "command_id": "ee2da0e0de051d1ddc9601bfd5523faf:30",
+                "ack_after_release_started": false
+              },
+              {
+                "cell": 1,
+                "command_id": "b58a8d945ebafd58dfce1627a8c7b66d:40",
+                "ack_after_release_started": false
+              },
+              {
+                "cell": 0,
+                "command_id": "ee2da0e0de051d1ddc9601bfd5523faf:31",
+                "ack_after_release_started": true
+              }
+            ]
+          }
+        ],
+        "recovery_upper_seconds": 9.044809250015533,
+        "scope": "Bounded RustFS process pauses; fresh serialized commands observed in each window. Final adapter state checks bound recovery. No crash, packet-loss, Amazon S3, causal latency or equivalent-contract claim."
+      },
+      "cleanup": [
+        {
+          "container": "cellar-mr14-b6074e0cd17abdde8ed479b9-node3",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-b6074e0cd17abdde8ed479b9-node2",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-b6074e0cd17abdde8ed479b9-node1",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-b6074e0cd17abdde8ed479b9-store",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        }
+      ],
+      "network_removed": true,
+      "commands_including_seed": 140,
+      "queries": 122,
+      "replicas": null,
+      "owner_route_reads": 36,
+      "proof_delta": {
+        "started": 97,
+        "bucket": 97,
+        "fleet": 0,
+        "errors": 0,
+        "elapsed_us": 275954
+      },
+      "observed_window_milliseconds": [
+        1004.6367080067284,
+        1003.950917016482
+      ],
+      "acknowledged_during_observed_windows": 9,
+      "new_successful_commands_in_observed_windows": 10
+    },
+    {
+      "run": "mr14-store-bucket-s3-outage-20261022-001",
+      "adapter": "bucket",
+      "durability": "bucket",
+      "scenario": "s3-outage",
+      "build": {
+        "image_id": "sha256:2401aeefdd46f4ee33a0033460b0004b60243503a6634c5b56ad260ea1dafc03",
+        "binary_sha256": "8f30b10e609ef913f4592cd73dfff54358f50fb3576d905ca41ea8e3d4172f36",
+        "source_manifest_sha256": "e6bc98bc9fed775829a26f61caa4f14240d019fd865cb1f19aa8b00bdde95d3e",
+        "build_profile": "lab",
+        "source_revision": "1391e94b471b49f0ca8de6432af7b0dbc8e2b564",
+        "working_tree_dirty": false
+      },
+      "profile_sha256": "117d6edc1834ac007cac010f749ed5f1b13723d5ebc553ef71e7d2d4a3938be8",
+      "fault_profile_sha256": "f13e8af5a09b735adb6b621bb1f9437565c027d07af5a5a0bd46d4a52f8f8b0c",
+      "completed": true,
+      "reconciled": true,
+      "traffic_objectives_met": false,
+      "failure": null,
+      "analysis_rejection": null,
+      "summary": {
+        "counts": {
+          "submitted": 193,
+          "completed": 193,
+          "generator_rejected": 7,
+          "offered": 200
+        },
+        "latency_ms": {
+          "p50": 14.656249986728653,
+          "p95": 26.54625000432098,
+          "p99": 944.6467080037113,
+          "p99_9": 953.1194159993905
+        },
+        "latency_by_operation_ms": {
+          "command": {
+            "p50": 17.686375009361655,
+            "p95": 244.18808300397376,
+            "p99": 953.1194159993905,
+            "p99_9": 953.1194159993905
+          },
+          "query": {
+            "p50": 12.315208005020395,
+            "p95": 19.941624987404815,
+            "p99": 31.22037498978969,
+            "p99_9": 142.66566599835608
+          }
+        },
+        "completed_per_second": 9.65,
+        "offered_per_second": 10.0,
+        "error_fraction": 0.035
+      },
+      "fault": {
+        "cycles": 2,
+        "target": "object-store",
+        "container_id": "498e962a0a587aa51f3e05f6f6dfaa68d8ddac741a954e818e48fbd5972fb1ae",
+        "object_store_required_at_ack": true,
+        "witnesses": [
+          {
+            "cycle": 0,
+            "submitted_during_hold": 3,
+            "acknowledged_during_hold": 0,
+            "commands": [
+              {
+                "cell": 1,
+                "command_id": "eb65f09191af0e1c908b1367bf372bf7:30",
+                "ack_after_release_started": true
+              },
+              {
+                "cell": 5,
+                "command_id": "83b4aac55e07b565a195acb1a042a255:3",
+                "ack_after_release_started": true
+              },
+              {
+                "cell": 0,
+                "command_id": "7e956a49036f5bf716fea7abe10aa1b9:21",
+                "ack_after_release_started": true
+              }
+            ]
+          },
+          {
+            "cycle": 1,
+            "submitted_during_hold": 3,
+            "acknowledged_during_hold": 0,
+            "commands": [
+              {
+                "cell": 7,
+                "command_id": "94dbf37146b99007805c125740e24665:2",
+                "ack_after_release_started": true
+              },
+              {
+                "cell": 0,
+                "command_id": "7e956a49036f5bf716fea7abe10aa1b9:30",
+                "ack_after_release_started": true
+              },
+              {
+                "cell": 1,
+                "command_id": "eb65f09191af0e1c908b1367bf372bf7:37",
+                "ack_after_release_started": true
+              }
+            ]
+          }
+        ],
+        "recovery_upper_seconds": 9.035018750000745,
+        "scope": "Bounded RustFS process pauses; fresh serialized commands observed in each window. Final adapter state checks bound recovery. No crash, packet-loss, Amazon S3, causal latency or equivalent-contract claim."
+      },
+      "cleanup": [
+        {
+          "container": "cellar-mr14-7ca6357f06479217f235b405-node3",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-7ca6357f06479217f235b405-node2",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-7ca6357f06479217f235b405-node1",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-7ca6357f06479217f235b405-store",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        }
+      ],
+      "network_removed": true,
+      "commands_including_seed": 136,
+      "queries": 119,
+      "replicas": null,
+      "owner_route_reads": 36,
+      "proof_delta": {
+        "started": 93,
+        "bucket": 93,
+        "fleet": 0,
+        "errors": 0,
+        "elapsed_us": 4083121
+      },
+      "observed_window_milliseconds": [
+        1033.0858340021223,
+        1042.3713749914896
+      ],
+      "acknowledged_during_observed_windows": 0,
+      "new_successful_commands_in_observed_windows": 6
+    },
+    {
+      "run": "mr14-store-fleet-healthy-20261022-001",
+      "adapter": "fleet",
+      "durability": "fleet-or-bucket",
+      "scenario": "healthy",
+      "build": {
+        "image_id": "sha256:2401aeefdd46f4ee33a0033460b0004b60243503a6634c5b56ad260ea1dafc03",
+        "binary_sha256": "8f30b10e609ef913f4592cd73dfff54358f50fb3576d905ca41ea8e3d4172f36",
+        "source_manifest_sha256": "e6bc98bc9fed775829a26f61caa4f14240d019fd865cb1f19aa8b00bdde95d3e",
+        "build_profile": "lab",
+        "source_revision": "1391e94b471b49f0ca8de6432af7b0dbc8e2b564",
+        "working_tree_dirty": false
+      },
+      "profile_sha256": "e1f2f994e4d1f81c90cc1e5e7834e65a5535a7d4b5586a77f5f876113e7aa7c8",
+      "fault_profile_sha256": "f13e8af5a09b735adb6b621bb1f9437565c027d07af5a5a0bd46d4a52f8f8b0c",
+      "completed": true,
+      "reconciled": true,
+      "traffic_objectives_met": true,
+      "failure": null,
+      "analysis_rejection": null,
+      "summary": {
+        "counts": {
+          "submitted": 200,
+          "completed": 200,
+          "offered": 200
+        },
+        "latency_ms": {
+          "p50": 13.365583017002969,
+          "p95": 23.28587500960566,
+          "p99": 67.40483299363409,
+          "p99_9": 80.23129200446455
+        },
+        "latency_by_operation_ms": {
+          "command": {
+            "p50": 15.781208005501313,
+            "p95": 56.25624999520351,
+            "p99": 80.23129200446455,
+            "p99_9": 80.23129200446455
+          },
+          "query": {
+            "p50": 10.628499998709628,
+            "p95": 18.603083014022914,
+            "p99": 21.855124994181185,
+            "p99_9": 23.107541992795078
+          }
+        },
+        "completed_per_second": 10.0,
+        "offered_per_second": 10.0,
+        "error_fraction": 0.0
+      },
+      "fault": {
+        "cycles": 2,
+        "target": "object-store",
+        "container_id": "dec22416374f85427b25829279ffc042a6a6e0db93f23a6a4344dacb137fc60b",
+        "object_store_required_at_ack": false,
+        "witnesses": [
+          {
+            "cycle": 0,
+            "submitted_during_hold": 6,
+            "acknowledged_during_hold": 6,
+            "commands": [
+              {
+                "cell": 1,
+                "command_id": "ff458dfc78edff8eb6db521cb16ec75c:30",
+                "ack_after_release_started": false
+              },
+              {
+                "cell": 5,
+                "command_id": "0370a0ddb9b368aa81aabd9e6f1f80c1:3",
+                "ack_after_release_started": false
+              },
+              {
+                "cell": 1,
+                "command_id": "ff458dfc78edff8eb6db521cb16ec75c:31",
+                "ack_after_release_started": false
+              },
+              {
+                "cell": 1,
+                "command_id": "ff458dfc78edff8eb6db521cb16ec75c:32",
+                "ack_after_release_started": false
+              },
+              {
+                "cell": 1,
+                "command_id": "ff458dfc78edff8eb6db521cb16ec75c:33",
+                "ack_after_release_started": false
+              },
+              {
+                "cell": 0,
+                "command_id": "27e4cf531ac3c157b13a2c165e1b52c5:21",
+                "ack_after_release_started": false
+              }
+            ]
+          },
+          {
+            "cycle": 1,
+            "submitted_during_hold": 4,
+            "acknowledged_during_hold": 3,
+            "commands": [
+              {
+                "cell": 7,
+                "command_id": "3348c9c6304b20658432ebf0765db852:2",
+                "ack_after_release_started": false
+              },
+              {
+                "cell": 0,
+                "command_id": "27e4cf531ac3c157b13a2c165e1b52c5:30",
+                "ack_after_release_started": false
+              },
+              {
+                "cell": 1,
+                "command_id": "ff458dfc78edff8eb6db521cb16ec75c:40",
+                "ack_after_release_started": false
+              },
+              {
+                "cell": 0,
+                "command_id": "27e4cf531ac3c157b13a2c165e1b52c5:31",
+                "ack_after_release_started": true
+              }
+            ]
+          }
+        ],
+        "recovery_upper_seconds": 9.085578208003426,
+        "scope": "Bounded RustFS process pauses; fresh serialized commands observed in each window. Final adapter state checks bound recovery. No crash, packet-loss, Amazon S3, causal latency or equivalent-contract claim."
+      },
+      "cleanup": [
+        {
+          "container": "cellar-mr14-467d8e56aac1ff4ba10418f1-node3",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-467d8e56aac1ff4ba10418f1-node2",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-467d8e56aac1ff4ba10418f1-node1",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-467d8e56aac1ff4ba10418f1-store",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        }
+      ],
+      "network_removed": true,
+      "commands_including_seed": 140,
+      "queries": 122,
+      "replicas": null,
+      "owner_route_reads": 36,
+      "proof_delta": {
+        "started": 97,
+        "bucket": 0,
+        "fleet": 97,
+        "errors": 0,
+        "elapsed_us": 516319
+      },
+      "observed_window_milliseconds": [
+        1013.613749993965,
+        1009.0388329990674
+      ],
+      "acknowledged_during_observed_windows": 9,
+      "new_successful_commands_in_observed_windows": 10
+    },
+    {
+      "run": "mr14-store-fleet-s3-outage-20261022-001",
+      "adapter": "fleet",
+      "durability": "fleet-or-bucket",
+      "scenario": "s3-outage",
+      "build": {
+        "image_id": "sha256:2401aeefdd46f4ee33a0033460b0004b60243503a6634c5b56ad260ea1dafc03",
+        "binary_sha256": "8f30b10e609ef913f4592cd73dfff54358f50fb3576d905ca41ea8e3d4172f36",
+        "source_manifest_sha256": "e6bc98bc9fed775829a26f61caa4f14240d019fd865cb1f19aa8b00bdde95d3e",
+        "build_profile": "lab",
+        "source_revision": "1391e94b471b49f0ca8de6432af7b0dbc8e2b564",
+        "working_tree_dirty": false
+      },
+      "profile_sha256": "e1f2f994e4d1f81c90cc1e5e7834e65a5535a7d4b5586a77f5f876113e7aa7c8",
+      "fault_profile_sha256": "f13e8af5a09b735adb6b621bb1f9437565c027d07af5a5a0bd46d4a52f8f8b0c",
+      "completed": true,
+      "reconciled": true,
+      "traffic_objectives_met": false,
+      "failure": null,
+      "analysis_rejection": null,
+      "summary": {
+        "counts": {
+          "submitted": 196,
+          "completed": 196,
+          "generator_rejected": 4,
+          "offered": 200
+        },
+        "latency_ms": {
+          "p50": 14.6197080030106,
+          "p95": 35.038165998411586,
+          "p99": 753.6790829792155,
+          "p99_9": 852.7404579916035
+        },
+        "latency_by_operation_ms": {
+          "command": {
+            "p50": 16.749874991365488,
+            "p95": 27.853958000196855,
+            "p99": 69.27754099597206,
+            "p99_9": 69.27754099597206
+          },
+          "query": {
+            "p50": 12.86858298117366,
+            "p95": 35.038165998411586,
+            "p99": 753.6790829792155,
+            "p99_9": 852.7404579916035
+          }
+        },
+        "completed_per_second": 9.8,
+        "offered_per_second": 10.0,
+        "error_fraction": 0.02
+      },
+      "fault": {
+        "cycles": 2,
+        "target": "object-store",
+        "container_id": "4f03798e7e12b71d9afa30eaca162a77005f99ee46f8570855bae685090ba0be",
+        "object_store_required_at_ack": false,
+        "witnesses": [
+          {
+            "cycle": 0,
+            "submitted_during_hold": 2,
+            "acknowledged_during_hold": 2,
+            "commands": [
+              {
+                "cell": 1,
+                "command_id": "0cecb03a1a190c5da2b5e5aa1bef964b:30",
+                "ack_after_release_started": false
+              },
+              {
+                "cell": 5,
+                "command_id": "4f4ee8862cd5df4b462a0487b789f958:3",
+                "ack_after_release_started": false
+              }
+            ]
+          },
+          {
+            "cycle": 1,
+            "submitted_during_hold": 4,
+            "acknowledged_during_hold": 4,
+            "commands": [
+              {
+                "cell": 7,
+                "command_id": "715842d80815c387bd1ace01755839ee:2",
+                "ack_after_release_started": false
+              },
+              {
+                "cell": 0,
+                "command_id": "b9dd155ecab8a1a20a81ad133752ab73:29",
+                "ack_after_release_started": false
+              },
+              {
+                "cell": 1,
+                "command_id": "0cecb03a1a190c5da2b5e5aa1bef964b:37",
+                "ack_after_release_started": false
+              },
+              {
+                "cell": 0,
+                "command_id": "b9dd155ecab8a1a20a81ad133752ab73:30",
+                "ack_after_release_started": false
+              }
+            ]
+          }
+        ],
+        "recovery_upper_seconds": 9.033503124985145,
+        "scope": "Bounded RustFS process pauses; fresh serialized commands observed in each window. Final adapter state checks bound recovery. No crash, packet-loss, Amazon S3, causal latency or equivalent-contract claim."
+      },
+      "cleanup": [
+        {
+          "container": "cellar-mr14-7979c8ade0212dca6a0b65b1-node3",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-7979c8ade0212dca6a0b65b1-node2",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-7979c8ade0212dca6a0b65b1-node1",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-7979c8ade0212dca6a0b65b1-store",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        }
+      ],
+      "network_removed": true,
+      "commands_including_seed": 136,
+      "queries": 122,
+      "replicas": null,
+      "owner_route_reads": 36,
+      "proof_delta": {
+        "started": 93,
+        "bucket": 0,
+        "fleet": 93,
+        "errors": 0,
+        "elapsed_us": 556112
+      },
+      "observed_window_milliseconds": [
+        1046.0676660004538,
+        1054.6504170051776
+      ],
+      "acknowledged_during_observed_windows": 6,
+      "new_successful_commands_in_observed_windows": 6
+    },
+    {
+      "run": "mr14-store-raft-quorum-healthy-20261022-001",
+      "adapter": "raft",
+      "durability": "quorum",
+      "scenario": "healthy",
+      "build": {
+        "image_id": "sha256:2401aeefdd46f4ee33a0033460b0004b60243503a6634c5b56ad260ea1dafc03",
+        "binary_sha256": "9a1c392078ded1a533a8b0f68762bc876a89dd558d9950fc6b99244a611289cb",
+        "source_manifest_sha256": "e6bc98bc9fed775829a26f61caa4f14240d019fd865cb1f19aa8b00bdde95d3e",
+        "build_profile": "lab",
+        "source_revision": "1391e94b471b49f0ca8de6432af7b0dbc8e2b564",
+        "working_tree_dirty": false
+      },
+      "profile_sha256": "1c3657717825fffede206222cf9e5419a46f1cab4b27d02e21c5ac795098ae09",
+      "fault_profile_sha256": "f13e8af5a09b735adb6b621bb1f9437565c027d07af5a5a0bd46d4a52f8f8b0c",
+      "completed": true,
+      "reconciled": true,
+      "traffic_objectives_met": true,
+      "failure": null,
+      "analysis_rejection": null,
+      "summary": {
+        "counts": {
+          "submitted": 200,
+          "completed": 200,
+          "offered": 200
+        },
+        "latency_ms": {
+          "p50": 12.918459001230065,
+          "p95": 24.61483399965836,
+          "p99": 29.493625008035096,
+          "p99_9": 77.92845900403333
+        },
+        "latency_by_operation_ms": {
+          "command": {
+            "p50": 19.722584006377275,
+            "p95": 28.029709012480808,
+            "p99": 77.92845900403333,
+            "p99_9": 77.92845900403333
+          },
+          "query": {
+            "p50": 8.995042007882148,
+            "p95": 12.918459001230065,
+            "p99": 13.372875010826846,
+            "p99_9": 13.478374999248643
+          }
+        },
+        "completed_per_second": 10.0,
+        "offered_per_second": 10.0,
+        "error_fraction": 0.0
+      },
+      "fault": {
+        "cycles": 2,
+        "target": "object-store",
+        "container_id": "88908d0d7731c8207503006af597a2144f66fe766faa5ccc077caa021f521638",
+        "object_store_required_at_ack": false,
+        "witnesses": [
+          {
+            "cycle": 0,
+            "submitted_during_hold": 6,
+            "acknowledged_during_hold": 6,
+            "commands": [
+              {
+                "cell": 1,
+                "command_id": "752a6bc578927c903d7d9ab333babc7c:30",
+                "ack_after_release_started": false
+              },
+              {
+                "cell": 5,
+                "command_id": "7b457ef5e59a25eb29faec9a33365821:3",
+                "ack_after_release_started": false
+              },
+              {
+                "cell": 1,
+                "command_id": "752a6bc578927c903d7d9ab333babc7c:31",
+                "ack_after_release_started": false
+              },
+              {
+                "cell": 1,
+                "command_id": "752a6bc578927c903d7d9ab333babc7c:32",
+                "ack_after_release_started": false
+              },
+              {
+                "cell": 1,
+                "command_id": "752a6bc578927c903d7d9ab333babc7c:33",
+                "ack_after_release_started": false
+              },
+              {
+                "cell": 0,
+                "command_id": "35d29271ba77d0e48a7dee4bf63b0657:21",
+                "ack_after_release_started": false
+              }
+            ]
+          },
+          {
+            "cycle": 1,
+            "submitted_during_hold": 4,
+            "acknowledged_during_hold": 4,
+            "commands": [
+              {
+                "cell": 7,
+                "command_id": "b5242a55df6a48dafbb380283cc8be04:2",
+                "ack_after_release_started": false
+              },
+              {
+                "cell": 0,
+                "command_id": "35d29271ba77d0e48a7dee4bf63b0657:30",
+                "ack_after_release_started": false
+              },
+              {
+                "cell": 1,
+                "command_id": "752a6bc578927c903d7d9ab333babc7c:40",
+                "ack_after_release_started": false
+              },
+              {
+                "cell": 0,
+                "command_id": "35d29271ba77d0e48a7dee4bf63b0657:31",
+                "ack_after_release_started": false
+              }
+            ]
+          }
+        ],
+        "recovery_upper_seconds": 9.364420124999015,
+        "scope": "Bounded RustFS process pauses; fresh serialized commands observed in each window. Final adapter state checks bound recovery. No crash, packet-loss, Amazon S3, causal latency or equivalent-contract claim."
+      },
+      "cleanup": [
+        {
+          "container": "cellar-mr14-9a08d3cede1b9185dea14399-node3",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-9a08d3cede1b9185dea14399-node2",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-9a08d3cede1b9185dea14399-node1",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-9a08d3cede1b9185dea14399-store",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        }
+      ],
+      "network_removed": true,
+      "commands_including_seed": 140,
+      "queries": 122,
+      "replicas": 36,
+      "owner_route_reads": null,
+      "proof_delta": null,
+      "observed_window_milliseconds": [
+        1005.6854999857023,
+        1007.789249997586
+      ],
+      "acknowledged_during_observed_windows": 10,
+      "new_successful_commands_in_observed_windows": 10
+    },
+    {
+      "run": "mr14-store-raft-quorum-s3-outage-20261022-001",
+      "adapter": "raft",
+      "durability": "quorum",
+      "scenario": "s3-outage",
+      "build": {
+        "image_id": "sha256:2401aeefdd46f4ee33a0033460b0004b60243503a6634c5b56ad260ea1dafc03",
+        "binary_sha256": "9a1c392078ded1a533a8b0f68762bc876a89dd558d9950fc6b99244a611289cb",
+        "source_manifest_sha256": "e6bc98bc9fed775829a26f61caa4f14240d019fd865cb1f19aa8b00bdde95d3e",
+        "build_profile": "lab",
+        "source_revision": "1391e94b471b49f0ca8de6432af7b0dbc8e2b564",
+        "working_tree_dirty": false
+      },
+      "profile_sha256": "1c3657717825fffede206222cf9e5419a46f1cab4b27d02e21c5ac795098ae09",
+      "fault_profile_sha256": "f13e8af5a09b735adb6b621bb1f9437565c027d07af5a5a0bd46d4a52f8f8b0c",
+      "completed": true,
+      "reconciled": true,
+      "traffic_objectives_met": true,
+      "failure": null,
+      "analysis_rejection": null,
+      "summary": {
+        "counts": {
+          "submitted": 200,
+          "completed": 200,
+          "offered": 200
+        },
+        "latency_ms": {
+          "p50": 13.94212499144487,
+          "p95": 27.39195799804328,
+          "p99": 40.84375000675067,
+          "p99_9": 63.15291700884629
+        },
+        "latency_by_operation_ms": {
+          "command": {
+            "p50": 21.27020799089241,
+            "p95": 30.471124994801315,
+            "p99": 63.15291700884629,
+            "p99_9": 63.15291700884629
+          },
+          "query": {
+            "p50": 8.94012499484198,
+            "p95": 14.496000006328558,
+            "p99": 40.84375000675067,
+            "p99_9": 44.54658300965164
+          }
+        },
+        "completed_per_second": 10.0,
+        "offered_per_second": 10.0,
+        "error_fraction": 0.0
+      },
+      "fault": {
+        "cycles": 2,
+        "target": "object-store",
+        "container_id": "25c2cd713c6ad1a0fd83113f606f9f4cc93478b8e57a136ae71dfdc758278582",
+        "object_store_required_at_ack": false,
+        "witnesses": [
+          {
+            "cycle": 0,
+            "submitted_during_hold": 6,
+            "acknowledged_during_hold": 6,
+            "commands": [
+              {
+                "cell": 1,
+                "command_id": "b32a7c72199cf374028aeea13721548e:30",
+                "ack_after_release_started": false
+              },
+              {
+                "cell": 5,
+                "command_id": "5bfe67ee7ac139746cd5c8e0eb6eb486:3",
+                "ack_after_release_started": false
+              },
+              {
+                "cell": 1,
+                "command_id": "b32a7c72199cf374028aeea13721548e:31",
+                "ack_after_release_started": false
+              },
+              {
+                "cell": 1,
+                "command_id": "b32a7c72199cf374028aeea13721548e:32",
+                "ack_after_release_started": false
+              },
+              {
+                "cell": 1,
+                "command_id": "b32a7c72199cf374028aeea13721548e:33",
+                "ack_after_release_started": false
+              },
+              {
+                "cell": 0,
+                "command_id": "d9badab3b308cace6b03e99a21ee24ed:21",
+                "ack_after_release_started": false
+              }
+            ]
+          },
+          {
+            "cycle": 1,
+            "submitted_during_hold": 4,
+            "acknowledged_during_hold": 4,
+            "commands": [
+              {
+                "cell": 7,
+                "command_id": "e011234883310f7e27bb05d2360d1124:2",
+                "ack_after_release_started": false
+              },
+              {
+                "cell": 0,
+                "command_id": "d9badab3b308cace6b03e99a21ee24ed:30",
+                "ack_after_release_started": false
+              },
+              {
+                "cell": 1,
+                "command_id": "b32a7c72199cf374028aeea13721548e:40",
+                "ack_after_release_started": false
+              },
+              {
+                "cell": 0,
+                "command_id": "d9badab3b308cace6b03e99a21ee24ed:31",
+                "ack_after_release_started": false
+              }
+            ]
+          }
+        ],
+        "recovery_upper_seconds": 9.381588292017113,
+        "scope": "Bounded RustFS process pauses; fresh serialized commands observed in each window. Final adapter state checks bound recovery. No crash, packet-loss, Amazon S3, causal latency or equivalent-contract claim."
+      },
+      "cleanup": [
+        {
+          "container": "cellar-mr14-5305024ed3e5cc239eac5d29-node3",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-5305024ed3e5cc239eac5d29-node2",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-5305024ed3e5cc239eac5d29-node1",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-5305024ed3e5cc239eac5d29-store",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        }
+      ],
+      "network_removed": true,
+      "commands_including_seed": 140,
+      "queries": 122,
+      "replicas": 36,
+      "owner_route_reads": null,
+      "proof_delta": null,
+      "observed_window_milliseconds": [
+        1032.1122920140624,
+        1031.4873340248596
+      ],
+      "acknowledged_during_observed_windows": 10,
+      "new_successful_commands_in_observed_windows": 10
+    },
+    {
+      "run": "mr14-store-raft-s3-healthy-20261022-001",
+      "adapter": "raft",
+      "durability": "s3",
+      "scenario": "healthy",
+      "build": {
+        "image_id": "sha256:2401aeefdd46f4ee33a0033460b0004b60243503a6634c5b56ad260ea1dafc03",
+        "binary_sha256": "9a1c392078ded1a533a8b0f68762bc876a89dd558d9950fc6b99244a611289cb",
+        "source_manifest_sha256": "e6bc98bc9fed775829a26f61caa4f14240d019fd865cb1f19aa8b00bdde95d3e",
+        "build_profile": "lab",
+        "source_revision": "1391e94b471b49f0ca8de6432af7b0dbc8e2b564",
+        "working_tree_dirty": false
+      },
+      "profile_sha256": "bf73355d7bd02d508af8e40c5508b7ac771b981056309ac42f74dd277c76f411",
+      "fault_profile_sha256": "f13e8af5a09b735adb6b621bb1f9437565c027d07af5a5a0bd46d4a52f8f8b0c",
+      "completed": true,
+      "reconciled": true,
+      "traffic_objectives_met": true,
+      "failure": null,
+      "analysis_rejection": null,
+      "summary": {
+        "counts": {
+          "submitted": 198,
+          "completed": 198,
+          "generator_rejected": 2,
+          "offered": 200
+        },
+        "latency_ms": {
+          "p50": 12.426457996480345,
+          "p95": 47.151957999449934,
+          "p99": 125.87883298401792,
+          "p99_9": 141.04250000091236
+        },
+        "latency_by_operation_ms": {
+          "command": {
+            "p50": 35.4658749944079,
+            "p95": 55.9051659773111,
+            "p99": 141.04250000091236,
+            "p99_9": 141.04250000091236
+          },
+          "query": {
+            "p50": 8.406457985984161,
+            "p95": 12.426457996480345,
+            "p99": 13.290665985550731,
+            "p99_9": 27.374082984170656
+          }
+        },
+        "completed_per_second": 9.9,
+        "offered_per_second": 10.0,
+        "error_fraction": 0.01
+      },
+      "fault": {
+        "cycles": 2,
+        "target": "object-store",
+        "container_id": "84bba709dd1de8eef62f8a603a069bbe43cb6d861d77146b9b8439910167ed29",
+        "object_store_required_at_ack": true,
+        "witnesses": [
+          {
+            "cycle": 0,
+            "submitted_during_hold": 6,
+            "acknowledged_during_hold": 6,
+            "commands": [
+              {
+                "cell": 1,
+                "command_id": "075aa9cd3b128493e4353922de119ee9:30",
+                "ack_after_release_started": false
+              },
+              {
+                "cell": 5,
+                "command_id": "15055d426bce21e78d0add80717fad4b:3",
+                "ack_after_release_started": false
+              },
+              {
+                "cell": 1,
+                "command_id": "075aa9cd3b128493e4353922de119ee9:31",
+                "ack_after_release_started": false
+              },
+              {
+                "cell": 1,
+                "command_id": "075aa9cd3b128493e4353922de119ee9:32",
+                "ack_after_release_started": false
+              },
+              {
+                "cell": 1,
+                "command_id": "075aa9cd3b128493e4353922de119ee9:33",
+                "ack_after_release_started": false
+              },
+              {
+                "cell": 0,
+                "command_id": "fb6cfff9954aece7088dbb6204d07d56:21",
+                "ack_after_release_started": false
+              }
+            ]
+          },
+          {
+            "cycle": 1,
+            "submitted_during_hold": 4,
+            "acknowledged_during_hold": 3,
+            "commands": [
+              {
+                "cell": 7,
+                "command_id": "f00f2f45d850be6f69879e0bacc7f182:2",
+                "ack_after_release_started": false
+              },
+              {
+                "cell": 0,
+                "command_id": "fb6cfff9954aece7088dbb6204d07d56:30",
+                "ack_after_release_started": false
+              },
+              {
+                "cell": 1,
+                "command_id": "075aa9cd3b128493e4353922de119ee9:40",
+                "ack_after_release_started": false
+              },
+              {
+                "cell": 0,
+                "command_id": "fb6cfff9954aece7088dbb6204d07d56:31",
+                "ack_after_release_started": true
+              }
+            ]
+          }
+        ],
+        "recovery_upper_seconds": 9.3942219580058,
+        "scope": "Bounded RustFS process pauses; fresh serialized commands observed in each window. Final adapter state checks bound recovery. No crash, packet-loss, Amazon S3, causal latency or equivalent-contract claim."
+      },
+      "cleanup": [
+        {
+          "container": "cellar-mr14-26be8863654974e95273dbcb-node3",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-26be8863654974e95273dbcb-node2",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-26be8863654974e95273dbcb-node1",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-26be8863654974e95273dbcb-store",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        }
+      ],
+      "network_removed": true,
+      "commands_including_seed": 138,
+      "queries": 122,
+      "replicas": 36,
+      "owner_route_reads": null,
+      "proof_delta": null,
+      "observed_window_milliseconds": [
+        1006.3414589967579,
+        1007.5238330173306
+      ],
+      "acknowledged_during_observed_windows": 9,
+      "new_successful_commands_in_observed_windows": 10
+    },
+    {
+      "run": "mr14-store-raft-s3-s3-outage-20261022-001",
+      "adapter": "raft",
+      "durability": "s3",
+      "scenario": "s3-outage",
+      "build": {
+        "image_id": "sha256:2401aeefdd46f4ee33a0033460b0004b60243503a6634c5b56ad260ea1dafc03",
+        "binary_sha256": "9a1c392078ded1a533a8b0f68762bc876a89dd558d9950fc6b99244a611289cb",
+        "source_manifest_sha256": "e6bc98bc9fed775829a26f61caa4f14240d019fd865cb1f19aa8b00bdde95d3e",
+        "build_profile": "lab",
+        "source_revision": "1391e94b471b49f0ca8de6432af7b0dbc8e2b564",
+        "working_tree_dirty": false
+      },
+      "profile_sha256": "bf73355d7bd02d508af8e40c5508b7ac771b981056309ac42f74dd277c76f411",
+      "fault_profile_sha256": "f13e8af5a09b735adb6b621bb1f9437565c027d07af5a5a0bd46d4a52f8f8b0c",
+      "completed": true,
+      "reconciled": true,
+      "traffic_objectives_met": false,
+      "failure": null,
+      "analysis_rejection": null,
+      "summary": {
+        "counts": {
+          "submitted": 193,
+          "completed": 193,
+          "generator_rejected": 7,
+          "offered": 200
+        },
+        "latency_ms": {
+          "p50": 12.340459000551363,
+          "p95": 44.808874989394454,
+          "p99": 942.077874997631,
+          "p99_9": 958.9122920064259
+        },
+        "latency_by_operation_ms": {
+          "command": {
+            "p50": 34.011458995518495,
+            "p95": 279.3947500060314,
+            "p99": 958.9122920064259,
+            "p99_9": 958.9122920064259
+          },
+          "query": {
+            "p50": 7.459749991539866,
+            "p95": 12.286333984228293,
+            "p99": 12.71858399268222,
+            "p99_9": 14.309958997182903
+          }
+        },
+        "completed_per_second": 9.65,
+        "offered_per_second": 10.0,
+        "error_fraction": 0.035
+      },
+      "fault": {
+        "cycles": 2,
+        "target": "object-store",
+        "container_id": "b0e557e4e94bc87eb86d2464e02427289d634737262192ca3a7ac3c69b58bdc8",
+        "object_store_required_at_ack": true,
+        "witnesses": [
+          {
+            "cycle": 0,
+            "submitted_during_hold": 3,
+            "acknowledged_during_hold": 0,
+            "commands": [
+              {
+                "cell": 1,
+                "command_id": "2d061e927e9ade6ad30e7c64bb89ea4f:30",
+                "ack_after_release_started": true
+              },
+              {
+                "cell": 5,
+                "command_id": "d9951915336b910806c844144cb16f46:3",
+                "ack_after_release_started": true
+              },
+              {
+                "cell": 0,
+                "command_id": "cfb121bf17ee499cfe0cec462c7560d2:21",
+                "ack_after_release_started": true
+              }
+            ]
+          },
+          {
+            "cycle": 1,
+            "submitted_during_hold": 3,
+            "acknowledged_during_hold": 0,
+            "commands": [
+              {
+                "cell": 7,
+                "command_id": "5310af1b6722b5e67f95edd04eeb775a:2",
+                "ack_after_release_started": true
+              },
+              {
+                "cell": 0,
+                "command_id": "cfb121bf17ee499cfe0cec462c7560d2:30",
+                "ack_after_release_started": true
+              },
+              {
+                "cell": 1,
+                "command_id": "2d061e927e9ade6ad30e7c64bb89ea4f:37",
+                "ack_after_release_started": true
+              }
+            ]
+          }
+        ],
+        "recovery_upper_seconds": 9.355218417011201,
+        "scope": "Bounded RustFS process pauses; fresh serialized commands observed in each window. Final adapter state checks bound recovery. No crash, packet-loss, Amazon S3, causal latency or equivalent-contract claim."
+      },
+      "cleanup": [
+        {
+          "container": "cellar-mr14-dea32838c71ba044f9264fdc-node3",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-dea32838c71ba044f9264fdc-node2",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-dea32838c71ba044f9264fdc-node1",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-dea32838c71ba044f9264fdc-store",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        }
+      ],
+      "network_removed": true,
+      "commands_including_seed": 136,
+      "queries": 119,
+      "replicas": 36,
+      "owner_route_reads": null,
+      "proof_delta": null,
+      "observed_window_milliseconds": [
+        1029.7912920068484,
+        1030.1052919821814
+      ],
+      "acknowledged_during_observed_windows": 0,
+      "new_successful_commands_in_observed_windows": 6
+    }
+  ],
+  "comparisons": [
+    {
+      "left": "mr14-store-raft-s3-healthy-20261022-001",
+      "right": "mr14-store-bucket-healthy-20261022-001",
+      "result": {
+        "matched_contract": false,
+        "differences": {
+          "durability_contract": {
+            "left": {
+              "authority": "raft-majority",
+              "local_durable_copies_at_ack": "majority-of-3",
+              "object_store_at_ack": true,
+              "receipts": "raft-command",
+              "reads": "at-least"
+            },
+            "right": {
+              "authority": "bucket-ownership",
+              "local_durable_copies_at_ack": "not-required",
+              "object_store_at_ack": true,
+              "receipts": "application-transaction",
+              "reads": "owner"
+            }
+          },
+          "workload_contract": {
+            "left": {
+              "cells": {
+                "total": 12,
+                "active": 12
+              },
+              "database_bytes": [
+                4096
+              ],
+              "write_bytes": [
+                64,
+                1024
+              ],
+              "read_fraction": 0.5,
+              "read_consistency": "at-least",
+              "skew": {
+                "hot_fraction": 0.1,
+                "hot_probability": 0.8
+              },
+              "arrival": {
+                "rate_per_second": 10,
+                "max_inflight": 8,
+                "max_lateness_ms": 100
+              },
+              "timing": {
+                "warmup_seconds": 5,
+                "measurement_seconds": 20,
+                "soak_seconds": 0,
+                "request_timeout_ms": 5000,
+                "retry_window_ms": 300000,
+                "startup_seconds": 600
+              },
+              "seed": 14,
+              "tick_ms": 100,
+              "scenario": "healthy",
+              "fault_profile": {
+                "format": 1,
+                "target": "object-store",
+                "pause_ms": 1000,
+                "max_pause_ms": 2000,
+                "interval_ms": 5000,
+                "start_after_seconds": 5,
+                "stop_before_seconds": 5,
+                "max_start_lateness_ms": 250
+              }
+            },
+            "right": {
+              "cells": {
+                "total": 12,
+                "active": 12
+              },
+              "database_bytes": [
+                4096
+              ],
+              "write_bytes": [
+                64,
+                1024
+              ],
+              "read_fraction": 0.5,
+              "read_consistency": "owner",
+              "skew": {
+                "hot_fraction": 0.1,
+                "hot_probability": 0.8
+              },
+              "arrival": {
+                "rate_per_second": 10,
+                "max_inflight": 8,
+                "max_lateness_ms": 100
+              },
+              "timing": {
+                "warmup_seconds": 5,
+                "measurement_seconds": 20,
+                "soak_seconds": 0,
+                "request_timeout_ms": 5000,
+                "retry_window_ms": 300000,
+                "startup_seconds": 600
+              },
+              "seed": 14,
+              "tick_ms": null,
+              "scenario": "healthy",
+              "fault_profile": {
+                "format": 1,
+                "target": "object-store",
+                "pause_ms": 1000,
+                "max_pause_ms": 2000,
+                "interval_ms": 5000,
+                "start_after_seconds": 5,
+                "stop_before_seconds": 5,
+                "max_start_lateness_ms": 250
+              }
+            }
+          },
+          "build_profile": {
+            "left": {
+              "profile": "lab",
+              "source_manifest": "e6bc98bc9fed775829a26f61caa4f14240d019fd865cb1f19aa8b00bdde95d3e",
+              "binary_sha256": "9a1c392078ded1a533a8b0f68762bc876a89dd558d9950fc6b99244a611289cb"
+            },
+            "right": {
+              "profile": "lab",
+              "source_manifest": "e6bc98bc9fed775829a26f61caa4f14240d019fd865cb1f19aa8b00bdde95d3e",
+              "binary_sha256": "8f30b10e609ef913f4592cd73dfff54358f50fb3576d905ca41ea8e3d4172f36"
+            }
+          }
+        },
+        "limitation": "These observations are not an equivalent-guarantee speedup."
+      }
+    },
+    {
+      "left": "mr14-store-raft-s3-s3-outage-20261022-001",
+      "right": "mr14-store-bucket-s3-outage-20261022-001",
+      "result": {
+        "matched_contract": false,
+        "differences": {
+          "durability_contract": {
+            "left": {
+              "authority": "raft-majority",
+              "local_durable_copies_at_ack": "majority-of-3",
+              "object_store_at_ack": true,
+              "receipts": "raft-command",
+              "reads": "at-least"
+            },
+            "right": {
+              "authority": "bucket-ownership",
+              "local_durable_copies_at_ack": "not-required",
+              "object_store_at_ack": true,
+              "receipts": "application-transaction",
+              "reads": "owner"
+            }
+          },
+          "workload_contract": {
+            "left": {
+              "cells": {
+                "total": 12,
+                "active": 12
+              },
+              "database_bytes": [
+                4096
+              ],
+              "write_bytes": [
+                64,
+                1024
+              ],
+              "read_fraction": 0.5,
+              "read_consistency": "at-least",
+              "skew": {
+                "hot_fraction": 0.1,
+                "hot_probability": 0.8
+              },
+              "arrival": {
+                "rate_per_second": 10,
+                "max_inflight": 8,
+                "max_lateness_ms": 100
+              },
+              "timing": {
+                "warmup_seconds": 5,
+                "measurement_seconds": 20,
+                "soak_seconds": 0,
+                "request_timeout_ms": 5000,
+                "retry_window_ms": 300000,
+                "startup_seconds": 600
+              },
+              "seed": 14,
+              "tick_ms": 100,
+              "scenario": "s3-outage",
+              "fault_profile": {
+                "format": 1,
+                "target": "object-store",
+                "pause_ms": 1000,
+                "max_pause_ms": 2000,
+                "interval_ms": 5000,
+                "start_after_seconds": 5,
+                "stop_before_seconds": 5,
+                "max_start_lateness_ms": 250
+              }
+            },
+            "right": {
+              "cells": {
+                "total": 12,
+                "active": 12
+              },
+              "database_bytes": [
+                4096
+              ],
+              "write_bytes": [
+                64,
+                1024
+              ],
+              "read_fraction": 0.5,
+              "read_consistency": "owner",
+              "skew": {
+                "hot_fraction": 0.1,
+                "hot_probability": 0.8
+              },
+              "arrival": {
+                "rate_per_second": 10,
+                "max_inflight": 8,
+                "max_lateness_ms": 100
+              },
+              "timing": {
+                "warmup_seconds": 5,
+                "measurement_seconds": 20,
+                "soak_seconds": 0,
+                "request_timeout_ms": 5000,
+                "retry_window_ms": 300000,
+                "startup_seconds": 600
+              },
+              "seed": 14,
+              "tick_ms": null,
+              "scenario": "s3-outage",
+              "fault_profile": {
+                "format": 1,
+                "target": "object-store",
+                "pause_ms": 1000,
+                "max_pause_ms": 2000,
+                "interval_ms": 5000,
+                "start_after_seconds": 5,
+                "stop_before_seconds": 5,
+                "max_start_lateness_ms": 250
+              }
+            }
+          },
+          "build_profile": {
+            "left": {
+              "profile": "lab",
+              "source_manifest": "e6bc98bc9fed775829a26f61caa4f14240d019fd865cb1f19aa8b00bdde95d3e",
+              "binary_sha256": "9a1c392078ded1a533a8b0f68762bc876a89dd558d9950fc6b99244a611289cb"
+            },
+            "right": {
+              "profile": "lab",
+              "source_manifest": "e6bc98bc9fed775829a26f61caa4f14240d019fd865cb1f19aa8b00bdde95d3e",
+              "binary_sha256": "8f30b10e609ef913f4592cd73dfff54358f50fb3576d905ca41ea8e3d4172f36"
+            }
+          }
+        },
+        "limitation": "These observations are not an equivalent-guarantee speedup."
+      }
+    }
+  ],
+  "limitations": [
+    "One shared Mac and one Colima VM; three Cellar containers each with one CPU, 3 GiB and no swap, plus separate RustFS resources. Unrelated Colima profiles remain active and were not mutated.",
+    "The original 20-second measurement and numeric SLOs are unchanged. One-second backend pauses are allowed to miss traffic targets; correctness/recovery checks do not convert those misses into performance acceptance.",
+    "Process freeze does not establish crash, packet-loss, power-loss, disk-loss, Amazon S3 or independent-zone resilience. Ambiguous outcomes refuse qualification and are not retried with new IDs.",
+    "The four adapters retain distinct authority, local-copy, read and receipt contracts. Shared fault timing and SQL transitions do not establish equivalence.",
+    "Steady state, causal latency, instrumentation overhead, sustained S3 acceptance and Q1 capacity remain open. MR-13 operating, MR-15 release, MR-16 scale and MR-17 federation gates remain incomplete.",
+    "Exact owned containers are stopped, their empty networks removed and volumes retained. Only the dedicated profile was controlled and it is stopped."
+  ],
+  "findings": {
+    "acknowledgement_windows": "All four outage scenarios have two verified paused windows. Raft S3 and bucket acknowledge zero of six new observed commands during those holds; Quorum acknowledges ten of ten, and Fleet six of six, under their distinct policies.",
+    "traffic": "All four healthy controls and the Quorum outage meet the original short-run traffic objectives. S3, bucket and Fleet outages miss them. No threshold changed.",
+    "fleet_slow_queries": [
+      {
+        "id": "measurement:52",
+        "cell": 1,
+        "operation": "query",
+        "latency_ms": 852.7404579916035,
+        "wire_ms": 842.3607920121867,
+        "invocation_sync_ms": 0.40337498649023473,
+        "sent_seconds": 5.210379665979417,
+        "complete_seconds": 6.052740457991604
+      },
+      {
+        "id": "measurement:53",
+        "cell": 0,
+        "operation": "query",
+        "latency_ms": 753.6790829792155,
+        "wire_ms": 750.9637079783715,
+        "invocation_sync_ms": 0.4831670084968209,
+        "sent_seconds": 5.302715375000844,
+        "complete_seconds": 6.053679082979215
+      }
+    ],
+    "fleet_scope": "The two delayed owner queries overlap the first pause; this is correlation, not a proven causal sub-operation. All 93 measured Fleet output-proof completions use Fleet and zero use bucket; no per-command proof is inferred from the aggregate.",
+    "resources": "All 32 experiment containers stopped with exit code zero and no OOM. Eight exact empty networks were removed; all volumes and stopped containers remain.",
+    "verification": "All eight independent analyzers pass again after hashed capsule extraction. Both S3-versus-bucket comparisons refuse an equivalent-contract ratio."
+  },
+  "checks": [
+    {
+      "name": "final-plan-doc-checks",
+      "exit_code": 0,
+      "output": "evidence/MR-14-store-physical-validation.json.gz",
+      "log_member": "final-plan-doc-checks",
+      "sha256": "71f6ad120e190a6c470df6b0bed16b6f12e23b8e5a845cf25fdb974e04608c46"
+    },
+    {
+      "name": "final-physical-integrity",
+      "exit_code": 0,
+      "output": "evidence/MR-14-store-physical-validation.json.gz",
+      "log_member": "final-physical-integrity",
+      "sha256": "caad78a85136f043e3878010b734c50e715508412c3652df23ada9737f731b92"
+    }
+  ]
+}

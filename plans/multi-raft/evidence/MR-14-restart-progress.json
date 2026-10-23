@@ -1,0 +1,711 @@
+{
+  "task_id": "MR-14",
+  "source_revision": "aaa83f8f1f213094870cf131e8e2fd3e96a2c482",
+  "completion": "partial",
+  "scope": "Explicit all-owner expired-lease fence, exact-container restart on the same volumes, pre-retry acknowledged-prefix audits, original-identity recovery and new writes through the bucket output gate.",
+  "raw_output": [
+    {
+      "path": "evidence/MR-14-restart-runs.json.gz",
+      "bytes": 90706,
+      "sha256": "bfd6a8612a398ba703d6274ee59e7e3ef289ad525890abc3c9148b07a0ded86f"
+    },
+    {
+      "path": "evidence/MR-14-restart-validation.json.gz",
+      "bytes": 30724,
+      "sha256": "42df429c9236856e30951e0a740fe8f554f2a2b27dcf88e80716014bd8e199f6"
+    }
+  ],
+  "local_runs": [
+    {
+      "build": {
+        "image_id": "sha256:986f82b40e6f575ea5a33affd37d778a3871e71541a24e3306114a2a76153afd",
+        "binary_sha256": "4db5b5a34e7c248790af0e3b904f4243488dcab0ace58967de25d1019239d18e",
+        "source_manifest_sha256": "d79c48c6dad19c4b6742f2463c4c34699fc4272186a084a5b227a0f72cf78739",
+        "build_profile": "lab",
+        "source_revision": "aaa83f8f1f213094870cf131e8e2fd3e96a2c482",
+        "working_tree_dirty": false
+      },
+      "profile_sha256": "117d6edc1834ac007cac010f749ed5f1b13723d5ebc553ef71e7d2d4a3938be8",
+      "fault_profile_sha256": "e41b686d3791c89b685d5b0d9383544788e58ef420fe75178ca8c673f9e6499e",
+      "scenario": "s3-fenced-recovery",
+      "completed": true,
+      "reconciled": true,
+      "measurement_proofs_complete": false,
+      "traffic_objectives_met": false,
+      "failure": null,
+      "summary": {
+        "counts": {
+          "submitted": 50,
+          "completed": 32,
+          "generator_rejected": 150,
+          "ambiguous": 8,
+          "timed_out": 6,
+          "failed": 10,
+          "offered": 200
+        },
+        "latency_ms": {
+          "p50": 10.486374975880786,
+          "p95": 22.507832996780053,
+          "p99": 27.146083000116228,
+          "p99_9": 27.146083000116228
+        },
+        "latency_by_operation_ms": {
+          "command": {
+            "p50": 10.486374975880786,
+            "p95": 22.507832996780053,
+            "p99": 22.507832996780053,
+            "p99_9": 22.507832996780053
+          },
+          "query": {
+            "p50": 10.109165997710168,
+            "p95": 19.624332984676585,
+            "p99": 27.146083000116228,
+            "p99_9": 27.146083000116228
+          }
+        },
+        "completed_per_second": 1.6,
+        "offered_per_second": 10.0,
+        "error_fraction": 0.84
+      },
+      "restart": {
+        "joined_expiry_fences": 3,
+        "restarted_containers": 3,
+        "container_ids": [
+          "892c22955010875b6735fd579a1456c664bdec62f6cedbef7dc6fa202fabc05d",
+          "16b2747ffa8f8b6e636eb8076a8b46ec927b2ca2cdec7922c0de3538b3a717ff",
+          "ebca9bad0bb70459ea5dc8ecea710f886698725383d71467a2588da7828d512a"
+        ],
+        "new_lease_generations": [
+          "dbef70829a4238275675b72618190d284765cbcdecaaaf47793563f98d77e00f",
+          "0c548c5f819417501b563dca6e854dbb0964f916220f1143de4636d1bef19a13",
+          "ddf2f144e7bd03b4817fcac1d0e116433c7c96b3c9b2322424e80637da382571"
+        ],
+        "ready_monotonic_seconds": 150995.554279,
+        "scope": "Same persistent volumes and exact containers, after all native owners joined an expired-lease fence. No empty-disk or disaster restore qualification."
+      },
+      "before_recovery": {
+        "owner_reads": 36,
+        "ambiguous_cells_present": [],
+        "verified_monotonic_seconds": 150995.982998083
+      },
+      "recovery": {
+        "original_ambiguous_commands": 8,
+        "resolved_commands": 8,
+        "recovery_requests": 16,
+        "resolutions": [
+          {
+            "original_id": "measurement:31",
+            "cell": 1,
+            "command_id": "a88be7db2b8e132bd3f82931fe94b437:24",
+            "receipt_sha256": "7b8b6f393c2a8889095c2fa4e4f46b98d82934c706a1437c67cfede21fe85937",
+            "first_acknowledged_monotonic_seconds": 150996.002896041,
+            "confirmed_monotonic_seconds": 150996.004863166
+          },
+          {
+            "original_id": "measurement:33",
+            "cell": 0,
+            "command_id": "a85efa5cdd35d8b49bf6dd4c12eca927:17",
+            "receipt_sha256": "af9e326c1473a080af0b1e31005802fb0911aaf86edb65a0d13643561df14c48",
+            "first_acknowledged_monotonic_seconds": 150996.011383083,
+            "confirmed_monotonic_seconds": 150996.01324075
+          },
+          {
+            "original_id": "measurement:54",
+            "cell": 5,
+            "command_id": "40c57c65ed7868014391521747cb30d8:3",
+            "receipt_sha256": "4fc644c750b73dd379146ca719db5fdaeaa864302f47a0e081725daf3f63b988",
+            "first_acknowledged_monotonic_seconds": 150996.01854625,
+            "confirmed_monotonic_seconds": 150996.020095458
+          },
+          {
+            "original_id": "measurement:61",
+            "cell": 4,
+            "command_id": "657f3205d4fdc6afe4973868727e402f:2",
+            "receipt_sha256": "4e0e9b61f8dc5501abf5b41188d75d1a0f6259d7f315709393b95f49b989b3c8",
+            "first_acknowledged_monotonic_seconds": 150996.025708708,
+            "confirmed_monotonic_seconds": 150996.02763775
+          },
+          {
+            "original_id": "measurement:121",
+            "cell": 2,
+            "command_id": "84e9f901301ee6f9f6b06732fa059f78:5",
+            "receipt_sha256": "d4e4e8e6e452fbd4f315d06a5a8e4c41261432582d1903ed306a9f6fcf7085de",
+            "first_acknowledged_monotonic_seconds": 150996.033377458,
+            "confirmed_monotonic_seconds": 150996.035156916
+          },
+          {
+            "original_id": "measurement:138",
+            "cell": 3,
+            "command_id": "826a7984e64a575d5f93cb9cdc35d828:4",
+            "receipt_sha256": "176b9b84c1b83dcfb6fff637b5400e55582ddda4dde9671992a962b0c7b20e17",
+            "first_acknowledged_monotonic_seconds": 150996.040355,
+            "confirmed_monotonic_seconds": 150996.042100541
+          },
+          {
+            "original_id": "measurement:145",
+            "cell": 8,
+            "command_id": "80a23b7612caebb8e4ddfb78e3f6f3bb:2",
+            "receipt_sha256": "c823294e36708f5ab0eb0295d5a92b332764403329966d5b7638bb2e252c003b",
+            "first_acknowledged_monotonic_seconds": 150996.04836125,
+            "confirmed_monotonic_seconds": 150996.051049458
+          },
+          {
+            "original_id": "measurement:146",
+            "cell": 10,
+            "command_id": "93944fed6d748fe323732e32f7df83e5:2",
+            "receipt_sha256": "97d08296e648b19c11666afda9e1b4dc65eeea9fe39470884ab94147946a0c83",
+            "first_acknowledged_monotonic_seconds": 150996.059719708,
+            "confirmed_monotonic_seconds": 150996.062252
+          }
+        ],
+        "scope": "Original outcomes remain ambiguous in measurement. Each original identity is resolved and confirmed after workload completion; its prior commit time is unknown."
+      },
+      "fault_result": {
+        "cycles": 1,
+        "target": "object-store",
+        "container_id": "2497c8234a1eeedb10132407245c0b22900ae727767cc2ada63a2b11985dae8e",
+        "object_store_required_at_ack": true,
+        "witnesses": [
+          {
+            "cycle": 0,
+            "submitted_during_hold": 8,
+            "acknowledged_during_hold": 0,
+            "commands": [
+              {
+                "cell": 1,
+                "command_id": "a88be7db2b8e132bd3f82931fe94b437:24",
+                "ack_after_release_started": true
+              },
+              {
+                "cell": 0,
+                "command_id": "a85efa5cdd35d8b49bf6dd4c12eca927:17",
+                "ack_after_release_started": true
+              },
+              {
+                "cell": 5,
+                "command_id": "40c57c65ed7868014391521747cb30d8:3",
+                "ack_after_release_started": true
+              },
+              {
+                "cell": 4,
+                "command_id": "657f3205d4fdc6afe4973868727e402f:2",
+                "ack_after_release_started": true
+              },
+              {
+                "cell": 2,
+                "command_id": "84e9f901301ee6f9f6b06732fa059f78:5",
+                "ack_after_release_started": true
+              },
+              {
+                "cell": 3,
+                "command_id": "826a7984e64a575d5f93cb9cdc35d828:4",
+                "ack_after_release_started": true
+              },
+              {
+                "cell": 8,
+                "command_id": "80a23b7612caebb8e4ddfb78e3f6f3bb:2",
+                "ack_after_release_started": true
+              },
+              {
+                "cell": 10,
+                "command_id": "93944fed6d748fe323732e32f7df83e5:2",
+                "ack_after_release_started": true
+              }
+            ]
+          }
+        ],
+        "recovery_upper_seconds": 8.215812332986388,
+        "scope": "Bounded RustFS process pauses; fresh serialized commands observed in each window. Final adapter state checks bound recovery. No crash, packet-loss, Amazon S3, causal latency or equivalent-contract claim."
+      },
+      "run": "mr14-restart-bucket-s3-fenced-recovery-20261022-001",
+      "analysis_rejection": null,
+      "comparison_refusal": "recovery drill has incomplete measurement counters; refuse performance comparison",
+      "cleanup": [
+        {
+          "container": "cellar-mr14-d46be089f9a6e956da3b951a-node3",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-d46be089f9a6e956da3b951a-node2",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-d46be089f9a6e956da3b951a-node1",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-d46be089f9a6e956da3b951a-store",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        }
+      ],
+      "network_removed": true,
+      "raw_measurement_summary": {
+        "counts": {
+          "submitted": 50,
+          "completed": 32,
+          "generator_rejected": 150,
+          "ambiguous": 8,
+          "timed_out": 6,
+          "failed": 10,
+          "offered": 200
+        },
+        "latency_ms": {
+          "p50": 10.486374975880786,
+          "p95": 22.507832996780053,
+          "p99": 27.146083000116228,
+          "p99_9": 27.146083000116228
+        },
+        "latency_by_operation_ms": {
+          "command": {
+            "p50": 10.486374975880786,
+            "p95": 22.507832996780053,
+            "p99": 22.507832996780053,
+            "p99_9": 22.507832996780053
+          },
+          "query": {
+            "p50": 10.109165997710168,
+            "p95": 19.624332984676585,
+            "p99": 27.146083000116228,
+            "p99_9": 27.146083000116228
+          }
+        },
+        "completed_per_second": 1.6,
+        "offered_per_second": 10.0,
+        "error_fraction": 0.84
+      },
+      "commands_including_seed": 76,
+      "queries": 38,
+      "owner_route_reads": 36,
+      "proof_delta": null,
+      "recovery_proof_delta": {
+        "started": 8,
+        "bucket": 8,
+        "fleet": 0,
+        "errors": 0,
+        "elapsed_us": 29431
+      },
+      "resumed_proof_delta": {
+        "started": 12,
+        "bucket": 12,
+        "fleet": 0,
+        "errors": 0,
+        "elapsed_us": 62724
+      }
+    },
+    {
+      "build": {
+        "image_id": "sha256:986f82b40e6f575ea5a33affd37d778a3871e71541a24e3306114a2a76153afd",
+        "binary_sha256": "4db5b5a34e7c248790af0e3b904f4243488dcab0ace58967de25d1019239d18e",
+        "source_manifest_sha256": "d79c48c6dad19c4b6742f2463c4c34699fc4272186a084a5b227a0f72cf78739",
+        "build_profile": "lab",
+        "source_revision": "aaa83f8f1f213094870cf131e8e2fd3e96a2c482",
+        "working_tree_dirty": false
+      },
+      "profile_sha256": "117d6edc1834ac007cac010f749ed5f1b13723d5ebc553ef71e7d2d4a3938be8",
+      "fault_profile_sha256": "e41b686d3791c89b685d5b0d9383544788e58ef420fe75178ca8c673f9e6499e",
+      "scenario": "s3-fenced-recovery",
+      "completed": true,
+      "reconciled": true,
+      "measurement_proofs_complete": false,
+      "traffic_objectives_met": false,
+      "failure": null,
+      "summary": {
+        "counts": {
+          "submitted": 50,
+          "completed": 32,
+          "generator_rejected": 150,
+          "ambiguous": 8,
+          "timed_out": 6,
+          "failed": 10,
+          "offered": 200
+        },
+        "latency_ms": {
+          "p50": 9.68654199386948,
+          "p95": 59.37695900793205,
+          "p99": 89.49458398274146,
+          "p99_9": 89.49458398274146
+        },
+        "latency_by_operation_ms": {
+          "command": {
+            "p50": 13.02308400045149,
+            "p95": 59.37695900793205,
+            "p99": 59.37695900793205,
+            "p99_9": 59.37695900793205
+          },
+          "query": {
+            "p50": 8.453958987956867,
+            "p95": 31.28216698532915,
+            "p99": 89.49458398274146,
+            "p99_9": 89.49458398274146
+          }
+        },
+        "completed_per_second": 1.6,
+        "offered_per_second": 10.0,
+        "error_fraction": 0.84
+      },
+      "restart": {
+        "joined_expiry_fences": 3,
+        "restarted_containers": 3,
+        "container_ids": [
+          "b8159951480811b47e1a21c3bcad9118f7d35ca5c4516fe792155b32632f0955",
+          "f106e441cf3f9d3ce6380a7009ee1c8a27afe50e2f21d6073bad384785655b6b",
+          "50a6b2d49657be82b9a39055bad57cc106f014d4868e0224bb51025aa7f2b6d1"
+        ],
+        "new_lease_generations": [
+          "505c274421db497f633a24d4a14db37d18e2194855045e38d9126bf131216d38",
+          "1ad7e53e21a2eefcbc9a14162f760c67b0238e51b4a395ddbfcc2988d666efef",
+          "d076880096553fea9cd0e222d5cad04225a5c21e0fb269b4c3a9113610f0a744"
+        ],
+        "ready_monotonic_seconds": 151130.917489083,
+        "scope": "Same persistent volumes and exact containers, after all native owners joined an expired-lease fence. No empty-disk or disaster restore qualification."
+      },
+      "before_recovery": {
+        "owner_reads": 36,
+        "ambiguous_cells_present": [],
+        "verified_monotonic_seconds": 151131.2999135
+      },
+      "recovery": {
+        "original_ambiguous_commands": 8,
+        "resolved_commands": 8,
+        "recovery_requests": 16,
+        "resolutions": [
+          {
+            "original_id": "measurement:31",
+            "cell": 1,
+            "command_id": "284d164ee181d38428e093811227a5f4:24",
+            "receipt_sha256": "3b42cce8d1f46d10e7d15f26497f3a7338755815a1b33ffd1881b6dac2d5fb8d",
+            "first_acknowledged_monotonic_seconds": 151131.322821208,
+            "confirmed_monotonic_seconds": 151131.325187333
+          },
+          {
+            "original_id": "measurement:33",
+            "cell": 0,
+            "command_id": "684b3f0bd8b619d29ac5ec593b07e9df:17",
+            "receipt_sha256": "7e0a0fdfcd19ef24ca04fad3e4e1103b2ce30ada4d0c83f3d5012020f8535d69",
+            "first_acknowledged_monotonic_seconds": 151131.331624458,
+            "confirmed_monotonic_seconds": 151131.333439958
+          },
+          {
+            "original_id": "measurement:61",
+            "cell": 4,
+            "command_id": "3fec73a91527e8dfe47403e1d777c5ae:2",
+            "receipt_sha256": "1315d614da298287f587e67d5253dde9734e0e7ec7dd241035ebf54aaa535e27",
+            "first_acknowledged_monotonic_seconds": 151131.339881916,
+            "confirmed_monotonic_seconds": 151131.342315541
+          },
+          {
+            "original_id": "measurement:54",
+            "cell": 5,
+            "command_id": "dae5251c69cf30273270cf581d037d61:3",
+            "receipt_sha256": "5de483017c65911b48262a0febb72dc362e7b9563e105587ff2bafcdc2fd2da3",
+            "first_acknowledged_monotonic_seconds": 151131.348998458,
+            "confirmed_monotonic_seconds": 151131.351536625
+          },
+          {
+            "original_id": "measurement:121",
+            "cell": 2,
+            "command_id": "bc98ee526c63d33b4eb8e1fecdf5c2e5:5",
+            "receipt_sha256": "2675540013826fba0cbe94d08b8ce6fbd758cd7a370746a86fcbad47461c2f74",
+            "first_acknowledged_monotonic_seconds": 151131.356969958,
+            "confirmed_monotonic_seconds": 151131.36013275
+          },
+          {
+            "original_id": "measurement:138",
+            "cell": 3,
+            "command_id": "23dbfec0356c2c187d66208aeccd0700:4",
+            "receipt_sha256": "8a61b50898f810bb32ada96ce817265dddad713b2eb70540cd4f5e3575699f49",
+            "first_acknowledged_monotonic_seconds": 151131.368500958,
+            "confirmed_monotonic_seconds": 151131.371383916
+          },
+          {
+            "original_id": "measurement:145",
+            "cell": 8,
+            "command_id": "2f2428961fd5d8fb3848403bea08d34c:2",
+            "receipt_sha256": "5509b74414a3ed76919af18eb51ad45703fa3f62694919de3bc50ef9157357e5",
+            "first_acknowledged_monotonic_seconds": 151131.377384416,
+            "confirmed_monotonic_seconds": 151131.380012625
+          },
+          {
+            "original_id": "measurement:146",
+            "cell": 10,
+            "command_id": "2e3ab1eab1b9591759303faec5525bf1:2",
+            "receipt_sha256": "c51db04a54445a0d1413cbeb84a303fed357a1c32e0fa0a981da4163be313586",
+            "first_acknowledged_monotonic_seconds": 151131.386742458,
+            "confirmed_monotonic_seconds": 151131.390076125
+          }
+        ],
+        "scope": "Original outcomes remain ambiguous in measurement. Each original identity is resolved and confirmed after workload completion; its prior commit time is unknown."
+      },
+      "fault_result": {
+        "cycles": 1,
+        "target": "object-store",
+        "container_id": "bff42a8591f06eacaacf2372dfedb6f3bd9b3e7129aebc0a5eead0ff7e0de859",
+        "object_store_required_at_ack": true,
+        "witnesses": [
+          {
+            "cycle": 0,
+            "submitted_during_hold": 8,
+            "acknowledged_during_hold": 0,
+            "commands": [
+              {
+                "cell": 1,
+                "command_id": "284d164ee181d38428e093811227a5f4:24",
+                "ack_after_release_started": true
+              },
+              {
+                "cell": 0,
+                "command_id": "684b3f0bd8b619d29ac5ec593b07e9df:17",
+                "ack_after_release_started": true
+              },
+              {
+                "cell": 5,
+                "command_id": "dae5251c69cf30273270cf581d037d61:3",
+                "ack_after_release_started": true
+              },
+              {
+                "cell": 4,
+                "command_id": "3fec73a91527e8dfe47403e1d777c5ae:2",
+                "ack_after_release_started": true
+              },
+              {
+                "cell": 2,
+                "command_id": "bc98ee526c63d33b4eb8e1fecdf5c2e5:5",
+                "ack_after_release_started": true
+              },
+              {
+                "cell": 3,
+                "command_id": "23dbfec0356c2c187d66208aeccd0700:4",
+                "ack_after_release_started": true
+              },
+              {
+                "cell": 8,
+                "command_id": "2f2428961fd5d8fb3848403bea08d34c:2",
+                "ack_after_release_started": true
+              },
+              {
+                "cell": 10,
+                "command_id": "2e3ab1eab1b9591759303faec5525bf1:2",
+                "ack_after_release_started": true
+              }
+            ]
+          }
+        ],
+        "recovery_upper_seconds": 7.685197707993211,
+        "scope": "Bounded RustFS process pauses; fresh serialized commands observed in each window. Final adapter state checks bound recovery. No crash, packet-loss, Amazon S3, causal latency or equivalent-contract claim."
+      },
+      "run": "mr14-restart-bucket-s3-fenced-recovery-20261022-002",
+      "analysis_rejection": null,
+      "comparison_refusal": "recovery drill has incomplete measurement counters; refuse performance comparison",
+      "cleanup": [
+        {
+          "container": "cellar-mr14-a72e6f6a5a596be1f1c868bb-node3",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-a72e6f6a5a596be1f1c868bb-node2",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-a72e6f6a5a596be1f1c868bb-node1",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-a72e6f6a5a596be1f1c868bb-store",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        }
+      ],
+      "network_removed": true,
+      "raw_measurement_summary": {
+        "counts": {
+          "submitted": 50,
+          "completed": 32,
+          "generator_rejected": 150,
+          "ambiguous": 8,
+          "timed_out": 6,
+          "failed": 10,
+          "offered": 200
+        },
+        "latency_ms": {
+          "p50": 9.68654199386948,
+          "p95": 59.37695900793205,
+          "p99": 89.49458398274146,
+          "p99_9": 89.49458398274146
+        },
+        "latency_by_operation_ms": {
+          "command": {
+            "p50": 13.02308400045149,
+            "p95": 59.37695900793205,
+            "p99": 59.37695900793205,
+            "p99_9": 59.37695900793205
+          },
+          "query": {
+            "p50": 8.453958987956867,
+            "p95": 31.28216698532915,
+            "p99": 89.49458398274146,
+            "p99_9": 89.49458398274146
+          }
+        },
+        "completed_per_second": 1.6,
+        "offered_per_second": 10.0,
+        "error_fraction": 0.84
+      },
+      "commands_including_seed": 76,
+      "queries": 38,
+      "owner_route_reads": 36,
+      "proof_delta": null,
+      "recovery_proof_delta": {
+        "started": 8,
+        "bucket": 8,
+        "fleet": 0,
+        "errors": 0,
+        "elapsed_us": 31013
+      },
+      "resumed_proof_delta": {
+        "started": 12,
+        "bucket": 12,
+        "fleet": 0,
+        "errors": 0,
+        "elapsed_us": 63330
+      }
+    }
+  ],
+  "validation": {
+    "source_revision": "aaa83f8f1f213094870cf131e8e2fd3e96a2c482",
+    "python_tests": {
+      "passed": 192,
+      "skipped": 1,
+      "new_restart_cases": 8,
+      "exit_code": 0
+    },
+    "native_baseline_tests": {
+      "passed": 5,
+      "exit_code": 0,
+      "scope": "Existing real native HTTP/cell/LTX/output-gate and empty-directory receipt restore, with public startup lease-generation output added."
+    },
+    "repository_checks": [
+      {
+        "check": "python-final",
+        "argv": [
+          "python3",
+          "-m",
+          "unittest",
+          "discover",
+          "-s",
+          "tools/perf",
+          "-p",
+          "test_*.py",
+          "-v"
+        ],
+        "exit_code": 0,
+        "log": "/tmp/cellar-mr14-restart-python-final.log"
+      },
+      {
+        "check": "clippy",
+        "argv": [
+          "cargo",
+          "clippy",
+          "-p",
+          "cellar",
+          "--all-features",
+          "--bin",
+          "cellar-perf-baseline",
+          "--locked",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "exit_code": 0,
+        "log": "/tmp/cellar-mr14-restart-clippy.log"
+      },
+      {
+        "check": "format",
+        "argv": [
+          "cargo",
+          "format",
+          "--check"
+        ],
+        "exit_code": 0,
+        "log": "/tmp/cellar-mr14-restart-format.log"
+      },
+      {
+        "check": "layout",
+        "argv": [
+          "cargo",
+          "check-layout"
+        ],
+        "exit_code": 0,
+        "log": "/tmp/cellar-mr14-restart-layout.log"
+      },
+      {
+        "check": "dependencies",
+        "argv": [
+          "python3",
+          "tools/check_native_dependencies.py"
+        ],
+        "exit_code": 0,
+        "log": "/tmp/cellar-mr14-restart-dependencies.log"
+      },
+      {
+        "check": "docs",
+        "argv": [
+          "python3",
+          "tools/docs/check.py"
+        ],
+        "exit_code": 0,
+        "log": "/tmp/cellar-mr14-restart-docs.log"
+      },
+      {
+        "check": "plan",
+        "argv": [
+          "python3",
+          "plans/multi-raft/plan.py",
+          "validate"
+        ],
+        "exit_code": 0,
+        "log": "/tmp/cellar-mr14-restart-plan.log"
+      },
+      {
+        "check": "plan-tests",
+        "argv": [
+          "python3",
+          "-m",
+          "unittest",
+          "discover",
+          "-s",
+          "plans/multi-raft",
+          "-p",
+          "test_*.py",
+          "-v"
+        ],
+        "exit_code": 0,
+        "log": "/tmp/cellar-mr14-restart-plan-tests.log"
+      }
+    ],
+    "limits": "No native production host behavior changed. Fixture checks do not establish physical restart, empty-disk disaster recovery or performance qualification. Command deadlines, resource limits and numeric recovery targets remain unchanged."
+  },
+  "limitations": [
+    "One shared Mac, one separate Colima VM and RustFS; three Cellar containers each with one CPU, 3 GiB and no swap. No Amazon S3 or independent-zone qualification.",
+    "The original workload duration, request deadlines, retry deadlines, resource limits and thirty-second recovery bound are unchanged. The explicitly configured twelve-second backend pause exceeds the unchanged ten-second ownership lease.",
+    "All three old owners must fence and join before starting the same containers once. The earlier seven-second mixed-live/fenced-owner failure remains rejected at its original pin; this new scenario does not retroactively qualify it. Mixed-owner restart and cold/disaster restore need separate evidence.",
+    "Old-process final counters are unavailable. They are never replaced with zeros or bridged across restart. Recovery passes cannot qualify performance; comparison refuses a ratio even for identical recovery scenarios.",
+    "Post-retry new writes are separately journaled and do not increase measured throughput. The original failed/ambiguous and quarantined-cell outcomes remain visible.",
+    "Steady state, causal latency, instrumentation overhead, matched-contract performance, sustained S3 latency and Q1 capacity remain open. MR-13, MR-15, MR-16 and MR-17 retain their operating, release, scale and federation gates.",
+    "Exact owned containers are stopped, their empty networks removed, and volumes and raw evidence retained. Only the dedicated profile was controlled and it is stopped."
+  ]
+}

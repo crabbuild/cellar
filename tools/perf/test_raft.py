@@ -130,3 +130,56 @@ class LoadTests(unittest.TestCase):
         self.assertEqual(result['offered_rate'], 20)
         self.assertFalse(result['errors'])
         self.assertTrue(all(r['command_id'] and r['retry_until_ms'] for r in result['receipts']))
+
+
+class IsolationTests(unittest.TestCase):
+    def test_invalid_port_range_refuses_before_docker(self):
+        from raft import main
+        for port in ('0', '1023', '65533', 'not-a-port'):
+            with self.subTest(port=port), patch('sys.argv', ['raft.py', '--port-base', port]), patch('raft.command') as remote, contextlib.redirect_stderr(io.StringIO()):
+                with self.assertRaises(SystemExit) as stopped:
+                    main()
+                self.assertEqual(stopped.exception.code, 2)
+                remote.assert_not_called()
+
+    def test_continuation_cannot_switch_to_another_runs_ports(self):
+        from raft import main
+        with tempfile.TemporaryDirectory() as directory:
+            report = Path(directory) / 'report.json'
+            before = json.dumps({'measurements': [], 'completed': False, 'cells': 3,
+                'context': 'colima-cellar-multi-raft', 'port_base': 19800, 'tick_ms': 100})
+            report.write_text(before)
+            argv = ['raft.py', '--continue-setup', directory, '--cells-per-primary', '1',
+                '--concurrency', '1', '--context', 'colima-cellar-multi-raft', '--port-base', '19900']
+            with patch('sys.argv', argv), patch('raft.command') as remote:
+                with self.assertRaisesRegex(ValueError, 'port base'):
+                    main()
+                remote.assert_not_called()
+            self.assertEqual(report.read_text(), before)
+            self.assertEqual(list(Path(directory).iterdir()), [report])
+
+
+class ResourceCaptureTests(unittest.TestCase):
+    def limits(self):
+        return {'NanoCpus': 1_000_000_000, 'CpusetCpus': '0',
+                'Memory': 3 * 1024**3, 'MemorySwap': 3 * 1024**3}
+
+    def test_docker_may_omit_unused_tmpfs(self):
+        from raft import captured_node_limits
+        # Docker 29 omits this optional field for the real volume/bind layout.
+        for extra in ({}, {'Tmpfs': None}):
+            with self.subTest(extra=extra):
+                captured = captured_node_limits({**self.limits(), **extra})
+                self.assertEqual(captured, {**self.limits(), 'Tmpfs': {}})
+
+    def test_required_memory_quota_is_never_defaulted(self):
+        from raft import captured_node_limits
+        raw = {**self.limits(), 'Tmpfs': {}}
+        del raw['Memory']
+        with self.assertRaises(KeyError):
+            captured_node_limits(raw)
+
+    def test_explicit_tmpfs_mount_is_preserved(self):
+        from raft import captured_node_limits
+        raw = {**self.limits(), 'Tmpfs': {'/data/node/raft-cells/archive-verifier': 'rw,size=512m'}}
+        self.assertEqual(captured_node_limits(raw), raw)

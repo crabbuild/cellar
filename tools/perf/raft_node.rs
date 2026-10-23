@@ -2,6 +2,9 @@
 #![allow(clippy::disallowed_methods)]
 #[path = "../../examples/raft-counter/counter.rs"]
 mod counter;
+mod raft_probe;
+mod raft_workload;
+mod reference_workload;
 use anyhow::{ensure, Context, Result};
 use cellar::bucket::{Bucket, StorageBackend};
 use cellar::engine_api::{Compat, WorkerConfigOptions};
@@ -49,6 +52,37 @@ fn graph(script: &str) -> DeploymentGraph {
     })
 }
 
+#[derive(Clone, Copy)]
+struct Placement {
+    nodes: u8,
+}
+
+impl Placement {
+    fn new(nodes: u8) -> Result<Self> {
+        ensure!(
+            (3..=5).contains(&nodes),
+            "local topology requires three to five nodes"
+        );
+        Ok(Self { nodes })
+    }
+
+    fn voters(self, cell: usize) -> [u8; 3] {
+        let first = cell % usize::from(self.nodes);
+        std::array::from_fn(|offset| ((first + offset) % usize::from(self.nodes) + 1) as u8)
+    }
+
+    fn local_count(self, total: usize, node: u8) -> Result<usize> {
+        ensure!((1..=self.nodes).contains(&node), "invalid local node");
+        let nodes = usize::from(self.nodes);
+        Ok((0..3)
+            .map(|offset| {
+                let leader = (usize::from(node) - 1 + nodes - offset) % nodes;
+                total / nodes + usize::from(leader < total % nodes)
+            })
+            .sum())
+    }
+}
+
 #[tokio::main(flavor = "multi_thread", worker_threads = 1)]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
@@ -60,14 +94,42 @@ async fn main() -> Result<()> {
     let tick_ms: u64 = std::env::var("RAFT_TICK_MS")
         .unwrap_or_else(|_| "100".into())
         .parse()?;
+    let placement = Placement::new(
+        std::env::var("RAFT_NODES")
+            .unwrap_or_else(|_| "3".into())
+            .parse()?,
+    )?;
+    ensure!((1..=1_000_000).contains(&total), "invalid cell count");
+    let local_count = placement.local_count(total, i)?;
     ensure!(
-        (1..=3).contains(&i) && (1..=4096).contains(&total),
-        "invalid node/cell count"
+        (1..=4096).contains(&local_count),
+        "invalid local replica count"
     );
     let queue_items: usize = std::env::var("RAFT_QUEUE_ITEMS")
         .unwrap_or_else(|_| "256".into())
         .parse()?;
+    let workload = match std::env::var("RAFT_WORKLOAD").as_deref() {
+        Ok("reference") => true,
+        Ok("counter") | Err(_) => false,
+        _ => anyhow::bail!("invalid workload"),
+    };
+    let durability = match std::env::var("RAFT_DURABILITY").as_deref() {
+        Ok("s3") => Durability::S3,
+        Ok("quorum") | Err(_) => Durability::Quorum,
+        _ => anyhow::bail!("invalid durability"),
+    };
+    ensure!(
+        workload || durability == Durability::Quorum,
+        "counter fixture requires quorum durability"
+    );
+    let network = std::env::var("RAFT_NETWORK_PREFIX").unwrap_or_else(|_| "172.29.81".into());
+    let address: std::net::Ipv4Addr = format!("{network}.1").parse()?;
+    ensure!(address.is_private(), "private workload network required");
     let primary_only = std::env::var("RAFT_PRIMARY_ONLY").as_deref() == Ok("1");
+    ensure!(
+        !primary_only || placement.nodes == 3,
+        "primary-only fixture requires three nodes"
+    );
     let root = PathBuf::from("/data");
     let secret = std::fs::read_to_string("/config/token")?.trim().to_owned();
     let tls = RaftTls::new(
@@ -106,16 +168,39 @@ async fn main() -> Result<()> {
     let namespace = NamespaceId::new([2; 16])?;
     let cluster = ClusterId::new([1; 16])?;
     let label = format!("raft-node{i}");
-    let class = counter::definition()?;
-    let api = counter::CounterApi::new(secret.clone(), namespace, &class)?;
-    let application = counter::application(api.clone(), class)?;
+    let class = if workload {
+        raft_workload::definition()?
+    } else {
+        counter::definition()?
+    };
+    let schema = class.schema_digest();
+    let class_name = if workload { "Workload" } else { "Counter" };
+    let reference = if workload {
+        Some(raft_workload::Api::new(
+            secret.clone(),
+            namespace,
+            &class,
+            durability,
+        )?)
+    } else {
+        None
+    };
+    let api = if workload {
+        None
+    } else {
+        Some(counter::CounterApi::new(secret.clone(), namespace, &class)?)
+    };
+    let application = match &api {
+        Some(api) => counter::application(api.clone(), class)?,
+        None => raft_workload::application(class)?,
+    };
     let public = tokio::net::TcpListener::bind("0.0.0.0:8080").await?;
     let internal = tokio::net::TcpListener::bind("0.0.0.0:8081").await?;
     let signer = Arc::new(PeerProbeSigner::generate());
     let config = NodeConfig::new(
         ActorIdentity {
             node: label.clone(),
-            advertise: format!("172.29.81.{}:8081", i + 10),
+            advertise: format!("{network}.{}:8081", i + 10),
             region: "local-demo".into(),
         },
         ActorOptions {
@@ -165,8 +250,8 @@ async fn main() -> Result<()> {
     )
     .await?;
     let mut peers = Vec::new();
-    for n in 1..=3u8 {
-        let address = |port| format!("172.29.81.{}:{port}", n + 10).parse();
+    for n in 1..=placement.nodes {
+        let address = |port| format!("{network}.{}:{port}", n + 10).parse();
         peers.push(RaftPeerNode {
             node: NodeId::new([n; 16])?,
             disk: DiskLineage::new([n + 10; 16])?,
@@ -184,32 +269,29 @@ async fn main() -> Result<()> {
     }
     // Fresh process identity on every restart; peers authenticate physical routes.
     // The runner persists the peer directory per run and replaces all processes together.
-    let mut config = NamespaceConfig::new(
-        cluster,
-        namespace,
-        NamespaceMode::Raft,
-        counter::definition()?.schema_digest(),
-    );
+    let mut config = NamespaceConfig::new(cluster, namespace, NamespaceMode::Raft, schema);
     config.voters = VoterPolicy::ThreeVoters;
     let cells = (0..total)
+        .filter(|cell| placement.voters(*cell).contains(&i))
         .map(|c| -> Result<_> {
             let mut group = [5; 16];
             group[..8].copy_from_slice(&(c as u64 + 1).to_be_bytes());
             Ok(RaftCellRegistration {
                 placement: RaftCellPlacement::Replica,
                 namespace: config.clone(),
-                class: "Counter".into(),
+                class: class_name.into(),
                 birth: BirthProposal {
                     scope: GroupScope {
                         cluster,
                         namespace,
-                        cell: format!("Counter:{c}"),
+                        cell: format!("{class_name}:{c}"),
                         group: GroupId::new(group)?,
                         incarnation: IncarnationId::new([4; 16])?,
                     },
                     voters: peers
                         .iter()
                         .enumerate()
+                        .filter(|(p, _)| placement.voters(c).contains(&(*p as u8 + 1)))
                         .map(|(p, peer)| {
                             Ok(InitialMember {
                                 node: peer.node,
@@ -230,11 +312,11 @@ async fn main() -> Result<()> {
     };
     let peer = &peers[i as usize - 1];
     let mut host = RaftHostOptions {
-        max_groups: total,
+        max_groups: local_count,
         max_requests: 256,
         ..Default::default()
     };
-    host.close_report.max_groups = total;
+    host.close_report.max_groups = local_count;
     let service = node
         .start_raft_cells(
             RaftCellsConfig {
@@ -279,54 +361,154 @@ async fn main() -> Result<()> {
             },
         )
         .await?;
-    *api.cells
-        .lock()
-        .map_err(|_| anyhow::anyhow!("poisoned binding"))? = Some(service.clone());
+    let router = if let Some(api) = api {
+        *api.cells
+            .lock()
+            .map_err(|_| anyhow::anyhow!("poisoned binding"))? = Some(service.clone());
+        counter::router(api)
+    } else {
+        let api = reference.ok_or_else(|| anyhow::anyhow!("missing workload API"))?;
+        *api.cells
+            .lock()
+            .map_err(|_| anyhow::anyhow!("poisoned binding"))? = Some(service.clone());
+        raft_workload::router(api)
+    };
+    let metrics = service.clone();
+    let metrics_secret = secret.clone();
+    let router = router.route("/metrics", axum::routing::get(move |headers: axum::http::HeaderMap| {
+        let metrics = metrics.clone();
+        let secret = metrics_secret.clone();
+        async move {
+            if headers.get("authorization").and_then(|value| value.to_str().ok()) != Some(format!("Bearer {secret}").as_str()) {
+                return (axum::http::StatusCode::UNAUTHORIZED, axum::Json(serde_json::json!({"error":"unauthorized"})));
+            }
+            (axum::http::StatusCode::OK, axum::Json(serde_json::json!({"resources":metrics.resource_usage(), "performance":metrics.performance()})))
+        }
+    }));
     let admin = service.clone();
-    let router = counter::router(api).route("/admin/{id}", axum::routing::any(
+    let probe_domain = Arc::new(ExecutionDomain::new(tokio::runtime::Handle::current()));
+    let admin_domain = probe_domain.clone();
+    let probes = raft_probe::Probes::new(service.performance().source);
+    let probe_reader = probes.clone();
+    let probe_secret = secret.clone();
+    let router = router.route(
+        "/probe-timings",
+        axum::routing::get(move |headers: axum::http::HeaderMap| {
+            let probes = probe_reader.clone();
+            let secret = probe_secret.clone();
+            async move {
+                if headers
+                    .get("authorization")
+                    .and_then(|value| value.to_str().ok())
+                    != Some(format!("Bearer {secret}").as_str())
+                {
+                    return (
+                        axum::http::StatusCode::UNAUTHORIZED,
+                        axum::Json(serde_json::json!({"error":"unauthorized"})),
+                    );
+                }
+                match probes.snapshot() {
+                    Ok(value) => (axum::http::StatusCode::OK, axum::Json(value)),
+                    Err(_) => (
+                        axum::http::StatusCode::SERVICE_UNAVAILABLE,
+                        axum::Json(serde_json::json!({"error":"probe diagnostics unavailable"})),
+                    ),
+                }
+            }
+        }),
+    );
+    let router = router.route("/admin/{id}", axum::routing::any(
         move |axum::extract::Path(id): axum::extract::Path<usize>, request: axum::extract::Request| {
             let service = admin.clone(); let secret = secret.clone();
+            let probes = probes.clone(); let domain = admin_domain.clone();
             async move {
+              domain.run(async move {
                 let authorized = request.headers().get("authorization").and_then(|v| v.to_str().ok()) == Some(format!("Bearer {secret}").as_str());
                 let transfer = request.method() == axum::http::Method::POST;
+                let probe_id = request.headers().get("x-cellar-probe").map(|value| {
+                    ensure!(value.len() <= 41, "invalid probe identity");
+                    Ok::<_,anyhow::Error>(value.to_str()?.to_owned())
+                }).transpose();
                 drop(request);
+                let mut probe = None;
                 let result = async {
                     ensure!(authorized, "unauthorized");
                     ensure!(id < total, "invalid cell");
-                    let cell = service.cell(namespace, &format!("Counter:{id}"))?;
-                    let status = cell.status().await.map_err(|e| anyhow::anyhow!("{e:?}"))?;
+                    if let Some(probe_id) = probe_id? {
+                        ensure!(!transfer, "only read probes may be timed");
+                        probe = Some(probes.start(&probe_id, id)?);
+                    }
+                    let cell = match service.cell(namespace, &format!("{class_name}:{id}")) {
+                        Ok(cell) => cell,
+                        Err(error) => {
+                            ensure!(!transfer && !service.is_closed(), "unavailable registration: {error:?}");
+                            return Ok(serde_json::json!({"cell":id, "node":i, "registered":false}));
+                        }
+                    };
+                    let status = cell.status().await;
+                    if let Some(probe) = &probe { probe.status_finished(); }
+                    let status = status.map_err(|e| anyhow::anyhow!("{e:?}"))?;
                     if transfer && status.command_ready {
-                        let target = MemberId::new(if primary_only { 1 } else { (id % 3 + 1) as u64 })?;
+                        let target = MemberId::new(if primary_only { 1 } else { u64::from(placement.voters(id)[0]) })?;
                         if status.leader != Some(target) {
                             cell.transfer_leadership(LeadershipTransfer {target,
                                 expected_term: status.term, expected_revision: status.membership_revision}, Duration::from_secs(5))
                                 .await.map_err(|e| anyhow::anyhow!("{e:?}"))?;
                         }
                     }
-                    Ok::<_,anyhow::Error>(serde_json::json!({"cell":id, "leader":status.leader.map(MemberId::get),
+                    let replication = if status.role == RaftReplicaRole::Leader && !transfer {
+                        if let Some(probe) = &probe { probe.replication_started(); }
+                        let progress = cell.replication_status().await;
+                        if let Some(probe) = &probe { probe.replication_finished(); }
+                        let progress = progress.map_err(|e| anyhow::anyhow!("{e:?}"))?;
+                        ensure!(progress.term == status.term && progress.membership_revision == status.membership_revision
+                            && progress.replica.member.get() == u64::from(i), "changed replication observation");
+                        ensure!(progress.members.iter().all(|member| member.voter), "unexpected learner");
+                        Some(progress)
+                    } else { None };
+                    let voters = replication.as_ref().map(|progress| {
+                        let mut voters: Vec<_> = progress.members.iter().map(|member| member.member.get()).collect();
+                        voters.sort_unstable();
+                        voters
+                    });
+                    let replication = replication.map(|progress| serde_json::json!({
+                        "group":hex::encode(progress.replica.scope.group.bytes()),
+                        "incarnation":hex::encode(progress.replica.scope.incarnation.bytes()),
+                        "term":progress.term.get(), "committed":progress.committed.get(),
+                        "members":progress.members.iter().map(|member| serde_json::json!({
+                            "member":member.member.get(), "matched":member.matched.get(), "voter":member.voter
+                        })).collect::<Vec<_>>()
+                    }));
+                    Ok::<_,anyhow::Error>(serde_json::json!({"cell":id, "node":i, "registered":true, "voters":voters, "leader":status.leader.map(MemberId::get),
+                        "replication":replication,
                         "ready": status.command_ready, "role":format!("{:?}",status.role),
                         "term":status.term.get(), "committed":status.committed.get(), "applied":status.applied.index.get(), "archived":status.archived.get()}))
                 }.await;
+                if let Some(probe) = &probe { probe.finish(result.is_ok()); }
                 match result { Ok(v) => (axum::http::StatusCode::OK, v.to_string()),
                     Err(e) => (axum::http::StatusCode::SERVICE_UNAVAILABLE, e.to_string()) }
+              }).await.unwrap_or((axum::http::StatusCode::SERVICE_UNAVAILABLE, "probe domain closed".into()))
             }
         }));
     let listener = tokio::net::TcpListener::bind("0.0.0.0:8082").await?;
     cellar::note!(
-        "raft_perf_ready node={} groups={} tick_ms={} queue_items={} durability=quorum archive=rustfs",
+        "raft_perf_ready node={} groups={} tick_ms={} queue_items={} durability={:?} archive=rustfs",
         i,
-        total,
+        local_count,
         tick_ms,
-        queue_items
+        queue_items,
+        durability
     );
-    axum::serve(listener, router)
+    let served = axum::serve(listener, router)
         .with_graceful_shutdown(async {
             let mut term =
                 tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
                     .expect("signal");
             cellar::asyncrt::select! { _ = tokio::signal::ctrl_c() => {}, _ = term.recv() => {} }
         })
-        .await?;
+        .await;
+    probe_domain.shutdown().await;
+    served?;
     node.shutdown(ShutdownMode::Preserve)
         .await
         .context("node shutdown")?;
@@ -336,4 +518,44 @@ async fn main() -> Result<()> {
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
     cellar::note!("raft_perf_closed {:?}", report);
     Ok(())
+}
+
+#[cfg(test)]
+mod placement_tests {
+    use super::*;
+
+    #[test]
+    fn three_voters_are_balanced_without_registering_other_nodes() -> Result<()> {
+        for nodes in 3..=5 {
+            let placement = Placement::new(nodes)?;
+            for total in [1, 3, 5, 17, 4096, 6825] {
+                let mut actual = vec![0; usize::from(nodes)];
+                for cell in 0..total {
+                    let voters = placement.voters(cell);
+                    assert_eq!(voters[0], (cell % usize::from(nodes) + 1) as u8);
+                    assert_ne!(voters[0], voters[1]);
+                    assert_ne!(voters[0], voters[2]);
+                    assert_ne!(voters[1], voters[2]);
+                    for voter in voters {
+                        actual[usize::from(voter) - 1] += 1;
+                    }
+                }
+                for node in 1..=nodes {
+                    assert_eq!(
+                        placement.local_count(total, node)?,
+                        actual[usize::from(node) - 1]
+                    );
+                }
+                assert_eq!(actual.iter().sum::<usize>(), total * 3);
+            }
+        }
+        let five = Placement::new(5)?;
+        assert_eq!(five.voters(4), [5, 1, 2]);
+        assert_eq!(five.local_count(15, 5)?, 9);
+        assert!(five.local_count(15, 0).is_err());
+        assert!(five.local_count(15, 6).is_err());
+        assert!(Placement::new(2).is_err());
+        assert!(Placement::new(6).is_err());
+        Ok(())
+    }
 }

@@ -299,6 +299,7 @@ pub struct GenerationOptions {
 /// the application handle. They are private and reached through
 /// `RuntimeManager`, which hands out this struct only as a snapshot.
 pub struct Generation {
+    pub(crate) native_applications: HashMap<String, Arc<dyn crate::application::Application>>,
     event_streams: Vec<(String, crate::application::event_stream::Definition)>,
     event_bindings: Vec<crate::application::event_stream::BindingConfig>,
     pub(crate) event_readiness: Arc<crate::application::event_stream::readiness::Readiness>,
@@ -594,6 +595,7 @@ impl Generation {
             "generation execution domain is closed"
         );
         crate::asyncrt::services().loader_policy();
+        let native_applications = applications.clone();
         let cell_limits = crate::application::limits::current();
         let managed_events =
             std::iter::once(&graph.primary)
@@ -851,6 +853,7 @@ impl Generation {
         let source_recovery = crate::runtime::source_recovery::configuration(id, &node);
         let source_recovery_pool = crate::runtime::cell_pool(source_recovery.clone());
         Ok(Generation {
+            native_applications,
             source_recovery,
             source_recovery_pool,
             event_streams,

@@ -201,7 +201,10 @@ The marker-1 Cellar envelope starts with ASCII `CLRF`, big-endian u32 marker 1,
 big-endian u32 header length and big-endian u64 payload length. A bounded UTF-8
 JSON header follows, then concatenated raw LTX files and a SHA-256 digest of the
 entire preceding frame, including its prefix. The required protocol digest is
-SHA-256 of UTF-8 `cellar-raft-ltx-1`. A bounded file table records offsets,
+SHA-256 of UTF-8
+`cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1/nodes-1/bundles-1`.
+Numeric format markers remain 1; earlier experimental roots are refused.
+A bounded file table records offsets,
 lengths, TXID ranges, page counts and decoded page bytes;
 entries partition the payload exactly and form one contiguous ordered chain.
 Use decimal strings for 64-bit fields in the JSON header; reject duplicate keys,
@@ -423,9 +426,15 @@ Track separate contiguous positions: `persisted`, `committed`, `applied`,
 an independently verified committed prefix and may advance differently from a
 particular follower's applied progress. Never combine unrelated maxima into proof.
 
-Archive immutable objects under group/incarnation-scoped keys including range
-and content digest. Node-wide bundles may combine several groups, with indexed
-ranges and end-to-end checksums. An archive manifest names a full snapshot plus
+Direct immutable objects use group/incarnation-scoped keys including range and
+content digest. The current node producer can coalesce small snapshot/tail
+payloads from two histories in the same namespace into one content-addressed
+bundle under that namespace. The complete bundle is bounded to 8 MiB; its index
+binds both exact histories, ranges and checksums. Reads currently verify the
+complete bounded object before selecting one member, so reduced PUT counts do
+not imply reduced read bytes or better measured performance. Each cell retains
+its independent physical replay and conditional head publication. Dependencies,
+manifests and heads remain separate. An archive manifest names a full snapshot plus
 an ordered covering tail, entry term/index metadata, LTX mappings, configuration
 history needed for reconstruction, schema digest and referenced object dependencies.
 
@@ -521,6 +530,30 @@ Each node owns one lifecycle-bound multi-Raft service. It partitions groups acro
 bounded event loops, shared disk/apply pools and pooled authenticated transport.
 Control messages have reserved capacity so snapshot transfers and user queries
 cannot starve votes and heartbeats. Bound bytes, not just message counts.
+
+Groups awaiting a queued or in-flight log write leave the consensus runnable
+queue. Retain deferred peer requests, their reservations, coalesced ticks and
+failure hints while parked. The independent persistence FIFO continues to choose
+batches; a matching sync receipt wakes exactly its groups. Admission overload
+keeps the original FIFO order and retry deadline, and permanent per-group
+rejection wakes its failure report. Snapshot installation/abort work is distinct
+from waiting for an authorized snapshot's log write. Parking cannot advance
+Ready, publish an image or release a durable response without its existing proof.
+
+The shared control sender drains at most eight already-admitted FIFO frames per
+peer connection without waiting to fill the window. Ordered writes and ordered
+replies progress concurrently, including when either socket buffer fills. Every
+frame retains its node/peer byte and item permits and its own authenticated
+sequence, route and reply binding. Recheck current routing before transmission,
+after each reply and before completing the observer. The existing I/O deadline
+bounds the whole window; it is not multiplied by its frame count. Data frames
+remain one at a time on the independent data connection.
+
+A failed exchange closes the connection rather than replaying a partially sent
+window. Preserve individually verified earlier admission replies; fail unresolved
+frames without inferring delivery, persistence or commit. Release each payload
+and its permits before waking its observer, including during joined shutdown.
+This optimization leaves Raft's durable response and Ready ordering unchanged.
 
 Use independent control, LTX and query listeners/connections with separate byte
 and item admission. A query awaiting LTX catch-up must not occupy the connection
