@@ -259,7 +259,9 @@ def storage_lifetime():
 def reply_delivery(mode):
     sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "crates/cellar-python/python"))
     import runner
-    from cellar import Response, _current_invocation
+    from cellar import Request, Response, _current_invocation
+    binary = mode.startswith("binary-")
+    mode = mode.removeprefix("binary-")
     state = dict(submitted=0, resumed=0, completed=0, cleaned=0, expired=0)
     bridges = weakref.WeakSet()
     payload = json.dumps(dict(identity=None, object=None, kind='fetch',
@@ -267,6 +269,13 @@ def reply_delivery(mode):
 
     async def fetch(request, context):
         try:
+            if binary:
+                value = await context.namespace('CELLS').get_by_name('one').fetch(
+                    Request('http://cell/', 'POST', body=b'\x00\xff'))
+                assert value.body == b'\x00\xff' and value.status == 201
+                assert value.headers == [['x-result', 'accepted']]
+                state['resumed'] += 1
+                return value
             value = await context.var('value')
             state['resumed'] += 1
             assert value == '42'
@@ -285,9 +294,15 @@ def reply_delivery(mode):
         def active(self):
             return not self.closed
 
-        def submit(self, sequence, operation, encoded):
+        def submit(self, sequence, operation, encoded, body=None):
             assert _current_invocation.get() is self
-            assert operation == 'var' and json.loads(encoded) == {'name': 'value'}
+            if binary:
+                assert operation == 'cell.fetch' and body == b'\x00\xff'
+                assert json.loads(encoded) == dict(binding='CELLS', name='one', request=dict(
+                    url='http://cell/', method='POST', headers=[], body=''))
+            else:
+                assert operation == 'var' and json.loads(encoded) == {'name': 'value'}
+                assert body is None
             state['submitted'] += 1
 
             def publish():
@@ -295,10 +310,12 @@ def reply_delivery(mode):
                     self.expire()
                 elif mode == 'stopped':
                     inbox.stopped = True
-                reply = 'PRIVATE_SENTINEL_invalid_json' if mode == 'malformed' else '{"ok":true,"value":"42"}'
-                inbox.queue.append((1, sequence, reply))
+                value = dict(status=201, headers=[['x-result', 'accepted']], body='') if binary else '42'
+                reply = 'PRIVATE_SENTINEL_invalid_json' if mode == 'malformed' else json.dumps(dict(ok=True, value=value))
+                output = b'\x00\xff' if binary else None
+                inbox.queue.append((1, sequence, reply, output))
                 if mode == 'duplicate':
-                    inbox.queue.append((1, sequence, reply))
+                    inbox.queue.append((1, sequence, reply, output))
                 inbox.writer.send(b'x')
             # Publish only after the eager handler has suspended on its SDK
             # future and the pump has registered the invocation.
@@ -307,8 +324,11 @@ def reply_delivery(mode):
         def complete(self, encoded, failed, body=None):
             assert _current_invocation.get() is self and self.active()
             assert not failed, encoded
-            assert json.loads(encoded)['status'] == 200
-            assert json.loads(body) == {'value': '42'}
+            assert json.loads(encoded)['status'] == (201 if binary else 200)
+            if binary:
+                assert body == b'\x00\xff'
+            else:
+                assert json.loads(body) == {'value': '42'}
             state['completed'] += 1
             inbox.stop()
 
@@ -383,6 +403,11 @@ class RunnerScheduling(unittest.TestCase):
         )
         self.assertNotIn("PRIVATE_SENTINEL", child.stderr)
         self.assertEqual(child.returncode, 0, child.stdout + child.stderr)
+
+    def test_binary_reply_lifecycle(self):
+        for mode in ("normal", "duplicate", "expired", "stopped", "malformed"):
+            with self.subTest(mode=mode):
+                self.run_case("reply-binary-" + mode)
 
     def test_sdk_reply_resumes_original_invocation(self):
         self.run_case("reply-normal")

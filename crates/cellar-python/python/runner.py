@@ -153,11 +153,11 @@ async def _serve(module, inbox, interval, shutdown, stats, maximum, telemetry, s
     def deliver_replies():
         # Keep delivery locals out of the long-lived pump frame so a completed
         # or cancelled task cannot retain its cell until the next native reply.
-        for invocation, operation, result in inbox.replies():
+        for invocation, operation, result, body in inbox.replies():
             entry = invocations.get(invocation)
             if entry:
                 if entry[2].active():
-                    entry[1]._reply(operation, result)
+                    entry[1]._reply(operation, result, body)
                 else:
                     entry[0].cancel()
 

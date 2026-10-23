@@ -290,15 +290,18 @@ impl Runtime {
         &self,
         invocation: u64,
         operation: u64,
-        value: String,
+        output: (String, Option<Vec<u8>>),
         observation: telemetry::Operation,
     ) -> Result<()> {
+        let (value, body) = output;
+        let charge = crate::values::envelope_size(value.len(), body.as_ref().map_or(0, Vec::len))?;
         self.replies
             .try_send(Reply {
                 invocation,
                 operation,
-                reservation: self.budget.reserve(value.len())?,
+                reservation: self.budget.reserve(charge)?,
                 value,
+                body,
                 observation,
             })
             .context("Python result channel is full or closed")?;
@@ -311,6 +314,7 @@ struct Reply {
     invocation: u64,
     operation: u64,
     value: String,
+    body: Option<Vec<u8>>,
     reservation: Reservation,
     observation: telemetry::Operation,
 }
@@ -325,7 +329,7 @@ struct Inbox {
 }
 
 type StartDelivery = (u64, Py<PyString>, Py<PyBytes>, Py<InvocationBridge>);
-type ReplyDelivery = (u64, u64, Py<PyString>);
+type ReplyDelivery = (u64, u64, Py<PyString>, Option<Py<PyBytes>>);
 
 #[pymethods]
 impl Inbox {
@@ -416,9 +420,12 @@ impl Inbox {
             .map(|reply| {
                 let _reservation = reply.reservation;
                 let payload = PyString::new(py, &reply.value).unbind();
-                self.runtime.budget.copied_output(reply.value.len());
+                self.runtime
+                    .budget
+                    .copied_output(reply.value.len() + reply.body.as_ref().map_or(0, Vec::len));
+                let body = reply.body.map(|body| PyBytes::new(py, &body).unbind());
                 reply.observation.delivered();
-                (reply.invocation, reply.operation, payload)
+                (reply.invocation, reply.operation, payload, body)
             })
             .collect())
     }

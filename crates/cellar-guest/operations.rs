@@ -20,6 +20,31 @@ pub fn is_read(name: &str) -> bool {
     )
 }
 
+/// A binary cell fetch uses the same pre-effect validation and original SDK
+/// authority as the JSON transport. Result collection can fail after effects.
+pub async fn fetch_bytes(
+    context: &Context,
+    value: Value,
+    body: Vec<u8>,
+    options: &Limits,
+) -> Result<(Value, Vec<u8>)> {
+    let request = (|| {
+        validate("cell.fetch", &value)?;
+        ensure!(
+            field(&value["request"], "body")?.is_empty(),
+            "binary request metadata contains a body"
+        );
+        values::input_body(&value["request"], body, options.max_body_bytes)
+    })()
+    .context(crate::failure::Validation)?;
+    let result = context
+        .namespace(field(&value, "binding")?)?
+        .get_by_name(field(&value, "name")?)
+        .fetch(context, request)
+        .await?;
+    values::response_parts(result, options.max_body_bytes).await
+}
+
 pub async fn execute(
     context: &Context,
     state: &State,

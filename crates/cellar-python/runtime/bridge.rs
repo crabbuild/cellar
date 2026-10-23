@@ -14,6 +14,7 @@ pub(crate) enum Event {
         id: u64,
         name: String,
         payload: String,
+        body: Option<Vec<u8>>,
         mutation: Option<Mutation>,
         reservation: super::Reservation,
         observation: super::telemetry::Operation,
@@ -98,7 +99,15 @@ impl InvocationBridge {
         self.owner.load(Ordering::Acquire)
     }
 
-    fn submit(&self, py: Python<'_>, id: u64, name: &str, payload: &str) -> PyResult<()> {
+    #[pyo3(signature = (id, name, payload, body=None))]
+    fn submit(
+        &self,
+        py: Python<'_>,
+        id: u64,
+        name: &str,
+        payload: &str,
+        body: Option<&Bound<'_, PyBytes>>,
+    ) -> PyResult<()> {
         if !self.active() {
             return Err(pyo3::exceptions::PyRuntimeError::new_err("ContextExpired"));
         }
@@ -108,7 +117,17 @@ impl InvocationBridge {
                 "Python SDK operation name must be 1..64 bytes",
             ));
         }
-        if payload.len() > self.max_bytes {
+        let body = body.map(|body| body.as_bytes());
+        if body.is_some() != (name == "cell.fetch") {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "Only cell.fetch requires a byte body",
+            ));
+        }
+        let charge = crate::values::envelope_size(payload.len(), body.map_or(0, <[u8]>::len))
+            .map_err(|_| {
+                pyo3::exceptions::PyValueError::new_err("Python operation size overflow")
+            })?;
+        if charge > self.max_bytes {
             return Err(pyo3::exceptions::PyValueError::new_err(
                 "Python SDK value budget exceeded",
             ));
@@ -118,7 +137,7 @@ impl InvocationBridge {
                 "Python SDK operation budget exceeded",
             ));
         }
-        let reservation = self.budget.reserve(payload.len()).map_err(|_| {
+        let reservation = self.budget.reserve(charge).map_err(|_| {
             pyo3::exceptions::PyBlockingIOError::new_err(
                 "Python aggregate bridge byte budget exhausted",
             )
@@ -149,11 +168,13 @@ impl InvocationBridge {
             id,
             name: name.to_owned(),
             payload: payload.to_owned(),
+            body: body.map(<[u8]>::to_vec),
             mutation,
             reservation,
             observation: self.budget.metrics.admit(self.clock_origin),
         });
-        self.budget.copied_input(name.len() + payload.len());
+        self.budget
+            .copied_input(name.len() + payload.len() + body.map_or(0, <[u8]>::len));
         Ok(())
     }
 

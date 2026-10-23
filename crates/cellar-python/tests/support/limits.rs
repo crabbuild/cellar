@@ -24,6 +24,45 @@ struct ResultWriter(Arc<dyn Cell>);
 
 impl Cell for ResultWriter {
     fn invoke(self: Arc<Self>, context: Context, event: Invocation) -> HandlerFuture<Output> {
+        if matches!(&event, Invocation::Fetch(request) if request.url.contains("/binary-result/")) {
+            return Box::pin(async move {
+                let Invocation::Fetch(request) = event else {
+                    unreachable!()
+                };
+                let storage = context.storage()?;
+                if request.url.ends_with("/state") {
+                    let count = storage.get_json("binary-result-count")?.unwrap_or(json!(0));
+                    return Ok(Output::Http(
+                        http::Response::from_json(&count)?.into_http(&context)?,
+                    ));
+                }
+                let over = request.url.ends_with("/over");
+                ensure!(over || request.url.ends_with("/exact"));
+                let body: Vec<u8> = (0..4096).map(|value| value as u8).collect();
+                let overhead = serde_json::to_vec(&json!({"ok":true,"value":{
+                    "status":201,"headers":[["x",""]],"body":""
+                }}))?
+                .len();
+                let remaining = 65536 - cellar_guest::values::envelope_size(overhead, body.len())?;
+                let header =
+                    "\"".repeat(remaining / 2) + &"a".repeat(remaining % 2 + usize::from(over));
+                ensure!(header.len() + 1 <= 32768);
+                storage.transaction_sync(|tx| {
+                    let count = tx
+                        .get_json("binary-result-count")?
+                        .and_then(|value| value.as_u64())
+                        .unwrap_or(0);
+                    tx.put_json("binary-result-count", &json!(count + 1))
+                })?;
+                storage.sync().await?;
+                // The native callee commits before its result crosses the
+                // Python reply boundary. A refused reply must not imply undo.
+                Ok(Output::Http(
+                    http::Response::new(201, body, vec![("x".into(), header)])
+                        .into_http(&context)?,
+                ))
+            });
+        }
         if matches!(&event, Invocation::Fetch(request) if request.url.ends_with("/seed-results")) {
             return Box::pin(async move {
                 let overhead =
@@ -119,6 +158,31 @@ pub(super) fn child() -> Result<()> {
                         "binary completion expanded its body: {copied} copied bytes"
                     );
                 }
+                // The root-to-cell request and cell-to-root reply must also
+                // preserve raw bytes. Count all three crossings per direction
+                // so a hidden base64 copy cannot pass a byte-equality check.
+                for path in ["/nested-echo", "/nested-echo-buffer"] {
+                    let before = observed.bridge_report();
+                    let echoed = client
+                        .post(format!("{url}{path}"))
+                        .body(binary.clone())
+                        .send()
+                        .await?
+                        .error_for_status()?
+                        .bytes()
+                        .await?;
+                    ensure!(echoed.as_ref() == binary);
+                    let after = observed.bridge_report();
+                    for copied in [
+                        after.output_copied_bytes - before.output_copied_bytes,
+                        after.input_copied_bytes - before.input_copied_bytes,
+                    ] {
+                        ensure!(
+                            copied >= 3 * binary.len() && copied < 3 * binary.len() + 1024,
+                            "nested binary transport expanded its body: {copied} copied bytes"
+                        );
+                    }
+                }
                 // Raw delivery must retain the previous encoded-envelope
                 // bound, including escaped headers and base64-equivalent body
                 // length. Observe the real ingress metadata instead of assuming
@@ -206,7 +270,13 @@ pub(super) fn child() -> Result<()> {
                         "over-limit {route} was accepted"
                     );
                 }
-                for route in ["nested-input", "batch-value", "sdk-results"] {
+                for route in [
+                    "nested-input",
+                    "nested-envelope",
+                    "nested-result",
+                    "batch-value",
+                    "sdk-results",
+                ] {
                     ensure!(
                         client
                             .get(format!("{url}/{route}"))

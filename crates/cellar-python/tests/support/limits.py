@@ -1,10 +1,13 @@
 """Exact native codec and batch-byte boundaries, including refused effects."""
 from cellar import Ambiguous, Request, Response, SDKError, ValidationError, _encode
+import json
 
 visits = 0
 
 
 async def fetch(request, ctx):
+    if request.path == "/nested-echo-buffer":
+        request.body = memoryview(bytearray(request.body))
     if request.path == "/echo":
         return Response(request.body)
     if request.path == "/echo-buffer":
@@ -51,6 +54,41 @@ async def fetch(request, ctx):
                 raise AssertionError("over-limit request entered a native cell")
         assert visits == before + 3
         return Response.json(True)
+    if request.path == "/nested-envelope":
+        body = bytes(range(256)) * 16
+        metadata, _ = Request("http://cell/", body=body)._parts()
+        payload = dict(binding="COUNTERS", name="limits", request=metadata, padding="")
+        charge = len(_encode(payload).encode()) + 4 * ((len(body) + 2) // 3)
+        payload["padding"] = "x" * (65536 - charge)
+        before = visits
+        await ctx._call("cell.fetch", _body=body, **payload)
+        assert visits == before + 1
+        payload["padding"] += "x"
+        try:
+            await ctx._call("cell.fetch", _body=body, **payload)
+        except ValidationError as error:
+            assert error.outcome == "not_committed"
+        else:
+            raise AssertionError("oversized binary operation reached the callee")
+        assert visits == before + 1
+        return Response.json(True)
+    if request.path == "/nested-result":
+        cell = ctx.namespace("COUNTERS").get_by_name("limits")
+        before = json.loads((await cell.fetch(Request("http://cell/binary-result/state"))).body)
+        for index, suffix in enumerate(("exact", "over", "exact"), 1):
+            try:
+                result = await cell.fetch(Request("http://cell/binary-result/" + suffix))
+            except Ambiguous as error:
+                assert suffix == "over" and error.outcome == "unknown"
+                assert error.code == "Ambiguous" and str(error) == "Ambiguous"
+            else:
+                assert suffix == "exact", "oversized result was accepted"
+                assert result.status == 201 and result.body == bytes(range(256)) * 16
+                assert len(_encode(dict(ok=True, value=result._wire())).encode()) == 65536
+            # Every call commits exactly once, even the one whose reply fails.
+            count = json.loads((await cell.fetch(Request("http://cell/binary-result/state"))).body)
+            assert count == before + index
+        return Response.json(True)
     if request.path == "/sdk-results":
         await ctx.namespace("COUNTERS").get_by_name("limits").fetch(Request("http://cell/seed-results"))
     return await ctx.namespace("COUNTERS").get_by_name("limits").fetch(request)
@@ -60,6 +98,11 @@ class Counter:
     async def fetch(self, request, ctx):
         global visits
         visits += 1
+        if request.path.startswith("/nested-echo"):
+            response = Response(request.body)
+            if request.path.endswith("buffer"):
+                response.body = memoryview(bytearray(response.body))
+            return response
         if request.path == "/sdk-results":
             storage = ctx.storage
             exact = await storage.read_json("result-exact")

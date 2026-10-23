@@ -176,6 +176,12 @@ class Request:
         return dict(url=self.url, method=self.method, headers=self.headers,
                     body=base64.b64encode(self.body).decode())
 
+    def _parts(self):
+        body = self.body
+        if not isinstance(body, bytes):
+            body = memoryview(body).tobytes()
+        return dict(url=self.url, method=self.method, headers=self.headers, body=""), body
+
     @classmethod
     def _from_wire(cls, value, body):
         return cls(value["url"], value["method"], body, value["headers"])
@@ -202,8 +208,8 @@ class Response:
         return dict(status=self.status, headers=self.headers, body=""), body
 
     @classmethod
-    def _from_wire(cls, value):
-        return cls(base64.b64decode(value["body"]), value["status"], value["headers"])
+    def _from_parts(cls, value, body):
+        return cls(body, value["status"], value["headers"])
 
 
 class Storage:
@@ -253,8 +259,10 @@ class _Cell:
         self._context, self._binding, self._name = context, binding, name
 
     async def fetch(self, request: Request) -> Response:
-        return Response._from_wire(await self._context._call(
-            "cell.fetch", binding=self._binding, name=self._name, request=request._wire()))
+        metadata, body = request._parts()
+        value, body = await self._context._call(
+            "cell.fetch", _body=body, binding=self._binding, name=self._name, request=metadata)
+        return Response._from_parts(value, body)
 
 
 class _Namespace:
@@ -348,7 +356,7 @@ class Context:
         # the handle: that cycle otherwise delays every request's reclamation.
         return Storage(self)
 
-    async def _call(self, operation: str, **payload: Any) -> Any:
+    async def _call(self, operation: str, *, _body: bytes | None = None, **payload: Any) -> Any:
         if asyncio.get_running_loop() is not self._loop:
             raise SDKError("Cellar SDK calls must use the invocation's asyncio loop", "NotSubmitted")
         if not self._bridge.active():
@@ -362,7 +370,10 @@ class Context:
         try:
             encoded = _encode(payload)
             try:
-                self._bridge.submit(sequence, operation, encoded)
+                if _body is None:
+                    self._bridge.submit(sequence, operation, encoded)
+                else:
+                    self._bridge.submit(sequence, operation, encoded, _body)
             except BlockingIOError as error:
                 raise Overloaded(outcome="not_committed") from error
             except ValueError as error:
@@ -373,13 +384,13 @@ class Context:
         finally:
             self._pending.pop(sequence, None)
 
-    def _reply(self, sequence, payload):
+    def _reply(self, sequence, payload, body=None):
         future = self._pending.get(sequence)
         if future is None or future.done():
             return
         value = _json.loads(payload)
         if value["ok"]:
-            future.set_result(value["value"])
+            future.set_result(value["value"] if body is None else (value["value"], body))
         else:
             error = value["error"]
             code = value["code"]

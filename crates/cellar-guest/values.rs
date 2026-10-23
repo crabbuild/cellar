@@ -49,6 +49,11 @@ pub async fn request_parts(
 
 pub fn input(value: &Value, limit: usize) -> Result<Request> {
     let bytes = STANDARD.decode(field(value, "body")?)?;
+    input_body(value, bytes, limit)
+}
+
+/// Apply the shared request limits to already decoded, owned body bytes.
+pub fn input_body(value: &Value, bytes: Vec<u8>, limit: usize) -> Result<Request> {
     ensure!(bytes.len() <= limit, RequestBodyLimit);
     let request_headers: Vec<(String, String)> = serde_json::from_value(value["headers"].clone())?;
     headers(&request_headers)?;
@@ -90,10 +95,17 @@ pub fn output_body(
     Response::new(status as u16, bytes, response_headers).into_http(context)
 }
 
-pub async fn response(
+pub async fn response(response: cellar::engine_api::HttpResponse, limit: usize) -> Result<Value> {
+    let (mut metadata, bytes) = response_parts(response, limit).await?;
+    metadata["body"] = json!(STANDARD.encode(bytes));
+    Ok(metadata)
+}
+
+/// Collect a bounded response while preserving raw bytes for binary transports.
+pub async fn response_parts(
     mut response: cellar::engine_api::HttpResponse,
     limit: usize,
-) -> Result<Value> {
+) -> Result<(Value, Vec<u8>)> {
     if let Some(mut stream) = response.stream.take() {
         while let Some(chunk) = stream.next().await {
             let chunk = chunk.map_err(anyhow::Error::msg)?;
@@ -113,9 +125,19 @@ pub async fn response(
         "guest bridged response exceeds limit"
     );
     headers(&response.headers)?;
-    Ok(
-        json!({"status":response.status,"headers":response.headers,"body":STANDARD.encode(response.body)}),
-    )
+    Ok((
+        json!({"status":response.status,"headers":response.headers,"body":""}),
+        response.body,
+    ))
+}
+
+/// Charge a separate byte body exactly as its base64 field in the JSON envelope.
+pub fn envelope_size(metadata: usize, body: usize) -> Result<usize> {
+    body.checked_add(2)
+        .map(|rounded| rounded / 3)
+        .and_then(|groups| groups.checked_mul(4))
+        .and_then(|encoded| metadata.checked_add(encoded))
+        .context("guest HTTP envelope size overflow")
 }
 
 fn headers(headers: &[(String, String)]) -> Result<()> {

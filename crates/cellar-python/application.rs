@@ -283,6 +283,7 @@ impl PythonApplication {
                     id,
                     name,
                     payload,
+                    body,
                     mutation,
                     reservation,
                     mut observation,
@@ -305,6 +306,7 @@ impl PythonApplication {
                                     state,
                                     &name,
                                     payload,
+                                    body,
                                     &self.runtime.options,
                                 )
                                 .await

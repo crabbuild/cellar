@@ -169,6 +169,11 @@ HTTP completions likewise pass an immutable byte body beside their metadata.
 Native byte and mailbox capacity are reserved before copying it into Rust; the
 reservation remains owned through response validation. Completion metadata and
 the body share the same base64-equivalent envelope limit as encoded delivery.
+Nested cell fetches also carry immutable request and reply bytes separately from
+their metadata, with the same encoded-envelope and aggregate reservation limits.
+Mutable buffers are copied into immutable bytes before submission. An oversized
+request is refused before native dispatch; an oversized reply can follow a
+committed write and returns `Ambiguous/unknown` without replaying the operation.
 Ordinary HTTP metadata uses a shallow encoder with owned header snapshots and
 identical JSON escaping and key order. Unusual metadata and subclasses retain
 the general SDK encoder; native HTTP validation and byte limits still apply.
