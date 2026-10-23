@@ -1,4 +1,12 @@
-//! Optional V8 and Node.js adapters. TypeScript is compiled before execution.
+//! Optional V8 and Node.js adapters for native Cellar applications.
+//!
+//! Enable `embed` for a bundled JavaScript application in V8, or `node` for an
+//! external Node module with access to the Node and npm ecosystem. TypeScript
+//! is compiled before execution; neither backend changes the native Rust core.
+//!
+//! Both backends proxy SDK operations through the original native invocation.
+//! JavaScript objects belong to an activation; durable state lives in Cellar's
+//! storage APIs. Runtime bootstrap owns worker shutdown and joins its threads.
 #[cfg(any(feature = "embed", feature = "node"))]
 mod application;
 #[cfg(any(feature = "embed", feature = "node"))]

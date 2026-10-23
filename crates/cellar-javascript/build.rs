@@ -9,6 +9,8 @@ use std::{
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut output = std::io::stdout().lock();
     writeln!(output, "cargo:rerun-if-env-changed=CELLAR_NODE_INVENTORY")?;
+    // An empty embedded file means no explicit runtime inventory was selected.
+    // This build step copies metadata; startup verifies the referenced files.
     let mut bytes = Vec::new();
     if std::env::var_os("CARGO_FEATURE_NODE").is_some() {
         if let Some(path) = std::env::var_os("CELLAR_NODE_INVENTORY") {

@@ -11,8 +11,11 @@ pub(super) struct Transport {
     socket: TcpStream,
     input: Vec<u8>,
     output: VecDeque<Vec<u8>>,
+    // Bytes already written from the first queued frame.
     offset: usize,
+    // Unsent bytes across all frames, including their four-byte headers.
     queued: usize,
+    // Per-frame JSON limit and aggregate outbound byte budget, respectively.
     maximum: usize,
     budget: usize,
 }
@@ -35,6 +38,7 @@ impl Transport {
     pub fn send(&mut self, value: Value) -> Result<()> {
         let bytes = serde_json::to_vec(&value)?;
         ensure!(bytes.len() <= self.maximum, "Node frame exceeds limit");
+        // The network-order header counts JSON bytes, excluding the header itself.
         let length = u32::try_from(bytes.len())?;
         ensure!(
             self.queued + bytes.len() + 4 <= self.budget,

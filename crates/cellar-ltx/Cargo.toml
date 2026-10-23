@@ -10,7 +10,7 @@
 [package]
 repository = "https://github.com/crabbuild/cellar"
 name = "cellar-ltx"
-version = "0.0.0"
+version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
 description = "In-process SQLite WAL replication to object storage (LTX format) for cellar."
