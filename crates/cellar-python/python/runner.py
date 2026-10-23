@@ -131,7 +131,7 @@ async def _invoke(module, objects, payload, body, bridge, context, stats, maximu
         elapsed = time.perf_counter_ns() - started
         metrics["handler_wall_ns_sum"] += elapsed
         metrics["handler_wall_ns_max"] = max(metrics["handler_wall_ns_max"], elapsed)
-        context._close()
+        context._close(finished=True)
         _current_invocation.reset(token)
 
 
@@ -211,7 +211,7 @@ async def _serve(module, inbox, interval, shutdown, stats, maximum, telemetry, s
                     try:
                         bridge.complete('"Python task capacity exhausted"', True)
                     finally:
-                        context._close()
+                        context._close(finished=True)
                         _current_invocation.reset(token)
                     del context, bridge, payload, body
                     continue

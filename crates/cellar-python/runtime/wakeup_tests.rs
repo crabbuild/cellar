@@ -97,3 +97,63 @@ fn notification_failure_is_observable() {
     assert!(wakeup.check().is_err());
     assert!(wakeup.drain().is_err());
 }
+
+fn invocation_runtime() -> std::sync::Arc<super::super::Runtime> {
+    use super::super::{snapshot, Budget, Options, Runtime};
+    use std::sync::{atomic::AtomicU64, Arc};
+
+    let (starts, _) = mpsc::sync_channel(1);
+    let (replies, _) = mpsc::sync_channel(1);
+    let (stopped, _) = tokio::sync::watch::channel(false);
+    Arc::new(Runtime {
+        starts,
+        replies,
+        budget: Budget::new(1024),
+        options: Options::default(),
+        permits: Arc::new(tokio::sync::Semaphore::new(1)),
+        next: AtomicU64::new(1),
+        closed: AtomicBool::new(false),
+        stopped,
+        samples: snapshot::Samples::new(),
+        wakeup: Wakeup::new().unwrap(),
+    })
+}
+
+#[test]
+fn finished_python_cleanup_does_not_enqueue_another_wakeup() {
+    use super::super::{InvocationState, Lifetime};
+    use std::sync::Arc;
+
+    let runtime = invocation_runtime();
+    let state = Arc::new(InvocationState::new());
+    let lifetime = Lifetime(state.clone(), runtime.clone());
+    state.expire(true);
+    // A later ordinary expiration must not erase completed cleanup.
+    state.expire(false);
+    drop(lifetime);
+    assert!(!state.active());
+    assert_eq!(
+        (&runtime.wakeup.reader).read(&mut [0]).unwrap_err().kind(),
+        io::ErrorKind::WouldBlock,
+    );
+}
+
+#[test]
+fn unfinished_native_return_wakes_even_an_already_expired_invocation() {
+    use super::super::{InvocationState, Lifetime};
+    use std::sync::Arc;
+
+    for expired in [false, true] {
+        let runtime = invocation_runtime();
+        let state = Arc::new(InvocationState::new());
+        let lifetime = Lifetime(state.clone(), runtime.clone());
+        if expired {
+            // Direct bridge expiration can precede cancellation of a task
+            // still awaiting Python work. Authority alone is not completion.
+            state.expire(false);
+        }
+        drop(lifetime);
+        assert!(!state.active());
+        assert_eq!((&runtime.wakeup.reader).read(&mut [0]).unwrap(), 1);
+    }
+}

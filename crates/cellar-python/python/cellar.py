@@ -390,11 +390,18 @@ class Context:
                           "OwnershipLost": OwnershipLost}.get(code, SDKError)
             future.set_exception(error_type(error, code, value["outcome"]))
 
-    def _close(self):
+    def _close(self, finished=False):
+        if not self._pending:
+            self._bridge.expire(finished)
+            return
+        # Revoke authority before cancelling work. Only successful managed
+        # cleanup may suppress the native driver's final cancellation wakeup.
         self._bridge.expire()
         for future in tuple(self._pending.values()):
             future.cancel()
         self._pending.clear()
+        if finished:
+            self._bridge.expire(True)
 
     async def now_ms(self) -> int:
         return await self._call("clock.now")

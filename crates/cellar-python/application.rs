@@ -1,6 +1,6 @@
 use crate::{
     operations::{self, State},
-    runtime::{self, Event, InvocationBridge, Life, Runtime, Start},
+    runtime::{self, Event, InvocationBridge, InvocationState, Life, Lifetime, Runtime, Start},
     values,
 };
 use anyhow::{ensure, Result};
@@ -221,7 +221,7 @@ impl PythonApplication {
             self.source.supports(class.as_deref(), kind),
             "undeclared Python event {kind}"
         );
-        let active = Arc::new(AtomicBool::new(true));
+        let active = Arc::new(InvocationState::new());
         let _lifetime = Lifetime(active.clone(), self.runtime.clone());
         let (sender, mut receive) = runtime::channel(self.runtime.options.max_pending_operations);
         let (cancelled, mut cancellation) = tokio::sync::watch::channel(false);
@@ -286,7 +286,7 @@ impl PythonApplication {
                     reservation,
                     mut observation,
                 } => {
-                    if !active.load(Ordering::Acquire) {
+                    if !active.active() {
                         continue;
                     }
                     let context = &context;
@@ -365,15 +365,6 @@ impl PythonApplication {
             }
         }
         anyhow::bail!("Python invocation channel closed before completion")
-    }
-}
-
-struct Lifetime(Life, Arc<Runtime>);
-
-impl Drop for Lifetime {
-    fn drop(&mut self) {
-        self.0.store(false, Ordering::Release);
-        self.1.notify();
     }
 }
 

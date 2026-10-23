@@ -47,7 +47,7 @@ pub(crate) struct Start {
 #[pyclass]
 pub(crate) struct InvocationBridge {
     pub sender: mpsc::Sender<Event>,
-    pub active: Life,
+    pub active: Arc<super::InvocationState>,
     pub cancelled: watch::Sender<bool>,
     pub completion_enqueued: AtomicBool,
     pub owner: Life,
@@ -69,16 +69,17 @@ impl InvocationBridge {
     }
 
     fn __clear__(&mut self) {
-        self.expire();
+        self.expire(false);
         self.event_loop = None;
     }
 
     fn active(&self) -> bool {
-        self.active.load(Ordering::Acquire) && self.owner.load(Ordering::Acquire)
+        self.active.active() && self.owner.load(Ordering::Acquire)
     }
 
-    fn expire(&self) {
-        self.active.store(false, Ordering::Release);
+    #[pyo3(signature = (finished=false))]
+    fn expire(&self, finished: bool) {
+        self.active.expire(finished);
         // Completion remains in the ordered mailbox. Cancellation needs a
         // separate wakeup: application code can retain this sender after the
         // task ends, and a full mailbox must not delay revocation.

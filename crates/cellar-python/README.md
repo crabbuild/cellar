@@ -205,6 +205,10 @@ request data or SDK authority. Producers never acquire the GIL, call Python or
 wait for the interpreter. SDK operations still execute in their original native
 invocation. Notification failures fail the runtime instead of claiming a clean
 shutdown, and the loop removes its reader before the runtime closes the sockets.
+Managed invocation cleanup records completion only after revoking authority and
+cancelling pending SDK futures. A native return can then skip its redundant
+cancellation notification. Expiration alone never suppresses that notification:
+a still-running task must wake promptly even if its bridge was already expired.
 Native proxy destruction also publishes a coalesced retirement flag. The loop
 scans resident objects only after consuming that flag, so ordinary requests do
 not check every idle cell. Consuming the flag before the scan preserves concurrent

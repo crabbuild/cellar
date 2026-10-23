@@ -40,6 +40,13 @@ def continuous_arrivals(mode):
             until = time.perf_counter_ns() + 40_000_000
             while time.perf_counter_ns() < until:
                 pass
+        if mode == "pending-cleanup":
+            class Pending:
+                def cancel(self):
+                    assert not context._bridge.active(), "cleanup did not revoke authority first"
+                    assert not context._bridge.finished, "cleanup published completion before cancelling pending work"
+                    context._bridge.inbox.cancelled_futures += 1
+            context._pending[1] = Pending()
         if mode == "release-storage":
             storage = context.storage
             assert storage._context is context
@@ -49,6 +56,7 @@ def continuous_arrivals(mode):
         def __init__(self, inbox):
             self.inbox = inbox
             self.closed = False
+            self.finished = False
             inbox.bridges.add(self)
 
         def active(self):
@@ -65,10 +73,13 @@ def continuous_arrivals(mode):
                 assert body == b"ok"
                 self.inbox.completed += 1
 
-        def expire(self):
+        def expire(self, finished=False):
             if mode == "cleanup-failure" and not self.inbox.cleanup_failed:
                 self.inbox.cleanup_failed = True
                 raise RuntimeError("injected context cleanup failure")
+            if finished and not self.finished:
+                self.inbox.finished += 1
+                self.finished = True
             if not self.closed:
                 self.closed = True
                 self.inbox.expired += 1
@@ -79,7 +90,7 @@ def continuous_arrivals(mode):
             self.reader.setblocking(False)
             self.writer.setblocking(False)
             self.stopped = False
-            self.issued = self.rejected = self.completed = self.expired = 0
+            self.issued = self.rejected = self.completed = self.expired = self.finished = self.cancelled_futures = 0
             self.observed = None
             self.joined = 0
             self.bridges = weakref.WeakSet()
@@ -158,6 +169,9 @@ def continuous_arrivals(mode):
         assert report["pending_tasks"] == report["pending_objects"] == 0, report
         assert report["peak_tasks"] <= capacity, report
         assert inbox.issued == inbox.expired
+        assert inbox.finished == inbox.issued, "managed cleanup did not publish completion"
+        if mode == "pending-cleanup":
+            assert inbox.cancelled_futures == inbox.completed
         if mode == "rejections":
             assert inbox.rejected == inbox.issued and inbox.completed == 0
             assert report["budget_exhaustions"] == inbox.issued
@@ -191,7 +205,8 @@ def storage_lifetime():
         def active(self):
             return not self.closed
 
-        def expire(self):
+        def expire(self, finished=False):
+            assert not finished, "ordinary context closure must not claim handler completion"
             self.closed = True
 
         def submit(self, sequence, operation, payload):
@@ -260,6 +275,9 @@ class RunnerScheduling(unittest.TestCase):
 
     def test_retained_storage_preserves_authority_and_expires(self):
         self.run_case("storage-lifetime")
+
+    def test_cleanup_cancels_pending_work_before_publishing_completion(self):
+        self.run_case("pending-cleanup")
 
     def test_failed_eager_cleanup_remains_supervised(self):
         self.run_case("cleanup-failure")
