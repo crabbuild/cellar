@@ -1729,6 +1729,12 @@ async fn run_case(
         "projection",
     )
     .await?;
+    save_clock_evidence(
+        directory,
+        "post-recovery-fetch.json",
+        &json!({"format":1,"source_pending":delivery_observation,
+            "fetch":second,"original_record":request[0]["records"][0]}),
+    )?;
     ensure!(
         second["processed"] == 3
             && second["batch"]["records"][0]["offset"] == "2"

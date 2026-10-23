@@ -13,13 +13,14 @@ on:
           - qualification
           - consumer-replay
           - clock-replay
+          - reliability-replay
           - python-load
       load_repetitions:
         description: Optimized Python load repetitions (1-5)
         type: number
         default: 3
       repetitions:
-        description: Fresh fixtures (1-100 consumer, 1-50 clock)
+        description: Fresh fixtures (1-100 consumer, 1-50 clock, 1-20 reliability)
         type: number
         default: 20
       replay_sha:
@@ -187,7 +188,11 @@ jobs:
             "$RUNNER_TEMP/python-package" "$RUNNER_TEMP" "$RUNNER_TEMP/python-package-v2" \
             --supervisor "$PWD/target/debug/cellar"
       - name: Test and lint
+        env:
+          # Failed native fixtures retain synthetic recovery observations here.
+          TMPDIR: ${{ runner.temp }}/native-failure-fixtures
         run: |
+          mkdir -p "$TMPDIR"
           # Fleet fixtures own concurrent runtimes and short authority leases.
           # Run independent cases serially to keep their resource envelope stable.
           cargo test --workspace --exclude cellar-python --exclude cellar-javascript --all-features --lib --tests --locked -- --test-threads=1
@@ -217,6 +222,24 @@ jobs:
             --project examples/team-services/project.json --suite team
           python3 examples/platform_smoke.py --cellar target/debug/cellar \
             --embedded target/debug/cellar-example-embedded --with-containers
+
+      - name: Preserve native failure observations
+        uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: native-failure-observations-${{ matrix.python }}-${{ github.run_id }}-${{ github.run_attempt }}
+          # Only structured observations from this job's private test directory;
+          # do not upload arbitrary /tmp contents or fixture databases/binaries.
+          path: |
+            ${{ runner.temp }}/native-failure-fixtures/**/failure.json
+            ${{ runner.temp }}/native-failure-fixtures/**/cold-read-failure.json
+            ${{ runner.temp }}/native-failure-fixtures/**/cold-start-failure.json
+            ${{ runner.temp }}/native-failure-fixtures/**/delayed-cold-read.json
+            ${{ runner.temp }}/native-failure-fixtures/**/accepted-prefix.json
+            ${{ runner.temp }}/native-failure-fixtures/**/post-recovery-fetch.json
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 7
 
       - uses: actions/upload-artifact@v6
         if: always()
@@ -333,7 +356,7 @@ jobs:
 
   native_replay:
     name: Native event replay (${{ inputs.mode }}, diagnostic only)
-    if: github.event_name == 'workflow_dispatch' && (inputs.mode == 'consumer-replay' || inputs.mode == 'clock-replay')
+    if: github.event_name == 'workflow_dispatch' && (inputs.mode == 'consumer-replay' || inputs.mode == 'clock-replay' || inputs.mode == 'reliability-replay')
     runs-on: ubuntu-22.04
     timeout-minutes: 30
     steps:
@@ -365,18 +388,26 @@ jobs:
           CELLAR_NATIVE_REPLAY_ROOT: /tmp/cellar-native-replay-${{ github.run_id }}-${{ github.run_attempt }}
         run: |
           python3 - <<'PY'
+          import json
           import os
           from pathlib import Path
           import subprocess
+          import time
 
           fixtures = {
-              "consumer-replay": ("live_foreign_recovery_resumes_after_replaced_claimed_metadata_returns", 100),
-              "clock-replay": ("cold_follower_audit_survives_one_read_deadline_without_receipt_replay", 50),
+              "consumer-replay": (["node_events::event_refusal_clock::live_foreign_recovery_resumes_after_replaced_claimed_metadata_returns"], 100),
+              "clock-replay": (["node_events::event_refusal_clock::cold_follower_audit_survives_one_read_deadline_without_receipt_replay"], 50),
+              "reliability-replay": ([
+                  "lease_renewal::a_late_committed_renewal_keeps_time_for_actual_readback",
+                  "management_crons_report_pending_until_embedded_host_adopts",
+                  "node_events::event_refusal_clock::root_loss_after_lineage_capture_refuses_boot_until_original_proof_returns",
+                  "node_events::event_settlement_race::settlement_race_reset_invalidates_pending_ack_and_extension",
+              ], 20),
           }
           mode = os.environ["CELLAR_NATIVE_REPLAY_MODE"]
           if mode not in fixtures:
               raise SystemExit("Unknown native replay mode")
-          fixture, maximum = fixtures[mode]
+          selected_cases, maximum = fixtures[mode]
           repetitions = int(os.environ["CELLAR_NATIVE_REPETITIONS"])
           if not 1 <= repetitions <= maximum:
               raise SystemExit(f"{mode} repetitions must be an integer from 1 to {maximum}")
@@ -389,26 +420,43 @@ jobs:
           root.mkdir(parents=True, exist_ok=True)
           environment = dict(os.environ, TMPDIR=str(root))
           command = ["cargo", "test", "-p", "cellar", "--all-features", "--test", "native_node", "--locked", "--"]
-          selected = f"node_events::event_refusal_clock::{fixture}"
-          listed = subprocess.run(command + [selected, "--exact", "--list"], check=True,
-                                  env=environment, stdout=subprocess.PIPE, text=True)
-          if listed.stdout.splitlines().count(f"{selected}: test") != 1:
-              raise SystemExit("Native replay fixture did not select exactly one test")
-          command += [selected, "--exact", "--nocapture", "--test-threads=1"]
+          for selected in selected_cases:
+              listed = subprocess.run(command + [selected, "--exact", "--list"], check=True,
+                                      env=environment, stdout=subprocess.PIPE, text=True)
+              if listed.stdout.splitlines().count(f"{selected}: test") != 1:
+                  raise SystemExit("Native replay fixture did not select exactly one test")
+          report = {"format": 1, "source": actual, "mode": mode,
+                    "repetitions": repetitions, "fixtures": selected_cases, "status": "running", "runs": []}
+          evidence = root / "replay.json"
+          evidence.write_text(json.dumps(report, indent=2) + "\n")
           for iteration in range(repetitions):
-              print(f"Fresh {mode} fixture {iteration + 1}/{repetitions}", flush=True)
-              subprocess.run(command, check=True, env=environment)
+              for selected in selected_cases:
+                  print(f"Fresh {mode} fixture {iteration + 1}/{repetitions}: {selected}", flush=True)
+                  started = time.monotonic_ns()
+                  result = subprocess.run(command + [selected, "--exact", "--nocapture", "--test-threads=1"],
+                                          env=environment)
+                  report["runs"].append({"fixture": selected, "iteration": iteration,
+                                         "returncode": result.returncode,
+                                         "elapsed_ns": time.monotonic_ns() - started})
+                  if result.returncode:
+                      report["status"] = "failed"
+                  evidence.write_text(json.dumps(report, indent=2) + "\n")
+                  result.check_returncode()
+          report["status"] = "complete"
+          evidence.write_text(json.dumps(report, indent=2) + "\n")
           PY
       - uses: actions/upload-artifact@v6
-        if: failure()
+        if: always()
         with:
-          name: native-replay-failure-${{ github.run_id }}-${{ github.run_attempt }}
+          name: native-replay-evidence-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
+            /tmp/cellar-native-replay-${{ github.run_id }}-${{ github.run_attempt }}/replay.json
             /tmp/cellar-native-replay-${{ github.run_id }}-${{ github.run_attempt }}/**/failure.json
             /tmp/cellar-native-replay-${{ github.run_id }}-${{ github.run_attempt }}/**/cold-read-failure.json
             /tmp/cellar-native-replay-${{ github.run_id }}-${{ github.run_attempt }}/**/cold-start-failure.json
             /tmp/cellar-native-replay-${{ github.run_id }}-${{ github.run_attempt }}/**/delayed-cold-read.json
             /tmp/cellar-native-replay-${{ github.run_id }}-${{ github.run_attempt }}/**/accepted-prefix.json
+            /tmp/cellar-native-replay-${{ github.run_id }}-${{ github.run_attempt }}/**/post-recovery-fetch.json
           include-hidden-files: true
           if-no-files-found: ignore
           retention-days: 7

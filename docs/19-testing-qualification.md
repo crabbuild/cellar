@@ -37,9 +37,11 @@ sources or claim those tests ran in an ordinary build.
 
 ### Native event recovery investigation
 
-The SDK workflow has opt-in `consumer-replay` and `clock-replay` dispatch modes
-for the preserved initial consumer admission refusal and delayed-cold-read
-clock/receipt failure. They run their exact native fixtures serially against
+The SDK workflow has opt-in `consumer-replay`, `clock-replay` and
+`reliability-replay` dispatch modes for the preserved initial consumer admission refusal and delayed-cold-read
+clock/receipt failure. The reliability mode targets lease readback, cron adoption,
+root loss after lineage capture, and settlement reset. The modes run exact
+native fixtures serially against
 fresh private SQLite state, stop on the first failure and retain the bounded
 native cause log and failure JSON. Each repetition is a new fixture; it does not
 repeat a claiming request against a live application. Native assertions and
@@ -54,6 +56,8 @@ gh workflow run native-sdk.yml --ref YOUR_BRANCH \
   -f mode=consumer-replay -f repetitions=20
 gh workflow run native-sdk.yml --ref YOUR_BRANCH \
   -f mode=clock-replay -f repetitions=20
+gh workflow run native-sdk.yml --ref YOUR_BRANCH \
+  -f mode=reliability-replay -f repetitions=3
 ```
 
 For a historical comparison, add `-f replay_sha=FULL_40_CHARACTER_COMMIT_SHA`.
@@ -63,13 +67,19 @@ workflow commit. The run's head SHA identifies the workflow; the printed SHA
 identifies the tested source. This input applies only to isolated replay modes;
 complete qualification always uses the workflow commit.
 
-The integer repetition count is bounded to 1–100 for consumer replay and 1–50
-for the slower clock fixture. Each replay campaign has its own concurrency group
-so source comparisons can run alongside ordinary SDK qualification. Failure artifacts contain only
-the private synthetic fixture's whitelisted evidence JSON, including the
-accepted prefix and cold recovery observations when present. No cell databases,
+The integer repetition count is bounded to 1–100 for consumer replay, 1–50
+for the slower clock fixture and 1–20 for reliability replay. Each reliability
+repetition runs all four fixtures in fresh processes and stops at the first
+failure. Each replay campaign has its own concurrency group
+so source comparisons can run alongside ordinary SDK qualification. Each replay
+retains a source-bound result ledger with exact fixture names, return codes and
+elapsed times; incomplete or failed campaigns never claim completion. Artifacts
+also contain the private synthetic fixture's whitelisted evidence JSON, including
+accepted prefix, cold recovery observations and post-recovery fetch when present.
+Ordinary SDK qualification retains the same observation files from its private
+test directory, so evidence survives runner teardown. No cell databases,
 node directories or private keys are uploaded. A passing replay run covers only
-its selected fixture; full release qualification still requires the regular
+its selected fixtures; full release qualification still requires the regular
 Python ABI matrix and native examples. Ordinary push/PR runs and dispatch mode
 `qualification` retain the complete SDK checks.
 
