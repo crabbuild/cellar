@@ -102,3 +102,53 @@ test('replay rejects a changed recorded request before further effects', async (
   await assert.rejects(execute(ctx, provider), /replay diverged/);
   assert.equal(data.has('count'), false);
 });
+
+test('real provider deltas are observable before the final checkpoint, without releasing an uncommitted decision to Pi', async () => {
+  const {AssistantMessageEventStream} = await import('@earendil-works/pi-ai/utils/event-stream');
+  const {ctx, data} = storage();
+  const provider = fixtureProvider();
+  const fixture = provider.stream;
+  let release;
+  const gate = new Promise(resolve => { release = resolve; });
+  let firstText;
+  const seenText = new Promise(resolve => { firstText = resolve; });
+  provider.stream = (model, context, options) => {
+    if (!context.messages.some(item => item.role === 'toolResult')) return fixture(model, context, options);
+    const stream = new AssistantMessageEventStream();
+    const partial = message(model, [{type:'text', text:'The counter'}], 'pending');
+    stream.push({type:'text_delta', contentIndex:0, delta:'The counter', partial});
+    void gate.then(() => {
+      const final = message(model, [{type:'text', text:'The counter is 3.'}], 'stop');
+      stream.push({type:'text_delta', contentIndex:0, delta:' is 3.', partial:final});
+      stream.push({type:'done', reason:'stop', message:final}); stream.end(final);
+    });
+    return stream;
+  };
+  await accept(ctx, 'Add three', provider);
+  const events = [];
+  const running = execute(ctx, provider, undefined, event => { events.push(event); if (event.type === 'text') firstText(); });
+  try {
+    await Promise.race([seenText, new Promise((_, reject) => { const t=setTimeout(() => reject(new Error('no live delta')), 2000); t.unref(); })]);
+    assert.equal(data.get('run').models.length, 1, 'partial final answer is not a durable decision');
+    assert.equal(data.get('run').status, 'pending');
+    assert.equal(events.at(-1).text, 'The counter');
+  } finally { release(); }
+  await running;
+  assert.equal(data.get('count'), 3);
+  assert.equal(data.get('run').models.length, 2);
+  assert.deepEqual(events.filter(e => e.type === 'text').map(e => e.text), ['The counter', 'The counter is 3.']);
+  assert.equal(events.at(-1).type, 'completed');
+});
+
+test('observer failure cannot fail durable execution and a failed sync emits no tool acknowledgement', async () => {
+  const {ctx, data} = storage(); const provider = fixtureProvider();
+  await accept(ctx, 'Add three', provider);
+  const events = [];
+  ctx.storage.sync = async () => { if (data.has('count')) throw new Error('lost proof'); };
+  await assert.rejects(execute(ctx, provider, undefined, e => { events.push(e); }), /lost proof/);
+  assert.equal(events.some(e => e.type === 'tool'), false);
+  ctx.storage.sync = async () => {};
+  await execute(ctx, provider, undefined, () => { throw new Error('observer offline'); });
+  assert.equal(data.get('count'), 3);
+  assert.equal(data.get('run').status, 'completed');
+});

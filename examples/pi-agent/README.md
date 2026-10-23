@@ -76,6 +76,76 @@ This opt-in command makes paid provider calls and is not enabled in CI. Set
 `CELLAR_PI_TEST_REPORT` to an output JSON path to retain the test transcripts;
 the report contains task messages and usage, never environment variables.
 
+## Live browser demo
+
+The browser demo adds a local Node HTTP/SSE server beside the Rust host. It
+shows actual Pi provider text events as they arrive, saved tool receipts and
+checkpoint status. There is no simulated typing or timer-based text playback.
+It defaults to OpenAI with `gpt-4.1-mini`; these calls incur provider charges.
+After the build steps above, start it from the repository root:
+
+```sh
+CELLAR_PI_HOST="$CARGO_TARGET_DIR/debug/cellar-pi-agent-example" \
+  node --env-file=/path/to/openai.env examples/pi-agent/demo/launch.mjs
+```
+
+Open `http://127.0.0.1:4317`. Submit an increment from 1 to 100. Reloading the
+page restores the task from its URL; the sidebar remembers the last 20 task
+IDs and prompts in this browser. **New task** creates a fresh counter.
+**Restart worker** kills only this demo's Rust host with SIGKILL, starts a new
+node with empty local storage, and keeps the same development bucket. The
+replacement resumes pending tasks through Cellar alarms. Browser text from an
+unfinished attempt is cleared; a saved receipt prevents another increment.
+
+`CELLAR_PI_DEMO_PORT` selects a different UI port. `CELLAR_PI_DEMO_DATA` selects
+a persistent directory (default `.cellar/pi-streaming-demo`) for the bucket
+and each node's storage. Keep that directory to recover tasks after stopping
+the entire demo. Use the same provider/model configuration when restarting.
+The launcher locks the directory against concurrent use and joins its child
+on SIGINT/SIGTERM. After killing the launcher itself, confirm its worker has
+stopped before removing a stale `demo.lock`.
+
+The demo binds to loopback and rejects foreign Host/Origin headers. A random,
+rotated worker token authenticates its observation channel; the browser never
+receives the token or provider credentials. This is a local development demo,
+not a tenant-authenticated public service. Set `CELLAR_PI_PROVIDER=fixture`
+for a credentials-free run; the page explicitly labels fixture mode, which
+has no live provider text deltas.
+
+### Streaming and durability
+
+The Rust/JavaScript fetch bridge still returns buffered response bodies. SSE
+is served by the demo's Node web server. The durable runner consumes the real
+provider event stream and sends optional, bounded previews through
+`CELLAR_PI_EVENTS_URL` and `CELLAR_PI_EVENTS_TOKEN`, configured by the launcher.
+It continues to checkpoint each complete decision **before** handing it to Pi
+for tool execution. Tool-receipt events are emitted only after storage sync.
+The model, checkpoint and receipt journal remains entirely in Cellar.
+
+Previews are best effort and may be dropped; later text events contain a full
+current text snapshot. SSE reconnection restores the gateway's latest preview,
+and the browser separately reads the authoritative task status/transcript
+from Cellar. Slow readers are disconnected and buffers/connections are capped.
+Restarting the gateway loses previews, but retains durable task state. Observer
+failures do not fail a task. A worker restart rotates the observer token to
+reject late events from the old worker. No thinking blocks or raw provider
+errors are sent to the browser.
+
+To verify real streaming and interruption automatically against a running demo:
+
+```sh
+CELLAR_PI_TEST_LIVE=1 \
+CELLAR_PI_TEST_REPORT="$PWD/.cellar/pi-streaming-live-report.json" \
+  npm run --prefix examples/pi-agent test:streaming
+```
+
+This paid, opt-in test interrupts the host on the first real text delta,
+requires a second attempt to stream, verifies saved tool-receipt replay,
+checks the counter stays 13 with one effect, and compares duplicate results.
+Use `CELLAR_PI_DEMO_URL` if the demo uses a different port. Default unit tests
+also exercise early provider deltas, observer failures, SSE reconnect,
+origin/token checks and rejection of old-worker events without paid calls.
+
 ## Recovery design
 
 ```mermaid
@@ -145,8 +215,9 @@ entry contains none. CI runs these tests in the JavaScript/Node workflow.
 
 This is a durable, bounded tool agent example, not a coding-agent sandbox or a
 general workflow engine. It has one task per cell and one atomic local tool.
-Model responses are buffered before being handed to Pi, so there is no token
-streaming API. Long-running conversations, approvals, cancellation endpoints,
+Complete model responses are checkpointed before being handed to Pi; the local
+demo streams provisional text separately as described above. Long-running
+conversations, approvals, cancellation endpoints,
 retention, tenant authentication and production fleet fault/load qualification
 are further application work. Put authentication in front of ingress before
 exposing the example to other users.

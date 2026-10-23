@@ -1,8 +1,8 @@
 import {jsonResponse, request, response, type Application, type Context, type Request} from '@cellar/sdk';
-import {accept, execute, readRun, type Hook} from './durable.js';
+import {accept, execute, readRun, type Hook, type Progress} from './durable.js';
 import type {Provider} from './provider.js';
 
-export function application(provider: Provider, hook?: Hook): Application {
+export function application(provider: Provider, hook?: Hook, observe?: (task: string, event: Progress) => void): Application {
   class DurableAgent {
     async fetch(req: Request, ctx: Context) {
       if (req.method === 'POST') {
@@ -21,12 +21,16 @@ export function application(provider: Provider, hook?: Hook): Application {
       const run = await readRun(ctx);
       if (!run) return jsonResponse({error: 'task not found'}, {status: 404});
       const count = await ctx.storage.read('count');
-      return jsonResponse({status: run.status, attempts: run.attempts,
+      return jsonResponse({status: run.status, prompt: run.prompt, attempts: run.attempts,
         modelSteps: run.models.length, toolReceipts: Object.keys(run.tools).length,
         count: count.present ? count.value : 0,
         messages: JSON.parse(JSON.stringify(run.messages))});
     }
-    async alarm(_alarm: unknown, ctx: Context) { await execute(ctx, provider, hook); }
+    async alarm(_alarm: unknown, ctx: Context) {
+      await execute(ctx, provider, hook, event => {
+        if (ctx.identity?.name) observe?.(ctx.identity.name, event);
+      });
+    }
   }
   return {cells: {DurableAgent}, async fetch(req, ctx) {
     const match = /^\/agents\/([a-zA-Z0-9_-]{1,64})$/.exec(new URL(req.url).pathname);
