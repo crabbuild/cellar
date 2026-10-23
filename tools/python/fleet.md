@@ -94,6 +94,57 @@ The optional revision must be a full commit SHA. Artifact uploads retain build
 logs, image metadata, executable hashes, measurements and process reports,
 including failed attempts. A new diagnostic run does not cancel earlier runs.
 
+## CPU-separated read/write investigation
+
+The same workflow can run an additional comparison on a Linux runner with at
+least four available CPUs and a local Docker daemon:
+
+```sh
+gh workflow run native-sdk.yml --ref YOUR_BRANCH \
+  -f mode=python-fleet -f replay_sha="$(git rev-parse HEAD)" -f fleet_measure=true
+```
+
+It runs native, Python, Python, then native on each ABI's runner. Every run uses
+the image's exact binaries, 32 resident cells, 64 admitted host requests, 256-byte
+stored payloads, and three repetitions at concurrency 1, 8 and 32. Each timed
+write phase is followed by a five-second read phase. The one-node bucket
+scenario still kills the process, deletes local state, checks all acknowledged
+writes after recovery, and requires complete joined shutdown and preserving
+reload. A failed measurement or recovery fails the run.
+
+Two CPUs form the host pool, one is assigned to the client, and one to RustFS.
+The launcher records affinity before exec; startup and load boundaries verify
+the live host and object-store thread masks. Docker inspection must agree with
+the requested RustFS CPU pool, one-CPU quota and 640 MiB memory limit. Explicit
+placement refuses non-Linux hosts, overlapping/unavailable pools and Docker
+daemons whose container PIDs do not belong to the local host.
+
+To choose another bounded workload, use `fleet_smoke.py` with
+`--host-cpus 1,2 --client-cpus 0 --store-cpus 3`, `--cells`, `--max-resident`,
+`--max-requests`, `--seconds`, `--repeats`, `--concurrency` and
+`--read-measurements`. CPU IDs must exist in the launching process's affinity.
+All host processes share the chosen host pool; it is not a per-node CPU grant.
+Without these options the functional fixture keeps its original defaults.
+
+Timed reads issue GET requests without recovery retries, checking each returned
+counter and payload length against the existing acknowledged-write ledger.
+They neither modify that ledger nor count failures as successful requests.
+GET returns counter metadata, not the stored payload bytes, so read throughput
+does not represent payload bandwidth. Reports retain every successful latency
+sample in microseconds, error counts, elapsed time including drain and per-phase
+throughput. Check the compiled client's method, accounting, failure and percentile
+behavior independently with:
+
+```sh
+python3 tools/perf/check_load.py --load "$CARGO_TARGET_DIR/lab/cellar-perf-load"
+```
+
+These closed-loop measurements expose saturation; they do not account for
+independently arriving work or coordinated omission. Host memory and disk remain
+shared, and a small synthetic one-node run cannot establish production capacity,
+fleet scalability or soak stability. Compare results only within the same ABI
+runner. Keep failed windows and recovery outages alongside successful timings.
+
 ## Controlled performance comparison
 
 Use the full harness on an existing Docker/Colima VM with at least eight CPUs.

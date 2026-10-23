@@ -24,6 +24,10 @@ on:
         description: Optional full commit SHA for a same-runner Python before/after comparison
         type: string
         default: ''
+      fleet_measure:
+        description: Also compare native/Python S3 reads and writes with disjoint Linux CPU pools
+        type: boolean
+        default: false
       repetitions:
         description: Fresh fixtures (1-100 consumer, 1-50 clock, 1-20 reliability)
         type: number
@@ -53,6 +57,7 @@ jobs:
     uses: ./.github/workflows/python-fleet.yml
     with:
       revision: ${{ inputs.replay_sha }}
+      measure: ${{ inputs.fleet_measure }}
   check:
     if: github.event_name != 'workflow_dispatch' || inputs.mode == 'qualification'
     name: Rust framework and SDK (${{ matrix.python }})
@@ -103,6 +108,8 @@ jobs:
           python3 tools/python/test_baseline.py
           python3 tools/python/test_runner.py
           python3 tools/python/test_encoding.py
+          python3 tools/python/test_affinity.py
+          python3 tools/python/test_fleet_smoke.py
       - name: Test Cloudflare benchmark peer relay
         run: |
           npm ci --ignore-scripts --prefix tools/perf/cloudflare

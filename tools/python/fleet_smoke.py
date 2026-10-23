@@ -16,6 +16,8 @@ import subprocess
 import sys
 import time
 
+import affinity
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "perf"))
 from run import (Harness, SCENARIOS, command, event_report, logs, request,
                  validate_node_limits, validate_python_outcomes, validate_python_shutdown,
@@ -37,13 +39,43 @@ class LocalFleet(Harness):
 
     def setup(self):
         # No shared volumes or credentials; the container owns disposable data.
+        placement = self.args.cpu_placement
+        cpus = ["--cpuset-cpus", ",".join(map(str, placement["store"]))] if placement else []
+        quota = str(len(placement["store"])) if placement else "0.5"
         command("docker", "run", "-d", "--name", self.store,
-                "--cpus", "0.5", "--memory", "640m", "--memory-swap", "640m",
+                "--cpus", quota, *cpus, "--memory", "640m", "--memory-swap", "640m",
                 "--publish", f"127.0.0.1:{self.args.port}:9000",
                 "-e", f"RUSTFS_ACCESS_KEY={self.access}", "-e", f"RUSTFS_SECRET_KEY={self.secret}",
                 "-e", "RUSTFS_CONSOLE_ENABLE=false", "-e", "RUSTFS_OBS_LOGGER_LEVEL=error",
                 self.args.rustfs_image, "/data")
         self.wait_url(f"http://127.0.0.1:{self.args.port}/health")
+        self.verify_placement("store-started")
+
+    def verify_placement(self, label):
+        placement = self.args.cpu_placement
+        if not placement:
+            return
+        inspected = json.loads(command("docker", "inspect", self.store))[0]
+        config, state = inspected["HostConfig"], inspected["State"]
+        expected = {"CpusetCpus": ",".join(map(str, placement["store"])),
+                    "NanoCpus": len(placement["store"]) * 1_000_000_000,
+                    "Memory": 640 * 1024 * 1024, "MemorySwap": 640 * 1024 * 1024}
+        if any(config.get(key) != value for key, value in expected.items()) or not state["Running"]:
+            raise RuntimeError("object store resource limits changed")
+        # Requires a local Linux Docker daemon: reject remote or VM-backed
+        # daemon PIDs rather than assuming host and container CPU IDs coincide.
+        container_id = inspected["Id"]
+        cgroup = Path(f"/proc/{state['Pid']}/cgroup").read_text()
+        if container_id not in cgroup:
+            raise RuntimeError("CPU comparison requires the local Linux Docker daemon")
+        proof = {"store_limits": expected, "store_id": container_id,
+                 "store_threads": affinity.verify_threads(state["Pid"], placement["store"]),
+                 "host_threads": {}}
+        for i, (process, _) in self.processes.items():
+            if process.poll() is not None:
+                raise RuntimeError("measurement host exited before affinity observation")
+            proof["host_threads"][str(i + 1)] = affinity.verify_threads(process.pid, placement["host"])
+        (self.output / f"{label}-placement.json").write_text(json.dumps(proof, indent=2) + "\n")
 
     def start_nodes(self, scenario, count, durability):
         # Reuse bucket creation/retry policy without Docker process inspection.
@@ -79,7 +111,10 @@ class LocalFleet(Harness):
         for key in ("CELLAR_PYTHON_INVENTORY", "CELLAR_PERF_LOG_LEVEL"):
             env.pop(key, None)
         with path.open("w") as stream:
-            process = subprocess.Popen([str(self.args.host), "--bucket", bucket,
+            placement = self.args.cpu_placement
+            prefix = affinity.prefix(placement["host"] if placement else None,
+                                     path.with_suffix(".affinity.json"))
+            process = subprocess.Popen([*prefix, str(self.args.host), "--bucket", bucket,
                 "--endpoint", f"http://127.0.0.1:{self.args.port}", "--region", "us-east-1",
                 "--listen", f"127.0.0.1:{self.ports[i][0]}",
                 "--internal-listen", f"127.0.0.1:{self.ports[i][1]}",
@@ -100,6 +135,9 @@ class LocalFleet(Harness):
                     raise
                 time.sleep(0.2)
         text = path.read_text()
+        if self.args.cpu_placement:
+            affinity.verify(path.with_suffix(".affinity.json"), self.args.cpu_placement["host"], process.pid)
+            self.verify_placement(f"process-{i + 1}-{self.generations[i]}-started")
         policy = {"scenario": scenario, "node": i + 1, "generation": self.generations[i],
                   "proof": validate_node_limits(text, self.args.max_resident,
                                                 self.args.max_cached_routes, self.args.max_requests)}
@@ -137,7 +175,11 @@ class LocalFleet(Harness):
     def load(self, scenario, count, operation, concurrency, seconds, label, exclude=None, only=None):
         urls = [f"http://127.0.0.1:{self.ports[i][0]}" for i in range(count)
                 if i != exclude and (only is None or i == only)]
-        result = subprocess.run([str(self.args.load), operation, ",".join(urls), str(self.args.cells),
+        self.verify_placement(f"{scenario}-{label}-before")
+        placement = self.args.cpu_placement
+        evidence = self.output / f"{scenario}-{label}.affinity.json"
+        prefix = affinity.prefix(placement["client"] if placement else None, evidence)
+        result = subprocess.run([*prefix, str(self.args.load), operation, ",".join(urls), str(self.args.cells),
             str(concurrency), str(seconds), str(self.args.bytes),
             str(self.output / f"{scenario}-accounting.json")], text=True, capture_output=True, timeout=240)
         (self.output / f"{scenario}-{label}.stderr").write_text(result.stderr)
@@ -145,6 +187,9 @@ class LocalFleet(Harness):
         path.write_text(result.stdout)
         if result.returncode:
             raise RuntimeError(f"load failed; see {path.name} and stderr")
+        if placement:
+            affinity.verify(evidence, placement["client"])
+        self.verify_placement(f"{scenario}-{label}-after")
         value = json.loads(result.stdout)
         if value.get("errors") or value.get("mismatches"):
             raise RuntimeError(f"load returned failures; see {path.name}")
@@ -188,21 +233,39 @@ def main():
     parser.add_argument("--rustfs-image", required=True, help="already installed disposable backend image")
     parser.add_argument("--output", type=Path, required=True, help="new evidence directory")
     parser.add_argument("--max-cached-routes", type=int, default=0)
+    parser.add_argument("--host-cpus", help="Linux CPU pool shared by all host processes")
+    parser.add_argument("--client-cpus", help="disjoint Linux CPU pool for the load generator")
+    parser.add_argument("--store-cpus", help="disjoint Linux CPU pool for the local Docker object store")
+    parser.add_argument("--cells", type=int, default=32)
+    parser.add_argument("--max-resident", type=int, default=8)
+    parser.add_argument("--max-requests", type=int, default=32)
+    parser.add_argument("--seconds", type=int, default=3)
+    parser.add_argument("--repeats", type=int, default=1)
+    parser.add_argument("--concurrency", type=int, nargs="+", default=[4])
+    parser.add_argument("--read-measurements", action="store_true",
+                        help="also measure GET requests against the acknowledged-write ledger")
     parser.add_argument("--scenario", nargs="+", choices=[s[0] for s in SCENARIOS], default=[s[0] for s in SCENARIOS])
     args = parser.parse_args()
+    args.cpu_placement = affinity.fleet_placement(args.host_cpus, args.client_cpus, args.store_cpus)
     args.host, args.load = args.host.resolve(strict=True), args.load.resolve(strict=True)
     args.port = free_port()
     if args.max_cached_routes < 0:
         parser.error("max-cached-routes must be nonnegative")
-    args.max_resident, args.max_requests = 8, 32
-    args.shutdown_ms, args.cells, args.bytes = 30000, 32, 256
-    args.warmup_seconds, args.seconds, args.repeats, args.concurrency = 5, 3, 1, [4]
+    if not (1 <= args.cells <= 4096 and 1 <= args.max_resident <= 4096
+            and 1 <= args.max_requests <= 2048 and 1 <= args.seconds <= 120
+            and 1 <= args.repeats <= 10 and len(set(args.concurrency)) == len(args.concurrency)
+            and all(1 <= c <= min(args.cells, 512) for c in args.concurrency)):
+        parser.error("invalid or unbounded workload")
+    args.shutdown_ms, args.bytes, args.warmup_seconds = 30000, 256, 5
     harness = LocalFleet(args)
     source_root = Path(__file__).resolve().parents[2]
     sources = ("Cargo.toml", "Cargo.lock", "tools/perf/cells.rs", "tools/perf/load.rs", "tools/perf/deployment.rs",
                "tools/perf/embedded.rs", "tools/perf/run.py", "tools/python/fleet.rs",
-               "tools/python/fleet_app.py", "tools/python/fleet.Dockerfile", "tools/python/fleet_smoke.py")
-    metadata = {"scope": "functional S3 recovery; not a performance qualification",
+               "tools/python/fleet_app.py", "tools/python/fleet.Dockerfile", "tools/python/fleet_smoke.py",
+               "tools/python/affinity.py")
+    scope = ("CPU-separated closed-loop S3 measurement; shared host memory and disk; not production qualification"
+             if args.cpu_placement else "functional S3 recovery; not a performance qualification")
+    metadata = {"scope": scope,
                 "revision": command("git", "rev-parse", "HEAD"),
                 "dirty": bool(command("git", "status", "--porcelain")),
                 "arguments": {k: str(v) if isinstance(v, Path) else v for k, v in vars(args).items()},

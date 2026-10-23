@@ -34,6 +34,36 @@ def placement(host, client):
     return dict(host=host, client=client, available=allowed)
 
 
+def fleet_placement(host, client, store):
+    if host is None and client is None and store is None:
+        return None
+    if host is None or client is None or store is None:
+        raise ValueError("provide --host-cpus, --client-cpus and --store-cpus together")
+    result = placement(host, client)
+    cpus = cpu_list(store)
+    if set(cpus) & (set(result["host"]) | set(result["client"])):
+        raise ValueError("store, host and client CPU sets must be disjoint")
+    if not set(cpus) <= set(result["available"]):
+        raise ValueError("store CPUs are outside the calling process affinity")
+    return dict(result, store=cpus)
+
+
+def verify_threads(pid, cpus):
+    """Sample every extant Linux thread; new threads inherit their creator's mask."""
+    observed = {}
+    for task in (Path("/proc") / str(pid) / "task").iterdir():
+        try:
+            mask = sorted(os.sched_getaffinity(int(task.name)))
+        except ProcessLookupError:
+            continue  # A worker may finish while its siblings are sampled.
+        observed[task.name] = mask
+        if mask != cpus:
+            raise RuntimeError("measurement thread changed CPU affinity")
+    if str(pid) not in observed:
+        raise RuntimeError("measurement process is no longer live")
+    return observed
+
+
 def prefix(cpus, evidence):
     if cpus is None:
         return []

@@ -429,6 +429,9 @@ df -B1 {shlex.quote(self.vm_root)}/node{{1,2,3}}
         for repeat in range(self.args.repeats):
             for concurrency in self.args.concurrency:
                 self.results.append(self.load(name, count, "write", concurrency, self.args.seconds, f"c{concurrency}-r{repeat + 1}"))
+                if getattr(self.args, "read_measurements", False):
+                    self.results.append(self.load(name, count, "read", concurrency, self.args.seconds,
+                                                  f"read-c{concurrency}-r{repeat + 1}"))
         self.recovery.append(self.load(name, count, "verify", 1, 1, "before-recovery"))
         self.snapshot(name, count, "measured")
         if durability == "bucket":

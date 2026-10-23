@@ -30,6 +30,26 @@ class PlacementTests(unittest.TestCase):
         with patch.object(affinity.sys, "platform", "darwin"), self.assertRaises(ValueError):
             affinity.placement("0", "1")
 
+    def test_fleet_requires_three_available_disjoint_pools(self):
+        self.assertIsNone(affinity.fleet_placement(None, None, None))
+        with patch.object(affinity, "available", return_value=[0, 1, 2, 3]):
+            for host, client, store in [("1,2", "0", None), (None, None, "3"),
+                                        ("1,2", "0", "2"), ("1,2", "0", "0"),
+                                        ("1,2", "0", "4"), ("1,2", "0", "3,3")]:
+                with self.subTest(host=host, client=client, store=store), self.assertRaises(ValueError):
+                    affinity.fleet_placement(host, client, store)
+            self.assertEqual(affinity.fleet_placement("2,1", "0", "3"),
+                             dict(host=[1, 2], client=[0], store=[3], available=[0, 1, 2, 3]))
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "Linux kernel affinity required")
+    def test_live_thread_observation_refuses_changed_masks(self):
+        import os
+        requested = affinity.available()
+        proof = affinity.verify_threads(os.getpid(), requested)
+        self.assertIn(str(os.getpid()), proof)
+        with self.assertRaises(RuntimeError):
+            affinity.verify_threads(os.getpid(), [max(requested) + 1])
+
     def test_changed_proof_is_rejected(self):
         with tempfile.TemporaryDirectory() as root:
             evidence = Path(root) / "proof.json"
