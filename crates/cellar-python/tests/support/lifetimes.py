@@ -124,7 +124,6 @@ class Counter:
             await refused(lambda: old.namespace("COUNTERS").get_by_name("late").fetch(Request("http://cell/cell/state")), "ContextMismatch")
             for call in (lambda: old._bridge.submit(99999, "storage.apply", '{"puts":{"forbidden":true}}'),
                          lambda: old._bridge.complete("null", False),
-                         lambda: old._bridge.complete_response(200, (), b"forbidden"),
                          lambda: old._bridge.complete('{"status":200,"headers":[],"body":""}', False, b"forbidden")):
                 try:
                     call()
@@ -139,12 +138,6 @@ class Counter:
                 if old is not ctx:
                     assert not old._bridge.active()
                     await refused(lambda: old.storage.apply(puts={"forbidden": True}), "ContextExpired")
-                    try:
-                        old._bridge.complete_response(200, (), b"forbidden")
-                    except RuntimeError as error:
-                        assert str(error) == "ContextExpired"
-                    else:
-                        raise AssertionError("native completion accepted an expired invocation")
         elif request.path != "/cell/state":
             return Response("unknown cell route", 404)
         return Response.json({"serial": self.serial, "marker": marker,

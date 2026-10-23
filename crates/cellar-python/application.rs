@@ -334,24 +334,6 @@ impl PythonApplication {
                         std::task::Poll::Pending => pending.push(operation),
                     }
                 }
-                Event::CompleteHttp {
-                    status,
-                    headers,
-                    body,
-                    reservation,
-                } => {
-                    let _reservation = reservation;
-                    ensure!(kind == "fetch", "Python event completion has an HTTP body");
-                    return cellar_guest::values::output_parts(
-                        &context,
-                        status,
-                        body,
-                        headers,
-                        self.runtime.options.max_body_bytes,
-                    )
-                    .map(Output::Http)
-                    .map_err(|_| anyhow::anyhow!("Python response conversion failed"));
-                }
                 Event::Complete {
                     payload,
                     body,

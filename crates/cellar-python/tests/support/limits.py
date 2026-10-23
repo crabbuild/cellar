@@ -1,15 +1,10 @@
 """Exact native codec and batch-byte boundaries, including refused effects."""
 from cellar import Ambiguous, Request, Response, SDKError, ValidationError, _encode
-from http import HTTPStatus
 
 visits = 0
 
 
 async def fetch(request, ctx):
-    if request.path in ("/metadata-transport", "/metadata-fallback"):
-        status = 207 if request.path == "/metadata-transport" else HTTPStatus.MULTI_STATUS
-        return Response(b"ok", status, [("x-repeat", "first"), ("x-repeat", "é😀"),
-                                      ("x-escaped", 'quoted"\\')])
     if request.path == "/echo":
         return Response(request.body)
     if request.path == "/echo-buffer":
@@ -26,7 +21,7 @@ async def fetch(request, ctx):
         count = 128 if request.path.endswith("exact") else 129
         return Response(headers=[("x-boundary", "y")] * count)
     if request.path.startswith("/header-bytes/"):
-        count = 65536 if request.path.endswith("huge") else 32767 if request.path.endswith("exact") else 32768
+        count = 32767 if request.path.endswith("exact") else 32768
         return Response(headers=[("x", "y" * count)])
     if request.path.startswith("/completion/"):
         response = Response(b"x" * 4096, headers=[("x", "")])

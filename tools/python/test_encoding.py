@@ -11,22 +11,10 @@ import weakref
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "crates/cellar-python/python"))
-from cellar import Response, ValidationError, _encode, _encode_response, _response_metadata
+from cellar import Response, ValidationError, _encode, _encode_response
 
 
 class EncodingTests(unittest.TestCase):
-    def test_direct_metadata_owns_immutable_containers(self):
-        row = ["x", "before"]
-        headers = [row]
-        value = dict(status=200, headers=headers, body="")
-        snapshot = _response_metadata(value)
-        row[1] = object()
-        headers.append(object())
-        value["status"] = 2**64
-        self.assertEqual(snapshot, dict(status=200, headers=(("x", "before"),), body=""))
-        self.assertIs(type(snapshot["headers"]), tuple)
-        self.assertIs(type(snapshot["headers"][0]), tuple)
-
     def test_scalar_leaves_obey_the_exact_nesting_limit(self):
         for scalar in (None, True, False, 0, -2**63, 2**64 - 1, 1.25, "text"):
             value = scalar

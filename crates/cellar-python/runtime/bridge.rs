@@ -1,5 +1,5 @@
 use pyo3::prelude::*;
-use pyo3::types::{PyBytes, PyString, PyTuple};
+use pyo3::types::PyBytes;
 use pyo3::{PyTraverseError, PyVisit};
 use std::sync::{
     atomic::{AtomicBool, AtomicUsize, Ordering},
@@ -22,12 +22,6 @@ pub(crate) enum Event {
         payload: String,
         body: Option<Vec<u8>>,
         failed: bool,
-        reservation: super::Reservation,
-    },
-    CompleteHttp {
-        status: u16,
-        headers: Vec<(String, String)>,
-        body: Vec<u8>,
         reservation: super::Reservation,
     },
 }
@@ -169,8 +163,23 @@ impl InvocationBridge {
         }
         self.ensure_scope(py)?;
         let body = body.map(|body| body.as_bytes());
-        let (reservation, permit) =
-            self.reserve_completion(payload.len(), body.map_or(0, <[u8]>::len))?;
+        let charge = crate::values::envelope_size(payload.len(), body.map_or(0, <[u8]>::len))
+            .map_err(|_| {
+                pyo3::exceptions::PyValueError::new_err("Python response size overflow")
+            })?;
+        if charge > self.max_bytes {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "Python response exceeds value budget",
+            ));
+        }
+        let reservation = self.budget.reserve(charge).map_err(|_| {
+            pyo3::exceptions::PyRuntimeError::new_err(
+                "Python aggregate bridge byte budget exhausted",
+            )
+        })?;
+        let permit = self.sender.try_reserve().map_err(|_| {
+            pyo3::exceptions::PyRuntimeError::new_err("Python completion queue is full or closed")
+        })?;
         // Reserve both byte and mailbox capacity before owning copies. The
         // encoded-equivalent charge covers the smaller raw body allocation.
         let payload = payload.to_owned();
@@ -186,106 +195,9 @@ impl InvocationBridge {
         self.completion_enqueued.store(true, Ordering::Release);
         Ok(())
     }
-
-    fn complete_response(
-        &self,
-        py: Python<'_>,
-        status: u16,
-        headers: &Bound<'_, PyTuple>,
-        body: &Bound<'_, PyBytes>,
-    ) -> PyResult<()> {
-        if !self.active() {
-            return Err(pyo3::exceptions::PyRuntimeError::new_err("ContextExpired"));
-        }
-        self.ensure_scope(py)?;
-        if !(200..=599).contains(&status) || headers.len() > 128 {
-            return Err(pyo3::exceptions::PyValueError::new_err(
-                "Invalid Python HTTP metadata",
-            ));
-        }
-        let mut metadata =
-            crate::values::HTTP_METADATA_BASE_BYTES + headers.len().saturating_sub(1);
-        let mut copied = body.as_bytes().len();
-        // The facade snapshots all containers into tuples. Inspect borrowed,
-        // immutable strings before reserving capacity or allocating owned data.
-        for row in headers.iter() {
-            let row = row.cast::<PyTuple>()?;
-            if row.len() != 2 {
-                return Err(pyo3::exceptions::PyValueError::new_err(
-                    "Invalid Python HTTP header",
-                ));
-            }
-            let name = row.get_item(0)?;
-            let value = row.get_item(1)?;
-            let name = name.cast::<PyString>()?.to_str()?;
-            let value = value.cast::<PyString>()?.to_str()?;
-            copied = copied
-                .checked_add(name.len())
-                .and_then(|bytes| bytes.checked_add(value.len()))
-                .ok_or_else(|| {
-                    pyo3::exceptions::PyValueError::new_err("Python response size overflow")
-                })?;
-            // ASCII-escaped JSON and base64 cannot be smaller than these raw
-            // bytes. Refuse an obviously oversized value before scanning it.
-            if copied > self.max_bytes {
-                return Err(pyo3::exceptions::PyValueError::new_err(
-                    "Python response exceeds value budget",
-                ));
-            }
-            let bytes = crate::values::response_header_size(name, value).map_err(|_| {
-                pyo3::exceptions::PyValueError::new_err("Python response size overflow")
-            })?;
-            metadata = metadata.checked_add(bytes).ok_or_else(|| {
-                pyo3::exceptions::PyValueError::new_err("Python response size overflow")
-            })?;
-        }
-        let (reservation, permit) = self.reserve_completion(metadata, body.as_bytes().len())?;
-        let mut owned = Vec::with_capacity(headers.len());
-        for row in headers.iter() {
-            let row = row.cast::<PyTuple>()?;
-            owned.push((
-                row.get_item(0)?.extract::<String>()?,
-                row.get_item(1)?.extract::<String>()?,
-            ));
-        }
-        let body = body.as_bytes().to_vec();
-        self.budget.copied_input(copied);
-        permit.send(Event::CompleteHttp {
-            status,
-            headers: owned,
-            body,
-            reservation,
-        });
-        self.completion_enqueued.store(true, Ordering::Release);
-        Ok(())
-    }
 }
 
 impl InvocationBridge {
-    fn reserve_completion(
-        &self,
-        metadata: usize,
-        body: usize,
-    ) -> PyResult<(super::Reservation, mpsc::Permit<'_, Event>)> {
-        let charge = crate::values::envelope_size(metadata, body).map_err(|_| {
-            pyo3::exceptions::PyValueError::new_err("Python response size overflow")
-        })?;
-        if charge > self.max_bytes {
-            return Err(pyo3::exceptions::PyValueError::new_err(
-                "Python response exceeds value budget",
-            ));
-        }
-        let reservation = self.budget.reserve(charge).map_err(|_| {
-            pyo3::exceptions::PyRuntimeError::new_err(
-                "Python aggregate bridge byte budget exhausted",
-            )
-        })?;
-        let permit = self.sender.try_reserve().map_err(|_| {
-            pyo3::exceptions::PyRuntimeError::new_err("Python completion queue is full or closed")
-        })?;
-        Ok((reservation, permit))
-    }
-
     fn ensure_scope(&self, py: Python<'_>) -> PyResult<()> {
         let valid = (|| -> PyResult<bool> {
             let current_loop = py.import("asyncio")?.call_method0("get_running_loop")?;

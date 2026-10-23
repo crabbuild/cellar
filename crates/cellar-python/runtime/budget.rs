@@ -13,7 +13,7 @@ pub struct BridgeReport {
     /// Sum of successful byte reservations, including later-abandoned work.
     pub reserved_bytes_total: usize,
     /// Explicit owned UTF-8/body copies from Python: SDK name/payload,
-    /// completion metadata (or directly transported headers) and raw response body.
+    /// completion metadata and raw response body.
     /// Excludes Python's own codec/UTF-8 caches and native transport copies.
     pub input_copied_bytes: usize,
     /// Explicit owned UTF-8 and body copies into Python: invocation metadata,

@@ -92,60 +92,10 @@ pub(super) fn child() -> Result<()> {
                 let client = reqwest::Client::builder()
                     .timeout(Duration::from_secs(10))
                     .build()?;
-                for route in ["metadata-transport", "metadata-fallback"] {
-                    let before = observed.bridge_report();
-                    let response = client.get(format!("{url}/{route}")).send().await?;
-                    ensure!(response.status().as_u16() == 207);
-                    let repeated = response
-                        .headers()
-                        .get_all("x-repeat")
-                        .iter()
-                        .map(|value| value.as_bytes().to_vec())
-                        .collect::<Vec<_>>();
-                    ensure!(repeated == vec![b"first".to_vec(), "é😀".as_bytes().to_vec()]);
-                    ensure!(
-                        response
-                            .headers()
-                            .get("x-escaped")
-                            .context("escaped header")?
-                            .as_bytes()
-                            == b"quoted\"\\"
-                    );
-                    ensure!(response.bytes().await?.as_ref() == b"ok");
-                    let copied =
-                        observed.bridge_report().input_copied_bytes - before.input_copied_bytes;
-                    let expected = b"ok".len()
-                        + "x-repeat".len() * 2
-                        + "firsté😀".len()
-                        + "x-escaped".len()
-                        + b"quoted\"\\".len();
-                    if route == "metadata-transport" {
-                        ensure!(
-                            copied == expected,
-                            "HTTP metadata still crossed as encoded JSON: {copied} != {expected}"
-                        );
-                    } else {
-                        ensure!(
-                            copied > expected,
-                            "unusual metadata did not retain the JSON path"
-                        );
-                    }
-                }
                 // Exercise binary request delivery through real ingress. The
                 // bridge must copy the body as bytes, not expand it into a
                 // base64 string in the invocation's JSON envelope.
                 let binary: Vec<u8> = (0..4096).map(|byte| byte as u8).collect();
-                let before = observed.bridge_report();
-                ensure!(client
-                    .get(format!("{url}/header-bytes/huge"))
-                    .send()
-                    .await?
-                    .status()
-                    .is_server_error());
-                ensure!(
-                    observed.bridge_report().input_copied_bytes - before.input_copied_bytes < 128,
-                    "oversized header was copied before refusal"
-                );
                 for path in ["/echo", "/echo-buffer"] {
                     let before = observed.bridge_report();
                     let echoed = client
