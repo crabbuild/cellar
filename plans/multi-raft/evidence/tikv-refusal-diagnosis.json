@@ -1,0 +1,330 @@
+{
+  "format": 1,
+  "diagnostic_only": true,
+  "performance_qualified": false,
+  "source": {
+    "revision": "4e9b82573a76db7709a29a1ed761701907ac77f9",
+    "diagnostic_only": true,
+    "tag": "cellar-raft-perf:tikv-refusal-probe-ios-7da4ddb5",
+    "image": "sha256:57c2eb5783337643c638a12af7f5b9f5b56a7f9eb56bf961cc826b09e74f49d9",
+    "binary_sha256": "1c92fcf96fd74b856c9a82c095fc0739c41d48a0a5e0439d72d635499b6be41d",
+    "context_sha256": "418bace13382ccdfd2169b567fe5a58d4dc4df23f747fa0e65d11183abc1c76a",
+    "counter_labels": [
+      "admission.cache_error",
+      "admission.retained_byte_limit",
+      "admission.retained_entry_limit",
+      "admission.granted",
+      "admission.deferred",
+      "overload.archive_callback",
+      "overload.cell_pending",
+      "archive.completed_ok",
+      "archive.completed_error",
+      "overload.receipt_clients",
+      "overload.receipt_rows",
+      "overload.sql_archive_budget",
+      "overload.sql_output_budget",
+      "stage.total_overloaded",
+      "overload.client_budget",
+      "overload.client_mailbox",
+      "cancel.command_submitted",
+      "cancel.command_unsubmitted",
+      "runtime.request_budget",
+      "runtime.request_mailbox",
+      "archive.already_published",
+      "archive.rotate_size"
+    ],
+    "gauge_labels": [
+      "admission.observed_retained_bytes",
+      "admission.observed_retained_entries",
+      "admission.observed_reserved_bytes",
+      "admission.observed_waiters"
+    ]
+  },
+  "topology": {
+    "nodes": 3,
+    "cpus_per_node": 1,
+    "memory_gib_per_node": 3,
+    "groups": 1500,
+    "leaders_per_node": 500,
+    "voters": 3,
+    "sql_workers": 4,
+    "sql_reservations_per_node": 64,
+    "archive_publishers": 4
+  },
+  "method": "Fixed-size relaxed atomic counters and admission last/peak observations; resource snapshots every five seconds. No per-operation logs, timing probes, durability or retry changes.",
+  "hypotheses": [
+    "Retained archive history reaches a byte/entry limit.",
+    "Request or SQL reservations are exhausted.",
+    "Per-cell or receipt limits cause refusals independently of archive lag."
+  ],
+  "windows": [
+    {
+      "window": 1,
+      "concurrency": 12,
+      "tps": 194.8409793076386,
+      "latency_ms": {
+        "p50": 54.57474799999318,
+        "p95": 112.12294899996778,
+        "p99": 184.78957199999968,
+        "max": 982.9444289999856
+      },
+      "elapsed_seconds": 180.07505466600003,
+      "successful_writes": 35086,
+      "error_rate": 0.0,
+      "errors": 0,
+      "raw_evidence_intact": false,
+      "observations": {
+        "1": {
+          "samples": 36,
+          "retained_entries_sample_max": 1999,
+          "retained_bytes_sample_max": 31365385,
+          "admission_waiters_sample_max": 1,
+          "sql_reservations_sample_max": 35
+        },
+        "2": {
+          "samples": 36,
+          "retained_entries_sample_max": 1998,
+          "retained_bytes_sample_max": 31362489,
+          "admission_waiters_sample_max": 1,
+          "sql_reservations_sample_max": 16
+        },
+        "3": {
+          "samples": 36,
+          "retained_entries_sample_max": 1998,
+          "retained_bytes_sample_max": 31361382,
+          "admission_waiters_sample_max": 1,
+          "sql_reservations_sample_max": 19
+        }
+      },
+      "limitation": "Third window reused write-r1-c12.json and overwrote this raw receipt/latency ledger. Values here are retained runner summaries and cannot be independently recomputed.",
+      "host": {
+        "samples": 36,
+        "compiler_samples": 36
+      }
+    },
+    {
+      "window": 2,
+      "concurrency": 24,
+      "tps": 206.9784502713345,
+      "latency_ms": {
+        "p50": 103.14281999995956,
+        "p95": 180.16952600004288,
+        "p99": 336.1649889999967,
+        "max": 2335.5889180000418
+      },
+      "elapsed_seconds": 180.06705505400004,
+      "successful_writes": 37270,
+      "error_rate": 0.0,
+      "errors": 0,
+      "raw_evidence_intact": true,
+      "observations": {
+        "1": {
+          "samples": 35,
+          "retained_entries_sample_max": 1621,
+          "retained_bytes_sample_max": 33006051,
+          "admission_waiters_sample_max": 4,
+          "sql_reservations_sample_max": 57
+        },
+        "2": {
+          "samples": 35,
+          "retained_entries_sample_max": 1611,
+          "retained_bytes_sample_max": 32998228,
+          "admission_waiters_sample_max": 4,
+          "sql_reservations_sample_max": 34
+        },
+        "3": {
+          "samples": 35,
+          "retained_entries_sample_max": 1625,
+          "retained_bytes_sample_max": 33016119,
+          "admission_waiters_sample_max": 5,
+          "sql_reservations_sample_max": 23
+        }
+      },
+      "raw_sha256": "601f3495e65cb1fb2fc5e26e589e29f6dba7df871aa7155080f678bdf99055be",
+      "host": {
+        "samples": 35,
+        "compiler_samples": 24
+      }
+    },
+    {
+      "window": 3,
+      "concurrency": 12,
+      "tps": 184.0373720475708,
+      "latency_ms": {
+        "p50": 52.50043099999857,
+        "p95": 116.96850700002415,
+        "p99": 368.05435799999486,
+        "max": 2010.531377999996
+      },
+      "elapsed_seconds": 180.05038667600002,
+      "successful_writes": 33136,
+      "error_rate": 0.0,
+      "errors": 0,
+      "raw_evidence_intact": true,
+      "observations": {
+        "1": {
+          "samples": 36,
+          "retained_entries_sample_max": 2367,
+          "retained_bytes_sample_max": 49465579,
+          "admission_waiters_sample_max": 1,
+          "sql_reservations_sample_max": 22
+        },
+        "2": {
+          "samples": 36,
+          "retained_entries_sample_max": 2376,
+          "retained_bytes_sample_max": 49551277,
+          "admission_waiters_sample_max": 0,
+          "sql_reservations_sample_max": 14
+        },
+        "3": {
+          "samples": 36,
+          "retained_entries_sample_max": 2368,
+          "retained_bytes_sample_max": 49484265,
+          "admission_waiters_sample_max": 1,
+          "sql_reservations_sample_max": 14
+        }
+      },
+      "raw_sha256": "da877be3d6e9e28c564ff00abce8b38530ffb86e93eff284cf013504e93fd384",
+      "host": {
+        "samples": 36,
+        "compiler_samples": 32
+      }
+    }
+  ],
+  "final_counters": {
+    "1": {
+      "admission.cache_error": 0,
+      "admission.deferred": 58418,
+      "admission.granted": 31671,
+      "admission.observed_reserved_bytes.last": 84031557,
+      "admission.observed_reserved_bytes.max": 251981564,
+      "admission.observed_retained_bytes.last": 31998925,
+      "admission.observed_retained_bytes.max": 50991056,
+      "admission.observed_retained_entries.last": 1208,
+      "admission.observed_retained_entries.max": 2436,
+      "admission.observed_waiters.last": 0,
+      "admission.observed_waiters.max": 5,
+      "admission.retained_byte_limit": 0,
+      "admission.retained_entry_limit": 0,
+      "archive.already_published": 31630,
+      "archive.completed_error": 0,
+      "archive.completed_ok": 55041,
+      "archive.rotate_size": 1665,
+      "cancel.command_submitted": 0,
+      "cancel.command_unsubmitted": 0,
+      "overload.archive_callback": 0,
+      "overload.cell_pending": 0,
+      "overload.client_budget": 0,
+      "overload.client_mailbox": 0,
+      "overload.receipt_clients": 0,
+      "overload.receipt_rows": 0,
+      "overload.sql_archive_budget": 0,
+      "overload.sql_output_budget": 0,
+      "runtime.request_budget": 0,
+      "runtime.request_mailbox": 0,
+      "stage.total_overloaded": 0
+    },
+    "2": {
+      "admission.cache_error": 0,
+      "admission.deferred": 87508,
+      "admission.granted": 38007,
+      "admission.observed_reserved_bytes.last": 84041597,
+      "admission.observed_reserved_bytes.max": 251998806,
+      "admission.observed_retained_bytes.last": 32071760,
+      "admission.observed_retained_bytes.max": 50997103,
+      "admission.observed_retained_entries.last": 1196,
+      "admission.observed_retained_entries.max": 2433,
+      "admission.observed_waiters.last": 0,
+      "admission.observed_waiters.max": 5,
+      "admission.retained_byte_limit": 0,
+      "admission.retained_entry_limit": 0,
+      "archive.already_published": 7469,
+      "archive.completed_error": 0,
+      "archive.completed_ok": 55006,
+      "archive.rotate_size": 3298,
+      "cancel.command_submitted": 0,
+      "cancel.command_unsubmitted": 0,
+      "overload.archive_callback": 0,
+      "overload.cell_pending": 0,
+      "overload.client_budget": 0,
+      "overload.client_mailbox": 0,
+      "overload.receipt_clients": 0,
+      "overload.receipt_rows": 0,
+      "overload.sql_archive_budget": 0,
+      "overload.sql_output_budget": 0,
+      "runtime.request_budget": 0,
+      "runtime.request_mailbox": 0,
+      "stage.total_overloaded": 0
+    },
+    "3": {
+      "admission.cache_error": 0,
+      "admission.deferred": 87457,
+      "admission.granted": 37314,
+      "admission.observed_reserved_bytes.last": 83994224,
+      "admission.observed_reserved_bytes.max": 251999242,
+      "admission.observed_retained_bytes.last": 32045169,
+      "admission.observed_retained_bytes.max": 50973175,
+      "admission.observed_retained_entries.last": 1188,
+      "admission.observed_retained_entries.max": 2436,
+      "admission.observed_waiters.last": 0,
+      "admission.observed_waiters.max": 5,
+      "admission.retained_byte_limit": 0,
+      "admission.retained_entry_limit": 0,
+      "archive.already_published": 6807,
+      "archive.completed_error": 0,
+      "archive.completed_ok": 55014,
+      "archive.rotate_size": 3345,
+      "cancel.command_submitted": 0,
+      "cancel.command_unsubmitted": 0,
+      "overload.archive_callback": 0,
+      "overload.cell_pending": 0,
+      "overload.client_budget": 0,
+      "overload.client_mailbox": 0,
+      "overload.receipt_clients": 0,
+      "overload.receipt_rows": 0,
+      "overload.sql_archive_budget": 0,
+      "overload.sql_output_budget": 0,
+      "runtime.request_budget": 0,
+      "runtime.request_mailbox": 0,
+      "stage.total_overloaded": 0
+    }
+  },
+  "verification": {
+    "runner_replica_values": 4500,
+    "runner_archive_groups": 1500,
+    "all_windows_report_zero_errors": true,
+    "independent_receipt_ledger_verified": false
+  },
+  "clean_shutdown": true,
+  "volumes_retained": true,
+  "evidence_sha256": {
+    "report": "cfd9c8c230edbefe0027f3bdd555e24b418e9cb7e0355dfa8b8c2ecd3ab40666",
+    "resources": "a3f50ff14eced67391def60b60598311111660e64d743803e574154e1331ea22",
+    "host": "8daac1654fa3e88e456f3de9e838c591cde5cd06da7b0d522a613f9452827e70",
+    "shutdown": "5c18daed38a0193e956123a6d7ddadbd128a057c738d3d58b049139805376a94",
+    "instrumentation_patch": "92a7891035c20cd79e0b1594cd81ccb1e29ee7473affefbe1315a4185578e08d",
+    "rejected_independent_analysis": "7d2d8cebcb5f1a5240ee92087b173b6e6ec51150cd722c8727e444b7f671b0ab"
+  },
+  "interpretation": "No instrumented refusal fired, including at 24 writers. Reservation deferrals occurred while retained history stayed below hard limits. Reported higher-concurrency throughput grows little while latency rises. This supports evaluating bounded SQL progress priority, without claiming to explain earlier overload bursts or qualify performance.",
+  "limitations": [
+    "The first raw ledger was overwritten by a repeated load setting. The independent analyzer rejects the run; the runner reported exact data verification before shutdown, but that complete receipt proof cannot be reconstructed independently.",
+    "This isolated diagnostic modifies timing and does not qualify production capacity.",
+    "Counters cover all node operations; they are not a per-request trace.",
+    "Admission gauges are observations from the latest admission scan, not an atomic live backlog snapshot; refusal scans can be partial.",
+    "Five-second samples can miss short-lived occupancy peaks.",
+    "Shared-host load varies; the two 12-writer windows have different history and host conditions."
+  ],
+  "tikv_references": {
+    "revision": "b3995dab28308f09cbb7c125bf32f789dbc203fe",
+    "paths": [
+      "components/raftstore/src/store/fsm/peer.rs::on_check_peer_complete_apply_logs",
+      "components/batch-system/src/batch.rs::Poller::poll",
+      "src/storage/txn/flow_controller/singleton_flow_controller.rs"
+    ],
+    "mechanisms": [
+      "Explicit tracking of apply backlog/busy peers.",
+      "Prioritized control work and bounded rescheduling to preserve fairness.",
+      "Throttle new writes at the scheduler before storage/apply stalls, with separate hard-pressure refusal."
+    ]
+  }
+}

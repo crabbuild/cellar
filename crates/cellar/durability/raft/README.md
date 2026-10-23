@@ -353,6 +353,13 @@ status and joined local closure. Admission is synchronous, including when a
 returned future is not polled. Attempt deadlines are checked by the dispatcher
 and SQL owner; cancellation cannot release a slot while its callback still runs.
 
+Each SQL owner prioritizes queued publication, retirement, submission, discard
+and archive capture over unrelated ordinary work. It never passes an earlier
+request for the same cell, and after three priority selections it serves the
+oldest request. This scheduling adds no collection delay or admission capacity:
+queued and executing requests retain the same worker semaphore reservations,
+including when the queue moves work into its bounded local batch.
+
 Business commands/queries and administrative operations have independent host
 admission. `max_control_requests` defaults to 16 and `max_control_bytes` to 16 MiB;
 status, repair, seed activation and leadership requests use that reservation.

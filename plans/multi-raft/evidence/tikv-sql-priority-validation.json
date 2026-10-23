@@ -1,0 +1,43 @@
+{
+  "format": 1,
+  "base_revision": "4e9b82573a76db7709a29a1ed761701907ac77f9",
+  "performance_qualified": false,
+  "change": "Prioritize bounded queued SQL progress across unrelated cells without changing admission reservations, per-cell FIFO, cancellation or durability. Serve the oldest request after three priority selections.",
+  "red_regression": {
+    "test": "archive_capture_advances_past_unrelated_queued_sql_work",
+    "failure": "archive progress waited behind unrelated queued SQL work",
+    "log_sha256": "5984dad2fa8a6b789bb4017b257f1f1cf7335c7a210a7ee6dfbce50b63adb86d"
+  },
+  "validation": {
+    "queue_contract_cases": 5,
+    "library_cases": 458,
+    "native_archive_cases": 48,
+    "native_execution_cases": 18,
+    "native_host_cases": 29,
+    "native_snapshot_cases": 43,
+    "total_passed": 596,
+    "child_process_fixtures_invoked_by_parents": 4,
+    "strict_all_target_all_feature_clippy": true,
+    "rust_format": true,
+    "rust_layout": true,
+    "native_dependency_policy": true,
+    "documentation_checks": true
+  },
+  "log_sha256": {
+    "sql-priority-after.log": "a59a1e3cf6413bb50d6a105ea97c38839a8af64c58d64d7d936f7b2825051634",
+    "sql-priority-native.log": "1177015e66ce395e5856aaf07b20e574395dcdbaaf9b7062ca8792c4e879463d",
+    "sql-priority-clippy.log": "6ec182103c6526768993664adcc09d62f4286ca49482a198da06963208e5dceb",
+    "sql-priority-format.log": "5236ff9a7354c0fd92e97b117ee717953e7110fa401eec44ad799558c121ae8b",
+    "sql-priority-layout.log": "46af1d6b3654784de8bd13b98a888667684115244e32428c57c925ae8d2f795d"
+  },
+  "harness_evidence_fix": {
+    "commit": "a8cbd4e",
+    "red_failures": 2,
+    "passing_cases": 11,
+    "before_sha256": "307fb8ee147a11d5ba4428b39eace258d50f6f913c15cc6f5e5fafe851182e74",
+    "after_sha256": "91c28a11c890e53b0016f6f71b1e1db89614ed5d34e370466ff7a632173fef94",
+    "behavior": "Window-ordinal filenames are created exclusively; independent verification rejects reused evidence paths."
+  },
+  "runtime_source_sha256": "65f00fbd5c8b30f61777c59beea58a69c0a5b48e74907824307b8083d744d2a6",
+  "remaining": "Freeze/build the uninstrumented candidate, then compare against 972264b with the same size-based archive policy, four SQL workers, 64 reservations and four publishers. Two 180-second windows at 24 writers per image; exact replica/archive verification and zero-error latency gates remain required."
+}

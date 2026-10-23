@@ -306,6 +306,54 @@ candidate under evaluation. The next useful step is to capture refusal causes
 in the failing workload, then compare sustained successful TPS without relaxing
 latency, admission, durability or data-verification gates.
 
+### Refusal counters and bounded SQL progress scheduling
+
+The [fixed-counter diagnostic](evidence/tikv-refusal-diagnosis.json) freezes
+`4e9b825` and adds process-local atomic counters with five-second resource
+snapshots. It has no per-operation logging or timing probes. Three 180-second
+windows use 12/24/12 writers with the same four SQL owners, 64 reservations,
+four archive publishers and three 1-vCPU / 3-GiB nodes. No instrumented refusal
+fires. Retained entries peak at 2,433–2,436 per node, below the 4,096-entry cap.
+Admission checks defer 58,418/87,508/87,457 times across the nodes, with at most
+five observed waiters each. These are repeated decisions, not distinct commands
+or failures. The earlier overload bursts remain unexplained.
+
+The runner reports 194.84/206.98/184.04 TPS and 184.79/336.16/368.05-ms p99 with
+zero write errors. However, the duplicate twelve-writer setting exposed an
+evidence-recording bug: a filename based only on repeat/concurrency/rate lets
+the third window overwrite the first raw receipt and latency ledger. The
+independent analyzer rejects this run. The first summary remains available,
+and the runner checked all 4,500 replica values and 1,500 archive positions
+before clean shutdown, but the complete receipt proof cannot be independently
+reconstructed. This diagnostic is not a performance qualification. All volumes,
+remaining raw evidence and the failed independent-analysis result are retained.
+
+The harness now includes the window ordinal in every evidence filename and
+creates it exclusively. Its independent analyzer rejects reused evidence paths,
+including old filenames that otherwise have matching counts and percentiles.
+Both regressions fail before the fix; all eleven Python harness cases pass.
+
+TiKV's pinned `batch-system/src/batch.rs` handles control work before normal
+work and bounds rescheduling to retain fairness. Its flow controller throttles
+new writes at the scheduler while tracking storage pressure separately. The next
+Cellar experiment applies bounded priority at the physical SQL owner: queued
+publication, submission, retirement, discard and archive capture can pass
+unrelated ordinary work. An earlier request for the same cell always stays
+first. After three priority selections, the oldest request is served. Every
+queued and executing item retains its original semaphore permit; no additional
+capacity, collection delay or durability shortcut is introduced.
+
+The worker-selection regression first failed because archive capture waited
+behind unrelated queued SQL work. It now passes, alongside cases for publication
+reservations, per-cell order, sustained priority arrivals without starvation and
+draining work after sender disconnect. The [validation record](evidence/tikv-sql-priority-validation.json)
+confirms 458 library and 138 native archive/execution/host/snapshot cases pass
+(596 total), with four process helpers invoked by parent cases. Strict
+all-target/all-feature Clippy, formatting/layout, native dependency policy and
+documentation checks also pass. An uninstrumented comparison against `972264b`
+with the same archive policy remains required before claiming a throughput or
+latency improvement.
+
 ## Scope and reproducible baseline
 
 Compare three native Cellar nodes, each limited to one vCPU and 3 GiB, with
