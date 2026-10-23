@@ -13,9 +13,81 @@ import unittest
 import weakref
 
 
+def idle_housekeeping(interval, telemetry):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "crates/cellar-python/python"))
+    import runner
+
+    class Inbox:
+        def __init__(self):
+            self.reader, self.writer = socket.socketpair()
+            self.reader.setblocking(False)
+            self.writer.setblocking(False)
+            self.stopped = self.watchdog_fired = False
+            self.samples = self.pumps = 0
+
+        def wakeup_fd(self):
+            def deadline():
+                self.watchdog_fired = True
+                self.stop()
+            asyncio.get_running_loop().call_later(1, deadline)
+            return self.reader.fileno()
+
+        def drain_wakeup(self):
+            while True:
+                try:
+                    self.reader.recv(4096)
+                except BlockingIOError:
+                    return
+
+        def take(self):
+            self.pumps += 1
+            return None
+
+        def replies(self):
+            return []
+
+        def take_lifecycle(self):
+            return 0
+
+        def pump_needed(self):
+            return False
+
+        def sample(self, payload):
+            json.loads(payload)
+            if not self.stopped:
+                self.samples += 1
+                if self.samples == 3:
+                    self.stop()
+
+        def done(self):
+            return self.stopped
+
+        def stop(self):
+            if not self.stopped:
+                self.stopped = True
+                self.writer.send(b"x")
+
+    inbox = Inbox()
+    try:
+        report = runner.run(SimpleNamespace(), inbox, interval, .2, 16, 16, telemetry)
+        assert not report["runtime_failed"] and not inbox.watchdog_fired, report
+        assert inbox.samples == 3 and inbox.pumps >= 3, "idle pump stopped housekeeping or sampling"
+        assert report["pending_tasks"] == report["pending_objects"] == report["pending_threads"] == 0, report
+    finally:
+        inbox.reader.close()
+        inbox.writer.close()
+
+
 def continuous_arrivals(mode):
+    if mode.startswith("idle-housekeeping-"):
+        interval, telemetry = (.003, .012) if mode.endswith("short-poll") else (.03, .005)
+        idle_housekeeping(interval, telemetry)
+        return
     if mode.startswith("invalidate-"):
         invalidation_without_reply(mode.removeprefix("invalidate-"))
+        return
+    if mode == "late-admission":
+        idle_invocation_scans(0, late=True)
         return
     if mode.startswith("idle-scans-"):
         idle_invocation_scans(int(mode.removeprefix("idle-scans-")))
@@ -105,6 +177,7 @@ def continuous_arrivals(mode):
             self.joined = 0
             self.bridges = weakref.WeakSet()
             self.cleanup_failed = False
+            self.housekeeping_timers = []
 
         async def occupy_task_slot(self):
             try:
@@ -114,6 +187,14 @@ def continuous_arrivals(mode):
 
         def wakeup_fd(self):
             loop = asyncio.get_running_loop()
+            if mode == "reused-timer":
+                original = loop.call_later
+                def observed_timer(delay, callback, *args, **kwargs):
+                    timer = original(delay, callback, *args, **kwargs)
+                    if callback.__name__ == "deadline_ready":
+                        self.housekeeping_timers.append(timer)
+                    return timer
+                loop.call_later = observed_timer
             # Direct Task construction bypasses the managed factory. Admission
             # must still count those live tasks, not just its own registry.
             self.occupied = ([asyncio.Task(self.occupy_task_slot(), loop=loop) for _ in range(900)]
@@ -146,6 +227,9 @@ def continuous_arrivals(mode):
         def replies(self):
             return []
 
+        def pump_needed(self):
+            return False
+
         def take_lifecycle(self):
             return False
 
@@ -176,6 +260,9 @@ def continuous_arrivals(mode):
             assert all(task.done() and task.cancelled() for task in inbox.occupied)
             return
         assert not report["runtime_failed"], report
+        if mode == "reused-timer":
+            assert len(inbox.housekeeping_timers) == 1, f"housekeeping timer allocations: {len(inbox.housekeeping_timers)}"
+            assert inbox.housekeeping_timers[0].cancelled(), "shutdown retained the housekeeping timer"
         assert report["pending_tasks"] == report["pending_objects"] == 0, report
         assert report["peak_tasks"] <= capacity, report
         assert inbox.issued == inbox.expired
@@ -375,6 +462,9 @@ def reply_delivery(mode):
         def done(self):
             return self.stopped
 
+        def pump_needed(self):
+            return False
+
         def take_lifecycle(self):
             return False
 
@@ -460,6 +550,9 @@ def invalidation_without_reply(mode):
                 self.lifecycle |= 2
             self.writer.send(b"x")
 
+        def pump_needed(self):
+            return bool(self.lifecycle)
+
         def take_lifecycle(self):
             flags, self.lifecycle = self.lifecycle, 0
             return flags
@@ -503,12 +596,12 @@ def invalidation_without_reply(mode):
         inbox.writer.close()
 
 
-def idle_invocation_scans(cold):
+def idle_invocation_scans(cold, late=False):
     sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'crates/cellar-python/python'))
     import runner
     from cellar import Response, _current_invocation
     rounds = 100
-    state = dict(issued=0, submitted=0, resumed=0, completed=0, cold_joined=0, cold_checks=0, measuring=False)
+    state = dict(issued=0, submitted=0, resumed=0, completed=0, cold_joined=0, cold_checks=0, admission_checks=0, measuring=False, late_completed=0)
     bridges = weakref.WeakSet()
 
     async def fetch(request, ctx):
@@ -517,9 +610,13 @@ def idle_invocation_scans(cold):
                 await asyncio.Event().wait()
             finally:
                 state['cold_joined'] += 1
+        elif request.path == '/late':
+            return Response(b'ok')
         else:
-            for _ in range(rounds):
+            for index in range(rounds):
                 assert await ctx.var('value') == '42'
+                if late and index >= 2:
+                    assert state['late_completed'] == 1, 'new admission waited for a completed task or housekeeping timer'
                 state['resumed'] += 1
             return Response(b'ok')
 
@@ -547,7 +644,11 @@ def idle_invocation_scans(cold):
             asyncio.get_running_loop().call_soon(publish)
 
         def complete(self, encoded, failed, body=None):
-            assert self.number == cold + 1 and (not failed) and (body == b'ok')
+            assert not failed and body == b'ok'
+            if late and self.number == cold + 2:
+                state['late_completed'] += 1
+                return
+            assert self.number == cold + 1
             state['completed'] += 1
             state['measuring'] = False
             # Allow the completion callback and pump to run while unrelated
@@ -565,6 +666,8 @@ def idle_invocation_scans(cold):
             self.writer.setblocking(False)
             self.queue = []
             self.stopped = False
+            self.deferred = self.deferred_issued = False
+            self.lifecycle = 0
 
         def wakeup_fd(self):
             return self.reader.fileno()
@@ -577,7 +680,19 @@ def idle_invocation_scans(cold):
                     return
 
         def take(self):
+            if state['measuring']:
+                state['admission_checks'] += 1
+            if late and self.deferred and not self.deferred_issued:
+                self.deferred_issued = True
+                payload = json.dumps(dict(identity=None, object=None, kind='fetch', event=dict(url='http://scan/late', method='GET', headers=[])))
+                return (cold + 2, payload, b'', Bridge(cold + 2))
             if self.stopped or state['issued'] == cold + 1:
+                if late and not self.deferred:
+                    # Publish immediately after this queue read found no work,
+                    # before the pump can consume any later hints.
+                    self.deferred = True
+                    self.lifecycle |= 4
+                    self.writer.send(b'x')
                 return None
             state['issued'] += 1
             number = state['issued']
@@ -589,8 +704,12 @@ def idle_invocation_scans(cold):
             queue, self.queue = (self.queue, [])
             return queue
 
+        def pump_needed(self):
+            return bool(self.lifecycle)
+
         def take_lifecycle(self):
-            return False
+            flags, self.lifecycle = self.lifecycle, 0
+            return flags
 
         def check_released(self):
             assert len(bridges) == cold, "completed invocation retained by live pump"
@@ -617,6 +736,7 @@ def idle_invocation_scans(cold):
         assert report['pending_tasks'] == report['pending_objects'] == report['pending_threads'] == 0
         assert not bridges, 'pump retained invocation bridges'
         assert state['cold_checks'] == 0, f'idle invocation scans: {state}'
+        assert state['admission_checks'] <= (3 if late else 1), f'reply-only notifications woke admission pump: {state}'
     finally:
         inbox.reader.close()
         inbox.writer.close()
@@ -641,6 +761,9 @@ class RunnerScheduling(unittest.TestCase):
             with self.subTest(idle=count):
                 self.run_case("idle-scans-" + str(count))
 
+    def test_admission_published_after_empty_queue_does_not_wait_for_housekeeping(self):
+        self.run_case("late-admission")
+
     def test_binary_reply_lifecycle(self):
         for mode in ("normal", "duplicate", "expired", "stopped", "malformed"):
             with self.subTest(mode=mode):
@@ -663,6 +786,14 @@ class RunnerScheduling(unittest.TestCase):
 
     def test_capacity_rejection_yields_to_timers_and_cancellation(self):
         self.run_case("rejections")
+
+    def test_idle_housekeeping_and_telemetry_rearm(self):
+        for cadence in ("short-poll", "short-telemetry"):
+            with self.subTest(cadence=cadence):
+                self.run_case("idle-housekeeping-" + cadence)
+
+    def test_housekeeping_timer_survives_ordinary_pump_wakeups(self):
+        self.run_case("reused-timer")
 
     def test_immediate_handlers_yield_to_timers_and_cancellation(self):
         self.run_case("handlers")

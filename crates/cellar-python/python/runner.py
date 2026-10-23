@@ -169,10 +169,17 @@ async def _serve(module, inbox, interval, shutdown, stats, maximum, telemetry, s
             inbox.drain_wakeup()
             # Queue SDK continuations before waking the admission pump. Host
             # operations still run in their original native invocation futures.
-            if not inbox.done() and not any(_failures.values()):
+            done = inbox.done()
+            if not done and not any(_failures.values()):
                 deliver_replies()
-        finally:
+            # Replies resume their own tasks. Completion callbacks release
+            # those tasks; admissions and revocations have native dirty hints.
+            # Avoid rebuilding the admission pump's timer for every SDK reply.
+            if done or any(_failures.values()) or inbox.pump_needed():
+                ready.set()
+        except BaseException:
             ready.set()
+            raise
 
     def completed(invocation, task):
         completed_invocations.append(invocation)
@@ -198,7 +205,11 @@ async def _serve(module, inbox, interval, shutdown, stats, maximum, telemetry, s
     def observe_ready(expected):
         _observe_delay(stats["interpreter"]["loop_delay"], max(0, time.perf_counter_ns() - expected))
 
+    timer = None
+
     def deadline_ready(expected):
+        nonlocal timer
+        timer = None
         observe_ready(expected)
         ready.set()
 
@@ -214,6 +225,10 @@ async def _serve(module, inbox, interval, shutdown, stats, maximum, telemetry, s
     try:
         while not inbox.done():
             ready.clear()
+            # Consume hints before the queues: publication during admission
+            # must survive for the next readiness callback, including when a
+            # producer enqueues just after take() observes an empty queue.
+            lifecycle = inbox.take_lifecycle()
             now = time.perf_counter_ns()
             if any(_failures.values()):
                 stats["runtime_failed"] = True
@@ -266,7 +281,6 @@ async def _serve(module, inbox, interval, shutdown, stats, maximum, telemetry, s
             # native invalidation hints before scanning so concurrent revocation
             # remains visible on the next pass. Every SDK call and reply still
             # checks its own invocation authority.
-            lifecycle = inbox.take_lifecycle()
             if lifecycle & 1:
                 cancel_invalidated()
             # Native owner drops publish a bounded dirty hint after revoking
@@ -287,18 +301,21 @@ async def _serve(module, inbox, interval, shutdown, stats, maximum, telemetry, s
             if now >= next_sample:
                 publish_work()
                 next_sample = now + int(telemetry * 1_000_000_000)
-            delay = min(interval, max(0, (next_sample - time.perf_counter_ns()) / 1_000_000_000))
             # Queue the checkpoint after resumed tasks, using the start of this
             # pump turn to include inline handler work. Host I/O awaits yield
             # the loop and do not contribute their elapsed wait to this sample.
             loop.call_soon(observe_ready, now)
-            now = time.perf_counter_ns()
-            timer = loop.call_later(delay, deadline_ready, now + int(delay * 1_000_000_000))
-            try:
-                await ready.wait()
-            finally:
-                timer.cancel()
+            # Native readiness does not extend housekeeping's deadline. Retain
+            # its one handle until it fires instead of cancelling/reallocating
+            # a timer for every admission, completion and SDK reply.
+            if timer is None:
+                now = time.perf_counter_ns()
+                delay = min(interval, max(0, (next_sample - now) / 1_000_000_000))
+                timer = loop.call_later(delay, deadline_ready, now + int(delay * 1_000_000_000))
+            await ready.wait()
     finally:
+        if timer is not None:
+            timer.cancel()
         # The runtime retains the descriptor until the loop has removed it.
         loop.remove_reader(descriptor)
         # Includes child tasks created directly by application code. Awaiting is

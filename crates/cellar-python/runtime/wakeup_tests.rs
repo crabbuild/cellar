@@ -33,6 +33,11 @@ fn invalidations_racing_drain_cannot_strand_work() {
     producers_racing_drain(INVALIDATED);
 }
 
+#[test]
+fn admissions_racing_drain_cannot_strand_work() {
+    producers_racing_drain(ADMITTED);
+}
+
 fn producers_racing_drain(hint: u8) {
     let wakeup = Wakeup::new().unwrap();
     let (sender, receiver) = mpsc::channel();
@@ -47,6 +52,8 @@ fn producers_racing_drain(hint: u8) {
                         wakeup.retire();
                     } else if hint == INVALIDATED {
                         wakeup.invalidate();
+                    } else if hint == ADMITTED {
+                        wakeup.admit();
                     } else {
                         wakeup.notify();
                     }
@@ -82,6 +89,7 @@ fn ordinary_wakeups_do_not_require_owner_scans() {
     let wakeup = Wakeup::new().unwrap();
     wakeup.notify();
     wakeup.drain().unwrap();
+    assert!(!wakeup.pump_needed());
     assert_eq!(wakeup.take_lifecycle(), 0);
     for _ in 0..100_000 {
         wakeup.retire();
@@ -94,6 +102,25 @@ fn ordinary_wakeups_do_not_require_owner_scans() {
     wakeup.drain().unwrap();
     assert_eq!(wakeup.take_lifecycle(), INVALIDATED | RETIRED);
     assert_eq!(wakeup.take_lifecycle(), 0);
+}
+
+#[test]
+fn admissions_remain_visible_until_the_pump_consumes_them() {
+    let wakeup = Wakeup::new().unwrap();
+    wakeup.admit();
+    wakeup.drain().unwrap();
+    assert!(wakeup.pump_needed());
+    assert_eq!(wakeup.take_lifecycle(), ADMITTED);
+    assert!(!wakeup.pump_needed());
+    // A producer racing the admission pass must publish another hint, even
+    // when a reply has already made the descriptor readable.
+    wakeup.notify();
+    wakeup.admit();
+    wakeup.retire();
+    wakeup.drain().unwrap();
+    assert!(wakeup.pump_needed());
+    assert_eq!(wakeup.take_lifecycle(), ADMITTED | INVALIDATED | RETIRED);
+    assert!(!wakeup.pump_needed());
 }
 
 #[test]
