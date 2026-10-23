@@ -40,6 +40,8 @@ mod privacy;
 mod proof_authority;
 #[path = "support/python_control.rs"]
 mod python_control;
+#[path = "support/queue_observation.rs"]
+mod queue_observation;
 #[path = "support/routing.rs"]
 mod routing;
 #[path = "support/schedule_recovery.rs"]
