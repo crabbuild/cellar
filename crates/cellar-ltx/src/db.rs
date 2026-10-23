@@ -271,9 +271,24 @@ enum CaptureDurability {
     Disposable,
 }
 
+/// One encoded L0 cut produced during a capture, including checkpoint writes.
+/// These are the encoder's bytes, not a read-back verification of the local file.
+#[derive(Debug)]
+pub struct CapturedLtx {
+    pub txid: TXID,
+    pub bytes: Box<[u8]>,
+}
+
+struct CaptureOutput {
+    max_files: usize,
+    remaining_bytes: usize,
+    files: Vec<CapturedLtx>,
+}
+
 pub struct Db {
     host: crate::LtxHost,
     durability: CaptureDurability,
+    capture_output: Option<CaptureOutput>,
     path: PathBuf,
     meta_path: PathBuf,
     /// Main connection: writes, PRAGMAs, checkpoints, page-size reads.
@@ -530,6 +545,7 @@ impl Db {
         let mut db = Db {
             host,
             durability,
+            capture_output: None,
             path,
             meta_path,
             conn,
@@ -1059,6 +1075,37 @@ impl Db {
     /// [`Self::checkpoint_if_due`] under the same exclusive database ownership.
     pub fn capture(&mut self) -> Result<()> {
         self.sync_capture(None, false)
+    }
+
+    /// Capture and return the newly encoded cuts without reopening their files.
+    /// The batch includes every cut emitted by size-triggered checkpoints, in
+    /// TXID order. Local writes retain this database's configured durability.
+    /// The caller must still validate and independently persist disposable cuts
+    /// before acknowledging work.
+    ///
+    /// Both bounds must be nonzero. Exceeding either bound or failing capture
+    /// returns no batch, although SQLite or local capture may already have
+    /// advanced; callers must retain their ordinary failure/rebuild policy.
+    pub fn capture_with_files(
+        &mut self,
+        max_files: usize,
+        max_encoded_bytes: usize,
+    ) -> Result<Vec<CapturedLtx>> {
+        if max_files == 0 || max_encoded_bytes == 0 || self.capture_output.is_some() {
+            return Err(Error::Other("invalid or active capture output".into()));
+        }
+        self.capture_output = Some(CaptureOutput {
+            max_files,
+            remaining_bytes: max_encoded_bytes,
+            files: Vec::new(),
+        });
+        let result = self.capture();
+        let output = self
+            .capture_output
+            .take()
+            .ok_or_else(|| Error::Other("capture output owner missing".into()))?;
+        result?;
+        Ok(output.files)
     }
 
     /// `sync` with an optional hook that runs between `verify` and the
@@ -1638,6 +1685,11 @@ impl Db {
 
         // Encode the LTX file (with HeaderFlagNoChecksum, so post-apply is 0).
         let encoded = ltx::encode_file(&header, &pages, 0)?;
+        if self.capture_output.as_ref().is_some_and(|output| {
+            output.files.len() >= output.max_files || encoded.len() > output.remaining_bytes
+        }) {
+            return Err(Error::Other("capture output exceeds its bounds".into()));
+        }
         self.last_sync_timing.ltx_encode_us = crate::host::telemetry_us().saturating_sub(phase);
         let phase = crate::host::telemetry_us();
 
@@ -1726,6 +1778,15 @@ impl Db {
             Err(_) => false,
         };
 
+        if let Some(output) = &mut self.capture_output {
+            // No nested capture runs between the bound check and this handoff.
+            // Shrinking to the encoded length avoids retaining encoder capacity.
+            output.remaining_bytes -= encoded.len();
+            output.files.push(CapturedLtx {
+                txid: tx_id,
+                bytes: encoded.into_boxed_slice(),
+            });
+        }
         Ok(true)
     }
 

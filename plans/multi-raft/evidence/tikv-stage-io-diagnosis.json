@@ -1,0 +1,286 @@
+{
+  "format": 1,
+  "diagnostic_only": true,
+  "performance_qualified": false,
+  "source": {
+    "revision": "12d6e87bd4f2fbfcba9c772b13588c4282f0875d",
+    "diagnostic_only": true,
+    "tag": "cellar-raft-perf:tikv-stage-io-probe-ios-7da4ddb5",
+    "image": "sha256:648935009c0023944ea827dac7b03d4e1760495714cfb95976e874b43b6eba1c",
+    "binary_sha256": "4a4b8bc288695949d8213832b0cc712ec8a83c2c86907d1dda2356c5cd4244c4",
+    "context_sha256": "536c1bdca01daabb9a3e7e7b0262c4c75be2b0386e874f36a45d545f94802135"
+  },
+  "topology": {
+    "nodes": 3,
+    "cpus_per_node": 1,
+    "memory_gib_per_node": 3,
+    "groups": 1500,
+    "leaders_per_node": 500,
+    "voters": 3,
+    "sql_workers_per_node": 2,
+    "archive_producers_per_node": 2
+  },
+  "method": "Cumulative stage counters emitted at least every two seconds while active, plus all operations >=250ms. Window deltas use the last observed cumulative counter before each boundary. Boundary samples are approximate; histograms use fixed upper-bound buckets. Stage durations are nested and must not be added as exclusive request latency. VM samples cover only their observed interval.",
+  "stage_columns": [
+    "calls",
+    "mean_ms",
+    "p99_histogram_bucket_upper_ms"
+  ],
+  "windows": [
+    {
+      "repeat": 1,
+      "concurrency": 3,
+      "diagnostic_tps": 165.7578998609226,
+      "latency_ms": {
+        "p50": 15.595253000000753,
+        "p95": 35.595329999978276,
+        "p99": 58.57457799999111,
+        "max": 323.6956530000157
+      },
+      "errors": 0,
+      "host_samples": 12,
+      "host_samples_with_builds": 12,
+      "stages": {
+        "capture.checkpoint": [
+          9786,
+          5.9e-05,
+          0.1
+        ],
+        "capture.delta": [9600, 0.0, 0.1],
+        "capture.encode_write": [9786, 1.683113, 10],
+        "capture.file_write": [9786, 1.141796, 5],
+        "capture.fsync": [9786, 0.0, 0.1],
+        "capture.ltx_encode": [9786, 0.039598, 0.5],
+        "capture.map_collect": [9786, 0.00732, 0.1],
+        "capture.pos": [9786, 0.109408, 1],
+        "capture.prepare": [9786, 0.116551, 1],
+        "capture.schema_check": [9786, 0.012244, 0.1],
+        "capture.total": [9786, 1.809505, 10],
+        "capture.verify": [9786, 0.008908, 0.1],
+        "capture.wal_bytes": [9786, 0.0, 0.1],
+        "capture.wal_exists": [9786, 0.104221, 1],
+        "capture.wal_read": [9786, 0.289898, 5],
+        "sql_work.Stage": [9782, 9.519423, 50],
+        "stage.encode": [9779, 0.009057, 0.1],
+        "stage.execute": [9782, 9.478104, 50],
+        "stage.freeze": [9782, 6.517036, 50],
+        "stage.preflight": [9787, 0.040527, 0.5],
+        "stage.preview": [9782, 3.708666, 50],
+        "stage.ready": [9787, 1.16514, 10],
+        "stage.transaction": [9781, 1.752345, 10],
+        "working.capture": [9779, 2.795369, 50],
+        "working.collect": [9779, 0.938714, 5],
+        "working.digest": [9779, 0.039494, 0.5],
+        "working.trim": [9787, 1.163669, 10]
+      }
+    },
+    {
+      "repeat": 1,
+      "concurrency": 6,
+      "diagnostic_tps": 189.69225617865047,
+      "latency_ms": {
+        "p50": 27.784050000008165,
+        "p95": 58.22314499999948,
+        "p99": 80.79918600000724,
+        "max": 476.4361489999942
+      },
+      "errors": 0,
+      "host_samples": 12,
+      "host_samples_with_builds": 9,
+      "stages": {
+        "capture.checkpoint": [
+          11238,
+          7.8e-05,
+          0.1
+        ],
+        "capture.delta": [11403, 0.0, 0.1],
+        "capture.encode_write": [11238, 2.344267, 50],
+        "capture.file_write": [11238, 1.56246, 10],
+        "capture.fsync": [11238, 0.0, 0.1],
+        "capture.ltx_encode": [11238, 0.04775, 0.5],
+        "capture.map_collect": [11238, 0.00821, 0.1],
+        "capture.pos": [11238, 0.149852, 5],
+        "capture.prepare": [11238, 0.157768, 5],
+        "capture.schema_check": [11238, 0.013369, 0.1],
+        "capture.total": [11238, 2.513898, 50],
+        "capture.verify": [11238, 0.010903, 0.1],
+        "capture.wal_bytes": [11238, 0.0, 0.1],
+        "capture.wal_exists": [11238, 0.144306, 5],
+        "capture.wal_read": [11238, 0.428957, 5],
+        "sql_work.Stage": [11240, 13.438204, 50],
+        "stage.encode": [11243, 0.01148, 0.1],
+        "stage.execute": [11240, 13.422572, 50],
+        "stage.freeze": [11240, 9.437679, 50],
+        "stage.preflight": [11240, 0.044511, 0.5],
+        "stage.preview": [11240, 5.449793, 50],
+        "stage.ready": [11240, 1.65071, 50],
+        "stage.transaction": [11234, 2.287208, 50],
+        "working.capture": [11243, 3.971097, 50],
+        "working.collect": [11243, 1.404459, 10],
+        "working.digest": [11243, 0.045055, 0.5],
+        "working.trim": [11240, 1.649133, 50]
+      }
+    },
+    {
+      "repeat": 2,
+      "concurrency": 6,
+      "diagnostic_tps": 202.7498584857791,
+      "latency_ms": {
+        "p50": 26.40236399997775,
+        "p95": 55.11745299997983,
+        "p99": 70.2466899999763,
+        "max": 374.78273400000717
+      },
+      "errors": 0,
+      "host_samples": 12,
+      "host_samples_with_builds": 0,
+      "stages": {
+        "capture.checkpoint": [
+          12176,
+          7.5e-05,
+          0.1
+        ],
+        "capture.delta": [12176, 0.0, 0.1],
+        "capture.encode_write": [12176, 2.155954, 10],
+        "capture.file_write": [12176, 1.45082, 10],
+        "capture.fsync": [12176, 0.0, 0.1],
+        "capture.ltx_encode": [12176, 0.050952, 0.5],
+        "capture.map_collect": [12176, 0.00849, 0.1],
+        "capture.pos": [12176, 0.127913, 5],
+        "capture.prepare": [12176, 0.1453, 5],
+        "capture.schema_check": [12176, 0.014438, 0.5],
+        "capture.total": [12176, 2.312394, 50],
+        "capture.verify": [12176, 0.010214, 0.1],
+        "capture.wal_bytes": [12176, 0.0, 0.1],
+        "capture.wal_exists": [12176, 0.130777, 5],
+        "capture.wal_read": [12176, 0.380044, 5],
+        "sql_work.Stage": [12171, 12.384566, 50],
+        "stage.encode": [12175, 0.01115, 0.1],
+        "stage.execute": [12171, 12.370383, 50],
+        "stage.freeze": [12171, 8.728027, 50],
+        "stage.preflight": [12172, 0.044962, 0.5],
+        "stage.preview": [12171, 5.051883, 50],
+        "stage.ready": [12172, 1.503702, 50],
+        "stage.transaction": [12180, 2.088338, 50],
+        "working.capture": [12175, 3.659322, 50],
+        "working.collect": [12175, 1.295168, 5],
+        "working.digest": [12175, 0.043537, 0.5],
+        "working.trim": [12172, 1.50215, 50]
+      }
+    },
+    {
+      "repeat": 2,
+      "concurrency": 3,
+      "diagnostic_tps": 154.58995420348276,
+      "latency_ms": {
+        "p50": 17.4558379999894,
+        "p95": 33.7557400000037,
+        "p99": 53.83754100000715,
+        "max": 272.5307789999647
+      },
+      "errors": 0,
+      "host_samples": 12,
+      "host_samples_with_builds": 0,
+      "stages": {
+        "capture.checkpoint": [
+          9368,
+          5.6e-05,
+          0.1
+        ],
+        "capture.delta": [9368, 0.0, 0.1],
+        "capture.encode_write": [9368, 1.726552, 10],
+        "capture.file_write": [9368, 1.166266, 5],
+        "capture.fsync": [9368, 0.0, 0.1],
+        "capture.ltx_encode": [9368, 0.05031, 0.5],
+        "capture.map_collect": [9368, 0.007887, 0.1],
+        "capture.pos": [9368, 0.109849, 5],
+        "capture.prepare": [9368, 0.119535, 5],
+        "capture.schema_check": [9368, 0.017034, 0.5],
+        "capture.total": [9368, 1.856351, 10],
+        "capture.verify": [9368, 0.009357, 0.1],
+        "capture.wal_bytes": [9368, 0.0, 0.1],
+        "capture.wal_exists": [9368, 0.102416, 5],
+        "capture.wal_read": [9368, 0.296229, 5],
+        "sql_work.Stage": [9377, 9.811345, 50],
+        "stage.encode": [9372, 0.011497, 0.1],
+        "stage.execute": [9377, 9.79397, 50],
+        "stage.freeze": [9377, 6.834053, 50],
+        "stage.preflight": [9365, 0.043434, 0.5],
+        "stage.preview": [9377, 3.928443, 50],
+        "stage.ready": [9365, 1.219351, 10],
+        "stage.transaction": [9369, 1.69589, 10],
+        "working.capture": [9372, 2.888691, 50],
+        "working.collect": [9372, 0.977781, 5],
+        "working.digest": [9372, 0.04644, 0.5],
+        "working.trim": [9365, 1.217868, 10]
+      }
+    }
+  ],
+  "verification": {
+    "verified_replica_values": 4500,
+    "verified_archive_groups": 1500,
+    "all_windows_error_free": true
+  },
+  "shutdown": {
+    "states": {
+      "cellar-raft-20261023-012530-node1": {
+        "Running": false,
+        "ExitCode": 0,
+        "OOMKilled": false,
+        "Error": "",
+        "FinishedAt": "2026-10-23T01:31:01.750072755Z"
+      },
+      "cellar-raft-20261023-012530-node2": {
+        "Running": false,
+        "ExitCode": 0,
+        "OOMKilled": false,
+        "Error": "",
+        "FinishedAt": "2026-10-23T01:31:01.761204088Z"
+      },
+      "cellar-raft-20261023-012530-node3": {
+        "Running": false,
+        "ExitCode": 0,
+        "OOMKilled": false,
+        "Error": "",
+        "FinishedAt": "2026-10-23T01:31:01.786188348Z"
+      },
+      "cellar-raft-20261023-012530-rustfs": {
+        "Running": false,
+        "ExitCode": 0,
+        "OOMKilled": false,
+        "Error": "",
+        "FinishedAt": "2026-10-23T01:31:04.314049765Z"
+      }
+    },
+    "preserved_volumes": [
+      "cellar-raft-20261023-012530-node1",
+      "cellar-raft-20261023-012530-node2",
+      "cellar-raft-20261023-012530-node3",
+      "cellar-raft-20261023-012530-rustfs"
+    ]
+  },
+  "host": {
+    "samples": 66,
+    "samples_with_builds": 39,
+    "swap_min_mib": 9022.88,
+    "swap_max_mib": 9022.88
+  },
+  "findings": [
+    "At six writers, command staging averages 12.38-13.44 ms. Preview construction accounts for about 5.05-5.45 ms, capture/collection 3.66-3.97 ms, transaction 2.09-2.29 ms and trim 1.50-1.65 ms. These are approximate nested counters, not an exact per-request attribution.",
+    "The private-capture collection path takes 1.30-1.40 ms, including directory listing, reopen/read-back and bounded decoding. Keeping decoding while handing off bounded encoded cuts can remove redundant file I/O.",
+    "WAL capture itself averages 2.31-2.51 ms; capture file creation/write/rename takes 1.45-1.56 ms. Disposable capture syncs and image digest/encoding are small in these windows.",
+    "No working-image reopen was recorded in timed windows. All timed capture observations were incremental; this profile does not cover checkpoint-generated multi-cut proposals, which require dedicated regression tests.",
+    "All four diagnostic windows are error-free with exact replica/archive verification. This is not a control/candidate speedup or sustained-capacity qualification."
+  ],
+  "raw_sha256": {
+    "diagnosis/build-stage-io-probe.py": "009ca396f29206818e43de48a04b7dc4f03bc8f6d9e9e2ec8e9817ef57f4ae5e",
+    "diagnosis/run-stage-io-probe.py": "d691364721c0984884e47aab668a199dd8a02a9b6b2acefe6689e1ba06379fe3",
+    "diagnosis/analyze-stage-io-probe.py": "04c4cb90dd9659048c83e49df3d4192353e4e13456f47654b7e82a0b39972b00",
+    "diagnosis/stage-io-probe-analysis.json": "c1a64057998f7cd70603f912d2abb4148a5a3746d7b529e9506add235261d76e",
+    "diagnosis/tikv-stage-io-probe-host.jsonl": "49464189cb26716aa7e7e47c30f54eff47f605b899fdebe479ef59fb883bc826",
+    "diagnosis/tikv-stage-io-probe-vm.jsonl": "281522d907d5036678672c7351d9b144f6d228a788879ffee279dca17c4460cb",
+    "diagnosis/stage-io-probe-vm-restart.json": "4b863351ae2e2fdc2d56d1bc69bdab859ae5a79e7cf37e713a48fad00a79ee88",
+    "tikv-stage-io-probe-source/diagnostic.patch": "1818782c3d6ef1d7823b8299453a492d81f5932c1d0c45d2991f39055f66aeb9",
+    "1500-tikv-stage-io-probe/report.json": "57b0d6309ec81f69df3e405f6fa2082a382e19d7a6ceb9b7855fe78a836c2ab8"
+  }
+}

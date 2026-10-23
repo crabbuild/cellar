@@ -26,6 +26,7 @@ pub struct Faults {
     pub fail_reads: AtomicBool,
     pub collision: AtomicBool,
     pub reads: AtomicUsize,
+    pub private_ltx_readbacks: AtomicUsize,
     pub events: Mutex<Vec<&'static str>>,
     pub image_seals: Mutex<Vec<PathBuf>>,
     pub synced_paths: Mutex<Vec<PathBuf>>,
@@ -42,6 +43,7 @@ impl Faults {
             fail_reads: AtomicBool::new(false),
             collision: AtomicBool::new(false),
             reads: AtomicUsize::new(0),
+            private_ltx_readbacks: AtomicUsize::new(0),
             events: Mutex::new(Vec::new()),
             image_seals: Mutex::new(Vec::new()),
             synced_paths: Mutex::new(Vec::new()),
@@ -108,6 +110,19 @@ impl HostFileIo for File {
 
     fn read_exact_at(&mut self, offset: u64, length: usize) -> io::Result<Vec<u8>> {
         self.faults.reads.fetch_add(1, Ordering::AcqRel);
+        if self
+            .path
+            .extension()
+            .is_some_and(|extension| extension == "ltx")
+            && self
+                .path
+                .components()
+                .any(|part| part.as_os_str() == "private")
+        {
+            self.faults
+                .private_ltx_readbacks
+                .fetch_add(1, Ordering::AcqRel);
+        }
         if self.faults.fail_reads.load(Ordering::Acquire) {
             return Err(io::Error::other("injected image read failure"));
         }

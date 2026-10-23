@@ -40,6 +40,42 @@ failed longer runs or establish a control/candidate speedup. Acceptance remains
 sustained successful TPS with p99 below 500 ms, preferably below 200 ms, zero
 write errors, bounded archive lag and exact replica/archive verification.
 
+### Capture handoff experiment
+
+The [deeper staging profile](evidence/tikv-stage-io-diagnosis.json) separates
+the costs inside command preparation. At six writers, staging averages
+12.4–13.4 ms: preview construction takes 5.1–5.4 ms, SQLite/receipt execution
+2.1–2.3 ms, private-file cleanup 1.5–1.6 ms, and capture 3.7–4.0 ms. Capture
+includes 1.3–1.4 ms listing and rereading newly encoded LTX files and
+1.5–1.6 ms writing those files. These nested means are not additive exclusive
+request latency. The diagnostic verified all 4,500 replica values and 1,500
+archive positions with zero write errors; concurrent builds appeared in 39
+of 66 host samples. Its timings select an experiment, not a causal speedup.
+
+`Db::capture_with_files` now transfers the encoder's cuts directly to command
+preparation, bounded by file count and total encoded bytes. It includes all
+cuts emitted by a checkpoint and releases the batch owner on failure. The
+existing configured local-write durability, bounded decoding, base/result
+checks, image sealing, durable Raft log and applied-marker proofs remain.
+This removes read-back of disposable capture output; private LTX writes and
+cleanup still occur. Encoder output is not described as verification of the
+local file.
+
+The real SDK regression observed eight private LTX reads for eight commands
+before the change and zero afterward, while retaining exact results, eight
+image seals, eight directory barriers, and receipt recovery after restart.
+New LTX cases cover multi-cut checkpoints, restoring after private workspace
+loss, count/byte refusal and durable sync failure. The native archive,
+execution, host and snapshot binaries pass 134 cases; four child-process
+fixtures are invoked by parent scenarios. Ordinary all-feature LTX tests pass
+11 cases; these do not include the external `cellar_internal_tests` harness.
+Strict all-target/all-feature Clippy for both affected crates, the LTX build
+without default features, formatting, module layout, native dependencies and
+documentation checks also pass. The [validation record](evidence/tikv-capture-handoff-validation.json)
+preserves the failing regression and passing checks.
+An uninstrumented comparison against the frozen `12d6e87` runtime is still
+required before claiming an end-to-end gain.
+
 ## Scope and reproducible baseline
 
 Compare three native Cellar nodes, each limited to one vCPU and 3 GiB, with

@@ -1,0 +1,127 @@
+{
+  "format": 1,
+  "performance_qualified": false,
+  "scope": "Bounded encoded-LTX handoff from capture to native Raft command preparation. No durability or acknowledgement changes. Performance requires an uninstrumented comparison.",
+  "sdk_regression": {
+    "commands": 8,
+    "private_ltx_readbacks_before": 8,
+    "private_ltx_readbacks_after": 0,
+    "image_seals": 8,
+    "directory_barriers": 8,
+    "original_receipts_recovered": true
+  },
+  "validation": {
+    "capture-handoff-before-native-host": {
+      "log": ".cellar/raft-perf/diagnosis/capture-handoff-before-native-host.log",
+      "sha256": "21927093631a5c65d0ccbd847fc62b8c17047ed5cbf456aeeb0cf809b9ce89b0",
+      "test_results": [
+        {
+          "passed": 0,
+          "failed": 1,
+          "ignored": 0
+        }
+      ]
+    },
+    "capture-handoff-after-native-host": {
+      "log": ".cellar/raft-perf/diagnosis/capture-handoff-after-native-host.log",
+      "sha256": "1a10cdc9f40702e8d3be0f901378206c3851d064f1153afcce6b1b43d211a3b5",
+      "test_results": [
+        {
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    },
+    "capture-handoff-ltx-all": {
+      "log": ".cellar/raft-perf/diagnosis/capture-handoff-ltx-all.log",
+      "sha256": "04c018dfa86d1b674b3728bdfa3cce2e7ed921320c90598d79b4c1f8b2777503",
+      "test_results": [
+        {
+          "passed": 6,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 5,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    },
+    "capture-handoff-native": {
+      "log": ".cellar/raft-perf/diagnosis/capture-handoff-native.log",
+      "sha256": "1caeb031f3fc04ac2c0222089e1dad7bf3387d97db7be183d2ab4c6112851901",
+      "test_results": [
+        {
+          "passed": 44,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 18,
+          "failed": 0,
+          "ignored": 2
+        },
+        {
+          "passed": 29,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 43,
+          "failed": 0,
+          "ignored": 2
+        }
+      ]
+    },
+    "capture-handoff-clippy": {
+      "log": ".cellar/raft-perf/diagnosis/capture-handoff-clippy.log",
+      "sha256": "7b74ffcebd3f6c318887e4ecaaa48a754f0616b8222d1e5dca4d748e0ed980ae",
+      "test_results": []
+    },
+    "capture-handoff-no-default": {
+      "log": ".cellar/raft-perf/diagnosis/capture-handoff-no-default.log",
+      "sha256": "8ca472fecbb117a65ac1e3b312a2b308e58e34a8c5b7b9ec5e38990fffc0d086",
+      "test_results": [
+        {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    },
+    "capture-handoff-format-check": {
+      "log": ".cellar/raft-perf/diagnosis/capture-handoff-format-check.log",
+      "sha256": "5c195b75a52a9abb95647977bb521696c4aac1d9e426851c81f872707e70872e",
+      "test_results": []
+    },
+    "capture-handoff-layout": {
+      "log": ".cellar/raft-perf/diagnosis/capture-handoff-layout.log",
+      "sha256": "519dd0ce90645915d740ab40b851b8219b3efa58c892bc921987036396fb6a72",
+      "test_results": []
+    },
+    "capture-handoff-dependencies-recheck": {
+      "log": ".cellar/raft-perf/diagnosis/capture-handoff-dependencies-recheck.log",
+      "sha256": "faf9bdb8df5819a63d590ede5d4a5f43eb4e8b00d8a6f44ccfb36bd8c4c5c238",
+      "test_results": []
+    },
+    "capture-handoff-docs": {
+      "log": ".cellar/raft-perf/diagnosis/capture-handoff-docs.log",
+      "sha256": "fc7c35ef13964a04e099f7026328ae922c45c28f73000cfc736883acace2434f",
+      "test_results": []
+    }
+  },
+  "limits": [
+    "Four ignored native child-process fixtures run through their parent scenarios.",
+    "Ordinary all-feature LTX suites pass 11 cases; the external cellar_internal_tests harness was not enabled.",
+    "No-default LTX library build passes but runs zero test cases.",
+    "Initial dependency check lacked cargo on PATH; the recorded recheck uses the pinned 1.98.1 toolchain and passes.",
+    "Shared-host end-to-end performance remains unqualified."
+  ]
+}

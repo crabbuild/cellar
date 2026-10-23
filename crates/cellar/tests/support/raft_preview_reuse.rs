@@ -112,6 +112,11 @@ async fn leader_seals_each_command_image_once_and_recovers_its_receipts() -> Res
         directory_syncs, 8,
         "old image deletion must share new image publication's directory barrier"
     );
+    assert_eq!(
+        faults.private_ltx_readbacks.load(Ordering::Acquire),
+        0,
+        "encoded private captures must reach command preparation without file read-back"
+    );
 
     // Restart after private executor teardown and old-generation reclamation.
     let node = public_node::node(root.path(), definition.application.clone()).await?;

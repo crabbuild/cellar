@@ -159,3 +159,107 @@ fn disposable_open_refuses_existing_history_before_mutating_the_database() {
         assert_eq!(std::fs::read(&path).unwrap(), before);
     }
 }
+
+#[tokio::test]
+async fn capture_handoff_includes_checkpoint_cuts_and_restores_after_workspace_loss() {
+    for disposable in [false, true] {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("working.sqlite");
+        let mut db = if disposable {
+            Db::open_disposable_with_host(&path, LtxHost::default(), None)
+        } else {
+            Db::open(&path)
+        }
+        .unwrap();
+        let writer = rusqlite::Connection::open(&path).unwrap();
+        writer
+            .execute_batch("CREATE TABLE counter(value INTEGER); INSERT INTO counter VALUES(1)")
+            .unwrap();
+        let mut cuts = db.capture_with_files(8, 4 * 1024 * 1024).unwrap();
+        assert!(!cuts.is_empty());
+        db.min_checkpoint_page_n = 1;
+        writer.execute("UPDATE counter SET value=2", []).unwrap();
+        let checkpoint = db.capture_with_files(8, 4 * 1024 * 1024).unwrap();
+        assert_eq!(db.last_sync_timing().checkpoint_runs, 1);
+        assert!(checkpoint.len() > 1, "checkpoint control cuts were omitted");
+        cuts.extend(checkpoint);
+        let position = db.pos().unwrap();
+        db.min_checkpoint_page_n = u32::MAX;
+        assert!(db
+            .capture_with_files(8, 4 * 1024 * 1024)
+            .unwrap()
+            .is_empty());
+        let client = FileReplicaClient::new(directory.path().join("replica").to_str().unwrap());
+        for (index, cut) in cuts.iter().enumerate() {
+            assert_eq!(cut.txid, TXID(index as u64 + 1));
+            assert_eq!(
+                cut.bytes.as_ref(),
+                db.read_ltx_file(0, cut.txid, cut.txid).unwrap(),
+                "handoff changed the bytes written by capture"
+            );
+            client
+                .write_ltx_file(0, cut.txid, cut.txid, &cut.bytes)
+                .await
+                .unwrap();
+        }
+        assert_eq!(cuts.last().unwrap().txid, position.txid);
+        drop(writer);
+        db.close().unwrap();
+        std::fs::remove_file(&path).unwrap();
+        std::fs::remove_dir_all(Db::meta_path_for_path(&path)).unwrap();
+        let output = directory.path().join("restored.sqlite");
+        cellar_ltx::restore(&client, &output, position.txid)
+            .await
+            .unwrap();
+        let restored = rusqlite::Connection::open(output).unwrap();
+        assert_eq!(
+            restored
+                .query_row("SELECT value FROM counter", [], |r| r.get::<_, i64>(0))
+                .unwrap(),
+            2
+        );
+    }
+}
+
+#[test]
+fn capture_handoff_refuses_limits_and_releases_its_batch_owner() {
+    for (files, bytes) in [(0, 4 * 1024 * 1024), (8, 0), (8, 1), (1, 4 * 1024 * 1024)] {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("working.sqlite");
+        let mut db = Db::open_disposable_with_host(&path, LtxHost::default(), None).unwrap();
+        let writer = rusqlite::Connection::open(&path).unwrap();
+        writer
+            .execute_batch("CREATE TABLE counter(value); INSERT INTO counter VALUES(1)")
+            .unwrap();
+        db.capture().unwrap();
+        db.min_checkpoint_page_n = 1;
+        writer.execute("UPDATE counter SET value=2", []).unwrap();
+        assert!(
+            db.capture_with_files(files, bytes).is_err(),
+            "bounded output returned a partial success"
+        );
+        // A failed batch releases its collector. The ordinary capture state may
+        // already have advanced; this call returns only subsequently encoded cuts.
+        db.capture_with_files(8, 4 * 1024 * 1024).unwrap();
+        drop(writer);
+        db.close().unwrap();
+    }
+}
+
+#[test]
+fn capture_handoff_preserves_durable_sync_failures() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("working.sqlite");
+    let host = LtxHost::default().with_filesystem(Arc::new(RejectCaptureSync));
+    let mut db = Db::open_with_host(&path, host).unwrap();
+    let writer = rusqlite::Connection::open(&path).unwrap();
+    writer
+        .execute_batch("CREATE TABLE counter(value); INSERT INTO counter VALUES(1)")
+        .unwrap();
+    for _ in 0..2 {
+        let error = db.capture_with_files(8, 4 * 1024 * 1024).unwrap_err();
+        assert!(error.to_string().contains("injected capture sync failure"));
+    }
+    drop(writer);
+    db.close().unwrap();
+}
