@@ -770,7 +770,10 @@ pub async fn minority_refused() -> Result<()> {
 
 pub async fn plan_recovery() -> Result<()> {
     let mut fixture = Fixture::start(1, false, Some(2)).await?;
-    let receipt = fixture.write(0, 1, 9).await?;
+    let receipt = fixture
+        .write(0, 1, 9)
+        .await
+        .context("repair recovery setup command")?;
     assert_eq!(
         fixture
             .cell(0, 0)?
@@ -786,7 +789,9 @@ pub async fn plan_recovery() -> Result<()> {
             .result,
         9_i64.to_be_bytes()
     );
-    force_leader(&fixture, 0, 0).await?;
+    force_leader(&fixture, 0, 0)
+        .await
+        .context("repair recovery leader placement")?;
     fixture.data[5].block(true).await?;
     fixture.enable(true).await?;
     let initial = tokio::time::timeout(Duration::from_secs(10), async {
@@ -799,7 +804,8 @@ pub async fn plan_recovery() -> Result<()> {
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
     })
-    .await??;
+    .await
+    .context("repair recovery initial seeding deadline")??;
     assert_eq!(initial.plan.obsolete, MemberId::new(3)?);
     assert_eq!(initial.plan.replacement.member, MemberId::new(4)?);
     assert_eq!(initial.plan.replacement.node, fixture.peers[5].node);
@@ -813,8 +819,14 @@ pub async fn plan_recovery() -> Result<()> {
         .context("controller lost the committed plan")?;
     assert_eq!(retried.plan, initial.plan);
     assert_eq!(retried.phase, RepairPhase::Seeding);
-    fixture.stop(0).await?;
-    let successor = fixture.leader(0).await?;
+    fixture
+        .stop(0)
+        .await
+        .context("repair recovery old leader shutdown")?;
+    let successor = fixture
+        .leader(0)
+        .await
+        .context("repair recovery successor election")?;
     let recovered = fixture
         .cell(successor, 0)?
         .repair_status()
@@ -829,7 +841,10 @@ pub async fn plan_recovery() -> Result<()> {
     fixture.data[5].block(false).await?;
     // The next repair may legitimately replace the now-dead old leader too.
     tokio::time::sleep(Duration::from_secs(7)).await;
-    let primary = fixture.leader(0).await?;
+    let primary = fixture
+        .leader(0)
+        .await
+        .context("repair recovery completed-plan leader")?;
     let final_plan = fixture
         .cell(primary, 0)?
         .repair_status()
