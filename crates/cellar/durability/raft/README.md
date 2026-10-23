@@ -580,8 +580,12 @@ storage or fetch a bucket object. Each physical peer has separate incoming and
 outgoing banks, so full outbound queues cannot consume inbound response capacity.
 
 Control transmission holds at most eight selected frames and refills a slot as
-soon as its FIFO authenticated reply and physical write finish. A later held
-reply cannot delay that refill. Each selected frame keeps its original I/O
+soon as its FIFO authenticated reply and owning physical write finish. A later
+held reply cannot delay that refill. When the writer is available, already-queued
+frames fill only the remaining slots and share one vectored write and flush;
+there is no batch-fill wait or payload copy. Replies continue independently while
+that gathered write is pending, including across frame boundaries in tiny duplex
+buffers. Each selected frame keeps its original I/O
 deadline, node/peer reservations and route identity. The reader and writer make
 progress together, retaining partially completed I/O across scheduling events;
 failed connections close before pending reservations are released and never

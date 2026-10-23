@@ -1,0 +1,17 @@
+{
+  "completed": true,
+  "purpose": "Preserve six stopped verified cohorts before fresh transport-batching comparison. Keep all logical data and metadata, named-volume options and original aliases; fresh timed backing remains unchanged.",
+  "raw_sha256": "95469c621fbf67ea6cb84e4c070e671b925dea38ac51965de1324ae269e0e77b",
+  "volumes": 18,
+  "files": 132123,
+  "logical_bytes": 14655641067,
+  "read_only_probes": 54,
+  "docker_inventory_unchanged": true,
+  "original_volume_options_verified": true,
+  "internal_free_after": 6417764352,
+  "external_free_after": 57709019136,
+  "limits": [
+    "Shared-host disk usage changes independently; free-space deltas are not the size of relocated data.",
+    "No fresh timed backing changes. All historical logical contents, metadata and original paths remain."
+  ]
+}

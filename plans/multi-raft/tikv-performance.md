@@ -10,6 +10,55 @@ production default two. This is not a repeatable throughput improvement.
 Shared-host differences and the unreversed order limit attribution. Earlier
 failures and the publication/coverage diagnostic remain preserved below.
 
+## Gather already-queued control frames
+
+The completed batch-size experiment exposes control queue tails without failed
+exchanges. In control window two, nodes one/two/three complete about 438,000
+frames each: exchange averages 4.82 / 3.41 / 3.47 ms and receiver admission
+0.27 / 0.08 / 0.09 ms, while sender queue residence averages 312 / 91 / 124 ms.
+There are zero failed exchanges, so serial failure-hint handling does not explain
+that observed tail. Queue saturation, the fixed reply window and host scheduling
+remain separate hypotheses; these overlapping durations do not decompose p99.
+
+TiKV's `AsyncRaftSender::fill_msg` drains already-queued messages into its bounded
+buffer and flushes the batch into a readiness-controlled gRPC stream. Cellar
+already gathers a single frame's prefix/header/tag/body into vectored I/O. The
+new candidate gathers several complete control frames, up to the existing eight
+selected slots, into one vectored write and flush. It moves charged payloads
+rather than copying them; only bounded slice descriptors are added. It does not
+wait to fill a batch or increase the window, byte limits or deadlines.
+
+FIFO replies are authenticated independently while the physical write proceeds.
+This matters when one reply arrives before the gathered write finishes: stopping
+the reader there can deadlock against the peer's next reply on a small duplex
+buffer. Completed prefixes drain before the sender sleeps, and every frame keeps
+its permits until its physical owner and reply finish. Route revocation, lost
+responses and failed streams retain the existing refusal/no-replay behavior.
+Wire bytes and durable Raft/application acknowledgement proofs are unchanged.
+
+The new production-sender regression queues eight authenticated frames before
+polling and fails on the baseline's eight writes. A simulated vectored writer over
+a real duplex stream checks the one-write case without changing authentication,
+frame order or per-frame replies. The existing one-byte duplex case tests the
+partial-I/O path. [Local validation](evidence/tikv-control-batch-local.json)
+passes 519 library, 53 archive, 29 host and nine multi-group tests, plus strict
+all-target/all-feature Clippy, formatting, layout, dependency and docs checks.
+The first full suite passed 518 cases but timed out the counting adapter's
+one-byte case; its unnecessary quadratic copying was removed. The deadline,
+capacity and assertions remain unchanged, and the full rerun passes.
+End-to-end qualification is still pending; reduced write calls alone cannot
+establish higher successful TPS. Queue residence ends
+earlier when several frames are selected together, so exchange time and client
+outcomes must be compared as well to avoid mistaking moved waiting for a gain.
+
+[Preservation evidence](evidence/tikv-control-batch-preservation.json) verifies
+18 stopped historical node volumes across six cohorts, including 54 read-only
+probes through their original Docker names. Data and metadata move into the
+existing external VM mount; original aliases/options and image/volume inventories
+remain. Fresh measured nodes will still use internal storage. A clean control
+worktree at `0b07410` matches all 118 frozen inputs of the existing control image.
+Both fresh cohorts will retain two-cell archive batches and the original limits.
+
 ## Distinguish publication from local archive coverage
 
 The next observation leaves runtime policy unchanged and adds fixed counters

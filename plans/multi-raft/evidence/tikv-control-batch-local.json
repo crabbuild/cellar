@@ -1,0 +1,40 @@
+{
+  "change": "Gather already-queued control frames into one bounded vectored write and flush; retain the eight-frame reply window, FIFO authentication, original deadlines and physical ownership.",
+  "baseline_revision": "87084d04be0115b317700a42bf00d841a3bbca1c",
+  "tikv_source_revision": "b3995dab28308f09cbb7c125bf32f789dbc203fe",
+  "regression": {
+    "red": "Eight ready authenticated control frames use eight writes, failing the one-write bound.",
+    "green": "Production sender coalesces all eight with exact frame ordering/authentication/replies; one-byte duplex progress and existing failure/revocation/deadline/shutdown cases pass.",
+    "first_full_suite": "518 passed, one-byte duplex test exceeded its unchanged three-second deadline. Counting adapter copied the entire remaining window for each one-byte write.",
+    "repair": "Bounded test-adapter gathering by actual duplex capacity, removing quadratic copying without changing its timeout, byte capacity or assertions. Full rerun passes."
+  },
+  "validation": {
+    "transport_tests": 28,
+    "library_tests": 519,
+    "archive_tests": 53,
+    "host_tests": 29,
+    "multigroup_tests": 9,
+    "ignored_multigroup_child_entry": 1,
+    "strict_all_targets_all_features_clippy": true,
+    "format_files": 871,
+    "layout": true,
+    "native_dependencies": true,
+    "docs": true
+  },
+  "logs_sha256": {
+    "control-batch-red.log": "176a817c86d4b6a5a66bf2c63c2179d48d0b0da3763729a81f895b001d036adf",
+    "control-batch-transport.log": "7bfa868385a2d777cda5a3e521492f37c20fd584a2c7dc0363f04dcbea984e3f",
+    "control-batch-native.log": "b1f26d02bda9a97e498473119c07f3124fba93be0503a996d5ba72de5dd96819",
+    "control-batch-native-r2.log": "ba85a9238e1c75d535d953a120a1256052b326b212b0c9377bc812b92747c8ef",
+    "control-batch-clippy.log": "484c6a2d1cafabf74f584cb2e415181313405a3afb27fefa8e243718b5e9624a",
+    "control-batch-format-check.log": "c2de5817aed0ec4fb2321752a7de48885c2df6d5b5f397a5d5040be3202359ae",
+    "control-batch-layout.log": "edd042ab8192bca4733c0b99bb1f64fb98ec326f22b7163e61f9e3eb7e93a134",
+    "control-batch-dependencies.log": "c89cc03184e053868a70f06a0a35e3efb0df8c314bf9848020a292f114c118a4",
+    "control-batch-docs.log": "63e463cfef099868ca9c4d1d9d5f2b77ee32e082036abe39b072603f96291a09"
+  },
+  "limits": [
+    "No end-to-end throughput or latency gain established yet.",
+    "Gathering ends queue timing earlier; compare exchange timing and client outcomes to distinguish reduced work from moved waiting.",
+    "Vectored-count regression uses a real duplex stream with a counting adapter; real TLS protocol tests qualify correctness separately."
+  ]
+}
