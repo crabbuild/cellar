@@ -215,6 +215,12 @@ async def _serve(module, inbox, interval, shutdown, stats, maximum, telemetry, s
                         _current_invocation.reset(token)
                     del context, bridge, payload, body
                     continue
+                if task.done() and not task.cancelled() and task.exception() is None:
+                    # Eager completion already ran _invoke's context cleanup.
+                    # Release it before admitting another request. Failed
+                    # cleanup stays registered for the supervisor's final pass.
+                    del task, context, bridge, payload, body
+                    continue
                 if not task.done():
                     task.add_done_callback(completed)
                 invocations[invocation] = (task, context, bridge)

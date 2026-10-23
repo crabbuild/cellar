@@ -60,6 +60,9 @@ def continuous_arrivals(mode):
                 self.inbox.completed += 1
 
         def expire(self):
+            if mode == "cleanup-failure" and not self.inbox.cleanup_failed:
+                self.inbox.cleanup_failed = True
+                raise RuntimeError("injected context cleanup failure")
             if not self.closed:
                 self.closed = True
                 self.inbox.expired += 1
@@ -74,6 +77,7 @@ def continuous_arrivals(mode):
             self.observed = None
             self.joined = 0
             self.bridges = weakref.WeakSet()
+            self.cleanup_failed = False
 
         async def occupy_task_slot(self):
             try:
@@ -108,6 +112,9 @@ def continuous_arrivals(mode):
         def take(self):
             if self.stopped:
                 return None
+            if mode == "release-eager":
+                gc.collect()
+                assert not self.bridges, "completed eager invocation retained until the end of the batch"
             self.issued += 1
             return self.issued, payload, b"", Bridge(self)
 
@@ -132,6 +139,14 @@ def continuous_arrivals(mode):
     try:
         capacity = 902 if mode == "many-tasks" else 2 if mode == "rejections" else 3
         report = runner.run(SimpleNamespace(fetch=fetch), inbox, 30, .2, capacity, 16, 30)
+        if mode == "cleanup-failure":
+            assert report["runtime_failed"] and report["runtime_failure_stage"] == "serve_failure", report
+            assert inbox.cleanup_failed and inbox.issued == inbox.expired
+            assert report["pending_tasks"] == report["pending_objects"] == 0, report
+            # Failure can stop the pump before these coroutines first run;
+            # cancellation before first poll does not enter their finally.
+            assert all(task.done() and task.cancelled() for task in inbox.occupied)
+            return
         assert not report["runtime_failed"], report
         assert report["pending_tasks"] == report["pending_objects"] == 0, report
         assert report["peak_tasks"] <= capacity, report
@@ -171,6 +186,12 @@ class RunnerScheduling(unittest.TestCase):
 
     def test_immediate_handlers_yield_to_timers_and_cancellation(self):
         self.run_case("handlers")
+
+    def test_immediate_completion_releases_context_before_next_admission(self):
+        self.run_case("release-eager")
+
+    def test_failed_eager_cleanup_remains_supervised(self):
+        self.run_case("cleanup-failure")
 
     def test_inline_blocking_handler_remains_visible(self):
         self.run_case("blocking")
