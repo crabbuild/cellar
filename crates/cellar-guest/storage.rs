@@ -23,7 +23,7 @@ struct Batch {
 }
 
 #[derive(Debug)]
-pub(crate) struct Conflict;
+pub struct Conflict;
 
 impl std::fmt::Display for Conflict {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -45,7 +45,7 @@ fn validate(value: Value, maximum: usize) -> Result<Batch> {
                 batch.alarm_at_ms.is_some() || batch.delete_alarm
             ))
             <= maximum,
-        "Python storage batch exceeds operation limit"
+        "guest storage batch exceeds operation limit"
     );
     ensure!(
         !(batch.alarm_at_ms.is_some() && batch.delete_alarm),
@@ -70,13 +70,13 @@ fn validate(value: Value, maximum: usize) -> Result<Batch> {
     {
         ensure!(
             !key.is_empty() && key.len() <= 2048 && !key.starts_with("__sys_"),
-            "invalid Python storage key"
+            "invalid guest storage key"
         );
     }
     Ok(batch)
 }
 
-pub(crate) fn apply(context: &Context, value: Value, maximum: usize) -> Result<Value> {
+pub fn apply(context: &Context, value: Value, maximum: usize) -> Result<Value> {
     let batch = validate(value, maximum).context(crate::failure::Validation)?;
     context.storage()?.transaction_sync(|tx| {
         for (key, snapshot) in &batch.checks {

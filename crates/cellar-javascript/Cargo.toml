@@ -1,0 +1,36 @@
+[package]
+name = "cellar-javascript"
+version = "0.6.2"
+edition = "2021"
+rust-version = "1.94.1"
+license = "Apache-2.0"
+description = "Optional V8 and Node.js backends for Cellar JavaScript and TypeScript applications"
+[lib]
+path = "lib.rs"
+[features]
+default = []
+embed = ["dep:v8", "dep:cellar-guest"]
+node = ["dep:cellar-guest", "dep:getrandom", "dep:libc"]
+[dependencies]
+anyhow.workspace = true
+cellar.workspace = true
+cellar-guest = { workspace = true, optional = true }
+futures-util.workspace = true
+getrandom = { workspace = true, optional = true }
+libc = { workspace = true, optional = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+tokio = { workspace = true, features = ["sync"] }
+v8 = { workspace = true, optional = true }
+[dev-dependencies]
+tempfile.workspace = true
+reqwest.workspace = true
+[[bin]]
+name = "cellar-javascript-example"
+path = "../../examples/javascript/main.rs"
+required-features = ["embed"]
+
+[[bin]]
+name = "cellar-node-example"
+path = "../../examples/node/main.rs"
+required-features = ["node"]

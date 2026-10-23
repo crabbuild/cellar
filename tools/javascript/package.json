@@ -1,0 +1,8 @@
+{
+  "name": "@cellar/build",
+  "version": "0.6.2",
+  "private": true,
+  "type": "module",
+  "dependencies": {"esbuild": "0.28.2", "typescript": "7.0.2"},
+  "scripts": {"test": "node --test build.test.mjs node-package.test.mjs node-build.test.mjs"}
+}

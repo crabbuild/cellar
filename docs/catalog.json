@@ -352,6 +352,18 @@
       "category": "Decision"
     },
     {
+      "path": "adr/005-embedded-javascript.md",
+      "title": "ADR 005 · Embedded JavaScript and TypeScript",
+      "summary": "Compiled npm business logic, scoped V8 promises and native SDK effects.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Decision"
+    },
+    {
       "path": "templates/application-brief.md",
       "title": "Application brief template",
       "summary": "Define the domain, workload, correctness and recovery requirements.",

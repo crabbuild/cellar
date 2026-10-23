@@ -71,7 +71,7 @@ jobs:
         run: cargo format --check
       - name: Check Rust module layout
         run: cargo check-layout
-      - name: Verify the workspace has no JavaScript engine
+      - name: Verify native-only dependency graphs have no JavaScript engine
         run: python3 tools/check_native_dependencies.py
       - name: Verify documentation integrity
         run: python3 tools/docs/check.py
@@ -152,9 +152,9 @@ jobs:
         run: |
           # Fleet fixtures own concurrent runtimes and short authority leases.
           # Run independent cases serially to keep their resource envelope stable.
-          cargo test --workspace --exclude cellar-python --all-features --lib --tests --locked -- --test-threads=1
-          cargo test --workspace --all-features --doc --locked
-          cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+          cargo test --workspace --exclude cellar-python --exclude cellar-javascript --all-features --lib --tests --locked -- --test-threads=1
+          cargo test --workspace --exclude cellar-javascript --all-features --doc --locked
+          cargo clippy --workspace --exclude cellar-javascript --all-targets --all-features --locked -- -D warnings
       - name: Test Axum feature modes and generated contract
         run: |
           cargo test -p cellar-axum --no-default-features --locked
