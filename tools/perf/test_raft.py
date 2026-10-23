@@ -86,6 +86,29 @@ class EvidenceTests(unittest.TestCase):
                 with self.assertRaises((AssertionError, ValueError)):
                     self.run_evidence(evidence)
 
+    def test_sql_configuration_requires_matching_physical_owners(self):
+        evidence = self.fixture()
+        report = evidence['report.json']
+        report.update(sql_workers=4, sql_worker_queue=16)
+        for phase in ('initial_resources', 'final_resources'):
+            report[phase] = [{'sql': {'running_workers': 4, 'worker_capacity': 4,
+                'work_reservations': 0, 'work_capacity': 64, 'queue_closed': False}}
+                for _ in range(3)]
+        self.assertTrue(self.run_evidence(evidence)['verified'])
+        corruptions = {
+            'wrong_workers': lambda r: r['initial_resources'][0]['sql'].update(running_workers=2),
+            'larger_queue': lambda r: r['final_resources'][1]['sql'].update(work_capacity=128),
+            'closed_queue': lambda r: r['final_resources'][2]['sql'].update(queue_closed=True),
+            'missing_observer': lambda r: r['initial_resources'][0].update(sql=None),
+            'missing_node': lambda r: r['final_resources'].pop(),
+        }
+        for name, corrupt in corruptions.items():
+            with self.subTest(name=name):
+                changed = copy.deepcopy(evidence)
+                corrupt(changed['report.json'])
+                with self.assertRaises(AssertionError):
+                    self.run_evidence(changed)
+
 
 class PlacementTests(unittest.TestCase):
     def test_cached_readiness_requires_a_fresh_complete_scan(self):

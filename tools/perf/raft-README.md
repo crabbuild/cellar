@@ -50,6 +50,16 @@ and recovery set, so aggregate archive memory scales with this setting. The
 runner records it and requires the same value when continuing incomplete setup.
 Use one and two with the same image to isolate the effect of overlapping I/O.
 
+`--sql-workers` selects one to sixteen fixed SQL owners per node (default two).
+`--sql-worker-queue` bounds queued/executing reservations per owner (default 32).
+To isolate worker concurrency while retaining 64 total reservations, compare
+`--sql-workers 2 --sql-worker-queue 32` with
+`--sql-workers 4 --sql-worker-queue 16` using the same image. CPU, memory and
+business/archive byte budgets remain fixed. The authenticated `/resources`
+fixture endpoint reports actual physical owners and reservation capacity; the
+runner checks these before and after timing, and the independent analyzer
+rejects mismatches. Setup continuation requires the original worker settings.
+
 To find an operating point below the latency limit, pace aggregate requests
 while retaining three independent clients:
 

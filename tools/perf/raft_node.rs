@@ -74,6 +74,16 @@ async fn main() -> Result<()> {
         (1..=4).contains(&archive_producers),
         "invalid archive producer limit"
     );
+    let sql_workers: usize = std::env::var("RAFT_SQL_WORKERS")
+        .unwrap_or_else(|_| RaftHostOptions::default().blocking_workers.to_string())
+        .parse()?;
+    let sql_worker_queue: usize = std::env::var("RAFT_SQL_WORKER_QUEUE")
+        .unwrap_or_else(|_| RaftHostOptions::default().worker_queue.to_string())
+        .parse()?;
+    ensure!(
+        (1..=16).contains(&sql_workers) && (1..=256).contains(&sql_worker_queue),
+        "invalid SQL worker configuration"
+    );
     let primary_only = std::env::var("RAFT_PRIMARY_ONLY").as_deref() == Ok("1");
     let root = PathBuf::from("/data");
     let secret = std::fs::read_to_string("/config/token")?.trim().to_owned();
@@ -239,6 +249,8 @@ async fn main() -> Result<()> {
     let mut host = RaftHostOptions {
         max_groups: total,
         max_requests: 256,
+        blocking_workers: sql_workers,
+        worker_queue: sql_worker_queue,
         ..Default::default()
     };
     host.close_report.max_groups = total;
@@ -291,7 +303,20 @@ async fn main() -> Result<()> {
         .lock()
         .map_err(|_| anyhow::anyhow!("poisoned binding"))? = Some(service.clone());
     let admin = service.clone();
-    let router = counter::router(api).route("/admin/{id}", axum::routing::any(
+    let resources = service.clone();
+    let resource_secret = secret.clone();
+    let router = counter::router(api).route("/resources", axum::routing::get(
+        move |request: axum::extract::Request| {
+            let service = resources.clone(); let secret = resource_secret.clone();
+            async move {
+                let authorized = request.headers().get("authorization").and_then(|v| v.to_str().ok()) == Some(format!("Bearer {secret}").as_str());
+                if !authorized {
+                    return (axum::http::StatusCode::FORBIDDEN, "unauthorized".to_owned());
+                }
+                (axum::http::StatusCode::OK, serde_json::json!(service.resource_usage()).to_string())
+            }
+        }
+    )).route("/admin/{id}", axum::routing::any(
         move |axum::extract::Path(id): axum::extract::Path<usize>, request: axum::extract::Request| {
             let service = admin.clone(); let secret = secret.clone();
             async move {
@@ -323,12 +348,14 @@ async fn main() -> Result<()> {
         }));
     let listener = tokio::net::TcpListener::bind("0.0.0.0:8082").await?;
     cellar::note!(
-        "raft_perf_ready node={} groups={} tick_ms={} queue_items={} archive_producers={} durability=quorum archive=rustfs",
+        "raft_perf_ready node={} groups={} tick_ms={} queue_items={} archive_producers={} sql_workers={} sql_worker_queue={} durability=quorum archive=rustfs",
         i,
         total,
         tick_ms,
         queue_items,
-        archive_producers
+        archive_producers,
+        sql_workers,
+        sql_worker_queue
     );
     axum::serve(listener, router)
         .with_graceful_shutdown(async {

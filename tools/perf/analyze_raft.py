@@ -73,6 +73,16 @@ def analyze(root, p99_limit_ms=200):
             scratch = limits['Tmpfs']
             assert set(scratch) == {'/data/node/raft-cells/archive-verifier'}
             assert 'size=512m' in next(iter(scratch.values()))
+    if 'sql_workers' in report or 'sql_worker_queue' in report:
+        assert 1 <= report['sql_workers'] <= 16 and 1 <= report['sql_worker_queue'] <= 256
+        for phase in ('initial_resources', 'final_resources'):
+            assert len(report[phase]) == 3
+            for usage in report[phase]:
+                sql = usage['sql']
+                assert sql is not None and not sql['queue_closed']
+                assert sql['running_workers'] == sql['worker_capacity'] == report['sql_workers']
+                assert sql['work_capacity'] == report['sql_workers'] * report['sql_worker_queue']
+                assert 0 <= sql['work_reservations'] <= sql['work_capacity']
     candidates = []
     for concurrency,rate in sorted({(w['concurrency'],w['offered_rate']) for w in windows}):
         group = [w for w in windows if (w['concurrency'],w['offered_rate']) == (concurrency,rate)]

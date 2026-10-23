@@ -12,14 +12,16 @@ publication as useful optimization targets. It instruments the frozen
 retain one vCPU, 3 GiB, 500 leaders and 1,000 followers each; each node has two
 SQL workers and two archive publishers. The subsequent capture-handoff
 comparison below still fails sustained throughput, latency and refusal gates.
-The next experiment must explain sustained admission pressure before another
-isolated staging optimization is credited with an end-to-end benefit.
+The latest sustained pressure profile does not reproduce those refusals, but
+finds long SQL queues with CPU headroom. The next experiment varies worker
+concurrency at fixed total queue capacity. Attribution of earlier admission
+failures remains open.
 
 | Priority | Observed gap | Next improvement to evaluate |
 | --- | --- | --- |
-| 1 | Sustained runs still produce overload refusals. Archive publication averages 16.0–16.7 ms in the six-writer profile and rereads/replays retained history. Its causal contribution to the refusals remains unproven. | Instrument retained bytes/entries and exact refusal reasons at sustained load. Evaluate earlier snapshot rotation when retained tail bytes exceed a complete image. Measure requests, bytes and backlog; retain previous-object checks, physical replay, exact CAS and corruption refusal. |
+| 1 | In the latest twelve-writer profile, committed preparation waits 17–24 ms, publication 15–21 ms and archive capture 19–22 ms for SQL workers. Average node CPU is 57–68%. | Compare two versus four fixed SQL owners while retaining 64 total reservations. Then evaluate committed-completion priority with per-cell ordering, fairness, byte budgets and physical shutdown joins preserved. |
 | 2 | The deeper profile measures 12.4–13.4 ms staging, including 5.1–5.4 ms preview construction, 1.5–1.6 ms private-file cleanup and 1.5–1.6 ms private LTX writes. | Reduce disposable file creation/cleanup and image copying. The bounded encoded-capture handoff removes read-back, but the full comparison below does not qualify a throughput gain. |
-| 3 | Prepare and publication wait 3.3–4.5 ms for their assigned SQL worker. Publication itself averages only about 0.3 ms. | Compare bounded worker concurrency and priority for committed completion work, preserving per-cell ownership, total admission budgets, fairness and physical shutdown joins. |
+| 3 | Prior sustained runs produce overload refusals, while the latest profile stays below retained-history limits. Archive publication grows from 18 to 26 ms as history accumulates. | Continue measuring exact refusal reasons during a failing load. Evaluate earlier snapshot rotation against retained-tail cost; measure requests, bytes and backlog, retaining previous-object checks, physical replay, exact CAS and corruption refusal. |
 | 4 | Shared Raft persistence averages 0.71–0.72 ms but handles only about 1.24 groups per batch. | Improve bounded coalescing and investigate combined progress writes. Measure the benefit before adding delay; avoid busy spinning on a one-vCPU node. |
 | 5 | Every command still constructs immutable images across replicas. | Explore separate applied and checkpointed progress with Raft-log replay, following TiKV's recovery model. This needs explicit replay retention, snapshot/GC boundaries and power-loss recovery tests before changing acknowledgement semantics. |
 
@@ -118,6 +120,33 @@ known successful-command set, and absence was confirmed again after shutdown
 joined all work. Future reconciliation should prioritize uncertain outcomes
 and leave definitive refusals unexecuted. These post-run operations never
 contribute to measured TPS or turn a failed window into a passing one.
+
+### Sustained pressure profile and SQL worker experiment
+
+The [sustained pressure profile](evidence/tikv-pressure-diagnosis.json)
+instruments `d8b9109` with explicit refusal reasons, retained-history counters
+and archive timing. Two 180-second twelve-writer windows complete at
+122.77/133.49 TPS and 444.58/226.90 ms p99, with zero write errors and all
+4,500-replica/1,500-archive checks passing. No instrumented refusal path fires.
+Retained history peaks at 2,436 entries and about 35.4 MiB, below the refusal
+limits. This run does not reproduce or establish the cause of earlier overload
+bursts; diagnostic overhead and changing shared-host pressure remain limits.
+
+SQL queueing is a directly observed cost. Archive capture waits 22.17/18.85 ms
+while its work takes 0.018/0.027 ms. Committed preparation waits 23.81/17.27 ms,
+and publication waits 21.17/14.58 ms for only 0.58/0.55 ms of work. Staging
+takes 21.54/20.32 ms. Average node CPU is 57–58% in the first window and 65–68%
+in the second. Archive publication grows from 17.80 to 25.95 ms as its retained
+tail grows; payload loading takes 2.41/5.22 ms and physical replay 0.84/2.06 ms.
+These nested means must not be added as exclusive request latency.
+
+The next isolated experiment compares two SQL owners with 32 reservations each
+against four owners with 16 each. Both retain 64 total reservations, identical
+business/archive byte budgets, two archive publishers and the same node CPU and
+memory limits. The fixture now exposes both settings and checks actual physical
+owner/capacity observations before and after traffic. This follows TiKV's use
+of bounded execution pools to overlap independent work; it is an experiment,
+not a claim that four threads improve every one-vCPU deployment.
 
 ## Scope and reproducible baseline
 

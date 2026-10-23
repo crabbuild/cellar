@@ -140,6 +140,8 @@ def main():
     p.add_argument('--tick-ms',type=int,default=100)
     p.add_argument('--queue-items',type=int,default=256)
     p.add_argument('--archive-producers',type=int,default=2,choices=range(1,5),help='bounded publications across distinct cells; physical replay shares one workspace')
+    p.add_argument('--sql-workers',type=int,default=2,choices=range(1,17),help='fixed SQL owners per node')
+    p.add_argument('--sql-worker-queue',type=int,default=32,choices=range(1,257),help='work reservations per SQL owner; total capacity is workers times this value')
     p.add_argument('--archive-tmpfs-mib',type=int,default=0,choices=[0,512],help='bounded disposable archive verification workspace; Raft images/logs stay on disk')
     p.add_argument('--concurrency',type=int,nargs='+',default=[1,8,32,64])
     p.add_argument('--repeats',type=int,default=2)
@@ -170,6 +172,8 @@ def main():
             raise ValueError('continuation must preserve cell count, context and tick interval')
         if report.get('archive_producers',1) != args.archive_producers:
             raise ValueError('continuation must preserve archive producer concurrency')
+        if report['sql_workers'] != args.sql_workers or report['sql_worker_queue'] != args.sql_worker_queue:
+            raise ValueError('continuation must preserve SQL workers and work capacity')
         shutil.copyfile(root/'report.json',root/f"report-before-continuation-{int(time.time())}.json")
         report.setdefault('setup_failures',[]).append(report.pop('failure','interrupted setup'))
         report.setdefault('continuations',[]).append({'unix':time.time(),
@@ -199,13 +203,26 @@ def main():
             'context':args.context,'prefix':tag,'cells':total,'voters':3,
             'vm_cpu_count':int(docker('info','--format','{{.NCPU}}')),
             'host_cpu_count':os.cpu_count(),
-            'archive_tmpfs_mib':args.archive_tmpfs_mib, 'archive_producers':args.archive_producers, 'queue_items':args.queue_items,'primary_only':args.primary_only,'tick_ms':args.tick_ms,'write_durability':'Quorum','archive':'RustFS','measurements':[], 'completed':False}
+            'archive_tmpfs_mib':args.archive_tmpfs_mib, 'archive_producers':args.archive_producers,
+            'sql_workers':args.sql_workers, 'sql_worker_queue':args.sql_worker_queue,
+            'queue_items':args.queue_items,'primary_only':args.primary_only,'tick_ms':args.tick_ms,'write_durability':'Quorum','archive':'RustFS','measurements':[], 'completed':False}
     def save(): (root/'report.json').write_text(json.dumps(report,indent=2)+'\n')
     save()
     def log(s): print(s,flush=True)
     log(f'Run directory: {root}\nDocker context: {args.context}\nResource prefix: {tag}')
     nodes=[tag+f'-node{n}' for n in range(1,4)]
     bases=[f'http://127.0.0.1:{19801+n}' for n in range(3)]
+    def sql_resources():
+        observed=[]
+        for base in bases:
+            code,usage=request(base,'/resources',token)
+            if code!=200 or usage.get('sql') is None:
+                raise RuntimeError('SQL resource observation unavailable')
+            sql=usage['sql']
+            if sql['running_workers']!=args.sql_workers or sql['worker_capacity']!=args.sql_workers or sql['work_capacity']!=args.sql_workers*args.sql_worker_queue or sql['queue_closed']:
+                raise RuntimeError('physical SQL workers/capacity differ from requested configuration')
+            observed.append(usage)
+        return observed
     try:
         if not continuing:
             docker('network','create','--subnet','172.29.81.0/24',tag)
@@ -232,6 +249,7 @@ def main():
                     '-v',name+':/data','-v',str(config)+':/config:ro',
                     *(['--tmpfs',f'/data/node/raft-cells/archive-verifier:rw,noexec,nosuid,nodev,size={args.archive_tmpfs_mib}m'] if args.archive_tmpfs_mib else []),
                     '-e',f'RAFT_NODE={n}','-e',f'RAFT_CELLS={total}','-e',f'RAFT_TICK_MS={args.tick_ms}','-e',f'RAFT_PRIMARY_ONLY={int(args.primary_only)}','-e',f'RAFT_QUEUE_ITEMS={args.queue_items}','-e',f'RAFT_ARCHIVE_PRODUCERS={args.archive_producers}',
+                    '-e',f'RAFT_SQL_WORKERS={args.sql_workers}','-e',f'RAFT_SQL_WORKER_QUEUE={args.sql_worker_queue}',
                     '-e','AWS_ACCESS_KEY_ID='+access,'-e','AWS_SECRET_ACCESS_KEY='+secret,args.image)
         log('Waiting for native multi-Raft registration and listeners...')
         deadline=time.monotonic()+900
@@ -320,6 +338,7 @@ def main():
         initial_states,initial_wait=wait_archive('Draining the initial verified RustFS archive backlog before measurement...')
         (root/'initial-archive-verification.json').write_text(json.dumps(initial_states)+'\n')
         report['initial_archive_wait_seconds']=initial_wait
+        report['initial_resources']=sql_resources()
         save()
         stop=threading.Event()
         def sample():
@@ -366,6 +385,7 @@ def main():
         report['verified_replica_values']=len(verification)
         states,archive_wait=wait_archive('Waiting for verified RustFS archive coverage...')
         report['final_archive_wait_seconds']=archive_wait
+        report['final_resources']=sql_resources()
         (root/'archive-verification.json').write_text(json.dumps(states)+'\n')
         report['cgroups']=[{
             'node':name,

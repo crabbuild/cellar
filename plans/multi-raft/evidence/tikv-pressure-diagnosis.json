@@ -1,0 +1,491 @@
+{
+  "format": 1,
+  "diagnostic_only": true,
+  "performance_qualified": false,
+  "source": {
+    "revision": "d8b9109b4f5908e8a7009b6679cb10d631eb3a4b",
+    "diagnostic_only": true,
+    "tag": "cellar-raft-perf:tikv-pressure-probe-ios-7da4ddb5",
+    "image": "sha256:662d0f7c158a8e26ea8866ba9fb1df4ee70ef22a275a4e6ca205e545667e721b",
+    "binary_sha256": "de7850dab1de31680f096ad8f67ad6ba40ff628f68950a8032fba1c6d46f13be",
+    "context_sha256": "39d680de566e9a6ce17e2ff2b4caa5f0d102433540b5d635d3924e69f5949dd5"
+  },
+  "topology": {
+    "nodes": 3,
+    "cpus_per_node": 1,
+    "memory_gib_per_node": 3,
+    "groups": 1500,
+    "leaders_per_node": 500,
+    "voters": 3,
+    "sql_workers_per_node": 2,
+    "sql_work_reservations_per_node": 64,
+    "archive_publishers_per_node": 2
+  },
+  "method": "Cumulative stage counters emitted at least every two seconds while active, plus all operations >=250ms. Window deltas use the last observed cumulative counter before each boundary. Boundary samples are approximate; histograms use fixed upper-bound buckets. Stage durations are nested and must not be added as exclusive request latency. VM samples cover only their observed interval.",
+  "hypotheses": [
+    "Retained archive bytes/entries trigger sustained callback refusals.",
+    "Archive capture or replay is delayed by shared SQL workers.",
+    "Cell, receipt or SQL budget limits refuse work independently of archive admission.",
+    "Shared-host stalls cause tails independently of archive occupancy."
+  ],
+  "admission_limits": {
+    "retained_entries_plus_new_reservation": 4096,
+    "retained_bytes_plus_new_reservation": 268435456
+  },
+  "windows": [
+    {
+      "repeat": 1,
+      "concurrency": 12,
+      "diagnostic_tps": 122.7711598611199,
+      "latency_ms": {
+        "p50": 76.45164199999499,
+        "p95": 207.25639400001228,
+        "p99": 444.5818730000042,
+        "max": 1597.054275000005
+      },
+      "errors": 0,
+      "stages": {
+        "admission.deferred": [
+          4165,
+          0.0,
+          1590.115006,
+          2154
+        ],
+        "admission.granted": [
+          22077,
+          0.0,
+          1498.398197,
+          2170
+        ],
+        "admission.reserved_bytes": [
+          26235,
+          0.0,
+          72056686.120602,
+          251857920
+        ],
+        "admission.retained_bytes": [
+          26235,
+          0.0,
+          23024560.786087,
+          29180542
+        ],
+        "admission.retained_entries": [
+          26235,
+          0.0,
+          1511.909281,
+          2169
+        ],
+        "admission.waiters": [
+          26235,
+          0.0,
+          0.021574,
+          1
+        ],
+        "archive.already_published": [
+          8706,
+          0.0,
+          1.0,
+          1
+        ],
+        "archive.completed_ok": [
+          26309,
+          0.0,
+          1.0,
+          1
+        ],
+        "archive.load_material": [
+          26330,
+          2.413396,
+          1.0,
+          1
+        ],
+        "archive.material_bytes": [
+          26339,
+          0.0,
+          14328.636622,
+          75881
+        ],
+        "archive.material_tails": [
+          26339,
+          0.0,
+          3.879798,
+          10
+        ],
+        "archive.publish": [
+          26403,
+          17.801577,
+          10.357838,
+          35
+        ],
+        "archive.replay": [
+          26329,
+          0.837224,
+          7.704318,
+          32
+        ],
+        "image.directory_sync": [
+          66205,
+          0.872641,
+          1.0,
+          1
+        ],
+        "image.file_sync": [
+          66180,
+          0.393419,
+          1.0,
+          1
+        ],
+        "image.materialize": [
+          65666,
+          6.641171,
+          1.0,
+          1
+        ],
+        "raft.fence": [
+          158450,
+          1.244266,
+          1.0,
+          1
+        ],
+        "raft.file_sync": [
+          158278,
+          0.341854,
+          1.0,
+          1
+        ],
+        "raft.persist": [
+          158455,
+          1.480122,
+          1.256881,
+          64
+        ],
+        "sql_queue.CaptureArchive": [
+          26584,
+          22.171534,
+          1.0,
+          1
+        ],
+        "sql_queue.Prepare": [
+          65918,
+          23.807788,
+          1.0,
+          1
+        ],
+        "sql_queue.Publish": [
+          65812,
+          21.165057,
+          1.0,
+          1
+        ],
+        "sql_queue.Stage": [
+          22004,
+          8.03168,
+          1.0,
+          1
+        ],
+        "sql_work.CaptureArchive": [
+          26487,
+          0.018195,
+          1.0,
+          1
+        ],
+        "sql_work.Prepare": [
+          65824,
+          7.828583,
+          1.0,
+          1
+        ],
+        "sql_work.Publish": [
+          65692,
+          0.574621,
+          1.0,
+          1
+        ],
+        "sql_work.Stage": [
+          21959,
+          21.539183,
+          1.0,
+          1
+        ]
+      },
+      "node_cpu_percent": {
+        "node1": {
+          "mean": 57.970681818181816,
+          "max": 72.24,
+          "samples": 44
+        },
+        "node2": {
+          "mean": 57.02818181818182,
+          "max": 73.69,
+          "samples": 44
+        },
+        "node3": {
+          "mean": 57.545227272727274,
+          "max": 71.84,
+          "samples": 44
+        }
+      }
+    },
+    {
+      "repeat": 2,
+      "concurrency": 12,
+      "diagnostic_tps": 133.49413264170894,
+      "latency_ms": {
+        "p50": 82.67544799997495,
+        "p95": 151.46858499997506,
+        "p99": 226.89917299999252,
+        "max": 1188.9406650000183
+      },
+      "errors": 0,
+      "stages": {
+        "admission.deferred": [
+          5412,
+          0.0,
+          2107.920732,
+          2437
+        ],
+        "admission.granted": [
+          24124,
+          0.0,
+          2073.201708,
+          2437
+        ],
+        "admission.reserved_bytes": [
+          29557,
+          0.0,
+          74538104.274791,
+          251857920
+        ],
+        "admission.retained_bytes": [
+          29557,
+          0.0,
+          31469047.088981,
+          37119560
+        ],
+        "admission.retained_entries": [
+          29557,
+          0.0,
+          2078.58805,
+          2436
+        ],
+        "admission.waiters": [
+          29557,
+          0.0,
+          0.02436,
+          1
+        ],
+        "archive.already_published": [
+          3773,
+          0.0,
+          1.0,
+          1
+        ],
+        "archive.completed_ok": [
+          23763,
+          0.0,
+          1.0,
+          1
+        ],
+        "archive.load_material": [
+          23847,
+          5.214921,
+          1.0,
+          1
+        ],
+        "archive.material_bytes": [
+          23793,
+          0.0,
+          49157.80095,
+          198445
+        ],
+        "archive.material_tails": [
+          23793,
+          0.0,
+          9.832009,
+          17
+        ],
+        "archive.publish": [
+          23850,
+          25.947403,
+          25.440084,
+          69
+        ],
+        "archive.replay": [
+          23776,
+          2.058097,
+          22.787643,
+          66
+        ],
+        "image.directory_sync": [
+          71884,
+          0.770603,
+          1.0,
+          1
+        ],
+        "image.file_sync": [
+          71817,
+          0.361312,
+          1.0,
+          1
+        ],
+        "image.materialize": [
+          72366,
+          5.93112,
+          1.0,
+          1
+        ],
+        "raft.fence": [
+          168952,
+          1.11337,
+          1.0,
+          1
+        ],
+        "raft.file_sync": [
+          169214,
+          0.308874,
+          1.0,
+          1
+        ],
+        "raft.persist": [
+          168947,
+          1.385335,
+          1.270523,
+          64
+        ],
+        "sql_queue.CaptureArchive": [
+          23680,
+          18.84581,
+          1.0,
+          1
+        ],
+        "sql_queue.Prepare": [
+          72296,
+          17.272335,
+          1.0,
+          1
+        ],
+        "sql_queue.Publish": [
+          72434,
+          14.576889,
+          1.0,
+          1
+        ],
+        "sql_queue.Stage": [
+          24126,
+          6.702284,
+          1.0,
+          1
+        ],
+        "sql_work.CaptureArchive": [
+          23823,
+          0.027097,
+          1.0,
+          1
+        ],
+        "sql_work.Prepare": [
+          72195,
+          6.8763,
+          1.0,
+          1
+        ],
+        "sql_work.Publish": [
+          72424,
+          0.545701,
+          1.0,
+          1
+        ],
+        "sql_work.Stage": [
+          24203,
+          20.323389,
+          1.0,
+          1
+        ]
+      },
+      "node_cpu_percent": {
+        "node1": {
+          "mean": 67.71744186046512,
+          "max": 90.92,
+          "samples": 43
+        },
+        "node2": {
+          "mean": 65.58209302325581,
+          "max": 96.18,
+          "samples": 43
+        },
+        "node3": {
+          "mean": 65.45744186046511,
+          "max": 92.18,
+          "samples": 43
+        }
+      }
+    }
+  ],
+  "refusal_counters": {
+    "node1": {},
+    "node2": {},
+    "node3": {}
+  },
+  "host_activity": {
+    "samples": 112,
+    "samples_with_builds": 55,
+    "swap_mib_min": 11266.44,
+    "swap_mib_max": 17977.06
+  },
+  "verification": {
+    "verified_replica_values": 4500,
+    "verified_archive_groups": 1500,
+    "all_windows_error_free": true
+  },
+  "shutdown": {
+    "states": {
+      "cellar-raft-20261023-024704-node1": {
+        "Running": false,
+        "ExitCode": 0,
+        "OOMKilled": false,
+        "Error": "",
+        "FinishedAt": "2026-10-23T02:56:31.527648653Z"
+      },
+      "cellar-raft-20261023-024704-node2": {
+        "Running": false,
+        "ExitCode": 0,
+        "OOMKilled": false,
+        "Error": "",
+        "FinishedAt": "2026-10-23T02:56:31.543001618Z"
+      },
+      "cellar-raft-20261023-024704-node3": {
+        "Running": false,
+        "ExitCode": 0,
+        "OOMKilled": false,
+        "Error": "",
+        "FinishedAt": "2026-10-23T02:56:31.543139351Z"
+      },
+      "cellar-raft-20261023-024704-rustfs": {
+        "Running": false,
+        "ExitCode": 0,
+        "OOMKilled": false,
+        "Error": "",
+        "FinishedAt": "2026-10-23T02:56:33.012585313Z"
+      }
+    },
+    "preserved_volumes": [
+      "cellar-raft-20261023-024704-node1",
+      "cellar-raft-20261023-024704-node2",
+      "cellar-raft-20261023-024704-node3",
+      "cellar-raft-20261023-024704-rustfs"
+    ]
+  },
+  "next_experiment": "Compare two SQL workers with 32 slots each against four with 16 slots each, retaining 64 total reservations and the same executable, archive publishers, CPU/memory and byte budgets.",
+  "conclusion": "Long SQL queues were observed with CPU headroom. No overload/refusal counter fired and no timed request failed, so the profile does not establish the cause of prior overload bursts. Archive reads/replay grew with history but remained shorter than SQL queue waits. These are nested operation means, not additive request latency.",
+  "raw_sha256": {
+    "pressure-probe-analysis.json": "1455c0398f01b48e880df2021eebc87e0ffe926ca5f311c9ad8982df5681f441",
+    "pressure-probe.json": "c6eed2af116cc243a10d65ca736476f69810794e7cbbecdc8df96a6f188d6204",
+    "report.json": "957933c531afd8a18ddce86bfd5dd3c0918f948897a6eb95dc8c7a59ed570da4",
+    "tikv-pressure-probe-host.jsonl": "9f2db4798cd9bf5f251244c9bbfffe866b1eda447d07ffea54d648de6e251dd8"
+  },
+  "stage_columns": [
+    "calls",
+    "mean_ms",
+    "items_per_call",
+    "all_time_max_items"
+  ]
+}
