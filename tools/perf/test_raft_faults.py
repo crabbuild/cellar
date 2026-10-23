@@ -97,6 +97,16 @@ class Evidence(unittest.TestCase):
             with self.subTest(name=name), self.assertRaises(ValueError):
                 verify_fault(report, events, operations)
 
+    def test_failed_probe_cannot_be_hidden_by_a_later_success(self):
+        report, events, operations = fixture()
+        events.insert(2, {'event': 'probe_failed', 'cycle': 0, 'monotonic_seconds': 100.13,
+                         'started_monotonic_seconds': 100.03, 'cell': 0,
+                         'timeout_seconds': .1, 'elapsed_seconds': .1, 'error_type': 'TimeoutError'})
+        for order, event in enumerate(events, 1):
+            event['order'] = order
+        with self.assertRaisesRegex(ValueError, 'incomplete fault cycle observations'):
+            verify_fault(report, events, operations)
+
     def test_healthy_control_cannot_be_relabelled_as_an_injected_run(self):
         report, events, operations = fixture()
         report['scenario'] = 'healthy'
@@ -180,6 +190,21 @@ class Ownership(unittest.TestCase):
                 self.assertIn('unpause', actions)
                 self.assertIsNotNone(failure)
                 self.assertEqual(recorded[-1]['event'], 'failure')
+
+    def test_probe_failure_records_attempt_before_release(self):
+        state, actions, recorded, failure = self.run_owner('probe_failure')
+        errors = [row for row in recorded if row['event'] == 'probe_failed']
+        self.assertEqual(len(errors), 1)
+        error = errors[0]
+        self.assertEqual((error['cycle'], error['cell'], error['error_type']), (0, 0, 'TimeoutError'))
+        self.assertEqual(error['timeout_seconds'], .1)
+        self.assertGreaterEqual(error['elapsed_seconds'], 0)
+        self.assertGreaterEqual(error['monotonic_seconds'] - error['started_monotonic_seconds'], error['elapsed_seconds'])
+        released = next(row for row in recorded if row['event'] == 'released')
+        self.assertLess(error['order'], released['order'])
+        self.assertFalse(state['paused'])
+        self.assertIn('unpause', actions)
+        self.assertEqual(failure, 'probe timeout')
 
     def test_foreign_target_is_never_mutated_and_control_never_pauses(self):
         for mode in ('foreign', 'control'):

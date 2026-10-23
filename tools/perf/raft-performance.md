@@ -239,6 +239,11 @@ measurement time and scanning overhead. The worker always inspects and releases
 its owned target, including after an ambiguous pause response, and joins before
 returning. An incomplete schedule, changed ownership, excess pause, missing lag,
 unresolved history or failed recovery refuses qualification and retains evidence.
+Failed probe calls record `probe_failed` with the cycle, cell, requested timeout,
+start time, elapsed time and exception type before owned-target cleanup. The
+failed read is not retried. Successful cleanup does not qualify the attempt,
+and a later successful probe cannot conceal the failed call. The 100 ms probe
+cap and overall pause/recovery bounds remain unchanged.
 Use the source-pinned analyzer for earlier report packages; fresh reports must
 declare their scenario and fault evidence explicitly. This experiment does not
 qualify disk-only stalls, partitions, crashes, Fleet/bucket fault handling or soak.

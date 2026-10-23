@@ -141,8 +141,18 @@ class SlowFollower:
                     for cell in self.probes:
                         remaining = requested + self.config['max_pause_ms'] / 1000 - time.monotonic()
                         require(remaining > .05, 'pause observation exhausted its time budget')
+                        timeout = min(.1, remaining - .05)
                         started = time.monotonic()
-                        code, reply = self.probe(cell, min(.1, remaining - .05))
+                        try:
+                            code, reply = self.probe(cell, timeout)
+                        except Exception as error:
+                            # Record the failed read before cleanup can obscure
+                            # its cell/budget. It is never retried or qualified.
+                            self.record(cycle, 'probe_failed', cell=cell,
+                                        started_monotonic_seconds=started, timeout_seconds=timeout,
+                                        elapsed_seconds=time.monotonic() - started,
+                                        error_type=type(error).__name__)
+                            raise
                         self.record(cycle, 'probe', cell=cell, started_monotonic_seconds=started, status=code, response=reply)
                     release_state = self.inspect()
                     self.record(cycle, 'release', state=release_state)
