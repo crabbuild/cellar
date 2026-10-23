@@ -6,17 +6,20 @@ throughput improvement is qualified by this document yet.
 ## Current performance priorities
 
 The [current internal-storage profile](evidence/tikv-current-io-diagnosis.json)
-changes the immediate priority from image synchronization to command staging,
-image construction and SQL worker queueing. It instruments the frozen
+identifies command staging, image construction, SQL worker queueing and archive
+publication as useful optimization targets. It instruments the frozen
 `12d6e87` runtime without changing durability or retry behavior. Three nodes
 retain one vCPU, 3 GiB, 500 leaders and 1,000 followers each; each node has two
-SQL workers and two archive publishers.
+SQL workers and two archive publishers. The subsequent capture-handoff
+comparison below still fails sustained throughput, latency and refusal gates.
+The next experiment must explain sustained admission pressure before another
+isolated staging optimization is credited with an end-to-end benefit.
 
 | Priority | Observed gap | Next improvement to evaluate |
 | --- | --- | --- |
-| 1 | At six writers, command staging averages 12.2–12.5 ms. Image materialization averages about 3.1 ms; staging includes some of that work. | Separate working-image preparation, SQLite/receipt execution, LTX capture/encoding and preview construction. Remove repeated copying or validation only after identifying the expensive substage. |
-| 2 | Prepare and publication wait 3.3–4.5 ms for their assigned SQL worker. Publication itself averages only about 0.3 ms. | Compare bounded worker concurrency and priority for committed completion work, preserving per-cell ownership, total admission budgets and physical shutdown joins. |
-| 3 | Archive publication averages 16.0–16.7 ms in the six-writer windows, with progressively more retained history read and replayed. | Evaluate earlier snapshot rotation when retained tail bytes exceed the size of a complete image. Measure object requests/bytes and backlog; retain previous-object checks, physical replay, exact CAS and corruption refusal. |
+| 1 | Sustained runs still produce overload refusals. Archive publication averages 16.0–16.7 ms in the six-writer profile and rereads/replays retained history. Its causal contribution to the refusals remains unproven. | Instrument retained bytes/entries and exact refusal reasons at sustained load. Evaluate earlier snapshot rotation when retained tail bytes exceed a complete image. Measure requests, bytes and backlog; retain previous-object checks, physical replay, exact CAS and corruption refusal. |
+| 2 | The deeper profile measures 12.4–13.4 ms staging, including 5.1–5.4 ms preview construction, 1.5–1.6 ms private-file cleanup and 1.5–1.6 ms private LTX writes. | Reduce disposable file creation/cleanup and image copying. The bounded encoded-capture handoff removes read-back, but the full comparison below does not qualify a throughput gain. |
+| 3 | Prepare and publication wait 3.3–4.5 ms for their assigned SQL worker. Publication itself averages only about 0.3 ms. | Compare bounded worker concurrency and priority for committed completion work, preserving per-cell ownership, total admission budgets, fairness and physical shutdown joins. |
 | 4 | Shared Raft persistence averages 0.71–0.72 ms but handles only about 1.24 groups per batch. | Improve bounded coalescing and investigate combined progress writes. Measure the benefit before adding delay; avoid busy spinning on a one-vCPU node. |
 | 5 | Every command still constructs immutable images across replicas. | Explore separate applied and checkpointed progress with Raft-log replay, following TiKV's recovery model. This needs explicit replay retention, snapshot/GC boundaries and power-loss recovery tests before changing acknowledgement semantics. |
 
@@ -73,8 +76,48 @@ Strict all-target/all-feature Clippy for both affected crates, the LTX build
 without default features, formatting, module layout, native dependencies and
 documentation checks also pass. The [validation record](evidence/tikv-capture-handoff-validation.json)
 preserves the failing regression and passing checks.
-An uninstrumented comparison against the frozen `12d6e87` runtime is still
-required before claiming an end-to-end gain.
+### Uninstrumented capture comparison
+
+The [120-second comparison](evidence/tikv-capture-handoff-comparison.json)
+compares frozen `12d6e87` control with `63069af` candidate. Their runtime
+manifests differ only in `db.rs` and `working.rs`; load generation is identical.
+Both use six/twelve/twelve/six writers after a cold benchmark-VM restart, with
+fresh node volumes and the same 160-GiB VM data disk. Expanding the disk retained
+all old images/volumes and did not change node CPU or memory limits.
+
+| Build | Writers | Mean window TPS | Worst window p99 | Unsuccessful writes |
+| --- | --- | --- | --- | --- |
+| Control | 6 | 154.21 | 245.66 ms | 1,020 overload refusals |
+| Candidate | 6 | 130.69 | 638.98 ms | 377 overload refusals, 1 ambiguous outcome |
+| Control | 12 | 140.87 | 791.28 ms | 0 |
+| Candidate | 12 | 138.99 | 408.33 ms | 4,345 overload refusals |
+
+Neither setting passes both repeats' zero-error and p99-under-500-ms gates.
+Candidate six-writer throughput is 15.3% lower; twelve-writer throughput is
+1.3% lower. These are observed regressions, not attribution to the handoff:
+unrelated builds appeared in 124/125 control and 105/116 candidate host samples,
+with substantial, changing swap use. A lower twelve-writer candidate p99 does
+not offset its refusals. Successful-request latency excludes refused requests;
+the table always reports those failures separately.
+
+The control initially returned `Unavailable` while seeding. It resumed with
+the same pending command identities and original deadlines, then verified all
+1,500 seed values and initial archive coverage before timing. Its original
+setup failure remains recorded. It completed final verification of all 4,500
+replicas and 1,500 archives. Candidate setup succeeded directly, but its final
+window's ambiguity aborted normal verification. The uncertain original write
+was resolved within its original deadline, followed by a separate exact
+4,500-replica/1,500-archive verification. Both cohorts stopped cleanly, retaining
+all volumes. The candidate measurement remains failed.
+
+The legacy postfailure helper also retried definitive overload refusals outside
+measurement. This added unnecessary reconciliation work and one transport
+timeout. The expired request was never reissued: every retained immutable image
+on all three replicas lacked its receipt, exact counter values matched the
+known successful-command set, and absence was confirmed again after shutdown
+joined all work. Future reconciliation should prioritize uncertain outcomes
+and leave definitive refusals unexecuted. These post-run operations never
+contribute to measured TPS or turn a failed window into a passing one.
 
 ## Scope and reproducible baseline
 
