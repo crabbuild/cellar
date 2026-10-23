@@ -1,11 +1,14 @@
 # TiKV comparison and Cellar performance investigation
 
 Status: PR #98's conflicts are resolved through main `1455fb0`. The combined
-capture/admission-reuse candidate `8a34732` is rejected after reversed-order
-confirmation. Its first pair's 8.06% mean TPS increase did not qualify a repeatable
-improvement: confirmation window two reached 941.58-ms p99 with seven ambiguous
-writes. The runtime is restored byte-for-byte to the verified admission-reuse
-control `230cd4f`; all capture experiments and raw evidence remain preserved.
+capture/admission-reuse candidate `8a34732` was rejected after confirmation;
+`b65615f` restored runtime source to admission-reuse control `230cd4f`. Current
+candidate `a10215e` adds bounded control-window refill on that baseline and passes
+a complete 1,500-group cohort with zero errors and exact replica/archive values.
+It does not demonstrate a throughput gain: 234.97 mean TPS versus the historical
+control's 237.70. The [transport evidence](evidence/tikv-control-sliding.json)
+distinguishes the local progress fix, the passing cohort and the unproven relative
+performance effect. Every earlier experiment and raw outcome remains preserved.
 
 ## Bounded control-window refill experiment
 
@@ -42,9 +45,47 @@ not a throughput or p99 improvement. Native validation passes 516 library tests,
 entry points remain harness-driven. Both new refill tests pass ten repeated runs.
 Strict all-target/all-feature Cellar Clippy passes after replacing a manual
 conditional dequeue with `pop_front_if`; the route check still precedes removal.
-The next full candidate cohort uses the frozen admission-reuse control as a
-historical reference, not a fresh adjacent pair. Paired performance confirmation
-remains required before claiming a repeatable gain.
+The full candidate cohort uses the frozen admission-reuse control as a
+historical reference, not a fresh adjacent pair. Both use the same load AST,
+three 1-vCPU / 3-GiB nodes, 500 leaders and 1,000 followers per node, four SQL
+workers / 64 reservations, four archive-cut slots, and two 180-second windows
+at 24 writers. Each starts fresh persistent volumes after a cold benchmark VM.
+
+| Build | TPS, windows 1 / 2 | p99 ms, windows 1 / 2 | Errors |
+| --- | --- | --- | --- |
+| Sliding control `a10215e` | 249.58 / 220.35 | 190.00 / 249.74 | 0 / 0 |
+| Historical control `230cd4f` | 248.85 / 226.54 | 209.29 / 253.99 | 0 / 0 |
+
+Mean TPS is 234.97 versus 237.70, an observed 1.15% decrease. P99 is lower,
+but the preferred sustained sub-200-ms target remains unmet. Both candidate
+windows satisfy the accepted sub-500-ms / zero-error gate. All 4,500 replica
+values and 1,500 RustFS archive positions verify without reconciliation; the
+cohort stops cleanly, with no OOM kill and all volumes retained. Peak node
+memory is 1.63 GB. Final archive catch-up takes 5.77 seconds; boundary per-group
+lag is at most eight entries. These are not continuous steady-state lag bounds.
+
+Candidate control-queue means are 32.93 / 39.90 ms versus 34.73 / 44.89 ms for
+the historical control. Neither has completed control-queue observations over
+one second. The deterministic held-reply stall is fixed, but this run does not
+establish that removing it raises sustained throughput. Other builds occur in
+6/37 and 33/36 candidate samples inside the measurement brackets, versus zero
+for control. No builds from this task overlap the timed workload. The cohorts
+are nonadjacent, and shared-host pressure limits relative attribution.
+
+Candidate staging averages 16.99 / 18.29 ms, SQL queueing 8.19 / 8.81 ms,
+committed-image preparation 6.08 / 6.75 ms and log persistence 1.00 / 1.18 ms.
+These overlapping operations have different counts and cannot be added as a
+request-latency breakdown. Temporary byte-reservation deferrals remain frequent
+at 159,198 / 147,293 decisions; all observation and retained-history refusals
+remain zero. Measuring reservation wait duration and archive read purpose is a
+stronger next attribution step than increasing queue limits again.
+
+The transport candidate remains reviewable with its demonstrated local progress
+benefit; no TPS gain or relative non-regression guarantee is claimed. Fresh
+paired confirmation remains outstanding. After preserving this cohort, host free
+space is about 3.6 GiB, below the unchanged 5-GiB next-cohort guard. Additional
+measurement requires safe preservation/relocation of closed artifacts; no data,
+images or volumes have been pruned.
 
 ## Reversed-order capture confirmation
 
@@ -273,12 +314,12 @@ and final catch-up do not establish a continuous steady-state lag bound.
 | SQL worker queue | 7.93 / 7.21 | Includes different SQL work types; not a command-only queue measure. |
 | Shared-log persistence | 0.90 / 0.98 | Lower per-operation cost than image work; different counts prevent adding or directly attributing request latency. |
 
-The next experiments, in order, are:
+After the rejected capture and completed transport experiments above, the
+remaining priorities are:
 
-1. Re-evaluate disposable capture writes with the refusal/rebuild fix retained.
-   The rejected capture candidate reduced first-window staging from 15.72 to
-   12.02 ms, but failed sustained admission qualification. Require complete
-   zero-error cohorts before retaining the combined change.
+1. Confirm relative transport performance with a fresh matched pair after safely
+   preserving closed artifacts to restore benchmark disk headroom. A deterministic
+   progress fix and one passing cohort do not establish a repeatable TPS gain.
 2. Measure time spent awaiting archive admission and distinguish archive read
    purposes before changing budgets. Worst-case image/envelope reservations
    defer callbacks despite small actual commands; current counters cannot
@@ -908,6 +949,7 @@ and raft-engine `55bccdea42718ab2b4f90cdd9068da53b6bf4c39`.
 | Batched FSM scheduling | Mailboxes schedule an idle FSM once; pollers collect several active FSMs before a batch ends. | Cellar already parks idle groups. Request draining can let multiple queued groups reach its existing shared log writer together. |
 | Shared asynchronous log writer | Drains queued write tasks up to a byte limit, then synchronously persists their combined Raft batch. Adaptive bounded waiting may enlarge small batches. | Keep disk work outside the consensus event loop and amortize sync across groups. First test draining work already available, without adding an artificial delay. |
 | Ordered outstanding Ready work | Tracks unpersisted Ready numbers and releases the corresponding messages only when persistence completes. | Cellar currently permits one outstanding Ready per group. Multiple outstanding Readies would require additional ticket, failure, and message-order qualification. |
+| Continuous bounded transport | Drains size/count-limited message batches into a readiness-controlled gRPC stream. | Cellar now refills its eight-frame control window per completed authenticated reply; it retains its own admission protocol and Raft persistence proofs. This fixes a local stall but has not established a TPS gain. |
 | Batched apply | Accumulates state-machine changes in a shared engine write batch; flushes before reporting apply results. | Cellar's separate SQLite images do not share TiKV's KV batch. Its per-image copy, validation, sync, and marker work can dominate despite a shared Raft log. |
 | Explicit recovery progress | Raftstore v2 disables tablet WAL while tracking flushed apply indices and retaining the history needed to replay missing state. | Cellar's durable applied marker currently names a durable immutable image. Delaying that image's persistence requires separate visible and durable progress, replay retention, and crash/snapshot/GC tests. |
 | Coordinated hibernation | Peer agreement and quorum checks govern leader/group hibernation. | Increasing Cellar's fixture tick interval is a workload tradeoff, not an implementation of TiKV hibernation. |
@@ -920,6 +962,7 @@ Pinned primary sources:
 - [Async write task draining and durable engine writes](https://github.com/tikv/tikv/blob/b3995dab28308f09cbb7c125bf32f789dbc203fe/components/raftstore/src/store/async_io/write.rs).
 - [Ready sequencing](https://github.com/tikv/tikv/blob/b3995dab28308f09cbb7c125bf32f789dbc203fe/components/raftstore-v2/src/operation/ready/async_writer.rs)
   and [Ready advancement](https://github.com/tikv/tikv/blob/b3995dab28308f09cbb7c125bf32f789dbc203fe/components/raftstore-v2/src/operation/ready/mod.rs).
+- [Bounded message batches and continuous sender polling](https://github.com/tikv/tikv/blob/b3995dab28308f09cbb7c125bf32f789dbc203fe/src/server/raft_client.rs).
 - [Apply batching](https://github.com/tikv/tikv/blob/b3995dab28308f09cbb7c125bf32f789dbc203fe/components/raftstore/src/store/fsm/apply.rs)
   and [flushed apply progress and recovery](https://github.com/tikv/tikv/blob/b3995dab28308f09cbb7c125bf32f789dbc203fe/components/raftstore-v2/src/operation/ready/apply_trace.rs).
 - [Hibernation state](https://github.com/tikv/tikv/blob/b3995dab28308f09cbb7c125bf32f789dbc203fe/components/raftstore/src/store/hibernate_state.rs).
