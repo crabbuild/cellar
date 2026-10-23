@@ -1,12 +1,13 @@
 # TiKV comparison and Cellar performance investigation
 
-Status: the SQL priority candidate passes two 180-second, 24-writer windows at
-247.25/212.02 successful TPS and 201.85/220.11 ms p99, with zero write errors.
-All 4,500 replica values and 1,500 archive positions verify independently, and
-shutdown is clean. This passes the 500-ms gate, but not the preferred 200-ms gate;
-throughput falls 14.2% between windows. Shared-host variation prevents attributing
-the full observed gain to scheduling. Newly merged main changes still need
-integration and fresh validation; these results describe frozen `3aeb3ad`.
+Status: PR #98's conflicts are resolved through main `1455fb0`; GitHub reports
+it mergeable. The frozen integrated runtime `86297e7` passes two 180-second,
+24-writer windows at 240.21/213.90 successful TPS and 226.93/252.26 ms p99,
+with zero write errors. All 4,500 replica values and 1,500 archive positions
+verify, and shutdown is clean with volumes retained. This passes the accepted
+500-ms gate, misses the preferred 200-ms gate, and still slows 10.95% between
+windows. It does not establish an additional TPS gain over pre-merge `3aeb3ad`.
+Shared-host contention remains recorded in the [integrated evidence](evidence/tikv-main-integration.json).
 
 ## Current performance priorities
 
@@ -45,7 +46,8 @@ These are nested operation means, not additive portions of request latency.
 Main's `0903e80` (PR #94), observed at `64ebaf7`, independently adds archive
 batching, transport changes, resource accounting and a richer performance runner.
 Integration resolves the overlapping source changes; the combined runtime
-still needs a fresh frozen performance comparison. The combined
+passes the bounded integrated qualification below; an isolated causal comparison
+remains outstanding. The combined
 archive scheduler bounds total retained cuts by `max_producers`, independently
 of the two-cell object batch limit. A completed capture has a fixed 5-ms
 collection deadline and its own host wakeup, so another cell's held SQL capture
@@ -63,7 +65,7 @@ The restored data window drains at most sixteen already-admitted frames and
 frame keeps its FIFO position, queue timer and original permits. There is no
 wait to fill a window. Invalid replies cannot acknowledge their matching frame;
 earlier authenticated outcomes remain observed admission. Prior throughput
-results still cannot be assigned to the merged runtime.
+results cannot be assigned to the merged runtime; its own results appear below.
 
 The native bundle failure exposed two integration boundaries. Its fixture
 assumed one old publication; concurrent producers need their old head
@@ -85,6 +87,7 @@ A startup fixture's one-slot runtime reproduced a read-only status admission
 race on the third isolated run; a backtrace identifies the post-startup status
 query. That query now retries only `Overloaded` inside one fixed deadline,
 retaining the pre-start peer refusal and successful attached-group assertions.
+Thirty consecutive isolated runs pass after this fixture correction.
 Earlier archive shutdown and concurrent restart-lock failures remain unproven
 despite passing reruns. Preserve those failures; these correctness checks do
 not establish an integrated TPS increase.
@@ -110,10 +113,47 @@ regressions exercise this boundary directly. TiKV's
 measured Cellar log persistence cost is smaller than staging and archive costs;
 adding an arbitrary coalescing sleep there is not the first optimization.
 
-The next end-to-end comparison must freeze the integrated executable, record
-archive lag and SQL queue tails, and retain exact 4,500-replica / 1,500-archive
-verification. The primary remaining opportunity is reducing repeated image
-and archive work, rather than increasing the number of queued commands.
+TiKV v2's `raftstore-v2/src/operation/ready/apply_trace.rs` separately tracks
+flushed data and persisted applied progress so recovery knows what to replay.
+This is distinct from v1's shared engine batch: neither mechanism permits
+Cellar to discard its only acknowledged image without a retained, verifiable
+replay path. Avoiding disposable LTX output also needs an explicit bounded
+in-memory capture continuation: the current `Db` reads its last L0 cut while
+checking capture/checkpoint progress, so simply skipping file writes is unsafe.
+
+### Integrated runtime qualification
+
+The [frozen run](evidence/tikv-main-integration.json) uses three 1-vCPU / 3-GiB
+nodes, 500 leaders and 1,000 followers per node, four SQL workers with 64 total
+reservations and four retained archive-cut slots. Each node's disposable
+verification workspace is capped at 512 MiB; acknowledged logs and images stay
+on persistent storage. Timed mutations never retry.
+
+| Window | Successful TPS | p99 (ms) | Write errors |
+| --- | --- | --- | --- |
+| 1 | 240.21 | 226.93 | 0 |
+| 2 | 213.90 | 252.26 | 0 |
+
+Mean throughput is 227.06 TPS. The earlier frozen `3aeb3ad` mean was 229.64 TPS
+with a worst-window p99 of 220.11 ms. These sequential runs change both runtime
+and runner and share a busy host; they do not isolate a regression or establish
+an additional speedup. The observed 10.95% within-run slowdown remains an
+optimization target. Other builds appeared in 84/89 host samples, with about
+9.36–9.40 GiB of swap. No builds or profilers from this task ran during timing.
+
+Independent receipt analysis verifies 83,296 acknowledged writes including
+1,500 seed writes, all 4,500 final replica values and all 1,500 archive positions.
+The final archive wait is 5.89 seconds after the replica scan, not a measure of
+steady-state lag. Cgroup memory peaks are 1.40/1.49/1.48 GiB, within the 3-GiB
+limits; sampled Docker memory during timed writes is lower and should not be
+substituted for the full-run cgroup peak. All nodes and RustFS stop cleanly,
+without OOM kills; all four persistent volumes and raw evidence remain retained.
+
+The next isolated comparison should record archive lag and SQL queue tails
+throughout the run. The primary remaining opportunity is reducing repeated
+image construction and archive replay/publication work. Bounded transport
+pipelining and SQL-idle archive wakeups have direct regression coverage, but
+this integrated experiment alone does not establish their individual TPS gains.
 
 Remaining measurement gaps are longer steady-state runs, per-replica archive
 lag, hot-cell skew, larger SQLite images, mixed reads/writes and failure under

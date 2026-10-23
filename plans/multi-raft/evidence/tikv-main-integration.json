@@ -1,0 +1,126 @@
+{
+  "format": 1,
+  "experiment": "Integrated main / TiKV-inspired multi-Raft qualification",
+  "source": {
+    "revision": "86297e7cdf5e22a0d7c8495dc5686c503057c4cd",
+    "tag": "cellar-raft-perf:tikv-main-integration-ios-7da4ddb5",
+    "image": "sha256:97a6046269136a0217ce2594c354d8fe52f59cbc3f93dc3b0532f3edc01926b5",
+    "binary_sha256": "4797c0e1427b8f117c2c35954329c2057b5961e23956aec98547576a0cc19f6a",
+    "context_sha256": "cbfd02b8d1584b8fd325d5e8c19c9df8c73f0d354e984842dbbcc5f49831f531"
+  },
+  "configuration": {
+    "nodes": 3,
+    "cpu_per_node": 1,
+    "memory_gib_per_node": 3,
+    "groups": 1500,
+    "leaders_per_node": 500,
+    "followers_per_node": 1000,
+    "voters_per_group": 3,
+    "sql_workers_per_node": 4,
+    "total_sql_reservations_per_node": 64,
+    "archive_retained_cut_slots_per_node": 4,
+    "max_archive_batch_groups": 2,
+    "writers": 24,
+    "seconds_per_window": 180,
+    "windows": 2,
+    "durability": "Quorum",
+    "node_storage": "persistent host volumes through Colima virtiofs",
+    "rustfs_storage": "external benchmark VM disk",
+    "disposable_archive_workspace_mib": 512
+  },
+  "windows": [
+    {
+      "repeat": 1,
+      "concurrency": 24,
+      "successful_writes": 43260,
+      "tps": 240.20735130471436,
+      "latency_ms": {
+        "p50": 94.19632600000227,
+        "p95": 169.59385499998803,
+        "p99": 226.92584899999702,
+        "max": 789.7204509999938
+      },
+      "error_rate": 0.0,
+      "offered_rate": 0.0
+    },
+    {
+      "repeat": 2,
+      "concurrency": 24,
+      "successful_writes": 38536,
+      "tps": 213.90283203922937,
+      "latency_ms": {
+        "p50": 105.5771289999825,
+        "p95": 192.1959500000412,
+        "p99": 252.2554850000347,
+        "max": 773.1423000000177
+      },
+      "error_rate": 0.0,
+      "offered_rate": 0.0
+    }
+  ],
+  "summary": {
+    "mean_tps": 227.05509167197187,
+    "worst_p99_ms": 252.2554850000347,
+    "throughput_decline_pct": 10.950755304785186,
+    "write_errors": 0,
+    "passed_500_ms_gate": true,
+    "passed_200_ms_gate": false,
+    "verified_replica_values": 4500,
+    "verified_archive_positions": 1500,
+    "verified_acknowledged_writes_including_seed": 83296,
+    "clean_stop": true,
+    "volumes_retained": true
+  },
+  "resources": {
+    "mean_node_cpu_pct": {
+      "1": 76.06,
+      "2": 79.48,
+      "3": 79.66
+    },
+    "node_memory_peak_bytes": [
+      1504346112,
+      1597915136,
+      1592242176
+    ],
+    "host_activity": {
+      "samples": 89,
+      "compiler_samples": 84,
+      "swap_mib_min": 9582.19,
+      "swap_mib_max": 9622.19
+    }
+  },
+  "archive_checks": {
+    "initial_wait_seconds": 0.3467806670232676,
+    "final_wait_seconds": 5.891255458001979,
+    "scope": "Final wait follows the complete replica scan; it is not a steady-state archive-lag distribution."
+  },
+  "qualification": {
+    "scope": "Two zero-error 180-second windows pass the accepted 500-ms p99 bound; they miss the preferred 200-ms bound. This confirms integrated runtime behavior, not an isolated causal throughput gain.",
+    "comparison": "Previous pre-merge candidate 3aeb3ad recorded 247.25/212.02 TPS and 201.85/220.11 ms p99. The integrated result does not establish an additional TPS gain. Main, transport, bundling and harness changed; shared-host builds and swap remain confounders.",
+    "remaining": [
+      "11% throughput decline between windows; steady-state cause remains open.",
+      "Longer offered-load runs, skew, larger images, mixed reads/writes and failover under load.",
+      "Repeated per-cell image work and archive replay/publication remain the leading optimization opportunities from prior profiling.",
+      "Earlier transient archive-shutdown and execution-lock failures are retained, not erased by passing reruns."
+    ]
+  },
+  "raw_evidence": {
+    "directory": ".cellar/raft-perf/1500-tikv-main-integration-integrated",
+    "sha256": {
+      "report.json": "b62e8c36cd3c98c5ebed92fbb482598dcd394b1c777ad820eaece6712fd21d37",
+      "write-w1-r1-c24.json": "98cadd43abb542cf9a5b955c1fc22376b6dd6cc61163b35597717fe9bd5104b7",
+      "write-w2-r2-c24.json": "bde5198b02e9de666267c75f1baa5656be8512c5cc094e7c7a204467d4c49f5b",
+      "replica-verification.json": "da5b6432edc89df486695cb3cfece599a13626915cb3aaacb86af06870d2bf29",
+      "archive-verification.json": "6fd9ca56899b0e90c993f98b94fe408414ac3e0866ea0b61ca33b66c9668b48b",
+      "analysis-500.json": "b2136b500d6ea630d58ad0388aa8be71d78bde43409fcebad3dec39f5d142e92",
+      "analysis-200.json": "40861aa751f541eef149aa29d37fab0ea017450c22ba8a39419385f7352e81ff",
+      "resources.jsonl": "06d9f04236bf741ae5a22dbe15786628c1c28bc5f27098ffa8a278e481b486cc",
+      "verified-stop/resources.json": "d297ce5bb8006307f0243cb6b6ba22ceaec8705dbdcb42eec013ba44501ab8e6"
+    }
+  },
+  "regressions": {
+    "data_lane": "Two real TLS tests fail on serialized data sends and pass after bounded pipelining; byte-bound and oversized-frame tests also pass.",
+    "archive": "Paired old-head fixture still misses a bundle until SQL-idle invalidates cached empty inventory; ten consecutive fixed runs pass.",
+    "startup": "Backtrace isolates one-slot fixture overload to post-start status read; fixed deadline retry of only read admission passes thirty consecutive runs."
+  }
+}
