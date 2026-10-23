@@ -5,14 +5,20 @@
 use std::{
     io::{self, Read, Write},
     os::{fd::AsRawFd, unix::net::UnixStream},
-    sync::atomic::{AtomicBool, Ordering},
+    sync::{
+        atomic::{AtomicBool, AtomicU8, Ordering},
+        Arc,
+    },
 };
+
+pub(super) const INVALIDATED: u8 = 1;
+pub(super) const RETIRED: u8 = 2;
 
 pub(super) struct Wakeup {
     reader: UnixStream,
     writer: UnixStream,
     pending: AtomicBool,
-    retirements: AtomicBool,
+    lifecycle: Arc<AtomicU8>,
     failed: AtomicBool,
 }
 
@@ -25,7 +31,7 @@ impl Wakeup {
             reader,
             writer,
             pending: AtomicBool::new(false),
-            retirements: AtomicBool::new(false),
+            lifecycle: Arc::new(AtomicU8::new(0)),
             failed: AtomicBool::new(false),
         })
     }
@@ -59,14 +65,24 @@ impl Wakeup {
         // scanning every Python object on ordinary admissions and replies.
         // RMW publication also chains concurrent producers' owner revocations
         // into the consumer's acquire, even when their notifications coalesce.
-        self.retirements.swap(true, Ordering::AcqRel);
+        self.lifecycle
+            .fetch_or(INVALIDATED | RETIRED, Ordering::AcqRel);
         self.notify();
     }
 
-    pub(super) fn take_retirements(&self) -> bool {
+    pub(super) fn invalidate(&self) {
+        self.lifecycle.fetch_or(INVALIDATED, Ordering::AcqRel);
+        self.notify();
+    }
+
+    pub(super) fn lifecycle(&self) -> Arc<AtomicU8> {
+        self.lifecycle.clone()
+    }
+
+    pub(super) fn take_lifecycle(&self) -> u8 {
         // Clear BEFORE scanning owners. A retirement racing with that scan
         // leaves the hint set for another pass, even if its byte coalesces.
-        self.retirements.swap(false, Ordering::AcqRel)
+        self.lifecycle.swap(0, Ordering::AcqRel)
     }
 
     pub(super) fn check(&self) -> io::Result<()> {

@@ -217,11 +217,13 @@ Managed invocation cleanup records completion only after revoking authority and
 cancelling pending SDK futures. A native return can then skip its redundant
 cancellation notification. Expiration alone never suppresses that notification:
 a still-running task must wake promptly even if its bridge was already expired.
-Native proxy destruction also publishes a coalesced retirement flag. The loop
-scans resident objects only after consuming that flag, so ordinary requests do
-not check every idle cell. Consuming the flag before the scan preserves concurrent
-retirements for another pass. Each SDK operation still checks its native owner
-and invocation authority independently of this cleanup optimization.
+Native cancellation and proxy destruction publish coalesced lifecycle flags.
+The loop scans waiting invocations after invalidation and resident objects after
+owner retirement. Ordinary replies do not scan unrelated waiting invocations;
+a completion queue releases finished tasks and contexts. Consuming the flags
+before scanning preserves concurrent invalidations for another pass. Failed
+cleanup remains registered for shutdown. Each SDK operation and reply still
+checks its invocation authority independently of these cleanup optimizations.
 
 The pump admits at most 64 starts before yielding to the event loop. Continuous
 arrivals, including requests rejected at task capacity, cannot indefinitely

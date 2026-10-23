@@ -49,6 +49,7 @@ pub(crate) struct Start {
 pub(crate) struct InvocationBridge {
     pub sender: mpsc::Sender<Event>,
     pub active: Arc<super::InvocationState>,
+    pub lifecycle: Arc<std::sync::atomic::AtomicU8>,
     pub cancelled: watch::Sender<bool>,
     pub completion_enqueued: AtomicBool,
     pub owner: Life,
@@ -87,6 +88,13 @@ impl InvocationBridge {
     #[pyo3(signature = (finished=false))]
     fn expire(&self, finished: bool) {
         self.active.expire(finished);
+        if !finished {
+            // Direct Python expiration is visible even if the native driver
+            // has not yet consumed cancellation. This flag owns no descriptor
+            // or runtime and cannot keep either alive through a retained context.
+            self.lifecycle
+                .fetch_or(super::wakeup::INVALIDATED, Ordering::AcqRel);
+        }
         // Completion remains in the ordered mailbox. Cancellation needs a
         // separate wakeup: application code can retain this sender after the
         // task ends, and a full mailbox must not delay revocation.

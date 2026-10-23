@@ -1,5 +1,7 @@
 """One interpreter and asyncio loop; no Cellar operations run on this thread."""
 import asyncio
+from collections import deque
+from functools import partial
 import inspect
 import json
 import resource
@@ -146,6 +148,7 @@ def _observe_delay(histogram, ns):
 
 async def _serve(module, inbox, interval, shutdown, stats, maximum, telemetry, sample):
     invocations, objects = {}, {}
+    completed_invocations = deque()
     loop = asyncio.get_running_loop()
     ready = asyncio.Event()
     descriptor = inbox.wakeup_fd()
@@ -171,8 +174,26 @@ async def _serve(module, inbox, interval, shutdown, stats, maximum, telemetry, s
         finally:
             ready.set()
 
-    def completed(task):
+    def completed(invocation, task):
+        completed_invocations.append(invocation)
         ready.set()
+
+    def release_completed():
+        # A short-lived frame releases task/context references before waiting.
+        while completed_invocations:
+            invocation = completed_invocations.popleft()
+            entry = invocations.get(invocation)
+            if entry and not entry[0].cancelled():
+                error = entry[0].exception()
+                if error:
+                    # Keep failed cleanup registered for the final close pass.
+                    raise error
+            invocations.pop(invocation, None)
+
+    def cancel_invalidated():
+        for task, _, bridge in invocations.values():
+            if not task.done() and not bridge.active():
+                task.cancel()
 
     def observe_ready(expected):
         _observe_delay(stats["interpreter"]["loop_delay"], max(0, time.perf_counter_ns() - expected))
@@ -230,27 +251,24 @@ async def _serve(module, inbox, interval, shutdown, stats, maximum, telemetry, s
                     # cleanup stays registered for the supervisor's final pass.
                     del task, context, bridge, payload, body
                     continue
-                if not task.done():
-                    task.add_done_callback(completed)
                 invocations[invocation] = (task, context, bridge)
+                if task.done():
+                    completed_invocations.append(invocation)
+                else:
+                    task.add_done_callback(partial(completed, invocation))
                 del task, context, bridge, payload, body
             else:
                 # Defer the continuation so ready.wait() actually yields. No
                 # additional native notification is required for queued starts.
                 loop.call_soon(ready.set)
-            for invocation, (task, context, bridge) in tuple(invocations.items()):
-                if not bridge.active() and not task.done():
-                    task.cancel()
-                if task.done():
-                    # Retrieve exceptions, including failures while delivering a completion.
-                    if not task.cancelled():
-                        error = task.exception()
-                        if error:
-                            raise error
-                    invocations.pop(invocation)
-                # Registry removal must also release this iteration's strong
-                # references; an empty next iteration cannot overwrite them.
-                del task, context, bridge
+            release_completed()
+            # Ordinary admissions and replies do not revoke authority. Consume
+            # native invalidation hints before scanning so concurrent revocation
+            # remains visible on the next pass. Every SDK call and reply still
+            # checks its own invocation authority.
+            lifecycle = inbox.take_lifecycle()
+            if lifecycle & 1:
+                cancel_invalidated()
             # Native owner drops publish a bounded dirty hint after revoking
             # authority. Consume it before scanning so a concurrent drop is
             # retained for another pass. _invoke checks authority before object
@@ -258,7 +276,7 @@ async def _serve(module, inbox, interval, shutdown, stats, maximum, telemetry, s
             # a queued invocation cannot register after consuming its own
             # retirement hint. SDK calls still check authority individually.
             retiring = ([key for key, (_, bridge) in objects.items() if not bridge.owner_active()]
-                        if inbox.take_retirements() else [])
+                        if lifecycle & 2 else [])
             if retiring:
                 # Publish before destructors can block. Rust can observe a stale
                 # snapshot with pending cleanup without acquiring the GIL.

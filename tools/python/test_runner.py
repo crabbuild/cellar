@@ -1,5 +1,6 @@
 """Pump/context lifetimes; native authority and I/O belong to the bridge suite."""
 import asyncio
+import contextvars
 import gc
 import json
 from pathlib import Path
@@ -13,6 +14,12 @@ import weakref
 
 
 def continuous_arrivals(mode):
+    if mode.startswith("invalidate-"):
+        invalidation_without_reply(mode.removeprefix("invalidate-"))
+        return
+    if mode.startswith("idle-scans-"):
+        idle_invocation_scans(int(mode.removeprefix("idle-scans-")))
+        return
     if mode.startswith("reply-"):
         reply_delivery(mode.removeprefix("reply-"))
         return
@@ -139,7 +146,7 @@ def continuous_arrivals(mode):
         def replies(self):
             return []
 
-        def take_retirements(self):
+        def take_lifecycle(self):
             return False
 
         def sample(self, payload):
@@ -368,7 +375,7 @@ def reply_delivery(mode):
         def done(self):
             return self.stopped
 
-        def take_retirements(self):
+        def take_lifecycle(self):
             return False
 
         def sample(self, value):
@@ -395,6 +402,226 @@ def reply_delivery(mode):
         inbox.writer.close()
 
 
+def invalidation_without_reply(mode):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "crates/cellar-python/python"))
+    import runner
+    from cellar import Response
+    state = dict(cancelled=0, retired=0)
+
+    class Cell:
+        async def fetch(self, request, context):
+            asyncio.get_running_loop().call_soon(inbox.invalidate)
+            try:
+                await asyncio.Event().wait()
+            finally:
+                state["cancelled"] += 1
+                asyncio.get_running_loop().call_later(.01, inbox.stop)
+            return Response(b"unreachable")
+
+        def __del__(self):
+            state["retired"] += 1
+
+    class Bridge:
+        def active(self):
+            return inbox.active
+
+        def owner_active(self):
+            return inbox.owner
+
+        def expire(self, finished=False):
+            inbox.active = False
+
+        def complete(self, *args):
+            raise AssertionError("revoked invocation completed")
+
+    class Inbox:
+        def __init__(self):
+            self.reader, self.writer = socket.socketpair()
+            self.reader.setblocking(False)
+            self.active = self.owner = True
+            self.stopped = self.issued = False
+            self.lifecycle = 0
+
+        def wakeup_fd(self):
+            return self.reader.fileno()
+
+        def drain_wakeup(self):
+            try:
+                while self.reader.recv(4096):
+                    pass
+            except BlockingIOError:
+                pass
+
+        def invalidate(self):
+            self.active = False
+            self.lifecycle = 1
+            if mode == "owner":
+                self.owner = False
+                self.lifecycle |= 2
+            self.writer.send(b"x")
+
+        def take_lifecycle(self):
+            flags, self.lifecycle = self.lifecycle, 0
+            return flags
+
+        def take(self):
+            if self.issued:
+                return None
+            self.issued = True
+            payload = dict(identity=None, object="cell", **{"class": "Cell"}, kind="fetch",
+                           event=dict(url="http://cancel/", method="GET", headers=[]))
+            return 1, json.dumps(payload), b"", Bridge()
+
+        def replies(self):
+            return []
+
+        def done(self):
+            return self.stopped
+
+        def sample(self, payload):
+            json.loads(payload)
+
+        def stop(self):
+            if not self.stopped:
+                assert state["cancelled"] == 1
+                if mode == "owner":
+                    assert state["retired"] == 1, "owner object retained until shutdown"
+                self.stopped = True
+                self.writer.send(b"x")
+
+    inbox = Inbox()
+    try:
+        # No reply or periodic poll can rescue lost invalidation: the parent
+        # kills this subprocess after ten seconds, before the 30-second poll.
+        report = runner.run(SimpleNamespace(Cell=Cell), inbox, 30, .2, 10, 16, 30)
+        assert not report["runtime_failed"], report
+        assert report["pending_tasks"] == report["pending_objects"] == 0, report
+        assert report["interpreter"]["handlers_cancelled"] == 1, report
+        assert state == dict(cancelled=1, retired=1), state
+    finally:
+        inbox.reader.close()
+        inbox.writer.close()
+
+
+def idle_invocation_scans(cold):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'crates/cellar-python/python'))
+    import runner
+    from cellar import Response, _current_invocation
+    rounds = 100
+    state = dict(issued=0, submitted=0, resumed=0, completed=0, cold_joined=0, cold_checks=0, measuring=False)
+    bridges = weakref.WeakSet()
+
+    async def fetch(request, ctx):
+        if request.path == '/cold':
+            try:
+                await asyncio.Event().wait()
+            finally:
+                state['cold_joined'] += 1
+        else:
+            for _ in range(rounds):
+                assert await ctx.var('value') == '42'
+                state['resumed'] += 1
+            return Response(b'ok')
+
+    class Bridge:
+
+        def __init__(self, number):
+            self.number = number
+            self.closed = False
+            bridges.add(self)
+
+        def active(self):
+            if self.number <= cold and state['measuring']:
+                state['cold_checks'] += 1
+            return not self.closed
+
+        def submit(self, sequence, operation, encoded):
+            assert self.number == cold + 1 and _current_invocation.get() is self
+            assert operation == 'var' and json.loads(encoded) == dict(name='value')
+            state['measuring'] = True
+            state['submitted'] += 1
+
+            def publish():
+                inbox.queue.append((self.number, sequence, '{"ok":true,"value":"42"}', None))
+                inbox.writer.send(b'x')
+            asyncio.get_running_loop().call_soon(publish)
+
+        def complete(self, encoded, failed, body=None):
+            assert self.number == cold + 1 and (not failed) and (body == b'ok')
+            state['completed'] += 1
+            state['measuring'] = False
+            # Allow the completion callback and pump to run while unrelated
+            # invocations remain suspended. No cyclic GC may hide retention.
+            asyncio.get_running_loop().call_later(.01, inbox.check_released, context=contextvars.Context())
+
+        def expire(self, finished=False):
+            self.closed = True
+
+    class Inbox:
+
+        def __init__(self):
+            self.reader, self.writer = socket.socketpair()
+            self.reader.setblocking(False)
+            self.writer.setblocking(False)
+            self.queue = []
+            self.stopped = False
+
+        def wakeup_fd(self):
+            return self.reader.fileno()
+
+        def drain_wakeup(self):
+            while True:
+                try:
+                    self.reader.recv(4096)
+                except BlockingIOError:
+                    return
+
+        def take(self):
+            if self.stopped or state['issued'] == cold + 1:
+                return None
+            state['issued'] += 1
+            number = state['issued']
+            path = '/cold' if number <= cold else '/hot'
+            payload = json.dumps(dict(identity=None, object=None, kind='fetch', event=dict(url='http://scan' + path, method='GET', headers=[])))
+            return (number, payload, b'', Bridge(number))
+
+        def replies(self):
+            queue, self.queue = (self.queue, [])
+            return queue
+
+        def take_lifecycle(self):
+            return False
+
+        def check_released(self):
+            assert len(bridges) == cold, "completed invocation retained by live pump"
+            assert all(bridge.number <= cold for bridge in bridges)
+            self.stop()
+
+        def sample(self, value):
+            json.loads(value)
+
+        def done(self):
+            return self.stopped
+
+        def stop(self):
+            if not self.stopped:
+                self.stopped = True
+                self.writer.send(b'x')
+    gc.disable()
+    inbox = Inbox()
+    try:
+        report = runner.run(SimpleNamespace(fetch=fetch), inbox, 30, 0.2, 512, 16, 30)
+        assert not report['runtime_failed'], report
+        assert state['submitted'] == state['resumed'] == rounds and state['completed'] == 1
+        assert state['cold_joined'] == cold
+        assert report['pending_tasks'] == report['pending_objects'] == report['pending_threads'] == 0
+        assert not bridges, 'pump retained invocation bridges'
+        assert state['cold_checks'] == 0, f'idle invocation scans: {state}'
+    finally:
+        inbox.reader.close()
+        inbox.writer.close()
+
+
 class RunnerScheduling(unittest.TestCase):
     def run_case(self, mode):
         child = subprocess.run(
@@ -403,6 +630,16 @@ class RunnerScheduling(unittest.TestCase):
         )
         self.assertNotIn("PRIVATE_SENTINEL", child.stderr)
         self.assertEqual(child.returncode, 0, child.stdout + child.stderr)
+
+    def test_invalidation_without_reply_cancels_and_retires(self):
+        for mode in ("invocation", "owner"):
+            with self.subTest(mode=mode):
+                self.run_case("invalidate-" + mode)
+
+    def test_idle_invocations_are_not_scanned_for_ordinary_replies(self):
+        for count in (0, 16, 64, 127):
+            with self.subTest(idle=count):
+                self.run_case("idle-scans-" + str(count))
 
     def test_binary_reply_lifecycle(self):
         for mode in ("normal", "duplicate", "expired", "stopped", "malformed"):

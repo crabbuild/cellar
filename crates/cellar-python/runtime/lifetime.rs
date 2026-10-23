@@ -40,7 +40,7 @@ impl Drop for Lifetime {
         // Expiration alone does not mean the Python task has finished. Native
         // cancellation must still wake it even after direct bridge expiration.
         if self.0.revoke() {
-            self.1.notify();
+            self.1.invalidate();
         }
     }
 }

@@ -20,15 +20,20 @@ fn coalesces_without_blocking_and_rearms_after_drain() {
 
 #[test]
 fn producers_racing_drain_cannot_strand_work() {
-    producers_racing_drain(false);
+    producers_racing_drain(0);
 }
 
 #[test]
 fn retirements_racing_drain_cannot_strand_work() {
-    producers_racing_drain(true);
+    producers_racing_drain(RETIRED);
 }
 
-fn producers_racing_drain(retirement: bool) {
+#[test]
+fn invalidations_racing_drain_cannot_strand_work() {
+    producers_racing_drain(INVALIDATED);
+}
+
+fn producers_racing_drain(hint: u8) {
     let wakeup = Wakeup::new().unwrap();
     let (sender, receiver) = mpsc::channel();
     thread::scope(|scope| {
@@ -38,8 +43,10 @@ fn producers_racing_drain(retirement: bool) {
             scope.spawn(move || {
                 for _ in 0..10_000 {
                     sender.send(()).unwrap();
-                    if retirement {
+                    if hint == RETIRED {
                         wakeup.retire();
+                    } else if hint == INVALIDATED {
+                        wakeup.invalidate();
                     } else {
                         wakeup.notify();
                     }
@@ -56,7 +63,7 @@ fn producers_racing_drain(retirement: bool) {
             match (&wakeup.reader).read(&mut byte) {
                 Ok(1) => {
                     wakeup.drain().unwrap();
-                    if !retirement || wakeup.take_retirements() {
+                    if hint == 0 || wakeup.take_lifecycle() & hint != 0 {
                         received += receiver.try_iter().count();
                     }
                 }
@@ -75,18 +82,18 @@ fn ordinary_wakeups_do_not_require_owner_scans() {
     let wakeup = Wakeup::new().unwrap();
     wakeup.notify();
     wakeup.drain().unwrap();
-    assert!(!wakeup.take_retirements());
+    assert_eq!(wakeup.take_lifecycle(), 0);
     for _ in 0..100_000 {
         wakeup.retire();
     }
-    assert!(wakeup.take_retirements());
-    assert!(!wakeup.take_retirements());
+    assert_eq!(wakeup.take_lifecycle(), INVALIDATED | RETIRED);
+    assert_eq!(wakeup.take_lifecycle(), 0);
     // This retirement coalesces with the previous unread byte, but must still
     // be visible after the consumer has taken the earlier scan's hint.
     wakeup.retire();
     wakeup.drain().unwrap();
-    assert!(wakeup.take_retirements());
-    assert!(!wakeup.take_retirements());
+    assert_eq!(wakeup.take_lifecycle(), INVALIDATED | RETIRED);
+    assert_eq!(wakeup.take_lifecycle(), 0);
 }
 
 #[test]
@@ -132,6 +139,7 @@ fn finished_python_cleanup_does_not_enqueue_another_wakeup() {
     state.expire(false);
     drop(lifetime);
     assert!(!state.active());
+    assert_eq!(runtime.wakeup.take_lifecycle(), 0);
     assert_eq!(
         (&runtime.wakeup.reader).read(&mut [0]).unwrap_err().kind(),
         io::ErrorKind::WouldBlock,
@@ -154,6 +162,7 @@ fn unfinished_native_return_wakes_even_an_already_expired_invocation() {
         }
         drop(lifetime);
         assert!(!state.active());
+        assert_eq!(runtime.wakeup.take_lifecycle(), INVALIDATED);
         assert_eq!((&runtime.wakeup.reader).read(&mut [0]).unwrap(), 1);
     }
 }

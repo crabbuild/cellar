@@ -262,6 +262,14 @@ pub(crate) struct Runtime {
 }
 
 impl Runtime {
+    pub(crate) fn lifecycle(&self) -> Arc<std::sync::atomic::AtomicU8> {
+        self.wakeup.lifecycle()
+    }
+
+    pub(crate) fn invalidate(&self) {
+        self.wakeup.invalidate();
+    }
+
     pub(crate) fn retire(&self) {
         self.wakeup.retire();
     }
@@ -344,8 +352,8 @@ impl Inbox {
         self.scope = None;
     }
 
-    fn take_retirements(&self) -> bool {
-        self.runtime.wakeup.take_retirements()
+    fn take_lifecycle(&self) -> u8 {
+        self.runtime.wakeup.take_lifecycle()
     }
 
     fn wakeup_fd(&self) -> i32 {

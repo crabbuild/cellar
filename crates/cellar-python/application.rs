@@ -240,6 +240,7 @@ impl PythonApplication {
             payload,
             body,
             bridge: InvocationBridge {
+                lifecycle: self.runtime.lifecycle(),
                 sender,
                 active: active.clone(),
                 // Keep a sender here so ordinary bridge collection cannot
