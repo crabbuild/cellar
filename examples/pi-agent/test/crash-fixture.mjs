@@ -1,8 +1,8 @@
 // Only the process qualification loads this entry; production app.ts has no fault controls.
 import {appendFile, writeFile} from 'node:fs/promises';
 import {application} from '../dist/application.js';
-import {fixtureProvider} from '../dist/provider.js';
-const provider = fixtureProvider();
+import {configuredProvider, fixtureProvider} from '../dist/provider.js';
+const provider = process.env.CELLAR_PI_TEST_LIVE === '1' ? configuredProvider() : fixtureProvider();
 const stream = provider.stream;
 provider.stream = async (...args) => {
   // Freeze before provider dispatch when qualifying the acceptance boundary;

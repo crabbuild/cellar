@@ -117,7 +117,7 @@ storage:
 
 ```sh
 CELLAR_NODE_PACKAGE="$PWD/.cellar/node-fleet-package" \
-  cargo test --locked -p cellar-javascript --features node --test fleet_package -- --ignored
+  cargo test --locked -p cellar-javascript --features node --test fleet_package published_node_package -- --ignored
 ```
 
 CI moves the captured runtime aside first, so installation must restore the

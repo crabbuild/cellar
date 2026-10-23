@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {spawn} from 'node:child_process';
-import {mkdtemp, readFile, rm, access} from 'node:fs/promises';
+import {mkdtemp, readFile, rm, access, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -8,6 +8,12 @@ import {setTimeout as delay} from 'node:timers/promises';
 
 const program = process.env.CELLAR_PI_HOST;
 assert.ok(program, 'CELLAR_PI_HOST must name the built cellar-pi-agent-example executable');
+const live = process.env.CELLAR_PI_TEST_LIVE === '1';
+if (live) {
+  assert.equal(process.env.CELLAR_PI_PROVIDER, 'openai', 'live test requires CELLAR_PI_PROVIDER=openai');
+  assert.ok(process.env.OPENAI_API_KEY && process.env.CELLAR_PI_MODEL, 'live test needs a key and model');
+}
+const evidence = [];
 const entry = fileURLToPath(new URL('./crash-fixture.mjs', import.meta.url));
 const root = await mkdtemp(join(tmpdir(), 'cellar-pi-'));
 const children = new Set();
@@ -58,7 +64,8 @@ async function start(boundary, generation) {
 }
 
 try {
-  for (const boundary of ['accepted', 'provider', 'model', 'tool', 'final-model', 'completed']) {
+  const boundaries = live ? ['tool', 'completed'] : ['accepted', 'provider', 'model', 'tool', 'final-model', 'completed'];
+  for (const boundary of boundaries) {
     const first = await start(boundary, 1);
     const url = `${first.ingress}/agents/task`;
     // Acceptance can itself lose its response. Recovery uses the same task ID.
@@ -95,6 +102,13 @@ try {
     assert.equal(result.toolReceipts, 1);
     assert.equal(result.modelSteps, 2);
     assert.ok(result.messages.some(message => message.role === 'toolResult'));
+    if (live) {
+      const assistants = result.messages.filter(message => message.role === 'assistant');
+      assert.equal(assistants.length, 2);
+      assert.ok(assistants.every(message => message.provider === 'openai'
+        && message.model === process.env.CELLAR_PI_MODEL && message.usage.totalTokens > 0));
+      assert.ok(assistants.at(-1).content.some(part => part.type === 'text' && /3|three/i.test(part.text)));
+    }
     const calls = (await readFile(join(root, `${boundary}.calls`), 'utf8')).trim().split('\n');
     assert.equal(calls.length, expectedCalls, 'only an uncheckpointed provider request may repeat');
     const repeat = await fetch(recoveredUrl, {method: 'POST', body: JSON.stringify({prompt: 'Add three'})});
@@ -108,7 +122,11 @@ try {
     const outcome = await Promise.race([second.exited, delay(15_000, undefined, {ref: false}).then(() => { throw new Error('shutdown timeout'); })]);
     assert.equal(outcome.code, 0, second.logs());
     children.delete(second.child);
+    evidence.push({boundary, providerCalls: calls.length, result});
     console.log(`PASS ${boundary}: SIGKILL, cold bucket recovery, one tool effect, ${expectedCalls} provider calls, idempotent retry`);
+  }
+  if (process.env.CELLAR_PI_TEST_REPORT) {
+    await writeFile(process.env.CELLAR_PI_TEST_REPORT, JSON.stringify({live, evidence}, null, 2));
   }
 } finally {
   await Promise.all([...children].map(async child => {

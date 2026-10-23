@@ -83,6 +83,12 @@ jobs:
           cargo run --locked -p cellar -- build examples/node/project.json --output .cellar/node-fleet-package
           # Restore from the published archive, without the captured source tree.
           mv .cellar/node-runtime .cellar/node-runtime-captured
-          CELLAR_NODE_PACKAGE="$PWD/.cellar/node-fleet-package" cargo test --locked -p cellar-javascript --no-default-features --features node --test fleet_package -- --ignored
+          CELLAR_NODE_PACKAGE="$PWD/.cellar/node-fleet-package" cargo test --locked -p cellar-javascript --no-default-features --features node --test fleet_package published_node_package -- --ignored
+      - name: Pi agent installed package end to end
+        run: |
+          node tools/javascript/node-package.mjs --runtime examples/pi-agent/runtime.json .cellar/pi-agent-runtime
+          cargo run --locked -p cellar -- build examples/pi-agent/project.json --output .cellar/pi-agent-package
+          mv .cellar/pi-agent-runtime .cellar/pi-agent-runtime-captured
+          CELLAR_PI_PACKAGE="$PWD/.cellar/pi-agent-package" cargo test --locked -p cellar-javascript --no-default-features --features node --test fleet_package pi_agent_package -- --ignored --nocapture
       - name: SDK archive
         run: npm pack ./packages/cellar-sdk --pack-destination .cellar --ignore-scripts
