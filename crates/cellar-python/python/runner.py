@@ -169,10 +169,17 @@ async def _serve(module, inbox, interval, shutdown, stats, maximum, telemetry, s
             inbox.drain_wakeup()
             # Queue SDK continuations before waking the admission pump. Host
             # operations still run in their original native invocation futures.
-            if not inbox.done() and not any(_failures.values()):
+            done = inbox.done()
+            if not done and not any(_failures.values()):
                 deliver_replies()
-        finally:
+            # Replies resume their own tasks. Completion callbacks release
+            # those tasks; admissions and revocations have native dirty hints.
+            # Avoid rebuilding the admission pump's timer for every SDK reply.
+            if done or any(_failures.values()) or inbox.pump_needed():
+                ready.set()
+        except BaseException:
             ready.set()
+            raise
 
     def completed(invocation, task):
         completed_invocations.append(invocation)
@@ -214,6 +221,10 @@ async def _serve(module, inbox, interval, shutdown, stats, maximum, telemetry, s
     try:
         while not inbox.done():
             ready.clear()
+            # Consume hints before the queues: publication during admission
+            # must survive for the next readiness callback, including when a
+            # producer enqueues just after take() observes an empty queue.
+            lifecycle = inbox.take_lifecycle()
             now = time.perf_counter_ns()
             if any(_failures.values()):
                 stats["runtime_failed"] = True
@@ -266,7 +277,6 @@ async def _serve(module, inbox, interval, shutdown, stats, maximum, telemetry, s
             # native invalidation hints before scanning so concurrent revocation
             # remains visible on the next pass. Every SDK call and reply still
             # checks its own invocation authority.
-            lifecycle = inbox.take_lifecycle()
             if lifecycle & 1:
                 cancel_invalidated()
             # Native owner drops publish a bounded dirty hint after revoking

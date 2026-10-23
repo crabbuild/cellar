@@ -17,6 +17,9 @@ def continuous_arrivals(mode):
     if mode.startswith("invalidate-"):
         invalidation_without_reply(mode.removeprefix("invalidate-"))
         return
+    if mode == "late-admission":
+        idle_invocation_scans(0, late=True)
+        return
     if mode.startswith("idle-scans-"):
         idle_invocation_scans(int(mode.removeprefix("idle-scans-")))
         return
@@ -145,6 +148,9 @@ def continuous_arrivals(mode):
 
         def replies(self):
             return []
+
+        def pump_needed(self):
+            return False
 
         def take_lifecycle(self):
             return False
@@ -375,6 +381,9 @@ def reply_delivery(mode):
         def done(self):
             return self.stopped
 
+        def pump_needed(self):
+            return False
+
         def take_lifecycle(self):
             return False
 
@@ -460,6 +469,9 @@ def invalidation_without_reply(mode):
                 self.lifecycle |= 2
             self.writer.send(b"x")
 
+        def pump_needed(self):
+            return bool(self.lifecycle)
+
         def take_lifecycle(self):
             flags, self.lifecycle = self.lifecycle, 0
             return flags
@@ -503,12 +515,12 @@ def invalidation_without_reply(mode):
         inbox.writer.close()
 
 
-def idle_invocation_scans(cold):
+def idle_invocation_scans(cold, late=False):
     sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'crates/cellar-python/python'))
     import runner
     from cellar import Response, _current_invocation
     rounds = 100
-    state = dict(issued=0, submitted=0, resumed=0, completed=0, cold_joined=0, cold_checks=0, measuring=False)
+    state = dict(issued=0, submitted=0, resumed=0, completed=0, cold_joined=0, cold_checks=0, admission_checks=0, measuring=False, late_completed=0)
     bridges = weakref.WeakSet()
 
     async def fetch(request, ctx):
@@ -517,9 +529,13 @@ def idle_invocation_scans(cold):
                 await asyncio.Event().wait()
             finally:
                 state['cold_joined'] += 1
+        elif request.path == '/late':
+            return Response(b'ok')
         else:
-            for _ in range(rounds):
+            for index in range(rounds):
                 assert await ctx.var('value') == '42'
+                if late and index >= 2:
+                    assert state['late_completed'] == 1, 'new admission waited for a completed task or housekeeping timer'
                 state['resumed'] += 1
             return Response(b'ok')
 
@@ -547,7 +563,11 @@ def idle_invocation_scans(cold):
             asyncio.get_running_loop().call_soon(publish)
 
         def complete(self, encoded, failed, body=None):
-            assert self.number == cold + 1 and (not failed) and (body == b'ok')
+            assert not failed and body == b'ok'
+            if late and self.number == cold + 2:
+                state['late_completed'] += 1
+                return
+            assert self.number == cold + 1
             state['completed'] += 1
             state['measuring'] = False
             # Allow the completion callback and pump to run while unrelated
@@ -565,6 +585,8 @@ def idle_invocation_scans(cold):
             self.writer.setblocking(False)
             self.queue = []
             self.stopped = False
+            self.deferred = self.deferred_issued = False
+            self.lifecycle = 0
 
         def wakeup_fd(self):
             return self.reader.fileno()
@@ -577,7 +599,19 @@ def idle_invocation_scans(cold):
                     return
 
         def take(self):
+            if state['measuring']:
+                state['admission_checks'] += 1
+            if late and self.deferred and not self.deferred_issued:
+                self.deferred_issued = True
+                payload = json.dumps(dict(identity=None, object=None, kind='fetch', event=dict(url='http://scan/late', method='GET', headers=[])))
+                return (cold + 2, payload, b'', Bridge(cold + 2))
             if self.stopped or state['issued'] == cold + 1:
+                if late and not self.deferred:
+                    # Publish immediately after this queue read found no work,
+                    # before the pump can consume any later hints.
+                    self.deferred = True
+                    self.lifecycle |= 4
+                    self.writer.send(b'x')
                 return None
             state['issued'] += 1
             number = state['issued']
@@ -589,8 +623,12 @@ def idle_invocation_scans(cold):
             queue, self.queue = (self.queue, [])
             return queue
 
+        def pump_needed(self):
+            return bool(self.lifecycle)
+
         def take_lifecycle(self):
-            return False
+            flags, self.lifecycle = self.lifecycle, 0
+            return flags
 
         def check_released(self):
             assert len(bridges) == cold, "completed invocation retained by live pump"
@@ -617,6 +655,7 @@ def idle_invocation_scans(cold):
         assert report['pending_tasks'] == report['pending_objects'] == report['pending_threads'] == 0
         assert not bridges, 'pump retained invocation bridges'
         assert state['cold_checks'] == 0, f'idle invocation scans: {state}'
+        assert state['admission_checks'] <= (3 if late else 1), f'reply-only notifications woke admission pump: {state}'
     finally:
         inbox.reader.close()
         inbox.writer.close()
@@ -640,6 +679,9 @@ class RunnerScheduling(unittest.TestCase):
         for count in (0, 16, 64, 127):
             with self.subTest(idle=count):
                 self.run_case("idle-scans-" + str(count))
+
+    def test_admission_published_after_empty_queue_does_not_wait_for_housekeeping(self):
+        self.run_case("late-admission")
 
     def test_binary_reply_lifecycle(self):
         for mode in ("normal", "duplicate", "expired", "stopped", "malformed"):

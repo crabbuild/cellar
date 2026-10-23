@@ -13,6 +13,7 @@ use std::{
 
 pub(super) const INVALIDATED: u8 = 1;
 pub(super) const RETIRED: u8 = 2;
+pub(super) const ADMITTED: u8 = 4;
 
 pub(super) struct Wakeup {
     reader: UnixStream,
@@ -75,13 +76,22 @@ impl Wakeup {
         self.notify();
     }
 
+    pub(super) fn admit(&self) {
+        self.lifecycle.fetch_or(ADMITTED, Ordering::AcqRel);
+        self.notify();
+    }
+
+    pub(super) fn pump_needed(&self) -> bool {
+        self.lifecycle.load(Ordering::Acquire) != 0
+    }
+
     pub(super) fn lifecycle(&self) -> Arc<AtomicU8> {
         self.lifecycle.clone()
     }
 
     pub(super) fn take_lifecycle(&self) -> u8 {
-        // Clear BEFORE scanning owners. A retirement racing with that scan
-        // leaves the hint set for another pass, even if its byte coalesces.
+        // Clear BEFORE consuming starts or scanning owners. Publication racing
+        // with either pass leaves a hint even if its readiness byte coalesces.
         self.lifecycle.swap(0, Ordering::AcqRel)
     }
 
