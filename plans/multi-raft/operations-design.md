@@ -144,9 +144,12 @@ local replica. Each turn has at most one second and inspects at most eight
 configured voters, serially. A single node-wide turn owns reserved control
 memory; it creates no per-cell thread or detached task.
 
-Failed, retired, incoming, pending-producer, configuration-changing or physically
-busy replicas cannot begin handoff. The source obtains current runtime status
-and replication progress. Candidate checks require current matched progress,
+Failed or retired replicas cannot begin handoff. Incoming, pending-producer,
+configuration-changing or physically busy replicas wait for their admitted work
+within the same one-second turn. Completion events and the host poll resume the
+turn without renewing its deadline; waiting consumes the inspection and transfer
+budget. A group still busy at expiry is reported unavailable. The source obtains
+current runtime status and replication progress. Candidate checks require current matched progress,
 voter role and recent activity, then authenticated inspection of the exact
 scope, schema, birth, member, node/disk/process, term and membership revision.
 The destination must have durably applied and published the source's committed

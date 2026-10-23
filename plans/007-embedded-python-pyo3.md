@@ -24,16 +24,16 @@ recovery. The packaged smoke additionally covers Pydantic/native-extension impor
 KV, SQL, queue delivery and cron. These are implementation checks, not broad
 production certification. The design below records the intended full contract.
 
-The complete Linux [push](https://github.com/crabbuild/cellar/actions/runs/39548047580)
+The historical Linux [push](https://github.com/crabbuild/cellar/actions/runs/39548047580)
 and [PR](https://github.com/crabbuild/cellar/actions/runs/39548052722) matrix now
-passes all four push/PR jobs at 85cdef4, covering both threading ABIs, adapter
+passed all four push/PR jobs at 85cdef4, covering both threading ABIs, adapter
 and bootstrap, installed-host prerequisite/refusal, offline recovery,
 replacement, workspace tests/lints, Axum modes and native examples. Each job
-passes native-node 88/88. Subsequent changes are documentation/evidence and
-opt-in diagnostic controls; runtime/test sources, dependencies and all twenty
-main qualification step bodies are unchanged. Remaining release work concerns
-the preserved historical lifecycle failures, whose causes are not established
-by passing repetitions. Operating
+passed native-node 88/88. Those results predate the later Raft and Python bridge
+changes and do not qualify the current source. Both ABI matrices, installed
+artifacts and workload measurements must be checked at the release revision.
+Remaining release work also includes the preserved historical lifecycle
+failures, whose causes are not established by passing repetitions. Operating
 defaults have repeated local measurements and Linux CI workload evidence within
 their stated development scope. Interrupted cron delivery, admission/retirement races and
 native-versus-Python development measurements have been exercised by the shipped harnesses.
@@ -41,8 +41,8 @@ Independent KV, shared-SQL
 and queue matrices now cover cancellation, failed proof, explicit reconciliation,
 backpressure, resource cleanup and preserving restart. The queue producer drill
 also exposed and fixed a native reset race with a still-running alarm. Supported
-macOS ARM64/Linux x86_64 package/runtime qualification is recorded by exact version
-in the audit. Real three-node tests withhold both follower acknowledgements and
+macOS ARM64/Linux x86_64 package/runtime checks use explicit runtime inventories
+and versions. Real three-node tests withhold both follower acknowledgements and
 bucket writes, then release actual follower acknowledgements with bucket writes
 still held. They exercise explicit sync and final output separately and refuse
 success when both proof paths fail. Native-writer conflicts and a stale Python
@@ -66,8 +66,11 @@ background interpreter failure and default executor shutdown have local coverage
 closure. The real recovery drill removes the original runtime, installs from
 a private bucket and starts the installed host with a cleared environment,
 including numerical native libraries and complete joined shutdown. System
-libraries outside that closure remain platform prerequisites. A bounded 1 ms polling
-bridge is used initially; notification-driven wakeups are deferred.
+libraries outside that closure remain platform prerequisites. The bridge now
+uses coalesced, nonblocking notifications to wake the existing asyncio loop for
+admission, replies, cancellation, retirement and host completion. The native
+invocation still owns every SDK operation. A 250 ms housekeeping timer bounds
+background-failure observation without imposing a per-message polling delay.
 Prepared: 2026-10-19.
 Source baseline: `4008db9d514c53c62989899302d8811db0182a64`.
 
@@ -276,6 +279,10 @@ loop. Do not silently lose cleanup requests when an ordinary work queue is full.
 The adapter uses a Rust-owned activation liveness flag. Proxy drop revokes that
 flag without entering Python; the loop observes retirement independently of the
 ordinary request mailbox. This requires no Python-specific public `Cell` hook.
+Native drops also set a bounded retirement flag, consumed before the loop scans
+resident objects. Requests and replies alone do not trigger a full owner scan;
+a concurrent drop leaves the flag set for another pass. Operation authority
+checks remain per-call and do not depend on whether cleanup has run.
 The audit separately tracks pending cleanup accounting and retirement races.
 
 ## Atomic storage without Python callbacks inside SQLite transactions
@@ -541,10 +548,33 @@ or let the adapter fabricate an activation context.
 | M4: packaging | Runtime/source/dependency inventory, verified install and process replacement | Wrong ABI/missing library/tampered source refuses startup; offline deployment; old/new process handoff; runtime artifact recovery; Python example runs from a fresh installation |
 | M5: SDK growth | Additional bindings and optional ASGI/stream adapters | Independent authority, cancellation, backpressure, replay and resource tests for each surface |
 
-Core features span all six phases. The delivery review found no unimplemented
-required surface; optional adapters remain deferred. The shared release gate
-is diagnosis of the preserved historical delivery, consumer-admission and
-clock/replay failures. Component acceptance does not close that reliability gate:
+Core features span all six phases. The FastAPI example adds buffered ASGI HTTP;
+general ASGI lifespan, WebSockets and live streaming remain deferred. The
+assessments below describe implemented contracts and historical evidence, not
+qualification of a later revision. The shared release gate requires current
+source/ABI/platform checks and diagnosis of preserved lifecycle failures.
+Component acceptance does not close that reliability gate:
+
+Delivery priorities, in order:
+
+| Priority | Work | Completion gate |
+| --- | --- | --- |
+| P0: release reliability | Diagnose alarm, admission and shutdown failures; preserve failure context and original deadlines | Complete adapter/bootstrap, native lifecycle and installed-package checks pass on the release revision in both threading ABIs; a passing repetition alone does not explain a preserved failure |
+| P1: bounded load | Preserve typed overload through nested and remote calls; measure FastAPI reads and durable mutations with explicit ingress limits | Account for every offered request, distinguish refusal from ambiguous commit, verify acknowledged writes after recovery, and completely join every host |
+| P1: performance | Compare fixed native/Python artifacts under identical workload, resources and durability policy | Repeated comparisons establish throughput and tail latency; isolated CPU savings alone do not justify an application performance claim |
+| P2: deployment qualification | Exercise sustained activation churn, memory/resource stability, backend faults and rolling replacement | The intended deployment meets stated throughput, p99, RPO and RTO targets while preserving acknowledged state and fencing stale work |
+
+Finish P0 and bounded-load behavior before expanding the SDK. General ASGI
+lifespan, WebSockets and streaming remain separate feature work. Preserve
+unsuccessful optimization measurements outside Git and defer candidates whose
+application-level benefit or regression risk remains unresolved.
+
+The [durable churn qualification](../tools/python/baseline.md#durable-activation-churn)
+now supplies a repeatable resource/recovery gate above the resident-cell limit,
+with a short CI check and an opt-in optimized Linux workload for each threading
+ABI. It preserves unknown mutation outcomes and failed runs even when recovery
+succeeds. Its private development bucket and sampled memory observations do not
+close the production-backend or sustained memory-stability gates.
 
 | Phase | Current assessment | Gate still open |
 | --- | --- | --- |
@@ -553,7 +583,7 @@ clock/replay failures. Component acceptance does not close that reliability gate
 | M2 | Storage, atomic batches, alarms, proof and receipt recovery have direct evidence; complete Linux regressions pass | No missing feature identified; shared reliability release gate remains |
 | M3 | Fencing, retirement, takeover and supervised noncooperative shutdown implemented; lease and reset/read corrections have direct evidence; complete Linux regressions pass | Diagnose preserved delivery, initial consumer admission and clock/replay failures without weakening assertions |
 | M4 | Verified packaging, native prerequisites, offline restoration and process replacement pass locally and in all four complete Linux jobs at 85cdef4 | No missing feature identified; shared reliability release gate remains |
-| M5 | KV, shared SQL, queues and cron implemented with independent failure matrices; measured defaults and complete Linux regressions pass in both ABIs | Optional ASGI/streaming remain deferred; shared reliability release gate remains |
+| M5 | KV, shared SQL, queues and cron implemented with independent failure matrices; measured defaults and historical Linux regressions pass in both ABIs; the buffered FastAPI example includes deployment checks | General ASGI lifespan, WebSockets and live streaming remain deferred; shared reliability release gate remains |
 
 Qualification of source 97be2cc completes the Linux installed-package step in
 both push ABI jobs and the conventional PR job. The PR free-threaded job fails
@@ -575,8 +605,29 @@ historical lifecycle failure. A bounded native cause diagnostic and opt-in Linux
 fresh-fixture consumer replay mode target the preserved initial admission refusal;
 passing repetitions alone cannot establish its cause.
 
+For production performance qualification, compare the exact native and Python
+artifacts under the same workload, resource limits and durability policy. The
+local [baseline harness](../tools/python/baseline.md) checks responses and
+acknowledged state after owner death, but its closed-loop traffic and private
+SQLite bucket do not establish fleet capacity. Remaining load gates include
+populated resident-cell sets, independent arrival rates, saturation and recovery,
+long-running resource stability, and the intended multi-node storage/failure
+configuration. The [deployment qualification guide](../docs/19-testing-qualification.md)
+describes the broader failure and load matrix. Application throughput and p99
+targets must be stated before declaring that deployment qualified.
+The companion residency harness isolates pump cost with verified native/Python
+resident counts and local-only cells. Its echo measurements and complete cleanup
+checks do not close the fleet storage, durable-load or long-running memory gates.
+The local optimized baseline has reproduced concurrent-write LTX proof timeouts
+and node self-fencing after ambiguous lease renewals. Fleet-only recovery from
+those failed runs retained acknowledged writes; requests with lost responses
+included both committed and uncommitted outcomes. These remain failed workload
+runs. Recovery success does not qualify sustained durable throughput or explain
+the underlying lease/storage stall.
+
 Prioritize delivery and review of the implemented runtime, SDK and packaging,
-then resolve the preserved reliability failures before adding more surfaces. A gate closes only with its stated evidence on
+then resolve the preserved reliability failures and qualify the intended load
+before adding more surfaces. A gate closes only with its stated evidence on
 the relevant source, threading ABI and platform; a historical successful CI run
 does not qualify later changes.
 

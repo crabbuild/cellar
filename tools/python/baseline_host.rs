@@ -1,6 +1,7 @@
 //! Same real node/fleet policy for both measured application implementations.
 use super::*;
 use cellar::sdk::*;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 struct Controlled {
     application: Arc<dyn Application>,
@@ -8,6 +9,24 @@ struct Controlled {
     memory: Arc<Mutex<Value>>,
     observe: Observation,
     origin: Instant,
+    resident: Option<Arc<AtomicUsize>>,
+}
+
+struct CountedCell {
+    inner: Arc<dyn Cell>,
+    resident: Arc<AtomicUsize>,
+}
+
+impl Cell for CountedCell {
+    fn invoke(self: Arc<Self>, context: Context, event: Invocation) -> HandlerFuture<Output> {
+        Box::pin(async move { self.inner.clone().invoke(context, event).await })
+    }
+}
+
+impl Drop for CountedCell {
+    fn drop(&mut self) {
+        self.resident.fetch_sub(1, Ordering::AcqRel);
+    }
 }
 
 impl Application for Controlled {
@@ -16,8 +35,12 @@ impl Application for Controlled {
             if request.url.ends_with("/native-observations") {
                 let memory = self.memory.lock().unwrap().clone();
                 let observation = (self.observe)();
+                let resident = self
+                    .resident
+                    .as_ref()
+                    .map(|count| count.load(Ordering::Acquire));
                 return Box::pin(async move {
-                    Ok(Output::Http(http::Response::from_json(&json!({"memory":memory, "runtime":observation, "observed_elapsed_ns":self.origin.elapsed().as_nanos() as u64}))?.into_http(&context)?))
+                    Ok(Output::Http(http::Response::from_json(&json!({"memory":memory, "runtime":observation, "native_resident_cells":resident, "observed_elapsed_ns":self.origin.elapsed().as_nanos() as u64}))?.into_http(&context)?))
                 });
             }
             if request.url.ends_with("/native-stop") && request.method == "POST" {
@@ -37,7 +60,16 @@ impl Application for Controlled {
     }
 
     fn create_cell(&self, context: Context, identity: &CellIdentity) -> Result<Arc<dyn Cell>> {
-        self.application.create_cell(context, identity)
+        let inner = self.application.create_cell(context, identity)?;
+        if let Some(resident) = &self.resident {
+            resident.fetch_add(1, Ordering::AcqRel);
+            Ok(Arc::new(CountedCell {
+                inner,
+                resident: resident.clone(),
+            }))
+        } else {
+            Ok(inner)
+        }
     }
 
     fn validate_deployment(&self, deployment: &cellar::fleet::LoadedDeployment) -> Result<()> {
@@ -64,9 +96,10 @@ pub(super) async fn drive(
     let internal = internal_listener.local_addr()?;
     let name = format!("baseline-{}", arguments.role);
     let signer = Arc::new(PeerProbeSigner::generate());
+    let max_resident = if arguments.residency() { 4096 } else { 64 };
     let actor = ActorOptions {
         core: ActorPolicy {
-            max_resident: 64,
+            max_resident,
             max_cached_routes: 64,
             max_activations: 16,
             max_evictions: 8,
@@ -111,33 +144,37 @@ pub(super) async fn drive(
     let executor = tokio::runtime::Handle::current();
     let peer_http = reqwest::Client::builder().no_proxy().build()?;
     let peer_auth = Arc::new(PeerAuth::new([61; 32], &name)?);
-    let bucket = cellar::bucket::Bucket::open_dev(&arguments.directory.join("fleet.sqlite"))?;
-    let fleet = NodeFleet {
-        replica_storage: ReplicaStorage::new(
-            bucket.store.clone(),
-            ReplicaStorageOptions {
-                prefix: bucket.prefix.clone(),
+    let fleet = if arguments.residency() {
+        None
+    } else {
+        let bucket = cellar::bucket::Bucket::open_dev(&arguments.directory.join("fleet.sqlite"))?;
+        Some(NodeFleet {
+            replica_storage: ReplicaStorage::new(
+                bucket.store.clone(),
+                ReplicaStorageOptions {
+                    prefix: bucket.prefix.clone(),
+                    ..Default::default()
+                },
+            )?,
+            lease_bucket: bucket.clone(),
+            bucket,
+            replication: ReplicationOptions {
+                flush_interval: Duration::ZERO,
+                durability_timeout: Duration::from_secs(2),
+                compaction: None,
                 ..Default::default()
             },
-        )?,
-        lease_bucket: bucket.clone(),
-        bucket,
-        replication: ReplicationOptions {
-            flush_interval: Duration::ZERO,
-            durability_timeout: Duration::from_secs(2),
-            compaction: None,
-            ..Default::default()
-        },
-        log_transport: Arc::new(SignedPeerTransport::from_clients(
-            peer_http.clone(),
-            peer_http.clone(),
-            peer_auth.clone(),
-        )),
-        log: LogOptions {
-            record_publish_timeout: Duration::from_secs(3),
-            ..Default::default()
-        },
-        fleet_durability: false,
+            log_transport: Arc::new(SignedPeerTransport::from_clients(
+                peer_http.clone(),
+                peer_http.clone(),
+                peer_auth.clone(),
+            )),
+            log: LogOptions {
+                record_publish_timeout: Duration::from_secs(3),
+                ..Default::default()
+            },
+            fleet_durability: false,
+        })
     };
     let shutdown = Arc::new(tokio::sync::Notify::new());
     let origin = Instant::now();
@@ -150,6 +187,7 @@ pub(super) async fn drive(
         memory: samples.clone(),
         observe,
         origin,
+        resident: arguments.residency().then(|| Arc::new(AtomicUsize::new(0))),
     });
     let applications =
         CompiledApplications::default().register("perf-cells", "v1", move || Ok(app.clone()))?;
@@ -165,7 +203,7 @@ pub(super) async fn drive(
             peer_http,
             peer_auth,
             probe_signer: signer,
-            fleet: Some(fleet),
+            fleet,
             containers: None,
             metrics: None,
         },
@@ -173,6 +211,10 @@ pub(super) async fn drive(
         applications,
     )
     .await?;
+    #[cfg(feature = "embed")]
+    let python_poll_interval_ms = Some(cellar_python::Options::default().poll_interval.as_millis());
+    #[cfg(not(feature = "embed"))]
+    let python_poll_interval_ms: Option<u128> = None;
     std::fs::write(
         arguments.directory.join("ready.json"),
         serde_json::to_vec(&json!({
@@ -180,11 +222,12 @@ pub(super) async fn drive(
             "before_runtime":arguments.before_runtime,
             "embed_compiled":cfg!(feature="embed"), "debug_assertions":cfg!(debug_assertions),
             "os":std::env::consts::OS, "arch":std::env::consts::ARCH, "cellar_version":env!("CARGO_PKG_VERSION"),
-            "lease_ttl_ms":3000, "host_threads":4, "python_poll_interval_ms":if cfg!(feature="embed") {Some(1)} else {None},
-            "durability":"bucket", "store":"private SQLite development bucket", "memory_sample_interval_ms":200,
+            "lease_ttl_ms":3000, "host_threads":4, "python_poll_interval_ms":python_poll_interval_ms,
+            "durability":if arguments.residency() { "local-only" } else { "bucket" },
+            "store":if arguments.residency() { "no fleet store" } else { "private SQLite development bucket" }, "memory_sample_interval_ms":200,
             "native_max_stateless_requests":runtime_policy.max_stateless_requests,
             "native_admission_wait_ms":runtime_policy.admission_wait.as_millis(),
-            "handler_budget_ms":runtime_policy.handler_budget.as_millis(), "max_resident":64,
+            "handler_budget_ms":runtime_policy.handler_budget.as_millis(), "max_resident":max_resident,
         }))?,
     )?;
     let serving = node.run_until(async move {
@@ -207,6 +250,8 @@ pub(super) async fn drive(
     let NodeOutcome::Stopped(ref report) = outcome else {
         anyhow::bail!("baseline node did not stop: {outcome:?}");
     };
+    // Local-only residency cannot issue a fleet clean-reload certificate.
+    // Every drain/join check remains mandatory in both fixture modes.
     ensure!(
         report.ingress_drained
             && report.application_work_drained
@@ -215,7 +260,7 @@ pub(super) async fn drive(
             && report.pending_dispatches == 0
             && report.log_quiesced
             && report.local_durability_closed
-            && report.clean_reload_prepared
+            && (report.clean_reload_prepared || arguments.residency())
             && !report.drain_timed_out
             && !report.deadline_elapsed,
         "baseline node failed complete drain: {report:?}"

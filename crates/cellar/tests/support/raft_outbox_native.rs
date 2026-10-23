@@ -536,30 +536,51 @@ impl Fixture {
     async fn close(self) -> Result<()> {
         self.source_gate.release();
         self.destination_gate.release();
-        self.source.close().await?;
-        self.destination.close().await
+        self.source
+            .close()
+            .await
+            .context("outbox source shutdown")?;
+        self.destination
+            .close()
+            .await
+            .context("outbox destination shutdown")
     }
 }
 
 pub async fn never_speculative() -> Result<()> {
-    let mut f = Fixture::start(true, false).await?;
-    let leader = f.source.leader().await?;
+    let mut f = Fixture::start(true, false)
+        .await
+        .context("start outbox qualification fixtures")?;
+    let leader = f
+        .source
+        .leader()
+        .await
+        .context("source readiness before private emission")?;
     let mut options = public_node::options(2)?;
     options.durability = Durability::S3;
-    let call = f.source.cell(leader)?.command(
+    let mut call = Box::pin(f.source.cell(leader)?.command(
         f.source.definitions[leader].write.clone(),
         Fixture::input(7, 1),
         options,
-    );
-    tokio::time::timeout(Duration::from_secs(5), f.source_entered.recv())
-        .await?
-        .context("private emission not reached")?;
+    ));
+    // Admission starts before the returned future is polled. Observe an early
+    // refusal alongside the gate so it cannot masquerade as a missing callback.
+    tokio::time::timeout(Duration::from_secs(5), async {
+        cellar::asyncrt::select! {
+            entered = f.source_entered.recv() => entered.context("private emission channel closed"),
+            result = &mut call => anyhow::bail!("source command completed before private emission: {result:?}"),
+        }
+    })
+    .await
+    .context("observe private outbox emission")??;
     tokio::time::sleep(Duration::from_millis(750)).await;
     ensure!(f.sink.attempts.load(Ordering::SeqCst) == 0 && f.destination_executions() == 0);
     f.source_gate.release();
-    let receipt = call.await?;
+    let receipt = call.await.context("commit released outbox command")?;
     ensure!(receipt.durability == Durability::S3);
-    f.assert_result(1, 7).await?;
+    f.assert_result(1, 7)
+        .await
+        .context("settle committed outbox command")?;
     ensure!(f.destination_executions() == 1 && f.source_executions() == 1);
     let rollback = f
         .source
@@ -573,7 +594,9 @@ pub async fn never_speculative() -> Result<()> {
         .await;
     ensure!(rollback.is_err());
     tokio::time::sleep(Duration::from_millis(500)).await;
-    f.assert_result(1, 7).await?;
+    f.assert_result(1, 7)
+        .await
+        .context("outbox state after private rollback")?;
     ensure!(f.destination_executions() == 1);
     f.close().await
 }

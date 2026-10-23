@@ -84,6 +84,9 @@ pub(crate) fn envelope(name: &str, error: &Error) -> Value {
             RequestError::DurabilityUnproven => ("Ambiguous", "unknown"),
             _ => submitted(name),
         }
+    } else if cellar::sdk::ApplicationOverloaded::matches(error) {
+        // A parent may have committed before its nested invocation was refused.
+        ("Overloaded", "unknown")
     } else {
         submitted(name)
     };
@@ -177,5 +180,17 @@ mod tests {
             envelope("storage.apply", &error.context(Validation))["outcome"],
             "not_committed"
         );
+    }
+
+    #[test]
+    fn application_overload_never_guesses_a_parent_rollback() {
+        let refused = Error::new(cellar::sdk::ApplicationOverloaded).context("private parent");
+        let value = envelope("cell.fetch", &refused);
+        assert_eq!(
+            value,
+            json!({"ok":false,"error":"Overloaded","code":"Overloaded","outcome":"unknown"})
+        );
+        let gated = refused.context(RoutedRequestError(RequestError::DurabilityUnproven));
+        assert_eq!(envelope("cell.fetch", &gated)["code"], "Ambiguous");
     }
 }

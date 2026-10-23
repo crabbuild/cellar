@@ -6,19 +6,24 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: Qualification or isolated native-event investigation
+        description: Qualification, native-event investigation, or optimized Python load
         type: choice
         default: qualification
         options:
           - qualification
           - consumer-replay
           - clock-replay
+          - python-load
+      load_repetitions:
+        description: Optimized Python load repetitions (1-5)
+        type: number
+        default: 3
       repetitions:
         description: Fresh fixtures (1-100 consumer, 1-50 clock)
         type: number
         default: 20
       replay_sha:
-        description: Optional full repository commit SHA for isolated replay
+        description: Optional full repository commit SHA for isolated replay or load
         type: string
         default: ''
 
@@ -26,7 +31,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: cellar-sdk-${{ github.ref }}-${{ github.event_name == 'workflow_dispatch' && (inputs.mode == 'consumer-replay' || inputs.mode == 'clock-replay') && format('replay-{0}', github.run_id) || 'qualification' }}
+  group: cellar-sdk-${{ github.ref }}-${{ github.event_name == 'workflow_dispatch' && inputs.mode != 'qualification' && format('diagnostic-{0}', github.run_id) || 'qualification' }}
   cancel-in-progress: true
 
 env:
@@ -38,10 +43,12 @@ env:
 
 jobs:
   check:
-    if: github.event_name != 'workflow_dispatch' || (inputs.mode != 'consumer-replay' && inputs.mode != 'clock-replay')
+    if: github.event_name != 'workflow_dispatch' || inputs.mode == 'qualification'
     name: Rust framework and SDK (${{ matrix.python }})
     runs-on: ubuntu-22.04
-    timeout-minutes: 90
+    # ABI/package qualification plus serial fleet tests and restart examples
+    # exceed 90 minutes on shared runners; individual test bounds remain intact.
+    timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:
@@ -78,7 +85,11 @@ jobs:
       - name: Test native Python prerequisite capture
         run: python3 tools/python/test_native_prerequisites.py
       - name: Test Python qualification guards
-        run: python3 tools/python/test_qualification_guards.py
+        run: |
+          python3 tools/python/test_qualification_guards.py
+          python3 tools/python/test_baseline.py
+          python3 tools/python/test_runner.py
+          python3 tools/python/test_encoding.py
       - name: Test Cloudflare benchmark peer relay
         run: |
           npm ci --ignore-scripts --prefix tools/perf/cloudflare
@@ -87,6 +98,8 @@ jobs:
         run: cargo test -p cellar-python --features embed --locked -- --test-threads=1
       - name: Verify native and Python baseline harness
         run: |
+          cargo build -p cellar-python --example python-offered-load --no-default-features --locked
+          python tools/python/test_offered.py target/debug/examples/python-offered-load
           cargo build -p cellar-python --example python-baseline --no-default-features --locked
           cp target/debug/examples/python-baseline "$RUNNER_TEMP/baseline-native"
           cargo build -p cellar-python --example python-baseline --features embed --locked
@@ -99,6 +112,31 @@ jobs:
             --output "$RUNNER_TEMP/python-defaults" --build-profile dev --count 4 --concurrency 1 4 16 32 --repetitions 1
           python tools/python/operating_defaults_report.py "$RUNNER_TEMP/python-defaults/operating-defaults.json" > "$RUNNER_TEMP/python-defaults/report.md"
           python tools/python/test_operating_defaults_report.py "$RUNNER_TEMP/python-defaults/operating-defaults.json"
+          python tools/python/churn.py --native-host "$RUNNER_TEMP/baseline-native" \
+            --python-host "selected=$RUNNER_TEMP/baseline-python" \
+            --output "$RUNNER_TEMP/python-churn" --build-profile dev \
+            --population 128 --rounds 2 --concurrency 4 --repetitions 1
+          python tools/python/churn_report.py "$RUNNER_TEMP/python-churn/churn.json" > "$RUNNER_TEMP/python-churn/report.md"
+          python tools/python/test_churn.py --evidence "$RUNNER_TEMP/python-churn/churn.json"
+          python tools/python/residency.py --native-host "$RUNNER_TEMP/baseline-native" \
+            --python-host "selected=$RUNNER_TEMP/baseline-python" \
+            --output "$RUNNER_TEMP/python-residency" --build-profile dev \
+            --populations 0 4 --count 3 --warmup 1 --concurrency 2 --repetitions 1
+          python tools/python/offered.py --client target/debug/examples/python-offered-load \
+            --native-host "$RUNNER_TEMP/baseline-native" --python-host "selected=$RUNNER_TEMP/baseline-python" \
+            --output "$RUNNER_TEMP/python-offered" --build-profile dev \
+            --rates 20 --duration-ms 1000 --warmup-ms 250 --max-inflight 8 --max-lag-ms 500 --repetitions 1
+          python - "$RUNNER_TEMP/python-offered/offered.json" <<'PY'
+          import json, sys
+          with open(sys.argv[1]) as source:
+              report = json.load(source)
+          assert report["status"] == "complete"
+          for case in report["cases"]:
+              for phase in case["phases"]:
+                  outcomes = phase["measurement"]["outcomes"]
+                  assert outcomes.get("success", 0) > 0, outcomes
+                  assert not set(outcomes) - {"success", "client_late", "client_capacity"}, outcomes
+          PY
       - name: Qualify actual loaded Python threading ABI
         run: |
           python -m pip install uv==0.11.19
@@ -179,6 +217,119 @@ jobs:
             --project examples/team-services/project.json --suite team
           python3 examples/platform_smoke.py --cellar target/debug/cellar \
             --embedded target/debug/cellar-example-embedded --with-containers
+
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: python-churn-${{ matrix.python }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/python-churn/**/*.json
+            ${{ runner.temp }}/python-churn/**/*.log
+            ${{ runner.temp }}/python-churn/report.md
+          if-no-files-found: ignore
+          retention-days: 7
+
+  python_load:
+    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'python-load'
+    name: Optimized Python load (${{ matrix.python }})
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.14.5', '3.14.5t']
+    env:
+      CARGO_BUILD_JOBS: '2'
+      CARGO_INCREMENTAL: '0'
+      CARGO_PROFILE_LAB_DEBUG: '0'
+      PYTHONDONTWRITEBYTECODE: '1'
+      CELLAR_LOAD_REPETITIONS: ${{ inputs.load_repetitions }}
+      CELLAR_LOAD_SHA: ${{ inputs.replay_sha }}
+      CELLAR_LOAD_PYTHON: ${{ matrix.python }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.replay_sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Validate bounded workload and source
+        run: |
+          python - <<'PY'
+          import os, subprocess
+          repetitions = int(os.environ['CELLAR_LOAD_REPETITIONS'])
+          if not 1 <= repetitions <= 5:
+              raise SystemExit('load_repetitions must be from 1 to 5')
+          actual = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
+          expected = os.environ.get('CELLAR_LOAD_SHA', '').lower()
+          if expected and actual != expected:
+              raise SystemExit('Load checkout differs from requested SHA')
+          print(f'Optimized load source {actual}', flush=True)
+          PY
+      - name: Build fixed optimized native and Python artifacts
+        id: build_hosts
+        run: |
+          rustup toolchain install "$RUST_VERSION" --profile minimal
+          rustup default "$RUST_VERSION"
+          export PYO3_PYTHON="$(command -v python)"
+          cargo build -p cellar-python --example python-offered-load --example python-baseline --no-default-features --profile lab --locked
+          cp target/lab/examples/python-baseline "$RUNNER_TEMP/load-native"
+          cargo build -p cellar-python --example python-baseline --features embed --profile lab --locked
+          cp target/lab/examples/python-baseline "$RUNNER_TEMP/load-python"
+      - name: Qualify activation churn and owner-loss recovery
+        run: |
+          python tools/python/churn.py --native-host "$RUNNER_TEMP/load-native" \
+            --python-host "selected=$RUNNER_TEMP/load-python" --output "$RUNNER_TEMP/python-load/churn" \
+            --build-profile lab --population 128 --rounds 16 --concurrency 4 --repetitions "$CELLAR_LOAD_REPETITIONS"
+          python tools/python/churn_report.py "$RUNNER_TEMP/python-load/churn/churn.json" > "$RUNNER_TEMP/python-load/churn/report.md"
+          python tools/python/test_churn.py --evidence "$RUNNER_TEMP/python-load/churn/churn.json"
+          python - "$RUNNER_TEMP/python-load/churn/churn.json" <<'PY'
+          import json, os, sys
+          report = json.load(open(sys.argv[1]))
+          expected_free = os.environ['CELLAR_LOAD_PYTHON'].endswith('t')
+          for case in report['cases']:
+              runtime = case['python_runtime']
+              if runtime is not None and (runtime['free_threaded'] != expected_free or runtime['gil_enabled'] == expected_free):
+                  raise SystemExit('Loaded Python ABI/GIL state differs from selected matrix runtime')
+          PY
+      - name: Measure independent arrivals and retain refusals
+        if: ${{ !cancelled() && steps.build_hosts.outcome == 'success' }}
+        run: |
+          python tools/python/offered.py --client target/lab/examples/python-offered-load \
+            --native-host "$RUNNER_TEMP/load-native" --python-host "selected=$RUNNER_TEMP/load-python" \
+            --output "$RUNNER_TEMP/python-load/offered" --build-profile lab \
+            --rates 500 5000 15000 --duration-ms 5000 --warmup-ms 500 --max-inflight 64 --repetitions "$CELLAR_LOAD_REPETITIONS"
+          python - "$RUNNER_TEMP/python-load/offered/offered.json" <<'PY'
+          import json, sys
+          from pathlib import Path
+          sys.path.insert(0, 'tools/python')
+          from offered import summarize
+          report = json.load(open(sys.argv[1]))
+          if report['status'] != 'complete':
+              raise SystemExit('Incomplete offered-load experiment')
+          for case in report['cases']:
+              root = Path(sys.argv[1]).parent / f"{case['runtime']}-{case['repetition']}"
+              for phase in case['phases']:
+                  for name in ('warmup', 'measurement'):
+                      prefix = 'warmup' if name == 'warmup' else 'measured'
+                      raw = json.loads((root / f"{prefix}-{phase['rate']}.json").read_text())
+                      if summarize(raw) != phase[name]:
+                          raise SystemExit('Offered-load summary differs from raw arrivals')
+                      for row in raw['samples']:
+                          if row['outcome'] not in ('success', 'client_late', 'client_capacity', 'http_status') or (row['outcome'] == 'http_status' and row['status'] != 503):
+                              raise SystemExit(f'Unexpected application/transport failure: {row}')
+          PY
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: python-load-${{ matrix.python }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/python-load/**/*.json
+            ${{ runner.temp }}/python-load/**/*.log
+            ${{ runner.temp }}/python-load/**/*.md
+          if-no-files-found: ignore
+          retention-days: 7
 
   native_replay:
     name: Native event replay (${{ inputs.mode }}, diagnostic only)

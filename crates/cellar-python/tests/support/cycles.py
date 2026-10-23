@@ -2,6 +2,7 @@
 import asyncio
 import json
 import threading
+import time
 from cellar import Request, Response, SDKError
 
 _lock = threading.RLock()
@@ -9,6 +10,8 @@ _contexts = {}
 _cancelled = set()
 _completed = set()
 _refused = {}
+_errors = {}
+_returned = {}
 _release = False
 _outer = None
 
@@ -16,7 +19,7 @@ _outer = None
 def snapshot():
     with _lock:
         return dict(entered=sorted(_contexts), cancelled=sorted(_cancelled),
-                    completed=sorted(_completed), refused=dict(_refused),
+                    completed=sorted(_completed), refused=dict(_refused), errors=dict(_errors), returned=dict(_returned),
                     active={key: ctx._bridge.active() for key, ctx in _contexts.items()})
 
 
@@ -31,11 +34,32 @@ def clear():
         _contexts.clear()
 
 
+def expire_inner():
+    # Revoke the real native bridge; do not execute SDK work on the controller.
+    with _lock:
+        _contexts["inner"]._bridge.expire()
+
+
 async def held(label, ctx, work):
+    started = time.monotonic()
     with _lock:
         _contexts[label] = ctx
     try:
-        return await work
+        try:
+            result = await work
+        except SDKError as error:
+            with _lock:
+                _errors[label] = dict(code=error.code, outcome=error.outcome,
+                                     elapsed_ms=round((time.monotonic() - started) * 1000))
+        else:
+            with _lock:
+                _returned[label] = dict(status=result.status,
+                                       elapsed_ms=round((time.monotonic() - started) * 1000))
+            assert result.status >= 500, "held nested call unexpectedly succeeded"
+        # A child's cancellation/deadline can return before this parent's
+        # deadline. Keep the frame alive until its OWN native cancellation;
+        # an early child error must not bypass the late-authority assertions.
+        await asyncio.Event().wait()
     except asyncio.CancelledError:
         with _lock:
             _cancelled.add(label)

@@ -12,6 +12,7 @@ scope_ready = asyncio.Event()
 scope_release = asyncio.Event()
 host_waiting = asyncio.Event()
 host_release = asyncio.Event()
+unawaited_started = asyncio.Event()
 mailbox_progress = False
 generator_closed = False
 held_generator = None
@@ -473,11 +474,14 @@ class Counter:
             await host_release.wait()
             return Response.json(True)
         if request.path == "/slow":
-            await asyncio.sleep(0.05)
-            return Response.json(True)
+            unawaited_started.set()
+            await asyncio.Event().wait()
         if request.path == "/unawaited":
+            unawaited_started.clear()
             asyncio.create_task(ctx.namespace("COUNTERS").get_by_name("slow").fetch(Request("http://cell/slow")))
-            await asyncio.sleep(0)
+            # Prove the native SDK future started before abandoning it. A
+            # single Python yield can leave it queued with prompt wakeups.
+            await unawaited_started.wait()
             try:
                 await storage.put_json("forbidden", True)
                 raise AssertionError("overlapping mutation accepted")

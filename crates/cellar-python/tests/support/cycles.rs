@@ -25,7 +25,15 @@ async fn state(client: &reqwest::Client, url: &str) -> Result<()> {
     Ok(())
 }
 
-pub(super) fn child(fence: bool) -> Result<()> {
+pub(super) enum End {
+    Deadline,
+    Fence,
+    InnerCancellation,
+}
+
+pub(super) fn child(end: End) -> Result<()> {
+    let fence = matches!(end, End::Fence);
+    let cancel_inner = matches!(end, End::InnerCancellation);
     let directory = tempfile::tempdir()?;
     let result = run(
         Options::default(),
@@ -79,6 +87,19 @@ pub(super) fn child(fence: bool) -> Result<()> {
                             .is_some_and(|values| values.values().all(|value| value == true))
                 })
                 .await?;
+                if cancel_inner {
+                    control("expire_inner")?;
+                    let view = observe(|view| view["errors"]["middle"].is_object()).await?;
+                    ensure!(
+                        view["errors"]["middle"]["code"] == "Ambiguous"
+                            && view["errors"]["middle"]["outcome"] == "unknown",
+                        "nested cancellation fabricated a known outcome: {view}"
+                    );
+                    ensure!(
+                        view["active"]["middle"] == true,
+                        "nested failure escaped the held parent before native cancellation: {view}"
+                    );
+                }
                 if fence {
                     let outcome = fencing::force_node(
                         &bucket,

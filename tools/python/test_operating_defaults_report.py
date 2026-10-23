@@ -55,6 +55,19 @@ class QualificationReport(unittest.TestCase):
         document["cases"][0]["shutdown"]["python"]["bridge"]["operations"]["pending"] = 1
         self.run_report(document, False)
 
+    def test_application_fault_is_not_an_admission_refusal(self):
+        document = deepcopy(self.document)
+        document["cases"][0]["saturation"]["rejected"][0]["status"] = 500
+        self.run_report(document, False)
+
+    def test_nested_refusal_cannot_claim_rollback(self):
+        document = deepcopy(self.document)
+        row = document["cases"][0]["saturation"]["rejected"][0]
+        error = json.loads(row["error_body"])
+        error["outcome"] = "not_committed"
+        row["error_body"] = json.dumps(error)
+        self.run_report(document, False)
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
