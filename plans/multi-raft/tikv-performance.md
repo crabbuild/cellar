@@ -10,9 +10,13 @@ remain preserved. No repeatable, error-free throughput improvement is claimed.
 Two-cell archive batching, four retained cuts in the benchmark and the 256-MiB
 admission budget remain unchanged.
 
+Benchmark evidence JSON files named below are retained locally under
+`plans/multi-raft/evidence/` and excluded from this PR. The measurements and
+validation summaries remain in this document.
+
 ## Control-first 20-writer comparison and rejection
 
-[Paired evidence](evidence/tikv-bundle-read-c20.json) records two 180-second
+Paired evidence (`tikv-bundle-read-c20.json`) records two 180-second
 windows per build after the authorized profile recreation. Control runs first,
 then candidate, with a cold VM and fresh node volumes for each. The frozen
 sources/images, load AST and recorded RustFS/Python image identities match the
@@ -73,7 +77,7 @@ it does not change the failed performance gates.
 ## Earlier 24-writer bundle-read comparison
 
 
-[Paired evidence](evidence/tikv-bundle-read.json) compares frozen candidate
+Paired evidence (`tikv-bundle-read.json`) compares frozen candidate
 `3d3ba9e` with control `0b07410`, candidate first. Both use three pinned
 1-vCPU / 3-GiB nodes, 500 leaders and 1,000 followers per node, 1,500 three-voter
 groups, four retained archive cuts, two-cell batches, four SQL workers and
@@ -126,7 +130,7 @@ After both cohorts completed and stopped, the user's separate Colima cleanup
 request removed the benchmark profile and Docker context. The raw record/report
 hashes are unchanged, all six host node directories still exist, and the external
 VM disk file remains. The user subsequently authorized recreation. The
-[restoration record](evidence/tikv-benchmark-profile-recreation.json) verifies the
+restoration record (`tikv-benchmark-profile-recreation.json`) verifies the
 same 352-GiB external disk, all 414 expected volumes and 58 images, both frozen
 binary hashes, and the original home/archive mounts. The VM again has eight
 CPUs and 16 GiB; measured node limits remain one CPU and 3 GiB each. The default
@@ -222,12 +226,12 @@ as directed by the qualification guide; concurrency and deadlines inside each
 case are unchanged. Three ignored entries are crash-process helpers exercised
 by parent tests. Strict all-target/all-feature Clippy, formatting/layout across
 873 Rust files, the 454-package native dependency policy and docs pass.
-[Local evidence](evidence/tikv-bundle-read-local.json) retains the two real red
+Local evidence (`tikv-bundle-read-local.json`) retains the two real red
 regressions and every validation invocation.
 
 Before the next pair, verified transparent compression preserves 230 closed Raft
 logs in the two previous cohorts' six node volumes, recovering 2.48 GiB.
-[Preservation evidence](evidence/tikv-bundle-read-preservation.json) records content,
+Preservation evidence (`tikv-bundle-read-preservation.json`) records content,
 size, mode, owner and mtime match; twelve read-only probes through original volume
 identities pass, and image/volume inventories remain unchanged. All source,
 images, volumes and raw outcomes remain. Fresh timed backing is unchanged.
@@ -277,7 +281,7 @@ starting another independent wait. Outage tests explicitly expect deadline expir
 retained-byte and restart/recovery assertions. No deadline or retry assertion is
 relaxed. New test task handles remain owned through failed timeout cleanup.
 
-[Local evidence](evidence/tikv-retained-wait-local.json) records 518 passing library,
+Local evidence (`tikv-retained-wait-local.json`) records 518 passing library,
 59 archive, 19 execution, 29 host and nine multi-group cases with four simultaneous
 test cases, strict all-target/all-feature Clippy, formatting/layout across 871 Rust
 files, native dependency policy and docs checks. Three ignored entries are child
@@ -293,7 +297,7 @@ counters now also include checks made by waiting requests; they cannot be equate
 with terminal client errors. The comparison analyzer must reconcile these probes
 separately and retain the existing no-timed-retry and exact-state gates.
 
-[Preservation evidence](evidence/tikv-retained-wait-preservation.json) covers
+Preservation evidence (`tikv-retained-wait-preservation.json`) covers
 636 closed historical Raft logs in 21 node volumes, SHA-256/size/mode/owner/mtime
 verification and 42 read-only probes through original volume identities. Transparent
 compression recovers 6.89 GiB without removing logical contents, raw evidence,
@@ -302,7 +306,7 @@ pair ran candidate first with unchanged 24 writers and two 180-second windows.
 
 ### Fresh paired measurement and disposition
 
-[Paired evidence](evidence/tikv-retained-wait.json) compares frozen control
+Paired evidence (`tikv-retained-wait.json`) compares frozen control
 `0b07410` with candidate `6747573`, using three pinned 1-vCPU / 3-GiB nodes,
 500 leaders and 1,000 followers each, 1,500 three-voter groups, four retained
 archive cuts, two-cell bundles and unchanged 256-MiB / 4,096-entry limits.
@@ -400,10 +404,10 @@ all-target/all-feature Clippy, formatting/layout across 873 Rust files, the nati
 dependency policy and docs checks pass. Clippy required the domain-aware select
 macro and one shared fault-store module; both were fixed without suppressing the
 warnings. The final host-focused run passes 25 tests after those test-only edits.
-[Local qualification and retained failures](evidence/tikv-archive-completion-local.json)
+Local qualification and retained failures (`tikv-archive-completion-local.json`)
 record the limits. The subsequent three-node comparison below fails qualification.
 
-[Storage preservation](evidence/tikv-archive-completion-preservation.json) verifies
+Storage preservation (`tikv-archive-completion-preservation.json`) verifies
 12 stopped historical node volumes, their content/metadata, original Docker
 options and 36 read-only probes before both cohorts. All raw evidence, images and
 volume identities remain; fresh measured storage uses the original backing.
@@ -428,7 +432,7 @@ TPS, p99 and error-rate qualification are evaluated below.
 
 ### Fresh paired measurement and disposition
 
-[Paired evidence](evidence/tikv-archive-completion.json) compares frozen control
+Paired evidence (`tikv-archive-completion.json`) compares frozen control
 `0b07410` with `472850c`: three pinned 1-vCPU / 3-GiB nodes, 500 leaders and 1,000
 followers each, 24 writers, two 180-second windows, four retained archive cuts,
 two-cell bundles and unchanged 256-MiB / 4,096-entry admission limits. The load
@@ -507,13 +511,13 @@ The new production-sender regression queues eight authenticated frames before
 polling and fails on the baseline's eight writes. A simulated vectored writer over
 a real duplex stream checks the one-write case without changing authentication,
 frame order or per-frame replies. The existing one-byte duplex case tests the
-partial-I/O path. [Local validation](evidence/tikv-control-batch-local.json)
+partial-I/O path. Local validation (`tikv-control-batch-local.json`)
 passes 519 library, 53 archive, 29 host and nine multi-group tests, plus strict
 all-target/all-feature Clippy, formatting, layout, dependency and docs checks.
 The first full suite passed 518 cases but timed out the counting adapter's
 one-byte case; its unnecessary quadratic copying was removed. The deadline,
 capacity and assertions remain unchanged, and the full rerun passes.
-The [fresh paired measurement](evidence/tikv-control-batch.json) compares
+The fresh paired measurement (`tikv-control-batch.json`) compares
 `0b07410` with `3ceba4e`, keeping archive batch size two, four cut slots,
 256-MiB/4,096-entry admission limits, 24 writers and two 180-second windows.
 
@@ -548,7 +552,7 @@ shared-host scheduling and lack of reversed confirmation limit attribution.
 Reduced write calls in the local test therefore do not justify retaining the
 extra implementation complexity as a throughput improvement.
 
-[Preservation evidence](evidence/tikv-control-batch-preservation.json) covers
+Preservation evidence (`tikv-control-batch-preservation.json`) covers
 33 stopped historical node volumes before both cohorts, with verified contents,
 metadata, original Docker volume options and 99 read-only probes. One control
 preflight stopped at the unchanged 5-GiB internal reserve before creating a fleet
@@ -583,7 +587,7 @@ observations. With the metrics present, an unavailable archive reports failure
 without advancing coverage. Restoring storage lets the same command gain S3
 durability without a second callback, and successful cut outcomes reconcile
 after the single-cell fixture becomes quiescent.
-[Local validation](evidence/tikv-archive-progress-local.json) passes 518
+Local validation (`tikv-archive-progress-local.json`) passes 518
 library, 53 archive, 29 host and nine multi-group tests plus strict Clippy.
 
 Three hypotheses remain: insufficient publication/replay throughput; completed
@@ -596,7 +600,7 @@ six softirq categories. Different snapshot times and shared-host activity still
 limit attribution. The 1,500-group observation retains the 256-MiB byte budget,
 4,096-entry cap and existing durability, error and exact-verification gates.
 
-The [completed diagnostic](evidence/tikv-archive-progress.json) produces:
+The completed diagnostic (`tikv-archive-progress.json`) produces:
 
 | Window | Successful TPS | Successful-request p99 ms | Known overload refusals |
 | --- | --- | --- | --- |
@@ -651,7 +655,7 @@ I/O. Preserve all failures; require zero errors, p99 below 500 ms and exact data
 before considering a reversed confirmation. This tests the tradeoff before
 adding per-cut completion machinery, changing concurrency or increasing memory.
 
-The [completed pair](evidence/tikv-archive-batch.json), control first, reports:
+The completed pair (`tikv-archive-batch.json`), control first, reports:
 
 | Maximum batch size | TPS, windows 1 / 2 | Successful-request p99 ms | Errors |
 | --- | --- | --- | --- |
@@ -690,7 +694,7 @@ first order limit causal claims, even though singleton is slower in both windows
 Closed control logs are losslessly compressed between cohorts to maintain the
 unchanged disk guard; fresh candidate storage is uncompressed and unchanged.
 
-[Capacity preservation](evidence/tikv-archive-batch-preservation.json) records
+Capacity preservation (`tikv-archive-batch-preservation.json`) records
 lossless compression of 87 closed logs (1.00 GB saved), verified relocation of
 closed host evidence and nine historical node directories through their original
 aliases, and benchmark-only disk growth from 288 to 352 GiB for inode reserve.
@@ -708,7 +712,7 @@ must preserve duplicate receipt lookup and pre-callback admission. Blindly
 retrying `Stage::Overloaded` would be unsafe because that generic result alone
 does not establish that arbitrary application code never ran.
 
-[Verified lossless compression](evidence/tikv-closed-log-compression-r4.json)
+Verified lossless compression (`tikv-closed-log-compression-r4.json`)
 preserves another 424 closed Raft logs across nine historical node volumes,
 recovering 4.86 GB of physical allocation. Original volume paths and options,
 logical contents and metadata remain intact. Fresh timed data is not compressed.
@@ -732,14 +736,14 @@ mailboxes or replacing Cellar's archive scheduler with a ready queue.
 Both regression tests fail on the original selection and pass with ordered
 ranges. The selection test covers all 64 eligibility subsets of six cells,
 initial/no cursor, wraparound, a cursor outside the map and an empty map.
-[Final local validation](evidence/tikv-archive-cursor-local.json) passes 518
+Final local validation (`tikv-archive-cursor-local.json`) passes 518
 library tests, 52 archive tests and nine
 multi-group tests; the ignored multi-group case is a harness child entry point.
 Strict all-target/all-feature Clippy passes. This reduces verified scheduling
 work, but does not establish a sustained TPS improvement or eliminate the
 retained-entry breach.
 
-The [fresh observation](evidence/tikv-archive-cursor.json) keeps the image change,
+The fresh observation (`tikv-archive-cursor.json`) keeps the image change,
 256-MiB byte budget, 4,096-entry cap, 1,500 groups, three pinned 1-vCPU / 3-GiB
 nodes, four SQL workers / 64 reservations and four archive-cut slots. Two
 180-second windows use 24 writers, fresh persistent volumes and a cold VM.
@@ -773,7 +777,7 @@ advances that position when the image matches the durable applied marker and
 the state-machine progress observation accepts it. The newer publication/coverage counters above now separate those cases. A paired/reversed performance confirmation remains
 outstanding; this historical comparison cannot establish causality.
 
-[Preservation evidence](evidence/tikv-archive-cursor-preservation.json) records
+Preservation evidence (`tikv-archive-cursor-preservation.json`) records
 lossless compression of 428 closed log files and the verified return of nine
 historical node directories to internal storage. Original aliases, volume
 options and Docker inventories remain intact; read-only probes through all
@@ -809,7 +813,7 @@ file sync, after directory sync and after the durable marker. Collision,
 ambiguous creation, corrupt payload and shared reclamation tests retain their
 assertions. No public filesystem API or file contents format changes.
 
-[Local validation](evidence/tikv-direct-image-local.json) passes 516 library tests,
+Local validation (`tikv-direct-image-local.json`) passes 516 library tests,
 52 native archive tests, 19 execution,
 29 host, 27 image/LTX and nine multi-group tests. The snapshot run passes 42
 cases and exposes two seed-fixture hooks still armed by rename; those cuts are
@@ -822,7 +826,7 @@ The first incomplete integration attempt selected the write-only creation API;
 its failed read-back results are retained. The final code uses the existing
 exclusive `create_read_write` API, which already supplied the stage handle.
 
-The [completed comparison](evidence/tikv-direct-image.json) uses frozen control
+The completed comparison (`tikv-direct-image.json`) uses frozen control
 `6f57b79` and candidate `71074d6`, the same 256-MiB
 archive budget, four SQL workers / 64 reservations, four archive-cut slots,
 three pinned 1-vCPU / 3-GiB nodes and 1,500 three-voter groups. Each fresh cohort
@@ -863,7 +867,7 @@ scheduling stalls. Current boundary group lag is not the admission entry count,
 and cannot identify which explanation caused the brief cap breach. A reversed
 performance confirmation is deferred until the zero-error gate passes.
 
-Between cohorts, [closed host evidence was returned to internal storage](evidence/tikv-host-artifact-return.json)
+Between cohorts, closed host evidence was returned to internal storage (`tikv-host-artifact-return.json`)
 to restore external physical headroom. All 24,124 files match content, mode,
 owner and modification time; symlink targets and original access paths remain.
 Docker images/volumes and fresh node/RustFS backing remain unchanged. The first
@@ -871,8 +875,8 @@ copy check caught seven reset symlink timestamps and refused release; after
 repair, complete inventories match before the redundant original is released.
 This intervening preservation and the shared host limit causal attribution.
 
-[First](evidence/tikv-closed-log-compression.json) and
-[second](evidence/tikv-closed-log-compression-r2.json) preservation records retain
+First (`tikv-closed-log-compression.json`) and
+second (`tikv-closed-log-compression-r2.json`) preservation records retain
 1,212 Raft log files across ten stopped verified cohorts using transparent APFS
 compression. Exact content, lengths, modes, owners and modification times are
 verified before releasing redundant physical copies. Original named volumes
@@ -880,13 +884,13 @@ pass read-only hash probes; volume options and image/volume inventories remain
 unchanged. This saves 13.82 GB of physical allocation without pruning logical
 data. Fresh benchmark node directories remain on their original filesystem and
 are not compressed during the workload.
-A further [source-archive compression record](evidence/tikv-closed-context-compression.json)
+A further source-archive compression record (`tikv-closed-context-compression.json`)
 retains all 34 frozen archives while recovering 0.86 GB externally. An attempted
 compression of closed build libraries saved no space and changed no library files.
 
 ## Larger admission budget shifts waiting into SQLite work
 
-The [same-image comparison](evidence/tikv-admission-budget.json) uses executable
+The same-image comparison (`tikv-admission-budget.json`) uses executable
 `6f57b79` for both configurations: three pinned 1-vCPU / 3-GiB nodes, 500 leaders
 and 1,000 followers each, four SQL workers / 64 reservations, four archive-cut
 slots, 500-ms ticks and 24 writers. Each cohort has fresh persistent volumes,
@@ -948,7 +952,7 @@ relocation before the unchanged capacity guards can pass. No data is pruned.
 
 ## Admission timing result and budget-experiment motivation
 
-The [observation cohort](evidence/tikv-admission-timing.json) uses frozen
+The observation cohort (`tikv-admission-timing.json`) uses frozen
 `7bbf71e` with the same production policies and resource limits. Two 180-second
 windows at 24 writers achieve **254.75 / 232.31 TPS**, **179.19 / 211.87 ms p99**
 and zero errors. All 4,500 replica values and 1,500 RustFS archive positions
@@ -993,7 +997,7 @@ All 78 Raft Python tests and six fixture Rust tests pass; strict fixture Clippy,
 format, layout, native dependency policy and docs checks pass. The production
 runtime is unchanged from the measured admission-timing build.
 
-[Lossless evidence compression](evidence/tikv-closed-evidence-compression.json)
+Lossless evidence compression (`tikv-closed-evidence-compression.json`)
 retains 268 closed host-only JSON files at their original paths, verifying their
 SHA-256, size, mode, owner and modification time. Native APFS compression saves
 1.39 GB of physical allocation without removing logical evidence, images or
@@ -1019,7 +1023,7 @@ measure the current runtime before choosing a throughput change. The inventory
 selector also checks eligibility before rejecting keys preceding its cursor,
 but its impact needs qualification rather than assuming it dominates.
 
-[Artifact preservation evidence](evidence/tikv-node-artifact-relocation.json)
+Artifact preservation evidence (`tikv-node-artifact-relocation.json`)
 records relocation of three stopped, verified cohorts: nine node volumes,
 63,351 files and 7,208,229,865 logical bytes. The scoped external archive mount
 is added only to the idle benchmark VM. Its existing home mount, CPU/memory/disk
@@ -1114,9 +1118,9 @@ images or volumes have been pruned.
 
 ## Reversed-order capture confirmation
 
-The [confirmation evidence](evidence/tikv-capture-confirmation.json) records
+The confirmation evidence (`tikv-capture-confirmation.json`) records
 control first, then candidate, with the same frozen images and load AST as the
-[first pair](evidence/tikv-capture-reuse.json). Each cohort starts fresh persistent
+first pair (`tikv-capture-reuse.json`). Each cohort starts fresh persistent
 volumes and a cold benchmark VM: three 1-vCPU / 3-GiB nodes, 500 leaders and
 1,000 followers each, 24 writers, two 180-second windows, four SQL workers /
 64 reservations and four archive-cut slots. No timed mutation retries occur.
@@ -1169,9 +1173,9 @@ failed preflight and the relocation record. The restored runtime matches
 `230cd4f` exactly; its archive-refusal/workspace-reuse regression passes freshly.
 
 The original ephemeral candidate `68b82e1` also failed at 24 and 16 writers and
-was reverted by `69192d2`; [that evidence](evidence/tikv-ephemeral-capture.json)
+was reverted by `69192d2`; that evidence (`tikv-ephemeral-capture.json`)
 remains available. Admission reuse alone was effectively neutral at 246.43 versus
-244.52 mean TPS in its [own comparison](evidence/tikv-admission-reuse.json).
+244.52 mean TPS in its own comparison (`tikv-admission-reuse.json`).
 
 ## Rejected combined capture and admission-reuse candidate (first pair)
 
@@ -1360,7 +1364,7 @@ remaining priorities are:
 
 ## Current performance priorities
 
-The [internal-storage profile](evidence/tikv-current-io-diagnosis.json)
+The internal-storage profile (`tikv-current-io-diagnosis.json`)
 identifies command staging, image construction, SQL worker queueing and archive
 publication as useful optimization targets. It instruments the frozen
 `12d6e87` runtime without changing durability or retry behavior. Three nodes
@@ -1481,7 +1485,7 @@ private LTX writes before the change and zero afterward, then verifies duplicate
 receipts and a fresh command after restart. LTX tests cover forced multi-cut
 checkpoints, empty captures, seeded continuation, bounds failures and restoration.
 
-The [paired frozen-runtime runs](evidence/tikv-ephemeral-capture.json) use the same
+The paired frozen-runtime runs (`tikv-ephemeral-capture.json`) use the same
 load AST, three 1-vCPU / 3-GiB nodes, 500 leaders and 1,000 followers each, four
 SQL workers / 64 reservations and four archive-cut slots. Each cohort starts
 from a cold benchmark VM and fresh persistent node volumes, drains seed archives,
@@ -1546,7 +1550,7 @@ cause the measured overload bursts.
 
 ### Integrated runtime qualification
 
-The [frozen run](evidence/tikv-main-integration.json) uses three 1-vCPU / 3-GiB
+The frozen run (`tikv-main-integration.json`) uses three 1-vCPU / 3-GiB
 nodes, 500 leaders and 1,000 followers per node, four SQL workers with 64 total
 reservations and four retained archive-cut slots. Each node's disposable
 verification workspace is capped at 512 MiB; acknowledged logs and images stay
@@ -1602,7 +1606,7 @@ write errors, bounded archive lag and exact replica/archive verification.
 
 ### Capture handoff experiment
 
-The [deeper staging profile](evidence/tikv-stage-io-diagnosis.json) separates
+The deeper staging profile (`tikv-stage-io-diagnosis.json`) separates
 the costs inside command preparation. At six writers, staging averages
 12.4–13.4 ms: preview construction takes 5.1–5.4 ms, SQLite/receipt execution
 2.1–2.3 ms, private-file cleanup 1.5–1.6 ms, and capture 3.7–4.0 ms. Capture
@@ -1631,11 +1635,11 @@ fixtures are invoked by parent scenarios. Ordinary all-feature LTX tests pass
 11 cases; these do not include the external `cellar_internal_tests` harness.
 Strict all-target/all-feature Clippy for both affected crates, the LTX build
 without default features, formatting, module layout, native dependencies and
-documentation checks also pass. The [validation record](evidence/tikv-capture-handoff-validation.json)
+documentation checks also pass. The validation record (`tikv-capture-handoff-validation.json`)
 preserves the failing regression and passing checks.
 ### Uninstrumented capture comparison
 
-The [120-second comparison](evidence/tikv-capture-handoff-comparison.json)
+The 120-second comparison (`tikv-capture-handoff-comparison.json`)
 compares frozen `12d6e87` control with `63069af` candidate. Their runtime
 manifests differ only in `db.rs` and `working.rs`; load generation is identical.
 Both use six/twelve/twelve/six writers after a cold benchmark-VM restart, with
@@ -1678,7 +1682,7 @@ contribute to measured TPS or turn a failed window into a passing one.
 
 ### Sustained pressure profile and SQL worker experiment
 
-The [sustained pressure profile](evidence/tikv-pressure-diagnosis.json)
+The sustained pressure profile (`tikv-pressure-diagnosis.json`)
 instruments `d8b9109` with explicit refusal reasons, retained-history counters
 and archive timing. Two 180-second twelve-writer windows complete at
 122.77/133.49 TPS and 444.58/226.90 ms p99, with zero write errors and all
@@ -1702,7 +1706,7 @@ rejects mismatched counts/capacities, missing observers and closed queues.
 
 ### Bounded SQL and archive concurrency comparison
 
-The [comparison record](evidence/tikv-bounded-concurrency-comparison.json) uses
+The comparison record (`tikv-bounded-concurrency-comparison.json`) uses
 one uninstrumented executable from `b08cb6c` for all four cohorts. Each has fresh
 persistent node volumes, a cold benchmark-VM restart and two 180-second windows
 at twelve writers. The sequence is two SQL owners/two publishers, four/two,
@@ -1758,7 +1762,7 @@ application/payload qualification.
 
 ### Tuned sustained diagnostic and size-based archive rotation
 
-The [nine-minute diagnostic](evidence/tikv-tuned-pressure-diagnosis.json) freezes
+The nine-minute diagnostic (`tikv-tuned-pressure-diagnosis.json`) freezes
 `206d126` with four SQL owners, 64 total work reservations and four archive
 publishers. Three 180-second windows verify every replica value and archive
 position with zero write errors, then stop cleanly while retaining volumes.
@@ -1802,7 +1806,7 @@ efficient tails for a large image. A twenty-update differential case uses 68
 payload reads at ratio two versus 230 at ratio 128, with exact physical recovery
 after every publication. This 70.4% operation-count reduction is not a TPS claim.
 
-The [validation record](evidence/tikv-tail-cost-validation.json) preserves the
+The validation record (`tikv-tail-cost-validation.json`) preserves the
 failing regression and the first candidate's intermediate-digest failure. The
 corrected candidate passes all 48 archive, 18 execution, 29 host and 43 snapshot
 cases (138 total); four child-process fixtures run through parent scenarios.
@@ -1816,7 +1820,7 @@ for sustained throughput.
 
 ### Uninstrumented size-based archive comparison
 
-The [comparison record](evidence/tikv-tail-cost-comparison.json) preserves a
+The comparison record (`tikv-tail-cost-comparison.json`) preserves a
 frozen `b08cb6c` control and `972264b` candidate. Runtime manifests differ only
 in `archive/mod.rs`, and load-generation code is identical. Both use four SQL
 owners, 64 total reservations and four archive publishers per node, with fresh
@@ -1855,7 +1859,7 @@ latency, admission, durability or data-verification gates.
 
 ### Refusal counters and bounded SQL progress scheduling
 
-The [fixed-counter diagnostic](evidence/tikv-refusal-diagnosis.json) freezes
+The fixed-counter diagnostic (`tikv-refusal-diagnosis.json`) freezes
 `4e9b825` and adds process-local atomic counters with five-second resource
 snapshots. It has no per-operation logging or timing probes. Three 180-second
 windows use 12/24/12 writers with the same four SQL owners, 64 reservations,
@@ -1893,7 +1897,7 @@ capacity, collection delay or durability shortcut is introduced.
 The worker-selection regression first failed because archive capture waited
 behind unrelated queued SQL work. It now passes, alongside cases for publication
 reservations, per-cell order, sustained priority arrivals without starvation and
-draining work after sender disconnect. The [validation record](evidence/tikv-sql-priority-validation.json)
+draining work after sender disconnect. The validation record (`tikv-sql-priority-validation.json`)
 confirms 458 library and 138 native archive/execution/host/snapshot cases pass
 (596 total), with four process helpers invoked by parent cases. Strict
 all-target/all-feature Clippy, formatting/layout, native dependency policy and
@@ -1902,7 +1906,7 @@ with the same archive policy is recorded below.
 
 ### Uninstrumented SQL priority comparison
 
-The [comparison record](evidence/tikv-sql-priority-comparison.json) freezes
+The comparison record (`tikv-sql-priority-comparison.json`) freezes
 `972264b` control and `3aeb3ad` candidate. Only `host_sql.rs` differs in production
 runtime; load generation is identical. Both use three 1-vCPU / 3-GiB nodes,
 500 leaders and 1,000 followers each, four SQL owners with 64 total reservations,
@@ -2241,7 +2245,7 @@ positions. The previously observed follower scheduling stall did not recur.
 No permanent group-failure event appeared in the sweep's node logs. This does
 not retrospectively explain the distinct earlier permanent `Unavailable` case.
 
-The [sanitized measurement record](evidence/tikv-disposable-progress.json)
+The sanitized measurement record (`tikv-disposable-progress.json`)
 includes image/binary identities, all window results, qualification exclusions
 and hashes of ignored raw artifacts. Unrelated host builds overlapped 58 of
 118 activity samples, limiting timing attribution. A fresh unchanged control
@@ -2453,7 +2457,7 @@ twelve-writer window. Downloads accounted for approximately 33–38% of aggregat
 archive-publication wall time in that last window. Replay, object writes and
 confirmation remained material costs. Cumulative samples bracket window edges
 approximately; their nested timings must not be added as independent costs.
-The [sanitized evidence](evidence/tikv-archive-diagnosis.json) preserves identities,
+The sanitized evidence (`tikv-archive-diagnosis.json`) preserves identities,
 window results, stage counters and hashes of the ignored raw artifacts.
 
 The measured throughput ceiling is archive-retention admission. One archive
@@ -2550,7 +2554,7 @@ took 22.17 seconds for the control and 11.24 for the candidate; different pendin
 work means these waits are not direct archive service-rate measurements. Peak
 node memory stayed below 1.10 GB and cgroup counters recorded no OOM events.
 
-The [sanitized comparison](evidence/tikv-archive-download-comparison.json) records
+The sanitized comparison (`tikv-archive-download-comparison.json`) records
 per-window overlap, hashes and exact verification counts. Raw evidence remains
 in `.cellar/raft-perf/1500-tikv-download-control` and
 `.cellar/raft-perf/1500-tikv-download-candidate`. Both clusters are stopped;
@@ -2599,7 +2603,7 @@ recount averaged 912.23 µs and reuse averaged 49.11 µs. With one different gro
 persisted before each round, the corresponding means were 1,039.43 and 65.26 µs.
 Every pair had identical byte and entry totals. Persistence was outside the timed
 region. This local macOS debug-build result measures accounting cost, not SDK
-throughput or container latency. The [stage evidence](evidence/tikv-admission-accounting-stage.json)
+throughput or container latency. The stage evidence (`tikv-admission-accounting-stage.json`)
 records fixture constraints, source hashes and raw artifact hashes. The corrected
 probe asserts that archive position does not exceed applied progress; an earlier
 probe without coherent applied progress is excluded. Instrumentation is removed
@@ -2671,7 +2675,7 @@ use rose from 89% to 93%; this is another uncontrolled environmental change.
 Archive catch-up after replica checks took approximately 16.48 seconds in each
 run; different pending work prevents comparing these waits as archive
 service rates. Both clusters stopped cleanly, with voter and RustFS volumes,
-receipts and closing logs retained. The [sanitized comparison](evidence/tikv-admission-accounting-comparison.json)
+receipts and closing logs retained. The sanitized comparison (`tikv-admission-accounting-comparison.json`)
 records per-window host overlap, resource counters and raw evidence hashes.
 
 Archive-retention admission remains the measured throughput limit. The earlier
@@ -2758,7 +2762,7 @@ checkouts' builds appeared in 26/94 serial and 88/88 parallel activity samples;
 all sampled parallel windows overlapped builds. The serial twelve-writer
 windows had no sampled build process and still returned 7,471/9,272 overloads.
 These results are useful for admission behavior but are not a controlled or
-sustained speedup comparison. The [sanitized comparison](evidence/tikv-archive-producers-comparison.json)
+sustained speedup comparison. The sanitized comparison (`tikv-archive-producers-comparison.json`)
 contains every window, approximate host overlap, sampled CPU use and raw hashes.
 
 Peak node memory was 1.70 GB with one producer and 1.60 GB with two, below the
@@ -2786,7 +2790,7 @@ eighteen-writer window cannot qualify that setting when its second repeat has
 errors. Other builds appeared in 22/90 host samples, although none appeared in
 the failing second eighteen-writer window's twelve samples. Peak memory was
 1.66 GB without recorded OOM events. This cluster also stopped cleanly with all
-volumes retained. The [higher-load evidence](evidence/tikv-archive-producers-high.json)
+volumes retained. The higher-load evidence (`tikv-archive-producers-high.json`)
 preserves complete measurements and provenance.
 
 The new scheduler resolves cross-cell archive blocking, but higher load still
@@ -2854,7 +2858,7 @@ control. Both clusters stopped cleanly, retaining their volumes and logs.
 Neither run qualified a setting under 200 ms across both repeats; only
 concurrency 12 qualified under 500 ms. No OOM events were recorded. Final
 archive catch-up took 17.33 and 17.47 seconds respectively. The
-[complete comparison evidence](evidence/tikv-archive-materialization-comparison.json)
+complete comparison evidence (`tikv-archive-materialization-comparison.json`)
 records every window, resource counters, source/image/executable identities and
 hashes of the retained raw results.
 
@@ -2990,7 +2994,7 @@ ten shutdowns with a partial transfer held.
 
 ## Shared-host measurements after disk relocation
 
-[Recorded failure evidence](evidence/tikv-replay-shared-host-failures.json)
+Recorded failure evidence (`tikv-replay-shared-host-failures.json`)
 retains both incomplete experiments on the external VM disk. The control's first
 12-writer window reached 42.07 writes/sec with p99 1,481 ms and sixteen ambiguous
 outcomes. All sixteen original requests were reconciled within their original
@@ -3054,7 +3058,7 @@ image, refuse publication, and finish only after the old pin is released. This
 retains the committed-replay backpressure boundary instead of requiring the
 optimized leader to allocate duplicate bytes.
 
-[Local validation](evidence/tikv-preview-reuse-validation.json) passes 713 distinct
+Local validation (`tikv-preview-reuse-validation.json`) passes 713 distinct
 Rust cases: 453 library and 260 native integration cases across eleven binaries.
 Seven process helpers execute through their parent scenarios. Strict all-target,
 all-feature Clippy for `cellar` and `cellar-ltx`, the LTX library build without
@@ -3065,7 +3069,7 @@ Linux qualification of this change is still required.
 
 ## Sealed-preview container results
 
-[Failed sweeps](evidence/tikv-preview-reuse-failures.json) preserve the first
+Failed sweeps (`tikv-preview-reuse-failures.json`) preserve the first
 preview-reuse candidate (`c6aed34`) and a subsequent control (`1ba6a3a`) sweep.
 The candidate reached 48.10, 47.16 and 47.48 writes/sec at one, three and six
 writers, with p99 62, 360 and 830 ms. Its nine-writer window failed at 25.16
@@ -3083,7 +3087,7 @@ of CPU throttling per node and no OOM events. Closing cgroup counters recorded
 including setup and verification. These are evidence of storage waits, not
 stage-specific attribution of the timed latency distribution.
 
-A [fresh lower-load comparison](evidence/tikv-preview-reuse-comparison.json)
+A fresh lower-load comparison (`tikv-preview-reuse-comparison.json`)
 then ran control first and candidate second, each with four 60-second windows
 at concurrency 1, 2, 2, 1. Both used the same external Colima disk, three 1-vCPU /
 3-GiB nodes, 500 leaders per node, two archive producers, 512-MiB archive scratch
@@ -3124,7 +3128,7 @@ below; those preceding-revision passes do not qualify the new implementation.
 
 An isolated, instrumented image of `34f9493` ran four 60-second windows at two
 writers with the same 1,500-group, three-node resources and durability. The
-[diagnostic record](evidence/tikv-preview-io-diagnosis.json) includes source,
+diagnostic record (`tikv-preview-io-diagnosis.json`) includes source,
 binary and raw-evidence hashes. Instrumented throughput is diagnostic only.
 All windows were error-free; all 4,500 replica values and 1,500 RustFS archive
 positions verified. Containers stopped cleanly and their volumes are retained.
@@ -3162,7 +3166,7 @@ recovery after restart. Physical tests cover capacity before sync, pinned-image
 pressure, bounded two-name recovery cleanup, I/O failures and process loss during
 shared deletion/publication. End-to-end performance qualification is pending.
 
-[Local validation](evidence/tikv-shared-image-sync-validation.json) passes all
+Local validation (`tikv-shared-image-sync-validation.json`) passes all
 718 selected Rust cases: 453 library and 265 native cases across eleven test
 binaries. Eight process helpers execute through their parent cases. Strict
 all-target/all-feature Clippy, the LTX build without default features, formatting,
@@ -3178,7 +3182,7 @@ do not qualify this revision or the new shared-barrier change.
 
 ## Shared image-barrier container results
 
-The [external-disk attempts](evidence/tikv-shared-image-sync-failures.json) retain
+The external-disk attempts (`tikv-shared-image-sync-failures.json`) retain
 the shared-barrier candidate `12d6e87` and preview-reuse control `c6aed34` failures.
 At one writer, the candidate completed 619 writes (10.31 TPS, 871-ms p99) and
 returned one unavailable outcome. The control completed one error-free window at
@@ -3190,7 +3194,7 @@ Both original timed runs remain failed. All containers stopped cleanly and all
 volumes remain preserved. This evidence establishes neither a speedup nor the
 cause of the different rates.
 
-A [fresh internal-storage comparison](evidence/tikv-shared-image-internal-comparison.json)
+A fresh internal-storage comparison (`tikv-shared-image-internal-comparison.json`)
 uses persistent node bind volumes on the host internal filesystem through Colima
 virtiofs, with RustFS still on the external VM disk. Both images use this same
 backing and the same three 1-vCPU / 3-GiB nodes, 500 leaders per node, quorum plus
@@ -3228,7 +3232,7 @@ was retried. Higher concurrency and reversed image order remain to be measured.
 
 ## Higher-concurrency shared-barrier comparison
 
-The [fresh higher-load comparison](evidence/tikv-shared-image-internal-high.json)
+The fresh higher-load comparison (`tikv-shared-image-internal-high.json`)
 reverses image order: candidate first, then control. Each image ran six 60-second
 windows at 6, 12, 24, 24, 12 and 6 writers, with the same internal node volumes,
 external RustFS storage, limits and durability contract as the preceding pair.
@@ -3263,7 +3267,7 @@ recorded below.
 
 The older `accelerated` baseline image carries revision label `a849cc2`, while
 its later run report names `fb660b1` with a nonempty working diff. A subsequent
-[clean current-main build](evidence/tikv-main-baseline-build.json), exported from
+clean current-main build (`tikv-main-baseline-build.json`), exported from
 unmodified `fb660b1` and compiled with locked dependencies, produced the exact
 same executable SHA-256 as that older image. This resolves the executable's
 provenance gap. The fresh image is used for the final comparison; executable
@@ -3272,7 +3276,7 @@ current storage layout and host conditions.
 
 ## Longer shared-barrier confirmation failures
 
-The [retained longer runs](evidence/tikv-shared-image-long-failures.json) use two
+The retained longer runs (`tikv-shared-image-long-failures.json`) use two
 180-second windows at twelve writers on each image, with the same internal node
 storage and external RustFS placement. Both cohorts failed the repeated latency
 and zero-error gate; the shorter sweep's result did not reproduce here.
@@ -3305,7 +3309,7 @@ benchmark sequence; it does not assume that page cache explains the regression.
 
 ## Fresh main comparison after benchmark VM restarts
 
-The [cold-start failure record](evidence/tikv-main-coldstart-failures.json)
+The cold-start failure record (`tikv-main-coldstart-failures.json`)
 compares the clean `fb660b1` main executable with candidate `12d6e87` using fresh
 internal node volumes and the same external RustFS backing. The benchmark VM
 was stopped and started before each cohort, preserving its 8 CPUs, 16 GiB,

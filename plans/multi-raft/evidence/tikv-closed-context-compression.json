@@ -1,9 +1,0 @@
-{
-  "completed": true,
-  "files": 34,
-  "logical_bytes": 1438336000,
-  "allocated_bytes_saved": 863793152,
-  "raw_record": ".cellar/raft-perf/diagnosis/closed-context-compression.json",
-  "raw_record_sha256": "d26eb8687df84c76b8b233525fa5b23cbc7f4be08dc6f2e4a413010945fb05ed",
-  "method": "Lossless APFS compression of 34 closed frozen source archives; original paths, content SHA-256, mode, owner and mtime preserved. No evidence pruned. The preceding library compression attempt found no allocation savings and changed no library files."
-}
