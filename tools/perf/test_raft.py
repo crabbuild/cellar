@@ -96,6 +96,20 @@ class EvidenceTests(unittest.TestCase):
                 with self.assertRaises((AssertionError, ValueError)):
                     self.run_evidence(evidence)
 
+    def test_archive_budget_requires_matching_node_observations(self):
+        evidence = self.fixture()
+        report = evidence['report.json']
+        report['archive_max_unarchived_mib'] = 512
+        for phase in ('initial_resources', 'final_resources'):
+            report[phase] = [{'archive_max_unarchived_bytes': 512 * 1024**2}
+                             for _ in range(3)]
+        self.assertTrue(self.run_evidence(evidence)['verified'])
+        for phase in ('initial_resources', 'final_resources'):
+            changed = copy.deepcopy(evidence)
+            changed['report.json'][phase][1]['archive_max_unarchived_bytes'] = 256 * 1024**2
+            with self.subTest(phase=phase), self.assertRaises(AssertionError):
+                self.run_evidence(changed)
+
     def test_sql_configuration_requires_matching_physical_owners(self):
         evidence = self.fixture()
         report = evidence['report.json']

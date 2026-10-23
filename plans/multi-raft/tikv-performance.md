@@ -10,6 +10,59 @@ control's 237.70. The [transport evidence](evidence/tikv-control-sliding.json)
 distinguishes the local progress fix, the passing cohort and the unproven relative
 performance effect. Every earlier experiment and raw outcome remains preserved.
 
+## Admission timing result and next bounded-budget experiment
+
+The [observation cohort](evidence/tikv-admission-timing.json) uses frozen
+`7bbf71e` with the same production policies and resource limits. Two 180-second
+windows at 24 writers achieve **254.75 / 232.31 TPS**, **179.19 / 211.87 ms p99**
+and zero errors. All 4,500 replica values and 1,500 RustFS archive positions
+verify without reconciliation. Shutdown is clean, no OOM occurs, peak node
+memory is 1.69 GB and final archive catch-up takes 5.78 seconds. The observation
+passes the accepted sub-500-ms gate, but not sustained sub-200-ms p99. Its
+historical reference is not a new paired control or proof of a throughput gain.
+
+Admission wait affects **93.31% / 94.96%** of successful commands, averaging
+**32.85 / 37.11 ms among waiters** and **30.65 / 35.24 ms per successful write**.
+Started/completed wait counts reconcile with successful stage/write counts,
+with no failed, abandoned or unavailable timing. Client means are 94.16 / 103.26
+ms. This supports reservation waiting as a significant cost; aggregate timings
+do not attribute client p99. Admission evaluations average only 0.082 / 0.087
+ms at about 4.45 checks per write. Replacing the scans alone has a much smaller
+measured opportunity than shortening reservation residence.
+
+Each node consumes 72–79% of its pinned CPU across the boundary intervals.
+There are only two throttled periods in the first window and one in the second,
+so container CPU quota throttling does not explain these results. Shared-host
+scheduling and I/O pressure remain possible: other compilers appear in 0/37
+and 13/37 timed host samples, with 9,240 MiB of host swap in use. Control queue
+means rise from 32.56 to 54.19 ms, with 6,979 completed queue observations over
+one second in window two. These observations overlap across protocol frames
+and cannot be counted as distinct slow commands.
+
+The next single-variable experiment exposes the existing archive byte budget in
+the fixture, retaining its **256-MiB default**, and compares 256 versus 512 MiB
+on the same executable. The default reserves each callback's maximum 64-MiB
+image plus envelope before the callback runs; only completed preparation reduces
+that reservation to verified physical size. A larger bounded budget may admit
+more preparation concurrently without changing durability, but could increase
+SQL queueing, memory or retained backlog. Success therefore requires higher
+sustained TPS, zero errors, p99 below 500 ms, exact replica/archive verification
+and no memory-limit failure. The 3-GiB limit, SQL workers, archive publishers,
+entry limit and request concurrency stay fixed. No production default changes.
+The runner verifies the actual byte budget on every node before and after load;
+the independent analyzer rejects inconsistent node observations.
+The verifier regression first rejects the old analyzer's acceptance of a
+mismatched 256-MiB node in a 512-MiB report, then passes for both boundaries.
+All 78 Raft Python tests and six fixture Rust tests pass; strict fixture Clippy,
+format, layout, native dependency policy and docs checks pass. The production
+runtime is unchanged from the measured admission-timing build.
+
+[Lossless evidence compression](evidence/tikv-closed-evidence-compression.json)
+retains 268 closed host-only JSON files at their original paths, verifying their
+SHA-256, size, mode, owner and modification time. Native APFS compression saves
+1.39 GB of physical allocation without removing logical evidence, images or
+volumes. This restores external-disk headroom for the bounded comparison.
+
 ## Archive-admission timing and restored benchmark headroom
 
 The next observation separates time in admission policy evaluation from time a

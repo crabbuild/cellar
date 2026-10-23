@@ -170,6 +170,7 @@ def main():
     p.add_argument('--tick-ms',type=int,default=100)
     p.add_argument('--queue-items',type=int,default=256)
     p.add_argument('--archive-producers',type=int,default=2,choices=range(1,5),help='bounded publications across distinct cells; physical replay shares one workspace')
+    p.add_argument('--archive-max-unarchived-mib',type=int,default=256,choices=range(1,16385),metavar='MIB',help='node-wide retained history and worst-case command reservation budget; production default 256 MiB')
     p.add_argument('--sql-workers',type=int,default=2,choices=range(1,17),help='fixed SQL owners per node')
     p.add_argument('--sql-worker-queue',type=int,default=32,choices=range(1,257),help='work reservations per SQL owner; total capacity is workers times this value')
     p.add_argument('--archive-tmpfs-mib',type=int,default=0,choices=[0,512],help='bounded disposable archive verification workspace; Raft images/logs stay on disk')
@@ -202,6 +203,8 @@ def main():
             raise ValueError('continuation must preserve cell count, context, port base and tick interval')
         if report.get('archive_producers',1) != args.archive_producers:
             raise ValueError('continuation must preserve archive producer concurrency')
+        if report.get('archive_max_unarchived_mib',256) != args.archive_max_unarchived_mib:
+            raise ValueError('continuation must preserve archive byte budget')
         if report['sql_workers'] != args.sql_workers or report['sql_worker_queue'] != args.sql_worker_queue:
             raise ValueError('continuation must preserve SQL workers and work capacity')
         shutil.copyfile(root/'report.json',root/f"report-before-continuation-{int(time.time())}.json")
@@ -234,6 +237,7 @@ def main():
             'vm_cpu_count':int(docker('info','--format','{{.NCPU}}')),
             'host_cpu_count':os.cpu_count(),
             'archive_tmpfs_mib':args.archive_tmpfs_mib, 'archive_producers':args.archive_producers,
+            'archive_max_unarchived_mib':args.archive_max_unarchived_mib,
             'sql_workers':args.sql_workers, 'sql_worker_queue':args.sql_worker_queue,
             'queue_items':args.queue_items,'primary_only':args.primary_only,'tick_ms':args.tick_ms,'write_durability':'Quorum','archive':'RustFS','measurements':[], 'completed':False}
     def save(): (root/'report.json').write_text(json.dumps(report,indent=2)+'\n')
@@ -251,6 +255,8 @@ def main():
             sql=usage['sql']
             if sql['running_workers']!=args.sql_workers or sql['worker_capacity']!=args.sql_workers or sql['work_capacity']!=args.sql_workers*args.sql_worker_queue or sql['queue_closed']:
                 raise RuntimeError('physical SQL workers/capacity differ from requested configuration')
+            if usage.get('archive_max_unarchived_bytes') != args.archive_max_unarchived_mib*1024**2:
+                raise RuntimeError('node archive byte budget differs from requested configuration')
             observed.append(usage)
         return observed
     try:
@@ -279,6 +285,7 @@ def main():
                     '-v',name+':/data','-v',str(config)+':/config:ro',
                     *(['--tmpfs',f'/data/node/raft-cells/archive-verifier:rw,noexec,nosuid,nodev,size={args.archive_tmpfs_mib}m'] if args.archive_tmpfs_mib else []),
                     '-e',f'RAFT_NODE={n}','-e',f'RAFT_CELLS={total}','-e',f'RAFT_TICK_MS={args.tick_ms}','-e',f'RAFT_PRIMARY_ONLY={int(args.primary_only)}','-e',f'RAFT_QUEUE_ITEMS={args.queue_items}','-e',f'RAFT_ARCHIVE_PRODUCERS={args.archive_producers}',
+                    '-e',f'RAFT_ARCHIVE_MAX_UNARCHIVED_MIB={args.archive_max_unarchived_mib}',
                     '-e',f'RAFT_SQL_WORKERS={args.sql_workers}','-e',f'RAFT_SQL_WORKER_QUEUE={args.sql_worker_queue}',
                     '-e','AWS_ACCESS_KEY_ID='+access,'-e','AWS_SECRET_ACCESS_KEY='+secret,args.image)
         log('Waiting for native multi-Raft registration and listeners...')

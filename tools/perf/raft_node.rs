@@ -115,6 +115,16 @@ async fn main() -> Result<()> {
         (1..=4).contains(&archive_producers),
         "invalid archive producer limit"
     );
+    let archive_max_unarchived_mib: u64 = std::env::var("RAFT_ARCHIVE_MAX_UNARCHIVED_MIB")
+        .unwrap_or_else(|_| {
+            (RaftArchiveOptions::default().max_unarchived_bytes / (1024 * 1024)).to_string()
+        })
+        .parse()?;
+    ensure!(
+        (1..=16_384).contains(&archive_max_unarchived_mib),
+        "invalid archive byte budget"
+    );
+    let archive_max_unarchived_bytes = archive_max_unarchived_mib * 1024 * 1024;
     let sql_workers: usize = std::env::var("RAFT_SQL_WORKERS")
         .unwrap_or_else(|_| RaftHostOptions::default().blocking_workers.to_string())
         .parse()?;
@@ -337,6 +347,7 @@ async fn main() -> Result<()> {
     };
     host.close_report.max_groups = local_count;
     host.archive.max_producers = archive_producers;
+    host.archive.max_unarchived_bytes = archive_max_unarchived_bytes;
     let service = node
         .start_raft_cells(
             RaftCellsConfig {
@@ -422,10 +433,9 @@ async fn main() -> Result<()> {
                 if !authorized {
                     return (axum::http::StatusCode::FORBIDDEN, "unauthorized".to_owned());
                 }
-                (
-                    axum::http::StatusCode::OK,
-                    serde_json::json!(service.resource_usage()).to_string(),
-                )
+                let mut usage = serde_json::json!(service.resource_usage());
+                usage["archive_max_unarchived_bytes"] = archive_max_unarchived_bytes.into();
+                (axum::http::StatusCode::OK, usage.to_string())
             }
         }),
     );

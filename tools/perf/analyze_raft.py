@@ -77,6 +77,12 @@ def analyze(root, p99_limit_ms=200):
             scratch = limits['Tmpfs']
             assert set(scratch) == {'/data/node/raft-cells/archive-verifier'}
             assert 'size=512m' in next(iter(scratch.values()))
+    if 'archive_max_unarchived_mib' in report:
+        assert 1 <= report['archive_max_unarchived_mib'] <= 16384
+        for phase in ('initial_resources', 'final_resources'):
+            assert len(report[phase]) == 3
+            for usage in report[phase]:
+                assert usage['archive_max_unarchived_bytes'] == report['archive_max_unarchived_mib'] * 1024**2
     if 'sql_workers' in report or 'sql_worker_queue' in report:
         assert 1 <= report['sql_workers'] <= 16 and 1 <= report['sql_worker_queue'] <= 256
         for phase in ('initial_resources', 'final_resources'):

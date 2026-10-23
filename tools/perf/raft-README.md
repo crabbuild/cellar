@@ -50,6 +50,16 @@ and recovery set, so aggregate archive memory scales with this setting. The
 runner records it and requires the same value when continuing incomplete setup.
 Use one and two with the same image to isolate the effect of overlapping I/O.
 
+`--archive-max-unarchived-mib` controls the node-wide retained history and
+command reservation budget (default 256 MiB). New callbacks reserve their maximum
+image/envelope size until preparation supplies the verified size. Increasing
+this budget may reduce reservation waiting but permits more retained history
+and concurrent preparation; it is not additional container memory. Compare
+256 and 512 using the same image, and require memory, archive catch-up, replica
+correctness and latency checks. The node reports its configured byte budget at
+`/resources`; the runner and independent analyzer verify it at both boundaries.
+Setup continuation cannot change it. Production defaults remain unchanged.
+
 `--sql-workers` selects one to sixteen fixed SQL owners per node (default two).
 `--sql-worker-queue` bounds queued/executing reservations per owner (default 32).
 To isolate worker concurrency while retaining 64 total reservations, compare

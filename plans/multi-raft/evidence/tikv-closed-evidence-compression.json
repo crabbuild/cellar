@@ -1,0 +1,11 @@
+{
+  "completed": true,
+  "files": 268,
+  "logical_bytes": 2091762777,
+  "allocated_bytes_saved": 1390157824,
+  "free_bytes_before": 6415048704,
+  "free_bytes_after": 7758008320,
+  "raw_record": ".cellar/raft-perf/diagnosis/closed-json-compression.json",
+  "raw_record_sha256": "a6dc8a6619e8dca55d8b4ccde16ebe408fed091ebb6439370f6a3c0a94de8b85",
+  "method": "Native APFS compression of closed host-only JSON evidence. Each replacement verifies content SHA-256, length, mode, uid, gid and mtime before and after replacement; original uncompressed copy is removed only after both copies verify. All logical evidence and paths retained; no images or volumes pruned."
+}
