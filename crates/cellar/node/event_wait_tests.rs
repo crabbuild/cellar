@@ -404,7 +404,7 @@ async fn ambiguous_attempt_discards_its_route_without_replay_or_cleanup_wait() -
         .run(async {
             let (app, mut messages) = app()?;
             let mut route = super::super::RemoteRouteRetry::new(1000);
-            assert!(!route.observe("old-node", 7));
+            assert!(!route.observe("old-node", 7, None));
             let operation = route.retry(
                 &app,
                 "Order:a",
@@ -422,6 +422,7 @@ async fn ambiguous_attempt_discards_its_route_without_replay_or_cleanup_wait() -
                 cell,
                 node,
                 epoch,
+                capacity_sample_ms,
                 reply,
             } = message
             else {
@@ -431,6 +432,7 @@ async fn ambiguous_attempt_discards_its_route_without_replay_or_cleanup_wait() -
                 (cell.as_str(), node.as_str(), epoch),
                 ("Order:a", "old-node", 7)
             );
+            assert_eq!(capacity_sample_ms, None);
             assert!(
                 reply.send(()).is_err(),
                 "stopped caller retained the cleanup wait"

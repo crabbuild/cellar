@@ -543,6 +543,7 @@ pub enum Message {
         cell: String,
         node: String,
         epoch: u64,
+        capacity_sample_ms: Option<u64>,
         reply: oneshot::Sender<()>,
     },
     OwnedCells {
@@ -1468,6 +1469,7 @@ impl AppHandle {
                         addr,
                         epoch,
                         peer_protocol,
+                        ..
                     },
                     ..
                 } => Ok(HandoffAttempt::CurrentOwner(AdoptedCell {
@@ -1729,7 +1731,9 @@ impl AppHandle {
     }
 
     pub async fn invalidate_remote(&self, cell: String, node: String, epoch: u64) {
-        let _ = self.queue_remote_invalidation(cell, node, epoch).await;
+        let _ = self
+            .queue_remote_invalidation(cell, node, epoch, None)
+            .await;
     }
 
     pub(crate) fn queue_remote_invalidation(
@@ -1737,12 +1741,14 @@ impl AppHandle {
         cell: String,
         node: String,
         epoch: u64,
+        capacity_sample_ms: Option<u64>,
     ) -> oneshot::Receiver<()> {
         let (reply, receive) = oneshot::channel();
         let _ = self.tx.send(Message::InvalidateRemote {
             cell,
             node,
             epoch,
+            capacity_sample_ms,
             reply,
         });
         receive
@@ -3120,9 +3126,18 @@ impl Actor {
                 cell,
                 node,
                 epoch,
+                capacity_sample_ms,
                 reply,
             } => {
-                self.drive(Event::InvalidateRemote { cell, node, epoch }, out);
+                self.drive(
+                    Event::InvalidateRemote {
+                        cell,
+                        node,
+                        epoch,
+                        capacity_sample_ms,
+                    },
+                    out,
+                );
                 let _ = reply.send(());
             }
             Message::OwnedCells {

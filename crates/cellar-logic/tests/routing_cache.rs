@@ -6,6 +6,340 @@ use cellar_logic::{
 };
 use std::collections::VecDeque;
 
+fn capacity_fixture(cache_limit: usize) -> State {
+    use cellar_logic::{LeaseCasOutcome, NodeLeaseSpec};
+    let mut limits = config();
+    limits.max_cached_routes = cache_limit;
+    limits.max_resident = 1;
+    limits.require_node_lease = true;
+    let mut state = State::new("origin", limits);
+    let effects = on_event(
+        &mut state,
+        Event::StartNodeLease {
+            now_ms: 0,
+            now_mono_ms: 0,
+            spec: NodeLeaseSpec {
+                lineage: None,
+                addr: "origin:8081".into(),
+                peer_protocol: 1,
+                generation: "origin-generation".into(),
+                resume_generation: None,
+                ttl_ms: 100_000,
+            },
+        },
+    );
+    let op = effects
+        .iter()
+        .find_map(|e| match e {
+            Effect::ReadSelfNodeLease { op } => Some(*op),
+            _ => None,
+        })
+        .unwrap();
+    let effects = on_event(
+        &mut state,
+        Event::SelfNodeLeaseRead {
+            op,
+            now_ms: 0,
+            now_mono_ms: 0,
+            result: Ok(None),
+        },
+    );
+    let op = effects
+        .iter()
+        .find_map(|e| match e {
+            Effect::CasNodeLease { op, .. } => Some(*op),
+            _ => None,
+        })
+        .unwrap();
+    on_event(
+        &mut state,
+        Event::NodeLeaseCasCompleted {
+            op,
+            now_mono_ms: 0,
+            result: Ok(LeaseCasOutcome::Applied {
+                etag: "lease".into(),
+            }),
+            stamped_log_state: None,
+        },
+    );
+    assert!(state.node_authoritative());
+    // An unresolved local activation holds the sole residency slot. New
+    // unowned cells must consult fleet capacity without evicting that work.
+    let op = request(&mut state, 1, "Account:held");
+    on_event(
+        &mut state,
+        Event::OwnerRead {
+            op,
+            now_ms: 0,
+            result: Ok(None),
+        },
+    );
+    assert!(matches!(
+        state.phase("Account:held"),
+        Some(Phase::Acquiring { .. })
+    ));
+    state
+}
+
+fn capacity_route(state: &mut State, request_id: u64, cell: &str, sample: u64) -> Vec<Effect> {
+    capacity_route_with_peers(state, request_id, cell, vec![capacity_peer(sample)])
+}
+
+fn capacity_peer(sample: u64) -> cellar_logic::CapacityPeer {
+    cellar_logic::CapacityPeer {
+        node: "peer".into(),
+        addr: "peer:8081".into(),
+        expires_ms: 100_000,
+        peer_protocol: 1,
+        sampled_ms: sample,
+        owned_cells: Some(1),
+        placement_weight: Some(1),
+        bucket_format: Some(1),
+        resident_cells: 1,
+        host_websockets: 0,
+        rss_bytes: 1,
+        in_use_bytes: Some(1),
+        pressured: false,
+        memory_headroom: Some(true),
+        restoring: 0,
+        paced_handoff: true,
+        rebalance_paused: false,
+        draining: false,
+    }
+}
+
+fn capacity_route_with_peers(
+    state: &mut State,
+    request_id: u64,
+    cell: &str,
+    peers: Vec<cellar_logic::CapacityPeer>,
+) -> Vec<Effect> {
+    let op = request(state, request_id, cell);
+    let effects = on_event(
+        state,
+        Event::OwnerRead {
+            op,
+            now_ms: 0,
+            result: Ok(None),
+        },
+    );
+    let op = effects
+        .iter()
+        .find_map(|e| match e {
+            Effect::ReadCapacityPeers { op, .. } => Some(*op),
+            _ => None,
+        })
+        .expect("a full origin must consult fleet capacity");
+    let effects = on_event(
+        state,
+        Event::CapacityPeersRead {
+            op,
+            now_ms: 300,
+            result: Ok(peers),
+        },
+    );
+    state.validate().unwrap();
+    effects
+}
+
+#[test]
+fn an_old_refusal_does_not_erase_reservations_against_a_newer_sample() {
+    let mut state = capacity_fixture(0);
+    capacity_route(&mut state, 2, "Account:old", 100);
+    capacity_route(&mut state, 3, "Account:reserved", 200);
+    on_event(
+        &mut state,
+        Event::InvalidateRemote {
+            cell: "Account:old".into(),
+            node: "peer".into(),
+            epoch: 0,
+            capacity_sample_ms: Some(100),
+        },
+    );
+    let mut alternative = capacity_peer(200);
+    alternative.node = "peer-two".into();
+    alternative.addr = "peer-two:8081".into();
+    let effects = capacity_route_with_peers(
+        &mut state,
+        4,
+        "Account:next",
+        vec![capacity_peer(200), alternative],
+    );
+    assert!(
+        effects.iter().any(|e| matches!(e, Effect::Complete {
+        result: Ok(Route::Remote { node, .. }), ..
+    } if node == "peer-two")),
+        "a delayed refusal erased newer admission reservations"
+    );
+}
+
+#[test]
+fn capacity_refusal_survives_disabling_or_evicting_its_route_cache_entry() {
+    for cache_limit in [0, 1] {
+        let mut state = capacity_fixture(cache_limit);
+        let effects = capacity_route(&mut state, 2, "Account:refused", 100);
+        let sample = effects
+            .iter()
+            .find_map(|e| match e {
+                Effect::Complete {
+                    result:
+                        Ok(Route::Remote {
+                            epoch: 0,
+                            capacity_sample_ms,
+                            ..
+                        }),
+                    ..
+                } => *capacity_sample_ms,
+                _ => None,
+            })
+            .expect("the dispatch must retain its capacity sample");
+        if cache_limit == 1 {
+            capacity_route(&mut state, 3, "Account:other", 100);
+        }
+        assert!(state.phase("Account:refused").is_none());
+        on_event(
+            &mut state,
+            Event::InvalidateRemote {
+                cell: "Account:refused".into(),
+                node: "peer".into(),
+                epoch: 0,
+                capacity_sample_ms: Some(sample),
+            },
+        );
+        let retry = capacity_route(&mut state, 4, "Account:retry", 100);
+        assert!(
+            !retry.iter().any(|e| matches!(
+                e,
+                Effect::Complete {
+                    result: Ok(Route::Remote { .. }),
+                    ..
+                }
+            )),
+            "reused a refused capacity sample with cache limit {cache_limit}"
+        );
+        assert_eq!(state.phase("Account:retry"), Some(&Phase::WaitingCapacity));
+        assert!(state.cached_routes() <= cache_limit);
+    }
+}
+
+#[test]
+fn delayed_capacity_refusal_preserves_a_newer_sample_and_route() {
+    let mut state = capacity_fixture(8);
+    capacity_route(&mut state, 2, "Account:old", 100);
+    capacity_route(&mut state, 3, "Account:new", 200);
+    on_event(
+        &mut state,
+        Event::InvalidateRemote {
+            cell: "Account:new".into(),
+            node: "peer".into(),
+            epoch: 0,
+            capacity_sample_ms: Some(100),
+        },
+    );
+    assert!(matches!(
+        state.phase("Account:new"),
+        Some(Phase::Remote { .. })
+    ));
+    let reused = on_event(
+        &mut state,
+        Event::Request {
+            request: 4,
+            cell: "Account:new".into(),
+        },
+    );
+    assert!(reused.iter().any(|e| matches!(
+        e,
+        Effect::Complete {
+            result: Ok(Route::Remote {
+                capacity_sample_ms: Some(200),
+                ..
+            }),
+            ..
+        }
+    )));
+    // Once the newer observation is refused, an older late callback cannot
+    // lower that rejection watermark and make the rejected sample usable.
+    for sample in [200, 100] {
+        on_event(
+            &mut state,
+            Event::InvalidateRemote {
+                cell: "Account:new".into(),
+                node: "peer".into(),
+                epoch: 0,
+                capacity_sample_ms: Some(sample),
+            },
+        );
+    }
+    let retry = capacity_route(&mut state, 5, "Account:blocked", 200);
+    assert!(!retry.iter().any(|e| matches!(
+        e,
+        Effect::Complete {
+            result: Ok(Route::Remote { .. }),
+            ..
+        }
+    )));
+    let fresh = capacity_route(&mut state, 6, "Account:fresh", 300);
+    assert!(fresh.iter().any(|e| matches!(
+        e,
+        Effect::Complete {
+            result: Ok(Route::Remote {
+                capacity_sample_ms: Some(300),
+                ..
+            }),
+            ..
+        }
+    )));
+    state.validate().unwrap();
+}
+
+#[test]
+fn a_capacity_hint_cannot_invalidate_owner_authority_or_an_unobserved_sample() {
+    let mut state = capacity_fixture(8);
+    remote(&mut state, 2, "Account:owned");
+    for (epoch, capacity_sample_ms) in [(0, Some(100)), (7, Some(100)), (6, None)] {
+        on_event(
+            &mut state,
+            Event::InvalidateRemote {
+                cell: "Account:owned".into(),
+                node: "peer".into(),
+                epoch,
+                capacity_sample_ms,
+            },
+        );
+        assert!(matches!(
+            state.phase("Account:owned"),
+            Some(Phase::Remote { epoch: 7, .. })
+        ));
+    }
+    on_event(
+        &mut state,
+        Event::InvalidateRemote {
+            cell: "Account:owned".into(),
+            node: "peer".into(),
+            epoch: 7,
+            capacity_sample_ms: None,
+        },
+    );
+    assert_eq!(state.phase("Account:owned"), Some(&Phase::Inactive));
+    capacity_route(&mut state, 3, "Account:capacity", 100);
+    for sample in [None, Some(0), Some(200)] {
+        on_event(
+            &mut state,
+            Event::InvalidateRemote {
+                cell: "Account:capacity".into(),
+                node: "peer".into(),
+                epoch: 0,
+                capacity_sample_ms: sample,
+            },
+        );
+        assert!(matches!(
+            state.phase("Account:capacity"),
+            Some(Phase::Remote { epoch: 0, .. })
+        ));
+    }
+    state.validate().unwrap();
+}
+
 fn config() -> Config {
     Config {
         max_resident: 8,

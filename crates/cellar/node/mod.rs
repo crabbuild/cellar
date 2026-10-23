@@ -521,7 +521,7 @@ enum RemoteRetryOutcome {
 /// generation and fails a safe application retry before ownership can move.
 struct RemoteRouteRetry {
     dispatcher: cellar_logic::routing::Dispatcher,
-    generation: Option<(String, u64)>,
+    generation: Option<(String, u64, Option<u64>)>,
     blocked: bool,
     deadline_ms: u64,
     next_wait_ms: u64,
@@ -546,15 +546,17 @@ impl RemoteRouteRetry {
     }
 
     /// Return true when this route is known not to be usable yet.
-    fn observe(&mut self, node: &str, epoch: u64) -> bool {
-        let changed = self
-            .generation
-            .as_ref()
-            .is_none_or(|(current_node, current_epoch)| {
-                current_node != node || *current_epoch != epoch
-            });
+    fn observe(&mut self, node: &str, epoch: u64, capacity_sample_ms: Option<u64>) -> bool {
+        let changed =
+            self.generation
+                .as_ref()
+                .is_none_or(|(current_node, current_epoch, current_sample)| {
+                    current_node != node
+                        || *current_epoch != epoch
+                        || *current_sample != capacity_sample_ms
+                });
         if changed {
-            self.generation = Some((node.to_string(), epoch));
+            self.generation = Some((node.to_string(), epoch, capacity_sample_ms));
             self.blocked = false;
             self.dispatcher = cellar_logic::routing::Dispatcher::default();
             self.next_wait_ms = Self::INITIAL_WAIT_MS;
@@ -592,7 +594,7 @@ impl RemoteRouteRetry {
         surface: Option<&'static str>,
     ) -> RemoteRetryOutcome {
         let action = self.failed(attempt);
-        let (node, epoch) = self.generation.as_ref().expect("an observed remote route");
+        let (node, epoch, _) = self.generation.as_ref().expect("an observed remote route");
         tracing::warn!(
             event = "remote_route_retry",
             %scope,
@@ -611,15 +613,16 @@ impl RemoteRouteRetry {
         if outcome == RemoteRetryOutcome::Ready {
             self.invalidate(app, scope).await;
         } else {
-            let (node, epoch) = self.generation.as_ref().expect("an observed remote route");
-            drop(app.queue_remote_invalidation(scope.to_string(), node.clone(), *epoch));
+            let (node, epoch, sample) = self.generation.as_ref().expect("an observed remote route");
+            drop(app.queue_remote_invalidation(scope.to_string(), node.clone(), *epoch, *sample));
         }
         outcome
     }
 
     async fn invalidate(&self, app: &AppHandle, scope: &str) {
-        let (node, epoch) = self.generation.as_ref().expect("an observed remote route");
-        app.invalidate_remote(scope.to_string(), node.clone(), *epoch)
+        let (node, epoch, sample) = self.generation.as_ref().expect("an observed remote route");
+        let _ = app
+            .queue_remote_invalidation(scope.to_string(), node.clone(), *epoch, *sample)
             .await;
     }
 
@@ -1266,7 +1269,7 @@ async fn dispatch_do_call(app: AppHandle, call: DoCallReq) {
                 dispatch_started = Instant::now();
             })
             .await;
-            let (node, addr, epoch, peer_protocol) = match attempt {
+            let (node, addr, epoch, peer_protocol, capacity_sample_ms) = match attempt {
                 CallAttempt::Unstarted(error) => break Err(error),
                 CallAttempt::RouteError(error) => {
                     if let Some(timing) = websocket_timing.as_mut() {
@@ -1316,12 +1319,13 @@ async fn dispatch_do_call(app: AppHandle, call: DoCallReq) {
                     addr,
                     epoch,
                     peer_protocol,
+                    capacity_sample_ms,
                     payload: returned,
                 } => {
                     // The attempt hands the payload back with the route, so a
                     // retry re-enters routing with the body it never lost.
                     payload = returned;
-                    (node, addr, epoch, peer_protocol)
+                    (node, addr, epoch, peer_protocol, capacity_sample_ms)
                 }
             };
             let scope = &call.scope;
@@ -1336,7 +1340,7 @@ async fn dispatch_do_call(app: AppHandle, call: DoCallReq) {
                 body,
                 headers,
             } = &payload;
-            if dispatcher.observe(&node, epoch) {
+            if dispatcher.observe(&node, epoch, capacity_sample_ms) {
                 let cancel = if deliver_abort_to_handler {
                     None
                 } else {
@@ -1552,7 +1556,7 @@ async fn dispatch_do_call(app: AppHandle, call: DoCallReq) {
                             .chain()
                             .any(|cause| cause.downcast_ref::<StalePeerRoute>().is_some());
                     if capacity_refused {
-                        app.invalidate_remote(scope.clone(), node, epoch).await;
+                        dispatcher.invalidate(&app, scope).await;
                         let cancel = if deliver_abort_to_handler {
                             None
                         } else {
@@ -1650,7 +1654,7 @@ async fn dispatch_rpc_call(app: AppHandle, call: RpcCallReq) {
                     failure
                 }
             })?;
-            let (node, addr, epoch, peer_protocol) = match route {
+            let (node, addr, epoch, peer_protocol, capacity_sample_ms) = match route {
                 Route::Local => {
                     let local_request_id = local_dispatch_request_id(request_id);
                     let local =
@@ -1684,9 +1688,10 @@ async fn dispatch_rpc_call(app: AppHandle, call: RpcCallReq) {
                     addr,
                     epoch,
                     peer_protocol,
-                } => (node, addr, epoch, peer_protocol),
+                    capacity_sample_ms,
+                } => (node, addr, epoch, peer_protocol, capacity_sample_ms),
             };
-            if dispatcher.observe(&node, epoch) {
+            if dispatcher.observe(&node, epoch, capacity_sample_ms) {
                 match dispatcher.wait(None).await {
                     RemoteRetryOutcome::Ready => {
                         dispatcher.invalidate(&app, &scope).await;
@@ -3538,6 +3543,7 @@ async fn handle_internal(
                             addr,
                             epoch,
                             peer_protocol,
+                            ..
                         },
                     ..
                 }) => response(

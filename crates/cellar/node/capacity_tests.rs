@@ -53,6 +53,8 @@ async fn refused(cancel: bool) -> anyhow::Result<()> {
             let address = listener.local_addr()?.to_string();
             let attempts = Arc::new(AtomicUsize::new(0));
             let count = attempts.clone();
+            let invalidations = Arc::new(AtomicUsize::new(0));
+            let invalidation_count = invalidations.clone();
             let (canceller, cancelled) = oneshot::channel();
             let mut canceller = Some(canceller);
             let actor = crate::asyncrt::spawn(async move {
@@ -80,10 +82,17 @@ async fn refused(cancel: bool) -> anyhow::Result<()> {
                                     addr: address.clone(),
                                     epoch: 0,
                                     peer_protocol: peer_auth::PROTOCOL_VERSION,
+                                    capacity_sample_ms: Some(100),
                                 },
                             }));
                         }
-                        Message::InvalidateRemote { reply, .. } => {
+                        Message::InvalidateRemote {
+                            reply,
+                            capacity_sample_ms,
+                            ..
+                        } => {
+                            assert_eq!(capacity_sample_ms, Some(100));
+                            invalidation_count.fetch_add(1, Ordering::SeqCst);
                             let _ = reply.send(());
                             if cancel {
                                 if let Some(sender) = canceller.take() {
@@ -137,7 +146,13 @@ async fn refused(cancel: bool) -> anyhow::Result<()> {
             let _ = actor.await;
             let _ = routing.await;
             let _ = server.await;
-            outcome.context("capacity refusal ignored the original deadline/cancellation")?;
+            outcome.with_context(|| {
+                format!(
+                    "capacity refusal ignored the original deadline/cancellation: cancel={cancel}, peer_refusals={}, invalidations={}",
+                    attempts.load(Ordering::SeqCst),
+                    invalidations.load(Ordering::SeqCst)
+                )
+            })?;
             let error = receive
                 .await?
                 .err()

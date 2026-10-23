@@ -170,6 +170,13 @@ pub enum RemoteCache {
 }
 
 impl RemoteCache {
+    fn capacity_sample_ms(self) -> Option<u64> {
+        match self {
+            Self::CapacitySample { sampled_ms, .. } => Some(sampled_ms),
+            _ => None,
+        }
+    }
+
     fn reusable(self, now_ms: u64, now_mono_ms: u64) -> bool {
         match self {
             Self::OwnerLease(deadline) | Self::CapacitySample { deadline, .. } => {
@@ -3870,6 +3877,7 @@ impl State {
                     addr: addr.clone(),
                     epoch: *epoch,
                     peer_protocol: *peer_protocol,
+                    capacity_sample_ms: cache.capacity_sample_ms(),
                 }),
             }),
             Phase::Fenced => effects.push(Effect::Complete {
@@ -4628,6 +4636,7 @@ impl State {
                     addr: peer.addr,
                     epoch: 0,
                     peer_protocol: peer.peer_protocol,
+                    capacity_sample_ms: Some(peer.sampled_ms),
                 }),
                 effects,
             );
@@ -4707,6 +4716,7 @@ impl State {
                         addr,
                         epoch,
                         peer_protocol: lease.peer_protocol,
+                        capacity_sample_ms: None,
                     }),
                     effects,
                 );
@@ -5321,6 +5331,7 @@ impl State {
                     addr: adopted.addr.clone(),
                     epoch: adopted.epoch,
                     peer_protocol: adopted.peer_protocol,
+                    capacity_sample_ms: None,
                 };
                 set_phase(
                     &mut self.occupied,
@@ -6849,20 +6860,39 @@ impl State {
         self.shed_one(effects);
     }
 
-    fn invalidate_remote(&mut self, id: &str, node: &str, epoch: Epoch) {
-        self.node_lease_cache.remove(node);
-        let rejected_sample = self.cells.get(id).and_then(|cell| match &cell.phase {
-            Phase::Remote {
-                node: current,
-                epoch: current_epoch,
-                cache: RemoteCache::CapacitySample { sampled_ms, .. },
-                ..
-            } if current == node && *current_epoch == epoch => Some(*sampled_ms),
-            _ => None,
-        });
-        if let Some(sample) = rejected_sample {
-            self.capacity_rejections.insert(node.to_string(), sample);
-            self.capacity_reservations.remove(node);
+    fn invalidate_remote(
+        &mut self,
+        id: &str,
+        node: &str,
+        epoch: Epoch,
+        capacity_sample_ms: Option<u64>,
+    ) {
+        if epoch == 0 {
+            let Some(sample) = capacity_sample_ms.filter(|sample| *sample != 0) else {
+                return;
+            };
+            let Some(current) = self.capacity_samples.get(node).copied() else {
+                return;
+            };
+            if sample > current {
+                return;
+            }
+            // A completed dispatch can outlive its cache entry. Retain only
+            // the node-wide rejection high-water mark, not per-cell history.
+            // Delayed refusals cannot undo a newer refusal or its reservations.
+            let rejected = self
+                .capacity_rejections
+                .entry(node.to_string())
+                .or_default();
+            *rejected = (*rejected).max(sample);
+            if sample == current {
+                self.capacity_reservations.remove(node);
+            }
+        } else {
+            if capacity_sample_ms.is_some() {
+                return;
+            }
+            self.node_lease_cache.remove(node);
         }
         let Some(cell) = self.cells.get_mut(id) else {
             return;
@@ -6872,8 +6902,10 @@ impl State {
             Phase::Remote {
                 node: current,
                 epoch: current_epoch,
+                cache,
                 ..
             } if current == node && *current_epoch == epoch
+                && cache.capacity_sample_ms() == capacity_sample_ms
         ) {
             set_phase(&mut self.occupied, cell, Phase::Inactive);
         }
@@ -7253,9 +7285,12 @@ pub fn on_event(state: &mut State, event: Event) -> Vec<Effect> {
         Event::LoadSampled { load, now_mono_ms } => {
             state.load_sampled(load, now_mono_ms, &mut effects)
         }
-        Event::InvalidateRemote { cell, node, epoch } => {
-            state.invalidate_remote(&cell, &node, epoch)
-        }
+        Event::InvalidateRemote {
+            cell,
+            node,
+            epoch,
+            capacity_sample_ms,
+        } => state.invalidate_remote(&cell, &node, epoch, capacity_sample_ms),
         Event::NodeFenced => state.fence_node(HaltReason::NodeLeaseExpired, &mut effects),
         Event::ReleaseAll => state.release_all(&mut effects),
         Event::Rebalance { cells } => state.rebalance(cells, &mut effects),
