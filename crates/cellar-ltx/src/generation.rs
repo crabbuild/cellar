@@ -563,8 +563,8 @@ impl GenerationStore {
         } else if first.base != ImageState::empty(first.base.epoch)? {
             return Err(ApplyError::MissingBase.into());
         }
-        // Two names can coexist before rename or after a crash. Reserving two
-        // full private images conservatively bounds either recovered layout.
+        // Keep the existing conservative temporary-image admission charge.
+        // Publication uses one exclusive name, but does not relax capacity.
         let charge = peak.checked_mul(2).ok_or(GenerationError::Limit)?;
         if charge > self.inner.limits.max_bytes {
             return Err(GenerationError::Limit);
@@ -610,15 +610,16 @@ impl GenerationStore {
             token,
             finished: false,
         };
-        let stage = self.inner.directory.join(stage_name(id));
         let final_path = self.inner.directory.join(final_name(id));
-        let mut stage_owned = false;
-        let mut final_attempted = false;
         let mut final_owned = false;
         let mut reclamation = None;
         let result = (|| {
-            let mut destination = self.inner.filesystem.create_read_write(&stage)?;
-            stage_owned = true;
+            // The exclusive name is not publication authority. The busy entry
+            // prevents adoption while bytes are incomplete; no pin escapes
+            // until verification and both persistence barriers succeed. Crash
+            // recovery adopts only an independently authoritative exact marker.
+            let mut destination = self.inner.filesystem.create_read_write(&final_path)?;
+            final_owned = true;
             let base_path = base.map(|p| self.inner.directory.join(final_name(p.id())));
             let image = apply::apply_private_chain(
                 self.inner.filesystem.as_ref(),
@@ -629,13 +630,6 @@ impl GenerationStore {
             )?;
             destination.sync_all()?;
             drop(destination);
-            // Atomic exclusive creation proves this final name is ours. Rename
-            // replaces only this unpublished placeholder, never an old image.
-            final_attempted = true;
-            let placeholder = self.inner.filesystem.create_new(&final_path)?;
-            final_owned = true;
-            drop(placeholder);
-            self.inner.filesystem.rename(&stage, &final_path)?;
             let selected = self.select_reclamation(8)?;
             reclamation = Some(selected);
             if let Some(selected) = &reclamation {
@@ -685,14 +679,11 @@ impl GenerationStore {
                 // returning an error. Without a successful handle we cannot
                 // prove ownership or refund its capacity. Reopening under the
                 // directory lock reconciles every surviving name.
-                if !stage_owned || final_attempted && !final_owned {
+                if !final_owned {
                     return Err(operation);
                 }
                 let cleanup = (|| {
-                    if final_owned {
-                        remove_if_present(self.inner.filesystem.as_ref(), &final_path)?;
-                    }
-                    remove_if_present(self.inner.filesystem.as_ref(), &stage)?;
+                    remove_if_present(self.inner.filesystem.as_ref(), &final_path)?;
                     self.inner.filesystem.sync_all(&self.inner.directory)
                 })();
                 if let Err(cleanup) = cleanup {
@@ -915,10 +906,6 @@ impl Inner {
         }
         Ok(state)
     }
-}
-
-fn stage_name(id: ImageId) -> String {
-    format!("{}.stage", id.text())
 }
 
 fn final_name(id: ImageId) -> String {

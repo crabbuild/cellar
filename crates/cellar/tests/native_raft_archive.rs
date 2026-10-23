@@ -407,13 +407,18 @@ async fn archive_replay_seals_one_generation_for_a_bounded_tail_batch() -> Resul
         let pin = set.restore(&store, images::id(91))?;
         ensure!(images::read(&pin)? == fixture.bytes);
         let events = faults.events.lock().unwrap().clone();
-        for operation in ["image-sync", "rename"] {
-            assert_eq!(
-                events.iter().filter(|&&event| event == operation).count(),
-                expected_seals,
-                "archive replay {operation} count with {max_files} files per batch"
-            );
-        }
+        assert_eq!(
+            events
+                .iter()
+                .filter(|&&event| event == "image-sync")
+                .count(),
+            expected_seals,
+            "archive replay image-sync count with {max_files} files per batch"
+        );
+        assert!(
+            !events.contains(&"rename"),
+            "exclusive image files need no rename"
+        );
     }
     fixture.close().await
 }
@@ -651,7 +656,7 @@ async fn archive_tail_replay_seals_one_private_image() -> Result<()> {
         "32-entry archive replay sealed {syncs} images in {elapsed:?}: {events:?}"
     );
     ensure!(
-        events == ["image-sync", "rename", "directory-sync"],
+        events == ["image-sync", "directory-sync"],
         "unexpected publication work: {events:?}"
     );
     fixture.close().await

@@ -1,0 +1,18 @@
+{
+  "completed": true,
+  "files": 500,
+  "volumes": 12,
+  "logical_bytes": 8303492973,
+  "allocated_bytes_saved": 5724385280,
+  "free_before": {
+    ".": 5434052608,
+    "/Volumes/Workspace": 5219590144
+  },
+  "free_after": {
+    ".": 11207348224,
+    "/Volumes/Workspace": 5218422784
+  },
+  "raw_record": ".cellar/raft-perf/diagnosis/closed-raft-log-compression-r2.json",
+  "raw_record_sha256": "c7275241eecd721750565da443a768036818321986fe40bd2b4a675ad77aac58",
+  "method": "Same verified transparent APFS compression as the earlier closed-log record, on four further stopped verified internal cohorts. Logical content and permissions/ownership/mtime are preserved; original named volumes pass read-only probes and retain identical options. No images, volumes or evidence are pruned."
+}

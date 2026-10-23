@@ -59,8 +59,9 @@ async fn leader(cells: &[RaftCellHandle]) -> Result<usize> {
 
 pub(super) async fn crash_matrix(s3: bool) -> Result<()> {
     for cut in [
+        "image-after-write",
         "image-before-sync",
-        "image-after-rename",
+        "image-after-file-sync",
         "image-after-directory-sync",
         "engine-before-sync",
         "engine-after-sync",

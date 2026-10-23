@@ -84,7 +84,7 @@ that is later truncated. No intermediate pin is exposed. Archive recovery uses
 retiring each previous batch only after its successor is sealed.
 
 Image preparation also removes up to eight eligible retired files before its
-final directory sync, sharing that barrier with the new image's rename. Selected
+final directory sync, sharing that barrier with the new image's creation. Selected
 files stay busy and fully charged until the shared sync succeeds. Existing pins,
 retention and monotonic references exclude an image from selection. If space is
 needed before reserving the new image, bounded reclamation completes a separate
@@ -93,12 +93,16 @@ removal or shared barrier quarantines admission and returns no new image pin.
 Explicit `reclaim` similarly batches its selected names under one directory sync.
 
 File operations use the injected `FileSystem` synchronously on the host's owning
-blocking/execution domain. Publication syncs the complete image, reserves its
-unique final name with exclusive creation, renames over that owned unpublished
-placeholder, then syncs the directory. Directory creation also syncs ancestor
-entries. Unsupported operations fail. Failed creation with uncertain ownership
-or failed cleanup quarantines the store until it is closed and recovered; it
-does not refund unknown disk usage or overwrite an unexpected image.
+blocking/execution domain. Preparation exclusively creates the final image name
+through `create_read_write`, verifies the complete image through that owned
+handle, syncs the file, then syncs the directory. It does not create a staging
+file or rename over a placeholder. The in-progress entry stays busy: adoption
+cannot expose it before both barriers complete. A final filename alone grants
+no authority, including after a crash; recovery still requires an exact durable
+marker and verifies its image. Directory creation also syncs ancestor entries.
+Unsupported operations fail. Failed creation with uncertain ownership or failed
+cleanup quarantines the store until it is closed and recovered; it does not
+refund unknown disk usage or overwrite an unexpected image.
 
 A returned pin proves physical image sealing. The Raft host must still persist
 the corresponding engine apply marker before making that pin queryable or

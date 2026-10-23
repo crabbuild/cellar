@@ -9,6 +9,69 @@ is 236.97 versus 237.84 (+0.37%), while worst p99 increases from 206 to 234 ms.
 The production default remains 256 MiB. All earlier experiments, including the
 rejected capture candidate `8a34732`, remain preserved.
 
+## Direct exclusive image creation experiment
+
+The next candidate removes redundant per-image namespace operations while
+preserving the applied-image contract. Previously each preparation exclusively
+created a `.stage` file, verified and synced its contents, exclusively created a
+final-name placeholder, renamed over it and synced the directory. Preparation
+now uses the existing exclusive readable/writable creation contract directly on
+the final name. Full replay/digest checks, file sync, directory sync, conservative
+two-image capacity charge and engine-marker ordering are unchanged. An entry
+stays busy until both barriers finish; its filename cannot select a recovery
+head or expose a query pin. An uncertain creation or failed cleanup still
+quarantines admission, and an unexpected existing name is never overwritten.
+
+This addresses the per-cell physical work that TiKV amortizes through shared KV
+apply batches; it does not implement a shared SQLite engine or defer image
+persistence. The prior profile identified costly image preparation and namespace
+work, and the admission-budget experiment showed that moving waits downstream
+was insufficient. The ranked alternatives are private-capture directory scans
+and full-image copy/hash work after the namespace costs are reduced.
+
+A public-boundary regression first observes 18 file creations for nine verified
+images and fails the one-file bound. The candidate passes with nine creations,
+zero renames and nine image syncs, while every previous image remains readable
+and unchanged. During the directory barrier, attempted adoption returns `Busy`.
+Process-kill coverage includes the first partial write, before file sync, after
+file sync, after directory sync and after the durable marker. Collision,
+ambiguous creation, corrupt payload and shared reclamation tests retain their
+assertions. No public filesystem API or file contents format changes.
+
+[Local validation](evidence/tikv-direct-image-local.json) passes 516 library tests,
+52 native archive tests, 19 execution,
+29 host, 27 image/LTX and nine multi-group tests. The snapshot run passes 42
+cases and exposes two seed-fixture hooks still armed by rename; those cuts are
+moved to exclusive image creation. All three peer-seed, RustFS-seed and snapshot
+crash matrices then pass, including the new partial-write cut and unchanged
+recovery assertions. The LTX crate has no standalone library tests; its physical
+behavior is exercised by the native suites. Strict all-target/all-feature Clippy
+for both affected crates, layout, native dependency policy and docs checks pass.
+The first incomplete integration attempt selected the write-only creation API;
+its failed read-back results are retained. The final code uses the existing
+exclusive `create_read_write` API, which already supplied the stage handle.
+
+The performance comparison will use frozen control `6f57b79`, the same 256-MiB
+archive budget, four SQL workers / 64 reservations, four archive-cut slots,
+three pinned 1-vCPU / 3-GiB nodes and 1,500 three-voter groups. Each fresh cohort
+uses two 180-second windows at 24 writers and requires exact 4,500 replica and
+1,500 RustFS archive checks. The only manifested production source difference
+is `crates/cellar-ltx/src/generation.rs`. No end-to-end gain is claimed before
+measurement and confirmation.
+
+[First](evidence/tikv-closed-log-compression.json) and
+[second](evidence/tikv-closed-log-compression-r2.json) preservation records retain
+1,212 Raft log files across ten stopped verified cohorts using transparent APFS
+compression. Exact content, lengths, modes, owners and modification times are
+verified before releasing redundant physical copies. Original named volumes
+pass read-only hash probes; volume options and image/volume inventories remain
+unchanged. This saves 13.82 GB of physical allocation without pruning logical
+data. Fresh benchmark node directories remain on their original filesystem and
+are not compressed during the workload.
+A further [source-archive compression record](evidence/tikv-closed-context-compression.json)
+retains all 34 frozen archives while recovering 0.86 GB externally. An attempted
+compression of closed build libraries saved no space and changed no library files.
+
 ## Larger admission budget shifts waiting into SQLite work
 
 The [same-image comparison](evidence/tikv-admission-budget.json) uses executable

@@ -1,0 +1,18 @@
+{
+  "completed": true,
+  "files": 712,
+  "volumes": 18,
+  "logical_bytes": 11808951707,
+  "allocated_bytes_saved": 8096890880,
+  "free_before": {
+    ".": 3324067840,
+    "/Volumes/Workspace": 2791460864
+  },
+  "free_after": {
+    ".": 5540413440,
+    "/Volumes/Workspace": 6561701888
+  },
+  "raw_record": ".cellar/raft-perf/diagnosis/closed-raft-log-compression.json",
+  "raw_record_sha256": "d7cd31fcb8b9f77866e9ce4b86feaa92e86f6c219a0ec1f8ba3ef6821fed2639",
+  "method": "Transparent native APFS compression of raftlog files in six stopped verified cohorts. Exclusive single-link files only; exact SHA-256, size, mode, uid, gid and mtime checked before/after replacement. Original duplicate released only after both copies verify. Original named-volume options and image/volume inventories remain unchanged; read-only Docker probes through each volume match host hashes. No logical evidence, image or volume is pruned."
+}

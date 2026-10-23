@@ -11,7 +11,8 @@ use std::sync::atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 pub const BEFORE_IMAGE_SYNC: u8 = 1;
-pub const AFTER_RENAME: u8 = 2;
+pub const AFTER_IMAGE_SYNC: u8 = 2;
+pub const AFTER_IMAGE_WRITE: u8 = 10;
 pub const AFTER_DIRECTORY_SYNC: u8 = 3;
 pub const AFTER_MARKER_SYNC: u8 = 4;
 pub const FAIL_IMAGE_SYNC: u8 = 5;
@@ -26,6 +27,8 @@ pub struct Faults {
     pub fail_reads: AtomicBool,
     pub collision: AtomicBool,
     pub reads: AtomicUsize,
+    pub image_creates: AtomicUsize,
+    pub image_renames: AtomicUsize,
     pub private_ltx_readbacks: AtomicUsize,
     pub private_image_copies: AtomicUsize,
     pub events: Mutex<Vec<&'static str>>,
@@ -44,6 +47,8 @@ impl Faults {
             fail_reads: AtomicBool::new(false),
             collision: AtomicBool::new(false),
             reads: AtomicUsize::new(0),
+            image_creates: AtomicUsize::new(0),
+            image_renames: AtomicUsize::new(0),
             private_ltx_readbacks: AtomicUsize::new(0),
             private_image_copies: AtomicUsize::new(0),
             events: Mutex::new(Vec::new()),
@@ -89,25 +94,35 @@ struct File {
     inner: HostFile,
     path: PathBuf,
     faults: Arc<Faults>,
+    image_output: bool,
 }
 
 impl FaultFileSystem {
-    fn wrap(&self, path: &Path, inner: HostFile) -> HostFile {
+    fn wrap(&self, path: &Path, inner: HostFile, image_output: bool) -> HostFile {
         HostFile::from_io(File {
             inner,
             path: path.into(),
             faults: self.faults.clone(),
+            image_output,
         })
     }
 }
 
 impl HostFileIo for File {
     fn write_all(&mut self, bytes: &[u8]) -> io::Result<()> {
-        self.inner.write_all(bytes)
+        self.inner.write_all(bytes)?;
+        if self.image_output && self.faults.take(AFTER_IMAGE_WRITE) {
+            self.faults.pause()?;
+        }
+        Ok(())
     }
 
     fn write_all_at(&mut self, offset: u64, bytes: &[u8]) -> io::Result<()> {
-        self.inner.write_all_at(offset, bytes)
+        self.inner.write_all_at(offset, bytes)?;
+        if self.image_output && self.faults.take(AFTER_IMAGE_WRITE) {
+            self.faults.pause()?;
+        }
+        Ok(())
     }
 
     fn read_exact_at(&mut self, offset: u64, length: usize) -> io::Result<Vec<u8>> {
@@ -140,7 +155,7 @@ impl HostFileIo for File {
     }
 
     fn sync_all(&mut self) -> io::Result<()> {
-        if self.path.extension().is_some_and(|p| p == "stage") {
+        if self.image_output {
             if self.faults.take(BEFORE_IMAGE_SYNC) {
                 self.faults.pause()?;
             }
@@ -154,6 +169,9 @@ impl HostFileIo for File {
                 .lock()
                 .unwrap()
                 .push(self.path.clone());
+            if self.faults.take(AFTER_IMAGE_SYNC) {
+                self.faults.pause()?;
+            }
             return Ok(());
         }
         self.inner.sync_all()
@@ -178,6 +196,19 @@ impl FileSystem for FaultFileSystem {
     }
 
     fn create_read_write(&self, path: &Path) -> io::Result<HostFile> {
+        let image_output = path.extension().is_some_and(|p| p == "stage")
+            || path.extension().is_some_and(|p| p == "sqlite")
+                && path.file_stem().is_some_and(|name| name.len() == 32);
+        if image_output {
+            self.faults.image_creates.fetch_add(1, Ordering::AcqRel);
+            if self.faults.collision.swap(false, Ordering::AcqRel) {
+                DirectFileSystem.write(path, b"unowned image")?;
+            }
+            if self.faults.take(FAIL_AFTER_FINAL_CREATE) {
+                drop(DirectFileSystem.create_read_write(path)?);
+                return Err(io::Error::other("ambiguous final creation failure"));
+            }
+        }
         if path
             .file_name()
             .is_some_and(|name| name == "working.sqlite")
@@ -190,11 +221,15 @@ impl FileSystem for FaultFileSystem {
                 .private_image_copies
                 .fetch_add(1, Ordering::AcqRel);
         }
-        Ok(self.wrap(path, DirectFileSystem.create_read_write(path)?))
+        Ok(self.wrap(
+            path,
+            DirectFileSystem.create_read_write(path)?,
+            image_output,
+        ))
     }
 
     fn open_read_write(&self, path: &Path) -> io::Result<HostFile> {
-        Ok(self.wrap(path, DirectFileSystem.open_read_write(path)?))
+        Ok(self.wrap(path, DirectFileSystem.open_read_write(path)?, false))
     }
 
     fn lock_file(&self, path: &Path) -> io::Result<HostFileLock> {
@@ -202,10 +237,13 @@ impl FileSystem for FaultFileSystem {
     }
 
     fn create(&self, path: &Path) -> io::Result<HostFile> {
-        Ok(self.wrap(path, DirectFileSystem.create(path)?))
+        Ok(self.wrap(path, DirectFileSystem.create(path)?, false))
     }
 
     fn create_new(&self, path: &Path) -> io::Result<HostFile> {
+        if path.extension().is_some_and(|p| p == "sqlite") {
+            self.faults.image_creates.fetch_add(1, Ordering::AcqRel);
+        }
         if path.extension().is_some_and(|p| p == "sqlite")
             && self.faults.collision.swap(false, Ordering::AcqRel)
         {
@@ -217,11 +255,11 @@ impl FileSystem for FaultFileSystem {
             drop(DirectFileSystem.create_new(path)?);
             return Err(io::Error::other("ambiguous final creation failure"));
         }
-        Ok(self.wrap(path, DirectFileSystem.create_new(path)?))
+        Ok(self.wrap(path, DirectFileSystem.create_new(path)?, false))
     }
 
     fn open(&self, path: &Path) -> io::Result<HostFile> {
-        Ok(self.wrap(path, DirectFileSystem.open(path)?))
+        Ok(self.wrap(path, DirectFileSystem.open(path)?, false))
     }
 
     fn write(&self, path: &Path, bytes: &[u8]) -> io::Result<()> {
@@ -253,10 +291,8 @@ impl FileSystem for FaultFileSystem {
     fn rename(&self, from: &Path, to: &Path) -> io::Result<()> {
         DirectFileSystem.rename(from, to)?;
         if to.extension().is_some_and(|p| p == "sqlite") {
+            self.faults.image_renames.fetch_add(1, Ordering::AcqRel);
             self.faults.event("rename");
-            if self.faults.take(AFTER_RENAME) {
-                self.faults.pause()?;
-            }
         }
         Ok(())
     }
