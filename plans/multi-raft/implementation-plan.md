@@ -84,7 +84,7 @@ work to queue bursts and repeatable latency within the authorized five-node
 Colima/RustFS scope. MR-13 and MR-14 remain in progress. This order reflects the
 requested MR-14 focus; it does not waive MR-13's release dependency.
 
-1. **Resolve slow-follower observation stalls and qualify repeatability.**
+1. **Resolve observation stalls and qualify repeatability.**
    Startup now keeps peer routes private until every local group and the archive
    owner are ready. The sender retains bounded eight-frame control pipelining
    and persistence waiters leave the runnable queue until exact sync receipts.
@@ -99,6 +99,17 @@ requested MR-14 focus; it does not waive MR-13's release dependency.
    delay from transport queues or short CPU pressure without raising the 100 ms
    probe cap, retrying failed probes or ignoring cycles. New failed-probe records
    retain the exact cell, budget, elapsed time and exception type before cleanup.
+   The [bounded probe timings](evidence/MR-14-probe-progress.json) subsequently
+   reproduce the timeout in a healthy control with no node pauses. Cycle 68's
+   cell-25 request has no server-handler record; all other 413 attempted probes
+   correlate, and the final source-stable sample still ends at cell 20. This
+   narrows the next work to HTTP ingress and executor responsiveness under
+   density, with client connect/send/response timing and a bounded scheduler
+   regression to distinguish them. The separate slow-follower run completes
+   116 cycles and verifies 4,500 replicas/archive coverage but still misses the
+   declared traffic targets (304.107 ms p99, 24 rejected arrivals). Do not call
+   the new diagnostic instrumentation a performance fix or qualify the failed
+   healthy control. Matched-contract and sustained S3 work follows this gate.
    The controls narrow the investigation but do not prove a cause. These runs
    use thirty active cells and ten offered operations per second on one shared
    Mac; sustained capacity, overhead and cross-revision speedup remain unproven.
@@ -1379,6 +1390,31 @@ existing opt-in Docker skip. Documentation, dependency, plan validation and all
 17 plan tests pass; the initial missing-Cargo environment failure remains in the
 validation capsule. No new physical run is attributed to this diagnostic change.
 Only the dedicated profile was controlled and it is stopped; volumes remain.
+
+The [probe-stage evidence](evidence/MR-14-probe-progress.json) pins source
+`17fd0b1` and a fresh immutable image. Explicitly tagged reads retain at most 64
+server observations with separate status and replication boundaries, source and
+sequence identities, eviction counts and truthful cancellation. Diagnostic
+completion never replaces an HTTP result or a quorum witness. Six fixture tests,
+194 performance-tool tests (one opt-in skip), all-feature fixture Clippy and the
+repository checks pass. The raw capsules are extracted and independently checked.
+
+The unchanged 1,500-cell slow-follower run completes all 116 cycles and correlates
+696 probes. It verifies all 4,500 replicas and archive coverage, but 1,176/1,200
+operations, 304.107 ms p99 and 24 rejections miss the declared traffic targets.
+The matching healthy control fails cycle 68's cell-25 probe after 102.390 ms
+with the same requested 100 ms timeout. There are 413 server observations for
+414 client attempts, no diagnostic sampling failures, and the final sample at
+121.516 seconds still ends at probe `68:20`. The missing request cannot be
+explained by the 64-entry retention bound: no later probes were issued.
+All observed server probes take at most 1.584 ms in that control. This points
+before recorded handler entry; it does not distinguish network/HTTP ingress,
+executor scheduling or shared-host interference. The control's 1,108 successful
+replies, 92 rejected arrivals and 638.467 ms diagnostic p99 remain unqualified:
+final replica/archive verification never runs. Both experiments retain host/VM
+pressure samples; these are periodic observations, not per-request causal traces.
+Exact containers are stopped, empty owned networks removed, volumes retained and
+the dedicated profile stopped. The prior failed attempt remains unqualified.
 
 The [all-owner restart evidence](evidence/MR-14-restart-progress.json), source
 `aaa83f8`, records two three-node bucket runs under an explicit twelve-second

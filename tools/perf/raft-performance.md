@@ -281,6 +281,20 @@ A server completion can occur after the client times out. It is diagnostic
 evidence only and never replaces the original HTTP result, quorum witness or
 replica/archive verification. Sampling gaps and evictions remain explicit.
 
+The [first stage-timed pair](../../plans/multi-raft/evidence/MR-14-probe-progress.json)
+at `17fd0b1` completes the slow-follower schedule and verifies 4,500 replicas and
+archive coverage, while missing the unchanged traffic targets (304.107 ms p99,
+24 rejected arrivals). Its 696 probes all correlate with server observations.
+The matching healthy control reproduces a 100 ms timeout without a node pause:
+probe `68:25` has no server-handler observation, while all other 413 attempts
+correlate. The source-stable final sample, more than fifty seconds later, still
+ends at `68:20`; no later requests could have evicted the missing probe.
+This narrows further diagnosis to the path before recorded handler entry; it
+does not establish an ingress, scheduling or shared-host cause. That control
+stays unqualified, including its 638.467 ms diagnostic p99 and 92 rejections.
+Periodic host/VM pressure observations remain raw evidence. No performance
+correction, instrumentation-overhead qualification or speedup is claimed.
+
 Use the source-pinned analyzer for earlier report packages; fresh reports must
 declare their scenario and fault evidence explicitly. This experiment does not
 qualify disk-only stalls, partitions, crashes, Fleet/bucket fault handling or soak.
