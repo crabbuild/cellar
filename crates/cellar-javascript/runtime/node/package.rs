@@ -16,6 +16,7 @@ impl NodeOptions {
             inventory.target == cellar::native_deploy::current_target(),
             "compiled Node inventory target mismatch"
         );
+        // Verify the build-bound executable and package files before any import.
         cellar::native_deploy::verify_node_inventory_files(&inventory)?;
         let mut options = Self::new(inventory.entry);
         options.executable = inventory.executable;

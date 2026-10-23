@@ -1,6 +1,6 @@
 {
   "name": "@cellar/build",
-  "version": "0.6.2",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "dependencies": {"esbuild": "0.28.2", "typescript": "7.0.2"},
