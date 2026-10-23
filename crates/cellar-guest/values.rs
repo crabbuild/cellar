@@ -106,6 +106,17 @@ pub async fn response_parts(
     mut response: cellar::engine_api::HttpResponse,
     limit: usize,
 ) -> Result<(Value, Vec<u8>)> {
+    // Refuse known-invalid replies before polling a potentially pending stream.
+    // These are response failures: the underlying mutation may have committed.
+    ensure!(
+        response.websocket.is_none(),
+        "guest adapter does not support WebSocket upgrades"
+    );
+    ensure!(
+        response.body.len() <= limit,
+        "guest bridged response exceeds limit"
+    );
+    headers(&response.headers)?;
     if let Some(mut stream) = response.stream.take() {
         while let Some(chunk) = stream.next().await {
             let chunk = chunk.map_err(anyhow::Error::msg)?;
@@ -116,15 +127,6 @@ pub async fn response_parts(
             response.body.extend(chunk);
         }
     }
-    ensure!(
-        response.websocket.is_none(),
-        "guest adapter does not support WebSocket upgrades"
-    );
-    ensure!(
-        response.body.len() <= limit,
-        "guest bridged response exceeds limit"
-    );
-    headers(&response.headers)?;
     Ok((
         json!({"status":response.status,"headers":response.headers,"body":""}),
         response.body,
@@ -190,21 +192,5 @@ pub fn queue_body(body: &cellar::sdk::queue::Body) -> Result<Value> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn nested_request_body_and_header_limits_have_exact_boundaries() {
-        let mut request = json!({"url":"http://cell/", "method":"POST", "headers":[], "body":STANDARD.encode(vec![0; 4096])});
-        assert!(input(&request, 4096).is_ok());
-        request["body"] = json!(STANDARD.encode(vec![0; 4097]));
-        assert!(input(&request, 4096)
-            .err()
-            .unwrap()
-            .is::<RequestBodyLimit>());
-        assert!(headers(&vec![("x".into(), "y".into()); 128]).is_ok());
-        assert!(headers(&vec![("x".into(), "y".into()); 129]).is_err());
-        assert!(headers(&[("x".into(), "y".repeat(32767))]).is_ok());
-        assert!(headers(&[("x".into(), "y".repeat(32768))]).is_err());
-    }
-}
+#[path = "values_tests.rs"]
+mod tests;
