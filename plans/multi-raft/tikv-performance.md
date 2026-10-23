@@ -4,12 +4,85 @@ Status: PR #98's conflicts are resolved through main `1455fb0`. The current
 candidate shares overlapping bundle GETs within one compatible publication batch.
 The deterministic read regression changes two physical GETs to one; final local
 suites pass 529 library, 53 archive, 19 execution, 29 host and nine multi-group
-tests. Strict Clippy and repository checks pass; a frozen three-node comparison
-is pending.
-No sustained TPS or latency improvement is claimed. The previous admission-waiting
+tests. Strict Clippy and repository checks pass. The frozen three-node comparison
+is complete, with mixed results and overload refusals in both first windows.
+Read sharing remains experimental; no sustained TPS or latency improvement is
+claimed. The previous admission-waiting
 experiment is rejected in `5138559` after failing both the error and tail gates.
 Two-cell archive batching, four retained cuts in the benchmark and the 256-MiB
 admission budget remain unchanged.
+
+## Bundle-read paired measurement and remaining work
+
+[Paired evidence](evidence/tikv-bundle-read.json) compares frozen candidate
+`3d3ba9e` with control `0b07410`, candidate first. Both use three pinned
+1-vCPU / 3-GiB nodes, 500 leaders and 1,000 followers per node, 1,500 three-voter
+groups, four retained archive cuts, two-cell batches, four SQL workers and
+24 writers in two 180-second windows. The load AST and recorded runtime image
+identities match. Each cohort starts with fresh internal node volumes and a cold
+benchmark VM; RustFS backing and durability rules are unchanged.
+
+| Build | Successful TPS, windows 1 / 2 | Successful-request p99 ms | Timed overload refusals |
+| --- | --- | --- | --- |
+| Control | 234.56 / 257.40 | 249.68 / 215.77 | 64,608 / 0 |
+| Shared bundle reads | 281.43 / 245.46 | 192.74 / 252.03 | 2,241 / 0 |
+
+Mean successful TPS increases descriptively by 7.10%, from 245.98 to 263.45.
+The error-free second window instead shows **4.64% lower TPS and 16.81% higher
+p99** for the candidate. Neither full repeat set meets the zero-error gate at
+either 200 or 500 ms. These results do not establish a performance improvement
+or isolate a causal regression.
+
+The candidate records 7,831 joined reads out of 148,501 admissions in window one
+and 4,565 out of 90,854 in window two: 5.27% and 5.02%. These are admissions,
+including later failure/cancellation, not successful GETs or avoided bytes.
+In the error-free window, physical GETs per successful write are 0.98% lower and
+GET bytes per successful write 1.66% lower than control. Those ratios include
+background archival work and different publication histories; they are not a
+per-request attribution or proof of saved I/O. The local two-to-one GET regression
+therefore has only limited workload overlap in this comparison.
+
+Every first-window refusal reconciles to retained-entry admission pressure:
+2,241 on candidate node one; 13,186 / 25,270 / 26,148 on control nodes one through
+three. Publication failures and rejected coverage updates remain zero. SQL stage
+successes reconcile to successful writes. Failed-stage timings stay separate;
+their fast refusals must not make a successful-path latency comparison look better.
+
+Both cohorts verify all 4,500 exact replica values and all 1,500 archive positions
+without reconciliation or mutation retries. Independent analyses recheck raw
+outcomes and both latency bounds. Both stop cleanly with no OOM, retaining every
+volume. Peak node memory is 1.83 GB for candidate and 1.70 GB for control. Final
+archive checks take 0.43 and 0.69 seconds, respectively; these final checks do not
+measure steady-state archive drain capacity.
+
+Host compiler activity overlaps 0/36 and 28/37 candidate samples versus 19/37
+and 19/35 control samples. Swap stays around 11 GiB. Candidate-first order and
+unequal shared-host activity prevent causal attribution. This task performs no
+builds, profiling or preservation during either timed cohort. Before the pair,
+three verified compression passes preserve 686 closed Raft logs across 21 node
+volumes, recovering 7.41 GiB while retaining content, metadata, original paths
+and volume options. The evidence links all three raw preservation records.
+
+The next work should distinguish sustainable capacity from transient overload:
+
+1. Compare lower, identical offered loads and reverse cohort order. Find the
+   highest rate at which both repeated windows stay error-free with bounded
+   archive lag and p99. The current 24-writer result cannot qualify either build.
+2. Reduce archive service work that actually dominates: repeated recovery-set
+   reads/replays and duplicate publication attempts across replicas. Preserve
+   per-cell recovery proofs, publisher failover and bounded memory; increasing
+   admission limits alone does not increase drain capacity.
+3. Reduce independent SQLite image preparation and SQL queueing. In the
+   error-free window, preparation averages 5.13 ms for control and 5.46 ms for
+   candidate, versus shared-log persistence at 1.15 and 1.24 ms. These operations
+   overlap and cannot be added into a client-latency breakdown. TiKV's shared KV
+   apply batch remains a structural advantage that sharing Cellar's log cannot
+   supply by itself.
+4. Measure scheduling and control-queue work before changing it. TiKV's region
+   hibernation requires quorum agreement, wakeup and election handling; merely
+   skipping Cellar ticks would not implement that mechanism safely. Delayed
+   image checkpoints likewise need distinct applied/checkpointed progress,
+   replay retention and crash qualification.
 
 ## Share overlapping archive bundle reads
 
