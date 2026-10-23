@@ -88,6 +88,8 @@ proof. Keep the caller's executors alive until joining finishes.
 `ApplicationDefinition::layer` wraps public gateways, document routes and named
 HTTP entrypoints. `AxumApplication::with_application` delegates cell factories,
 workflows and non-HTTP application events to an SDK application.
+It also preserves the delegate's deployment validation, including Python and
+JavaScript scheduled-handler requirements, alongside Axum's namespace checks.
 `ApplicationBuilder::events`, `workflow` and `entrypoint` register those contracts.
 `AxumCell::with_cell` sends alarms, RPC and socket events to its SDK delegate.
 An unregistered non-HTTP event returns an error.
