@@ -63,6 +63,16 @@ three verified compression passes preserve 686 closed Raft logs across 21 node
 volumes, recovering 7.41 GiB while retaining content, metadata, original paths
 and volume options. The evidence links all three raw preservation records.
 
+After both cohorts completed and stopped, the user's separate Colima cleanup
+request removed the benchmark profile and Docker context. The raw record/report
+hashes are unchanged, all six host node directories still exist, and the external
+VM disk file remains. Its contents and current Docker image/volume inventory
+have not been reverified. The retention assertions above describe the verified
+shutdown state, not current Docker availability. A 20-writer, control-first
+driver is prepared but has not run; recreating the intentionally removed profile
+awaits the user's choice. The evidence records this later environment change
+separately from the completed measurements.
+
 The next work should distinguish sustainable capacity from transient overload:
 
 1. Compare lower, identical offered loads and reverse cohort order. Find the

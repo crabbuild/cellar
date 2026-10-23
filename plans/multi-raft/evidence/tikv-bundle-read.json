@@ -3676,5 +3676,26 @@
     "summarize-bundle-read.py": "fe060ac997f9c9987349885366e332f341c5cc9646951ad677575f7068c2da39"
   },
   "qualification_analysis_sha256": "544096d23477c1281fd6ac26715176f246330e63cb26b475295e9d9b1b5aa3ed",
-  "decision": "Read sharing is exercised, but the paired result is mixed and fails full-run qualification. Keep the change explicitly experimental while testing sustainable offered load; do not claim a repeatable throughput gain."
+  "decision": "Read sharing is exercised, but the paired result is mixed and fails full-run qualification. Keep the change explicitly experimental while testing sustainable offered load; do not claim a repeatable throughput gain.",
+  "post_pair_environment": {
+    "observed_unix": 1792791519.7734559,
+    "profile_available": false,
+    "docker_context_available": false,
+    "reason": "User-requested Colima reset in the separate Clean up Cargo build data task removed cellar-raft-perf after both cohorts completed and stopped cleanly.",
+    "external_disk_path": "/Volumes/Workspace/CrabData/colima-cellar-raft-perf/datadisk",
+    "external_disk_file_exists": true,
+    "disk_contents_reverified": false,
+    "current_image_and_volume_inventory_available": false,
+    "cohort_files": {
+      "control": {
+        "raw_record_and_report_hashes_unchanged": true,
+        "host_node_directories_exist": true
+      },
+      "candidate": {
+        "raw_record_and_report_hashes_unchanged": true,
+        "host_node_directories_exist": true
+      }
+    },
+    "next_run": "20-writer control-first driver prepared, not launched. Awaiting user choice about recreating the intentionally removed isolated profile."
+  }
 }
