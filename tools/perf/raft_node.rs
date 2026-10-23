@@ -2,6 +2,7 @@
 #![allow(clippy::disallowed_methods)]
 #[path = "../../examples/raft-counter/counter.rs"]
 mod counter;
+mod raft_probe;
 mod raft_workload;
 mod reference_workload;
 use anyhow::{ensure, Context, Result};
@@ -385,16 +386,58 @@ async fn main() -> Result<()> {
         }
     }));
     let admin = service.clone();
+    let probe_domain = Arc::new(ExecutionDomain::new(tokio::runtime::Handle::current()));
+    let admin_domain = probe_domain.clone();
+    let probes = raft_probe::Probes::new(service.performance().source);
+    let probe_reader = probes.clone();
+    let probe_secret = secret.clone();
+    let router = router.route(
+        "/probe-timings",
+        axum::routing::get(move |headers: axum::http::HeaderMap| {
+            let probes = probe_reader.clone();
+            let secret = probe_secret.clone();
+            async move {
+                if headers
+                    .get("authorization")
+                    .and_then(|value| value.to_str().ok())
+                    != Some(format!("Bearer {secret}").as_str())
+                {
+                    return (
+                        axum::http::StatusCode::UNAUTHORIZED,
+                        axum::Json(serde_json::json!({"error":"unauthorized"})),
+                    );
+                }
+                match probes.snapshot() {
+                    Ok(value) => (axum::http::StatusCode::OK, axum::Json(value)),
+                    Err(_) => (
+                        axum::http::StatusCode::SERVICE_UNAVAILABLE,
+                        axum::Json(serde_json::json!({"error":"probe diagnostics unavailable"})),
+                    ),
+                }
+            }
+        }),
+    );
     let router = router.route("/admin/{id}", axum::routing::any(
         move |axum::extract::Path(id): axum::extract::Path<usize>, request: axum::extract::Request| {
             let service = admin.clone(); let secret = secret.clone();
+            let probes = probes.clone(); let domain = admin_domain.clone();
             async move {
+              domain.run(async move {
                 let authorized = request.headers().get("authorization").and_then(|v| v.to_str().ok()) == Some(format!("Bearer {secret}").as_str());
                 let transfer = request.method() == axum::http::Method::POST;
+                let probe_id = request.headers().get("x-cellar-probe").map(|value| {
+                    ensure!(value.len() <= 41, "invalid probe identity");
+                    Ok::<_,anyhow::Error>(value.to_str()?.to_owned())
+                }).transpose();
                 drop(request);
+                let mut probe = None;
                 let result = async {
                     ensure!(authorized, "unauthorized");
                     ensure!(id < total, "invalid cell");
+                    if let Some(probe_id) = probe_id? {
+                        ensure!(!transfer, "only read probes may be timed");
+                        probe = Some(probes.start(&probe_id, id)?);
+                    }
                     let cell = match service.cell(namespace, &format!("{class_name}:{id}")) {
                         Ok(cell) => cell,
                         Err(error) => {
@@ -402,7 +445,9 @@ async fn main() -> Result<()> {
                             return Ok(serde_json::json!({"cell":id, "node":i, "registered":false}));
                         }
                     };
-                    let status = cell.status().await.map_err(|e| anyhow::anyhow!("{e:?}"))?;
+                    let status = cell.status().await;
+                    if let Some(probe) = &probe { probe.status_finished(); }
+                    let status = status.map_err(|e| anyhow::anyhow!("{e:?}"))?;
                     if transfer && status.command_ready {
                         let target = MemberId::new(if primary_only { 1 } else { u64::from(placement.voters(id)[0]) })?;
                         if status.leader != Some(target) {
@@ -412,7 +457,10 @@ async fn main() -> Result<()> {
                         }
                     }
                     let replication = if status.role == RaftReplicaRole::Leader && !transfer {
-                        let progress = cell.replication_status().await.map_err(|e| anyhow::anyhow!("{e:?}"))?;
+                        if let Some(probe) = &probe { probe.replication_started(); }
+                        let progress = cell.replication_status().await;
+                        if let Some(probe) = &probe { probe.replication_finished(); }
+                        let progress = progress.map_err(|e| anyhow::anyhow!("{e:?}"))?;
                         ensure!(progress.term == status.term && progress.membership_revision == status.membership_revision
                             && progress.replica.member.get() == u64::from(i), "changed replication observation");
                         ensure!(progress.members.iter().all(|member| member.voter), "unexpected learner");
@@ -436,8 +484,10 @@ async fn main() -> Result<()> {
                         "ready": status.command_ready, "role":format!("{:?}",status.role),
                         "term":status.term.get(), "committed":status.committed.get(), "applied":status.applied.index.get(), "archived":status.archived.get()}))
                 }.await;
+                if let Some(probe) = &probe { probe.finish(result.is_ok()); }
                 match result { Ok(v) => (axum::http::StatusCode::OK, v.to_string()),
                     Err(e) => (axum::http::StatusCode::SERVICE_UNAVAILABLE, e.to_string()) }
+              }).await.unwrap_or((axum::http::StatusCode::SERVICE_UNAVAILABLE, "probe domain closed".into()))
             }
         }));
     let listener = tokio::net::TcpListener::bind("0.0.0.0:8082").await?;
@@ -449,14 +499,16 @@ async fn main() -> Result<()> {
         queue_items,
         durability
     );
-    axum::serve(listener, router)
+    let served = axum::serve(listener, router)
         .with_graceful_shutdown(async {
             let mut term =
                 tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
                     .expect("signal");
             cellar::asyncrt::select! { _ = tokio::signal::ctrl_c() => {}, _ = term.recv() => {} }
         })
-        .await?;
+        .await;
+    probe_domain.shutdown().await;
+    served?;
     node.shutdown(ShutdownMode::Preserve)
         .await
         .context("node shutdown")?;

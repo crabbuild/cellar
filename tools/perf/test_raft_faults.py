@@ -178,6 +178,8 @@ class Ownership(unittest.TestCase):
             owner = SlowFollower(directory, 'healthy' if mode == 'control' else 'slow-follower',
                                  report['fault_profile'], report['profile'], 'fixture', 'owned', docker, probe)
             owner.drive(time.monotonic())
+            if mode in ('control', 'probe_failure'):
+                probe.assert_called_once_with(0, .1, '0:0')
             owner.close()
             recorded = [json.loads(line) for line in (Path(directory) / 'faults.jsonl').read_text().splitlines()]
         return state, actions, recorded, owner.failure
@@ -196,6 +198,7 @@ class Ownership(unittest.TestCase):
         errors = [row for row in recorded if row['event'] == 'probe_failed']
         self.assertEqual(len(errors), 1)
         error = errors[0]
+        self.assertEqual(error['probe_id'], '0:0')
         self.assertEqual((error['cycle'], error['cell'], error['error_type']), (0, 0, 'TimeoutError'))
         self.assertEqual(error['timeout_seconds'], .1)
         self.assertGreaterEqual(error['elapsed_seconds'], 0)

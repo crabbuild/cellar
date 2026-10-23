@@ -267,6 +267,20 @@ start time, elapsed time and exception type before owned-target cleanup. The
 failed read is not retried. Successful cleanup does not qualify the attempt,
 and a later successful probe cannot conceal the failed call. The 100 ms probe
 cap and overall pause/recovery bounds remain unchanged.
+
+Tagged fault probes also carry a `cycle:cell` identity in `x-cellar-probe` and
+the fault ledger. The fixture retains at most 64 server observations, including
+separate status and replication await boundaries. The authenticated
+`/probe-timings` endpoint exposes source identity, sequence and eviction counts;
+the sampler retains its responses and failures in `probe-timings.jsonl`.
+Only tagged reads enter this history. Cancellation preserves missing end times,
+and an evicted request cannot overwrite a newer request with the same tag.
+These diagnostics use a fixture-owned monotonic clock with a separate origin;
+compare stage durations, never subtract them from Python or performance clocks.
+A server completion can occur after the client times out. It is diagnostic
+evidence only and never replaces the original HTTP result, quorum witness or
+replica/archive verification. Sampling gaps and evictions remain explicit.
+
 Use the source-pinned analyzer for earlier report packages; fresh reports must
 declare their scenario and fault evidence explicitly. This experiment does not
 qualify disk-only stalls, partitions, crashes, Fleet/bucket fault handling or soak.

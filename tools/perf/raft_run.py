@@ -411,7 +411,7 @@ def run(args, profile, build, docker, cpus, memory):
 
         def sample():
             try:
-                with (root / 'resources.jsonl').open('x') as stream, (root / 'node-samples.jsonl').open('x') as internal:
+                with (root / 'resources.jsonl').open('x') as stream, (root / 'node-samples.jsonl').open('x') as internal, (root / 'probe-timings.jsonl').open('x') as probes:
                     while not stop.is_set():
                         stats = docker('stats', '--no-stream', '--format', '{{json .}}', *nodes, prefix + '-store')
                         for row in stats.splitlines():
@@ -422,6 +422,18 @@ def run(args, profile, build, docker, cpus, memory):
                         internal.flush()
                         samples(observations, node_count)
                         verify_populations(observations, planned)
+                        # Diagnostic-only: incomplete/failed reads remain explicit
+                        # and cannot establish a fault witness or qualify a run.
+                        for node, base in enumerate(bases, 1):
+                            began = time.monotonic_ns()
+                            try:
+                                code, value = request(base, '/probe-timings', token)
+                                row = {'status': code, 'response': value}
+                            except Exception as error:
+                                row = {'error_type': type(error).__name__}
+                            probes.write(json.dumps({'node': node, 'started_ns': began,
+                                'finished_ns': time.monotonic_ns(), **row}) + '\n')
+                        probes.flush()
                         stop.wait(1)
             except Exception as error:
                 report['sampler_failure'] = str(error)
@@ -464,7 +476,8 @@ def run(args, profile, build, docker, cpus, memory):
             else:
                 control = BoundContainer(**args.fault_engine, node=f"{prefix}-node{args.fault_config['node']}", owner=run_id)
                 fault = SlowFollower(root, args.scenario, args.fault_config, profile, prefix, run_id, control,
-                                     lambda cell, timeout: request(bases[cell % node_count], f'/admin/{cell}', token, timeout=timeout), control.close)
+                                     lambda cell, timeout, probe_id: request(bases[cell % node_count], f'/admin/{cell}', token, timeout=timeout,
+                                         headers={'x-cellar-probe': probe_id}), control.close)
         for phase, seconds in [('warmup', profile['timing']['warmup_seconds']), ('measurement', profile['timing']['measurement_seconds'])]:
             if seconds:
                 print(f'{phase}: {seconds}s, {profile["arrival"]["rate_per_second"]} offered operations/sec', flush=True)
