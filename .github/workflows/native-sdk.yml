@@ -113,6 +113,7 @@ jobs:
           python3 tools/python/test_runner.py
           python3 tools/python/test_encoding.py
           python3 tools/python/test_affinity.py
+          python3 tools/python/test_build_identity.py
           python3 tools/python/test_fleet_smoke.py
       - name: Test Cloudflare benchmark peer relay
         run: |
@@ -319,6 +320,7 @@ jobs:
       - name: Validate bounded workload and source
         run: |
           python tools/python/test_affinity.py
+          python tools/python/test_build_identity.py
           python - <<'PY'
           import os, re, subprocess
           repetitions = int(os.environ['CELLAR_LOAD_REPETITIONS'])
@@ -372,14 +374,16 @@ jobs:
           if selected != reference:
               raise SystemExit('Reference and selected Cargo build profiles differ')
           PY
-            CARGO_TARGET_DIR="$GITHUB_WORKSPACE/target" cargo build \
+            CARGO_TARGET_DIR="$GITHUB_WORKSPACE/target-python-load-reference" cargo build \
               --manifest-path .python-load-reference/Cargo.toml \
               -p cellar-python --example python-baseline --features embed --profile lab --locked
-            cp target/lab/examples/python-baseline "$RUNNER_TEMP/load-python-before"
+            cp target-python-load-reference/lab/examples/python-baseline "$RUNNER_TEMP/load-python-before"
           fi
           python - <<'PY'
           import hashlib, json, os, subprocess, sys, tomllib
           from pathlib import Path
+          sys.path.insert(0, 'tools/python')
+          from build_identity import inspect_binary, validate_comparison
           root = Path(os.environ['RUNNER_TEMP'])
           source = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
           builds = [('native', 'load-native', source), ('selected', 'load-python', source)]
@@ -388,8 +392,10 @@ jobs:
           report = dict(profile='lab', rustc=subprocess.check_output(['rustc', '-vV'], text=True),
                         python=sys.version, cargo_profiles=tomllib.loads(Path('Cargo.toml').read_text()).get('profile', {}),
                         profile_debug=os.environ['CARGO_PROFILE_LAB_DEBUG'], executables={label:dict(source=revision,
-                        sha256=hashlib.sha256((root / name).read_bytes()).hexdigest())
+                        **inspect_binary(root / name, Path('.python-load-reference') if label == 'baseline' else Path('.'),
+                                         embedded=label != 'native'))
                         for label, name, revision in builds})
+          validate_comparison(report['executables'])
           report['fixtures'] = {name:hashlib.sha256(Path('tools/python', name).read_bytes()).hexdigest()
                                 for name in ('baseline.rs', 'baseline_host.rs', 'baseline_native.rs', 'baseline_app.py')}
           (root / 'python-load').mkdir(exist_ok=True)

@@ -145,7 +145,12 @@ host on that same runner and include it in the rotated offered-load comparison.
 Both revisions use the selected matrix interpreter and toolchain. The job
 refuses differing measurement fixtures or Cargo build profiles, freezes each
 binary before another build can replace it, and retains source revisions and
-binary hashes in `builds.json`. This compares revisions under one resource
+binary hashes in `builds.json`. Reference builds use a separate target directory;
+shared Cargo artifacts can otherwise reuse an executable with stale embedded
+Python source. Before measuring, the job verifies that each frozen Python
+executable contains its checkout's exact facade and runner bytes and that the
+native executable contains neither. Source hashes and byte offsets are retained
+in the build record. This compares revisions under one resource
 placement; shared-runner noise and all client drops still qualify the results.
 
 Every planned arrival has an outcome in `measured-RATE.json`: success, client
