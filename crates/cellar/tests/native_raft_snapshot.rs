@@ -1501,6 +1501,57 @@ async fn missing_quorum_restore_refused() -> Result<()> {
     cluster.close().await
 }
 
+async fn place_snapshot_healthy_leader(
+    handles: &[cellar::sdk::consensus::RaftCellHandle],
+    destination: usize,
+    deadline: tokio::time::Instant,
+) -> Result<()> {
+    use cellar::sdk::consensus::*;
+    use std::time::Duration;
+    tokio::time::timeout_at(deadline, async {
+        loop {
+            if handles[destination]
+                .status()
+                .await
+                .is_ok_and(|status| status.command_ready)
+            {
+                return Ok::<_, anyhow::Error>(());
+            }
+            for (node, handle) in handles.iter().enumerate() {
+                if node == destination {
+                    continue;
+                }
+                if let Ok(status) = handle.status().await {
+                    if status.command_ready {
+                        let result = handle
+                            .transfer_leadership(
+                                LeadershipTransfer {
+                                    target: MemberId::new(destination as u64 + 1)?,
+                                    expected_term: status.term,
+                                    expected_revision: status.membership_revision,
+                                },
+                                deadline.saturating_duration_since(tokio::time::Instant::now()),
+                            )
+                            .await;
+                        match result {
+                            Ok(())
+                            | Err(
+                                CommandFailure::Overloaded
+                                | CommandFailure::NotLeader { .. }
+                                | CommandFailure::CommandConflict,
+                            ) => (),
+                            Err(error) => return Err(error.into()),
+                        }
+                    }
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .context("healthy-group leadership placement deadline")?
+}
+
 async fn native_snapshot_drill(interrupt: bool, close_pending: bool) -> Result<()> {
     use cellar::sdk::consensus::*;
     use std::{
@@ -1656,22 +1707,23 @@ async fn native_snapshot_drill(interrupt: bool, close_pending: bool) -> Result<(
             .iter()
             .map(|service| service.cell(NamespaceId::new([2; 16]).unwrap(), "Counter:healthy"))
             .collect::<Result<Vec<_>, _>>()?;
-        let healthy_primary = tokio::time::timeout(Duration::from_secs(10), async {
-            loop {
-                for (node, handle) in healthy.iter().enumerate() {
-                    if node != follower
-                        && handle
-                            .status()
-                            .await
-                            .is_ok_and(|status| status.command_ready)
-                    {
-                        return node;
-                    }
-                }
-                tokio::time::sleep(Duration::from_millis(10)).await;
-            }
-        })
-        .await?;
+        // Independent groups may elect the same physical node. Force that
+        // valid placement so both retry and shutdown cases cover it, then
+        // explicitly transfer before asserting progress from another node.
+        // Both placements share the original ten-second readiness budget.
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+        place_snapshot_healthy_leader(&healthy, follower, deadline)
+            .await
+            .context("arrange healthy leader on snapshot follower")?;
+        ensure!(
+            healthy[follower].status().await?.command_ready,
+            "healthy-group leader was not placed on the snapshot follower"
+        );
+        place_snapshot_healthy_leader(&healthy, primary, deadline)
+            .await
+            .context("place healthy leader outside snapshot follower")?;
+        let healthy_primary = primary;
+        assert_ne!(healthy_primary, follower);
         let options = public_node::options(1)?;
         let result = tokio::time::timeout(Duration::from_secs(5), async {
             loop {
