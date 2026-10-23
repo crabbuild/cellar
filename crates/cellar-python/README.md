@@ -64,6 +64,11 @@ still trusted code, not a security sandbox.
 its originating context alive, but the context does not cache the handle, so
 ordinary request cleanup does not depend on collecting a storage/context cycle.
 Bind `storage = ctx.storage` locally when reusing it within one invocation.
+The resident-object registry retains only an owner-lifetime token alongside each
+cell. It releases completed invocation senders, caller scopes and event-loop
+references even while the cell stays resident; application-retained contexts
+still live until the application releases them. Owner retirement revokes the
+token and wakes the pump to release the cell.
 
 SDK errors do not automatically retry mutations:
 a failed response may follow a committed write. `SDKError.code` distinguishes

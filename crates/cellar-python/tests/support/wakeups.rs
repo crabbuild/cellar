@@ -51,6 +51,15 @@ pub(super) fn child() -> Result<()> {
                     .json()
                     .await?;
                 tokio::time::sleep(Duration::from_millis(100)).await;
+                // A resident object needs only its owner's lifetime, not its
+                // first request's sender, caller scope or event-loop reference.
+                let idle = tokio::time::timeout(
+                    Duration::from_secs(2),
+                    python_control::observe(|v| v["bridges"] == 0),
+                )
+                .await
+                .context("resident Python cell retained a completed invocation bridge")??;
+                ensure!(idle["created"] == 1 && idle["retired"] == 0);
                 lifetimes::evict(&client, &node, &identity).await?;
                 // Inspect flags directly: sending another HTTP request would
                 // mask a missing native-retirement or cancellation wakeup.

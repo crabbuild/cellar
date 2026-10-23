@@ -1,12 +1,17 @@
 import asyncio
+import gc
 import time
 from cellar import Response
 
-retired = cancelled = 0
+# Completed bridge release must not depend on periodic cyclic collection.
+gc.disable()
+retired = cancelled = created = 0
+_bridge_type = None
 
 
 def snapshot():
-    return {"retired": retired, "cancelled": cancelled}
+    return {"retired": retired, "cancelled": cancelled, "created": created,
+            "bridges": sum(type(value) is _bridge_type for value in gc.get_objects())}
 
 
 async def fetch(request, ctx):
@@ -25,11 +30,18 @@ async def fetch(request, ctx):
 
 
 class Counter:
+    def __init__(self):
+        global created
+        created += 1
+
     def __del__(self):
         global retired
         retired += 1
 
     async def fetch(self, request, ctx):
+        global _bridge_type
+        _bridge_type = type(ctx._bridge)
+        assert gc.is_tracked(ctx._bridge), "bridge census must include native senders"
         await ctx.storage.apply(puts={"value": 42})
         value = await ctx.storage.read_json("value")
         return Response.json({"value": value.value, "scope": ctx.identity.scope,

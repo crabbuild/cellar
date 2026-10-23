@@ -9,6 +9,20 @@ use tokio::sync::{mpsc, watch};
 
 pub(crate) type Life = Arc<AtomicBool>;
 
+/// Resident Python objects observe retirement without retaining an invocation's
+/// mailbox, caller scope or event loop. This token grants no SDK authority.
+#[pyclass(frozen)]
+struct OwnerLifetime {
+    active: Life,
+}
+
+#[pymethods]
+impl OwnerLifetime {
+    fn active(&self) -> bool {
+        self.active.load(Ordering::Acquire)
+    }
+}
+
 pub(crate) enum Event {
     Operation {
         id: u64,
@@ -105,6 +119,12 @@ impl InvocationBridge {
 
     fn owner_active(&self) -> bool {
         self.owner.load(Ordering::Acquire)
+    }
+
+    fn owner_lifetime(&self) -> OwnerLifetime {
+        OwnerLifetime {
+            active: self.owner.clone(),
+        }
     }
 
     #[pyo3(signature = (id, name, payload, body=None))]

@@ -79,6 +79,9 @@ def idle_housekeeping(interval, telemetry):
 
 
 def continuous_arrivals(mode):
+    if mode == "resident-bridge":
+        resident_bridge_lifetime()
+        return
     if mode.startswith("idle-housekeeping-"):
         interval, telemetry = (.003, .012) if mode.endswith("short-poll") else (.03, .005)
         idle_housekeeping(interval, telemetry)
@@ -498,6 +501,10 @@ def invalidation_without_reply(mode):
     from cellar import Response
     state = dict(cancelled=0, retired=0)
 
+    class Owner:
+        def active(self):
+            return inbox.owner
+
     class Cell:
         async def fetch(self, request, context):
             asyncio.get_running_loop().call_soon(inbox.invalidate)
@@ -517,6 +524,9 @@ def invalidation_without_reply(mode):
 
         def owner_active(self):
             return inbox.owner
+
+        def owner_lifetime(self):
+            return Owner()
 
         def expire(self, finished=False):
             inbox.active = False
@@ -591,6 +601,120 @@ def invalidation_without_reply(mode):
         assert report["pending_tasks"] == report["pending_objects"] == 0, report
         assert report["interpreter"]["handlers_cancelled"] == 1, report
         assert state == dict(cancelled=1, retired=1), state
+    finally:
+        inbox.reader.close()
+        inbox.writer.close()
+
+
+
+def resident_bridge_lifetime():
+    import contextvars
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "crates/cellar-python/python"))
+    import runner
+    from cellar import Response
+    bridges, cells = weakref.WeakSet(), weakref.WeakSet()
+    observations = []
+
+    class Owner:
+        live = True
+
+        def active(self):
+            return self.live
+
+    owner = Owner()
+
+    class Cell:
+        def __init__(self):
+            cells.add(self)
+
+        async def fetch(self, request, context):
+            return Response(b"ok")
+
+    class Bridge:
+        def __init__(self):
+            self.live = True
+            bridges.add(self)
+
+        def active(self):
+            return self.live and owner.active()
+
+        def owner_active(self):
+            return owner.active()
+
+        def owner_lifetime(self):
+            return owner
+
+        def expire(self, finished=False):
+            self.live = False
+
+        def complete(self, payload, failed, body=None):
+            assert not failed and body == b"ok"
+            # An application callback must not itself retain the invocation
+            # through the copied current_invocation ContextVar.
+            asyncio.get_running_loop().call_later(.01, inbox.observe, context=contextvars.Context())
+
+    class Inbox:
+        def __init__(self):
+            self.reader, self.writer = socket.socketpair()
+            self.reader.setblocking(False)
+            self.stopped = self.issued = False
+            self.lifecycle = 0
+
+        def wakeup_fd(self):
+            return self.reader.fileno()
+
+        def drain_wakeup(self):
+            try:
+                while self.reader.recv(4096):
+                    pass
+            except BlockingIOError:
+                pass
+
+        def pump_needed(self):
+            return bool(self.lifecycle)
+
+        def take_lifecycle(self):
+            flags, self.lifecycle = self.lifecycle, 0
+            return flags
+
+        def take(self):
+            if self.issued:
+                return None
+            self.issued = True
+            payload = dict(identity=None, object="cell", **{"class": "Cell"}, kind="fetch",
+                           event=dict(url="http://resident/", method="GET", headers=[]))
+            return 1, json.dumps(payload), b"", Bridge()
+
+        def replies(self):
+            return []
+
+        def sample(self, payload):
+            json.loads(payload)
+
+        def done(self):
+            return self.stopped
+
+        def observe(self):
+            observations.append((len(bridges), len(cells)))
+            if owner.live:
+                owner.live = False
+                self.lifecycle = 3
+                self.writer.send(b"x")
+                asyncio.get_running_loop().call_later(.01, self.observe)
+            else:
+                self.stop()
+
+        def stop(self):
+            self.stopped = True
+            self.writer.send(b"x")
+
+    inbox = Inbox()
+    gc.disable()
+    try:
+        report = runner.run(SimpleNamespace(Cell=Cell), inbox, 30, .2, 10, 16, 30)
+        assert not report["runtime_failed"], report
+        assert observations == [(0, 1), (0, 0)], f"resident cell retained completed bridge or ignored retirement: {observations}"
+        assert report["pending_tasks"] == report["pending_objects"] == report["pending_threads"] == 0, report
     finally:
         inbox.reader.close()
         inbox.writer.close()
@@ -750,6 +874,9 @@ class RunnerScheduling(unittest.TestCase):
         )
         self.assertNotIn("PRIVATE_SENTINEL", child.stderr)
         self.assertEqual(child.returncode, 0, child.stdout + child.stderr)
+
+    def test_resident_cell_releases_completed_bridge_before_retirement(self):
+        self.run_case("resident-bridge")
 
     def test_invalidation_without_reply_cancels_and_retires(self):
         for mode in ("invocation", "owner"):

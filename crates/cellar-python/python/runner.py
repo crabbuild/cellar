@@ -98,7 +98,7 @@ async def _invoke(module, objects, payload, body, bridge, context, stats, maximu
                 if len(objects) >= maximum:
                     stats["budget_exhaustions"] += 1
                     raise RuntimeError("Cellar Python object capacity exhausted")
-                objects[key] = (getattr(module, payload["class"])(), bridge)
+                objects[key] = (getattr(module, payload["class"])(), bridge.owner_lifetime())
                 stats["objects_created"] += 1
             target = objects[key][0]
         kind, value = payload["kind"], payload["event"]
@@ -289,7 +289,7 @@ async def _serve(module, inbox, interval, shutdown, stats, maximum, telemetry, s
             # construction and does not yield before registering the object;
             # a queued invocation cannot register after consuming its own
             # retirement hint. SDK calls still check authority individually.
-            retiring = ([key for key, (_, bridge) in objects.items() if not bridge.owner_active()]
+            retiring = ([key for key, (_, owner) in objects.items() if not owner.active()]
                         if lifecycle & 2 else [])
             if retiring:
                 # Publish before destructors can block. Rust can observe a stale
