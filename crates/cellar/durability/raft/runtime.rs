@@ -819,6 +819,9 @@ impl Worker {
         group.report_failure = true;
         group.hints.clear();
         for request in group.deferred.drain(..) {
+            drop(request.command);
+            drop(request._permit);
+            drop(request._inbound);
             let _ = request.reply.send(Err(error.clone()));
         }
     }
@@ -845,16 +848,23 @@ impl Worker {
             match self.groups.get_mut(scope) {
                 Some(group) if group.failed.is_none() => group.deferred.push_back(request),
                 Some(group) => {
+                    drop(request.command);
+                    drop(request._permit);
+                    drop(request._inbound);
                     let _ = request
                         .reply
                         .send(Err(group.failed.clone().unwrap_or(RuntimeError::Closed)));
                 }
                 None => {
+                    drop(request.command);
+                    drop(request._permit);
+                    drop(request._inbound);
                     let _ = request.reply.send(Err(RuntimeError::NotFound));
                 }
             }
             return;
         }
+        let mut permit = request._permit;
         let result = match request.command {
             Command::Hint {
                 scope,
@@ -909,7 +919,7 @@ impl Worker {
                             action: GroupAction::Step(message),
                         },
                         reply,
-                        _permit: request._permit,
+                        _permit: permit.take(),
                         _inbound: Some(inbound),
                     });
                     Ok(Response::Unit)
@@ -982,6 +992,11 @@ impl Worker {
             }
             Command::Group { .. } => Err(RuntimeError::Protocol("dispatch state".into())),
         };
+        // Publishing the reply may immediately resume a caller on another
+        // executor thread. Completed work must release admission first; an
+        // admitted peer step moved its permit into the deferred request above.
+        drop(permit);
+        drop(request._inbound);
         let _ = request.reply.send(result);
     }
 
@@ -1062,6 +1077,8 @@ impl Worker {
                     } else {
                         group.replica.execute(action, &self.options)
                     };
+                    drop(request._permit);
+                    drop(request._inbound);
                     let _ = request.reply.send(result);
                     made = true;
                 }

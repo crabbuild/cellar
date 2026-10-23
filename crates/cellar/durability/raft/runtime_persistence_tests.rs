@@ -205,12 +205,15 @@ async fn persistence_parking_retains_deferred_peer_permits_and_hints() -> anyhow
             assert!(advance(worker)?.is_empty());
             assert!(worker.start_batch()?);
             let inbound = worker.groups[scope].inbound.clone();
+            let admission = Budget::new(32 * 4096, 32);
             for context in 1..=32 {
-                let (request, mut reply) = request(heartbeat(scope, 2, context));
+                let (mut request, mut reply) = request(heartbeat(scope, 2, context));
+                request._permit = Some(admission.acquire(4096).unwrap());
                 worker.dispatch(request);
                 assert!(matches!(reply.try_recv(), Ok(Ok(Response::Unit))));
             }
             assert_eq!(inbound.usage().1, 32);
+            assert_eq!(admission.usage(), (32 * 4096, 32));
             let (overflow, mut reply) = request(heartbeat(scope, 2, 33));
             worker.dispatch(overflow);
             assert!(matches!(
@@ -235,6 +238,7 @@ async fn persistence_parking_retains_deferred_peer_permits_and_hints() -> anyhow
                     32,
                     "parking cannot release admitted work"
                 );
+                assert_eq!(admission.usage(), (32 * 4096, 32));
             }
             assert!(worker.groups[scope].tick);
             assert_eq!(worker.groups[scope].hints.len(), 1);
@@ -253,6 +257,7 @@ async fn persistence_parking_retains_deferred_peer_permits_and_hints() -> anyhow
                 .collect();
             assert_eq!(contexts, (0..=32).map(|context| vec![context]).collect());
             assert_eq!(inbound.usage(), (0, 0));
+            assert_eq!(admission.usage(), (0, 0));
             assert!(worker.groups[scope].hints.is_empty());
             assert!(!worker.groups[scope].tick);
             assert!(worker.order.is_empty());

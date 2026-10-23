@@ -6,6 +6,91 @@ use crate::raft::storage::GroupBootstrap;
 use cellar_logic::consensus::*;
 
 #[tokio::test]
+async fn completed_status_releases_admission_before_waking_caller() -> anyhow::Result<()> {
+    use std::future::Future;
+    use std::task::{Context, Wake, Waker};
+
+    struct Caller {
+        budget: Arc<Budget>,
+        woke: AtomicBool,
+        admitted: AtomicBool,
+    }
+
+    impl Wake for Caller {
+        fn wake(self: Arc<Self>) {
+            self.wake_by_ref();
+        }
+
+        fn wake_by_ref(self: &Arc<Self>) {
+            // A real waiter can run on another executor thread as soon as its
+            // reply is published. Probe that exact cut without a timed sleep.
+            self.admitted
+                .store(self.budget.acquire(4096).is_some(), Ordering::Release);
+            self.woke.store(true, Ordering::Release);
+        }
+    }
+
+    let root = tempfile::tempdir()?;
+    let domain = crate::asyncrt::ExecutionDomain::new(tokio::runtime::Handle::current());
+    let log = domain
+        .run(ReplicaLog::open(
+            ReplicaLogOptions::new(
+                root.path().join("raft"),
+                NodeId::new([1; 16])?,
+                DiskLineage::new([2; 16])?,
+                ProcessGeneration::new([3; 16])?,
+                LogOpenMode::Create,
+            ),
+            Arc::new(cellar_ltx::DirectFileSystem),
+        ))
+        .await??;
+    let (events, _receiver) = mpsc::channel(1);
+    let mut worker = Worker::new(
+        log.clone(),
+        RaftRuntimeOptions {
+            max_requests: 1,
+            tick_interval_ms: None,
+            ..Default::default()
+        },
+        events,
+        log.domain().clone(),
+        false,
+    )?;
+    let caller = Arc::new(Caller {
+        budget: Budget::new(4096, 1),
+        woke: AtomicBool::new(false),
+        admitted: AtomicBool::new(false),
+    });
+    let (reply, mut wait) = oneshot::channel();
+    let waker = Waker::from(caller.clone());
+    assert!(std::pin::Pin::new(&mut wait)
+        .poll(&mut Context::from_waker(&waker))
+        .is_pending());
+    worker.dispatch(Request {
+        command: Command::Status(GroupScope {
+            cluster: ClusterId::new([1; 16])?,
+            namespace: NamespaceId::new([2; 16])?,
+            cell: "Counter:missing".into(),
+            group: GroupId::new([3; 16])?,
+            incarnation: IncarnationId::new([4; 16])?,
+        }),
+        reply,
+        _permit: Some(caller.budget.acquire(4096).unwrap()),
+        _inbound: None,
+    });
+    assert!(matches!(wait.await?, Err(RuntimeError::NotFound)));
+    assert!(caller.woke.load(Ordering::Acquire));
+    let admitted = caller.admitted.load(Ordering::Acquire);
+    log.close().await?;
+    domain.shutdown().await;
+    assert!(
+        admitted,
+        "completed status retained admission while waking its caller"
+    );
+    Ok(())
+}
+
+#[tokio::test]
 async fn idle_groups_leave_the_run_queue_and_reactivate_once() -> anyhow::Result<()> {
     let root = tempfile::tempdir()?;
     let domain = crate::asyncrt::ExecutionDomain::new(tokio::runtime::Handle::current());
