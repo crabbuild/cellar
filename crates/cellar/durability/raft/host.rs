@@ -377,6 +377,7 @@ async fn initialize(
     let mut cells = BTreeMap::new();
     let mut standbys = BTreeMap::new();
     let mut bindings = BTreeMap::new();
+    let mut routes = Vec::new();
     let mut archive_owner = None;
     let mut node_directory = None;
     let peer_count = peers.len();
@@ -715,14 +716,14 @@ async fn initialize(
             let Value::Initialized(image) = output.value else {
                 anyhow::bail!("SQL initialization response")
             };
-            service.transport.install_group(membership::route(
+            routes.push(membership::route(
                 &group,
                 &birth,
                 &peers,
                 class.schema_digest(),
                 &label,
                 &service.transport,
-            )?)?;
+            )?);
             bindings.insert(
                 (scope.namespace, scope.cell.clone()),
                 Binding {
@@ -765,6 +766,13 @@ async fn initialize(
                     .with_cancellation(owner.cancellation.subscribe());
             }
             archive_owner = Some(owner);
+        }
+        // The host cannot drain runtime events until initialization completes.
+        // Publishing earlier lets peer traffic retain the ordinary request
+        // budget behind that drain and reject later group attachments. Keep
+        // routes private until every local group and the archive owner are ready.
+        for route in routes {
+            service.transport.install_group(route)?;
         }
         Ok::<_, anyhow::Error>(())
     }

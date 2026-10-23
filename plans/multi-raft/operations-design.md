@@ -15,6 +15,12 @@ releasing the startup slot. Cancellation poisons the slot until Node restart.
 The hidden raw infrastructure interface remains caller managed and supplies no
 cell-host semantic stop receipt.
 
+During startup, the host keeps replica routes private until every local group
+has attached and the archive owner is ready. Peers receive `UnknownGroup` during
+that interval. Early peer traffic must not fill the runtime request budget while
+the host is still unable to consume events. Route publication does not replace
+the existing per-cell readiness and durability checks.
+
 When requested shutdown begins, the shared Node/CLI driver seals Raft admission before the
 ordinary application-work drain. New user commands, queries, administration,
 alarms, outbox discovery and controller actions stop. Already admitted work keeps

@@ -8,6 +8,11 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 #[derive(Debug, Default)]
 pub struct Store {
+    /// Hold one exact ordinal initial-member claim while the host initializes.
+    pub hold_nth_claim: AtomicUsize,
+    pub claim_hang: AtomicBool,
+    pub claim_waiting: tokio::sync::Notify,
+    pub claim_resume: tokio::sync::Notify,
     pub inner: object_store::memory::InMemory,
     pub fail_before: AtomicBool,
     pub fail_after: AtomicBool,
@@ -101,6 +106,25 @@ impl ObjectStore for Store {
             return Err(failure());
         }
         tokio::task::yield_now().await;
+        if path.as_ref().contains("/claims/")
+            && self
+                .hold_nth_claim
+                .fetch_update(Ordering::AcqRel, Ordering::Acquire, |remaining| {
+                    remaining.checked_sub(1)
+                })
+                .is_ok_and(|remaining| remaining == 1)
+        {
+            self.claim_waiting.notify_one();
+            loop {
+                let resumed = self.claim_resume.notified();
+                tokio::pin!(resumed);
+                resumed.as_mut().enable();
+                if !self.claim_hang.load(Ordering::Acquire) {
+                    break;
+                }
+                resumed.await;
+            }
+        }
         if path.filename() == Some("view") && self.hold_next_view.swap(false, Ordering::AcqRel) {
             self.view_waiting.store(true, Ordering::Release);
             loop {
