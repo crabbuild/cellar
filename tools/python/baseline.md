@@ -114,6 +114,15 @@ client process, so it warms server code but not the measured connection pool.
 It does not replace durable-write, recovery, activation-churn or multi-node
 qualification.
 
+For cell reads, add `--read-cells 32 --body-bytes 0` and choose a new output
+directory. The driver first populates 1–64 local-only cells, then sends GETs
+through the Python/native root handler, cell dispatch and JSON storage read.
+Every response must match the fresh counter value, and telemetry must confirm
+the full resident population before and after each measurement. Python must
+retire every created object at shutdown. The same scheduling, failure accounting
+and rotated comparisons apply. This measures read dispatch and bridge overhead;
+it does not test durable mutations or fleet recovery.
+
 On Linux, pass `--host-cpus 0,1 --client-cpus 2,3` to place the host and client
 on disjoint logical CPU sets. Choose IDs from `os.sched_getaffinity(0)` on the
 measurement machine; both lists are required, and unavailable or overlapping
@@ -128,6 +137,9 @@ but does not establish production capacity. Compare both implementations with
 the same masks, body sizes, rates, build profile and repetition count.
 
 The SDK workflow's `python-load` mode applies disjoint CPU sets on Linux.
+Set `load_read_cells` to 1–64 to select the resident-cell read workload; its
+default of zero retains echo. Live host thread masks are checked before and
+after each measured phase for both workloads.
 Set its optional `load_baseline_sha` to a full commit SHA to build another Python
 host on that same runner and include it in the rotated offered-load comparison.
 Both revisions use the selected matrix interpreter and toolchain. The job

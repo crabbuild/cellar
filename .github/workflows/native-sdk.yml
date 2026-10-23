@@ -20,6 +20,10 @@ on:
         description: Optimized Python load repetitions (1-5)
         type: number
         default: 3
+      load_read_cells:
+        description: Read 1-64 resident cells instead of echo (0 keeps echo)
+        type: number
+        default: 0
       load_baseline_sha:
         description: Optional full commit SHA for a same-runner Python before/after comparison
         type: string
@@ -300,6 +304,7 @@ jobs:
       CARGO_PROFILE_LAB_DEBUG: '0'
       PYTHONDONTWRITEBYTECODE: '1'
       CELLAR_LOAD_REPETITIONS: ${{ inputs.load_repetitions }}
+      CELLAR_LOAD_READ_CELLS: ${{ inputs.load_read_cells }}
       CELLAR_LOAD_SHA: ${{ inputs.replay_sha }}
       CELLAR_LOAD_PYTHON: ${{ matrix.python }}
       CELLAR_LOAD_BASELINE_SHA: ${{ inputs.load_baseline_sha }}
@@ -319,6 +324,8 @@ jobs:
           repetitions = int(os.environ['CELLAR_LOAD_REPETITIONS'])
           if not 1 <= repetitions <= 5:
               raise SystemExit('load_repetitions must be from 1 to 5')
+          if not 0 <= int(os.environ['CELLAR_LOAD_READ_CELLS']) <= 64:
+              raise SystemExit('load_read_cells must be from 0 to 64')
           actual = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
           expected = os.environ.get('CELLAR_LOAD_SHA', '').lower()
           if expected and actual != expected:
@@ -411,9 +418,13 @@ jobs:
           if test -n "$CELLAR_LOAD_BASELINE_SHA"; then
             comparison=(--python-host "baseline=$RUNNER_TEMP/load-python-before")
           fi
+          workload=(--body-bytes 4096)
+          if test "$CELLAR_LOAD_READ_CELLS" -gt 0; then
+            workload=(--body-bytes 0 --read-cells "$CELLAR_LOAD_READ_CELLS")
+          fi
           python tools/python/offered.py --client target/lab/examples/python-offered-load \
             --native-host "$RUNNER_TEMP/load-native" --python-host "selected=$RUNNER_TEMP/load-python" \
-            "${comparison[@]}" \
+            "${comparison[@]}" "${workload[@]}" \
             --output "$RUNNER_TEMP/python-load/offered" --build-profile lab \
             --host-cpus "$CELLAR_LOAD_HOST_CPUS" --client-cpus "$CELLAR_LOAD_CLIENT_CPUS" \
             --rates 500 5000 15000 --duration-ms 5000 --warmup-ms 500 --max-inflight 64 --repetitions "$CELLAR_LOAD_REPETITIONS"
@@ -425,6 +436,8 @@ jobs:
           report = json.load(open(sys.argv[1]))
           if report['status'] != 'complete':
               raise SystemExit('Incomplete offered-load experiment')
+          if report['read_cells'] != int(os.environ['CELLAR_LOAD_READ_CELLS']):
+              raise SystemExit('Measured cell population differs from requested workload')
           builds = json.loads((Path(sys.argv[1]).parent.parent / 'builds.json').read_text())
           for host in report['hosts']:
               if host['sha256'] != builds['executables'][host['label']]['sha256']:

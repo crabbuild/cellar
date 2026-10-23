@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compare native/Python echo at independent offered rates using a Rust client.
+"""Compare native/Python echo or cell reads at independent offered rates using a Rust client.
 
 Every scheduled arrival is retained, including client drops and HTTP failures.
 A completed experiment is not a claim that every offered request succeeded.
@@ -17,17 +17,17 @@ import time
 
 from baseline import Host, digest, require, save
 import affinity
-from residency import resident
+from residency import populate, resident
 
 
-def observed_idle(host):
-    observation = resident(host, 0)
+def observed_idle(host, population=0):
+    observation = resident(host, population)
     if observation["runtime"]["kind"] == "native":
         return observation
     generation = observation["runtime"]["interpreter"]["generation"]
     deadline = time.monotonic() + 10
     while time.monotonic() < deadline:
-        observation = resident(host, 0)
+        observation = resident(host, population)
         if observation["runtime"]["interpreter"]["generation"] > generation:
             return observation
         time.sleep(.025)
@@ -105,11 +105,19 @@ def summarize(report):
             "successful_scheduled_latency_ns": distribution(from_schedule)}
 
 
-def measure(client, host, args, rate, duration, path):
+def read_targets(population):
+    require(0 <= population <= 64, "read population must be from 0 to 64")
+    return [dict(path=f"/cells/resident-{index}", expected_body=list(b'{"value":0}'))
+            for index in range(population)]
+
+
+def measure(client, host, args, rate, duration, path, reads=()):
     cpus = args.cpu_placement["client"] if args.cpu_placement else None
     evidence = path.with_suffix(".affinity.json")
     command = [*affinity.prefix(cpus, evidence), str(client), host.origin, str(rate), str(duration), str(args.max_inflight),
                str(args.body_bytes), str(args.timeout_ms), str(args.max_lag_ms), str(path)]
+    if reads:
+        command.append(str(path.parent / "reads.json"))
     result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                             timeout=(duration + args.timeout_ms) / 1000 + 30)
     path.with_suffix(".log").write_bytes(result.stdout)
@@ -118,9 +126,12 @@ def measure(client, host, args, rate, duration, path):
         affinity.verify(evidence, cpus)
     report = json.loads(path.read_text())
     require(report["debug_assertions"] == (args.build_profile == "dev"), "client build profile mismatch")
-    require(report["workload"] == {"url": host.origin.rstrip("/") + "/echo", "rate": rate,
-            "duration_ms": duration, "max_inflight": args.max_inflight, "body_bytes": args.body_bytes,
-            "timeout_ms": args.timeout_ms, "max_lag_ms": args.max_lag_ms}, "client workload changed")
+    expected = {"url": host.origin.rstrip("/") + ("/" if reads else "/echo"), "rate": rate,
+                "duration_ms": duration, "max_inflight": args.max_inflight, "body_bytes": args.body_bytes,
+                "timeout_ms": args.timeout_ms, "max_lag_ms": args.max_lag_ms}
+    if reads:
+        expected["reads"] = reads
+    require(report["workload"] == expected, "client workload changed")
     return summarize(report)
 
 
@@ -141,24 +152,37 @@ def run_case(client, executable, mode, args, root, case):
                 and host.ready["debug_assertions"] == (args.build_profile == "dev")
                 and host.ready["durability"] == "local-only", "incorrect measurement host")
         case["python_runtime"] = host.python_runtime() if mode == "python" else None
+        reads = read_targets(args.read_cells)
+        if reads:
+            save(root / "reads.json", reads)
+            populate(host, 0, args.read_cells)
+            case["populated"] = observed_idle(host, args.read_cells)
         for rate in args.rates:
             phase = {"rate": rate}
             case["phases"].append(phase)
-            phase["warmup"] = measure(client, host, args, rate, args.warmup_ms, root / f"warmup-{rate}.json")
-            phase["before"] = observed_idle(host)
-            phase["measurement"] = measure(client, host, args, rate, args.duration_ms, root / f"measured-{rate}.json")
-            phase["after"] = observed_idle(host)
+            phase["warmup"] = measure(client, host, args, rate, args.warmup_ms, root / f"warmup-{rate}.json", reads)
+            phase["before"] = observed_idle(host, args.read_cells)
+            if cpus is not None:
+                phase["affinity_before"] = affinity.verify_threads(host.process.pid, cpus)
+            phase["measurement"] = measure(client, host, args, rate, args.duration_ms, root / f"measured-{rate}.json", reads)
+            phase["after"] = observed_idle(host, args.read_cells)
+            if cpus is not None:
+                phase["affinity_after"] = affinity.verify_threads(host.process.pid, cpus)
             if mode == "python":
                 before = phase["before"]["runtime"]["interpreter"]["interpreter"]
                 after = phase["after"]["runtime"]["interpreter"]["interpreter"]
                 require(after["handlers_completed"] - before["handlers_completed"]
-                        >= phase["measurement"]["outcomes"].get("success", 0),
+                        >= (2 if reads else 1) * phase["measurement"]["outcomes"].get("success", 0),
                         "interpreter observation omitted completed requests")
             print(f"{case['runtime']} r{case['repetition']} offered={rate}: "
                   f"{phase['measurement']['outcomes']}", flush=True)
         if mode == "python":
             require(host.python_runtime() == case["python_runtime"], "ABI/GIL state changed")
         case["shutdown"] = host.stop()
+        if mode == "python":
+            report = case["shutdown"]["python"]
+            require(report["objects_created"] == report["objects_retired"] == args.read_cells,
+                    "resident objects churned or escaped joined cleanup")
         case.update(status="complete", load_average_after=list(os.getloadavg()))
     finally:
         host.cleanup()
@@ -176,6 +200,8 @@ def main():
     parser.add_argument("--warmup-ms", type=int, default=500)
     parser.add_argument("--max-inflight", type=int, default=64)
     parser.add_argument("--body-bytes", type=int, default=4096)
+    parser.add_argument("--read-cells", type=int, default=0,
+                        help="Read 1..64 resident cells instead of echo; requires --body-bytes 0")
     parser.add_argument("--timeout-ms", type=int, default=1000)
     parser.add_argument("--max-lag-ms", type=int, default=5)
     parser.add_argument("--repetitions", type=int, default=3)
@@ -190,6 +216,8 @@ def main():
             and all(1 <= duration <= 120000 and all(1 <= rate * duration // 1000 <= 1000000
                     for rate in args.rates) for duration in (args.warmup_ms, args.duration_ms)),
             "invalid offered rates or durations")
+    read_targets(args.read_cells)
+    require(not args.read_cells or args.body_bytes == 0, "cell reads require --body-bytes 0")
     client = args.client.resolve(strict=True)
     hosts = [("native", "native", args.native_host.resolve(strict=True))]
     for argument in args.python_host:
@@ -203,12 +231,13 @@ def main():
         "cpu_count": os.cpu_count(), "cpu_placement": args.cpu_placement, "build_profile": args.build_profile,
         "source_git_sha": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
         "source_diff_sha256": hashlib.sha256(subprocess.check_output(["git", "diff", "HEAD"])).hexdigest()},
+        "read_cells": args.read_cells,
         "client": {"path": str(client), "sha256": digest(client)},
         "measurement_sources": {name: digest(Path(__file__).with_name(name))
                                 for name in ("offered.py", "offered_load.rs", "baseline.py", "residency.py", "affinity.py")},
         "hosts": [{"label": label, "mode": mode, "path": str(path), "sha256": digest(path)}
                   for label, mode, path in hosts], "cases": [],
-        "limits": ["Local-only loopback echo; no durable-write, network-store or multi-node capacity claim.",
+        "limits": ["Local-only loopback echo or resident-cell reads; no durable-write, network-store or multi-node capacity claim.",
                    "Two native client workers share the host machine; dispatch jitter and client drops remain visible.",
                    "Successful latency percentiles exclude failures and drops; always read them with arrival outcomes.",
                    "Both request latency and latency from scheduled arrival are reported; delays are never omitted.",

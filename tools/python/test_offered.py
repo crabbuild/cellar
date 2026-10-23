@@ -11,7 +11,7 @@ import threading
 import time
 import unittest
 
-from offered import observed_idle, summarize
+from offered import observed_idle, read_targets, summarize
 
 CLIENT = Path(sys.argv.pop(1)).resolve(strict=True) if len(sys.argv) > 1 else None
 
@@ -69,17 +69,45 @@ class NativeArrivalTests(unittest.TestCase):
     def test_idle_telemetry_from_before_the_workload_is_not_reused(self):
         class Host:
             calls = 0
+            population = 0
 
             def observations(self):
                 self.calls += 1
-                return {"native_resident_cells": 0, "runtime": {"kind": "python",
+                return {"native_resident_cells": self.population, "runtime": {"kind": "python",
                         "interpreter": {"age_ns": 0, "generation": 7 if self.calls < 3 else 8,
-                                        "work": {"resident_objects": 0, "active_invocations": 0,
+                                        "work": {"resident_objects": self.population, "active_invocations": 0,
                                                  "pending_retirements": 0}}}}
 
-        host = Host()
-        self.assertEqual(observed_idle(host)["runtime"]["interpreter"]["generation"], 8)
-        self.assertEqual(host.calls, 3)
+        for population in (0, 32):
+            host = Host()
+            host.population = population
+            self.assertEqual(observed_idle(host, population)["runtime"]["interpreter"]["generation"], 8)
+            self.assertEqual(host.calls, 3)
+
+    def test_read_population_bounds_and_targets(self):
+        self.assertEqual(read_targets(0), [])
+        for count in (1, 32, 64):
+            targets = read_targets(count)
+            self.assertEqual(len(targets), count)
+            self.assertEqual({target["path"] for target in targets},
+                             {f"/cells/resident-{index}" for index in range(count)})
+            self.assertEqual({bytes(target["expected_body"]) for target in targets}, {b'{"value":0}'})
+        for invalid in (-1, 65):
+            with self.assertRaises(RuntimeError):
+                read_targets(invalid)
+
+    def test_invalid_read_workload_refuses_before_starting_host(self):
+        with tempfile.TemporaryDirectory() as root:
+            output = Path(root) / "output"
+            base = [sys.executable, "-B", str(Path(__file__).with_name("offered.py")),
+                    "--client", str(CLIENT), "--native-host", str(CLIENT),
+                    "--python-host", f"python={CLIENT}", "--build-profile", "lab", "--output", str(output)]
+            for arguments in (["--read-cells", "-1"], ["--read-cells", "65"],
+                              ["--read-cells", "32", "--body-bytes", "1"]):
+                with self.subTest(arguments=arguments):
+                    result = subprocess.run([*base, *arguments], capture_output=True, timeout=10)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertFalse(output.exists(), result.stderr.decode())
 
     def run_client(self, mode, *, inflight=16, timeout=500, body_bytes=137, reads=False):
         server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
