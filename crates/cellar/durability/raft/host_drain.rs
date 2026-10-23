@@ -9,7 +9,7 @@ use std::ops::Bound::{Excluded, Unbounded};
 pub(super) struct Drain {
     request: Request,
     cursor: Option<GroupScope>,
-    turn_deadline: Option<u64>,
+    waiting: Option<(GroupScope, u64)>,
     busy: bool,
     report: RaftDrainReport,
 }
@@ -40,7 +40,7 @@ impl Driver {
         self.drain = Some(Drain {
             request,
             cursor: None,
-            turn_deadline: None,
+            waiting: None,
             busy: false,
             report: RaftDrainReport::default(),
         });
@@ -63,61 +63,63 @@ impl Driver {
             }
         };
         let expired = now >= drain.request.control.deadline() || drain.request.control.cancelled();
-        let next = if drain.turn_deadline.is_some() {
-            drain
-                .cursor
-                .as_ref()
-                .and_then(|scope| self.cells.get_key_value(scope))
-        } else {
-            self.cells
-                .range((drain.cursor.as_ref().map_or(Unbounded, Excluded), Unbounded))
-                .next()
-        };
-        if expired || next.is_none() {
+        if expired {
             let Some(mut drain) = self.drain.take() else {
                 return;
             };
-            drain.report.deadline_elapsed = expired;
-            drain.report.unavailable_groups += usize::from(drain.turn_deadline.is_some());
+            drain.report.deadline_elapsed = true;
+            drain.report.unavailable_groups += usize::from(drain.waiting.is_some());
             reply(&mut drain.request, Ok(Response::Drained(drain.report)));
             return;
         }
-        let Some((scope, cell)) = next else {
-            return;
-        };
-        let scope = scope.clone();
-        if drain.turn_deadline.is_none() {
+        let (scope, deadline) = if let Some(waiting) = drain.waiting.take() {
+            waiting
+        } else {
+            let next = self
+                .cells
+                .range((drain.cursor.as_ref().map_or(Unbounded, Excluded), Unbounded))
+                .next();
+            let Some((scope, _)) = next else {
+                let Some(mut drain) = self.drain.take() else {
+                    return;
+                };
+                reply(&mut drain.request, Ok(Response::Drained(drain.report)));
+                return;
+            };
+            let scope = scope.clone();
             drain.cursor = Some(scope.clone());
             drain.report.groups_examined += 1;
-        }
-        // Waiting for existing physical SQL consumes the same one-second turn
-        // as peer inspection/transfer. Never renew it when the worker finishes.
-        let deadline = *drain.turn_deadline.get_or_insert_with(|| {
-            drain
+            // Waiting for admitted SQL/apply work and inspecting a successor
+            // share one turn. A busy group cannot renew its shutdown budget.
+            let deadline = drain
                 .request
                 .control
                 .deadline()
-                .min(now.saturating_add(1000))
-        });
-        if cell.failed
-            || cell.retired
-            || cell.pending.is_some()
+                .min(now.saturating_add(1000));
+            (scope, deadline)
+        };
+        let Some(cell) = self.cells.get(&scope) else {
+            drain.report.unavailable_groups += 1;
+            return;
+        };
+        if cell.failed || cell.retired || now >= deadline {
+            drain.report.unavailable_groups += 1;
+            return;
+        }
+        if cell.pending.is_some()
+            || cell.sql_busy
             || cell.configuration.is_some()
             || cell.incoming.is_some()
             || cell.apply.is_some()
             || cell.publication.is_some()
-            || now >= deadline
         {
-            drain.report.unavailable_groups += 1;
-            drain.turn_deadline = None;
-            return;
-        }
-        if cell.sql_busy {
+            // Completion jobs and the existing host poll wake this turn.
+            // In particular, a brief archive capture is not a failed group.
+            drain.waiting = Some((scope, deadline));
             return;
         }
         let Some(memory) = self.control_budget.acquire(2 * RESPONSE_RESERVATION) else {
             drain.report.unavailable_groups += 1;
-            drain.turn_deadline = None;
             return;
         };
         let group = cell.group.clone();
@@ -158,7 +160,6 @@ impl Driver {
         })();
         let Ok(candidates) = candidates else {
             drain.report.unavailable_groups += 1;
-            drain.turn_deadline = None;
             return;
         };
         let schema = cell.schema_digest;
@@ -192,7 +193,6 @@ impl Driver {
             return;
         }
         drain.busy = false;
-        drain.turn_deadline = None;
         drain.report.handoff_attempts += completed.outcome.attempts;
         drain.report.handoffs_accepted += completed.outcome.accepted;
         drain.report.leadership_released += usize::from(completed.outcome.released);

@@ -121,6 +121,7 @@ md-5.workspace = true
 notify.workspace = true
 nu-ansi-term.workspace = true
 object_store = { workspace = true, features = ["aws", "azure", "gcp"] }
+parking_lot.workspace = true
 parquet.workspace = true
 percent-encoding.workspace = true
 rand.workspace = true

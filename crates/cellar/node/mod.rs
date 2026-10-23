@@ -1980,6 +1980,22 @@ fn cell_overload_response() -> HttpReply {
     refused
 }
 
+fn application_overload_response() -> HttpReply {
+    let mut refused = response(
+        StatusCode::SERVICE_UNAVAILABLE,
+        "{\"error\":\"application admission refused\",\"code\":\"Overloaded\",\"outcome\":\"unknown\"}",
+    );
+    refused.headers_mut().insert(
+        hyper::header::CONTENT_TYPE,
+        hyper::header::HeaderValue::from_static("application/json"),
+    );
+    refused.headers_mut().insert(
+        hyper::header::HeaderName::from_static("x-cellar-overload"),
+        hyper::header::HeaderValue::from_static("application"),
+    );
+    refused
+}
+
 // The peer parser returns before a streamed body can cross its limit, so this
 // error arrives from the Worker and must retain the ingress 413 contract.
 fn internal_do_worker_error(error: anyhow::Error) -> HttpReply {
@@ -2291,6 +2307,9 @@ async fn dispatch_cell_fetch(
             response(StatusCode::PAYLOAD_TOO_LARGE, "request body too large")
         }
         Ok(Err(error)) if cell_overload_error(&error) => cell_overload_response(),
+        Ok(Err(error)) if crate::application::ApplicationOverloaded::matches(&error) => {
+            application_overload_response()
+        }
         Ok(Err(error)) => match error.downcast_ref::<RoutedRequestError>() {
             Some(error) => response(
                 StatusCode::SERVICE_UNAVAILABLE,
@@ -2770,6 +2789,9 @@ where
             response(StatusCode::PAYLOAD_TOO_LARGE, "request body too large")
         }
         Err(error) if cell_overload_error(&error) => cell_overload_response(),
+        Err(error) if crate::application::ApplicationOverloaded::matches(&error) => {
+            application_overload_response()
+        }
         Err(error) => match error.downcast_ref::<crate::pool::AdmitError>() {
             // Saturation is not a failure of the request. Answering it now
             // lets the caller retry or shed; holding the connection until its

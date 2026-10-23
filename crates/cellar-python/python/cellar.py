@@ -9,6 +9,11 @@ from typing import Any, Iterable, Mapping, TypeAlias, TypedDict
 from urllib.parse import urlsplit
 
 
+# Configure once. CPython allocates recursion/circular-reference state inside
+# each encode call; the encoder retains neither request values nor results.
+_value_encoder = _json.JSONEncoder(allow_nan=False, separators=(",", ":"))
+
+
 JSON: TypeAlias = type(None) | bool | int | float | str | list["JSON"] | dict[str, "JSON"]
 Headers: TypeAlias = Iterable[tuple[str, str]]
 Body: TypeAlias = str | bytes | bytearray | memoryview
@@ -33,25 +38,64 @@ class CellIdentity:
 _current_invocation = ContextVar("cellar_invocation", default=None)
 
 
+# Reuse the validator: a per-call recursive closure creates cyclic garbage.
+def _check_value(item, depth=0):
+    if depth > 64:
+        raise ValueError("Cellar values are limited to 64 nesting levels")
+    kind = type(item)
+    if kind is str or kind is bool or item is None or kind is float:
+        return
+    if isinstance(item, int) and not -(2**63) <= item < 2**64:
+        raise ValueError("Cellar integers must fit signed or unsigned 64 bits")
+    # A container can advertise an integer __class__. Only exact scalars may
+    # skip the original container checks; subclasses retain their validation.
+    if kind is int:
+        return
+    if isinstance(item, dict):
+        if any(not isinstance(key, str) for key in item):
+            raise TypeError("Cellar object keys must be strings")
+        for child in item.values():
+            _check_value(child, depth + 1)
+    elif isinstance(item, (list, tuple)):
+        for child in item:
+            _check_value(child, depth + 1)
+
+
 def _encode(value):
-    def check(item, depth=0):
-        if depth > 64:
-            raise ValueError("Cellar values are limited to 64 nesting levels")
-        if isinstance(item, int) and not -(2**63) <= item < 2**64:
-            raise ValueError("Cellar integers must fit signed or unsigned 64 bits")
-        if isinstance(item, dict):
-            if any(not isinstance(key, str) for key in item):
-                raise TypeError("Cellar object keys must be strings")
-            for child in item.values():
-                check(child, depth + 1)
-        elif isinstance(item, (list, tuple)):
-            for child in item:
-                check(child, depth + 1)
     try:
-        check(value)
-        return _json.dumps(value, allow_nan=False, separators=(",", ":"))
+        _check_value(value)
+        return _value_encoder.encode(value)
     except (ValueError, TypeError, RecursionError) as error:
         raise ValidationError("Unsupported Cellar value") from error
+
+
+def _encode_response(value):
+    """Encode ordinary HTTP metadata without recursively checking every scalar."""
+    if type(value) is not dict:
+        return _encode(value)
+    snapshot = value.copy()
+    if any(type(key) is not str for key in snapshot) or snapshot.keys() != {"status", "headers", "body"}:
+        return _encode(value)
+    status, headers, body = snapshot["status"], snapshot["headers"], snapshot["body"]
+    if (type(status) is not int or not -(2**63) <= status < 2**64
+            or type(body) is not str
+            or (type(headers) is not list and type(headers) is not tuple) or len(headers) > 128):
+        return _encode(value)
+    # Own each container before inspecting its members. Another application
+    # thread may mutate the original headers on a free-threaded interpreter.
+    rows = []
+    for row in tuple(headers):
+        if type(row) is not list and type(row) is not tuple:
+            return _encode(value)
+        pair = tuple(row)
+        if len(pair) != 2 or type(pair[0]) is not str or type(pair[1]) is not str:
+            return _encode(value)
+        rows.append(pair)
+    snapshot["headers"] = rows
+    # This shape is shallow and contains only checked, immutable scalars.
+    # Keep key order and ASCII escaping: native admission charges these bytes.
+    # HTTP status/header validation still belongs to the native output boundary.
+    return _value_encoder.encode(snapshot)
 
 
 class SDKError(Exception):
@@ -133,8 +177,8 @@ class Request:
                     body=base64.b64encode(self.body).decode())
 
     @classmethod
-    def _from_wire(cls, value):
-        return cls(value["url"], value["method"], base64.b64decode(value["body"]), value["headers"])
+    def _from_wire(cls, value, body):
+        return cls(value["url"], value["method"], body, value["headers"])
 
 
 class Response:
@@ -150,6 +194,12 @@ class Response:
     def _wire(self):
         return dict(status=self.status, headers=self.headers,
                     body=base64.b64encode(self.body).decode())
+
+    def _completion(self):
+        body = self.body
+        if not isinstance(body, bytes):
+            body = memoryview(body).tobytes()
+        return dict(status=self.status, headers=self.headers, body=""), body
 
     @classmethod
     def _from_wire(cls, value):

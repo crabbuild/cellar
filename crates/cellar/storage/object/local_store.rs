@@ -14,7 +14,7 @@ use bytes::Bytes;
 use futures_util::future::BoxFuture;
 use futures_util::stream::{self, BoxStream};
 use futures_util::FutureExt as _;
-use futures_util::StreamExt as _;
+use futures_util::{StreamExt as _, TryStreamExt as _};
 use object_store::list::{PaginatedListOptions, PaginatedListResult, PaginatedListStore};
 use object_store::path::Path;
 use object_store::{
@@ -36,10 +36,16 @@ const READ_CHUNK_BYTES: usize = 128 << 10;
 #[derive(Clone, Debug)]
 pub(crate) struct LocalStore {
     database: PathBuf,
+    // Serialize writers from clones before SQLite's busy-handler backoff can
+    // let a stream of new transactions starve an older lease renewal. Other
+    // instances/processes still arbitrate through SQLite's transaction lock.
+    writer: Arc<parking_lot::FairMutex<()>>,
     #[cfg(test)]
     read_gate: Option<Arc<read_tests::ReadGate>>,
     #[cfg(test)]
     metadata_gate: Option<Arc<read_tests::ReadGate>>,
+    #[cfg(test)]
+    list_gate: Option<Arc<read_tests::ReadGate>>,
     #[cfg(test)]
     put_gate: Option<(String, Arc<read_tests::ReadGate>)>,
 }
@@ -66,10 +72,13 @@ impl LocalStore {
         let database = database.as_ref().to_path_buf();
         let store = Self {
             database,
+            writer: Arc::new(parking_lot::FairMutex::new(())),
             #[cfg(test)]
             read_gate: None,
             #[cfg(test)]
             metadata_gate: None,
+            #[cfg(test)]
+            list_gate: None,
             #[cfg(test)]
             put_gate: None,
         };
@@ -206,25 +215,37 @@ impl LocalStore {
         Ok(bytes.into())
     }
 
-    fn metadata(&self) -> object_store::Result<Vec<StoredObject>> {
+    fn metadata(&self, prefix: &str) -> object_store::Result<Vec<StoredObject>> {
         let connection = self.connect()?;
-        let mut statement = connection
-            .prepare(
-                "SELECT key, CAST(X'' AS BLOB), etag, modified_ms, attributes, length(body)
-                 FROM __sys_local_objects ORDER BY key",
-            )
-            .map_err(db_error)?;
+        #[cfg(test)]
+        if let Some(gate) = &self.list_gate {
+            gate.wait();
+        }
+        // Restoration lists one cell/epoch at a time. Restrict the indexed
+        // scan before decoding rows so its cost does not grow with unrelated
+        // cells and their histories. BINARY ordering preserves literal '%' and
+        // '_' characters; LIKE would give those characters wildcard semantics.
+        let upper = prefix_upper_bound(prefix);
+        let sql = format!(
+            "SELECT key, CAST(X'' AS BLOB), etag, modified_ms, attributes, length(body)
+             FROM __sys_local_objects WHERE key >= ?1 {} ORDER BY key",
+            if upper.is_some() { "AND key < ?2" } else { "" },
+        );
+        let mut statement = connection.prepare(&sql).map_err(db_error)?;
         let rows = statement
-            .query_map([], |row| {
-                Ok(StoredObject {
-                    key: row.get(0)?,
-                    body: row.get(1)?,
-                    size: row.get(5)?,
-                    etag: row.get(2)?,
-                    modified_ms: row.get(3)?,
-                    attributes: row.get(4)?,
-                })
-            })
+            .query_map(
+                rusqlite::params_from_iter(std::iter::once(prefix).chain(upper.as_deref())),
+                |row| {
+                    Ok(StoredObject {
+                        key: row.get(0)?,
+                        body: row.get(1)?,
+                        size: row.get(5)?,
+                        etag: row.get(2)?,
+                        modified_ms: row.get(3)?,
+                        attributes: row.get(4)?,
+                    })
+                },
+            )
             .map_err(db_error)?;
         rows.collect::<Result<Vec<_>, _>>().map_err(db_error)
     }
@@ -237,6 +258,9 @@ impl LocalStore {
     ) -> object_store::Result<PutResult> {
         let attributes = encode_attributes(&options.attributes)?;
         let modified_ms = crate::asyncrt::wall_ms();
+        // Declare the guard first so the connection (including any rollback
+        // and close-time checkpoint) drops before writer admission reopens.
+        let _writer;
         let mut connection = self.connect()?;
         // The fixture observes a real entered SQLite connection without
         // locking out unrelated metadata/claim I/O while the worker pauses.
@@ -246,6 +270,7 @@ impl LocalStore {
                 gate.wait();
             }
         }
+        _writer = self.writer.lock();
         let transaction = connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(db_error)?;
@@ -471,6 +496,7 @@ impl ObjectStore for LocalStore {
         let store = self.clone();
         let key = location.to_string();
         store_blocking!(move || {
+            let _writer = store.writer.lock();
             store
                 .connect()?
                 .execute("DELETE FROM __sys_local_objects WHERE key = ?1", [key])
@@ -483,49 +509,75 @@ impl ObjectStore for LocalStore {
 
     fn list(&self, prefix: Option<&Path>) -> BoxStream<'static, object_store::Result<ObjectMeta>> {
         let prefix = prefix.cloned();
-        let result = self.metadata().and_then(|objects| {
-            objects
-                .into_iter()
-                .map(|object| object_meta(&object))
-                .filter(|meta| {
-                    meta.as_ref().map_or(true, |meta| {
-                        prefix.as_ref().is_none_or(|prefix| {
-                            meta.location
-                                .prefix_match(prefix)
-                                .is_some_and(|mut remainder| remainder.next().is_some())
+        let store = self.clone();
+        // A returned stream may be polled by another domain. Its SQLite work
+        // remains owned by the domain that created it, including after caller
+        // cancellation; a closed original owner refuses new I/O.
+        #[cfg(not(cellar_internal_tests))]
+        let owner = crate::asyncrt::services().domain_token();
+        let operation = move || {
+            store
+                .metadata(prefix.as_ref().map_or("", |path| path.as_ref()))
+                .and_then(|objects| {
+                    objects
+                        .into_iter()
+                        .map(|object| object_meta(&object))
+                        .filter(|meta| {
+                            meta.as_ref().map_or(true, |meta| {
+                                prefix.as_ref().is_none_or(|prefix| {
+                                    meta.location
+                                        .prefix_match(prefix)
+                                        .is_some_and(|mut remainder| remainder.next().is_some())
+                                })
+                            })
                         })
-                    })
+                        .collect::<object_store::Result<Vec<_>>>()
                 })
-                .collect::<object_store::Result<Vec<_>>>()
-        });
-        match result {
-            Ok(objects) => stream::iter(objects.into_iter().map(Ok)).boxed(),
-            Err(error) => stream::once(async move { Err(error) }).boxed(),
-        }
+        };
+        stream::once(async move {
+            #[cfg(not(cellar_internal_tests))]
+            let result = owner
+                .ok_or_else(|| domain_error(crate::asyncrt::DomainClosed))?
+                .blocking(operation)
+                .map_err(domain_error)?
+                .await
+                .map_err(db_error)?;
+            #[cfg(cellar_internal_tests)]
+            let result = store_blocking!(operation).await.map_err(db_error)?;
+            result
+        })
+        .map_ok(|objects| stream::iter(objects.into_iter().map(Ok)))
+        .try_flatten()
+        .boxed()
     }
 
     async fn list_with_delimiter(&self, prefix: Option<&Path>) -> object_store::Result<ListResult> {
         let prefix = prefix.cloned().unwrap_or_default();
-        let mut common_prefixes = BTreeSet::new();
-        let mut objects = Vec::new();
-        for object in self.metadata()? {
-            let location = stored_location(&object.key)?;
-            let Some(mut remainder) = location.prefix_match(&prefix) else {
-                continue;
-            };
-            let Some(child) = remainder.next() else {
-                continue;
-            };
-            if remainder.next().is_some() {
-                common_prefixes.insert(prefix.child(child));
-            } else {
-                objects.push(object_meta(&object)?);
+        let store = self.clone();
+        store_blocking!(move || {
+            let mut common_prefixes = BTreeSet::new();
+            let mut objects = Vec::new();
+            for object in store.metadata(prefix.as_ref())? {
+                let location = stored_location(&object.key)?;
+                let Some(mut remainder) = location.prefix_match(&prefix) else {
+                    continue;
+                };
+                let Some(child) = remainder.next() else {
+                    continue;
+                };
+                if remainder.next().is_some() {
+                    common_prefixes.insert(prefix.child(child));
+                } else {
+                    objects.push(object_meta(&object)?);
+                }
             }
-        }
-        Ok(ListResult {
-            common_prefixes: common_prefixes.into_iter().collect(),
-            objects,
+            Ok(ListResult {
+                common_prefixes: common_prefixes.into_iter().collect(),
+                objects,
+            })
         })
+        .await
+        .map_err(db_error)?
     }
 
     async fn copy(&self, from: &Path, to: &Path) -> object_store::Result<()> {
@@ -618,6 +670,10 @@ fn domain_error(error: crate::asyncrt::DomainClosed) -> Error {
 #[path = "local_store_read_tests.rs"]
 mod read_tests;
 
+#[cfg(test)]
+#[path = "local_store_list_tests.rs"]
+mod list_tests;
+
 // Shared native-I/O fixture; absent from the production API.
 #[cfg(all(test, not(cellar_internal_tests)))]
 pub(crate) use read_tests::{held_upload_store, UploadGate};
@@ -629,54 +685,59 @@ impl PaginatedListStore for LocalStore {
         prefix: Option<&str>,
         options: PaginatedListOptions,
     ) -> object_store::Result<PaginatedListResult> {
-        let prefix = prefix.unwrap_or_default();
-        let after = options.page_token.as_deref().or(options.offset.as_deref());
-        let delimiter = options.delimiter.as_deref();
-        let limit = options.max_keys.unwrap_or(usize::MAX);
-        let mut entries: Vec<(String, Option<Path>, Option<ObjectMeta>)> = Vec::new();
-        for object in self.metadata()? {
-            let Some(remainder) = object.key.strip_prefix(prefix) else {
-                continue;
-            };
-            if after.is_some_and(|after| object.key.as_str() <= after) {
-                continue;
-            }
-            let common = delimiter.and_then(|delimiter| {
-                remainder.find(delimiter).map(|index| {
-                    stored_location(&format!("{prefix}{}{}", &remainder[..index], delimiter))
-                })
-            });
-            let common = common.transpose()?;
-            if let Some(common) = common {
-                if let Some((last, Some(previous), _)) = entries.last_mut() {
-                    if *previous == common {
-                        *last = object.key;
-                        continue;
-                    }
+        let prefix = prefix.unwrap_or_default().to_owned();
+        let store = self.clone();
+        store_blocking!(move || {
+            let after = options.page_token.as_deref().or(options.offset.as_deref());
+            let delimiter = options.delimiter.as_deref();
+            let limit = options.max_keys.unwrap_or(usize::MAX);
+            let mut entries: Vec<(String, Option<Path>, Option<ObjectMeta>)> = Vec::new();
+            for object in store.metadata(&prefix)? {
+                let Some(remainder) = object.key.strip_prefix(&prefix) else {
+                    continue;
+                };
+                if after.is_some_and(|after| object.key.as_str() <= after) {
+                    continue;
                 }
-                entries.push((object.key, Some(common), None));
-            } else {
-                entries.push((object.key.clone(), None, Some(object_meta(&object)?)));
+                let common = delimiter.and_then(|delimiter| {
+                    remainder.find(delimiter).map(|index| {
+                        stored_location(&format!("{prefix}{}{}", &remainder[..index], delimiter))
+                    })
+                });
+                let common = common.transpose()?;
+                if let Some(common) = common {
+                    if let Some((last, Some(previous), _)) = entries.last_mut() {
+                        if *previous == common {
+                            *last = object.key;
+                            continue;
+                        }
+                    }
+                    entries.push((object.key, Some(common), None));
+                } else {
+                    entries.push((object.key.clone(), None, Some(object_meta(&object)?)));
+                }
             }
-        }
-        let truncated = entries.len() > limit;
-        entries.truncate(limit);
-        let page_token = truncated
-            .then(|| entries.last().map(|(last, _, _)| last.clone()))
-            .flatten();
-        let mut result = ListResult {
-            common_prefixes: Vec::new(),
-            objects: Vec::new(),
-        };
-        for (_, common, object) in entries {
-            if let Some(common) = common {
-                result.common_prefixes.push(common);
+            let truncated = entries.len() > limit;
+            entries.truncate(limit);
+            let page_token = truncated
+                .then(|| entries.last().map(|(last, _, _)| last.clone()))
+                .flatten();
+            let mut result = ListResult {
+                common_prefixes: Vec::new(),
+                objects: Vec::new(),
+            };
+            for (_, common, object) in entries {
+                if let Some(common) = common {
+                    result.common_prefixes.push(common);
+                }
+                if let Some(object) = object {
+                    result.objects.push(object);
+                }
             }
-            if let Some(object) = object {
-                result.objects.push(object);
-            }
-        }
-        Ok(PaginatedListResult { result, page_token })
+            Ok(PaginatedListResult { result, page_token })
+        })
+        .await
+        .map_err(db_error)?
     }
 }
 
@@ -721,6 +782,21 @@ impl MultipartUpload for LocalUpload {
         self.parts.lock().unwrap().clear();
         Ok(())
     }
+}
+
+// The smallest valid UTF-8 string above every string with this prefix. SQLite
+// BINARY text ordering follows UTF-8/code-point order. Empty/all-maximal
+// prefixes have no upper bound; skipping the surrogate gap keeps the bound a
+// valid SQLite TEXT parameter rather than a differently ordered BLOB.
+fn prefix_upper_bound(prefix: &str) -> Option<String> {
+    let mut upper = prefix.to_owned();
+    while let Some(last) = upper.pop() {
+        if let Some(next) = (u32::from(last) + 1..=u32::from(char::MAX)).find_map(char::from_u32) {
+            upper.push(next);
+            return Some(upper);
+        }
+    }
+    None
 }
 
 fn object_meta(object: &StoredObject) -> object_store::Result<ObjectMeta> {

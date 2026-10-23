@@ -95,8 +95,10 @@ def verify(document):
             require(row["request_bytes"] == row["response_bytes"] == 65536, "wrong held payload")
         require(len(saturation["rejected"]) == 16, "missing excess admission attempts")
         for ordinal, row in enumerate(saturation["rejected"]):
-            require(row["ordinal"] == ordinal and row["status"] >= 500 and row["outcome"] == "refused" and
-                    row["reason"] == "Python invocation capacity exhausted" and row["reason"] in row["error_body"], "wrong admission refusal")
+            require(row["ordinal"] == ordinal and row["status"] == 503 and row["outcome"] == "refused" and
+                    row["reason"] == "Python invocation capacity exhausted" and
+                    json.loads(row["error_body"]) == {"error": "application admission refused", "code": "Overloaded", "outcome": "unknown"},
+                    "wrong admission refusal")
         full = False
         observations(saturation["before"], limits, settled=True)
         for observation in saturation["observations"]:

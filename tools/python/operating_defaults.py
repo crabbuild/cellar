@@ -136,7 +136,9 @@ def saturation(host, limits, evidence):
         try:
             for ordinal in range(16):
                 row, body = request(client, "POST", "/echo", b"excess", evidence["rejected"], ordinal=ordinal)
-                require(row["status"] >= 500 and b"Python invocation capacity exhausted" in body, f"wrong admission rejection: {row}: {body[:256]!r}")
+                require(row["status"] == 503 and json.loads(body) ==
+                        {"error": "application admission refused", "code": "Overloaded", "outcome": "unknown"},
+                        f"wrong admission rejection: {row}: {body[:256]!r}")
                 row.update(outcome="refused", reason="Python invocation capacity exhausted", error_body=body.decode())
         finally:
             client.close()

@@ -334,19 +334,24 @@ pub async fn run(scenario: Scenario) -> Result<()> {
             // The regression cut: the management stop must seal new Raft work
             // before its blocked private callback can return or physical close.
             tokio::time::timeout(Duration::from_millis(500), async {
-                loop {
-                    if matches!(
+                // Query construction admits work immediately. A probe created
+                // before sealing can wait behind the deliberately held SQL;
+                // its completion is not an observation of new admission.
+                while !service.is_closed() {
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+                ensure!(
+                    matches!(
                         cell.query(definition.get.clone(), vec![], QueryOptions::default())
                             .await,
                         Err(CommandFailure::Unavailable)
-                    ) {
-                        return;
-                    }
-                    tokio::time::sleep(Duration::from_millis(10)).await;
-                }
+                    ),
+                    "sealed Raft admission accepted a new query"
+                );
+                Ok::<_, anyhow::Error>(())
             })
             .await
-            .context("management stop did not seal Raft admission")?;
+            .context("management stop did not seal Raft admission")??;
             // is_closed() includes admission closure. The pending callback and
             // the actual Node join below are the physical ownership oracles.
             ensure!(!pending.is_finished(), "held SQL command already returned");

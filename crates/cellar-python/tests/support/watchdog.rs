@@ -98,7 +98,7 @@ pub(super) fn child(mode: &str, root: &Path) -> Result<()> {
     // A blocked Python loop can prevent run() from returning after the native
     // host closes its listener. Preserve the fence reason in the failure log.
     tracing_subscriber::fmt()
-        .with_env_filter("cellar::actor=warn")
+        .with_env_filter("cellar::actor=warn,cellar::daemon::embedded=warn")
         .with_ansi(false)
         .with_writer(std::io::stderr)
         .try_init()
@@ -257,7 +257,8 @@ pub(super) fn qualify() -> Result<()> {
                 .timeout(Duration::from_secs(5))
                 .build()?;
             let mut owner = spawn("--owner-running", root)?;
-            let url = ready(&mut owner, root, &client).await?;
+            let url = ready(&mut owner, root, &client).await
+                .with_context(|| format!("{route}: initial owner startup"))?;
             let before: Value = fetch_json(
                 client.post(format!("{url}/counter")),
                 &format!("{route}: acknowledge initial counter"),
@@ -333,7 +334,8 @@ pub(super) fn qualify() -> Result<()> {
             std::fs::remove_dir_all(root.join("disk"))?;
             tokio::time::sleep(Duration::from_millis(OWNER_LEASE_MS + 100)).await;
             let mut recovery = spawn("--owner-recovered", root)?;
-            let url = ready(&mut recovery, root, &client).await?;
+            let url = ready(&mut recovery, root, &client).await
+                .with_context(|| format!("{route}: recovered owner startup"))?;
             let recovered: Value = fetch_json(
                 client.post(format!("{url}/counter")),
                 &format!("{route}: acknowledge recovered counter"),
@@ -381,6 +383,9 @@ pub(super) fn qualify() -> Result<()> {
                 replay == expected,
                 "{route}: original alarm occurrence replay duplicated effects: {replay}"
             );
+            cellar::cli_output::Output::new(cellar::cli_output::Format::Text).line(format_args!(
+                "PASS Python watchdog ({route}): acknowledged state recovered after owner kill and disk deletion; durable alarm applied once and replay deduplicated"
+            ))?;
         }
         Ok(())
     })

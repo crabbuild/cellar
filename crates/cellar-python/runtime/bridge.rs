@@ -1,4 +1,5 @@
 use pyo3::prelude::*;
+use pyo3::types::PyBytes;
 use pyo3::{PyTraverseError, PyVisit};
 use std::sync::{
     atomic::{AtomicBool, AtomicUsize, Ordering},
@@ -19,6 +20,7 @@ pub(crate) enum Event {
     },
     Complete {
         payload: String,
+        body: Option<Vec<u8>>,
         failed: bool,
         reservation: super::Reservation,
     },
@@ -37,6 +39,7 @@ impl Drop for Mutation {
 pub(crate) struct Start {
     pub id: u64,
     pub payload: String,
+    pub body: Vec<u8>,
     pub bridge: InvocationBridge,
     pub reservation: super::Reservation,
 }
@@ -147,17 +150,29 @@ impl InvocationBridge {
         Ok(())
     }
 
-    fn complete(&self, py: Python<'_>, payload: &str, failed: bool) -> PyResult<()> {
+    #[pyo3(signature = (payload, failed, body=None))]
+    fn complete(
+        &self,
+        py: Python<'_>,
+        payload: &str,
+        failed: bool,
+        body: Option<&Bound<'_, PyBytes>>,
+    ) -> PyResult<()> {
         if !self.active() {
             return Err(pyo3::exceptions::PyRuntimeError::new_err("ContextExpired"));
         }
         self.ensure_scope(py)?;
-        if payload.len() > self.max_bytes {
+        let body = body.map(|body| body.as_bytes());
+        let charge = crate::values::envelope_size(payload.len(), body.map_or(0, <[u8]>::len))
+            .map_err(|_| {
+                pyo3::exceptions::PyValueError::new_err("Python response size overflow")
+            })?;
+        if charge > self.max_bytes {
             return Err(pyo3::exceptions::PyValueError::new_err(
                 "Python response exceeds value budget",
             ));
         }
-        let reservation = self.budget.reserve(payload.len()).map_err(|_| {
+        let reservation = self.budget.reserve(charge).map_err(|_| {
             pyo3::exceptions::PyRuntimeError::new_err(
                 "Python aggregate bridge byte budget exhausted",
             )
@@ -165,13 +180,19 @@ impl InvocationBridge {
         let permit = self.sender.try_reserve().map_err(|_| {
             pyo3::exceptions::PyRuntimeError::new_err("Python completion queue is full or closed")
         })?;
+        // Reserve both byte and mailbox capacity before owning copies. The
+        // encoded-equivalent charge covers the smaller raw body allocation.
+        let payload = payload.to_owned();
+        let body = body.map(<[u8]>::to_vec);
+        self.budget
+            .copied_input(payload.len() + body.as_ref().map_or(0, Vec::len));
         permit.send(Event::Complete {
             reservation,
-            payload: payload.to_owned(),
+            payload,
+            body,
             failed,
         });
         self.completion_enqueued.store(true, Ordering::Release);
-        self.budget.copied_input(payload.len());
         Ok(())
     }
 }
