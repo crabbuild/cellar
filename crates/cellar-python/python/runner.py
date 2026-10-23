@@ -150,9 +150,24 @@ async def _serve(module, inbox, interval, shutdown, stats, maximum, telemetry, s
     ready = asyncio.Event()
     descriptor = inbox.wakeup_fd()
 
+    def deliver_replies():
+        # Keep delivery locals out of the long-lived pump frame so a completed
+        # or cancelled task cannot retain its cell until the next native reply.
+        for invocation, operation, result in inbox.replies():
+            entry = invocations.get(invocation)
+            if entry:
+                if entry[2].active():
+                    entry[1]._reply(operation, result)
+                else:
+                    entry[0].cancel()
+
     def readable():
         try:
             inbox.drain_wakeup()
+            # Queue SDK continuations before waking the admission pump. Host
+            # operations still run in their original native invocation futures.
+            if not inbox.done() and not any(_failures.values()):
+                deliver_replies()
         finally:
             ready.set()
 
@@ -183,13 +198,7 @@ async def _serve(module, inbox, interval, shutdown, stats, maximum, telemetry, s
                 stats["runtime_failed"] = True
                 inbox.stop()
                 break
-            for invocation, operation, result in inbox.replies():
-                entry = invocations.get(invocation)
-                if entry:
-                    entry[1]._reply(operation, result)
-                # A cancelled task can retain its cell through its traceback.
-                # An idle pump may receive no later reply to overwrite entry.
-                del entry, result
+            deliver_replies()
             # Rejections free native admission immediately. A continuously
             # replenished inbox must still yield to replies, timers and cleanup.
             for _ in range(64):

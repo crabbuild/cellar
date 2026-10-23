@@ -13,6 +13,9 @@ import weakref
 
 
 def continuous_arrivals(mode):
+    if mode.startswith("reply-"):
+        reply_delivery(mode.removeprefix("reply-"))
+        return
     if mode == "storage-lifetime":
         storage_lifetime()
         return
@@ -253,13 +256,148 @@ def storage_lifetime():
     asyncio.run(exercise())
 
 
+def reply_delivery(mode):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "crates/cellar-python/python"))
+    import runner
+    from cellar import Response, _current_invocation
+    state = dict(submitted=0, resumed=0, completed=0, cleaned=0, expired=0)
+    bridges = weakref.WeakSet()
+    payload = json.dumps(dict(identity=None, object=None, kind='fetch',
+                             event=dict(url='http://reply/', method='GET', headers=[])))
+
+    async def fetch(request, context):
+        try:
+            value = await context.var('value')
+            state['resumed'] += 1
+            assert value == '42'
+            return Response.json(dict(value=value))
+        finally:
+            state['cleaned'] += 1
+            if mode == 'expired':
+                inbox.stop()
+
+    class Bridge:
+        closed = False
+
+        def __init__(self):
+            bridges.add(self)
+
+        def active(self):
+            return not self.closed
+
+        def submit(self, sequence, operation, encoded):
+            assert _current_invocation.get() is self
+            assert operation == 'var' and json.loads(encoded) == {'name': 'value'}
+            state['submitted'] += 1
+
+            def publish():
+                if mode == 'expired':
+                    self.expire()
+                elif mode == 'stopped':
+                    inbox.stopped = True
+                reply = 'PRIVATE_SENTINEL_invalid_json' if mode == 'malformed' else '{"ok":true,"value":"42"}'
+                inbox.queue.append((1, sequence, reply))
+                if mode == 'duplicate':
+                    inbox.queue.append((1, sequence, reply))
+                inbox.writer.send(b'x')
+            # Publish only after the eager handler has suspended on its SDK
+            # future and the pump has registered the invocation.
+            asyncio.get_running_loop().call_soon(publish)
+
+        def complete(self, encoded, failed, body=None):
+            assert _current_invocation.get() is self and self.active()
+            assert not failed, encoded
+            assert json.loads(encoded)['status'] == 200
+            assert json.loads(body) == {'value': '42'}
+            state['completed'] += 1
+            inbox.stop()
+
+        def expire(self, finished=False):
+            if not self.closed:
+                state['expired'] += 1
+                self.closed = True
+
+    class Inbox:
+        def __init__(self):
+            self.reader, self.writer = socket.socketpair()
+            self.reader.setblocking(False)
+            self.writer.setblocking(False)
+            self.queue = []
+            self.stopped = self.issued = False
+
+        def wakeup_fd(self):
+            return self.reader.fileno()
+
+        def drain_wakeup(self):
+            while True:
+                try:
+                    self.reader.recv(4096)
+                except BlockingIOError:
+                    return
+
+        def take(self):
+            if self.issued or self.stopped:
+                return None
+            self.issued = True
+            return 1, payload, b'', Bridge()
+
+        def replies(self):
+            replies, self.queue = self.queue, []
+            return replies
+
+        def done(self):
+            return self.stopped
+
+        def take_retirements(self):
+            return False
+
+        def sample(self, value):
+            json.loads(value)
+
+        def stop(self):
+            if not self.stopped:
+                self.stopped = True
+                self.writer.send(b'x')
+
+    inbox = Inbox()
+    try:
+        report = runner.run(SimpleNamespace(fetch=fetch), inbox, 30, .2, 10, 16, 30)
+        expected = int(mode in ('normal', 'duplicate'))
+        assert state == dict(submitted=1, resumed=expected, completed=expected, cleaned=1, expired=1), state
+        assert report['runtime_failed'] == (mode == 'malformed'), report
+        assert report['pending_tasks'] == report['pending_objects'] == report['pending_threads'] == 0, report
+        assert report['interpreter']['handlers_completed'] == expected, report
+        gc.collect()
+        assert not bridges, 'runner retains finished invocation bridge'
+        print(json.dumps(dict(mode=mode, state=state, stage=report['runtime_failure_stage'])))
+    finally:
+        inbox.reader.close()
+        inbox.writer.close()
+
+
 class RunnerScheduling(unittest.TestCase):
     def run_case(self, mode):
         child = subprocess.run(
             [sys.executable, "-I", "-B", __file__, "--continuous-arrivals", mode],
             capture_output=True, text=True, timeout=10,
         )
+        self.assertNotIn("PRIVATE_SENTINEL", child.stderr)
         self.assertEqual(child.returncode, 0, child.stdout + child.stderr)
+
+    def test_sdk_reply_resumes_original_invocation(self):
+        self.run_case("reply-normal")
+
+    def test_duplicate_reply_completes_only_once(self):
+        self.run_case("reply-duplicate")
+
+    def test_reply_after_expiration_does_not_resume_handler(self):
+        self.run_case("reply-expired")
+
+    def test_reply_after_stop_does_not_resume_handler(self):
+        self.run_case("reply-stopped")
+
+    def test_malformed_reply_fails_safely_and_joins(self):
+        self.run_case("reply-malformed")
 
     def test_capacity_rejection_yields_to_timers_and_cancellation(self):
         self.run_case("rejections")
