@@ -1,5 +1,6 @@
 """Refusal, arrival accounting and independent workload oracle regressions."""
 import contextlib
+import concurrent.futures
 import copy
 import hashlib
 import io
@@ -288,16 +289,38 @@ class OfferedLoad(unittest.TestCase):
         profile['read_fraction'] = 1
         state = self.state()
         send = Mock(side_effect=TimeoutError)
+        # This case checks completed read accounting. A real worker can still
+        # own the cell's completion fsync at the next 10ms arrival, correctly
+        # rejecting it as busy. Control completion and time here; the separate
+        # slow-server case checks real concurrent admission and offered load.
+        now = [0.0]
+        def advance(seconds):
+            now[0] += seconds
+        def submit(work, *args):
+            future = concurrent.futures.Future()
+            try:
+                future.set_result(work(*args))
+            except BaseException as error:
+                future.set_exception(error)
+            return future
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'ledger'
             ledger = Ledger(path)
-            result = run_load(profile, 'measurement', .03, state, ledger, send, 'test')
+            with patch('raft_workload.concurrent.futures.ThreadPoolExecutor') as executor:
+                executor.return_value.__enter__.return_value.submit.side_effect = submit
+                result = run_load(profile, 'measurement', .03, state, ledger, send, 'test',
+                                  clock=lambda: now[0], sleep=advance)
             ledger.close()
             summary = summarize_ledger(path, 'measurement', .03)
+        self.assertEqual(send.call_count, 3)
+        self.assertEqual(result['offered'], 3)
+        self.assertEqual(result['submitted'], 3)
+        self.assertEqual(result['generator_rejected'], 0)
         self.assertEqual(result['ambiguous'], 0)
         self.assertEqual(result['blocked_cells'], [])
         self.assertEqual(result['failed'], 3)
         self.assertEqual(summary['counts']['timed_out'], 3)
+        self.assertEqual(state, self.state())
 
     def test_command_is_durably_journaled_before_send(self):
         state = self.state()
