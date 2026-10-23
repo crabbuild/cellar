@@ -1,0 +1,222 @@
+{
+  "task_id": "MR-14",
+  "source_revision": "d0eb31000017815c5a2a68dbc0931f5d59f539c3",
+  "completion": "partial",
+  "scope": "One unchanged five-node healthy density attempt with client/server probe correlation. The attempt fails and remains unqualified.",
+  "build": {
+    "source_revision": "d0eb31000017815c5a2a68dbc0931f5d59f539c3",
+    "argv": [
+      "docker",
+      "--context",
+      "colima-cellar-multi-raft",
+      "build",
+      "-f",
+      "tools/perf/raft.Dockerfile",
+      "--build-arg",
+      "TARGET_CACHE_ID=cellar-23c7-mr13-local-raft-target",
+      "--build-arg",
+      "SOURCE_REVISION=d0eb31000017815c5a2a68dbc0931f5d59f539c3",
+      "-t",
+      "cellar-multi-raft:mr14-ingress-final",
+      "."
+    ],
+    "exit_code": 0,
+    "elapsed_seconds": 91.95287609100342,
+    "image": "sha256:49f405a428e08ff042d7b7ddda728d9e5b2a9c348fbf585e27030beeb8a6803d"
+  },
+  "run": {
+    "name": "mr14-ingress-local-density-1500-healthy-20261023-001",
+    "completed": false,
+    "analysis_rejection": "unfinished run",
+    "profile_sha256": "0a05d0d254333cff2a060b1027adf86e6160417578a3f5b7a3c1ea021051acc7",
+    "fault_profile_sha256": "e9fcf43183efb751d867b08e1ce95d3c9b5c27df187b3006bf8c2f924a54e849",
+    "measurement": {
+      "offered": 1200,
+      "submitted": 261,
+      "completed": 235,
+      "rejected": 0,
+      "ambiguous": 15,
+      "failed": 11,
+      "timed_out": 0,
+      "generator_rejected": 939,
+      "offered_seconds": 120,
+      "started_monotonic_seconds": 162841.763166541,
+      "elapsed_seconds": 120.00056837499142,
+      "blocked_cells": [
+        0,
+        1,
+        2,
+        5,
+        9,
+        11,
+        14,
+        15,
+        16,
+        18,
+        20,
+        26,
+        27,
+        28,
+        29
+      ]
+    },
+    "sampler_failure": "<urlopen error [Errno 49] Can't assign requested address>",
+    "diagnostic_only_summary": {
+      "counts": {
+        "submitted": 261,
+        "completed": 235,
+        "generator_rejected": 939,
+        "ambiguous": 15,
+        "failed": 11,
+        "offered": 1200
+      },
+      "latency_ms": {
+        "p50": 18.823749991128125,
+        "p95": 183.87224999605678,
+        "p99": 222.24008400226046,
+        "p99_9": 307.8924169938544
+      },
+      "latency_by_operation_ms": {
+        "command": {
+          "p50": 39.222916995640844,
+          "p95": 205.1237499865266,
+          "p99": 243.06987501331622,
+          "p99_9": 307.8924169938544
+        },
+        "query": {
+          "p50": 10.002917004749534,
+          "p95": 23.699792008846643,
+          "p99": 122.81370900454914,
+          "p99_9": 222.24008400226046
+        }
+      },
+      "completed_per_second": 1.9583333333333333,
+      "offered_per_second": 10.0,
+      "error_fraction": 0.8041666666666667
+    },
+    "final_replica_and_archive_verification": "not reached"
+  },
+  "failed_probe": {
+    "cycle": 1,
+    "cell": 20,
+    "node": 1,
+    "probe_id": "1:20",
+    "client_event": "probe_failed",
+    "client_status": null,
+    "client_error_type": "TimeoutError",
+    "client_elapsed_ms": 102.5876670028083,
+    "diagnostic_matches": 1,
+    "server": [
+      {
+        "cell": 20,
+        "finished_us": 160706798,
+        "outcome": "success",
+        "probe_id": "1:20",
+        "replication_finished_us": 160706786,
+        "replication_started_us": 160706236,
+        "sequence": 10,
+        "started_us": 160594353,
+        "status_finished_us": 160706236
+      }
+    ],
+    "server_total_ms": 112.445,
+    "status_ms": 111.883,
+    "replication_ms": 0.55,
+    "client_phases": [
+      {
+        "phase": "send",
+        "sequence": 0,
+        "depth": 0,
+        "elapsed_ms": 0.127416,
+        "outcome": "complete",
+        "error_type": null
+      },
+      {
+        "phase": "connect",
+        "sequence": 1,
+        "depth": 1,
+        "elapsed_ms": 0.110958,
+        "outcome": "complete",
+        "error_type": null
+      },
+      {
+        "phase": "response_headers",
+        "sequence": 2,
+        "depth": 0,
+        "elapsed_ms": 102.225625,
+        "outcome": "failed",
+        "error_type": "TimeoutError"
+      }
+    ],
+    "client_trace_dropped": 0,
+    "client_outer_elapsed_ms": 102.55995800253004
+  },
+  "correlation": {
+    "client_attempts": 11,
+    "server_observations": 11,
+    "missing_matches": 0,
+    "recorded_probe_sample_errors": 0,
+    "coverage": "The sampler later stops on EADDRNOTAVAIL. Eleven early probes correlate; this is not complete measurement coverage."
+  },
+  "cleanup": [
+    {
+      "container": "cellar-mr14-fcd2d85e1ca2dcb97d166b5f-node5",
+      "running": false,
+      "exit_code": 0,
+      "oom_killed": false
+    },
+    {
+      "container": "cellar-mr14-fcd2d85e1ca2dcb97d166b5f-node4",
+      "running": false,
+      "exit_code": 0,
+      "oom_killed": false
+    },
+    {
+      "container": "cellar-mr14-fcd2d85e1ca2dcb97d166b5f-node3",
+      "running": false,
+      "exit_code": 0,
+      "oom_killed": false
+    },
+    {
+      "container": "cellar-mr14-fcd2d85e1ca2dcb97d166b5f-node2",
+      "running": false,
+      "exit_code": 0,
+      "oom_killed": false
+    },
+    {
+      "container": "cellar-mr14-fcd2d85e1ca2dcb97d166b5f-node1",
+      "running": false,
+      "exit_code": 0,
+      "oom_killed": false
+    },
+    {
+      "container": "cellar-mr14-fcd2d85e1ca2dcb97d166b5f-store",
+      "running": false,
+      "exit_code": 0,
+      "oom_killed": false
+    }
+  ],
+  "network_removed": true,
+  "profile_stopped": true,
+  "volumes_and_stopped_containers": "retained",
+  "raw_output": [
+    {
+      "path": "evidence/MR-14-client-run.json.gz",
+      "bytes": 926817,
+      "sha256": "bc477e17a6a4bf66374c9b145d3a92c95089ff9524ba41033a6435a7417a5f8b"
+    }
+  ],
+  "next_priorities": [
+    "Create a bounded executor/status admission regression for the observed 111.883ms status stage before changing runtime scheduling. The same physical observation does not distinguish host preemption, CPU quota or queued native work.",
+    "Diagnose the later client socket admission failure separately. Preserve errno and socket-pressure evidence without changing macOS networking limits, raising timeouts or retrying uncertain mutations.",
+    "Rerun unchanged healthy/slow-follower workloads after a demonstrated fix, then continue matched-durability, sustained S3 and overhead qualification."
+  ],
+  "limitations": [
+    "Connect and send finish in 0.127416ms (nested connect 0.110958ms); waiting for headers fails after 102.225625ms. The matching server status stage takes 111.883ms and replication 0.55ms. Server completion after client timeout is not a successful fault witness.",
+    "All recorded spans include preemption and use different client/server clock origins. A duration does not identify the exact scheduler or host-pressure cause.",
+    "The sampler later reports [Errno 49] Cannot assign requested address. Fifteen writes become ambiguous, eleven operations fail, and 939 arrivals are rejected; 235 complete. These traffic observations cannot qualify a capacity or performance ratio.",
+    "Socket counts were captured only after cleanup, so they cannot prove ephemeral-port exhaustion at failure time. No system networking setting was changed.",
+    "Final replica/archive verification never runs. No fault schedule, sustained S3, matched-durability benchmark, overhead budget, Q1, soak, scale or federation gate is satisfied.",
+    "Only the separate cellar-multi-raft profile was controlled. All five Cellar nodes retain 1 CPU/3 GiB/no swap and RustFS has separate limits; other profiles and the shared host remain uncontrolled."
+  ]
+}

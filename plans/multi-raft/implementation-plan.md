@@ -106,8 +106,12 @@ requested MR-14 focus; it does not waive MR-13's release dependency.
    narrows the next work to HTTP ingress and executor responsiveness under
    density. [Client HTTP timing](evidence/MR-14-client-progress.json) now records
    bounded connect/send/response phases without retries or changed deadlines;
-   a fresh physical run and a bounded scheduler regression must distinguish the
-   remaining causes. The separate slow-follower run completes
+   the [fresh healthy attempt](evidence/MR-14-client-run-progress.json) completes
+   connect/send in 0.127 ms, then times out waiting for headers. Its matching
+   server record spends 111.883 ms in the status stage. Create a bounded
+   executor/status-admission regression before changing scheduling. Diagnose the
+   later sampler socket refusal (`EADDRNOTAVAIL`) separately; neither observation
+   establishes the exact host/runtime cause. The separate slow-follower run completes
    116 cycles and verifies 4,500 replicas/archive coverage but still misses the
    declared traffic targets (304.107 ms p99, 24 rejected arrivals). Do not call
    the new diagnostic instrumentation a performance fix or qualify the failed
@@ -1433,6 +1437,20 @@ five-target Clippy after the shared-helper correction. Formatting, layout,
 dependency/docs checks, 201 performance-tool cases (one opt-in Docker skip),
 Python qualification guards and 17 plan tests pass. Fresh-head CI remains a
 separate gate. Snapshot qualification is distinct from the healthy density timeout.
+
+The [client-timed healthy attempt](evidence/MR-14-client-run-progress.json) at
+`d0eb310` retains another failure under the unchanged five-node, 1,500-cell
+profile. Cycle 1's cell-20 request connects/sends in 0.127 ms and times out during
+102.226 ms of header waiting. Its server status stage takes 111.883 ms and
+replication inspection 0.550 ms; late server completion does not satisfy the
+failed HTTP probe. All eleven early probes correlate. Later, the sampler stops
+with macOS `EADDRNOTAVAIL`; socket counts collected after cleanup cannot establish
+port exhaustion at the failure. The raw measurement retains 235 completions,
+15 ambiguous commands, 11 failures and 939 rejected arrivals. Final replica and
+archive checks never run. The extracted capsule is independently rejected as
+unfinished. Containers exit normally, volumes remain and the dedicated profile
+is stopped. Executor responsiveness and client socket admission need separate
+regressions; no production performance fix or capacity is claimed from this run.
 
 The [all-owner restart evidence](evidence/MR-14-restart-progress.json), source
 `aaa83f8`, records two three-node bucket runs under an explicit twelve-second

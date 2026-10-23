@@ -2516,7 +2516,8 @@
         "evidence/MR-14-transport-timing-progress.json",
         "evidence/MR-14-probe-progress.json",
         "evidence/MR-14-client-progress.json",
-        "evidence/MR-14-main-merge-progress.json"
+        "evidence/MR-14-main-merge-progress.json",
+        "evidence/MR-14-client-run-progress.json"
       ]
     },
     {
