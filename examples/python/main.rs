@@ -1,7 +1,10 @@
 //! Compiled host: Python source participates in the native executable digest.
+mod gateway;
+
 use anyhow::{ensure, Result};
 use cellar::sdk::Host;
 use cellar_python::{Environment, EventKind, Options, PythonRuntime, Source};
+use std::sync::Arc;
 
 const APPLICATION_VERSION: &str = match option_env!("CELLAR_APPLICATION_VERSION") {
     Some(version) => version,
@@ -50,7 +53,7 @@ fn main() -> Result<()> {
                     )?;
                 }
                 host.register("python-example", APPLICATION_VERSION, move || {
-                    Ok(application.clone())
+                    Ok(Arc::new(gateway::CounterGateway::new(application.clone())))
                 })?
                 .run_until_observed(stop.cancelled(), move |outcome| {
                     monitor.record_node(outcome)

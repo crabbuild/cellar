@@ -50,8 +50,8 @@ def receipt_headers(response):
             if name.lower() in ("content-type", "x-cellar-code-revision")]
 
 
-def receipt_request(origin, amount, key, status=200, *, wire=False):
-    operation = urllib.request.Request(origin + "/counters/receipt", method="POST",
+def receipt_request(origin, amount, key, status=200, *, wire=False, path="/counters/receipt"):
+    operation = urllib.request.Request(origin + path, method="POST",
         data=json.dumps({"amount": amount}).encode(),
         headers={"content-type": "application/json", "idempotency-key": key})
     try:
@@ -64,7 +64,7 @@ def receipt_request(origin, amount, key, status=200, *, wire=False):
         return (response.status, body, receipt_headers(response)) if wire else json.loads(body)
 
 
-def lose_committed_response(origin):
+def lose_committed_response(origin, path="/counters/receipt"):
     # The proxy observes the real output proof and drops the connection before
     # delivering any response bytes to the caller. The caller cannot infer the
     # commit from its transport failure and must reconcile with its receipt key.
@@ -89,7 +89,7 @@ def lose_committed_response(origin):
     worker.start()
     try:
         try:
-            receipt_request("http://127.0.0.1:" + str(server.server_port), 9, "lost-response")
+            receipt_request("http://127.0.0.1:" + str(server.server_port), 9, "lost-response", path=path)
             raise AssertionError("fault proxy delivered the intentionally lost response")
         except (urllib.error.URLError, http.client.RemoteDisconnected, ConnectionError):
             pass
@@ -128,11 +128,22 @@ def main():
             assert call("/counters/a", method="POST", data={"amount": 7})["count"] == 7
             call("/counters/a", method="POST", data={"amount": "invalid"}, status=400)
             assert call("/counters/a")["count"] == 7
+            assert call("/native-counters/a?view=current") == {"count": 7, "alarms": 0}
+            assert call("/native-counters/direct", method="POST", data={"amount": 3}) == {"count": 3, "alarms": 0}
+            call("/native-counters/direct", method="POST", data={"amount": "invalid"}, status=400)
+            assert call("/counters/direct") == {"count": 3, "alarms": 0}
+            for path in ("/native-counters/", "/native-counters/a/other", "/native-counters/a%2Fb"):
+                call(path, status=404)
             lost_receipt = lose_committed_response(origin)
             assert receipt_request(origin, 9, "lost-response", wire=True) == lost_receipt
+            native_receipt = lose_committed_response(origin, "/native-counters/receipt-native")
+            assert receipt_request(origin, 9, "lost-response", wire=True, path="/native-counters/receipt-native") == native_receipt
+            assert receipt_request(origin, 9, "lost-response", wire=True, path="/counters/receipt-native") == native_receipt
             assert call("/counters/b")["count"] == 0
             call("/counters/a/alarm", method="POST")
             eventually(lambda: call("/counters/a"), lambda value: value["alarms"] == 1)
+            call("/native-counters/direct/alarm", method="POST")
+            eventually(lambda: call("/counters/direct"), lambda value: value == {"count": 3, "alarms": 1})
             for occurrence in (1, 2):
                 call("/counters/rearmed/alarm", method="POST")
                 eventually(lambda: call("/counters/rearmed"), lambda value: value["alarms"] == occurrence)
@@ -153,6 +164,12 @@ def main():
         try:
             origin = restarted.ready()
             assert request(origin, "/counters/a") == {"count": 7, "alarms": 1}
+            assert request(origin, "/native-counters/a") == {"count": 7, "alarms": 1}
+            assert request(origin, "/native-counters/direct") == {"count": 3, "alarms": 1}
+            assert receipt_request(origin, 9, "lost-response", wire=True, path="/native-counters/receipt-native") == native_receipt
+            assert receipt_request(origin, 9, "lost-response", wire=True, path="/counters/receipt-native") == native_receipt
+            receipt_request(origin, 8, "lost-response", status=409, path="/native-counters/receipt-native")
+            assert request(origin, "/counters/receipt-native") == {"count": 9, "alarms": 0}
             assert request(origin, "/counters/rearmed") == {"count": 0, "alarms": 2}
             assert request(origin, "/counters/receipt") == {"count": 9, "alarms": 0}
             assert receipt_request(origin, 9, "lost-response") == {"count": 9, "alarms": 0}
@@ -169,7 +186,7 @@ def main():
         finally:
             restarted.stop()
             check_report(restarted.log)
-    print("PASS Python package: Pydantic, HTTP, cells, alarms, KV, SQL, queue, preserving restart, lost-response reconciliation and clean host join" + (", cron" if args.with_cron else ""))
+    print("PASS Python package: Pydantic, Python/native HTTP routing, shared cells, alarms, KV, SQL, queue, preserving restart, lost-response reconciliation and clean host join" + (", cron" if args.with_cron else ""))
 
 
 if __name__ == "__main__":
