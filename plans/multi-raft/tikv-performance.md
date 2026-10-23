@@ -3,6 +3,43 @@
 Status: investigation and implementation in progress. No new end-to-end
 throughput improvement is qualified by this document yet.
 
+## Current performance priorities
+
+The [current internal-storage profile](evidence/tikv-current-io-diagnosis.json)
+changes the immediate priority from image synchronization to command staging,
+image construction and SQL worker queueing. It instruments the frozen
+`12d6e87` runtime without changing durability or retry behavior. Three nodes
+retain one vCPU, 3 GiB, 500 leaders and 1,000 followers each; each node has two
+SQL workers and two archive publishers.
+
+| Priority | Observed gap | Next improvement to evaluate |
+| --- | --- | --- |
+| 1 | At six writers, command staging averages 12.2–12.5 ms. Image materialization averages about 3.1 ms; staging includes some of that work. | Separate working-image preparation, SQLite/receipt execution, LTX capture/encoding and preview construction. Remove repeated copying or validation only after identifying the expensive substage. |
+| 2 | Prepare and publication wait 3.3–4.5 ms for their assigned SQL worker. Publication itself averages only about 0.3 ms. | Compare bounded worker concurrency and priority for committed completion work, preserving per-cell ownership, total admission budgets and physical shutdown joins. |
+| 3 | Archive publication averages 16.0–16.7 ms in the six-writer windows, with progressively more retained history read and replayed. | Evaluate earlier snapshot rotation when retained tail bytes exceed the size of a complete image. Measure object requests/bytes and backlog; retain previous-object checks, physical replay, exact CAS and corruption refusal. |
+| 4 | Shared Raft persistence averages 0.71–0.72 ms but handles only about 1.24 groups per batch. | Improve bounded coalescing and investigate combined progress writes. Measure the benefit before adding delay; avoid busy spinning on a one-vCPU node. |
+| 5 | Every command still constructs immutable images across replicas. | Explore separate applied and checkpointed progress with Raft-log replay, following TiKV's recovery model. This needs explicit replay retention, snapshot/GC boundaries and power-loss recovery tests before changing acknowledgement semantics. |
+
+Image file sync averages 0.20–0.22 ms and directory sync 0.41–0.43 ms at six
+writers on this backing. Removing those barriers is not the first experiment.
+Admission scans average about 0.10 ms and archive inventory scans 0.16–0.17 ms;
+they are lower priorities than the measured execution and queueing costs.
+These are nested operation means, not additive portions of request latency.
+
+The diagnostic ran four 60-second windows at 3/6/6/3 writers: respectively
+134.84/198.12/200.17/108.76 successful writes/sec, with p99
+64.60/86.38/94.29/94.72 ms and zero write errors. It verified all 4,500 replica
+values and 1,500 archive positions, then stopped cleanly with volumes retained.
+The first three windows recorded no concurrent builds in the host samples;
+two samples in the final window did. Host swap remained about 12.6 GiB.
+Archive publication rose to 24.35 ms in the final window, but workload, history
+and host activity also changed, so its slowdown is not causally attributed.
+
+This instrumented run selects the next experiments. It does not replace the
+failed longer runs or establish a control/candidate speedup. Acceptance remains
+sustained successful TPS with p99 below 500 ms, preferably below 200 ms, zero
+write errors, bounded archive lag and exact replica/archive verification.
+
 ## Scope and reproducible baseline
 
 Compare three native Cellar nodes, each limited to one vCPU and 3 GiB, with
