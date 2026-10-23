@@ -53,11 +53,114 @@ fn budget(text: &mut Text, prefix: &str, labels: &str, usage: RaftBudgetUsage) {
 }
 
 impl RaftResourceUsage {
-    /// Bounded label vocabularies. Live SQL and transport sources expose 68
-    /// samples. Unavailable sources expose only their availability gauge,
+    /// Bounded label vocabularies, with 110 samples when SQL, image, group and
+    /// transport sources are live, plus 13 for a configured controller.
+    /// Unavailable sources expose only their availability gauge,
     /// never invented zero budgets. No identity enters a metric label.
     pub fn prometheus(&self) -> String {
         let mut text = Text::default();
+        sample(
+            &mut text,
+            "cellar_raft_controller_sample_available",
+            "",
+            "gauge",
+            usize::from(self.controller.is_some()),
+        );
+        if let Some(controller) = self.controller {
+            budget(
+                &mut text,
+                "cellar_raft_controller_metadata",
+                "",
+                controller.metadata,
+            );
+            for (name, value) in [
+                ("enabled", controller.enabled),
+                ("recovering", controller.recovering),
+                ("busy", controller.busy),
+            ] {
+                sample(
+                    &mut text,
+                    &format!("cellar_raft_controller_{name}"),
+                    "",
+                    "gauge",
+                    usize::from(value),
+                );
+            }
+            for (name, value) in [
+                ("probe_rounds", controller.probe_rounds),
+                ("repair_requests", controller.repair_requests),
+                ("activation_requests", controller.activation_requests),
+                ("transfer_attempts", controller.transfer_attempts),
+                ("completed_repairs", controller.completed_repairs),
+            ] {
+                sample(
+                    &mut text,
+                    &format!("cellar_raft_controller_{name}_total"),
+                    "",
+                    "counter",
+                    value,
+                );
+            }
+            sample(
+                &mut text,
+                "cellar_raft_controller_sample_age_ms",
+                "",
+                "gauge",
+                controller.sample_age_ms,
+            );
+        }
+        sample(
+            &mut text,
+            "cellar_raft_groups_sample_available",
+            "",
+            "gauge",
+            usize::from(self.groups.is_some()),
+        );
+        if let Some(groups) = self.groups {
+            for (name, value) in [
+                ("durable", groups.durable_groups),
+                ("attached", groups.attached_groups),
+                ("parked", groups.parked_groups),
+                ("leaders", groups.leaders),
+                ("voters", groups.voters),
+                ("learners", groups.learners),
+                ("removed", groups.removed),
+                ("unknown", groups.unknown),
+                ("coherent_images", groups.coherent_images),
+                ("historical_queries", groups.historical_queries),
+                ("recent_source_queries", groups.recent_source_queries),
+                ("failed", groups.failed),
+                ("retired", groups.retired),
+                ("sql_busy", groups.sql_busy),
+                ("pending_commands", groups.pending_commands),
+                ("incoming_seeds", groups.incoming_seeds),
+                ("applying", groups.applying),
+                ("archive_pending", groups.archive_pending),
+            ] {
+                sample(
+                    &mut text,
+                    &format!("cellar_raft_groups_{name}"),
+                    "",
+                    "gauge",
+                    value,
+                );
+            }
+            for (name, value) in [
+                ("apply_lag_entries", groups.apply_lag_entries),
+                ("max_apply_lag_entries", groups.max_apply_lag_entries),
+                ("archive_lag_entries", groups.archive_lag_entries),
+                ("max_archive_lag_entries", groups.max_archive_lag_entries),
+                ("sample_age_ms", groups.sample_age_ms),
+            ] {
+                sample(
+                    &mut text,
+                    &format!("cellar_raft_groups_{name}"),
+                    "",
+                    "gauge",
+                    value,
+                );
+            }
+        }
         for (name, usage) in [
             ("business", self.business),
             ("control", self.control),
@@ -68,6 +171,44 @@ impl RaftResourceUsage {
                 "cellar_raft_host_budget",
                 &format!("{{budget=\"{name}\"}}"),
                 usage,
+            );
+        }
+        sample(
+            &mut text,
+            "cellar_raft_images_sample_available",
+            "",
+            "gauge",
+            usize::from(self.images.is_some()),
+        );
+        if let Some(images) = self.images {
+            for (name, value) in [
+                ("stores", images.stores),
+                ("generations", images.generations),
+                ("retained", images.retained),
+                ("busy", images.busy),
+                ("capacity_generations", images.max_generations),
+            ] {
+                sample(
+                    &mut text,
+                    &format!("cellar_raft_images_{name}"),
+                    "",
+                    "gauge",
+                    value,
+                );
+            }
+            sample(
+                &mut text,
+                "cellar_raft_images_bytes",
+                "",
+                "gauge",
+                images.bytes,
+            );
+            sample(
+                &mut text,
+                "cellar_raft_images_capacity_bytes",
+                "",
+                "gauge",
+                images.max_bytes,
             );
         }
         sample(
@@ -116,6 +257,37 @@ impl RaftResourceUsage {
             usize::from(self.transport.is_some()),
         );
         if let Some(transport) = self.transport {
+            for (direction, connections) in [
+                ("incoming", transport.incoming_connections),
+                ("outgoing", transport.outgoing_connections),
+            ] {
+                for (lane, value) in [
+                    ("control", connections.control),
+                    ("data", connections.data),
+                    ("query", connections.query),
+                ] {
+                    sample(
+                        &mut text,
+                        "cellar_raft_transport_connections",
+                        &format!("{{direction=\"{direction}\",lane=\"{lane}\"}}"),
+                        "gauge",
+                        value,
+                    );
+                }
+            }
+            for (lane, limit) in [
+                ("control", transport.incoming_connection_limits.control),
+                ("data", transport.incoming_connection_limits.data),
+                ("query", transport.incoming_connection_limits.query),
+            ] {
+                sample(
+                    &mut text,
+                    "cellar_raft_transport_incoming_connection_capacity",
+                    &format!("{{lane=\"{lane}\"}}"),
+                    "gauge",
+                    limit,
+                );
+            }
             for (direction, banks) in [
                 ("incoming", transport.incoming),
                 ("outgoing", transport.outgoing),

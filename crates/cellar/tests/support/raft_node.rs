@@ -415,13 +415,23 @@ pub struct Counter {
 }
 
 pub fn counter(calls: Arc<std::sync::atomic::AtomicUsize>, gate: Arc<Gate>) -> Result<Counter> {
-    counter_observed(
-        move |_| {
-            calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-            Ok(())
-        },
-        gate,
-    )
+    counter_with_blobs(calls, gate, false)
+}
+
+pub fn counter_with_blobs(
+    calls: Arc<std::sync::atomic::AtomicUsize>,
+    gate: Arc<Gate>,
+    blobs: bool,
+) -> Result<Counter> {
+    let observe = move |_: &GroupScope| {
+        calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Ok(())
+    };
+    if blobs {
+        counter_observed_with_blobs(observe, gate, true)
+    } else {
+        counter_observed(observe, gate)
+    }
 }
 
 /// Attribute private execution to its group without changing counter SQL or gates.
@@ -429,7 +439,19 @@ pub fn counter_observed(
     observe: impl Fn(&GroupScope) -> Result<()> + Send + Sync + 'static,
     gate: Arc<Gate>,
 ) -> Result<Counter> {
-    let class=RaftClass::new("Counter",1,[21;32])?
+    counter_observed_with_blobs(observe, gate, false)
+}
+
+fn counter_observed_with_blobs(
+    observe: impl Fn(&GroupScope) -> Result<()> + Send + Sync + 'static,
+    gate: Arc<Gate>,
+    blobs: bool,
+) -> Result<Counter> {
+    let mut class = RaftClass::new("Counter", 1, [21; 32])?;
+    if blobs {
+        class = class.immutable_blobs(RaftBlobLimits::default())?;
+    }
+    let class=class
         .command("Increment",[22;32],move |context,input|{
             observe(context.identity())?;
             let delta=i64::from_be_bytes(input.try_into()?);

@@ -9,6 +9,9 @@ use super::completion::{
     ApplyCompletion, ApplyTicket, GroupStatus, RuntimeEvent, RuntimeEventKind,
 };
 use super::execution::*;
+use super::performance::{
+    Counter as MeasuredCounter, Operation as Measured, Registry as Performance,
+};
 use super::snapshot::{PreparedSnapshot, SnapshotCheckpoint, SnapshotLimits, SnapshotPackage};
 use super::transport::snapshots::{ReceivedSnapshot, SourceReservation};
 use crate::application::consensus::client::{AttemptControl, Work};
@@ -172,6 +175,7 @@ pub(crate) struct Output {
 }
 
 struct Request {
+    queued: super::performance::Timer,
     scope: GroupScope,
     action: Action,
     reply: oneshot::Sender<Result<Output, ExecutionError>>,
@@ -181,6 +185,7 @@ struct Request {
 }
 
 pub(crate) struct Pool {
+    performance: Arc<Performance>,
     domain: crate::asyncrt::DomainToken,
     senders: Vec<mpsc::SyncSender<Request>>,
     slots: Vec<Arc<Semaphore>>,
@@ -188,6 +193,7 @@ pub(crate) struct Pool {
     stopped: Arc<AtomicBool>,
     running: Arc<AtomicUsize>,
     per_worker_capacity: usize,
+    images: cellar_ltx::generation::GenerationAccounting,
 }
 
 /// Retains only semaphore/counter metadata, never a worker, image or connection.
@@ -196,9 +202,14 @@ pub(crate) struct ResourceObserver {
     stopped: Arc<AtomicBool>,
     running: Arc<AtomicUsize>,
     per_worker_capacity: usize,
+    images: cellar_ltx::generation::GenerationAccounting,
 }
 
 impl ResourceObserver {
+    pub(crate) fn images(&self) -> Option<cellar_ltx::generation::GenerationResources> {
+        self.images.snapshot()
+    }
+
     pub(crate) fn capture(&self) -> Option<crate::application::consensus::RaftSqlUsage> {
         let work_capacity = self.slots.len().checked_mul(self.per_worker_capacity)?;
         let work_reservations = self.slots.iter().try_fold(0usize, |sum, slots| {
@@ -246,6 +257,7 @@ pub(crate) struct Budgets {
 /// outlive pool shutdown admission; dynamic initialization uses this same port.
 #[derive(Clone)]
 pub(crate) struct Worker {
+    performance: Arc<Performance>,
     domain: crate::asyncrt::DomainToken,
     sender: mpsc::SyncSender<Request>,
     slots: Arc<Semaphore>,
@@ -253,16 +265,23 @@ pub(crate) struct Worker {
 }
 
 impl Pool {
+    pub(crate) fn image_accounting(&self) -> cellar_ltx::generation::GenerationAccounting {
+        self.images.clone()
+    }
+
     pub fn start(
         domain: crate::asyncrt::DomainToken,
         count: usize,
         queue: usize,
         max_cells: usize,
         budgets: Budgets,
+        performance: Arc<Performance>,
     ) -> Result<Self, ExecutionError> {
         let stopped = Arc::new(AtomicBool::new(false));
         let running = Arc::new(AtomicUsize::new(0));
+        let images = cellar_ltx::generation::GenerationAccounting::default();
         let mut pool = Self {
+            performance: performance.clone(),
             domain: domain.clone(),
             senders: vec![],
             slots: vec![],
@@ -270,15 +289,18 @@ impl Pool {
             stopped: stopped.clone(),
             running: running.clone(),
             per_worker_capacity: queue,
+            images: images.clone(),
         };
         for _ in 0..count {
             let (sender, receiver) = mpsc::sync_channel::<Request>(queue);
             let owner = domain.clone();
+            let performance = performance.clone();
             let stopped = stopped.clone();
             let budget = budgets.business.clone();
             let archive_budget = budgets.archive_capture.clone();
             let query_pins = budgets.query_pins.clone();
             let running = running.clone();
+            let images = images.clone();
             let task = domain
                 .blocking(move || {
                     // This guard drops after cells/connections finish cleanup,
@@ -296,6 +318,7 @@ impl Pool {
                             Err(mpsc::RecvTimeoutError::Disconnected) => break Ok(()),
                         };
                         let Request {
+                            queued,
                             scope,
                             action,
                             reply,
@@ -330,44 +353,89 @@ impl Pool {
                         } else {
                             None
                         };
-                        let result =
-                            Self::execute(&mut cells, max_cells, &scope, action, &query_pins)
-                                .and_then(|value| {
-                                    let bytes = value.bytes();
-                                    let budget = if matches!(&value, Value::ArchiveCut(_)) {
-                                        &archive_budget
-                                    } else {
-                                        &budget
-                                    };
-                                    let permit = if capture.is_some()
-                                        && matches!(&value, Value::ArchiveCut(_))
-                                    {
-                                        capture.take()
-                                    } else if bytes == 0 {
-                                        None
-                                    } else {
-                                        match budget.acquire(bytes) {
-                                            Some(permit) => Some(permit),
-                                            None => {
-                                                if matches!(
-                                                    &value,
-                                                    Value::Staged(StageOutcome::Prepared(_))
-                                                ) {
-                                                    if let Some(cell) = cells.get_mut(&scope) {
-                                                        cell.discard(None)?;
-                                                    }
+                        queued.finish(true);
+                        let measured = match &action {
+                            Action::Stage { input, .. } => {
+                                performance.increment(
+                                    MeasuredCounter::SqlStageInputBytes,
+                                    input.len() as u64,
+                                );
+                                Measured::SqlStage
+                            }
+                            Action::Prepare { .. } => Measured::SqlPrepare,
+                            Action::Publish { .. } => Measured::SqlPublish,
+                            Action::Query { input, .. } => {
+                                performance.increment(
+                                    MeasuredCounter::SqlQueryInputBytes,
+                                    input.len() as u64,
+                                );
+                                Measured::SqlQuery
+                            }
+                            Action::CaptureArchive { .. } => Measured::SqlArchiveCapture,
+                            _ => Measured::SqlOther,
+                        };
+                        let timer = performance.timer(measured);
+                        let result = Self::execute(
+                            &mut cells,
+                            max_cells,
+                            &scope,
+                            action,
+                            &query_pins,
+                            &images,
+                        )
+                        .and_then(|value| {
+                            match &value {
+                                Value::Staged(StageOutcome::Prepared(prepared)) => {
+                                    performance.increment(
+                                        MeasuredCounter::SqlPreparedProposalBytes,
+                                        prepared.bytes().len() as u64,
+                                    );
+                                    performance.increment(
+                                        MeasuredCounter::SqlPreparedLtxBytes,
+                                        prepared.ltx_bytes,
+                                    );
+                                }
+                                Value::Queried(query) => performance.increment(
+                                    MeasuredCounter::SqlQueryOutputBytes,
+                                    query.result.len() as u64,
+                                ),
+                                _ => (),
+                            }
+                            let bytes = value.bytes();
+                            let budget = if matches!(&value, Value::ArchiveCut(_)) {
+                                &archive_budget
+                            } else {
+                                &budget
+                            };
+                            let permit =
+                                if capture.is_some() && matches!(&value, Value::ArchiveCut(_)) {
+                                    capture.take()
+                                } else if bytes == 0 {
+                                    None
+                                } else {
+                                    match budget.acquire(bytes) {
+                                        Some(permit) => Some(permit),
+                                        None => {
+                                            if matches!(
+                                                &value,
+                                                Value::Staged(StageOutcome::Prepared(_))
+                                            ) {
+                                                if let Some(cell) = cells.get_mut(&scope) {
+                                                    cell.discard(None)?;
                                                 }
-                                                return Err(ExecutionError::Refused(
-                                                    CommandFailure::Overloaded,
-                                                ));
                                             }
+                                            return Err(ExecutionError::Refused(
+                                                CommandFailure::Overloaded,
+                                            ));
                                         }
-                                    };
-                                    Ok(Output {
-                                        value,
-                                        _bytes: permit,
-                                    })
-                                });
+                                    }
+                                };
+                            Ok(Output {
+                                value,
+                                _bytes: permit,
+                            })
+                        });
+                        timer.finish(result.is_ok());
                         let _ = reply.send(result);
                     };
                     // Keep joining/closing every resource even when one reports an
@@ -396,6 +464,7 @@ impl Pool {
             stopped: self.stopped.clone(),
             running: self.running.clone(),
             per_worker_capacity: self.per_worker_capacity,
+            images: self.images.clone(),
         }
     }
 
@@ -420,6 +489,7 @@ impl Pool {
             .cloned()
             .ok_or(ExecutionError::Invalid("SQL worker"))?;
         Ok(Worker {
+            performance: self.performance.clone(),
             domain: self.domain.clone(),
             sender,
             slots: self.slots[worker].clone(),
@@ -453,15 +523,17 @@ impl Pool {
         scope: &GroupScope,
         action: Action,
         query_pins: &Arc<Budget>,
+        accounting: &cellar_ltx::generation::GenerationAccounting,
     ) -> Result<Value, ExecutionError> {
         if let Action::SealArchiveSeed { received, storage } = action {
             if cells.contains_key(scope) || cells.len() >= max || received.scope() != scope {
                 return Err(ExecutionError::Invalid("seed cell owner"));
             }
-            let images = GenerationStore::open(
+            let images = GenerationStore::open_observed(
                 storage.directory.join("images"),
                 storage.host.filesystem(),
                 storage.images,
+                accounting,
             )
             .map_err(super::execution::storage)?;
             // Caller verified an absent stable group and absent permanent claim.
@@ -479,10 +551,11 @@ impl Pool {
             if cells.contains_key(scope) || cells.len() >= max || received.scope() != scope {
                 return Err(ExecutionError::Invalid("seed cell owner"));
             }
-            let images = GenerationStore::open(
+            let images = GenerationStore::open_observed(
                 storage.directory.join("images"),
                 storage.host.filesystem(),
                 storage.images,
+                accounting,
             )
             .map_err(super::execution::storage)?;
             // Caller verified an absent stable group and absent permanent claim.
@@ -505,10 +578,11 @@ impl Pool {
             if cells.contains_key(scope) || cells.len() >= max || group.identity().scope != *scope {
                 return Err(ExecutionError::Invalid("cell initialization"));
             }
-            let images = GenerationStore::open(
+            let images = GenerationStore::open_observed(
                 storage.directory.join("images"),
                 storage.host.filesystem(),
                 storage.images,
+                accounting,
             )
             .map_err(super::execution::storage)?;
             let applier = ImageApplier::recover(
@@ -558,12 +632,14 @@ impl Worker {
         cancel: Option<Arc<AttemptControl>>,
     ) -> BoxFuture<'static, Result<Output, ExecutionError>> {
         let Worker {
+            performance,
             domain,
             sender,
             slots,
             stopped,
         } = self.clone();
         Box::pin(async move {
+            let queued = performance.timer(Measured::SqlQueue);
             let slot = slots
                 .acquire_owned()
                 .await
@@ -574,6 +650,7 @@ impl Worker {
             let (reply, result) = oneshot::channel();
             sender
                 .try_send(Request {
+                    queued,
                     scope,
                     action,
                     reply,

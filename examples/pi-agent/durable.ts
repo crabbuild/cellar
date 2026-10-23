@@ -26,6 +26,15 @@ export interface Run {
 }
 export type Checkpoint = 'accepted' | 'model' | 'tool' | 'completed';
 export type Hook = (point: Checkpoint) => Promise<void>;
+export interface Progress {
+  type: 'attempt' | 'model' | 'text' | 'checkpoint' | 'tool' | 'completed' | 'failed';
+  attempt: number;
+  step?: number;
+  text?: string;
+  count?: number;
+  replayed?: boolean;
+}
+export type Observer = (event: Progress) => void;
 
 function json(value: unknown): Json {
   const text = JSON.stringify(value);
@@ -71,10 +80,16 @@ export async function accept(ctx: Context, prompt: string, provider: Provider): 
   return run;
 }
 
-export async function execute(ctx: Context, provider: Provider, hook?: Hook): Promise<void> {
+export async function execute(ctx: Context, provider: Provider, hook?: Hook, observer?: Observer): Promise<void> {
   let snapshot = await ctx.storage.read('run');
   if (!snapshot.present) return;
   const run = structuredClone(snapshot.value) as unknown as Run;
+  // Preview delivery is best effort and never participates in durability.
+  const emit = (event: Omit<Progress, 'attempt'>) => {
+    try { observer?.({...event, attempt: run.attempts}); } catch { /* An observer cannot fail a task. */ }
+  };
+  const textOf = (response: AssistantMessage) => response.content
+    .filter(part => part.type === 'text').map(part => part.text).join('');
   if (run.status !== 'pending') return;
   if (run.format !== 1 || run.configuration !== configuration(provider)) {
     throw new Error('agent configuration changed; recover using the original release');
@@ -90,10 +105,12 @@ export async function execute(ctx: Context, provider: Provider, hook?: Hook): Pr
   if (run.attempts >= maxAttempts) {
     run.status = 'failed';
     await save();
+    emit({type: 'failed'});
     return;
   }
   run.attempts++;
   await save(); // Recovery wake exists before any provider or tool execution.
+  emit({type: 'attempt'});
   let step = 0;
   let failure: unknown;
   const stream: StreamFn = async (model, context, options) => {
@@ -110,16 +127,25 @@ export async function execute(ctx: Context, provider: Provider, hook?: Hook): Pr
       const cached = run.models[index];
       if (cached) {
         if (cached.request !== request) throw new Error('model replay diverged');
+        emit({type: 'checkpoint', step: index, text: textOf(cached.response), replayed: true});
         return completed(structuredClone(cached.response));
       }
+      emit({type: 'model', step: index});
       const signal = AbortSignal.any([AbortSignal.timeout(30_000), ...(options?.signal ? [options.signal] : [])]);
-      const result = await (await provider.stream(model, context, {...options, signal})).result();
+      const source = await provider.stream(model, context, {...options, signal});
+      for await (const event of source) {
+        if (event.type === 'text_delta') {
+          emit({type: 'text', step: index, text: textOf(event.partial)});
+        }
+      }
+      const result = await source.result();
       if (result.stopReason !== 'stop' && result.stopReason !== 'toolUse') {
         throw new Error('provider did not complete a usable response');
       }
       // Persist the decision before Pi can execute any requested tool.
       run.models.push({request, response: structuredClone(result)});
       await save();
+      emit({type: 'checkpoint', step: index, text: textOf(result), replayed: false});
       await hook?.('model');
       return completed(structuredClone(result));
     } catch (error) {
@@ -141,6 +167,7 @@ export async function execute(ctx: Context, provider: Provider, hook?: Hook): Pr
         const cached = run.tools[key];
         if (cached) {
           if (cached.request !== request) throw new Error('tool replay diverged');
+          emit({type: 'tool', count: cached.result.details.count, replayed: true});
           return structuredClone(cached.result);
         }
         if (Object.keys(run.tools).length >= maxSteps) throw new Error('tool limit exceeded');
@@ -152,6 +179,7 @@ export async function execute(ctx: Context, provider: Provider, hook?: Hook): Pr
         // The effect and receipt commit together. A lost response is resolved by
         // reading this receipt; it never causes a second increment.
         await save({checks: {count: before}, puts: {count}});
+        emit({type: 'tool', count, replayed: false});
         await hook?.('tool');
         return structuredClone(result);
       } catch (error) {
@@ -168,5 +196,6 @@ export async function execute(ctx: Context, provider: Provider, hook?: Hook): Pr
   run.messages = agent.state.messages;
   run.status = 'completed';
   await save();
+  emit({type: 'completed'});
   await hook?.('completed');
 }

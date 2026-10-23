@@ -348,7 +348,8 @@ impl Fixture {
                 5_i64.to_be_bytes().to_vec(),
                 options,
             )
-            .await?;
+            .await
+            .context("repair fixture seed command")?;
         assert_eq!(receipt.result, 5_i64.to_be_bytes());
         let failed = (primary + 1) % 3;
         let plan = RepairPlan {
@@ -388,7 +389,8 @@ impl Fixture {
     async fn begin(&self) -> Result<RepairStatus> {
         let status = self.handles[self.primary]
             .begin_repair(self.plan.clone(), Duration::from_secs(5))
-            .await?;
+            .await
+            .context("begin repair")?;
         assert_eq!(status.plan, self.plan);
         assert_eq!(status.phase, RepairPhase::Seeding);
         Ok(status)
@@ -449,8 +451,8 @@ impl Fixture {
 }
 
 pub(super) async fn learner_before_promotion() -> Result<()> {
-    let f = Fixture::new(false).await?;
-    f.fail_obsolete().await?;
+    let f = Fixture::new(false).await.context("start learner fixture")?;
+    f.fail_obsolete().await.context("stop obsolete voter")?;
     let started = f.begin().await?;
     let current = f.handles[f.primary].status().await?;
     let healthy = (0..3).find(|i| *i != f.primary && *i != f.failed).unwrap();
@@ -488,7 +490,10 @@ pub(super) async fn learner_before_promotion() -> Result<()> {
         f.handles[f.primary].status().await?.membership_revision,
         started.changed_at
     );
-    let aborted = f.step(RepairStep::AbortLearner).await?;
+    let aborted = f
+        .step(RepairStep::AbortLearner)
+        .await
+        .context("abort learner")?;
     assert_eq!(aborted.phase, RepairPhase::Aborted);
     assert_eq!(f.handles[f.primary].status().await?.member_high_water, 4);
     let receipt = f.handles[f.primary]
@@ -497,7 +502,8 @@ pub(super) async fn learner_before_promotion() -> Result<()> {
             1_i64.to_be_bytes().to_vec(),
             public_node::options(2)?,
         )
-        .await?;
+        .await
+        .context("command after learner abort")?;
     assert_eq!(receipt.result, 6_i64.to_be_bytes());
     f.cluster.close().await
 }

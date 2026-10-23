@@ -1,0 +1,10 @@
+{
+  "format": 1,
+  "node": 3,
+  "pause_ms": 250,
+  "max_pause_ms": 750,
+  "interval_ms": 1000,
+  "start_after_seconds": 2,
+  "stop_before_seconds": 2,
+  "max_start_lateness_ms": 500
+}

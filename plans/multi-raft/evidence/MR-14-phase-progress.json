@@ -1,0 +1,4689 @@
+{
+  "task_id": "MR-14",
+  "source_revision": "81f29b69b1ed879f291e582da4b0a8ee5fe1ac4c",
+  "completion": "partial",
+  "scope": "Unchanged five-node 150/500/1,500-cell density profiles and a repeated 150-cell control, with bounded transport phase timings.",
+  "raw_output": [
+    {
+      "path": "evidence/MR-14-phase-runs.json.gz",
+      "bytes": 3381888,
+      "sha256": "652c106cc634e2b395ea1dfa75ce70419d3d75f8295b4134eb638c2a9bd91bd8"
+    },
+    {
+      "path": "evidence/MR-14-phase-validation.json.gz",
+      "bytes": 15867,
+      "sha256": "0b4f2078ed092e948f2a8b0c56f2d143c5afcaeee2b079a7119bfb64d6a6793d"
+    }
+  ],
+  "local_runs": [
+    {
+      "build": {
+        "image_id": "sha256:0b5fec91bed134a51576aa655ad97f132bc0cfa03ddefd146ae291a8f22faf66",
+        "binary_sha256": "830184b367471e5d57c45c19385d5159f5fd17e1891c742e0f28688a5e0e81ac",
+        "source_manifest_sha256": "035cac4813c7ef1ab569c5fd32918c46a9a0ea9801a3f25a58a38175154add32",
+        "build_profile": "lab",
+        "source_revision": "81f29b69b1ed879f291e582da4b0a8ee5fe1ac4c",
+        "working_tree_dirty": false
+      },
+      "profile": {
+        "topology": {
+          "nodes": 5,
+          "voters": 3,
+          "failure_domains": 1
+        },
+        "cells": {
+          "total": 1500,
+          "active": 30
+        },
+        "database_bytes": [
+          4096
+        ],
+        "write_bytes": [
+          64,
+          1024
+        ],
+        "read_fraction": 0.5,
+        "read_consistency": "at-least",
+        "skew": {
+          "hot_fraction": 0.1,
+          "hot_probability": 0.8
+        },
+        "arrival": {
+          "rate_per_second": 10,
+          "max_inflight": 8,
+          "max_lateness_ms": 100
+        },
+        "timing": {
+          "warmup_seconds": 30,
+          "measurement_seconds": 120,
+          "soak_seconds": 0,
+          "request_timeout_ms": 5000,
+          "retry_window_ms": 300000,
+          "startup_seconds": 600
+        },
+        "durability": "quorum",
+        "resources": {
+          "node_cpus": 1,
+          "node_memory_bytes": 3221225472,
+          "node_swap_bytes": 0,
+          "store_cpus": 2,
+          "store_memory_bytes": 4294967296
+        },
+        "tick_ms": 100,
+        "seed": 14,
+        "slo": {
+          "p99_ms": 200,
+          "max_error_fraction": 0.01,
+          "min_completed_per_second": 9.9,
+          "max_archive_lag_seconds": 60,
+          "max_recovery_seconds": 30,
+          "memory_headroom_fraction": 0.1
+        },
+        "qualification": "Local density observation only: 1500 seeded live three-voter cells, 900 replicas per node, and 30 active cells. Fixed active traffic isolates additional mostly idle consensus/image cost. Five nodes in one VM do not qualify Q1, steady state, recovery reserve or a capacity ceiling."
+      },
+      "profile_sha256": "0a05d0d254333cff2a060b1027adf86e6160417578a3f5b7a3c1ea021051acc7",
+      "completed": false,
+      "reconciled": false,
+      "traffic_objectives_met": null,
+      "memory_objectives_met": null,
+      "summary": null,
+      "failure": "leader placement deadline",
+      "kernel": null,
+      "run": "mr14-phase-local-density-1500-healthy-20261022-001",
+      "analysis_rejection": "ValueError: unfinished run",
+      "cleanup": [
+        {
+          "container": "cellar-mr14-d77e39d3caef476315a3e591-node5",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-d77e39d3caef476315a3e591-node4",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-d77e39d3caef476315a3e591-node3",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-d77e39d3caef476315a3e591-node2",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-d77e39d3caef476315a3e591-node1",
+          "running": false,
+          "exit_code": 1,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-d77e39d3caef476315a3e591-store",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        }
+      ],
+      "network_removed": true,
+      "offered_route_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    {
+      "build": {
+        "image_id": "sha256:0b5fec91bed134a51576aa655ad97f132bc0cfa03ddefd146ae291a8f22faf66",
+        "binary_sha256": "830184b367471e5d57c45c19385d5159f5fd17e1891c742e0f28688a5e0e81ac",
+        "source_manifest_sha256": "035cac4813c7ef1ab569c5fd32918c46a9a0ea9801a3f25a58a38175154add32",
+        "build_profile": "lab",
+        "source_revision": "81f29b69b1ed879f291e582da4b0a8ee5fe1ac4c",
+        "working_tree_dirty": false
+      },
+      "profile": {
+        "topology": {
+          "nodes": 5,
+          "voters": 3,
+          "failure_domains": 1
+        },
+        "cells": {
+          "total": 500,
+          "active": 30
+        },
+        "database_bytes": [
+          4096
+        ],
+        "write_bytes": [
+          64,
+          1024
+        ],
+        "read_fraction": 0.5,
+        "read_consistency": "at-least",
+        "skew": {
+          "hot_fraction": 0.1,
+          "hot_probability": 0.8
+        },
+        "arrival": {
+          "rate_per_second": 10,
+          "max_inflight": 8,
+          "max_lateness_ms": 100
+        },
+        "timing": {
+          "warmup_seconds": 30,
+          "measurement_seconds": 120,
+          "soak_seconds": 0,
+          "request_timeout_ms": 5000,
+          "retry_window_ms": 300000,
+          "startup_seconds": 600
+        },
+        "durability": "quorum",
+        "resources": {
+          "node_cpus": 1,
+          "node_memory_bytes": 3221225472,
+          "node_swap_bytes": 0,
+          "store_cpus": 2,
+          "store_memory_bytes": 4294967296
+        },
+        "tick_ms": 100,
+        "seed": 14,
+        "slo": {
+          "p99_ms": 200,
+          "max_error_fraction": 0.01,
+          "min_completed_per_second": 9.9,
+          "max_archive_lag_seconds": 60,
+          "max_recovery_seconds": 30,
+          "memory_headroom_fraction": 0.1
+        },
+        "qualification": "Local density observation only: 500 seeded live three-voter cells, 300 replicas per node, and 30 active cells. Fixed active traffic isolates additional mostly idle consensus/image cost. Five nodes in one VM do not qualify Q1, steady state, recovery reserve or a capacity ceiling."
+      },
+      "profile_sha256": "3a3768398ed8609c82acbeee2d903061f490b7709338c33bbdd5c15af0a2e1c2",
+      "completed": true,
+      "reconciled": true,
+      "traffic_objectives_met": false,
+      "memory_objectives_met": true,
+      "summary": {
+        "counts": {
+          "submitted": 1197,
+          "completed": 1197,
+          "generator_rejected": 3,
+          "offered": 1200
+        },
+        "latency_ms": {
+          "p50": 20.363041997189413,
+          "p95": 80.30937500298307,
+          "p99": 201.3429999933578,
+          "p99_9": 260.00395797890974
+        },
+        "latency_by_operation_ms": {
+          "command": {
+            "p50": 34.64766699471511,
+            "p95": 118.6151249858085,
+            "p99": 217.9344579926692,
+            "p99_9": 566.042082977944
+          },
+          "query": {
+            "p50": 8.073499979218468,
+            "p95": 22.153499978600166,
+            "p99": 62.20437497832165,
+            "p99_9": 151.30279199220809
+          }
+        },
+        "completed_per_second": 9.975,
+        "offered_per_second": 10.0,
+        "error_fraction": 0.0025
+      },
+      "failure": null,
+      "kernel": {
+        "warmup": [
+          {
+            "node": "cellar-mr14-99e3ba91ee666ebcab34ce07-node1",
+            "interval_ns": {
+              "minimum": 30604831833,
+              "maximum": 30890026500
+            },
+            "observer_window_ns": {
+              "before": 133920000,
+              "after": 151274667
+            },
+            "cpu_delta": {
+              "usage_usec": 5756054,
+              "user_usec": 4386847,
+              "system_usec": 1369206,
+              "nr_periods": 308,
+              "nr_throttled": 0,
+              "throttled_usec": 0
+            },
+            "average_cpu_cores": {
+              "minimum": 0.18634020919341068,
+              "maximum": 0.1880766419959044
+            },
+            "cgroup_io_delta": {
+              "253:16": {
+                "rbytes": 0,
+                "wbytes": 10633216,
+                "rios": 0,
+                "wios": 667,
+                "dbytes": 0,
+                "dios": 0
+              }
+            },
+            "lifetime_peak_memory_bytes": 84615168,
+            "lifetime_memory_headroom_fraction": 0.9737319946289062,
+            "process_rss_bytes": {
+              "before": 62406656,
+              "after": 63578112
+            },
+            "process_threads": {
+              "before": 10,
+              "after": 11
+            },
+            "process_fds": {
+              "before": 1237,
+              "after": 1237
+            },
+            "memory_events": {
+              "low": 0,
+              "high": 0,
+              "max": 0,
+              "oom": 0,
+              "oom_kill": 0,
+              "oom_group_kill": 0
+            },
+            "memory_objective_met": true
+          },
+          {
+            "node": "cellar-mr14-99e3ba91ee666ebcab34ce07-node2",
+            "interval_ns": {
+              "minimum": 30641948000,
+              "maximum": 30857120500
+            },
+            "observer_window_ns": {
+              "before": 114163375,
+              "after": 101009125
+            },
+            "cpu_delta": {
+              "usage_usec": 6102538,
+              "user_usec": 4678527,
+              "system_usec": 1424010,
+              "nr_periods": 307,
+              "nr_throttled": 0,
+              "throttled_usec": 0
+            },
+            "average_cpu_cores": {
+              "minimum": 0.19776757847512053,
+              "maximum": 0.1991563330112041
+            },
+            "cgroup_io_delta": {
+              "253:16": {
+                "rbytes": 0,
+                "wbytes": 15503360,
+                "rios": 0,
+                "wios": 1049,
+                "dbytes": 0,
+                "dios": 0
+              }
+            },
+            "lifetime_peak_memory_bytes": 84951040,
+            "lifetime_memory_headroom_fraction": 0.9736277262369791,
+            "process_rss_bytes": {
+              "before": 62296064,
+              "after": 63586304
+            },
+            "process_threads": {
+              "before": 9,
+              "after": 10
+            },
+            "process_fds": {
+              "before": 1237,
+              "after": 1236
+            },
+            "memory_events": {
+              "low": 0,
+              "high": 0,
+              "max": 0,
+              "oom": 0,
+              "oom_kill": 0,
+              "oom_group_kill": 0
+            },
+            "memory_objective_met": true
+          },
+          {
+            "node": "cellar-mr14-99e3ba91ee666ebcab34ce07-node3",
+            "interval_ns": {
+              "minimum": 30643798208,
+              "maximum": 30838329917
+            },
+            "observer_window_ns": {
+              "before": 99160292,
+              "after": 95371417
+            },
+            "cpu_delta": {
+              "usage_usec": 6756876,
+              "user_usec": 5190743,
+              "system_usec": 1566132,
+              "nr_periods": 307,
+              "nr_throttled": 0,
+              "throttled_usec": 0
+            },
+            "average_cpu_cores": {
+              "minimum": 0.21910641783085635,
+              "maximum": 0.22049734024929132
+            },
+            "cgroup_io_delta": {
+              "253:16": {
+                "rbytes": 0,
+                "wbytes": 23572480,
+                "rios": 0,
+                "wios": 1752,
+                "dbytes": 0,
+                "dios": 0
+              }
+            },
+            "lifetime_peak_memory_bytes": 86298624,
+            "lifetime_memory_headroom_fraction": 0.9732093811035156,
+            "process_rss_bytes": {
+              "before": 62435328,
+              "after": 64143360
+            },
+            "process_threads": {
+              "before": 10,
+              "after": 11
+            },
+            "process_fds": {
+              "before": 1237,
+              "after": 1236
+            },
+            "memory_events": {
+              "low": 0,
+              "high": 0,
+              "max": 0,
+              "oom": 0,
+              "oom_kill": 0,
+              "oom_group_kill": 0
+            },
+            "memory_objective_met": true
+          },
+          {
+            "node": "cellar-mr14-99e3ba91ee666ebcab34ce07-node4",
+            "interval_ns": {
+              "minimum": 30627511667,
+              "maximum": 30827360833
+            },
+            "observer_window_ns": {
+              "before": 111658875,
+              "after": 88190291
+            },
+            "cpu_delta": {
+              "usage_usec": 5973795,
+              "user_usec": 4569076,
+              "system_usec": 1404719,
+              "nr_periods": 307,
+              "nr_throttled": 0,
+              "throttled_usec": 0
+            },
+            "average_cpu_cores": {
+              "minimum": 0.1937822388481983,
+              "maximum": 0.19504669739254532
+            },
+            "cgroup_io_delta": {
+              "253:16": {
+                "rbytes": 0,
+                "wbytes": 15044608,
+                "rios": 0,
+                "wios": 977,
+                "dbytes": 0,
+                "dios": 0
+              }
+            },
+            "lifetime_peak_memory_bytes": 84086784,
+            "lifetime_memory_headroom_fraction": 0.9738960266113281,
+            "process_rss_bytes": {
+              "before": 62353408,
+              "after": 63328256
+            },
+            "process_threads": {
+              "before": 9,
+              "after": 9
+            },
+            "process_fds": {
+              "before": 1237,
+              "after": 1236
+            },
+            "memory_events": {
+              "low": 0,
+              "high": 0,
+              "max": 0,
+              "oom": 0,
+              "oom_kill": 0,
+              "oom_group_kill": 0
+            },
+            "memory_objective_met": true
+          },
+          {
+            "node": "cellar-mr14-99e3ba91ee666ebcab34ce07-node5",
+            "interval_ns": {
+              "minimum": 30614599625,
+              "maximum": 30804896875
+            },
+            "observer_window_ns": {
+              "before": 101104042,
+              "after": 89193208
+            },
+            "cpu_delta": {
+              "usage_usec": 5470712,
+              "user_usec": 4209076,
+              "system_usec": 1261637,
+              "nr_periods": 307,
+              "nr_throttled": 0,
+              "throttled_usec": 0
+            },
+            "average_cpu_cores": {
+              "minimum": 0.1775922841812792,
+              "maximum": 0.17869617982959332
+            },
+            "cgroup_io_delta": {
+              "253:16": {
+                "rbytes": 0,
+                "wbytes": 10911744,
+                "rios": 0,
+                "wios": 671,
+                "dbytes": 0,
+                "dios": 0
+              }
+            },
+            "lifetime_peak_memory_bytes": 84791296,
+            "lifetime_memory_headroom_fraction": 0.9736773173014323,
+            "process_rss_bytes": {
+              "before": 62005248,
+              "after": 63631360
+            },
+            "process_threads": {
+              "before": 9,
+              "after": 11
+            },
+            "process_fds": {
+              "before": 1237,
+              "after": 1237
+            },
+            "memory_events": {
+              "low": 0,
+              "high": 0,
+              "max": 0,
+              "oom": 0,
+              "oom_kill": 0,
+              "oom_group_kill": 0
+            },
+            "memory_objective_met": true
+          },
+          {
+            "node": "cellar-mr14-99e3ba91ee666ebcab34ce07-store",
+            "interval_ns": {
+              "minimum": 30568807917,
+              "maximum": 30829140208
+            },
+            "observer_window_ns": {
+              "before": 134985208,
+              "after": 125347083
+            },
+            "cpu_delta": {
+              "usage_usec": 8810417,
+              "user_usec": 5565808,
+              "system_usec": 3244609,
+              "nr_periods": 307,
+              "nr_throttled": 0,
+              "throttled_usec": 0
+            },
+            "average_cpu_cores": {
+              "minimum": 0.2857821184942986,
+              "maximum": 0.28821591682351244
+            },
+            "cgroup_io_delta": {
+              "253:16": {
+                "rbytes": 0,
+                "wbytes": 8970240,
+                "rios": 0,
+                "wios": 2715,
+                "dbytes": 0,
+                "dios": 0
+              }
+            },
+            "lifetime_peak_memory_bytes": 328597504,
+            "lifetime_memory_headroom_fraction": 0.923492431640625,
+            "process_rss_bytes": {
+              "before": 242569216,
+              "after": 294338560
+            },
+            "process_threads": {
+              "before": 25,
+              "after": 25
+            },
+            "process_fds": {
+              "before": 34,
+              "after": 35
+            },
+            "memory_events": {
+              "low": 0,
+              "high": 0,
+              "max": 0,
+              "oom": 0,
+              "oom_kill": 0,
+              "oom_group_kill": 0
+            },
+            "memory_objective_met": true
+          }
+        ],
+        "measurement": [
+          {
+            "node": "cellar-mr14-99e3ba91ee666ebcab34ce07-node1",
+            "interval_ns": {
+              "minimum": 120761558500,
+              "maximum": 121012020333
+            },
+            "observer_window_ns": {
+              "before": 118316625,
+              "after": 132145208
+            },
+            "cpu_delta": {
+              "usage_usec": 25345480,
+              "user_usec": 19137092,
+              "system_usec": 6208389,
+              "nr_periods": 1209,
+              "nr_throttled": 0,
+              "throttled_usec": 0
+            },
+            "average_cpu_cores": {
+              "minimum": 0.20944597016275318,
+              "maximum": 0.20988036519916228
+            },
+            "cgroup_io_delta": {
+              "253:16": {
+                "rbytes": 0,
+                "wbytes": 52768768,
+                "rios": 0,
+                "wios": 2520,
+                "dbytes": 0,
+                "dios": 0
+              }
+            },
+            "lifetime_peak_memory_bytes": 91451392,
+            "lifetime_memory_headroom_fraction": 0.9716097513834635,
+            "process_rss_bytes": {
+              "before": 63582208,
+              "after": 65077248
+            },
+            "process_threads": {
+              "before": 11,
+              "after": 11
+            },
+            "process_fds": {
+              "before": 1237,
+              "after": 1235
+            },
+            "memory_events": {
+              "low": 0,
+              "high": 0,
+              "max": 0,
+              "oom": 0,
+              "oom_kill": 0,
+              "oom_group_kill": 0
+            },
+            "memory_objective_met": true
+          },
+          {
+            "node": "cellar-mr14-99e3ba91ee666ebcab34ce07-node2",
+            "interval_ns": {
+              "minimum": 120783300375,
+              "maximum": 121003629709
+            },
+            "observer_window_ns": {
+              "before": 110402750,
+              "after": 109926584
+            },
+            "cpu_delta": {
+              "usage_usec": 28743437,
+              "user_usec": 21758803,
+              "system_usec": 6984634,
+              "nr_periods": 1209,
+              "nr_throttled": 0,
+              "throttled_usec": 0
+            },
+            "average_cpu_cores": {
+              "minimum": 0.23754194042876817,
+              "maximum": 0.23797525743011888
+            },
+            "cgroup_io_delta": {
+              "253:16": {
+                "rbytes": 0,
+                "wbytes": 74833920,
+                "rios": 0,
+                "wios": 3497,
+                "dbytes": 0,
+                "dios": 0
+              }
+            },
+            "lifetime_peak_memory_bytes": 93065216,
+            "lifetime_memory_headroom_fraction": 0.9711087544759115,
+            "process_rss_bytes": {
+              "before": 63660032,
+              "after": 66039808
+            },
+            "process_threads": {
+              "before": 10,
+              "after": 11
+            },
+            "process_fds": {
+              "before": 1236,
+              "after": 1237
+            },
+            "memory_events": {
+              "low": 0,
+              "high": 0,
+              "max": 0,
+              "oom": 0,
+              "oom_kill": 0,
+              "oom_group_kill": 0
+            },
+            "memory_objective_met": true
+          },
+          {
+            "node": "cellar-mr14-99e3ba91ee666ebcab34ce07-node3",
+            "interval_ns": {
+              "minimum": 120716713250,
+              "maximum": 121038270125
+            },
+            "observer_window_ns": {
+              "before": 176513875,
+              "after": 145043000
+            },
+            "cpu_delta": {
+              "usage_usec": 28087789,
+              "user_usec": 21129071,
+              "system_usec": 6958719,
+              "nr_periods": 1208,
+              "nr_throttled": 0,
+              "throttled_usec": 0
+            },
+            "average_cpu_cores": {
+              "minimum": 0.23205709211634357,
+              "maximum": 0.23267522983193878
+            },
+            "cgroup_io_delta": {
+              "253:16": {
+                "rbytes": 0,
+                "wbytes": 98332672,
+                "rios": 0,
+                "wios": 4373,
+                "dbytes": 0,
+                "dios": 0
+              }
+            },
+            "lifetime_peak_memory_bytes": 95875072,
+            "lifetime_memory_headroom_fraction": 0.9702364603678385,
+            "process_rss_bytes": {
+              "before": 64143360,
+              "after": 66887680
+            },
+            "process_threads": {
+              "before": 11,
+              "after": 11
+            },
+            "process_fds": {
+              "before": 1236,
+              "after": 1238
+            },
+            "memory_events": {
+              "low": 0,
+              "high": 0,
+              "max": 0,
+              "oom": 0,
+              "oom_kill": 0,
+              "oom_group_kill": 0
+            },
+            "memory_objective_met": true
+          },
+          {
+            "node": "cellar-mr14-99e3ba91ee666ebcab34ce07-node4",
+            "interval_ns": {
+              "minimum": 120769672083,
+              "maximum": 120990036167
+            },
+            "observer_window_ns": {
+              "before": 92085125,
+              "after": 128278959
+            },
+            "cpu_delta": {
+              "usage_usec": 28184145,
+              "user_usec": 21406475,
+              "system_usec": 6777669,
+              "nr_periods": 1209,
+              "nr_throttled": 0,
+              "throttled_usec": 0
+            },
+            "average_cpu_cores": {
+              "minimum": 0.2329460002896273,
+              "maximum": 0.23337104849162962
+            },
+            "cgroup_io_delta": {
+              "253:16": {
+                "rbytes": 0,
+                "wbytes": 56750080,
+                "rios": 0,
+                "wios": 2674,
+                "dbytes": 0,
+                "dios": 0
+              }
+            },
+            "lifetime_peak_memory_bytes": 90267648,
+            "lifetime_memory_headroom_fraction": 0.9719772338867188,
+            "process_rss_bytes": {
+              "before": 63328256,
+              "after": 65794048
+            },
+            "process_threads": {
+              "before": 9,
+              "after": 11
+            },
+            "process_fds": {
+              "before": 1236,
+              "after": 1237
+            },
+            "memory_events": {
+              "low": 0,
+              "high": 0,
+              "max": 0,
+              "oom": 0,
+              "oom_kill": 0,
+              "oom_group_kill": 0
+            },
+            "memory_objective_met": true
+          },
+          {
+            "node": "cellar-mr14-99e3ba91ee666ebcab34ce07-node5",
+            "interval_ns": {
+              "minimum": 120789968083,
+              "maximum": 121024078875
+            },
+            "observer_window_ns": {
+              "before": 107983500,
+              "after": 126127292
+            },
+            "cpu_delta": {
+              "usage_usec": 25772885,
+              "user_usec": 19805045,
+              "system_usec": 5967839,
+              "nr_periods": 1209,
+              "nr_throttled": 1,
+              "throttled_usec": 7187
+            },
+            "average_cpu_cores": {
+              "minimum": 0.21295667142915903,
+              "maximum": 0.2133694164261252
+            },
+            "cgroup_io_delta": {
+              "253:16": {
+                "rbytes": 0,
+                "wbytes": 32194560,
+                "rios": 0,
+                "wios": 1624,
+                "dbytes": 0,
+                "dios": 0
+              }
+            },
+            "lifetime_peak_memory_bytes": 87334912,
+            "lifetime_memory_headroom_fraction": 0.9728876749674479,
+            "process_rss_bytes": {
+              "before": 63692800,
+              "after": 64589824
+            },
+            "process_threads": {
+              "before": 11,
+              "after": 11
+            },
+            "process_fds": {
+              "before": 1237,
+              "after": 1236
+            },
+            "memory_events": {
+              "low": 0,
+              "high": 0,
+              "max": 0,
+              "oom": 0,
+              "oom_kill": 0,
+              "oom_group_kill": 0
+            },
+            "memory_objective_met": true
+          },
+          {
+            "node": "cellar-mr14-99e3ba91ee666ebcab34ce07-store",
+            "interval_ns": {
+              "minimum": 120661868708,
+              "maximum": 121259912500
+            },
+            "observer_window_ns": {
+              "before": 254226334,
+              "after": 343817458
+            },
+            "cpu_delta": {
+              "usage_usec": 33788824,
+              "user_usec": 22785557,
+              "system_usec": 11003268,
+              "nr_periods": 1111,
+              "nr_throttled": 0,
+              "throttled_usec": 0
+            },
+            "average_cpu_cores": {
+              "minimum": 0.27864793321535675,
+              "maximum": 0.2800290129914072
+            },
+            "cgroup_io_delta": {
+              "253:16": {
+                "rbytes": 8192,
+                "wbytes": 44511232,
+                "rios": 2,
+                "wios": 9340,
+                "dbytes": 0,
+                "dios": 0
+              }
+            },
+            "lifetime_peak_memory_bytes": 434884608,
+            "lifetime_memory_headroom_fraction": 0.8987455368041992,
+            "process_rss_bytes": {
+              "before": 332525568,
+              "after": 337903616
+            },
+            "process_threads": {
+              "before": 25,
+              "after": 25
+            },
+            "process_fds": {
+              "before": 24,
+              "after": 33
+            },
+            "memory_events": {
+              "low": 0,
+              "high": 0,
+              "max": 0,
+              "oom": 0,
+              "oom_kill": 0,
+              "oom_group_kill": 0
+            },
+            "memory_objective_met": true
+          }
+        ]
+      },
+      "run": "mr14-phase-local-density-500-healthy-20261022-001",
+      "analysis_rejection": null,
+      "cleanup": [
+        {
+          "container": "cellar-mr14-99e3ba91ee666ebcab34ce07-node5",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-99e3ba91ee666ebcab34ce07-node4",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-99e3ba91ee666ebcab34ce07-node3",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-99e3ba91ee666ebcab34ce07-node2",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-99e3ba91ee666ebcab34ce07-node1",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-99e3ba91ee666ebcab34ce07-store",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        }
+      ],
+      "network_removed": true,
+      "replicas": 1500,
+      "measurement_control_items_max": {
+        "1": 42,
+        "2": 46,
+        "3": 64,
+        "4": 115,
+        "5": 36
+      },
+      "phase_totals": [
+        {
+          "node": 1,
+          "owner_interval_us": 121013256,
+          "operations": {
+            "engine_queue": {
+              "started": 768,
+              "count": 768,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 71.25651041666667,
+              "p99_upper_us": 2500
+            },
+            "engine_persist": {
+              "started": 768,
+              "count": 768,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 2110.3203125,
+              "p99_upper_us": 25000
+            },
+            "sql_queue": {
+              "started": 1207,
+              "count": 1207,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 80.66445733222866,
+              "p99_upper_us": 2500
+            },
+            "sql_stage": {
+              "started": 201,
+              "count": 201,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 12955.298507462687,
+              "p99_upper_us": 50000
+            },
+            "sql_prepare": {
+              "started": 256,
+              "count": 256,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 6412.66796875,
+              "p99_upper_us": 50000
+            },
+            "sql_publish": {
+              "started": 256,
+              "count": 256,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 684.703125,
+              "p99_upper_us": 10000
+            },
+            "sql_query": {
+              "started": 27,
+              "count": 27,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 342.2962962962963,
+              "p99_upper_us": 5000
+            },
+            "transport_control_queue": {
+              "started": 238509,
+              "count": 238474,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 35,
+              "mean_us": 2617.111169351795,
+              "p99_upper_us": 25000
+            },
+            "transport_data_queue": {
+              "started": 405,
+              "count": 405,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 60.190123456790126,
+              "p99_upper_us": 1000
+            },
+            "transport_control_exchange": {
+              "started": 36360,
+              "count": 36359,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 1,
+              "mean_us": 1189.4977859677108,
+              "p99_upper_us": 10000
+            },
+            "transport_data_exchange": {
+              "started": 405,
+              "count": 405,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 710.9407407407407,
+              "p99_upper_us": 10000
+            },
+            "transport_control_admit": {
+              "started": 238818,
+              "count": 238818,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 31.454484167860045,
+              "p99_upper_us": 500
+            },
+            "transport_data_admit": {
+              "started": 55,
+              "count": 55,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 78.65454545454546,
+              "p99_upper_us": 500
+            }
+          }
+        },
+        {
+          "node": 2,
+          "owner_interval_us": 121027542,
+          "operations": {
+            "engine_queue": {
+              "started": 1226,
+              "count": 1226,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 70.00163132137031,
+              "p99_upper_us": 2500
+            },
+            "engine_persist": {
+              "started": 1226,
+              "count": 1226,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 2482.1076672104405,
+              "p99_upper_us": 25000
+            },
+            "sql_queue": {
+              "started": 1814,
+              "count": 1814,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 76.47133406835722,
+              "p99_upper_us": 2500
+            },
+            "sql_stage": {
+              "started": 181,
+              "count": 181,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 15304.104972375691,
+              "p99_upper_us": 100000
+            },
+            "sql_prepare": {
+              "started": 409,
+              "count": 409,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 6417.6259168704155,
+              "p99_upper_us": 50000
+            },
+            "sql_publish": {
+              "started": 409,
+              "count": 409,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 1490.80195599022,
+              "p99_upper_us": 25000
+            },
+            "sql_query": {
+              "started": 202,
+              "count": 202,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 273.55940594059405,
+              "p99_upper_us": 1000
+            },
+            "transport_control_queue": {
+              "started": 238490,
+              "count": 238490,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 3315.9889177743303,
+              "p99_upper_us": 50000
+            },
+            "transport_data_queue": {
+              "started": 365,
+              "count": 365,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 71.78356164383561,
+              "p99_upper_us": 500
+            },
+            "transport_control_exchange": {
+              "started": 36144,
+              "count": 36143,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 1,
+              "mean_us": 1224.7278864510417,
+              "p99_upper_us": 10000
+            },
+            "transport_data_exchange": {
+              "started": 365,
+              "count": 365,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 642.5424657534246,
+              "p99_upper_us": 10000
+            },
+            "transport_control_admit": {
+              "started": 238626,
+              "count": 238626,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 37.86761291728479,
+              "p99_upper_us": 500
+            },
+            "transport_data_admit": {
+              "started": 229,
+              "count": 229,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 82.93013100436681,
+              "p99_upper_us": 500
+            }
+          }
+        },
+        {
+          "node": 3,
+          "owner_interval_us": 121032157,
+          "operations": {
+            "engine_queue": {
+              "started": 1659,
+              "count": 1659,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 56.319469559975886,
+              "p99_upper_us": 2500
+            },
+            "engine_persist": {
+              "started": 1659,
+              "count": 1659,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 2264.251356238698,
+              "p99_upper_us": 25000
+            },
+            "sql_queue": {
+              "started": 2179,
+              "count": 2179,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 142.8242312987609,
+              "p99_upper_us": 2500
+            },
+            "sql_stage": {
+              "started": 171,
+              "count": 171,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 14934.491228070176,
+              "p99_upper_us": 100000
+            },
+            "sql_prepare": {
+              "started": 553,
+              "count": 553,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 5677.50452079566,
+              "p99_upper_us": 25000
+            },
+            "sql_publish": {
+              "started": 553,
+              "count": 553,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 1523.5551537070523,
+              "p99_upper_us": 10000
+            },
+            "sql_query": {
+              "started": 155,
+              "count": 155,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 254.25806451612902,
+              "p99_upper_us": 1000
+            },
+            "transport_control_queue": {
+              "started": 239302,
+              "count": 239256,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 46,
+              "mean_us": 2964.3984685859496,
+              "p99_upper_us": 25000
+            },
+            "transport_data_queue": {
+              "started": 342,
+              "count": 342,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 54.067251461988306,
+              "p99_upper_us": 500
+            },
+            "transport_control_exchange": {
+              "started": 36040,
+              "count": 36037,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 3,
+              "mean_us": 1188.67247551128,
+              "p99_upper_us": 10000
+            },
+            "transport_data_exchange": {
+              "started": 342,
+              "count": 342,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 664.061403508772,
+              "p99_upper_us": 5000
+            },
+            "transport_control_admit": {
+              "started": 239210,
+              "count": 239210,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 32.65467162744032,
+              "p99_upper_us": 500
+            },
+            "transport_data_admit": {
+              "started": 386,
+              "count": 386,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 86.93523316062176,
+              "p99_upper_us": 500
+            }
+          }
+        },
+        {
+          "node": 4,
+          "owner_interval_us": 121039289,
+          "operations": {
+            "engine_queue": {
+              "started": 1140,
+              "count": 1140,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 79.69298245614036,
+              "p99_upper_us": 2500
+            },
+            "engine_persist": {
+              "started": 1140,
+              "count": 1140,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 2479.4885964912282,
+              "p99_upper_us": 25000
+            },
+            "sql_queue": {
+              "started": 1392,
+              "count": 1392,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 60.69181034482759,
+              "p99_upper_us": 1000
+            },
+            "sql_stage": {
+              "started": 28,
+              "count": 28,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 10583.785714285714,
+              "p99_upper_us": 50000
+            },
+            "sql_prepare": {
+              "started": 380,
+              "count": 380,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 5390.986842105263,
+              "p99_upper_us": 25000
+            },
+            "sql_publish": {
+              "started": 380,
+              "count": 380,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 2020.3684210526317,
+              "p99_upper_us": 25000
+            },
+            "sql_query": {
+              "started": 181,
+              "count": 181,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 281.4088397790055,
+              "p99_upper_us": 1000
+            },
+            "transport_control_queue": {
+              "started": 238357,
+              "count": 238299,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 58,
+              "mean_us": 2720.741522205297,
+              "p99_upper_us": 25000
+            },
+            "transport_data_queue": {
+              "started": 74,
+              "count": 74,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 80.13513513513513,
+              "p99_upper_us": 1000
+            },
+            "transport_control_exchange": {
+              "started": 34952,
+              "count": 34948,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 4,
+              "mean_us": 1238.892125443516,
+              "p99_upper_us": 10000
+            },
+            "transport_data_exchange": {
+              "started": 74,
+              "count": 74,
+              "failed": 18,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 962.3243243243244,
+              "p99_upper_us": 5000
+            },
+            "transport_control_admit": {
+              "started": 237986,
+              "count": 237986,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 36.94874068222501,
+              "p99_upper_us": 500
+            },
+            "transport_data_admit": {
+              "started": 353,
+              "count": 353,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 83.42492917847025,
+              "p99_upper_us": 500
+            }
+          }
+        },
+        {
+          "node": 5,
+          "owner_interval_us": 121054602,
+          "operations": {
+            "engine_queue": {
+              "started": 678,
+              "count": 678,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 63.33480825958702,
+              "p99_upper_us": 2500
+            },
+            "engine_persist": {
+              "started": 678,
+              "count": 678,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 2339.985250737463,
+              "p99_upper_us": 25000
+            },
+            "sql_queue": {
+              "started": 771,
+              "count": 771,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 45.38910505836576,
+              "p99_upper_us": 1000
+            },
+            "sql_stage": {
+              "started": 27,
+              "count": 27,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 24343.59259259259,
+              "p99_upper_us": 250000
+            },
+            "sql_prepare": {
+              "started": 226,
+              "count": 226,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 5629.3893805309735,
+              "p99_upper_us": 50000
+            },
+            "sql_publish": {
+              "started": 226,
+              "count": 226,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 2121.1238938053098,
+              "p99_upper_us": 25000
+            },
+            "sql_query": {
+              "started": 24,
+              "count": 24,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 358.7083333333333,
+              "p99_upper_us": 2500
+            },
+            "transport_control_queue": {
+              "started": 238309,
+              "count": 238263,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 46,
+              "mean_us": 2736.9824269819487,
+              "p99_upper_us": 25000
+            },
+            "transport_data_queue": {
+              "started": 70,
+              "count": 70,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 123.8,
+              "p99_upper_us": 1000
+            },
+            "transport_control_exchange": {
+              "started": 36342,
+              "count": 36340,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 2,
+              "mean_us": 1258.6309576224546,
+              "p99_upper_us": 10000
+            },
+            "transport_data_exchange": {
+              "started": 70,
+              "count": 70,
+              "failed": 16,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 982.0,
+              "p99_upper_us": 10000
+            },
+            "transport_control_admit": {
+              "started": 238108,
+              "count": 238108,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 38.460795101382566,
+              "p99_upper_us": 500
+            },
+            "transport_data_admit": {
+              "started": 199,
+              "count": 199,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 86.27638190954774,
+              "p99_upper_us": 1000
+            }
+          }
+        }
+      ],
+      "offered_route_sha256": "bdb1b41349e69bbc78833dbc046d7edcb73750eada07abb47c567fbf6096720e"
+    },
+    {
+      "build": {
+        "image_id": "sha256:0b5fec91bed134a51576aa655ad97f132bc0cfa03ddefd146ae291a8f22faf66",
+        "binary_sha256": "830184b367471e5d57c45c19385d5159f5fd17e1891c742e0f28688a5e0e81ac",
+        "source_manifest_sha256": "035cac4813c7ef1ab569c5fd32918c46a9a0ea9801a3f25a58a38175154add32",
+        "build_profile": "lab",
+        "source_revision": "81f29b69b1ed879f291e582da4b0a8ee5fe1ac4c",
+        "working_tree_dirty": false
+      },
+      "profile": {
+        "topology": {
+          "nodes": 5,
+          "voters": 3,
+          "failure_domains": 1
+        },
+        "cells": {
+          "total": 150,
+          "active": 30
+        },
+        "database_bytes": [
+          4096
+        ],
+        "write_bytes": [
+          64,
+          1024
+        ],
+        "read_fraction": 0.5,
+        "read_consistency": "at-least",
+        "skew": {
+          "hot_fraction": 0.1,
+          "hot_probability": 0.8
+        },
+        "arrival": {
+          "rate_per_second": 10,
+          "max_inflight": 8,
+          "max_lateness_ms": 100
+        },
+        "timing": {
+          "warmup_seconds": 30,
+          "measurement_seconds": 120,
+          "soak_seconds": 0,
+          "request_timeout_ms": 5000,
+          "retry_window_ms": 300000,
+          "startup_seconds": 600
+        },
+        "durability": "quorum",
+        "resources": {
+          "node_cpus": 1,
+          "node_memory_bytes": 3221225472,
+          "node_swap_bytes": 0,
+          "store_cpus": 2,
+          "store_memory_bytes": 4294967296
+        },
+        "tick_ms": 100,
+        "seed": 14,
+        "slo": {
+          "p99_ms": 200,
+          "max_error_fraction": 0.01,
+          "min_completed_per_second": 9.9,
+          "max_archive_lag_seconds": 60,
+          "max_recovery_seconds": 30,
+          "memory_headroom_fraction": 0.1
+        },
+        "qualification": "Proposed local five-node observation: 150 three-voter cells, 90 replicas and 30 planned leaders per node. One VM and RustFS do not qualify independent domains, Q1, steady state or a capacity ceiling."
+      },
+      "profile_sha256": "c1c3025c95109a618dd5d3d122e19630055563c1384abe57c8671cd8a6295b30",
+      "completed": true,
+      "reconciled": true,
+      "traffic_objectives_met": true,
+      "memory_objectives_met": true,
+      "summary": {
+        "counts": {
+          "submitted": 1200,
+          "completed": 1200,
+          "offered": 1200
+        },
+        "latency_ms": {
+          "p50": 12.770999991335685,
+          "p95": 27.687957981832767,
+          "p99": 70.98129199002301,
+          "p99_9": 199.42224997794256
+        },
+        "latency_by_operation_ms": {
+          "command": {
+            "p50": 18.825707992078833,
+            "p95": 35.03370797844241,
+            "p99": 166.56125000445243,
+            "p99_9": 230.64145799143887
+          },
+          "query": {
+            "p50": 7.397166982997305,
+            "p95": 12.538833002324168,
+            "p99": 19.12970798439062,
+            "p99_9": 44.23920799163028
+          }
+        },
+        "completed_per_second": 10.0,
+        "offered_per_second": 10.0,
+        "error_fraction": 0.0
+      },
+      "failure": null,
+      "kernel": {
+        "warmup": [
+          {
+            "node": "cellar-mr14-e5888911a1cba23db5f4737e-node1",
+            "interval_ns": {
+              "minimum": 30444273916,
+              "maximum": 30626081084
+            },
+            "observer_window_ns": {
+              "before": 85791459,
+              "after": 96015709
+            },
+            "cpu_delta": {
+              "usage_usec": 1582216,
+              "user_usec": 1173068,
+              "system_usec": 409147,
+              "nr_periods": 305,
+              "nr_throttled": 0,
+              "throttled_usec": 0
+            },
+            "average_cpu_cores": {
+              "minimum": 0.05166237220035958,
+              "maximum": 0.05197088964465222
+            },
+            "cgroup_io_delta": {
+              "253:16": {
+                "rbytes": 0,
+                "wbytes": 8732672,
+                "rios": 0,
+                "wios": 736,
+                "dbytes": 0,
+                "dios": 0
+              }
+            },
+            "lifetime_peak_memory_bytes": 32944128,
+            "lifetime_memory_headroom_fraction": 0.9897727966308594,
+            "process_rss_bytes": {
+              "before": 35315712,
+              "after": 36130816
+            },
+            "process_threads": {
+              "before": 10,
+              "after": 11
+            },
+            "process_fds": {
+              "before": 397,
+              "after": 397
+            },
+            "memory_events": {
+              "low": 0,
+              "high": 0,
+              "max": 0,
+              "oom": 0,
+              "oom_kill": 0,
+              "oom_group_kill": 0
+            },
+            "memory_objective_met": true
+          },
+          {
+            "node": "cellar-mr14-e5888911a1cba23db5f4737e-node2",
+            "interval_ns": {
+              "minimum": 30461180583,
+              "maximum": 30619695042
+            },
+            "observer_window_ns": {
+              "before": 79109292,
+              "after": 79405167
+            },
+            "cpu_delta": {
+              "usage_usec": 1849269,
+              "user_usec": 1401555,
+              "system_usec": 447714,
+              "nr_periods": 306,
+              "nr_throttled": 0,
+              "throttled_usec": 0
+            },
+            "average_cpu_cores": {
+              "minimum": 0.06039475564545696,
+              "maximum": 0.06070903900002003
+            },
+            "cgroup_io_delta": {
+              "253:16": {
+                "rbytes": 8192,
+                "wbytes": 13770752,
+                "rios": 2,
+                "wios": 1174,
+                "dbytes": 0,
+                "dios": 0
+              }
+            },
+            "lifetime_peak_memory_bytes": 33878016,
+            "lifetime_memory_headroom_fraction": 0.9894828796386719,
+            "process_rss_bytes": {
+              "before": 34918400,
+              "after": 36384768
+            },
+            "process_threads": {
+              "before": 9,
+              "after": 11
+            },
+            "process_fds": {
+              "before": 397,
+              "after": 397
+            },
+            "memory_events": {
+              "low": 0,
+              "high": 0,
+              "max": 0,
+              "oom": 0,
+              "oom_kill": 0,
+              "oom_group_kill": 0
+            },
+            "memory_objective_met": true
+          },
+          {
+            "node": "cellar-mr14-e5888911a1cba23db5f4737e-node3",
+            "interval_ns": {
+              "minimum": 30464389500,
+              "maximum": 30619864041
+            },
+            "observer_window_ns": {
+              "before": 76196875,
+              "after": 79277666
+            },
+            "cpu_delta": {
+              "usage_usec": 2198453,
+              "user_usec": 1668684,
+              "system_usec": 529768,
+              "nr_periods": 305,
+              "nr_throttled": 0,
+              "throttled_usec": 0
+            },
+            "average_cpu_cores": {
+              "minimum": 0.07179826132004608,
+              "maximum": 0.07216468263708353
+            },
+            "cgroup_io_delta": {
+              "253:16": {
+                "rbytes": 4096,
+                "wbytes": 21999616,
+                "rios": 1,
+                "wios": 1976,
+                "dbytes": 0,
+                "dios": 0
+              }
+            },
+            "lifetime_peak_memory_bytes": 34770944,
+            "lifetime_memory_headroom_fraction": 0.9892056783040365,
+            "process_rss_bytes": {
+              "before": 35028992,
+              "after": 36749312
+            },
+            "process_threads": {
+              "before": 10,
+              "after": 11
+            },
+            "process_fds": {
+              "before": 397,
+              "after": 397
+            },
+            "memory_events": {
+              "low": 0,
+              "high": 0,
+              "max": 0,
+              "oom": 0,
+              "oom_kill": 0,
+              "oom_group_kill": 0
+            },
+            "memory_objective_met": true
+          },
+          {
+            "node": "cellar-mr14-e5888911a1cba23db5f4737e-node4",
+            "interval_ns": {
+              "minimum": 30463238917,
+              "maximum": 30626969292
+            },
+            "observer_window_ns": {
+              "before": 80428250,
+              "after": 83302125
+            },
+            "cpu_delta": {
+              "usage_usec": 1878204,
+              "user_usec": 1446911,
+              "system_usec": 431293,
+              "nr_periods": 305,
+              "nr_throttled": 0,
+              "throttled_usec": 0
+            },
+            "average_cpu_cores": {
+              "minimum": 0.061325166786600764,
+              "maximum": 0.06165477036494202
+            },
+            "cgroup_io_delta": {
+              "253:16": {
+                "rbytes": 0,
+                "wbytes": 13451264,
+                "rios": 0,
+                "wios": 1136,
+                "dbytes": 0,
+                "dios": 0
+              }
+            },
+            "lifetime_peak_memory_bytes": 32907264,
+            "lifetime_memory_headroom_fraction": 0.9897842407226562,
+            "process_rss_bytes": {
+              "before": 35045376,
+              "after": 36061184
+            },
+            "process_threads": {
+              "before": 9,
+              "after": 9
+            },
+            "process_fds": {
+              "before": 397,
+              "after": 397
+            },
+            "memory_events": {
+              "low": 0,
+              "high": 0,
+              "max": 0,
+              "oom": 0,
+              "oom_kill": 0,
+              "oom_group_kill": 0
+            },
+            "memory_objective_met": true
+          },
+          {
+            "node": "cellar-mr14-e5888911a1cba23db5f4737e-node5",
+            "interval_ns": {
+              "minimum": 30467791250,
+              "maximum": 30627777709
+            },
+            "observer_window_ns": {
+              "before": 78750209,
+              "after": 81236250
+            },
+            "cpu_delta": {
+              "usage_usec": 1627115,
+              "user_usec": 1203087,
+              "system_usec": 424027,
+              "nr_periods": 305,
+              "nr_throttled": 0,
+              "throttled_usec": 0
+            },
+            "average_cpu_cores": {
+              "minimum": 0.05312546719711469,
+              "maximum": 0.05340442917732016
+            },
+            "cgroup_io_delta": {
+              "253:16": {
+                "rbytes": 0,
+                "wbytes": 9056256,
+                "rios": 0,
+                "wios": 786,
+                "dbytes": 0,
+                "dios": 0
+              }
+            },
+            "lifetime_peak_memory_bytes": 33632256,
+            "lifetime_memory_headroom_fraction": 0.9895591735839844,
+            "process_rss_bytes": {
+              "before": 34979840,
+              "after": 36270080
+            },
+            "process_threads": {
+              "before": 10,
+              "after": 11
+            },
+            "process_fds": {
+              "before": 397,
+              "after": 397
+            },
+            "memory_events": {
+              "low": 0,
+              "high": 0,
+              "max": 0,
+              "oom": 0,
+              "oom_kill": 0,
+              "oom_group_kill": 0
+            },
+            "memory_objective_met": true
+          },
+          {
+            "node": "cellar-mr14-e5888911a1cba23db5f4737e-store",
+            "interval_ns": {
+              "minimum": 30452746541,
+              "maximum": 30650425250
+            },
+            "observer_window_ns": {
+              "before": 96281334,
+              "after": 101397375
+            },
+            "cpu_delta": {
+              "usage_usec": 4564427,
+              "user_usec": 3219354,
+              "system_usec": 1345072,
+              "nr_periods": 290,
+              "nr_throttled": 0,
+              "throttled_usec": 0
+            },
+            "average_cpu_cores": {
+              "minimum": 0.14891888000803513,
+              "maximum": 0.14988556102336095
+            },
+            "cgroup_io_delta": {
+              "253:16": {
+                "rbytes": 12288,
+                "wbytes": 14876672,
+                "rios": 1,
+                "wios": 3680,
+                "dbytes": 0,
+                "dios": 0
+              }
+            },
+            "lifetime_peak_memory_bytes": 361521152,
+            "lifetime_memory_headroom_fraction": 0.9158267974853516,
+            "process_rss_bytes": {
+              "before": 224059392,
+              "after": 266416128
+            },
+            "process_threads": {
+              "before": 22,
+              "after": 22
+            },
+            "process_fds": {
+              "before": 36,
+              "after": 29
+            },
+            "memory_events": {
+              "low": 0,
+              "high": 0,
+              "max": 0,
+              "oom": 0,
+              "oom_kill": 0,
+              "oom_group_kill": 0
+            },
+            "memory_objective_met": true
+          }
+        ],
+        "measurement": [
+          {
+            "node": "cellar-mr14-e5888911a1cba23db5f4737e-node1",
+            "interval_ns": {
+              "minimum": 120504486167,
+              "maximum": 120710210666
+            },
+            "observer_window_ns": {
+              "before": 105876541,
+              "after": 99847958
+            },
+            "cpu_delta": {
+              "usage_usec": 7998744,
+              "user_usec": 5839028,
+              "system_usec": 2159716,
+              "nr_periods": 1206,
+              "nr_throttled": 0,
+              "throttled_usec": 0
+            },
+            "average_cpu_cores": {
+              "minimum": 0.0662640215427358,
+              "maximum": 0.06637714706251696
+            },
+            "cgroup_io_delta": {
+              "253:16": {
+                "rbytes": 24576,
+                "wbytes": 53559296,
+                "rios": 2,
+                "wios": 2669,
+                "dbytes": 0,
+                "dios": 0
+              }
+            },
+            "lifetime_peak_memory_bytes": 39821312,
+            "lifetime_memory_headroom_fraction": 0.9876378377278646,
+            "process_rss_bytes": {
+              "before": 36200448,
+              "after": 37666816
+            },
+            "process_threads": {
+              "before": 11,
+              "after": 11
+            },
+            "process_fds": {
+              "before": 397,
+              "after": 395
+            },
+            "memory_events": {
+              "low": 0,
+              "high": 0,
+              "max": 0,
+              "oom": 0,
+              "oom_kill": 0,
+              "oom_group_kill": 0
+            },
+            "memory_objective_met": true
+          },
+          {
+            "node": "cellar-mr14-e5888911a1cba23db5f4737e-node2",
+            "interval_ns": {
+              "minimum": 120509851250,
+              "maximum": 120702188666
+            },
+            "observer_window_ns": {
+              "before": 94485333,
+              "after": 97852083
+            },
+            "cpu_delta": {
+              "usage_usec": 9081723,
+              "user_usec": 6610438,
+              "system_usec": 2471285,
+              "nr_periods": 1206,
+              "nr_throttled": 0,
+              "throttled_usec": 0
+            },
+            "average_cpu_cores": {
+              "minimum": 0.07524074832752545,
+              "maximum": 0.07536083486784655
+            },
+            "cgroup_io_delta": {
+              "253:16": {
+                "rbytes": 4096,
+                "wbytes": 75755520,
+                "rios": 1,
+                "wios": 3585,
+                "dbytes": 0,
+                "dios": 0
+              }
+            },
+            "lifetime_peak_memory_bytes": 41922560,
+            "lifetime_memory_headroom_fraction": 0.9869855244954427,
+            "process_rss_bytes": {
+              "before": 36438016,
+              "after": 38576128
+            },
+            "process_threads": {
+              "before": 11,
+              "after": 11
+            },
+            "process_fds": {
+              "before": 397,
+              "after": 399
+            },
+            "memory_events": {
+              "low": 0,
+              "high": 0,
+              "max": 0,
+              "oom": 0,
+              "oom_kill": 0,
+              "oom_group_kill": 0
+            },
+            "memory_objective_met": true
+          },
+          {
+            "node": "cellar-mr14-e5888911a1cba23db5f4737e-node3",
+            "interval_ns": {
+              "minimum": 120509565625,
+              "maximum": 120694672667
+            },
+            "observer_window_ns": {
+              "before": 98141667,
+              "after": 86965375
+            },
+            "cpu_delta": {
+              "usage_usec": 9584679,
+              "user_usec": 6981478,
+              "system_usec": 2603201,
+              "nr_periods": 1206,
+              "nr_throttled": 0,
+              "throttled_usec": 0
+            },
+            "average_cpu_cores": {
+              "minimum": 0.0794126102520233,
+              "maximum": 0.07953459088737795
+            },
+            "cgroup_io_delta": {
+              "253:16": {
+                "rbytes": 16384,
+                "wbytes": 99332096,
+                "rios": 4,
+                "wios": 4612,
+                "dbytes": 0,
+                "dios": 0
+              }
+            },
+            "lifetime_peak_memory_bytes": 44396544,
+            "lifetime_memory_headroom_fraction": 0.9862174987792969,
+            "process_rss_bytes": {
+              "before": 36749312,
+              "after": 39292928
+            },
+            "process_threads": {
+              "before": 11,
+              "after": 11
+            },
+            "process_fds": {
+              "before": 397,
+              "after": 397
+            },
+            "memory_events": {
+              "low": 0,
+              "high": 0,
+              "max": 0,
+              "oom": 0,
+              "oom_kill": 0,
+              "oom_group_kill": 0
+            },
+            "memory_objective_met": true
+          },
+          {
+            "node": "cellar-mr14-e5888911a1cba23db5f4737e-node4",
+            "interval_ns": {
+              "minimum": 120506909500,
+              "maximum": 120685212709
+            },
+            "observer_window_ns": {
+              "before": 89626209,
+              "after": 88677000
+            },
+            "cpu_delta": {
+              "usage_usec": 8627953,
+              "user_usec": 6443115,
+              "system_usec": 2184839,
+              "nr_periods": 1206,
+              "nr_throttled": 0,
+              "throttled_usec": 0
+            },
+            "average_cpu_cores": {
+              "minimum": 0.0714913849537142,
+              "maximum": 0.071597164310317
+            },
+            "cgroup_io_delta": {
+              "253:16": {
+                "rbytes": 8192,
+                "wbytes": 57044992,
+                "rios": 2,
+                "wios": 2719,
+                "dbytes": 0,
+                "dios": 0
+              }
+            },
+            "lifetime_peak_memory_bytes": 38440960,
+            "lifetime_memory_headroom_fraction": 0.9880663553873698,
+            "process_rss_bytes": {
+              "before": 36061184,
+              "after": 38219776
+            },
+            "process_threads": {
+              "before": 9,
+              "after": 10
+            },
+            "process_fds": {
+              "before": 397,
+              "after": 397
+            },
+            "memory_events": {
+              "low": 0,
+              "high": 0,
+              "max": 0,
+              "oom": 0,
+              "oom_kill": 0,
+              "oom_group_kill": 0
+            },
+            "memory_objective_met": true
+          },
+          {
+            "node": "cellar-mr14-e5888911a1cba23db5f4737e-node5",
+            "interval_ns": {
+              "minimum": 120502623333,
+              "maximum": 120682830375
+            },
+            "observer_window_ns": {
+              "before": 92967084,
+              "after": 87239958
+            },
+            "cpu_delta": {
+              "usage_usec": 7264491,
+              "user_usec": 5426947,
+              "system_usec": 1837544,
+              "nr_periods": 1206,
+              "nr_throttled": 0,
+              "throttled_usec": 0
+            },
+            "average_cpu_cores": {
+              "minimum": 0.060194900777740395,
+              "maximum": 0.06028491993842426
+            },
+            "cgroup_io_delta": {
+              "253:16": {
+                "rbytes": 0,
+                "wbytes": 32530432,
+                "rios": 0,
+                "wios": 1680,
+                "dbytes": 0,
+                "dios": 0
+              }
+            },
+            "lifetime_peak_memory_bytes": 36417536,
+            "lifetime_memory_headroom_fraction": 0.9886945088704427,
+            "process_rss_bytes": {
+              "before": 36282368,
+              "after": 37359616
+            },
+            "process_threads": {
+              "before": 11,
+              "after": 11
+            },
+            "process_fds": {
+              "before": 397,
+              "after": 395
+            },
+            "memory_events": {
+              "low": 0,
+              "high": 0,
+              "max": 0,
+              "oom": 0,
+              "oom_kill": 0,
+              "oom_group_kill": 0
+            },
+            "memory_objective_met": true
+          },
+          {
+            "node": "cellar-mr14-e5888911a1cba23db5f4737e-store",
+            "interval_ns": {
+              "minimum": 120480163250,
+              "maximum": 120695106541
+            },
+            "observer_window_ns": {
+              "before": 109704916,
+              "after": 105238375
+            },
+            "cpu_delta": {
+              "usage_usec": 19298425,
+              "user_usec": 13595253,
+              "system_usec": 5703172,
+              "nr_periods": 1059,
+              "nr_throttled": 0,
+              "throttled_usec": 0
+            },
+            "average_cpu_cores": {
+              "minimum": 0.15989401354432167,
+              "maximum": 0.16017927332946238
+            },
+            "cgroup_io_delta": {
+              "253:16": {
+                "rbytes": 204800,
+                "wbytes": 43245568,
+                "rios": 3,
+                "wios": 9507,
+                "dbytes": 0,
+                "dios": 0
+              }
+            },
+            "lifetime_peak_memory_bytes": 422862848,
+            "lifetime_memory_headroom_fraction": 0.9015445709228516,
+            "process_rss_bytes": {
+              "before": 277102592,
+              "after": 296132608
+            },
+            "process_threads": {
+              "before": 22,
+              "after": 22
+            },
+            "process_fds": {
+              "before": 27,
+              "after": 34
+            },
+            "memory_events": {
+              "low": 0,
+              "high": 0,
+              "max": 0,
+              "oom": 0,
+              "oom_kill": 0,
+              "oom_group_kill": 0
+            },
+            "memory_objective_met": true
+          }
+        ]
+      },
+      "run": "mr14-phase-local-five-healthy-20261022-001",
+      "analysis_rejection": null,
+      "cleanup": [
+        {
+          "container": "cellar-mr14-e5888911a1cba23db5f4737e-node5",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-e5888911a1cba23db5f4737e-node4",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-e5888911a1cba23db5f4737e-node3",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-e5888911a1cba23db5f4737e-node2",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-e5888911a1cba23db5f4737e-node1",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-e5888911a1cba23db5f4737e-store",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        }
+      ],
+      "network_removed": true,
+      "replicas": 450,
+      "measurement_control_items_max": {
+        "1": 6,
+        "2": 27,
+        "3": 0,
+        "4": 13,
+        "5": 34
+      },
+      "phase_totals": [
+        {
+          "node": 1,
+          "owner_interval_us": 120583077,
+          "operations": {
+            "engine_queue": {
+              "started": 771,
+              "count": 771,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 24.252918287937742,
+              "p99_upper_us": 250
+            },
+            "engine_persist": {
+              "started": 771,
+              "count": 771,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 841.6498054474708,
+              "p99_upper_us": 5000
+            },
+            "sql_queue": {
+              "started": 1207,
+              "count": 1207,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 35.03728251864126,
+              "p99_upper_us": 500
+            },
+            "sql_stage": {
+              "started": 202,
+              "count": 202,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 5070.8267326732675,
+              "p99_upper_us": 10000
+            },
+            "sql_prepare": {
+              "started": 257,
+              "count": 257,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 2630.101167315175,
+              "p99_upper_us": 10000
+            },
+            "sql_publish": {
+              "started": 257,
+              "count": 257,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 328.18677042801556,
+              "p99_upper_us": 2500
+            },
+            "sql_query": {
+              "started": 27,
+              "count": 27,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 213.77777777777777,
+              "p99_upper_us": 500
+            },
+            "transport_control_queue": {
+              "started": 71787,
+              "count": 71787,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 471.11158009110284,
+              "p99_upper_us": 2500
+            },
+            "transport_data_queue": {
+              "started": 408,
+              "count": 408,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 40.625,
+              "p99_upper_us": 250
+            },
+            "transport_control_exchange": {
+              "started": 13164,
+              "count": 13164,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 698.0042540261319,
+              "p99_upper_us": 5000
+            },
+            "transport_data_exchange": {
+              "started": 408,
+              "count": 408,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 246.59313725490196,
+              "p99_upper_us": 1000
+            },
+            "transport_control_admit": {
+              "started": 72140,
+              "count": 72140,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 27.39553645688938,
+              "p99_upper_us": 500
+            },
+            "transport_data_admit": {
+              "started": 55,
+              "count": 55,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 34.127272727272725,
+              "p99_upper_us": 500
+            }
+          }
+        },
+        {
+          "node": 2,
+          "owner_interval_us": 120583080,
+          "operations": {
+            "engine_queue": {
+              "started": 1230,
+              "count": 1230,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 19.14308943089431,
+              "p99_upper_us": 250
+            },
+            "engine_persist": {
+              "started": 1230,
+              "count": 1230,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 906.2056910569106,
+              "p99_upper_us": 5000
+            },
+            "sql_queue": {
+              "started": 1803,
+              "count": 1803,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 36.531891292290624,
+              "p99_upper_us": 500
+            },
+            "sql_stage": {
+              "started": 181,
+              "count": 181,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 5091.977900552486,
+              "p99_upper_us": 25000
+            },
+            "sql_prepare": {
+              "started": 410,
+              "count": 410,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 2551.458536585366,
+              "p99_upper_us": 10000
+            },
+            "sql_publish": {
+              "started": 410,
+              "count": 410,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 568.4609756097561,
+              "p99_upper_us": 5000
+            },
+            "sql_query": {
+              "started": 204,
+              "count": 204,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 197.5,
+              "p99_upper_us": 500
+            },
+            "transport_control_queue": {
+              "started": 72110,
+              "count": 72110,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 520.5517265289142,
+              "p99_upper_us": 5000
+            },
+            "transport_data_queue": {
+              "started": 366,
+              "count": 366,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 40.24863387978142,
+              "p99_upper_us": 250
+            },
+            "transport_control_exchange": {
+              "started": 14750,
+              "count": 14750,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 674.5324745762712,
+              "p99_upper_us": 2500
+            },
+            "transport_data_exchange": {
+              "started": 366,
+              "count": 366,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 237.15027322404373,
+              "p99_upper_us": 1000
+            },
+            "transport_control_admit": {
+              "started": 72246,
+              "count": 72246,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 28.511114802203583,
+              "p99_upper_us": 500
+            },
+            "transport_data_admit": {
+              "started": 230,
+              "count": 230,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 34.82608695652174,
+              "p99_upper_us": 250
+            }
+          }
+        },
+        {
+          "node": 3,
+          "owner_interval_us": 120581688,
+          "operations": {
+            "engine_queue": {
+              "started": 1662,
+              "count": 1662,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 19.72442839951865,
+              "p99_upper_us": 250
+            },
+            "engine_persist": {
+              "started": 1662,
+              "count": 1662,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 928.3363417569194,
+              "p99_upper_us": 5000
+            },
+            "sql_queue": {
+              "started": 2177,
+              "count": 2177,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 26.142397795130915,
+              "p99_upper_us": 250
+            },
+            "sql_stage": {
+              "started": 171,
+              "count": 171,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 5083.549707602339,
+              "p99_upper_us": 25000
+            },
+            "sql_prepare": {
+              "started": 554,
+              "count": 554,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 2408.57761732852,
+              "p99_upper_us": 10000
+            },
+            "sql_publish": {
+              "started": 554,
+              "count": 554,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 617.3664259927798,
+              "p99_upper_us": 5000
+            },
+            "sql_query": {
+              "started": 155,
+              "count": 155,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 192.25806451612902,
+              "p99_upper_us": 500
+            },
+            "transport_control_queue": {
+              "started": 72403,
+              "count": 72403,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 472.2935651837631,
+              "p99_upper_us": 2500
+            },
+            "transport_data_queue": {
+              "started": 342,
+              "count": 342,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 39.11695906432749,
+              "p99_upper_us": 250
+            },
+            "transport_control_exchange": {
+              "started": 14006,
+              "count": 14006,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 674.624018277881,
+              "p99_upper_us": 5000
+            },
+            "transport_data_exchange": {
+              "started": 342,
+              "count": 342,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 250.68421052631578,
+              "p99_upper_us": 1000
+            },
+            "transport_control_admit": {
+              "started": 72357,
+              "count": 72357,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 28.50972262531614,
+              "p99_upper_us": 500
+            },
+            "transport_data_admit": {
+              "started": 388,
+              "count": 388,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 29.59278350515464,
+              "p99_upper_us": 250
+            }
+          }
+        },
+        {
+          "node": 4,
+          "owner_interval_us": 120580984,
+          "operations": {
+            "engine_queue": {
+              "started": 1140,
+              "count": 1140,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 24.044736842105262,
+              "p99_upper_us": 250
+            },
+            "engine_persist": {
+              "started": 1140,
+              "count": 1140,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 961.119298245614,
+              "p99_upper_us": 5000
+            },
+            "sql_queue": {
+              "started": 1388,
+              "count": 1388,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 25.312680115273775,
+              "p99_upper_us": 500
+            },
+            "sql_stage": {
+              "started": 28,
+              "count": 28,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 5273.142857142857,
+              "p99_upper_us": 25000
+            },
+            "sql_prepare": {
+              "started": 380,
+              "count": 380,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 2418.8657894736843,
+              "p99_upper_us": 10000
+            },
+            "sql_publish": {
+              "started": 380,
+              "count": 380,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 791.2315789473685,
+              "p99_upper_us": 10000
+            },
+            "sql_query": {
+              "started": 181,
+              "count": 181,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 196.32596685082873,
+              "p99_upper_us": 500
+            },
+            "transport_control_queue": {
+              "started": 72015,
+              "count": 72015,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 469.3212386308408,
+              "p99_upper_us": 2500
+            },
+            "transport_data_queue": {
+              "started": 74,
+              "count": 74,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 48.013513513513516,
+              "p99_upper_us": 250
+            },
+            "transport_control_exchange": {
+              "started": 13494,
+              "count": 13494,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 658.7561879353786,
+              "p99_upper_us": 2500
+            },
+            "transport_data_exchange": {
+              "started": 74,
+              "count": 74,
+              "failed": 18,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 515.2297297297297,
+              "p99_upper_us": 5000
+            },
+            "transport_control_admit": {
+              "started": 71717,
+              "count": 71717,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 23.996709287895477,
+              "p99_upper_us": 250
+            },
+            "transport_data_admit": {
+              "started": 354,
+              "count": 354,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 35.02542372881356,
+              "p99_upper_us": 250
+            }
+          }
+        },
+        {
+          "node": 5,
+          "owner_interval_us": 120580110,
+          "operations": {
+            "engine_queue": {
+              "started": 678,
+              "count": 678,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 29.179941002949853,
+              "p99_upper_us": 500
+            },
+            "engine_persist": {
+              "started": 678,
+              "count": 678,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 960.3171091445428,
+              "p99_upper_us": 5000
+            },
+            "sql_queue": {
+              "started": 757,
+              "count": 757,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 30.52443857331572,
+              "p99_upper_us": 500
+            },
+            "sql_stage": {
+              "started": 27,
+              "count": 27,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 5858.962962962963,
+              "p99_upper_us": 50000
+            },
+            "sql_prepare": {
+              "started": 226,
+              "count": 226,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 2530.3893805309735,
+              "p99_upper_us": 10000
+            },
+            "sql_publish": {
+              "started": 226,
+              "count": 226,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 801.1637168141593,
+              "p99_upper_us": 5000
+            },
+            "sql_query": {
+              "started": 24,
+              "count": 24,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 225.79166666666666,
+              "p99_upper_us": 500
+            },
+            "transport_control_queue": {
+              "started": 71719,
+              "count": 71719,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 489.885929809395,
+              "p99_upper_us": 5000
+            },
+            "transport_data_queue": {
+              "started": 70,
+              "count": 70,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 50.4,
+              "p99_upper_us": 250
+            },
+            "transport_control_exchange": {
+              "started": 13845,
+              "count": 13845,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 697.5696641386783,
+              "p99_upper_us": 5000
+            },
+            "transport_data_exchange": {
+              "started": 70,
+              "count": 70,
+              "failed": 16,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 491.0571428571429,
+              "p99_upper_us": 5000
+            },
+            "transport_control_admit": {
+              "started": 71574,
+              "count": 71574,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 27.05834520915416,
+              "p99_upper_us": 500
+            },
+            "transport_data_admit": {
+              "started": 199,
+              "count": 199,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 37.45226130653266,
+              "p99_upper_us": 500
+            }
+          }
+        }
+      ],
+      "offered_route_sha256": "bdb1b41349e69bbc78833dbc046d7edcb73750eada07abb47c567fbf6096720e"
+    },
+    {
+      "build": {
+        "image_id": "sha256:0b5fec91bed134a51576aa655ad97f132bc0cfa03ddefd146ae291a8f22faf66",
+        "binary_sha256": "830184b367471e5d57c45c19385d5159f5fd17e1891c742e0f28688a5e0e81ac",
+        "source_manifest_sha256": "035cac4813c7ef1ab569c5fd32918c46a9a0ea9801a3f25a58a38175154add32",
+        "build_profile": "lab",
+        "source_revision": "81f29b69b1ed879f291e582da4b0a8ee5fe1ac4c",
+        "working_tree_dirty": false
+      },
+      "profile": {
+        "topology": {
+          "nodes": 5,
+          "voters": 3,
+          "failure_domains": 1
+        },
+        "cells": {
+          "total": 150,
+          "active": 30
+        },
+        "database_bytes": [
+          4096
+        ],
+        "write_bytes": [
+          64,
+          1024
+        ],
+        "read_fraction": 0.5,
+        "read_consistency": "at-least",
+        "skew": {
+          "hot_fraction": 0.1,
+          "hot_probability": 0.8
+        },
+        "arrival": {
+          "rate_per_second": 10,
+          "max_inflight": 8,
+          "max_lateness_ms": 100
+        },
+        "timing": {
+          "warmup_seconds": 30,
+          "measurement_seconds": 120,
+          "soak_seconds": 0,
+          "request_timeout_ms": 5000,
+          "retry_window_ms": 300000,
+          "startup_seconds": 600
+        },
+        "durability": "quorum",
+        "resources": {
+          "node_cpus": 1,
+          "node_memory_bytes": 3221225472,
+          "node_swap_bytes": 0,
+          "store_cpus": 2,
+          "store_memory_bytes": 4294967296
+        },
+        "tick_ms": 100,
+        "seed": 14,
+        "slo": {
+          "p99_ms": 200,
+          "max_error_fraction": 0.01,
+          "min_completed_per_second": 9.9,
+          "max_archive_lag_seconds": 60,
+          "max_recovery_seconds": 30,
+          "memory_headroom_fraction": 0.1
+        },
+        "qualification": "Proposed local five-node observation: 150 three-voter cells, 90 replicas and 30 planned leaders per node. One VM and RustFS do not qualify independent domains, Q1, steady state or a capacity ceiling."
+      },
+      "profile_sha256": "c1c3025c95109a618dd5d3d122e19630055563c1384abe57c8671cd8a6295b30",
+      "completed": true,
+      "reconciled": true,
+      "traffic_objectives_met": false,
+      "memory_objectives_met": true,
+      "summary": {
+        "counts": {
+          "submitted": 1165,
+          "completed": 1165,
+          "generator_rejected": 35,
+          "offered": 1200
+        },
+        "latency_ms": {
+          "p50": 24.64654202340455,
+          "p95": 165.11358402203768,
+          "p99": 247.44066700223044,
+          "p99_9": 344.40050001721545
+        },
+        "latency_by_operation_ms": {
+          "command": {
+            "p50": 38.88533401186578,
+            "p95": 202.98941701184958,
+            "p99": 275.4505840071957,
+            "p99_9": 375.76612500124895
+          },
+          "query": {
+            "p50": 11.147250019718058,
+            "p95": 92.52329200390363,
+            "p99": 175.85537502309023,
+            "p99_9": 229.47991701075665
+          }
+        },
+        "completed_per_second": 9.708333333333334,
+        "offered_per_second": 10.0,
+        "error_fraction": 0.029166666666666667
+      },
+      "failure": null,
+      "kernel": {
+        "warmup": [
+          {
+            "node": "cellar-mr14-6ccb165bc6adfc81686ecf50-node1",
+            "interval_ns": {
+              "minimum": 30491044583,
+              "maximum": 31085887833
+            },
+            "observer_window_ns": {
+              "before": 97521625,
+              "after": 497321625
+            },
+            "cpu_delta": {
+              "usage_usec": 3580075,
+              "user_usec": 2519743,
+              "system_usec": 1060332,
+              "nr_periods": 307,
+              "nr_throttled": 0,
+              "throttled_usec": 0
+            },
+            "average_cpu_cores": {
+              "minimum": 0.11516721089752766,
+              "maximum": 0.11741398331745045
+            },
+            "cgroup_io_delta": {
+              "253:16": {
+                "rbytes": 0,
+                "wbytes": 7888896,
+                "rios": 0,
+                "wios": 630,
+                "dbytes": 0,
+                "dios": 0
+              }
+            },
+            "lifetime_peak_memory_bytes": 33636352,
+            "lifetime_memory_headroom_fraction": 0.9895579020182291,
+            "process_rss_bytes": {
+              "before": 35082240,
+              "after": 36454400
+            },
+            "process_threads": {
+              "before": 9,
+              "after": 11
+            },
+            "process_fds": {
+              "before": 397,
+              "after": 397
+            },
+            "memory_events": {
+              "low": 0,
+              "high": 0,
+              "max": 0,
+              "oom": 0,
+              "oom_kill": 0,
+              "oom_group_kill": 0
+            },
+            "memory_objective_met": true
+          },
+          {
+            "node": "cellar-mr14-6ccb165bc6adfc81686ecf50-node2",
+            "interval_ns": {
+              "minimum": 30898171250,
+              "maximum": 31347302458
+            },
+            "observer_window_ns": {
+              "before": 90198000,
+              "after": 358933208
+            },
+            "cpu_delta": {
+              "usage_usec": 3980506,
+              "user_usec": 2777334,
+              "system_usec": 1203171,
+              "nr_periods": 312,
+              "nr_throttled": 0,
+              "throttled_usec": 0
+            },
+            "average_cpu_cores": {
+              "minimum": 0.12698081454802032,
+              "maximum": 0.12882658872570008
+            },
+            "cgroup_io_delta": {
+              "253:16": {
+                "rbytes": 0,
+                "wbytes": 13295616,
+                "rios": 0,
+                "wios": 1156,
+                "dbytes": 0,
+                "dios": 0
+              }
+            },
+            "lifetime_peak_memory_bytes": 33083392,
+            "lifetime_memory_headroom_fraction": 0.9897295633951823,
+            "process_rss_bytes": {
+              "before": 34844672,
+              "after": 35700736
+            },
+            "process_threads": {
+              "before": 9,
+              "after": 10
+            },
+            "process_fds": {
+              "before": 397,
+              "after": 397
+            },
+            "memory_events": {
+              "low": 0,
+              "high": 0,
+              "max": 0,
+              "oom": 0,
+              "oom_kill": 0,
+              "oom_group_kill": 0
+            },
+            "memory_objective_met": true
+          },
+          {
+            "node": "cellar-mr14-6ccb165bc6adfc81686ecf50-node3",
+            "interval_ns": {
+              "minimum": 31161202583,
+              "maximum": 31628859625
+            },
+            "observer_window_ns": {
+              "before": 95903875,
+              "after": 371753167
+            },
+            "cpu_delta": {
+              "usage_usec": 3758309,
+              "user_usec": 2607394,
+              "system_usec": 1150915,
+              "nr_periods": 314,
+              "nr_throttled": 0,
+              "throttled_usec": 0
+            },
+            "average_cpu_cores": {
+              "minimum": 0.1188253084227345,
+              "maximum": 0.12060859942710768
+            },
+            "cgroup_io_delta": {
+              "253:16": {
+                "rbytes": 0,
+                "wbytes": 19812352,
+                "rios": 0,
+                "wios": 1686,
+                "dbytes": 0,
+                "dios": 0
+              }
+            },
+            "lifetime_peak_memory_bytes": 34516992,
+            "lifetime_memory_headroom_fraction": 0.9892845153808594,
+            "process_rss_bytes": {
+              "before": 34816000,
+              "after": 36442112
+            },
+            "process_threads": {
+              "before": 9,
+              "after": 11
+            },
+            "process_fds": {
+              "before": 397,
+              "after": 397
+            },
+            "memory_events": {
+              "low": 0,
+              "high": 0,
+              "max": 0,
+              "oom": 0,
+              "oom_kill": 0,
+              "oom_group_kill": 0
+            },
+            "memory_objective_met": true
+          },
+          {
+            "node": "cellar-mr14-6ccb165bc6adfc81686ecf50-node4",
+            "interval_ns": {
+              "minimum": 31444366584,
+              "maximum": 32288112375
+            },
+            "observer_window_ns": {
+              "before": 88590125,
+              "after": 755155666
+            },
+            "cpu_delta": {
+              "usage_usec": 4124162,
+              "user_usec": 2883598,
+              "system_usec": 1240564,
+              "nr_periods": 321,
+              "nr_throttled": 0,
+              "throttled_usec": 0
+            },
+            "average_cpu_cores": {
+              "minimum": 0.12773004355600703,
+              "maximum": 0.1311574201688171
+            },
+            "cgroup_io_delta": {
+              "253:16": {
+                "rbytes": 0,
+                "wbytes": 12599296,
+                "rios": 0,
+                "wios": 1123,
+                "dbytes": 0,
+                "dios": 0
+              }
+            },
+            "lifetime_peak_memory_bytes": 32452608,
+            "lifetime_memory_headroom_fraction": 0.9899253845214844,
+            "process_rss_bytes": {
+              "before": 34893824,
+              "after": 35868672
+            },
+            "process_threads": {
+              "before": 9,
+              "after": 9
+            },
+            "process_fds": {
+              "before": 397,
+              "after": 397
+            },
+            "memory_events": {
+              "low": 0,
+              "high": 0,
+              "max": 0,
+              "oom": 0,
+              "oom_kill": 0,
+              "oom_group_kill": 0
+            },
+            "memory_objective_met": true
+          },
+          {
+            "node": "cellar-mr14-6ccb165bc6adfc81686ecf50-node5",
+            "interval_ns": {
+              "minimum": 32113748833,
+              "maximum": 32546084250
+            },
+            "observer_window_ns": {
+              "before": 85776542,
+              "after": 346558875
+            },
+            "cpu_delta": {
+              "usage_usec": 3581699,
+              "user_usec": 2597942,
+              "system_usec": 983758,
+              "nr_periods": 324,
+              "nr_throttled": 0,
+              "throttled_usec": 0
+            },
+            "average_cpu_cores": {
+              "minimum": 0.11005007461074215,
+              "maximum": 0.11153163769903612
+            },
+            "cgroup_io_delta": {
+              "253:16": {
+                "rbytes": 0,
+                "wbytes": 8450048,
+                "rios": 0,
+                "wios": 715,
+                "dbytes": 0,
+                "dios": 0
+              }
+            },
+            "lifetime_peak_memory_bytes": 32993280,
+            "lifetime_memory_headroom_fraction": 0.9897575378417969,
+            "process_rss_bytes": {
+              "before": 34705408,
+              "after": 35983360
+            },
+            "process_threads": {
+              "before": 9,
+              "after": 11
+            },
+            "process_fds": {
+              "before": 397,
+              "after": 397
+            },
+            "memory_events": {
+              "low": 0,
+              "high": 0,
+              "max": 0,
+              "oom": 0,
+              "oom_kill": 0,
+              "oom_group_kill": 0
+            },
+            "memory_objective_met": true
+          },
+          {
+            "node": "cellar-mr14-6ccb165bc6adfc81686ecf50-store",
+            "interval_ns": {
+              "minimum": 32348815000,
+              "maximum": 33202494459
+            },
+            "observer_window_ns": {
+              "before": 111493667,
+              "after": 742185792
+            },
+            "cpu_delta": {
+              "usage_usec": 10208102,
+              "user_usec": 6684098,
+              "system_usec": 3524004,
+              "nr_periods": 315,
+              "nr_throttled": 0,
+              "throttled_usec": 0
+            },
+            "average_cpu_cores": {
+              "minimum": 0.30744985177560813,
+              "maximum": 0.3155633985356187
+            },
+            "cgroup_io_delta": {
+              "253:16": {
+                "rbytes": 4096,
+                "wbytes": 23621632,
+                "rios": 1,
+                "wios": 4879,
+                "dbytes": 0,
+                "dios": 0
+              }
+            },
+            "lifetime_peak_memory_bytes": 289751040,
+            "lifetime_memory_headroom_fraction": 0.9325370788574219,
+            "process_rss_bytes": {
+              "before": 263892992,
+              "after": 303226880
+            },
+            "process_threads": {
+              "before": 30,
+              "after": 30
+            },
+            "process_fds": {
+              "before": 34,
+              "after": 27
+            },
+            "memory_events": {
+              "low": 0,
+              "high": 0,
+              "max": 0,
+              "oom": 0,
+              "oom_kill": 0,
+              "oom_group_kill": 0
+            },
+            "memory_objective_met": true
+          }
+        ],
+        "measurement": [
+          {
+            "node": "cellar-mr14-6ccb165bc6adfc81686ecf50-node1",
+            "interval_ns": {
+              "minimum": 121488017917,
+              "maximum": 121935588291
+            },
+            "observer_window_ns": {
+              "before": 316089333,
+              "after": 131481041
+            },
+            "cpu_delta": {
+              "usage_usec": 14495718,
+              "user_usec": 10063575,
+              "system_usec": 4432143,
+              "nr_periods": 1217,
+              "nr_throttled": 0,
+              "throttled_usec": 0
+            },
+            "average_cpu_cores": {
+              "minimum": 0.11888012518056569,
+              "maximum": 0.11931808789491817
+            },
+            "cgroup_io_delta": {
+              "253:16": {
+                "rbytes": 0,
+                "wbytes": 49520640,
+                "rios": 0,
+                "wios": 2449,
+                "dbytes": 0,
+                "dios": 0
+              }
+            },
+            "lifetime_peak_memory_bytes": 39669760,
+            "lifetime_memory_headroom_fraction": 0.9876848856608073,
+            "process_rss_bytes": {
+              "before": 36462592,
+              "after": 37806080
+            },
+            "process_threads": {
+              "before": 11,
+              "after": 11
+            },
+            "process_fds": {
+              "before": 397,
+              "after": 396
+            },
+            "memory_events": {
+              "low": 0,
+              "high": 0,
+              "max": 0,
+              "oom": 0,
+              "oom_kill": 0,
+              "oom_group_kill": 0
+            },
+            "memory_objective_met": true
+          },
+          {
+            "node": "cellar-mr14-6ccb165bc6adfc81686ecf50-node2",
+            "interval_ns": {
+              "minimum": 121234524416,
+              "maximum": 121720707583
+            },
+            "observer_window_ns": {
+              "before": 384974667,
+              "after": 101208500
+            },
+            "cpu_delta": {
+              "usage_usec": 16565499,
+              "user_usec": 11726881,
+              "system_usec": 4838618,
+              "nr_periods": 1216,
+              "nr_throttled": 0,
+              "throttled_usec": 0
+            },
+            "average_cpu_cores": {
+              "minimum": 0.13609433701906612,
+              "maximum": 0.1366401120456225
+            },
+            "cgroup_io_delta": {
+              "253:16": {
+                "rbytes": 0,
+                "wbytes": 71278592,
+                "rios": 0,
+                "wios": 3322,
+                "dbytes": 0,
+                "dios": 0
+              }
+            },
+            "lifetime_peak_memory_bytes": 42070016,
+            "lifetime_memory_headroom_fraction": 0.9869397481282552,
+            "process_rss_bytes": {
+              "before": 35704832,
+              "after": 38477824
+            },
+            "process_threads": {
+              "before": 10,
+              "after": 11
+            },
+            "process_fds": {
+              "before": 397,
+              "after": 397
+            },
+            "memory_events": {
+              "low": 0,
+              "high": 0,
+              "max": 0,
+              "oom": 0,
+              "oom_kill": 0,
+              "oom_group_kill": 0
+            },
+            "memory_objective_met": true
+          },
+          {
+            "node": "cellar-mr14-6ccb165bc6adfc81686ecf50-node3",
+            "interval_ns": {
+              "minimum": 121154712167,
+              "maximum": 121449013959
+            },
+            "observer_window_ns": {
+              "before": 181020917,
+              "after": 113280875
+            },
+            "cpu_delta": {
+              "usage_usec": 16847684,
+              "user_usec": 11776973,
+              "system_usec": 5070710,
+              "nr_periods": 1213,
+              "nr_throttled": 0,
+              "throttled_usec": 0
+            },
+            "average_cpu_cores": {
+              "minimum": 0.13872227901074283,
+              "maximum": 0.13905925488706625
+            },
+            "cgroup_io_delta": {
+              "253:16": {
+                "rbytes": 0,
+                "wbytes": 93200384,
+                "rios": 0,
+                "wios": 4263,
+                "dbytes": 0,
+                "dios": 0
+              }
+            },
+            "lifetime_peak_memory_bytes": 44363776,
+            "lifetime_memory_headroom_fraction": 0.9862276713053385,
+            "process_rss_bytes": {
+              "before": 36491264,
+              "after": 39526400
+            },
+            "process_threads": {
+              "before": 11,
+              "after": 11
+            },
+            "process_fds": {
+              "before": 397,
+              "after": 397
+            },
+            "memory_events": {
+              "low": 0,
+              "high": 0,
+              "max": 0,
+              "oom": 0,
+              "oom_kill": 0,
+              "oom_group_kill": 0
+            },
+            "memory_objective_met": true
+          },
+          {
+            "node": "cellar-mr14-6ccb165bc6adfc81686ecf50-node4",
+            "interval_ns": {
+              "minimum": 121025342500,
+              "maximum": 121374372458
+            },
+            "observer_window_ns": {
+              "before": 242650083,
+              "after": 106379875
+            },
+            "cpu_delta": {
+              "usage_usec": 15548053,
+              "user_usec": 10999714,
+              "system_usec": 4548339,
+              "nr_periods": 1212,
+              "nr_throttled": 0,
+              "throttled_usec": 0
+            },
+            "average_cpu_cores": {
+              "minimum": 0.12809996612242175,
+              "maximum": 0.12846939887817296
+            },
+            "cgroup_io_delta": {
+              "253:16": {
+                "rbytes": 0,
+                "wbytes": 54280192,
+                "rios": 0,
+                "wios": 2566,
+                "dbytes": 0,
+                "dios": 0
+              }
+            },
+            "lifetime_peak_memory_bytes": 38744064,
+            "lifetime_memory_headroom_fraction": 0.9879722595214844,
+            "process_rss_bytes": {
+              "before": 35913728,
+              "after": 38731776
+            },
+            "process_threads": {
+              "before": 9,
+              "after": 11
+            },
+            "process_fds": {
+              "before": 397,
+              "after": 397
+            },
+            "memory_events": {
+              "low": 0,
+              "high": 0,
+              "max": 0,
+              "oom": 0,
+              "oom_kill": 0,
+              "oom_group_kill": 0
+            },
+            "memory_objective_met": true
+          },
+          {
+            "node": "cellar-mr14-6ccb165bc6adfc81686ecf50-node5",
+            "interval_ns": {
+              "minimum": 120887052125,
+              "maximum": 121233633250
+            },
+            "observer_window_ns": {
+              "before": 244671083,
+              "after": 101910042
+            },
+            "cpu_delta": {
+              "usage_usec": 13240085,
+              "user_usec": 9554133,
+              "system_usec": 3685952,
+              "nr_periods": 1210,
+              "nr_throttled": 0,
+              "throttled_usec": 0
+            },
+            "average_cpu_cores": {
+              "minimum": 0.10921131904623504,
+              "maximum": 0.10952442604282754
+            },
+            "cgroup_io_delta": {
+              "253:16": {
+                "rbytes": 0,
+                "wbytes": 31145984,
+                "rios": 0,
+                "wios": 1599,
+                "dbytes": 0,
+                "dios": 0
+              }
+            },
+            "lifetime_peak_memory_bytes": 36601856,
+            "lifetime_memory_headroom_fraction": 0.9886372884114584,
+            "process_rss_bytes": {
+              "before": 35999744,
+              "after": 37814272
+            },
+            "process_threads": {
+              "before": 11,
+              "after": 11
+            },
+            "process_fds": {
+              "before": 396,
+              "after": 398
+            },
+            "memory_events": {
+              "low": 0,
+              "high": 0,
+              "max": 0,
+              "oom": 0,
+              "oom_kill": 0,
+              "oom_group_kill": 0
+            },
+            "memory_objective_met": true
+          },
+          {
+            "node": "cellar-mr14-6ccb165bc6adfc81686ecf50-store",
+            "interval_ns": {
+              "minimum": 120774467583,
+              "maximum": 121137533916
+            },
+            "observer_window_ns": {
+              "before": 214495500,
+              "after": 148570833
+            },
+            "cpu_delta": {
+              "usage_usec": 37651725,
+              "user_usec": 25536579,
+              "system_usec": 12115145,
+              "nr_periods": 1105,
+              "nr_throttled": 0,
+              "throttled_usec": 0
+            },
+            "average_cpu_cores": {
+              "minimum": 0.31081799160703333,
+              "maximum": 0.31175235754299274
+            },
+            "cgroup_io_delta": {
+              "253:16": {
+                "rbytes": 4096,
+                "wbytes": 43581440,
+                "rios": 1,
+                "wios": 9515,
+                "dbytes": 0,
+                "dios": 0
+              }
+            },
+            "lifetime_peak_memory_bytes": 353116160,
+            "lifetime_memory_headroom_fraction": 0.9177837371826172,
+            "process_rss_bytes": {
+              "before": 303226880,
+              "after": 335351808
+            },
+            "process_threads": {
+              "before": 30,
+              "after": 30
+            },
+            "process_fds": {
+              "before": 27,
+              "after": 29
+            },
+            "memory_events": {
+              "low": 0,
+              "high": 0,
+              "max": 0,
+              "oom": 0,
+              "oom_kill": 0,
+              "oom_group_kill": 0
+            },
+            "memory_objective_met": true
+          }
+        ]
+      },
+      "run": "mr14-phase-local-five-healthy-20261022-002",
+      "analysis_rejection": null,
+      "cleanup": [
+        {
+          "container": "cellar-mr14-6ccb165bc6adfc81686ecf50-node5",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-6ccb165bc6adfc81686ecf50-node4",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-6ccb165bc6adfc81686ecf50-node3",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-6ccb165bc6adfc81686ecf50-node2",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-6ccb165bc6adfc81686ecf50-node1",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-6ccb165bc6adfc81686ecf50-store",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        }
+      ],
+      "network_removed": true,
+      "replicas": 450,
+      "measurement_control_items_max": {
+        "1": 44,
+        "2": 20,
+        "3": 28,
+        "4": 12,
+        "5": 14
+      },
+      "phase_totals": [
+        {
+          "node": 1,
+          "owner_interval_us": 120917632,
+          "operations": {
+            "engine_queue": {
+              "started": 741,
+              "count": 741,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 48.98110661268556,
+              "p99_upper_us": 1000
+            },
+            "engine_persist": {
+              "started": 741,
+              "count": 741,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 1979.7746288798921,
+              "p99_upper_us": 25000
+            },
+            "sql_queue": {
+              "started": 1166,
+              "count": 1166,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 83.52229845626071,
+              "p99_upper_us": 2500
+            },
+            "sql_stage": {
+              "started": 192,
+              "count": 192,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 11751.28125,
+              "p99_upper_us": 100000
+            },
+            "sql_prepare": {
+              "started": 247,
+              "count": 247,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 5766.044534412956,
+              "p99_upper_us": 25000
+            },
+            "sql_publish": {
+              "started": 247,
+              "count": 247,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 619.1740890688259,
+              "p99_upper_us": 5000
+            },
+            "sql_query": {
+              "started": 27,
+              "count": 27,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 442.6296296296296,
+              "p99_upper_us": 2500
+            },
+            "transport_control_queue": {
+              "started": 71843,
+              "count": 71843,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 1027.7676878749496,
+              "p99_upper_us": 10000
+            },
+            "transport_data_queue": {
+              "started": 391,
+              "count": 391,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 72.65728900255755,
+              "p99_upper_us": 1000
+            },
+            "transport_control_exchange": {
+              "started": 12651,
+              "count": 12651,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 1228.9714647063474,
+              "p99_upper_us": 10000
+            },
+            "transport_data_exchange": {
+              "started": 391,
+              "count": 391,
+              "failed": 2,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 697.2634271099744,
+              "p99_upper_us": 5000
+            },
+            "transport_control_admit": {
+              "started": 72177,
+              "count": 72177,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 36.43752164817047,
+              "p99_upper_us": 500
+            },
+            "transport_data_admit": {
+              "started": 55,
+              "count": 55,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 78.58181818181818,
+              "p99_upper_us": 1000
+            }
+          }
+        },
+        {
+          "node": 2,
+          "owner_interval_us": 120913909,
+          "operations": {
+            "engine_queue": {
+              "started": 1185,
+              "count": 1185,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 50.99071729957806,
+              "p99_upper_us": 1000
+            },
+            "engine_persist": {
+              "started": 1185,
+              "count": 1185,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 2106.554430379747,
+              "p99_upper_us": 25000
+            },
+            "sql_queue": {
+              "started": 1764,
+              "count": 1764,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 69.86904761904762,
+              "p99_upper_us": 2500
+            },
+            "sql_stage": {
+              "started": 176,
+              "count": 176,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 12806.47159090909,
+              "p99_upper_us": 100000
+            },
+            "sql_prepare": {
+              "started": 395,
+              "count": 395,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 5329.506329113924,
+              "p99_upper_us": 25000
+            },
+            "sql_publish": {
+              "started": 395,
+              "count": 395,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 1302.9898734177216,
+              "p99_upper_us": 25000
+            },
+            "sql_query": {
+              "started": 199,
+              "count": 199,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 360.9899497487437,
+              "p99_upper_us": 5000
+            },
+            "transport_control_queue": {
+              "started": 72170,
+              "count": 72170,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 906.5404184564223,
+              "p99_upper_us": 10000
+            },
+            "transport_data_queue": {
+              "started": 358,
+              "count": 358,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 89.8463687150838,
+              "p99_upper_us": 1000
+            },
+            "transport_control_exchange": {
+              "started": 14118,
+              "count": 14118,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 1170.5237285734522,
+              "p99_upper_us": 10000
+            },
+            "transport_data_exchange": {
+              "started": 358,
+              "count": 358,
+              "failed": 2,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 691.4106145251396,
+              "p99_upper_us": 5000
+            },
+            "transport_control_admit": {
+              "started": 72306,
+              "count": 72306,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 36.4573755981523,
+              "p99_upper_us": 500
+            },
+            "transport_data_admit": {
+              "started": 220,
+              "count": 220,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 74.58181818181818,
+              "p99_upper_us": 1000
+            }
+          }
+        },
+        {
+          "node": 3,
+          "owner_interval_us": 120909588,
+          "operations": {
+            "engine_queue": {
+              "started": 1605,
+              "count": 1605,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 58.91588785046729,
+              "p99_upper_us": 1000
+            },
+            "engine_persist": {
+              "started": 1605,
+              "count": 1605,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 2205.2031152647974,
+              "p99_upper_us": 25000
+            },
+            "sql_queue": {
+              "started": 2113,
+              "count": 2113,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 61.23663038334122,
+              "p99_upper_us": 1000
+            },
+            "sql_stage": {
+              "started": 167,
+              "count": 167,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 13310.736526946108,
+              "p99_upper_us": 100000
+            },
+            "sql_prepare": {
+              "started": 535,
+              "count": 535,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 5486.618691588785,
+              "p99_upper_us": 25000
+            },
+            "sql_publish": {
+              "started": 535,
+              "count": 535,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 1607.5345794392524,
+              "p99_upper_us": 10000
+            },
+            "sql_query": {
+              "started": 150,
+              "count": 150,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 322.38,
+              "p99_upper_us": 2500
+            },
+            "transport_control_queue": {
+              "started": 72432,
+              "count": 72432,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 839.5966561740668,
+              "p99_upper_us": 10000
+            },
+            "transport_data_queue": {
+              "started": 338,
+              "count": 338,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 69.40532544378698,
+              "p99_upper_us": 500
+            },
+            "transport_control_exchange": {
+              "started": 13693,
+              "count": 13693,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 1173.2515153728182,
+              "p99_upper_us": 10000
+            },
+            "transport_data_exchange": {
+              "started": 338,
+              "count": 338,
+              "failed": 2,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 664.5887573964498,
+              "p99_upper_us": 5000
+            },
+            "transport_control_admit": {
+              "started": 72394,
+              "count": 72394,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 33.1989253253032,
+              "p99_upper_us": 500
+            },
+            "transport_data_admit": {
+              "started": 374,
+              "count": 374,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 66.06149732620321,
+              "p99_upper_us": 1000
+            }
+          }
+        },
+        {
+          "node": 4,
+          "owner_interval_us": 120906980,
+          "operations": {
+            "engine_queue": {
+              "started": 1113,
+              "count": 1113,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 53.35489667565139,
+              "p99_upper_us": 1000
+            },
+            "engine_persist": {
+              "started": 1113,
+              "count": 1113,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 2163.652291105121,
+              "p99_upper_us": 25000
+            },
+            "sql_queue": {
+              "started": 1361,
+              "count": 1361,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 61.72667156502572,
+              "p99_upper_us": 1000
+            },
+            "sql_stage": {
+              "started": 28,
+              "count": 28,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 11534.785714285714,
+              "p99_upper_us": 50000
+            },
+            "sql_prepare": {
+              "started": 371,
+              "count": 371,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 4856.908355795148,
+              "p99_upper_us": 25000
+            },
+            "sql_publish": {
+              "started": 371,
+              "count": 371,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 1780.7169811320755,
+              "p99_upper_us": 25000
+            },
+            "sql_query": {
+              "started": 175,
+              "count": 175,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 339.9085714285714,
+              "p99_upper_us": 2500
+            },
+            "transport_control_queue": {
+              "started": 72064,
+              "count": 72064,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 837.1840863676732,
+              "p99_upper_us": 10000
+            },
+            "transport_data_queue": {
+              "started": 75,
+              "count": 75,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 98.52,
+              "p99_upper_us": 1000
+            },
+            "transport_control_exchange": {
+              "started": 13444,
+              "count": 13444,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 1182.3523504909253,
+              "p99_upper_us": 10000
+            },
+            "transport_data_exchange": {
+              "started": 75,
+              "count": 75,
+              "failed": 18,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 1335.6,
+              "p99_upper_us": 25000
+            },
+            "transport_control_admit": {
+              "started": 71775,
+              "count": 71775,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 38.3133960292581,
+              "p99_upper_us": 500
+            },
+            "transport_data_admit": {
+              "started": 346,
+              "count": 346,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 79.8757225433526,
+              "p99_upper_us": 1000
+            }
+          }
+        },
+        {
+          "node": 5,
+          "owner_interval_us": 120903745,
+          "operations": {
+            "engine_queue": {
+              "started": 666,
+              "count": 666,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 48.36336336336336,
+              "p99_upper_us": 1000
+            },
+            "engine_persist": {
+              "started": 666,
+              "count": 666,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 2179.9474474474473,
+              "p99_upper_us": 25000
+            },
+            "sql_queue": {
+              "started": 756,
+              "count": 756,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 59.682539682539684,
+              "p99_upper_us": 1000
+            },
+            "sql_stage": {
+              "started": 27,
+              "count": 27,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 9843.444444444445,
+              "p99_upper_us": 25000
+            },
+            "sql_prepare": {
+              "started": 222,
+              "count": 222,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 5045.648648648648,
+              "p99_upper_us": 25000
+            },
+            "sql_publish": {
+              "started": 222,
+              "count": 222,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 1659.3603603603603,
+              "p99_upper_us": 10000
+            },
+            "sql_query": {
+              "started": 24,
+              "count": 24,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 487.625,
+              "p99_upper_us": 2500
+            },
+            "transport_control_queue": {
+              "started": 71731,
+              "count": 71731,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 1033.5111597496202,
+              "p99_upper_us": 10000
+            },
+            "transport_data_queue": {
+              "started": 72,
+              "count": 72,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 81.625,
+              "p99_upper_us": 500
+            },
+            "transport_control_exchange": {
+              "started": 12581,
+              "count": 12581,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 1201.3285907320562,
+              "p99_upper_us": 10000
+            },
+            "transport_data_exchange": {
+              "started": 72,
+              "count": 72,
+              "failed": 18,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 991.8055555555555,
+              "p99_upper_us": 25000
+            },
+            "transport_control_admit": {
+              "started": 71588,
+              "count": 71588,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 35.64883779404369,
+              "p99_upper_us": 500
+            },
+            "transport_data_admit": {
+              "started": 197,
+              "count": 197,
+              "failed": 0,
+              "abandoned": 0,
+              "inflight_before": 0,
+              "inflight_after": 0,
+              "mean_us": 83.98477157360406,
+              "p99_upper_us": 1000
+            }
+          }
+        }
+      ],
+      "offered_route_sha256": "bdb1b41349e69bbc78833dbc046d7edcb73750eada07abb47c567fbf6096720e"
+    }
+  ],
+  "setup": "The first image-build attempt ran before the dedicated Docker context was available and exited without workload resources. Its output remains in the validation capsule. The same profile startup completed; the subsequent build produced the verified image.",
+  "limitations": [
+    "One shared Mac and one Colima VM with RustFS, no independent failure domains or Amazon S3. Other profiles and host workloads remain uncontrolled and are observed, not modified.",
+    "The 30 active cells, 10 offered operations/second, Quorum acknowledgements, 100 ms ticks, thirty-second warmup and 120-second measurement are unchanged. Each Cellar node retains one CPU, 3 GiB and no swap.",
+    "Phase timings aggregate independent operations. Exchange counts windows and includes connection setup; runtime admission is not a durability proof. Host/sample windows and owner clocks remain in raw evidence. These observations alone do not establish per-command causality.",
+    "No measured instrumentation-overhead or causal cross-revision speedup claim. Earlier traffic failures remain at their original source pins; historical evidence requires its recorded analyzer.",
+    "MR-14 remains in progress: sustained S3, equivalent-contract comparison, steady-state/overhead and Q1 capacity gates remain. Q1 still exceeds both the authorized five-node scope and the 4,096 replica bound.",
+    "Exact owned containers are stopped, their inspected empty networks removed, and data volumes/raw evidence retained. Only the dedicated profile was controlled, and it is stopped."
+  ],
+  "findings": [
+    "The first 150-cell control completes 1,200/1,200 operations with 70.981 ms p99 and passes traffic objectives; the repeat completes 1,165/1,200 with 35 generator rejections and 247.441 ms p99, so repeatable local capacity remains unqualified.",
+    "The 500-cell run reconciles all 1,500 replicas but misses the unchanged 200 ms latency objective at 201.343 ms p99, with three generator rejections. Its aggregate sender queue and SQL staging times rise; receiver admission remains shorter. These are phase observations, not a causal diagnosis.",
+    "The 1,500-cell attempt fails its original 600-second leader-placement deadline before workload measurement. Node 1 exits with Raft catalog: Runtime(Overloaded), exit code 1 and no OOM. The other four nodes report 900 groups ready. Raw startup diagnostics and shutdown logs remain retained; no capacity result is assigned.",
+    "Code inspection identifies early group route publication before all runtime attachments and before the host event consumer starts. A focused regression and startup admission fix are the next priority; the observed physical cause is not yet proven."
+  ]
+}

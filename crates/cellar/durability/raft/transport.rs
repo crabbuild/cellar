@@ -4,6 +4,7 @@
 use super::budget::{Budget, Permit};
 use super::completion::RuntimeError;
 use super::mailbox;
+use super::performance::{Operation, Timer};
 use super::runtime::RaftRuntime;
 use super::transport_frame::{self as frame, Disposition, FrameHead, RequestHeader, Route};
 use super::transport_options::{NamespaceQueryOrigin, RaftPeerNode, RaftTls, TransportOptions};
@@ -29,10 +30,14 @@ use tokio::sync::{mpsc, oneshot, watch, Notify, Semaphore};
 mod directory;
 #[path = "inspection_transport.rs"]
 pub(crate) mod inspections;
+#[path = "transport_metrics.rs"]
+mod metrics;
 #[path = "query_transport.rs"]
 mod queries;
 #[path = "transport_resources.rs"]
 mod resources;
+#[path = "transport_send.rs"]
+mod sender;
 pub(crate) use resources::ResourceObserver;
 #[path = "seed_transport.rs"]
 pub(crate) mod seeds;
@@ -227,6 +232,7 @@ struct SendRequest {
     body: Vec<u8>,
     snapshot: bool,
     result: Option<oneshot::Sender<Result<(), TransportError>>>,
+    queued: Option<Timer>,
     _node: Permit,
     _peer: Permit,
 }
@@ -286,6 +292,7 @@ impl Registry {
 }
 
 struct State {
+    performance: Arc<super::performance::Registry>,
     domain: DomainToken,
     runtime: RaftRuntime,
     auth: Arc<PeerAuth>,
@@ -313,7 +320,10 @@ struct State {
     inspection_metadata: Arc<Budget>,
     inspection_enabled: AtomicBool,
     control_connections: Arc<Semaphore>,
+    data_connections: Arc<Semaphore>,
+    query_connections: Arc<Semaphore>,
     consensus_connections: Arc<Semaphore>,
+    outgoing_connections: resources::Connections,
 }
 
 struct Handle(Arc<State>);
@@ -394,6 +404,7 @@ impl RaftTransport {
         let (stop, _) = watch::channel(false);
         let snapshot_memory = snapshots::memory_bound(&options);
         let state = Arc::new(State {
+            performance: runtime.log().performance(),
             domain,
             runtime,
             auth,
@@ -433,7 +444,10 @@ impl RaftTransport {
             refused: AtomicU64::new(0),
             failed: AtomicU64::new(0),
             control_connections: Arc::new(Semaphore::new(options.max_connections_per_lane)),
+            data_connections: Arc::new(Semaphore::new(options.max_connections_per_lane)),
+            query_connections: Arc::new(Semaphore::new(options.max_connections_per_lane)),
             consensus_connections: Arc::new(Semaphore::new(options.max_connections_per_lane)),
+            outgoing_connections: resources::Connections::default(),
             inspection_metadata: Budget::new(
                 inspections::META_BYTES * inspections::SLOTS,
                 inspections::SLOTS,
@@ -709,15 +723,23 @@ impl RaftTransport {
             body,
             snapshot: message.get_msg_type() == MessageType::MsgSnapshot,
             result: Some(result),
+            queued: Some(state.performance.timer(match lane {
+                Lane::Control => Operation::ControlQueue,
+                Lane::Data => Operation::DataQueue,
+            })),
             _node: node_permit,
             _peer: peer_permit,
         };
-        pool.tx[lane_index(lane)]
-            .try_send(request)
-            .map_err(|e| match e {
+        pool.tx[lane_index(lane)].try_send(request).map_err(|e| {
+            let error = match &e {
                 mpsc::error::TrySendError::Full(_) => TransportError::Overloaded,
                 mpsc::error::TrySendError::Closed(_) => TransportError::Closed,
-            })?;
+            };
+            if let Some(timer) = e.into_inner().queued.take() {
+                timer.finish(false);
+            }
+            error
+        })?;
         Ok(Delivery { result: wait })
     }
 
@@ -1091,7 +1113,7 @@ impl State {
         let slots = if lane == Lane::Control {
             self.control_connections.clone()
         } else {
-            Arc::new(Semaphore::new(self.options.max_connections_per_lane))
+            self.data_connections.clone()
         };
         let mut stop = self.stop.subscribe();
         loop {
@@ -1126,6 +1148,7 @@ impl State {
         lane: Lane,
     ) -> Result<(), TransportError> {
         stream.set_nodelay(true)?;
+        let stream = self.observed_socket(stream, lane.into());
         let acceptor = tokio_rustls::TlsAcceptor::from(self.tls.server.clone());
         let mut stream = self
             .bounded(None, async {
@@ -1252,6 +1275,10 @@ impl State {
             // Routing/configuration may have changed while reading the body.
             self.authorize(&header)?;
             let scope = source.scope.clone();
+            let admission = self.performance.timer(match lane {
+                Lane::Control => Operation::ControlAdmit,
+                Lane::Data => Operation::DataAdmit,
+            });
             let result = self
                 .bounded(Some(&pool), async {
                     self.runtime
@@ -1260,6 +1287,7 @@ impl State {
                         .map_err(TransportError::from)
                 })
                 .await;
+            admission.finish(result.is_ok());
             let accepted = result.is_ok();
             let status = result
                 .as_ref()
@@ -1279,124 +1307,6 @@ impl State {
                 self.accepted.fetch_add(1, Ordering::Relaxed);
             } else {
                 self.refused.fetch_add(1, Ordering::Relaxed);
-            }
-        }
-    }
-
-    async fn send_loop(
-        self: Arc<Self>,
-        pool: Arc<Pool>,
-        lane: Lane,
-        mut requests: mailbox::Receiver<SendRequest>,
-    ) {
-        let mut stop = self.stop.subscribe();
-        let mut peer_stop = pool.stop.subscribe();
-        let mut connection = None;
-        loop {
-            if *stop.borrow() || *peer_stop.borrow() {
-                return;
-            }
-            let mut request = crate::asyncrt::select! {
-                _ = stop.changed() => return,
-                _ = peer_stop.changed() => return,
-                request = requests.recv() => match request { Some(request) => request, None => return },
-            };
-            let result = self
-                .bounded(Some(&pool), async {
-                    if !self.current(&request) {
-                        return Err(TransportError::StalePeer);
-                    }
-                    if connection.is_none() {
-                        let tcp = TcpStream::connect(pool.peer.address(lane)).await?;
-                        tcp.set_nodelay(true)?;
-                        let name =
-                            rustls::pki_types::ServerName::try_from(pool.peer.server_name.clone())
-                                .map_err(|_| TransportError::Identity)?;
-                        let tls = tokio_rustls::TlsConnector::from(self.tls.client.clone())
-                            .connect(name, tcp)
-                            .await
-                            .map_err(|e| TransportError::Tls(e.to_string()))?;
-                        let exporter = tls
-                            .get_ref()
-                            .1
-                            .export_keying_material([0; 32], frame::EXPORT_LABEL, None)
-                            .map_err(|e| TransportError::Tls(e.to_string()))?;
-                        connection = Some((tls, exporter));
-                    }
-                    let (stream, exporter) = connection.as_mut().ok_or(TransportError::Closed)?;
-                    let head = frame::request_head(
-                        &self.auth,
-                        exporter,
-                        &request.header,
-                        request.body.len(),
-                        &self.options,
-                    )?;
-                    write_frame(stream, &head, &request.body).await?;
-                    let response = read_head(stream, &self.options, lane, true).await?;
-                    match response.response(&self.auth, exporter, &request.header, &head.tag)? {
-                        Disposition::Accepted => (),
-                        Disposition::UnknownGroup => return Err(TransportError::UnknownGroup),
-                        Disposition::StalePeer => return Err(TransportError::StalePeer),
-                        Disposition::Overloaded => return Err(TransportError::Overloaded),
-                        Disposition::Refused => return Err(TransportError::Refused),
-                    }
-                    if !self.current(&request) {
-                        return Err(TransportError::StalePeer);
-                    }
-                    Ok(())
-                })
-                .await;
-            if result.is_err() {
-                connection = None;
-                self.failed.fetch_add(1, Ordering::Relaxed);
-                if self.current(&request) {
-                    // These are failure hints only. A timeout never constructs
-                    // MsgAppendResponse or advances a durable/committed index.
-                    let _ = self
-                        .bounded(Some(&pool), async {
-                            self.runtime
-                                .admit_unreachable(
-                                    &request.scope,
-                                    request.peer.replica.member.get(),
-                                )
-                                .await?;
-                            if request.snapshot {
-                                self.runtime
-                                    .admit_snapshot_status(
-                                        &request.scope,
-                                        request.peer.replica.member.get(),
-                                        false,
-                                    )
-                                    .await?;
-                            }
-                            Ok(())
-                        })
-                        .await;
-                }
-            }
-            if result.is_ok() && request.snapshot && self.current(&request) {
-                // raft-rs defines Finish as the transport status of the sent
-                // snapshot. Actual installation still needs the receiver's
-                // persisted Raft response; this hint never proves installation.
-                let _ = self
-                    .bounded(Some(&pool), async {
-                        self.runtime
-                            .admit_snapshot_status(
-                                &request.scope,
-                                request.peer.replica.member.get(),
-                                true,
-                            )
-                            .await?;
-                        Ok(())
-                    })
-                    .await;
-            }
-            // Completion observers may immediately admit another frame. Drop
-            // the body and both permits before waking that observer.
-            let reply = request.result.take();
-            drop(request);
-            if let Some(reply) = reply {
-                let _ = reply.send(result);
             }
         }
     }

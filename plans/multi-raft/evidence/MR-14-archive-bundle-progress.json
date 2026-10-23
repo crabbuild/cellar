@@ -1,0 +1,479 @@
+{
+  "task_id": "MR-14",
+  "source_revision": "e2752d27280db077513af37b7685fceb114196b7",
+  "completion": "partial",
+  "scope": "Bounded native archive payload coalescing with independent exact-history verification and head proofs. All six required MR-14 integration cases are implemented; benchmark, instrumentation and capacity gates remain open.",
+  "environment": {
+    "system": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+    "machine": "arm64",
+    "native_bundle_case": "One actual embedded Node, two single-voter-development groups, real Raft-Engine/SQLite/LTX and an InMemory fault-injecting object store. Restores use fresh GenerationStores after node shutdown.",
+    "broader_matrix": "Serial native fixtures; concurrency within each fixture remains enabled. Repair-load case uses three embedded nodes and real TLS. No Colima profile was started, and container CPU/RAM limits do not apply to these tests."
+  },
+  "toolchain": "Rust 1.98.1, locked dependencies, all features enabled for the matrix and Clippy, test/dev debuginfo disabled, incremental disabled, three build jobs.",
+  "lockfile_sha256": "b9622cfd2713f81591f3cf200ff5a732418ab42e99df46e63c22c06a6d94b105",
+  "protocol_identity": "cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1/nodes-1/bundles-1",
+  "compatibility": "Marker-1 hard cutover: earlier experimental namespace roots are refused. Fresh compatible namespace/prefix and local state are required; historical measurements retain their original format and executable.",
+  "bounds": {
+    "batch_groups": 2,
+    "shared_object_bytes": 8388608,
+    "index_bytes": 16384,
+    "coalescing_wait_ms": 5,
+    "default_capture_bytes_per_cell": 4194304,
+    "default_capture_bytes_per_node": 8388608,
+    "default_complete_recovery_set_bytes_per_cell": 268435456,
+    "physical_rss_qualified": false
+  },
+  "native_bundle_observations": {
+    "cells": 2,
+    "shared_objects": 1,
+    "objects": "One new tail and one new snapshot share the immutable bundle; the older first-cell snapshot remains direct. Dependencies, manifests and heads remain separate.",
+    "expected_restored_values": [
+      6,
+      14
+    ],
+    "business_callbacks": 4,
+    "checks": [
+      "A lost immutable bundle PUT response is confirmed by exact object readback.",
+      "Each S3 receipt covers its own exact captured history; stronger retries execute no additional callback.",
+      "Both histories restore independently into fresh SQLite generations after joined node shutdown.",
+      "A foreign manifest reference is refused. Corruption of the shared object refuses both recoveries; restoring the original bytes restores both histories.",
+      "Partial-head-failure archive fixture returns exactly one success and one failure; the failed cell has no head, then succeeds through its own retry.",
+      "Codec tests reject substituted scope, birth, schema, member, malformed ranges, overlap, duplicate or unordered members, nested bundles, wrong object domain, corruption and truncation even with recomputed outer checksums.",
+      "Objects that individually fit but exceed a member's complete-bundle limit use direct publication.",
+      "Duplicate histories and a foreign object-store handle are rejected before publication."
+    ]
+  },
+  "broader_parent_validation": {
+    "source_revision": "d64f86ab9f81f181d86a33789d2adae050e32af8",
+    "tests": [
+      {
+        "target": "unittests lib.rs",
+        "passed": 457,
+        "failed": 0,
+        "ignored": 0,
+        "binary_sha256": "7353ac25112bba78336ea53f80b0fcc7215d908fda3a18abfb196695834eb5fd"
+      },
+      {
+        "target": "unittests ../../tools/perf/raft_node.rs",
+        "passed": 1,
+        "failed": 0,
+        "ignored": 0,
+        "binary_sha256": "63c432fb034425519464e8aec400f01144f24cbc12b814b033f4fdc8ab470273"
+      },
+      {
+        "target": "tests/native_raft_archive.rs",
+        "passed": 30,
+        "failed": 0,
+        "ignored": 0,
+        "binary_sha256": "0199c158788f4b33dd007d17af5df171ed4dc1727b07dbd4d532c805e0fbd8ee"
+      },
+      {
+        "target": "tests/native_raft_execution.rs",
+        "passed": 17,
+        "failed": 0,
+        "ignored": 2,
+        "binary_sha256": "d646f82a02954f43679abcb822afff93f5f80c537af9a53189749cd5550091b3"
+      },
+      {
+        "target": "tests/native_raft_host.rs",
+        "passed": 27,
+        "failed": 0,
+        "ignored": 0,
+        "binary_sha256": "d41afb64eaec0deb1845d8c005623f0f5c790ecffd2a50ab199dfa896f133101"
+      },
+      {
+        "target": "tests/native_raft_membership.rs",
+        "passed": 27,
+        "failed": 0,
+        "ignored": 1,
+        "binary_sha256": "95dfb1c31d7b8c17bbbb06644508c1f65bcdc7762a37c37752a48ca375fed1a6"
+      },
+      {
+        "target": "tests/native_raft_multigroup.rs",
+        "passed": 6,
+        "failed": 0,
+        "ignored": 1,
+        "binary_sha256": "73633107f54c2431ea1c0fb11af1ca73b988ae1cd4c4f1b887790cff287caa29"
+      },
+      {
+        "target": "tests/native_raft_operations.rs",
+        "passed": 18,
+        "failed": 0,
+        "ignored": 0,
+        "binary_sha256": "ffbde1a49e30f68b9312aaad4eb419ed85c95dfa468759b789330abcdbee7862"
+      },
+      {
+        "target": "tests/native_raft_reads.rs",
+        "passed": 20,
+        "failed": 0,
+        "ignored": 0,
+        "binary_sha256": "291b8eb18d468e9a69ec264567735008c6f04510279059675e0e6f4b3a586e7f"
+      },
+      {
+        "target": "tests/native_raft_runtime.rs",
+        "passed": 15,
+        "failed": 0,
+        "ignored": 1,
+        "binary_sha256": "fff06485e02db39e47b9ca0ad74035ffb20c1db9071817d1201c47600eca4aa4"
+      },
+      {
+        "target": "tests/native_raft_snapshot.rs",
+        "passed": 42,
+        "failed": 0,
+        "ignored": 2,
+        "binary_sha256": "f442483a8ddadbe09ef1bfa02a7610eb2260d9c76664bffc6dd78dde1b73fbfa"
+      },
+      {
+        "target": "tests/native_raft_storage.rs",
+        "passed": 17,
+        "failed": 0,
+        "ignored": 1,
+        "binary_sha256": "40d8f5ac1840defdb85b8184a22538ef71e70d703cbc130486185ec5691796be"
+      }
+    ],
+    "passed": 677,
+    "relationship_to_final": "Before the private constructor cleanup. Only archive.rs and catalog.rs Rust sources changed afterward, to derive the same two path strings inside the archive owner instead of passing them separately. The final source reruns all library, archive and multi-group cases and all-target Clippy. Counts from the two revisions are not added."
+  },
+  "rust_validation": {
+    "source_revision": "e2752d27280db077513af37b7685fceb114196b7",
+    "tests": [
+      {
+        "target": "unittests lib.rs",
+        "passed": 457,
+        "failed": 0,
+        "ignored": 0,
+        "binary_sha256": "e5daa9b343471173fb4e7362297c377a01fae63e60b940b77eef96e5c2cc53e2"
+      },
+      {
+        "target": "tests/native_raft_archive.rs",
+        "passed": 30,
+        "failed": 0,
+        "ignored": 0,
+        "binary_sha256": "675136a45d90bdcbd2a300238d5b6a7d6d852f7167dc9b04304c0576f82526d7"
+      },
+      {
+        "target": "tests/native_raft_multigroup.rs",
+        "passed": 6,
+        "failed": 0,
+        "ignored": 1,
+        "binary_sha256": "77f1fa844e8591943f7293eee5d48807b79bdbec5553b55288c1623e8e190bf2"
+      }
+    ],
+    "passed": 493,
+    "ignored": "Ignored entries are child-process helpers exercised by their parent tests; no ordinary required case is skipped.",
+    "commands": "See final-matrix command; three additional exact native bundle repetitions address the short opportunistic coalescing window. Counts are not added across repetitions."
+  },
+  "commands": [
+    {
+      "name": "final-matrix",
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--all-features",
+        "--lib",
+        "--test",
+        "native_raft_archive",
+        "--test",
+        "native_raft_multigroup",
+        "--locked",
+        "--",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "source_revision": "e2752d27280db077513af37b7685fceb114196b7",
+      "exit_code": 0,
+      "duration_seconds": 218.583,
+      "sha256": "75ccfe41a6266edd3f8788aed80e8562e02fa626232c0a9db7fd441fb584596d",
+      "output": "evidence/MR-14-archive-bundle-validation.json.gz",
+      "log_member": "final-matrix"
+    },
+    {
+      "name": "clippy",
+      "argv": [
+        "cargo",
+        "clippy",
+        "-p",
+        "cellar",
+        "--all-targets",
+        "--all-features",
+        "--locked",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "source_revision": "e2752d27280db077513af37b7685fceb114196b7",
+      "exit_code": 0,
+      "duration_seconds": 51.375,
+      "sha256": "e9c93a7f6de41e85e2389ba8d2c3f2cdc125c41383cd8843d494c32daf7ede32",
+      "output": "evidence/MR-14-archive-bundle-validation.json.gz",
+      "log_member": "clippy"
+    },
+    {
+      "name": "format",
+      "argv": [
+        "cargo",
+        "format",
+        "--check"
+      ],
+      "source_revision": "e2752d27280db077513af37b7685fceb114196b7",
+      "exit_code": 0,
+      "duration_seconds": 43.603,
+      "sha256": "eea41a9e2a2ddd502145ad6b5d9cdad8f4598ffd7bf6b8f2d60a7bce74e7602e",
+      "output": "evidence/MR-14-archive-bundle-validation.json.gz",
+      "log_member": "format"
+    },
+    {
+      "name": "layout",
+      "argv": [
+        "cargo",
+        "check-layout"
+      ],
+      "source_revision": "e2752d27280db077513af37b7685fceb114196b7",
+      "exit_code": 0,
+      "duration_seconds": 0.167,
+      "sha256": "138192fb42609297fe14be20ef57bd10820e2e38b28060f52c4ca46b7e37991c",
+      "output": "evidence/MR-14-archive-bundle-validation.json.gz",
+      "log_member": "layout"
+    },
+    {
+      "name": "dependencies",
+      "argv": [
+        "python3",
+        "tools/check_native_dependencies.py"
+      ],
+      "source_revision": "e2752d27280db077513af37b7685fceb114196b7",
+      "exit_code": 0,
+      "duration_seconds": 0.326,
+      "sha256": "faf9bdb8df5819a63d590ede5d4a5f43eb4e8b00d8a6f44ccfb36bd8c4c5c238",
+      "output": "evidence/MR-14-archive-bundle-validation.json.gz",
+      "log_member": "dependencies"
+    },
+    {
+      "name": "docs",
+      "argv": [
+        "python3",
+        "tools/docs/check.py"
+      ],
+      "source_revision": "e2752d27280db077513af37b7685fceb114196b7",
+      "exit_code": 0,
+      "duration_seconds": 0.086,
+      "sha256": "e7693fab112af17ce1071f3a345f155ff4327d9ae2a4c3b931be4a17aac1bc8b",
+      "output": "evidence/MR-14-archive-bundle-validation.json.gz",
+      "log_member": "docs"
+    },
+    {
+      "name": "plan",
+      "argv": [
+        "python3",
+        "plans/multi-raft/plan.py",
+        "validate"
+      ],
+      "source_revision": "e2752d27280db077513af37b7685fceb114196b7",
+      "exit_code": 0,
+      "duration_seconds": 0.142,
+      "sha256": "5cd90a91510acf52983bb0b7a2df2138fa2273985f5ea187dc7b6fa350267ca8",
+      "output": "evidence/MR-14-archive-bundle-validation.json.gz",
+      "log_member": "plan"
+    },
+    {
+      "name": "preflight",
+      "argv": [
+        "python3",
+        "plans/multi-raft/plan.py",
+        "preflight"
+      ],
+      "source_revision": "e2752d27280db077513af37b7685fceb114196b7",
+      "exit_code": 0,
+      "duration_seconds": 0.149,
+      "sha256": "0883b6d046acc80a8b78e553790d4d89e3deecd351dfc4df9eabd5afaf11235d",
+      "output": "evidence/MR-14-archive-bundle-validation.json.gz",
+      "log_member": "preflight"
+    },
+    {
+      "name": "plan-tests",
+      "argv": [
+        "python3",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "plans/multi-raft",
+        "-p",
+        "test_*.py"
+      ],
+      "source_revision": "e2752d27280db077513af37b7685fceb114196b7",
+      "exit_code": 0,
+      "duration_seconds": 0.141,
+      "sha256": "cac38877907e2d8c44333c48961b598e19869d9f554b4c939775357fd1cb3bc3",
+      "output": "evidence/MR-14-archive-bundle-validation.json.gz",
+      "log_member": "plan-tests"
+    },
+    {
+      "name": "native-repeat-1",
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--all-features",
+        "--test",
+        "native_raft_multigroup",
+        "--locked",
+        "archive_bundle_group_index",
+        "--",
+        "--exact",
+        "--nocapture"
+      ],
+      "source_revision": "e2752d27280db077513af37b7685fceb114196b7",
+      "exit_code": 0,
+      "duration_seconds": 2.135,
+      "sha256": "64e898edc749b0bbda95b23d7e8c2a06788b80bcdd746b0d369ccbebf168702a",
+      "output": "evidence/MR-14-archive-bundle-validation.json.gz",
+      "log_member": "native-repeat-1"
+    },
+    {
+      "name": "native-repeat-2",
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--all-features",
+        "--test",
+        "native_raft_multigroup",
+        "--locked",
+        "archive_bundle_group_index",
+        "--",
+        "--exact",
+        "--nocapture"
+      ],
+      "source_revision": "e2752d27280db077513af37b7685fceb114196b7",
+      "exit_code": 0,
+      "duration_seconds": 1.293,
+      "sha256": "60011dc8e2a045889f95c01d4a67b795fedb253261ce07cf8c87b5d0b64a81e9",
+      "output": "evidence/MR-14-archive-bundle-validation.json.gz",
+      "log_member": "native-repeat-2"
+    },
+    {
+      "name": "native-repeat-3",
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--all-features",
+        "--test",
+        "native_raft_multigroup",
+        "--locked",
+        "archive_bundle_group_index",
+        "--",
+        "--exact",
+        "--nocapture"
+      ],
+      "source_revision": "e2752d27280db077513af37b7685fceb114196b7",
+      "exit_code": 0,
+      "duration_seconds": 1.124,
+      "sha256": "dd265ba5ea82e557304c6e2d01d02957ea2aeeaaa350e8d863a196b2dc36e20b",
+      "output": "evidence/MR-14-archive-bundle-validation.json.gz",
+      "log_member": "native-repeat-3"
+    },
+    {
+      "name": "parent-matrix",
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--all-features",
+        "--lib",
+        "--bin",
+        "cellar-perf-raft",
+        "--test",
+        "native_raft_archive",
+        "--test",
+        "native_raft_execution",
+        "--test",
+        "native_raft_host",
+        "--test",
+        "native_raft_membership",
+        "--test",
+        "native_raft_multigroup",
+        "--test",
+        "native_raft_operations",
+        "--test",
+        "native_raft_reads",
+        "--test",
+        "native_raft_runtime",
+        "--test",
+        "native_raft_snapshot",
+        "--test",
+        "native_raft_storage",
+        "--locked",
+        "--",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "source_revision": "d64f86ab9f81f181d86a33789d2adae050e32af8",
+      "exit_code": 0,
+      "duration_seconds": 628.134,
+      "sha256": "75bcd442fcbc4f3a9049f1a44baad9c4385ea384c874e8cbe4acf0f212442732",
+      "output": "evidence/MR-14-archive-bundle-validation.json.gz",
+      "log_member": "parent-matrix"
+    }
+  ],
+  "diagnostics": [
+    {
+      "name": "development-import-error",
+      "source_revision": null,
+      "description": "Development-only missing fixture imports; corrected before execution.",
+      "output": "evidence/MR-14-archive-bundle-validation.json.gz",
+      "log_member": "development-import-error",
+      "log_sha256": "3f63086428b2dad572939cd2d1286901d4dafb41f0a9842bd7114134d2217422"
+    },
+    {
+      "name": "development-native-no-bundle",
+      "source_revision": null,
+      "description": "Native regression failed: no mixed-group bundle was written.",
+      "output": "evidence/MR-14-archive-bundle-validation.json.gz",
+      "log_member": "development-native-no-bundle",
+      "log_sha256": "86732efb316e06ccd85c09b305a2f692448c180d6588b4f9139fd8f25cee5da1"
+    },
+    {
+      "name": "development-admission-probe",
+      "source_revision": null,
+      "description": "Temporary trace confirmed every capture batch contained one member; successful old cuts inherited failure retry delay. Probes removed after diagnosis.",
+      "output": "evidence/MR-14-archive-bundle-validation.json.gz",
+      "log_member": "development-admission-probe",
+      "log_sha256": "85e01756bd3613af2e1187300f15b22cf5868969e68272c0d67b00ec81c472d8"
+    },
+    {
+      "name": "command-target-error",
+      "source_revision": "d64f86ab9f81f181d86a33789d2adae050e32af8",
+      "description": "Initial validation command used an incorrect binary target; no tests executed. Corrected to the manifest target cellar-perf-raft.",
+      "output": "evidence/MR-14-archive-bundle-validation.json.gz",
+      "log_member": "command-target-error",
+      "log_sha256": "b8b45cf19a3b1907ae20d2fdcd89db2ad77f609f3751f4010da6db5df549e026"
+    },
+    {
+      "name": "initial-clippy",
+      "source_revision": "d64f86ab9f81f181d86a33789d2adae050e32af8",
+      "description": "All-target Clippy rejected the eighth archive constructor argument. The final source derives group/bundle paths inside the archive owner, keeps identical paths, and adds no lint allowance.",
+      "output": "evidence/MR-14-archive-bundle-validation.json.gz",
+      "log_member": "initial-clippy"
+    }
+  ],
+  "raw_output": {
+    "path": "evidence/MR-14-archive-bundle-validation.json.gz",
+    "sha256": "9738e628dc9fffad3a09a02ce94919bb31c39dd3f1f5c15984edcabc6488d830",
+    "bytes": 39623
+  },
+  "remaining": [
+    "All required internal latency, byte and controller measurements.",
+    "Executable matched Fleet/bucket benchmarks with equal durability, workload, hardware and build contracts.",
+    "Measured steady-state, physical RSS, object-store operation cost and supported cell density; no archive-batching speedup is established.",
+    "Preliminary Q1: six processes, 10,000 three-voter cells; unchanged 4,096-group host bound versus 5,000 average replicas required. Q1 remains unqualified and outside the agreed five-node local ceiling.",
+    "MR-13 remaining operations/receipt/disaster-restore qualification, and MR-15 through MR-17 release, scale and federation work."
+  ]
+}

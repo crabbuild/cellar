@@ -32,6 +32,16 @@ exporter sheds telemetry when saturated and counts drops; absent spans do not
 prove absent application work. Never use sampled
 telemetry alone as the command receipt ledger.
 
+## Raft owner observations
+
+`RaftCells.resource_usage()` exposes bounded admission, role, lag, image and
+controller observations. `RaftCells.performance()` adds engine/SQL operation
+outcomes, microsecond histograms and API byte counters without per-cell labels.
+Both are available through the generation-bound, peer-authenticated internal
+Raft metrics endpoint. The [operations contract](../plans/multi-raft/operations-design.md#performance-observations)
+defines the measurements, sampling failures and byte exclusions. These are
+owner observations, not command receipts or physical-device I/O accounting.
+
 ## Event-delivery observations
 
 ### Host counters and histograms

@@ -79,7 +79,11 @@ pub async fn run(shutdown_held: bool) -> Result<()> {
                 }
         );
         ensure!(initial.business.max_items == 128 && initial.control.max_items == 16);
-        ensure!(initial.archive_capture.max_items == 1 && initial.archive_capture.max_bytes > 0);
+        ensure!(
+            initial.archive_capture.max_items == 2
+                && initial.archive_capture.max_bytes
+                    == 2 * ArchiveLimits::default().max_capture_bytes
+        );
         let mut written = Vec::new();
         for handle in &handles {
             public_node::ready(handle).await?;
@@ -98,6 +102,25 @@ pub async fn run(shutdown_held: bool) -> Result<()> {
             .await?;
         }
         // The first and second registrations have distinct physical SQL workers.
+        let images = service
+            .resource_usage()
+            .images
+            .context("image accounting unavailable")?;
+        ensure!(
+            images.stores == 3
+                && images.generations >= 2
+                && images.retained >= 2
+                && images.bytes > 0
+        );
+        let query_sample = || {
+            service
+                .performance()
+                .operations
+                .into_iter()
+                .find(|op| op.name == "sql_query")
+                .unwrap()
+        };
+        let before = query_sample();
         let held = tokio::spawn(handles[0].query(
             definition.get.clone(),
             b"hold".to_vec(),
@@ -114,6 +137,14 @@ pub async fn run(shutdown_held: bool) -> Result<()> {
         ensure!(held.await.is_err_and(|error| error.is_cancelled()));
         ensure!(service.resource_usage().query_pins.in_use == 1);
         super::metrics::pin_count(&node, 1).await?;
+        let physical = query_sample();
+        ensure!(physical.started == before.started + 1);
+        ensure!(
+            physical.count == before.count
+                && physical.succeeded == before.succeeded
+                && physical.failed == before.failed
+                && physical.abandoned == before.abandoned
+        );
         let refused = handles[1]
             .query(
                 definition.get.clone(),
@@ -174,7 +205,8 @@ pub async fn run(shutdown_held: bool) -> Result<()> {
         let still_owned = tokio::time::timeout(Duration::from_millis(100), &mut stop)
             .await
             .is_err();
-        Some((still_owned, service.resource_usage().query_pins.in_use))
+        let usage = service.resource_usage();
+        Some((still_owned, usage.query_pins.in_use, usage.images))
     } else {
         None
     };
@@ -182,8 +214,9 @@ pub async fn run(shutdown_held: bool) -> Result<()> {
     gate.release();
     let joined = tokio::time::timeout(Duration::from_secs(15), stop).await??;
     result?;
-    if let Some((still_owned, pins)) = held_observation {
+    if let Some((still_owned, pins, images)) = held_observation {
         ensure!(still_owned && pins == 1);
+        ensure!(images.context("held image accounting")?.stores > 0);
     }
     let NodeOutcome::Stopped(report) = joined else {
         anyhow::bail!("unexpected stop: {joined:?}")
@@ -192,9 +225,24 @@ pub async fn run(shutdown_held: bool) -> Result<()> {
         .raft
         .context("missing Raft close observation")?
         .result?;
+    let performance = service.performance();
+    ensure!(performance.available && !performance.saturated);
+    let query = performance
+        .operations
+        .iter()
+        .find(|op| op.name == "sql_query")
+        .context("query measurements")?;
+    ensure!(query.started == query.succeeded + query.failed + query.abandoned);
+    ensure!(query.abandoned == 0 && query.failed > 0);
     let final_usage = service.resource_usage();
     let sql = final_usage.sql.context("missing retained SQL observer")?;
     ensure!(sql.queue_closed && sql.running_workers == 0 && sql.work_reservations == 0);
+    let images = final_usage
+        .images
+        .context("joined image accounting unavailable")?;
+    ensure!(
+        images.stores == 0 && images.generations == 0 && images.bytes == 0 && images.max_bytes == 0
+    );
     ensure!(
         final_usage.transport.is_none(),
         "retained SDK handle kept the transport owner alive"

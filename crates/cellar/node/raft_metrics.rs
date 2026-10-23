@@ -1,21 +1,27 @@
 //! Generation-bound, authenticated fixed-cardinality local resource samples.
 use super::*;
 
-fn options(query: Option<&str>) -> Option<(String, bool)> {
+fn options(query: Option<&str>) -> Option<(String, bool, bool)> {
     let query = query.filter(|query| query.len() <= 512)?;
     let url = reqwest::Url::parse(&format!("http://cellar.invalid/?{query}")).ok()?;
     let mut generation = None;
     let mut json = None;
+    let mut performance = None;
     for (key, value) in url.query_pairs() {
         match key.as_ref() {
             "generation" if generation.is_none() && !value.is_empty() && value.len() <= 128 => {
                 generation = Some(value.into_owned());
             }
             "format" if json.is_none() && value == "json" => json = Some(true),
+            "view" if performance.is_none() && value == "performance" => performance = Some(true),
             _ => return None,
         }
     }
-    Some((generation?, json.unwrap_or(false)))
+    Some((
+        generation?,
+        json.unwrap_or(false),
+        performance.unwrap_or(false),
+    ))
 }
 
 pub(super) async fn handle(app: &AppHandle, request: Request<Incoming>) -> HttpReply {
@@ -25,7 +31,7 @@ pub(super) async fn handle(app: &AppHandle, request: Request<Incoming>) -> HttpR
             "Raft metrics require GET",
         ));
     }
-    let (generation, json) = match options(request.uri().query()) {
+    let (generation, json, performance) = match options(request.uri().query()) {
         Some(options) => options,
         None => {
             return peer_response(response(
@@ -58,8 +64,29 @@ pub(super) async fn handle(app: &AppHandle, request: Request<Incoming>) -> HttpR
             "node generation changed; refresh before continuing",
         ));
     }
-    let snapshot = match services.raft_lifecycle().resource_usage() {
-        Ok(Some(snapshot)) => snapshot,
+    let sample = if performance {
+        services.raft_lifecycle().performance().map(|sample| {
+            sample.map(|snapshot| {
+                if json {
+                    serde_json::to_string(&snapshot).expect("fixed performance sample serializes")
+                } else {
+                    snapshot.prometheus()
+                }
+            })
+        })
+    } else {
+        services.raft_lifecycle().resource_usage().map(|sample| {
+            sample.map(|snapshot| {
+                if json {
+                    serde_json::to_string(&snapshot).expect("fixed resource sample serializes")
+                } else {
+                    snapshot.prometheus()
+                }
+            })
+        })
+    };
+    let body = match sample {
+        Ok(Some(body)) => body,
         Ok(None) => {
             return peer_response(response(
                 StatusCode::NOT_FOUND,
@@ -69,20 +96,14 @@ pub(super) async fn handle(app: &AppHandle, request: Request<Incoming>) -> HttpR
         Err(_) => {
             return peer_response(response(
                 StatusCode::SERVICE_UNAVAILABLE,
-                "Raft resource sample unavailable",
+                "Raft sample unavailable",
             ))
         }
     };
-    let (content_type, body) = if json {
-        (
-            "application/json",
-            serde_json::to_string(&snapshot).expect("fixed resource sample serializes"),
-        )
+    let content_type = if json {
+        "application/json"
     } else {
-        (
-            "text/plain; version=0.0.4; charset=utf-8",
-            snapshot.prometheus(),
-        )
+        "text/plain; version=0.0.4; charset=utf-8"
     };
     peer_response(
         Response::builder()

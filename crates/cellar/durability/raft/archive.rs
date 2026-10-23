@@ -23,6 +23,9 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+#[path = "archive_bundle.rs"]
+pub(crate) mod bundle;
+
 #[derive(Debug)]
 pub enum ArchiveError {
     Invalid(&'static str),
@@ -329,6 +332,7 @@ impl CommittedArchiveCut {
 pub struct CellArchive {
     store: Arc<dyn ObjectStore>,
     prefix: String,
+    bundle_prefix: String,
     scope: GroupScope,
     root: [u8; 32],
     birth: [u8; 32],
@@ -339,6 +343,7 @@ pub struct CellArchive {
     cancellation: Option<tokio::sync::watch::Receiver<bool>>,
     io_domain: Option<crate::asyncrt::DomainToken>,
     read_retention: Option<Arc<super::budget::Permit>>,
+    bundle_client: Option<bundle::Client>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -356,7 +361,7 @@ pub struct ArchiveReference(ObjectRef);
 
 impl ArchiveReference {
     pub fn position(&self) -> Result<LogPosition, ArchiveError> {
-        if self.0.kind != ObjectKind::Manifest {
+        if self.0.kind != ObjectKind::Manifest || self.0.bundle.is_some() {
             return Err(ArchiveError::Corrupt("archive reference domain"));
         }
         let range = self
@@ -427,7 +432,7 @@ pub struct ArchiveRecoverySet {
 impl CellArchive {
     pub(crate) fn new(
         store: Arc<dyn ObjectStore>,
-        prefix: String,
+        archive_prefix: String,
         birth: &super::catalog::GroupBirth,
         root: [u8; 32],
         schema: [u8; 32],
@@ -449,7 +454,13 @@ impl CellArchive {
         };
         Self {
             store,
-            prefix,
+            prefix: format!(
+                "{}/{}/{}",
+                archive_prefix,
+                hex::encode(birth.scope().group.bytes()),
+                hex::encode(birth.scope().incarnation.bytes())
+            ),
+            bundle_prefix: format!("{archive_prefix}/bundles"),
             scope: birth.scope().clone(),
             root,
             birth: birth.digest(),
@@ -460,6 +471,7 @@ impl CellArchive {
             cancellation: None,
             io_domain: crate::asyncrt::runtime_services().domain_token(),
             read_retention: None,
+            bundle_client: None,
         }
     }
 
@@ -823,7 +835,7 @@ impl CellArchive {
     }
 
     async fn load_metadata(&self, object: &ObjectRef) -> Result<ArchiveMetadata, ArchiveError> {
-        if object.kind != ObjectKind::Manifest {
+        if object.kind != ObjectKind::Manifest || object.bundle.is_some() {
             return Err(ArchiveError::Corrupt("archive head domain"));
         }
         let bytes = self.get_object(object).await?;
@@ -928,15 +940,25 @@ impl CellArchive {
             .run_blocking(move || ObjectRef::new(kind, &owned, range))
             .await
             .map_err(ArchiveError::Worker)?;
+        if matches!(kind, ObjectKind::Snapshot | ObjectKind::Tail) {
+            if let Some(client) = &self.bundle_client {
+                return client.put(self, object, bytes.to_vec()).await;
+            }
+        }
+        self.put_direct(object, bytes.to_vec()).await
+    }
+
+    async fn put_direct(
+        &self,
+        object: ObjectRef,
+        bytes: Vec<u8>,
+    ) -> Result<ObjectRef, ArchiveError> {
         let path = self.key(&object.name());
         let result = self
             .io(
                 self.deadline()?,
-                self.store.put_opts(
-                    &path,
-                    bytes.to_vec().into(),
-                    PutOptions::from(PutMode::Create),
-                ),
+                self.store
+                    .put_opts(&path, bytes.into(), PutOptions::from(PutMode::Create)),
             )
             .await;
         match self.read(&path, self.limits.max_object_bytes).await? {
@@ -956,6 +978,7 @@ impl CellArchive {
     }
 
     async fn get_object(&self, object: &ObjectRef) -> Result<Vec<u8>, ArchiveError> {
+        object.validate_location()?;
         let limit = if object.kind == ObjectKind::Manifest {
             self.limits.max_manifest_bytes
         } else {
@@ -963,6 +986,26 @@ impl CellArchive {
         };
         if object.length > limit as u64 {
             return Err(ArchiveError::Limit);
+        }
+        if let Some(reference) = &object.bundle {
+            if reference.length > self.limits.max_object_bytes as u64 {
+                return Err(ArchiveError::Limit);
+            }
+            let bytes = self
+                .read(
+                    &self.bundle_key(reference),
+                    bundle::MAX_BYTES.min(self.limits.max_object_bytes),
+                )
+                .await?
+                .ok_or(ArchiveError::Corrupt("missing archive bundle"))?
+                .0;
+            let archive = self.clone();
+            let expected = object.clone();
+            return self
+                .host
+                .run_blocking(move || bundle::extract(&archive, &expected, &bytes))
+                .await
+                .map_err(ArchiveError::Worker)?;
         }
         let bytes = self
             .read(&self.key(&object.name()), limit)
@@ -1022,6 +1065,15 @@ impl CellArchive {
             return Err(ArchiveError::Corrupt("short archive object"));
         }
         Ok(Some((bytes, version)))
+    }
+
+    fn bundle_key(&self, reference: &bundle::Reference) -> Path {
+        Path::from(format!(
+            "{}/{}-{}",
+            self.bundle_prefix,
+            reference.length,
+            hex::encode(reference.digest)
+        ))
     }
 }
 
@@ -1127,62 +1179,152 @@ impl ArchiveRecoverySet {
         let state = self.manifest.snapshot.image.decode()?;
         let decoded = ltx::decode_file_bounded(&self.snapshot, apply_limits().decode)
             .map_err(|_| ArchiveError::Corrupt("archive snapshot LTX"))?;
-        let mut pin = images
-            .prepare(
-                id(sequence)?,
-                None,
-                &ImageUpdate {
-                    base: ImageState::empty(state.epoch)
-                        .map_err(|_| ArchiveError::Corrupt("archive image epoch"))?,
-                    result: state,
-                    segments: vec![LtxSegment {
-                        bytes: &self.snapshot,
-                        min_txid: TXID(1),
-                        max_txid: state.txid,
-                        page_count: decoded.pages().len(),
-                        decoded_bytes: decoded.decoded_bytes(),
-                    }],
-                },
-            )
-            .map_err(ArchiveError::Images)?;
+        let mut snapshot = Some(ImageUpdate {
+            base: ImageState::empty(state.epoch)
+                .map_err(|_| ArchiveError::Corrupt("archive image epoch"))?,
+            result: state,
+            segments: vec![LtxSegment {
+                bytes: &self.snapshot,
+                min_txid: TXID(1),
+                max_txid: state.txid,
+                page_count: decoded.pages().len(),
+                decoded_bytes: decoded.decoded_bytes(),
+            }],
+        });
         drop(decoded);
-        for entry in &self.entries {
-            if entry.data.is_empty() {
-                continue;
+        let limits = images.limits().apply;
+        let mut entries = self
+            .entries
+            .iter()
+            .filter(|entry| !entry.data.is_empty())
+            .peekable();
+        let mut pending = None;
+        let mut pin: Option<GenerationPin> = None;
+        let mut state = state;
+        while snapshot.is_some() || pending.is_some() || entries.peek().is_some() {
+            let mut budget = ReplayBudget::default();
+            if let Some(snapshot) = &snapshot {
+                if !budget.admit(
+                    snapshot
+                        .segments
+                        .iter()
+                        .map(|s| (s.bytes.len(), s.decoded_bytes, s.page_count)),
+                    limits,
+                ) {
+                    return Err(ArchiveError::Limit);
+                }
             }
-            let update = self.update(entry, pin.state())?;
-            let result = result_state(&update)?;
-            let segments = update
-                .files
-                .iter()
-                .map(|file| LtxSegment {
-                    bytes: &file.bytes,
-                    min_txid: TXID(file.min_txid),
-                    max_txid: TXID(file.max_txid),
-                    page_count: file.page_count as usize,
-                    decoded_bytes: file.decoded_bytes,
-                })
-                .collect();
-            sequence += 1;
+            // Own at most one bounded batch plus one pending envelope. Keep all
+            // intermediate identities for the physical verifier, even though
+            // only the final image in each batch is sealed.
+            let mut owned = Vec::new();
+            loop {
+                let update = if let Some(update) = pending.take() {
+                    update
+                } else if let Some(entry) = entries.next() {
+                    self.update(entry, state)?
+                } else {
+                    break;
+                };
+                if !budget.admit(
+                    update
+                        .files
+                        .iter()
+                        .map(|f| (f.bytes.len(), f.decoded_bytes, f.page_count as usize)),
+                    limits,
+                ) {
+                    if snapshot.is_none() && owned.is_empty() {
+                        return Err(ArchiveError::Limit);
+                    }
+                    pending = Some(update);
+                    break;
+                }
+                let result = result_state(&update)?;
+                owned.push((state, result, update));
+                state = result;
+            }
+            let mut updates: Vec<_> = snapshot.take().into_iter().collect();
+            updates.extend(owned.iter().map(|(base, result, update)| {
+                ImageUpdate {
+                    base: *base,
+                    result: *result,
+                    segments: update
+                        .files
+                        .iter()
+                        .map(|file| LtxSegment {
+                            bytes: &file.bytes,
+                            min_txid: TXID(file.min_txid),
+                            max_txid: TXID(file.max_txid),
+                            page_count: file.page_count as usize,
+                            decoded_bytes: file.decoded_bytes,
+                        })
+                        .collect(),
+                }
+            }));
             let next = images
-                .prepare(
-                    id(sequence)?,
-                    Some(&pin),
-                    &ImageUpdate {
-                        base: pin.state(),
-                        result,
-                        segments,
-                    },
-                )
+                .prepare_chain(id(sequence)?, pin.as_ref(), &updates)
                 .map_err(ArchiveError::Images)?;
-            images.retire(pin.id()).map_err(ArchiveError::Images)?;
-            pin = next;
-            images.reclaim(8).map_err(ArchiveError::Images)?;
+            if let Some(previous) = pin.replace(next) {
+                images.retire(previous.id()).map_err(ArchiveError::Images)?;
+                drop(previous);
+                images.reclaim(8).map_err(ArchiveError::Images)?;
+            }
+            sequence += 1;
         }
+        let pin = pin.ok_or(ArchiveError::Corrupt("missing restored archive image"))?;
         if Image::from(pin.state()) != self.manifest.image {
             return Err(ArchiveError::Corrupt("restored archive image digest"));
         }
         Ok(pin)
+    }
+}
+
+/// Partition long archives at the destination's captured aggregate apply
+/// limits. Admission is atomic so a pending envelope starts the next batch.
+#[derive(Clone, Copy, Default)]
+struct ReplayBudget {
+    files: usize,
+    encoded: usize,
+    decoded: u64,
+    pages: usize,
+}
+
+impl ReplayBudget {
+    fn admit(
+        &mut self,
+        segments: impl Iterator<Item = (usize, u64, usize)>,
+        limits: ApplyLimits,
+    ) -> bool {
+        let mut next = *self;
+        for (encoded, decoded, pages) in segments {
+            let Some(files) = next.files.checked_add(1) else {
+                return false;
+            };
+            let Some(encoded) = next.encoded.checked_add(encoded) else {
+                return false;
+            };
+            let Some(decoded) = next.decoded.checked_add(decoded) else {
+                return false;
+            };
+            let Some(pages) = next.pages.checked_add(pages) else {
+                return false;
+            };
+            if files > limits.max_files
+                || encoded > limits.max_total_encoded_bytes
+                || decoded > limits.max_total_decoded_bytes
+                || pages > limits.max_total_pages
+            {
+                return false;
+            }
+            next = Self {
+                files,
+                encoded,
+                decoded,
+                pages,
+            };
+        }
+        *self = next;
+        true
     }
 }
 

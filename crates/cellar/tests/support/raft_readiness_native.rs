@@ -139,6 +139,36 @@ pub async fn voter_learner_and_empty() -> Result<()> {
                 .as_ref()
                 .context("published readiness version")?
                 .covers(&written.version)?);
+            tokio::time::timeout(Duration::from_secs(5), async {
+                loop {
+                    if let Some(sample) = cluster.services[index].resource_usage().groups {
+                        let role_matches = match expected {
+                            RaftReplicaRole::Leader => sample.leaders == 1,
+                            RaftReplicaRole::Voter => sample.voters == 1,
+                            RaftReplicaRole::Learner => sample.learners == 1,
+                            _ => false,
+                        };
+                        if role_matches
+                            && sample.coherent_images == 1
+                            && sample.historical_queries == 1
+                        {
+                            ensure!(sample.attached_groups == 1 && sample.parked_groups == 0);
+                            ensure!(
+                                sample.leaders
+                                    + sample.voters
+                                    + sample.learners
+                                    + sample.removed
+                                    + sample.unknown
+                                    == 1
+                            );
+                            break;
+                        }
+                    }
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+                Ok::<_, anyhow::Error>(())
+            })
+            .await??;
             ensure!(
                 status.command_ready == (index == primary),
                 "published replica {index}, initial leader {primary}: {status:?}"

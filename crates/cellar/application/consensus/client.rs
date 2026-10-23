@@ -200,6 +200,7 @@ pub(crate) struct Terminal {
 }
 
 pub(crate) struct Handle {
+    pub performance: Arc<crate::raft::performance::Registry>,
     pub requests: mailbox::Sender<Request>,
     pub control_requests: mailbox::Sender<Request>,
     pub control_budget: Arc<Budget>,
@@ -213,6 +214,8 @@ pub(crate) struct Handle {
     pub archive_capture_budget: Arc<Budget>,
     pub query_pins: Arc<Budget>,
     pub sql: Option<crate::raft::SqlResourceObserver>,
+    pub groups: crate::raft::host::GroupResourceObserver,
+    pub controller: Mutex<Option<(u64, super::RaftControllerResources)>>,
     pub transport: crate::raft::transport::ResourceObserver,
     pub max_input_bytes: usize,
     pub bindings: BTreeMap<(NamespaceId, String), Binding>,
@@ -227,6 +230,12 @@ pub struct RaftCells {
 }
 
 impl RaftCells {
+    /// Fixed-cardinality cumulative work and I/O API observations. Remains readable
+    /// after close; clock availability and source identity are explicit.
+    pub fn performance(&self) -> super::RaftPerformanceSnapshot {
+        self.handle.performance.snapshot()
+    }
+
     /// Read actual fixed-size local admission counters without I/O, enumeration
     /// or callbacks. Remains available during drain and after joined closure.
     /// Independent atomic loads can observe concurrent acquisition/release.
@@ -240,7 +249,24 @@ impl RaftCells {
                 limit: self.handle.query_pins.capacity().1,
             },
             sql: self.handle.sql.as_ref().and_then(|sql| sql.capture()),
+            images: self
+                .handle
+                .sql
+                .as_ref()
+                .and_then(|sql| sql.images())
+                .map(Into::into),
             transport: self.handle.transport.capture(),
+            controller: self.handle.controller.lock().ok().and_then(|source| {
+                let (at, mut sample) = (*source)?;
+                sample.sample_age_ms = self.handle.domain.mono_ms().ok()?.checked_sub(at)?;
+                Some(sample)
+            }),
+            groups: self
+                .handle
+                .domain
+                .mono_ms()
+                .ok()
+                .and_then(|now| self.handle.groups.capture(now)),
         }
     }
 

@@ -31,7 +31,12 @@ async fn fetch(node: &Node, query: &str, key: u8) -> Result<(reqwest::StatusCode
     cellar::peer_auth::validate_response(response.headers())?;
     let status = response.status();
     let body = response.text().await?;
-    ensure!(body.len() < 16 * 1024, "unbounded metrics response");
+    let limit = if query.contains("view=performance") {
+        64
+    } else {
+        16
+    };
+    ensure!(body.len() < limit * 1024, "unbounded metrics response");
     Ok((status, body))
 }
 
@@ -43,6 +48,16 @@ pub(super) async fn unavailable(node: &Node) -> Result<()> {
     )
     .await?;
     ensure!(status == reqwest::StatusCode::SERVICE_UNAVAILABLE && !body.contains("cellar_raft_"));
+    let (status, _) = fetch(
+        node,
+        &format!(
+            "generation={}&view=performance",
+            node.info().lease_generation
+        ),
+        11,
+    )
+    .await?;
+    ensure!(status == reqwest::StatusCode::SERVICE_UNAVAILABLE);
     Ok(())
 }
 
@@ -106,7 +121,7 @@ fn samples(text: &str) -> Result<BTreeSet<String>> {
             "duplicate or malformed sample"
         );
     }
-    ensure!(identities.len() == 68);
+    ensure!(identities.len() == 110);
     for identity in &identities {
         ensure!(
             identity.starts_with("cellar_raft_")
@@ -177,6 +192,7 @@ async fn cluster(groups: usize) -> Result<BTreeSet<String>> {
             TransportOptions::default(),
         )
         .await?;
+        let performance_before = service.performance();
         let mut receipts = Vec::new();
         for registration in &registrations {
             let handle = service.cell(
@@ -199,13 +215,66 @@ async fn cluster(groups: usize) -> Result<BTreeSet<String>> {
             .await?;
         }
         ensure!(calls.load(Ordering::SeqCst) == groups);
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                if service.resource_usage().groups.is_some_and(|sample| {
+                    sample.attached_groups == groups
+                        && sample.coherent_images == groups
+                        && sample.historical_queries == groups
+                }) {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await?;
         let (status, text) = fetch(&node, &query, 11).await?;
         ensure!(status == reqwest::StatusCode::OK);
-        let identities = samples(&text)?;
+        let mut identities = samples(&text)?;
+        let perf_query = format!("{query}&view=performance");
+        let (status, text) = fetch(&node, &perf_query, 11).await?;
+        ensure!(status == reqwest::StatusCode::OK);
+        let observed = service.performance();
+        ensure!(observed.available && !observed.saturated && observed.source.len() == 32);
+        ensure!(observed.operations.len() == 23 && observed.counters.len() == 20);
+        let mut perf_ids = BTreeSet::new();
+        for line in text.lines().filter(|line| !line.starts_with('#') && !line.is_empty()) {
+            let mut fields = line.split_whitespace();
+            let name = fields.next().context("performance metric identity")?;
+            let value = fields.next().context("performance metric value")?.parse::<f64>()?;
+            ensure!(value.is_finite() && value >= 0.0 && fields.next().is_none());
+            ensure!(perf_ids.insert(name.to_owned()));
+        }
+        ensure!(perf_ids.len() == 551);
+        let expected = observed.prometheus().lines().filter(|line| !line.starts_with('#') && !line.is_empty()).map(|line| line.split_whitespace().next().unwrap().to_owned()).collect::<BTreeSet<_>>();
+        ensure!(perf_ids == expected && perf_ids.is_disjoint(&identities));
+        identities.extend(perf_ids);
+        let (status, json) = fetch(&node, &format!("{perf_query}&format=json"), 11).await?;
+        ensure!(status == reqwest::StatusCode::OK && !json.contains("Counter:"));
+        let json: serde_json::Value = serde_json::from_str(&json)?;
+        ensure!(json["source"] == observed.source && json["available"] == true && json["saturated"] == false);
+        for name in ["engine_file_write_completed_bytes", "sql_prepared_ltx_bytes", "sql_prepared_proposal_bytes", "object_get_body_bytes", "object_put_confirmed_bytes"] {
+            let value = json["counters"].as_array().context("counters")?.iter().find(|counter| counter["name"] == name).context("measured counter")?;
+            ensure!(value["value"].as_str().context("decimal counter")?.parse::<u64>()? > 0);
+        }
+        for operation in &observed.operations {
+            ensure!(operation.buckets.len() == 16 && operation.buckets.last().unwrap().count == operation.count);
+            ensure!(operation.count + operation.timing_unavailable == operation.succeeded + operation.failed + operation.abandoned);
+            ensure!(operation.started >= operation.succeeded + operation.failed + operation.abandoned);
+        }
+        for (invalid, key, expected) in [
+            (perf_query.clone(), 12, reqwest::StatusCode::UNAUTHORIZED),
+            (format!("generation={}&view=performance", "0".repeat(64)), 11, reqwest::StatusCode::CONFLICT),
+            (format!("{perf_query}&view=performance"), 11, reqwest::StatusCode::BAD_REQUEST),
+            (format!("{query}&view=other"), 11, reqwest::StatusCode::BAD_REQUEST),
+        ] {
+            let (status, _) = fetch(&node, &invalid, key).await?;
+            ensure!(status == expected);
+        }
         let (status, json) = fetch(&node, &format!("{query}&format=json"), 11).await?;
         ensure!(status == reqwest::StatusCode::OK && !json.contains("Counter:"));
         let json: serde_json::Value = serde_json::from_str(&json)?;
-        ensure!(json.as_object().context("resource object")?.len() == 6);
+        ensure!(json.as_object().context("resource object")?.len() == 9);
         let actual = serde_json::to_value(service.resource_usage())?;
         for budget in ["business", "control", "archive_capture"] {
             for capacity in ["max_bytes", "max_items"] {
@@ -275,6 +344,7 @@ async fn cluster(groups: usize) -> Result<BTreeSet<String>> {
             calls.load(Ordering::SeqCst) == groups,
             "sampling invoked business code"
         );
+        cellar::note!("raft_performance_observations {}", serde_json::json!({"groups":groups, "before":performance_before, "after":service.performance()}));
         Ok::<_, anyhow::Error>(identities)
     }
     .await;

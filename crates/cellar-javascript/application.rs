@@ -1,3 +1,5 @@
+//! Translate native application calls into bounded engine messages, then execute
+//! each requested SDK operation inside the original native invocation.
 use crate::runtime::{Event, Life, Runtime, Start};
 use anyhow::{ensure, Result};
 use cellar::sdk::{
@@ -38,7 +40,10 @@ impl EventKind {
     }
 }
 
-/// Bundled JavaScript source included in the compiled host, with explicitly registered cells.
+/// JavaScript source and handler registrations checked before host admission.
+///
+/// Use [`Source::new`] for an embedded bundle. With the `node` feature,
+/// `Source::module` describes registrations for an external Node module.
 #[derive(Clone)]
 pub struct Source {
     pub(crate) code: String,
@@ -67,16 +72,22 @@ impl Source {
         }
     }
 
+    /// Register a cell class with a fetch handler. Use [`Self::cell_events`]
+    /// when the class also handles alarms or other supported events.
     pub fn cell(mut self, name: impl Into<String>) -> Self {
         self = self.cell_events(name, [EventKind::Fetch]);
         self
     }
 
+    /// Set application-level handlers, such as ingress fetches or queue batches.
+    /// Registrations describe exports; deployment configuration supplies bindings.
     pub fn events(mut self, events: impl IntoIterator<Item = EventKind>) -> Self {
         self.events = events.into_iter().collect();
         self
     }
 
+    /// Register a named cell class and its supported handlers.
+    /// Duplicate class or event registrations fail during runtime startup.
     pub fn cell_events(
         mut self,
         name: impl Into<String>,
@@ -89,7 +100,10 @@ impl Source {
     }
 
     pub(crate) fn descriptor(&self) -> Value {
-        json!({"events":self.events, "cells":self.cell_events})
+        json!({
+            "events": self.events,
+            "cells": self.cell_events
+        })
     }
 
     fn supports(&self, class: Option<&str>, kind: &str) -> bool {
@@ -165,10 +179,21 @@ impl JavaScriptApplication {
             .clone()
             .try_acquire_owned()
             .map_err(|_| anyhow::anyhow!("JavaScript invocation capacity exhausted"))?;
+
         let (kind, payload) = if let Some(batch) = &state.queue {
             (
                 "queue",
-                json!({"queue":batch.queue(),"messages":batch.messages().iter().map(|message|Ok(json!({"id":message.id,"attempts":message.attempts,"timestamp_ms":message.timestamp_ms,"body":values::queue_body(&message.body)?}))).collect::<Result<Vec<_>>>()?}),
+                json!({
+                    "queue": batch.queue(),
+                    "messages": batch.messages().iter().map(|message| {
+                        Ok(json!({
+                            "id": message.id,
+                            "attempts": message.attempts,
+                            "timestamp_ms": message.timestamp_ms,
+                            "body": values::queue_body(&message.body)?
+                        }))
+                    }).collect::<Result<Vec<_>>>()?
+                }),
             )
         } else {
             match event {
@@ -177,18 +202,28 @@ impl JavaScriptApplication {
                     values::request(&context, request, self.runtime.options.max_body_bytes).await?,
                 ),
                 Invocation::Alarm { scheduled_ms } => {
-                    ("alarm", json!({"scheduled_ms":scheduled_ms}))
+                    ("alarm", json!({"scheduled_ms": scheduled_ms}))
                 }
                 Invocation::Scheduled(ref scheduled) => (
                     "scheduled",
-                    json!({"scheduled_ms":scheduled.scheduled_ms,"cron":scheduled.cron}),
+                    json!({
+                        "scheduled_ms": scheduled.scheduled_ms,
+                        "cron": scheduled.cron
+                    }),
                 ),
                 _ => anyhow::bail!("unsupported JavaScript invocation"),
             }
         };
-        let identity = context
-            .identity()
-            .map(|id| json!({"name":id.name,"class":id.class,"scope":id.scope,"epoch":id.epoch.to_string()}));
+
+        // Epochs travel as strings so JavaScript cannot round a native u64.
+        let identity = context.identity().map(|id| {
+            json!({
+                "name": id.name,
+                "class": id.class,
+                "scope": id.scope,
+                "epoch": id.epoch.to_string()
+            })
+        });
         let (object, class, owner) = cell
             .map(|(object, class, life)| (Some(object), Some(class), life))
             .unwrap_or((None, None, Arc::new(AtomicBool::new(true))));
@@ -196,14 +231,22 @@ impl JavaScriptApplication {
             self.source.supports(class.as_deref(), kind),
             "undeclared JavaScript event {kind}"
         );
+
+        // Invocation authority and activation ownership have separate lifetimes.
+        // Dropping this future revokes `active`; dropping the cell revokes `owner`.
         let active = Arc::new(AtomicBool::new(true));
         let _lifetime = Lifetime(active.clone());
+        // A completion must fit even when every operation slot is occupied.
         let (sender, mut receive) =
             tokio::sync::mpsc::channel(self.runtime.options.max_pending_operations + 1);
         let invocation = self.runtime.id()?;
-        let payload = serde_json::to_string(
-            &json!({"kind":kind,"event":payload,"object":object,"class":class,"identity":identity}),
-        )?;
+        let payload = serde_json::to_string(&json!({
+            "kind": kind,
+            "event": payload,
+            "object": object,
+            "class": class,
+            "identity": identity
+        }))?;
         ensure!(
             payload.len() <= self.runtime.options.max_value_bytes,
             "JavaScript invocation exceeds value budget"
@@ -216,6 +259,7 @@ impl JavaScriptApplication {
             active: active.clone(),
             owner,
         })?;
+
         let mut stopped = self.runtime.stopped.subscribe();
         let mut pending = FuturesUnordered::new();
         loop {
@@ -320,6 +364,7 @@ impl JavaScriptApplication {
     }
 }
 
+/// Revoke invocation authority on completion, error, or future cancellation.
 struct Lifetime(Life);
 
 impl Drop for Lifetime {
@@ -360,6 +405,7 @@ impl Application for JavaScriptApplication {
             return queue::dispatch(batch, move |event| async move {
                 self.run(
                     context,
+                    // Queue state selects the event before this placeholder is read.
                     Invocation::Alarm { scheduled_ms: 0 },
                     None,
                     State {
@@ -411,6 +457,7 @@ impl Application for JavaScriptApplication {
     }
 }
 
+/// One activation-local object identity, shared across calls until cell retirement.
 struct JavaScriptCell {
     application: Arc<JavaScriptApplication>,
     object: u64,

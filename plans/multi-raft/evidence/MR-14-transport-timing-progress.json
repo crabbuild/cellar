@@ -1,0 +1,194 @@
+{
+  "task_id": "MR-14",
+  "source_revision": "87ed5d6b0918eecc4d8bedcda0f5630f6927be73",
+  "completion": "partial",
+  "scope": "Bounded sender-queue, exchange-window and receiver-admission timings for control and data traffic; no protocol, batching, deadline or durability change.",
+  "sources_sha256": {
+    "crates/cellar/durability/raft/performance.rs": "541eddc81ca8b724e9f17ba1274e6ac65e0a0a8166e4f0cb77309ac0729a8c63",
+    "crates/cellar/durability/raft/transport.rs": "b73a30de87b6a7a0fb252a4a8008ff192b7056331e640f785add6c8b22c60635",
+    "crates/cellar/durability/raft/transport_pipeline_tests.rs": "339a1ca3cefe927d0521133aa22f81c81d721d38269f5df97fb10227ec8586e3",
+    "crates/cellar/durability/raft/transport_send.rs": "2ec1886bd65713e45a3f4ddb4ba9cae03ddd9295a0f06c32e54fbb592218a0d5",
+    "crates/cellar/tests/native_raft_reads.rs": "05d121593d9d73d249bc371ed47b223b1b07ecf895b4c16714a40d30e03bae7e",
+    "crates/cellar/tests/support/raft_metrics_native.rs": "da06d32ba5011820d789489b23eebb0226d22f7068a91d6ffc67cf1d0a6f497d",
+    "plans/multi-raft/implementation-plan.md": "1f470cfd713435c14bdaf128e766e40e8acbdda79c34ffbbc30439f0caa4722a",
+    "plans/multi-raft/operations-design.md": "47b34625bfa9ad883d01f56838c40e897a36b9508fe347bee1bf04d17cc40922",
+    "tools/perf/raft-performance.md": "77d42beb1579f2ae5d493921ad89ee850e9e7a02b5246c542a2aec7efd3306df",
+    "tools/perf/raft_metrics.py": "e5183acfe4abc4bbf14f05f1508b4f01ae298a13d7ad60f920002143b4de09cc"
+  },
+  "raw_output": [
+    {
+      "path": "evidence/MR-14-transport-timing-validation.json.gz",
+      "bytes": 22846,
+      "sha256": "5050d43eb2d4a9b7353000546dbb4d8af68072bd4e2d94e52fcb59e87fa07b34"
+    }
+  ],
+  "checks": [
+    {
+      "check": "unit",
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--all-features",
+        "--locked",
+        "--lib",
+        "raft::",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "log": "/tmp/cellar-mr14-transport-timing-unit.log"
+    },
+    {
+      "check": "reads",
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--all-features",
+        "--locked",
+        "--test",
+        "native_raft_reads",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "log": "/tmp/cellar-mr14-transport-timing-reads.log"
+    },
+    {
+      "check": "operations",
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--all-features",
+        "--locked",
+        "--test",
+        "native_raft_operations",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "log": "/tmp/cellar-mr14-transport-timing-operations.log"
+    },
+    {
+      "check": "clippy",
+      "argv": [
+        "cargo",
+        "clippy",
+        "-p",
+        "cellar",
+        "--all-features",
+        "--all-targets",
+        "--locked",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "log": "/tmp/cellar-mr14-transport-timing-clippy.log"
+    },
+    {
+      "check": "python",
+      "argv": [
+        "python3",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "tools/perf",
+        "-p",
+        "test_*.py",
+        "-v"
+      ],
+      "exit_code": 0,
+      "log": "/tmp/cellar-mr14-transport-timing-python.log"
+    },
+    {
+      "check": "format",
+      "argv": [
+        "cargo",
+        "format",
+        "--check"
+      ],
+      "exit_code": 0,
+      "log": "/tmp/cellar-mr14-transport-timing-format.log"
+    },
+    {
+      "check": "layout",
+      "argv": [
+        "cargo",
+        "check-layout"
+      ],
+      "exit_code": 0,
+      "log": "/tmp/cellar-mr14-transport-timing-layout.log"
+    },
+    {
+      "check": "docs",
+      "argv": [
+        "python3",
+        "tools/docs/check.py"
+      ],
+      "exit_code": 0,
+      "log": "/tmp/cellar-mr14-transport-timing-docs.log"
+    },
+    {
+      "check": "dependencies",
+      "argv": [
+        "python3",
+        "tools/check_native_dependencies.py"
+      ],
+      "exit_code": 0,
+      "log": "/tmp/cellar-mr14-transport-timing-dependencies.log"
+    },
+    {
+      "check": "plan",
+      "argv": [
+        "python3",
+        "plans/multi-raft/plan.py",
+        "validate"
+      ],
+      "exit_code": 0,
+      "log": "/tmp/cellar-mr14-transport-timing-plan.log"
+    },
+    {
+      "check": "plan-tests",
+      "argv": [
+        "python3",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "plans/multi-raft",
+        "-p",
+        "test_*.py",
+        "-v"
+      ],
+      "exit_code": 0,
+      "log": "/tmp/cellar-mr14-transport-timing-plan-tests.log"
+    }
+  ],
+  "observations": [
+    "A real TLS held-reply regression first fails because no phase timings exist. With instrumentation it distinguishes nine queued frames from one in-flight exchange, then ten frame dequeues from three completed exchange windows.",
+    "Existing lost/reordered reply, route revocation and bounded-deadline cases verify failed windows without converting prior observed admissions into failures or unknown frames into success. Joined cancellation verifies three queued abandonments, retained physical permits and one failed in-flight window.",
+    "The native query/replication fixture requires actual successful queue, exchange and admission observations on both control and data lanes. The authenticated one-versus-32-group metrics fixture requires exactly 23 operations, 20 counters and 551 Prometheus sample identities.",
+    "The analyzer requires the complete fixed vocabulary and retains started/completed/outcome/histogram bounds; old evidence must use its pinned analyzer. Missing new operations are not zero-filled."
+  ],
+  "limitations": [
+    "No new physical benchmark or causal attribution of the earlier density burst. The next unchanged workload comparison must correlate these boundaries with queue depths and CPU observations.",
+    "Exchange samples count windows, not frames or commands, and include connection/TLS setup when needed. Runtime admission does not establish Raft persistence or business acknowledgement. Different aggregate quantiles cannot be subtracted into a per-command breakdown.",
+    "Instrumentation overhead, steady-state latency, equivalent-contract comparison, sustained S3 and Q1 capacity remain open. Native and Python checks do not qualify capacity or MR-14 completion.",
+    "The separate cellar-multi-raft profile remains stopped; no other Colima profile was controlled."
+  ],
+  "validation_counts": {
+    "raft_unit": 96,
+    "native_reads": 20,
+    "native_operations": 20,
+    "python_passed": 192,
+    "python_existing_opt_in_skip": 1,
+    "plan_tests": 17
+  }
+}

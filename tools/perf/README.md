@@ -1,5 +1,10 @@
 # Embedded fleet validation
 
+For MR-14 reference transitions, durable operation ledgers, explicit open-loop
+arrival accounting and executable freshness checks, use the
+[performance runner](raft-performance.md). It retains incomplete qualification
+gates and does not equate Quorum latency with S3-durable latency.
+
 For the independent consensus-backed workload, use the
 [native multi-Raft Colima/RustFS fixture](raft-README.md). It configures three
 1-vCPU/3-GiB nodes with 500 leaders per node and requires exact replica values
@@ -345,3 +350,9 @@ Capacity HAProxy setup aligns its initial cursor with at most two extra manifest
 GETs, then requires the thirty critical requests to select node2/node3/node1
 in order. This fixes cross-run identity rotation; selected backends and actual
 owners are still verified independently outside measured traffic.
+
+## JavaScript and TypeScript adapters
+
+The [JS/TS bridge benchmark](javascript/README.md) compares embedded V8 and Node.js
+with identical typed workloads, buffered HTTP throughput, durable counter TPS,
+latency distributions, resource samples and cold-storage reconciliation.

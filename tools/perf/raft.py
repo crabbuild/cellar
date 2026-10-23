@@ -25,6 +25,26 @@ import urllib.request
 from run import create_bucket
 
 
+def port_base(value):
+    port = int(value)
+    if not 1024 <= port <= 65532:
+        raise argparse.ArgumentTypeError("port base must leave four ports in 1024..65535")
+    return port
+
+
+def captured_node_limits(config):
+    # Docker omits an unused optional map. Actual CPU/memory quotas remain
+    # mandatory; a missing quota must never become a successful zero/default.
+    captured = {key: config[key] for key in ('NanoCpus', 'CpusetCpus', 'Memory', 'MemorySwap')}
+    tmpfs = config.get('Tmpfs')
+    if tmpfs is None:
+        tmpfs = {}
+    if not isinstance(tmpfs, dict):
+        raise ValueError('invalid Docker tmpfs metadata')
+    captured['Tmpfs'] = tmpfs
+    return captured
+
+
 def command(*args):
     p = subprocess.run(args, capture_output=True, text=True)
     if p.returncode:
@@ -133,6 +153,7 @@ def load(config, seconds, concurrency, rate=0):
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--context',default='colima-cellar-raft-perf')
+    p.add_argument('--port-base',type=port_base,default=19800,help='four loopback ports for RustFS and the three nodes')
     p.add_argument('--image',default='cellar-raft-perf:ios-7da4ddb5')
     p.add_argument('--cells-per-primary',type=int,default=500)
     p.add_argument('--primary-only',action='store_true',help='one primary leading the configured cells, two voting followers')
@@ -165,8 +186,8 @@ def main():
             raise ValueError('continuation requires a live setup failure before measured writes')
         if args.continue_seed and not (root/'seed-journal.jsonl').exists():
             raise ValueError('seed continuation requires its original command journal')
-        if report['cells'] != total or report['context'] != args.context or report['tick_ms'] != args.tick_ms or report.get('archive_tmpfs_mib',0) != args.archive_tmpfs_mib or report.get('primary_only',False)!=args.primary_only:
-            raise ValueError('continuation must preserve cell count, context and tick interval')
+        if report['cells'] != total or report['context'] != args.context or report['tick_ms'] != args.tick_ms or report.get('archive_tmpfs_mib',0) != args.archive_tmpfs_mib or report.get('primary_only',False)!=args.primary_only or report.get('port_base',19800)!=args.port_base:
+            raise ValueError('continuation must preserve cell count, context, port base and tick interval')
         shutil.copyfile(root/'report.json',root/f"report-before-continuation-{int(time.time())}.json")
         report.setdefault('setup_failures',[]).append(report.pop('failure','interrupted setup'))
         report.setdefault('continuations',[]).append({'unix':time.time(),
@@ -193,7 +214,7 @@ def main():
             'source_files':{str(p):hashlib.sha256(p.read_bytes()).hexdigest() for p in [Path('Cargo.toml'), Path('Cargo.lock'), Path('tools/perf/raft_node.rs'),Path('tools/perf/raft.py'),Path('tools/perf/raft.Dockerfile'),Path('examples/raft-counter/counter.rs'),Path('crates/cellar/Cargo.toml'), *Path('crates/cellar/durability/raft').glob('*.rs')]},
             'image':docker('image','inspect',args.image,'--format','{{.Id}}'),
             'binary_sha256':docker('run','--rm','--entrypoint','sha256sum',args.image,'/usr/local/bin/cellar-perf-raft').split()[0],
-            'context':args.context,'prefix':tag,'cells':total,'voters':3,
+            'context':args.context,'port_base':args.port_base,'prefix':tag,'cells':total,'voters':3,
             'vm_cpu_count':int(docker('info','--format','{{.NCPU}}')),
             'host_cpu_count':os.cpu_count(),
             'archive_tmpfs_mib':args.archive_tmpfs_mib, 'queue_items':args.queue_items,'primary_only':args.primary_only,'tick_ms':args.tick_ms,'write_durability':'Quorum','archive':'RustFS','measurements':[], 'completed':False}
@@ -202,7 +223,7 @@ def main():
     def log(s): print(s,flush=True)
     log(f'Run directory: {root}\nDocker context: {args.context}\nResource prefix: {tag}')
     nodes=[tag+f'-node{n}' for n in range(1,4)]
-    bases=[f'http://127.0.0.1:{19801+n}' for n in range(3)]
+    bases=[f'http://127.0.0.1:{args.port_base+1+n}' for n in range(3)]
     try:
         if not continuing:
             docker('network','create','--subnet','172.29.81.0/24',tag)
@@ -210,14 +231,14 @@ def main():
             docker('run','--rm','-v',tag+'-rustfs:/data','alpine:3.22','chown','10001:10001','/data')
             docker('run','-d','--name',tag+'-rustfs','--network',tag,'--network-alias','rustfs',
                 '--cpus','2','--cpuset-cpus','4,5','--memory','4g','--memory-swap','4g',
-                '--ulimit','nofile=65536:65536','-p','127.0.0.1:19800:9000',
+                '--ulimit','nofile=65536:65536','-p',f'127.0.0.1:{args.port_base}:9000',
                 '-v',tag+'-rustfs:/data','-e','RUSTFS_ACCESS_KEY='+access,'-e','RUSTFS_SECRET_KEY='+secret,
                 '-e','RUSTFS_CONSOLE_ENABLE=false','-e','RUSTFS_OBS_LOGGER_LEVEL=error',
-                'ghcr.io/rustfs/rustfs:1.0.0-glibc','/data')
+                'ghcr.io/rustfs/rustfs@sha256:bffcab0c9d647aab0055d1c69d340b202d0909966b385932d4ead1aeb7602858','/data')
             deadline=time.monotonic()+120
             while True:
                 try:
-                    create_bucket('http://127.0.0.1:19800','raft-perf',access,secret);break
+                    create_bucket(f'http://127.0.0.1:{args.port_base}','raft-perf',access,secret);break
                 except Exception:
                     if time.monotonic()>deadline:raise
                     time.sleep(1)
@@ -225,7 +246,7 @@ def main():
                 docker('volume','create',name)
                 docker('run','-d','--name',name,'--network',tag,'--ip',f'172.29.81.{n+10}',
                     '--cpus','1','--cpuset-cpus',str(n-1),'--memory','3g','--memory-swap','3g',
-                    '--ulimit','nofile=65536:65536','-p',f'127.0.0.1:{19800+n}:8082',
+                    '--ulimit','nofile=65536:65536','-p',f'127.0.0.1:{args.port_base+n}:8082',
                     '-v',name+':/data','-v',str(config)+':/config:ro',
                     *(['--tmpfs',f'/data/node/raft-cells/archive-verifier:rw,noexec,nosuid,nodev,size={args.archive_tmpfs_mib}m'] if args.archive_tmpfs_mib else []),
                     '-e',f'RAFT_NODE={n}','-e',f'RAFT_CELLS={total}','-e',f'RAFT_TICK_MS={args.tick_ms}','-e',f'RAFT_PRIMARY_ONLY={int(args.primary_only)}','-e',f'RAFT_QUEUE_ITEMS={args.queue_items}',
@@ -247,7 +268,7 @@ def main():
         report['vm_memory_bytes']=int(docker('info','--format','{{.MemTotal}}'))
         report['limits']=[json.loads(docker('inspect','--format','{{json .HostConfig}}',name)) for name in nodes]
         # Only record resource-related fields: full inspect includes credentials.
-        report['limits']=[{k:r[k] for k in ('NanoCpus','CpusetCpus','Memory','MemorySwap','Tmpfs')} for r in report['limits']]
+        report['limits']=[captured_node_limits(raw) for raw in report['limits']]
         assert all(r['NanoCpus']==1000000000 and r['Memory']==3*1024**3 for r in report['limits'])
         docker('pull','python:3.12-slim')
         log('Balancing real leaders to the requested primary placement...')

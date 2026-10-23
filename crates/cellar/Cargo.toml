@@ -4,7 +4,7 @@ repository = "https://github.com/crabbuild/cellar"
 name = "cellar"
 default-run = "cellar"
 autoexamples = false
-version = "0.6.2"
+version = "0.1.0"
 edition = "2021"
 rust-version = "1.94.1"
 license = "Apache-2.0"
@@ -68,6 +68,10 @@ path = "../../tools/perf/fault_cells.rs"
 [[bin]]
 name = "cellar-perf-raft"
 path = "../../tools/perf/raft_node.rs"
+
+[[bin]]
+name = "cellar-perf-baseline"
+path = "../../tools/perf/baseline_node.rs"
 
 [[bin]]
 name = "cellar-perf-storage"
@@ -158,3 +162,8 @@ lz4_flex.workspace = true
 
 [build-dependencies]
 cc.workspace = true
+
+# A real process runner: child invocations use the public daemon's CLI arguments.
+[[test]]
+name = "native_raft_daemon"
+harness = false

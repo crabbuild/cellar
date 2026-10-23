@@ -1,0 +1,875 @@
+{
+  "task_id": "MR-14",
+  "source_revision": "efb83287018098718726109170f9e2b43ceb9adb",
+  "completion": "partial",
+  "scope": "Executable native Fleet/bucket reference adapters, independent evidence checking and fresh same-image local observations; no equivalent-guarantee speedup or capacity qualification.",
+  "implementation": [
+    "Shared SQLite schema, statements and bindings for conditional sets, transfers, revision and payload data across Raft, Fleet and bucket.",
+    "Native NodeFleet output gates with a bounded application transaction receipt: exact duplicate replay; conflict, expiry, sequence-gap and capacity refusal; no synthetic Raft tokens.",
+    "One fsynced ledger and fixed open-loop scheduler, conservative ambiguity quarantine, fresh image/source/executable checks and capped local resource launchers.",
+    "Independent baseline checker verifies raw serialized history and owner-route state/sequence. Aggregate native output proofs distinguish Fleet and bucket observations; a Fleet measurement with no Fleet proof is refused.",
+    "Comparison reruns both analyzers and refuses a ratio when contracts, reads, hardware, workload or build records differ. CI runs the Python workload/evidence guards."
+  ],
+  "rust_passed": 6,
+  "rust_failed": 0,
+  "tests": [
+    {
+      "target": "unittests ../../tools/perf/baseline_node.rs",
+      "passed": 5,
+      "failed": 0,
+      "ignored": 0,
+      "binary_sha256": "37da65918748d975e32dcd802b177865c56f7022e79713e6f61185b567be4242"
+    },
+    {
+      "target": "unittests ../../tools/perf/raft_node.rs",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "binary_sha256": "a146d0a351891b75f7b126f0ff387788a6a9483aa799cf85dfde9cb51e6a12e2"
+    }
+  ],
+  "python": {
+    "passed": 137,
+    "skipped": 1,
+    "total": 138,
+    "skip_scope": "Existing opt-in Docker cache test."
+  },
+  "plan_tests_passed": 17,
+  "checks": [
+    {
+      "name": "rust",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "cellar",
+        "--bin",
+        "cellar-perf-raft",
+        "--bin",
+        "cellar-perf-baseline"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 17.831581115722656,
+      "sha256": "29dbf97f569cb6424d3ee9814229c03198da0138d0af261a9a8e631139096333",
+      "source_revision": "efb83287018098718726109170f9e2b43ceb9adb",
+      "output": "evidence/MR-14-baseline-validation.json.gz",
+      "log_member": "rust"
+    },
+    {
+      "name": "clippy",
+      "command": [
+        "cargo",
+        "clippy",
+        "--locked",
+        "-p",
+        "cellar",
+        "--all-targets",
+        "--all-features",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 1.6423180103302002,
+      "sha256": "25aeece1273fbc2c9d0a80f5080f0323a3a4d12020a5faafaf365f8d19fe4483",
+      "source_revision": "efb83287018098718726109170f9e2b43ceb9adb",
+      "output": "evidence/MR-14-baseline-validation.json.gz",
+      "log_member": "clippy"
+    },
+    {
+      "name": "format",
+      "command": [
+        "cargo",
+        "format",
+        "--check"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 40.294438123703,
+      "sha256": "8f58e34cf595965bac98b0951945613cd0116425f3f7f4eb330268af6e1c4de0",
+      "source_revision": "efb83287018098718726109170f9e2b43ceb9adb",
+      "output": "evidence/MR-14-baseline-validation.json.gz",
+      "log_member": "format"
+    },
+    {
+      "name": "layout",
+      "command": [
+        "cargo",
+        "check-layout"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 0.11381196975708008,
+      "sha256": "396f32d91a989db5b72aa445fd922941d530aea3daf460d7631acb8aaa7237a0",
+      "source_revision": "efb83287018098718726109170f9e2b43ceb9adb",
+      "output": "evidence/MR-14-baseline-validation.json.gz",
+      "log_member": "layout"
+    },
+    {
+      "name": "dependencies",
+      "command": [
+        "python3",
+        "tools/check_native_dependencies.py"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 0.21869492530822754,
+      "sha256": "faf9bdb8df5819a63d590ede5d4a5f43eb4e8b00d8a6f44ccfb36bd8c4c5c238",
+      "source_revision": "efb83287018098718726109170f9e2b43ceb9adb",
+      "output": "evidence/MR-14-baseline-validation.json.gz",
+      "log_member": "dependencies"
+    },
+    {
+      "name": "docs",
+      "command": [
+        "python3",
+        "tools/docs/check.py"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 0.0719292163848877,
+      "sha256": "701e55367b1b8c08dcd388c3084250c7209af81cb161e4ba73339783b537eeb3",
+      "source_revision": "efb83287018098718726109170f9e2b43ceb9adb",
+      "output": "evidence/MR-14-baseline-validation.json.gz",
+      "log_member": "docs"
+    },
+    {
+      "name": "python",
+      "command": [
+        "python3",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "tools/perf",
+        "-p",
+        "test_*.py"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 2.2230191230773926,
+      "sha256": "8024ff949becfe4dd6da98654bad30577cc383e536091db8f35982988896749f",
+      "source_revision": "efb83287018098718726109170f9e2b43ceb9adb",
+      "output": "evidence/MR-14-baseline-validation.json.gz",
+      "log_member": "python"
+    },
+    {
+      "name": "plan",
+      "command": [
+        "python3",
+        "plans/multi-raft/plan.py",
+        "validate"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 0.11444902420043945,
+      "sha256": "01d3e06dcf506d513df0b1fd863a0392f31d568a9cd9e25695d65f279234873d",
+      "source_revision": "efb83287018098718726109170f9e2b43ceb9adb",
+      "output": "evidence/MR-14-baseline-validation.json.gz",
+      "log_member": "plan"
+    },
+    {
+      "name": "plan-tests",
+      "command": [
+        "python3",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "plans/multi-raft",
+        "-p",
+        "test_*.py"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 0.13841724395751953,
+      "sha256": "df06bb62bf49d5fcdd95bd28294f884301a1b8d9dc3afd1cac3ad180315e7b35",
+      "source_revision": "efb83287018098718726109170f9e2b43ceb9adb",
+      "output": "evidence/MR-14-baseline-validation.json.gz",
+      "log_member": "plan-tests"
+    },
+    {
+      "name": "final-preflight",
+      "source_revision": "efb83287018098718726109170f9e2b43ceb9adb",
+      "command": [
+        "python3",
+        "plans/multi-raft/plan.py",
+        "preflight"
+      ],
+      "exit_code": 0,
+      "sha256": "4161e108b108a78dd89b2c594a3903327419cb0fa107318174a47521c4fa2323",
+      "output": "evidence/MR-14-baseline-validation.json.gz",
+      "log_member": "final-preflight",
+      "scope": "Evidence, documentation and source-anchor validation after recording the source-pinned runs."
+    },
+    {
+      "name": "evidence-plan",
+      "source_revision": "efb83287018098718726109170f9e2b43ceb9adb",
+      "command": [
+        "python3",
+        "plans/multi-raft/plan.py",
+        "validate"
+      ],
+      "exit_code": 0,
+      "sha256": "12eb9de64e4063e301cb2684c22ecd2d569c1b57e3147c16e2b79c554da0972a",
+      "output": "evidence/MR-14-baseline-validation.json.gz",
+      "log_member": "evidence-plan",
+      "scope": "Evidence, documentation and source-anchor validation after recording the source-pinned runs."
+    },
+    {
+      "name": "evidence-docs",
+      "source_revision": "efb83287018098718726109170f9e2b43ceb9adb",
+      "command": [
+        "python3",
+        "tools/docs/check.py"
+      ],
+      "exit_code": 0,
+      "sha256": "701e55367b1b8c08dcd388c3084250c7209af81cb161e4ba73339783b537eeb3",
+      "output": "evidence/MR-14-baseline-validation.json.gz",
+      "log_member": "evidence-docs",
+      "scope": "Evidence, documentation and source-anchor validation after recording the source-pinned runs."
+    },
+    {
+      "name": "evidence-plan-tests",
+      "source_revision": "efb83287018098718726109170f9e2b43ceb9adb",
+      "command": [
+        "python3",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "plans/multi-raft",
+        "-p",
+        "test_*.py"
+      ],
+      "exit_code": 0,
+      "sha256": "1ba94a19bc6023e418862fc0a94b7666fb13cc67163a30e300a14d33d76da01c",
+      "output": "evidence/MR-14-baseline-validation.json.gz",
+      "log_member": "evidence-plan-tests",
+      "scope": "Evidence, documentation and source-anchor validation after recording the source-pinned runs."
+    },
+    {
+      "name": "capsule-verification",
+      "source_revision": "efb83287018098718726109170f9e2b43ceb9adb",
+      "command": [
+        "python3",
+        "/tmp/cellar-mr14-baseline-capsule-check.py"
+      ],
+      "exit_code": 0,
+      "sha256": "2af69591ec811e9c5fea20ae95736d439f75231e9850b4b7fc35c43ccc8c44c9",
+      "output": "evidence/MR-14-baseline-validation.json.gz",
+      "log_member": "capsule-verification",
+      "scope": "Evidence, documentation and source-anchor validation after recording the source-pinned runs."
+    }
+  ],
+  "regressions": [
+    "Production HTTP/native/LTX/output gate paths restore exact successful and conditional no-op receipts onto a new owner with empty local state and then accept the next noncommutative command.",
+    "Both configured bucket mode and one-node Fleet bucket fallback pass. The native fixture uses the local conditional object store; the separate three-node physical run below verifies actual Fleet output proofs.",
+    "Refused identities, gaps, expired requests and capacity overflow leave state and the client floor unchanged.",
+    "The initial fixture attempted to use InMemory as a paginated store; compilation refused it. The final fixture uses the existing LocalStore pagination/conditional API, without enabling internal-test cfgs.",
+    "One dependency-check invocation lacked cargo on PATH; the final configured check passes. The expected four-file source-anchor drift is reviewed below before refreshing the baseline."
+  ],
+  "reviewed_source_anchor_changes": {
+    ".github/workflows/native-sdk.yml": "Run performance Python evidence/refusal tests in CI.",
+    "crates/cellar/Cargo.toml": "Register cellar-perf-baseline.",
+    "tools/perf/raft.Dockerfile": "Build and package both reference executables from one lab source snapshot.",
+    "tools/perf/raft_node.rs": "Register the shared reference SQL workload module."
+  },
+  "local_environment": {
+    "platform": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+    "memory": "hw.memsize: 34359738368\nvm.swapusage: total = 10240.00M  used = 9762.81M  free = 477.19M  (encrypted)\n",
+    "source_revision": "efb83287018098718726109170f9e2b43ceb9adb",
+    "colima_profile": "cellar-multi-raft",
+    "build_image": "sha256:5bc6e95ffc00f3565109dc570d391eee0fc264928081e766598000f7a972cc95",
+    "profile_final_status": "Stopped; all sixteen exact run containers exited zero, volumes retained."
+  },
+  "local_runs": [
+    {
+      "run": "mr14-baselines-fleet-20261022-001",
+      "adapter": "fleet",
+      "build": {
+        "image_id": "sha256:5bc6e95ffc00f3565109dc570d391eee0fc264928081e766598000f7a972cc95",
+        "binary_sha256": "6be42a07d4f1adde0a86b647f03caff9ce4bbd767502732bc8a674220cc14fde",
+        "source_manifest_sha256": "9a8b1641b91669c0e6f1df8ed7c9c007acb785ac7304d58f6b30485eb4fd8631",
+        "build_profile": "lab",
+        "source_revision": "efb83287018098718726109170f9e2b43ceb9adb",
+        "working_tree_dirty": false
+      },
+      "profile_sha256": "09d923f981e332314239a5d66c4604d5cdc425cb38cef4b8ccb6ceb6f25b06d2",
+      "completed": true,
+      "reconciled": true,
+      "traffic_objectives_met": true,
+      "summary": {
+        "counts": {
+          "submitted": 200,
+          "completed": 200,
+          "offered": 200
+        },
+        "latency_ms": {
+          "p50": 15.221583002130501,
+          "p95": 25.46612499863876,
+          "p99": 35.18720800057018,
+          "p99_9": 99.12620798859263
+        },
+        "latency_by_operation_ms": {
+          "command": {
+            "p50": 19.27179099584464,
+            "p95": 30.968790993211037,
+            "p99": 99.12620798859263,
+            "p99_9": 99.12620798859263
+          },
+          "query": {
+            "p50": 12.697125002159748,
+            "p95": 19.383540991110948,
+            "p99": 29.4759159936806,
+            "p99_9": 33.34779100259766
+          }
+        },
+        "completed_per_second": 10.0,
+        "offered_per_second": 10.0,
+        "error_fraction": 0.0
+      },
+      "history_commands_including_seed": 140,
+      "history_queries": 122,
+      "final_observations": {
+        "kind": "owner-route reads",
+        "count": 36
+      },
+      "output_proof_delta": {
+        "started": 97,
+        "bucket": 0,
+        "fleet": 97,
+        "errors": 0,
+        "elapsed_us": 831951
+      },
+      "non_success_responses": [],
+      "cleanup": [
+        {
+          "container": "cellar-mr14-a9439b86f1eb9266fbaae855-node1",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-a9439b86f1eb9266fbaae855-node2",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-a9439b86f1eb9266fbaae855-node3",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-a9439b86f1eb9266fbaae855-store",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        }
+      ]
+    },
+    {
+      "run": "mr14-baselines-bucket-20261022-001",
+      "adapter": "bucket",
+      "build": {
+        "image_id": "sha256:5bc6e95ffc00f3565109dc570d391eee0fc264928081e766598000f7a972cc95",
+        "binary_sha256": "6be42a07d4f1adde0a86b647f03caff9ce4bbd767502732bc8a674220cc14fde",
+        "source_manifest_sha256": "9a8b1641b91669c0e6f1df8ed7c9c007acb785ac7304d58f6b30485eb4fd8631",
+        "build_profile": "lab",
+        "source_revision": "efb83287018098718726109170f9e2b43ceb9adb",
+        "working_tree_dirty": false
+      },
+      "profile_sha256": "fb3d0617038412e5d538f6c679aea90d13dd694a5b44f46c71243135a6a0ece1",
+      "completed": true,
+      "reconciled": true,
+      "traffic_objectives_met": true,
+      "summary": {
+        "counts": {
+          "submitted": 200,
+          "completed": 200,
+          "offered": 200
+        },
+        "latency_ms": {
+          "p50": 12.72099999768983,
+          "p95": 22.769749999861588,
+          "p99": 37.35170899017248,
+          "p99_9": 49.494291996232676
+        },
+        "latency_by_operation_ms": {
+          "command": {
+            "p50": 13.847958997939003,
+            "p95": 24.158749988419714,
+            "p99": 37.35170899017248,
+            "p99_9": 37.35170899017248
+          },
+          "query": {
+            "p50": 11.065583987511118,
+            "p95": 18.78424999595152,
+            "p99": 40.08308398770133,
+            "p99_9": 49.494291996232676
+          }
+        },
+        "completed_per_second": 10.0,
+        "offered_per_second": 10.0,
+        "error_fraction": 0.0
+      },
+      "history_commands_including_seed": 140,
+      "history_queries": 122,
+      "final_observations": {
+        "kind": "owner-route reads",
+        "count": 36
+      },
+      "output_proof_delta": {
+        "started": 97,
+        "bucket": 97,
+        "fleet": 0,
+        "errors": 0,
+        "elapsed_us": 407074
+      },
+      "non_success_responses": [],
+      "cleanup": [
+        {
+          "container": "cellar-mr14-93d5f8ce70bd4039cd981d85-node1",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-93d5f8ce70bd4039cd981d85-node2",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-93d5f8ce70bd4039cd981d85-node3",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-93d5f8ce70bd4039cd981d85-store",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        }
+      ]
+    },
+    {
+      "run": "mr14-baselines-quorum-20261022-001",
+      "adapter": "quorum",
+      "build": {
+        "image_id": "sha256:5bc6e95ffc00f3565109dc570d391eee0fc264928081e766598000f7a972cc95",
+        "binary_sha256": "469323558328192ecd867cea9976fcdb3405326e8c55b8975b584f1191a602f1",
+        "source_manifest_sha256": "9a8b1641b91669c0e6f1df8ed7c9c007acb785ac7304d58f6b30485eb4fd8631",
+        "build_profile": "lab",
+        "source_revision": "efb83287018098718726109170f9e2b43ceb9adb",
+        "working_tree_dirty": false
+      },
+      "profile_sha256": "1c3657717825fffede206222cf9e5419a46f1cab4b27d02e21c5ac795098ae09",
+      "completed": true,
+      "reconciled": true,
+      "traffic_objectives_met": true,
+      "summary": {
+        "counts": {
+          "submitted": 200,
+          "completed": 199,
+          "rejected": 1,
+          "offered": 200
+        },
+        "latency_ms": {
+          "p50": 12.3282919958001,
+          "p95": 22.877832993981606,
+          "p99": 28.488833000302805,
+          "p99_9": 30.82770800101642
+        },
+        "latency_by_operation_ms": {
+          "command": {
+            "p50": 17.232749998219887,
+            "p95": 23.88595800148252,
+            "p99": 30.82770800101642,
+            "p99_9": 30.82770800101642
+          },
+          "query": {
+            "p50": 4.485957993892953,
+            "p95": 10.458957994705642,
+            "p99": 13.217916997382396,
+            "p99_9": 15.145874998415465
+          }
+        },
+        "completed_per_second": 9.95,
+        "offered_per_second": 10.0,
+        "error_fraction": 0.005
+      },
+      "history_commands_including_seed": 140,
+      "history_queries": 121,
+      "final_observations": {
+        "kind": "actual voter replicas and archive cuts",
+        "count": 36
+      },
+      "output_proof_delta": null,
+      "non_success_responses": [
+        {
+          "cell": 0,
+          "complete_seconds": 14.306963499999256,
+          "dispatch_delay_ms": 5.300041989539039,
+          "event": "complete",
+          "id": "measurement:143",
+          "invocation_sync_ms": 0.09729100565891713,
+          "latency_ms": 6.963499999255163,
+          "operation": "query",
+          "order": 412,
+          "outcome": "rejected",
+          "phase": "measurement",
+          "response": {
+            "ambiguous": false,
+            "error": "VersionUnavailable"
+          },
+          "scheduled_seconds": 14.3,
+          "status": 503,
+          "timed_out": false,
+          "violation": null,
+          "wire_ms": 1.5661670040572062
+        }
+      ],
+      "cleanup": [
+        {
+          "container": "cellar-mr14-a9b21d6b2e06a49c718d7c69-node1",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-a9b21d6b2e06a49c718d7c69-node2",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-a9b21d6b2e06a49c718d7c69-node3",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-a9b21d6b2e06a49c718d7c69-store",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        }
+      ]
+    },
+    {
+      "run": "mr14-baselines-s3-20261022-001",
+      "adapter": "s3",
+      "build": {
+        "image_id": "sha256:5bc6e95ffc00f3565109dc570d391eee0fc264928081e766598000f7a972cc95",
+        "binary_sha256": "469323558328192ecd867cea9976fcdb3405326e8c55b8975b584f1191a602f1",
+        "source_manifest_sha256": "9a8b1641b91669c0e6f1df8ed7c9c007acb785ac7304d58f6b30485eb4fd8631",
+        "build_profile": "lab",
+        "source_revision": "efb83287018098718726109170f9e2b43ceb9adb",
+        "working_tree_dirty": false
+      },
+      "profile_sha256": "bf73355d7bd02d508af8e40c5508b7ac771b981056309ac42f74dd277c76f411",
+      "completed": true,
+      "reconciled": true,
+      "traffic_objectives_met": false,
+      "summary": {
+        "counts": {
+          "submitted": 139,
+          "completed": 139,
+          "generator_rejected": 61,
+          "offered": 200
+        },
+        "latency_ms": {
+          "p50": 8.831584005383863,
+          "p95": 679.3856669974048,
+          "p99": 859.1665419953642,
+          "p99_9": 1070.7772090070655
+        },
+        "latency_by_operation_ms": {
+          "command": {
+            "p50": 339.78850000421534,
+            "p95": 831.066833998193,
+            "p99": 1070.7772090070655,
+            "p99_9": 1070.7772090070655
+          },
+          "query": {
+            "p50": 4.727167004602961,
+            "p95": 12.217374992907537,
+            "p99": 450.8159589982821,
+            "p99_9": 450.8159589982821
+          }
+        },
+        "completed_per_second": 6.95,
+        "offered_per_second": 10.0,
+        "error_fraction": 0.305
+      },
+      "history_commands_including_seed": 100,
+      "history_queries": 100,
+      "final_observations": {
+        "kind": "actual voter replicas and archive cuts",
+        "count": 36
+      },
+      "output_proof_delta": null,
+      "non_success_responses": [],
+      "cleanup": [
+        {
+          "container": "cellar-mr14-3a6de39e2ec878108fda3364-node1",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-3a6de39e2ec878108fda3364-node2",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-3a6de39e2ec878108fda3364-node3",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-3a6de39e2ec878108fda3364-store",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        }
+      ]
+    }
+  ],
+  "comparison_results": {
+    "fleet-vs-quorum": {
+      "matched_contract": false,
+      "differences": {
+        "durability_contract": {
+          "left": {
+            "authority": "bucket-ownership-and-fenced-node-log",
+            "local_durable_copies_at_ack": "current-ensemble-or-bucket",
+            "object_store_at_ack": false,
+            "receipts": "application-transaction",
+            "reads": "owner"
+          },
+          "right": {
+            "authority": "raft-majority",
+            "local_durable_copies_at_ack": "majority-of-3",
+            "object_store_at_ack": false,
+            "receipts": "raft-command",
+            "reads": "at-least"
+          }
+        },
+        "workload_contract": {
+          "left": {
+            "cells": {
+              "total": 12,
+              "active": 12
+            },
+            "database_bytes": [
+              4096
+            ],
+            "write_bytes": [
+              64,
+              1024
+            ],
+            "read_fraction": 0.5,
+            "read_consistency": "owner",
+            "skew": {
+              "hot_fraction": 0.1,
+              "hot_probability": 0.8
+            },
+            "arrival": {
+              "rate_per_second": 10,
+              "max_inflight": 8,
+              "max_lateness_ms": 100
+            },
+            "timing": {
+              "warmup_seconds": 5,
+              "measurement_seconds": 20,
+              "soak_seconds": 0,
+              "request_timeout_ms": 5000,
+              "retry_window_ms": 300000,
+              "startup_seconds": 600
+            },
+            "seed": 14,
+            "tick_ms": null
+          },
+          "right": {
+            "cells": {
+              "total": 12,
+              "active": 12
+            },
+            "database_bytes": [
+              4096
+            ],
+            "write_bytes": [
+              64,
+              1024
+            ],
+            "read_fraction": 0.5,
+            "read_consistency": "at-least",
+            "skew": {
+              "hot_fraction": 0.1,
+              "hot_probability": 0.8
+            },
+            "arrival": {
+              "rate_per_second": 10,
+              "max_inflight": 8,
+              "max_lateness_ms": 100
+            },
+            "timing": {
+              "warmup_seconds": 5,
+              "measurement_seconds": 20,
+              "soak_seconds": 0,
+              "request_timeout_ms": 5000,
+              "retry_window_ms": 300000,
+              "startup_seconds": 600
+            },
+            "seed": 14,
+            "tick_ms": 100
+          }
+        },
+        "build_profile": {
+          "left": {
+            "profile": "lab",
+            "source_manifest": "9a8b1641b91669c0e6f1df8ed7c9c007acb785ac7304d58f6b30485eb4fd8631",
+            "binary_sha256": "6be42a07d4f1adde0a86b647f03caff9ce4bbd767502732bc8a674220cc14fde"
+          },
+          "right": {
+            "profile": "lab",
+            "source_manifest": "9a8b1641b91669c0e6f1df8ed7c9c007acb785ac7304d58f6b30485eb4fd8631",
+            "binary_sha256": "469323558328192ecd867cea9976fcdb3405326e8c55b8975b584f1191a602f1"
+          }
+        }
+      },
+      "limitation": "These observations are not an equivalent-guarantee speedup."
+    },
+    "bucket-vs-s3": {
+      "matched_contract": false,
+      "differences": {
+        "durability_contract": {
+          "left": {
+            "authority": "bucket-ownership",
+            "local_durable_copies_at_ack": "not-required",
+            "object_store_at_ack": true,
+            "receipts": "application-transaction",
+            "reads": "owner"
+          },
+          "right": {
+            "authority": "raft-majority",
+            "local_durable_copies_at_ack": "majority-of-3",
+            "object_store_at_ack": true,
+            "receipts": "raft-command",
+            "reads": "at-least"
+          }
+        },
+        "workload_contract": {
+          "left": {
+            "cells": {
+              "total": 12,
+              "active": 12
+            },
+            "database_bytes": [
+              4096
+            ],
+            "write_bytes": [
+              64,
+              1024
+            ],
+            "read_fraction": 0.5,
+            "read_consistency": "owner",
+            "skew": {
+              "hot_fraction": 0.1,
+              "hot_probability": 0.8
+            },
+            "arrival": {
+              "rate_per_second": 10,
+              "max_inflight": 8,
+              "max_lateness_ms": 100
+            },
+            "timing": {
+              "warmup_seconds": 5,
+              "measurement_seconds": 20,
+              "soak_seconds": 0,
+              "request_timeout_ms": 5000,
+              "retry_window_ms": 300000,
+              "startup_seconds": 600
+            },
+            "seed": 14,
+            "tick_ms": null
+          },
+          "right": {
+            "cells": {
+              "total": 12,
+              "active": 12
+            },
+            "database_bytes": [
+              4096
+            ],
+            "write_bytes": [
+              64,
+              1024
+            ],
+            "read_fraction": 0.5,
+            "read_consistency": "at-least",
+            "skew": {
+              "hot_fraction": 0.1,
+              "hot_probability": 0.8
+            },
+            "arrival": {
+              "rate_per_second": 10,
+              "max_inflight": 8,
+              "max_lateness_ms": 100
+            },
+            "timing": {
+              "warmup_seconds": 5,
+              "measurement_seconds": 20,
+              "soak_seconds": 0,
+              "request_timeout_ms": 5000,
+              "retry_window_ms": 300000,
+              "startup_seconds": 600
+            },
+            "seed": 14,
+            "tick_ms": 100
+          }
+        },
+        "build_profile": {
+          "left": {
+            "profile": "lab",
+            "source_manifest": "9a8b1641b91669c0e6f1df8ed7c9c007acb785ac7304d58f6b30485eb4fd8631",
+            "binary_sha256": "6be42a07d4f1adde0a86b647f03caff9ce4bbd767502732bc8a674220cc14fde"
+          },
+          "right": {
+            "profile": "lab",
+            "source_manifest": "9a8b1641b91669c0e6f1df8ed7c9c007acb785ac7304d58f6b30485eb4fd8631",
+            "binary_sha256": "469323558328192ecd867cea9976fcdb3405326e8c55b8975b584f1191a602f1"
+          }
+        }
+      },
+      "limitation": "These observations are not an equivalent-guarantee speedup."
+    }
+  },
+  "raw_output": [
+    {
+      "path": "evidence/MR-14-baseline-validation.json.gz",
+      "bytes": 11569,
+      "sha256": "0c3f618eaabf96616fa0ba0bf29cdedb8aa93475b5c35dfb6098a940812284f5"
+    },
+    {
+      "path": "evidence/MR-14-baseline-local-runs.json.gz",
+      "bytes": 309915,
+      "sha256": "3196d3085f13d0de963a03631ab173ec3ac0534577e811bba3a621e7dd8c7b0b"
+    }
+  ],
+  "limitations": [
+    "Three 1-vCPU/3-GiB/no-swap Cellar containers per run plus RustFS in one owned Colima VM. Experiments ran sequentially; all exact containers exited zero and their volumes remain.",
+    "The shared 32-GiB Mac had about 9.5 GiB swap in use before these runs. Other work was uncontrolled; no steady-state, causal speedup, instrumentation-overhead or independent-failure-domain result is claimed.",
+    "Fleet and bucket reads route to owners, whereas the Raft runs verify actual follower reads and all replicas. Raft S3 additionally requires quorum/image publication. These contracts are not equivalent.",
+    "The Quorum run retains one non-ambiguous VersionUnavailable follower-query response. Its submitted command histories reconcile; this observation does not close earlier read/transfer findings.",
+    "Raft S3 misses the declared traffic objectives: 139/200 completed, 61 generator rejections and about 859ms p99 arrival latency.",
+    "S3-compatible RustFS is not real Amazon S3 validation. Native restore tests use LocalStore; these physical measurements do not qualify disaster restore or slow-follower/failure behavior."
+  ],
+  "remaining": [
+    "Investigate and improve Raft S3 archive acknowledgement latency using the retained owner measurements and unchanged durability checks.",
+    "Add controlled slow-follower baselines, steady-state/overhead and full-device measurements, equivalent-contract analysis and density qualification.",
+    "Q1 remains six processes and 10,000 three-voter cells (5,000 average replicas/process) versus the unchanged 4,096-group bound and the agreed five-node local ceiling.",
+    "MR-13 remaining management/receipt/restore gates, earlier concurrent findings and MR-15 through MR-17 remain open."
+  ]
+}

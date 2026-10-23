@@ -1,0 +1,209 @@
+{
+  "task_id": "MR-13",
+  "source_revision": "bff835ccbb325ec1018ec9553f3c201e18cf3efe",
+  "completion": "partial",
+  "scope": "Three actual Linux Cellar SDK containers in a separate Colima profile, each with one CPU / 3 GiB / no swap, six independent three-voter groups with mixed leader/follower roles, and real RustFS HTTP storage. Paced functional smoke only.",
+  "node_source_revision": "7f0beba8390fb9abeb43e9c47406fad487a1323c",
+  "core_integration_revision": "f214ddf37177fccb4ad71e798b0ab29085324bdd",
+  "runner_source_revision": "bff835ccbb325ec1018ec9553f3c201e18cf3efe",
+  "node_image": "sha256:0a47472a351b946d04c85e2323cf4017af2435564195d9e869f10bfd86c8103e",
+  "node_image_revision_label": "7f0beba8390fb9abeb43e9c47406fad487a1323c",
+  "node_executable_sha256": "0021f1f1515eacab3d2ed17b90319223e3678aca858a6940dc9cb4162d0ac1dc",
+  "rustfs_image_id": "sha256:bffcab0c9d647aab0055d1c69d340b202d0909966b385932d4ead1aeb7602858",
+  "environment": {
+    "profile": "cellar-multi-raft",
+    "context": "colima-cellar-multi-raft",
+    "vm_cpu_count": 8,
+    "vm_memory_bytes": 16732606464,
+    "port_base": 19900,
+    "nodes": 3,
+    "groups": 6,
+    "voters_per_group": 3,
+    "write_durability": "Quorum",
+    "archive": "RustFS",
+    "tmpfs_for_archive_scratch": false,
+    "cgroups": [
+      {
+        "node": 1,
+        "cpu_max": "100000 100000",
+        "memory_max": 3221225472,
+        "memory_swap_max": 0
+      },
+      {
+        "node": 2,
+        "cpu_max": "100000 100000",
+        "memory_max": 3221225472,
+        "memory_swap_max": 0
+      },
+      {
+        "node": 3,
+        "cpu_max": "100000 100000",
+        "memory_max": 3221225472,
+        "memory_swap_max": 0
+      }
+    ]
+  },
+  "validation": {
+    "acknowledged_writes_including_seed": 10,
+    "all_replica_values_verified": 18,
+    "groups_with_verified_archive_coverage": 6,
+    "all_windows_error_free": true,
+    "independent_analyzer_verified": true,
+    "functional_traffic": "Six initial writes plus four paced writes over two seconds, with one client at two requests/second. This does not establish throughput capacity or an SLO.",
+    "perf_python_tests": {
+      "total": 100,
+      "passed": 99,
+      "skipped": 1,
+      "skip_scope": "Opt-in historical Docker build/cache qualification. Actual current-image build and this native run passed separately."
+    },
+    "owning_raft_python_tests": 13,
+    "log": "MR-13-colima-native-validation.log.gz",
+    "log_uncompressed_sha256": "c425ac598d840bb0114607a4301323135cf881b5450e64a267935de4200555ba",
+    "input_logs": [
+      {
+        "name": "archive-verification.json",
+        "sha256": "80ca351ccbca043219e6b2dd7a4a9501313362c978a2d66efa8e685c6042dc26"
+      },
+      {
+        "name": "report.json",
+        "sha256": "ed81367e119e7ca23a343ae90a1b8e6d1568d71ccfd052d44becea8c997ddd03"
+      },
+      {
+        "name": "cgroup-validation.json",
+        "sha256": "1dc172657a57fe1db4dae31beaae62c4112fe1af3ee6bb755fe3028d6e2da38b"
+      },
+      {
+        "name": "initial-archive-verification.json",
+        "sha256": "d841dafd8dca9883a9863209dd4181ce51081cdc37c936c1b237c0fbdd843344"
+      },
+      {
+        "name": "write-r1-c1-q2.json",
+        "sha256": "af44f18ea10babbd8fbf78b95b8907a329ff571ace6786d498e1c30c5dbf9982"
+      },
+      {
+        "name": "replica-verification.json",
+        "sha256": "778705cb6f5dc8c314e23162a31d47fb6a66a7ea41e8b5d5a1e97bf576ff792c"
+      },
+      {
+        "name": "resources.jsonl",
+        "sha256": "3c0fdc5aaaf0ab78127ddafb164dcab84e9eef8bef46aca098ad6529c31e5463"
+      },
+      {
+        "name": "cellar-raft-20261022-070948-node1.log",
+        "sha256": "71bc8cc1ff8982d4c9bb1733633ec6d1a53fb6c623df087edc6974f73060a579"
+      },
+      {
+        "name": "seed-journal.jsonl",
+        "sha256": "f1e9dfa0f357c676ea528eef62ce63e4501a043d5169a1c9283213cc0cd0ffdd"
+      },
+      {
+        "name": "cellar-raft-20261022-070948-node2.log",
+        "sha256": "f21c0020451c3d0ce77fbb68b548a426d8955e7f87eafb807c5b8ec78587c47c"
+      },
+      {
+        "name": "cellar-raft-20261022-070948-node3.log",
+        "sha256": "becfd2048acddee0c8c4628ae96af2305426702abb2b43ff0cb3e9b558888c85"
+      },
+      {
+        "name": "cellar-mr13-colima-native-run.log",
+        "sha256": "2e0e35d23b7efce70ed801adf9012e83718761e1bd945d9f7f75f34f1374ffa1"
+      },
+      {
+        "name": "cellar-mr13-colima-native-continuation.log",
+        "sha256": "699ad4b1d38f685c5bcc6dd4d7598ee0ecdf35b27192286945fd6d50b10769bf"
+      },
+      {
+        "name": "cellar-mr13-colima-independent-analysis.json",
+        "sha256": "7461dad07e721c1a38b6ed2c0700c3aba508374f8ed1674eb445d01ca644b461"
+      },
+      {
+        "name": "cellar-mr13-docker-capture-red.log",
+        "sha256": "4b8751e43192a7b5e612e1e28939a94842b978e98162cdc0995742caa8b88151"
+      },
+      {
+        "name": "cellar-mr13-docker-capture-green.log",
+        "sha256": "8f20238767c401734c2a5814618491e78ff445facd7922105c9f34a1a13303de"
+      },
+      {
+        "name": "cellar-mr13-perf-tools-final.log",
+        "sha256": "08ddd04328d34995a2ff562d7c908c3b585d1984b558dd7925feac302965af91"
+      },
+      {
+        "name": "cellar-mr13-colima-image-build.log",
+        "sha256": "7a49e7e67de25f4405d114c0c904fcde6a47c7b8f27482708c4af3174e16b6df"
+      }
+    ],
+    "credentials": "Private config excluded; all published input bytes checked against bearer and store credential values."
+  },
+  "initial_failure": {
+    "source_revision": "7f0beba8390fb9abeb43e9c47406fad487a1323c",
+    "failure": "Docker 29 omits HostConfig.Tmpfs when no tmpfs was requested. Required CPU/memory fields were present and actual mounts were volume/bind. Harness failed before placement/seed/measured writes.",
+    "red_regression_revision": "b098ff5d5f55aa6c5e544e2d8ef08c2bedc84e38",
+    "fix_revision": "bff835ccbb325ec1018ec9553f3c201e18cf3efe",
+    "fix": "Normalize only absent/null optional Tmpfs to an empty map. Required quotas still fail when missing, and explicit tmpfs mappings are preserved.",
+    "continuation": "Same containers, disks, process identities and private config; no restart/reseed. Previous report and failure history retained before resuming setup."
+  },
+  "reproduction_argv": [
+    "python3",
+    "tools/perf/raft.py",
+    "--context",
+    "colima-cellar-multi-raft",
+    "--port-base",
+    "19900",
+    "--image",
+    "cellar-multi-raft:mr13-local",
+    "--cells-per-primary",
+    "2",
+    "--seconds",
+    "2",
+    "--repeats",
+    "1",
+    "--concurrency",
+    "1",
+    "--rates",
+    "2",
+    "--output",
+    "NEW_PRIVATE_DIRECTORY"
+  ],
+  "limits": [
+    "This is three Cellar nodes, within the requested maximum of five. Five-node topology remains additional work.",
+    "The container binary Rust source is unchanged by the later Python-only metadata fix; the recorded image and executable hashes identify the actual deployment.",
+    "Native SDK startup is exercised. Production daemon process startup has separate native qualification; no CLI/RustFS recovery drill is claimed here.",
+    "No process failure, retained-disk restart, member replacement, fenced disaster restore, power loss, independent host/zone, Amazon S3, soak, high-density or large-fleet qualification is established by this smoke run.",
+    "MR-13 through MR-17 remain open."
+  ],
+  "source_files": [
+    {
+      "path": "Cargo.toml",
+      "sha256": "d729a94f75eaf4343ded618193cd09dcc33ec800eba252e31ef57de53d31d129"
+    },
+    {
+      "path": "Cargo.lock",
+      "sha256": "b9622cfd2713f81591f3cf200ff5a732418ab42e99df46e63c22c06a6d94b105"
+    },
+    {
+      "path": "crates/cellar/Cargo.toml",
+      "sha256": "e8b3c1d5890bec4271421d8cd143a65009b0b90e43814dc04d2ae5fb24fe8404"
+    },
+    {
+      "path": "tools/perf/raft.py",
+      "sha256": "7d6ff62225e4f8683e85e4096edec6a07312aa1901ec773212b9495c2e7b0b97"
+    },
+    {
+      "path": "tools/perf/test_raft.py",
+      "sha256": "a9a6664307a6b434894ebfe69300e2e19371d211b9033868f0496480d25c48a6"
+    },
+    {
+      "path": "tools/perf/raft_node.rs",
+      "sha256": "bf79b3e48b643d646c5e35af8d5654cf4dd50ccc95d49cbe3091804203e52c94"
+    },
+    {
+      "path": "tools/perf/raft.Dockerfile",
+      "sha256": "00f43f137e9164ed8a1a26859f6b8347f3842c5eb2222ff6d85b4818fc50fd91"
+    },
+    {
+      "path": "examples/raft-counter/counter.rs",
+      "sha256": "afae5a3093d5c30db2767a03e77b9b0a22f789440c05859a0e191b4051d2b8c7"
+    }
+  ]
+}

@@ -5,9 +5,11 @@
 use crate::apply::{self, ApplyError, ApplyLimits, ImageState, ImageUpdate};
 use crate::host::{create_dir_all_durable, FileSystem, HostFile, HostFileLock};
 use std::collections::BTreeMap;
+use std::ops::{Deref, DerefMut};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
 
+pub use crate::generation_accounting::{GenerationAccounting, GenerationResources};
 pub use crate::generation_vfs::{open_immutable, ImmutableDatabase, ReadServices};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -114,6 +116,60 @@ struct State {
     references: BTreeMap<u64, RetainedReference>,
     bytes: u64,
     quarantined: bool,
+    accounting: Option<crate::generation_accounting::Registration>,
+}
+
+impl State {
+    fn usage(&self) -> GenerationUsage {
+        GenerationUsage {
+            generations: self.entries.len(),
+            bytes: self.bytes,
+            retained: self
+                .entries
+                .iter()
+                .filter(|(id, entry)| {
+                    entry.retained
+                        || self
+                            .references
+                            .values()
+                            .any(|reference| reference.active && reference.image == **id)
+                })
+                .count(),
+            busy: self.entries.values().filter(|entry| entry.busy).count(),
+        }
+    }
+}
+
+struct StateGuard<'a>(MutexGuard<'a, State>);
+
+impl Deref for StateGuard<'_> {
+    type Target = State;
+
+    fn deref(&self) -> &State {
+        &self.0
+    }
+}
+
+impl DerefMut for StateGuard<'_> {
+    fn deref_mut(&mut self) -> &mut State {
+        &mut self.0
+    }
+}
+
+impl Drop for StateGuard<'_> {
+    fn drop(&mut self) {
+        if self.0.accounting.is_some() {
+            let usage = self.0.usage();
+            let failed = self.0.quarantined || std::thread::panicking();
+            if let Some(accounting) = &mut self.0.accounting {
+                if failed {
+                    accounting.fail();
+                } else {
+                    accounting.update(usage);
+                }
+            }
+        }
+    }
 }
 
 struct Inner {
@@ -296,7 +352,7 @@ struct Reservation {
 impl Drop for Reservation {
     fn drop(&mut self) {
         if !self.finished {
-            if let Ok(mut state) = self.inner.state.lock() {
+            if let Ok(mut state) = self.inner.lock() {
                 state.quarantined = true;
             }
         }
@@ -308,6 +364,26 @@ impl GenerationStore {
         directory: PathBuf,
         filesystem: Arc<dyn FileSystem>,
         limits: GenerationLimits,
+    ) -> Result<Self, GenerationError> {
+        Self::open_inner(directory, filesystem, limits, None)
+    }
+
+    /// Open with physical reservation accounting. Pins keep both the directory
+    /// owner and its accounting registration alive after the store handle drops.
+    pub fn open_observed(
+        directory: PathBuf,
+        filesystem: Arc<dyn FileSystem>,
+        limits: GenerationLimits,
+        accounting: &GenerationAccounting,
+    ) -> Result<Self, GenerationError> {
+        Self::open_inner(directory, filesystem, limits, Some(accounting))
+    }
+
+    fn open_inner(
+        directory: PathBuf,
+        filesystem: Arc<dyn FileSystem>,
+        limits: GenerationLimits,
+        accounting: Option<&GenerationAccounting>,
     ) -> Result<Self, GenerationError> {
         limits.validate()?;
         create_dir_all_durable(filesystem.as_ref(), &directory)?;
@@ -353,17 +429,20 @@ impl GenerationStore {
                 return Err(GenerationError::Limit);
             }
         }
+        let mut state = State {
+            entries,
+            references: BTreeMap::new(),
+            bytes,
+            quarantined: false,
+            accounting: None,
+        };
+        state.accounting = accounting.map(|accounting| accounting.register(limits, state.usage()));
         Ok(Self {
             inner: Arc::new(Inner {
                 directory,
                 filesystem,
                 limits,
-                state: Mutex::new(State {
-                    entries,
-                    references: BTreeMap::new(),
-                    bytes,
-                    quarantined: false,
-                }),
+                state: Mutex::new(state),
                 _lock: lock,
             }),
         })
@@ -378,7 +457,28 @@ impl GenerationStore {
         base: Option<&GenerationPin>,
         update: &ImageUpdate<'_>,
     ) -> Result<GenerationPin, GenerationError> {
-        let peak = apply::peak_image_bytes(update, &self.inner.limits.apply)?;
+        self.prepare_chain(id, base, std::slice::from_ref(update))
+    }
+
+    /// Captured physical limits; callers can partition replay without relaxing
+    /// the store's aggregate decode, temporary-image or generation budgets.
+    pub fn limits(&self) -> GenerationLimits {
+        self.inner.limits
+    }
+
+    /// Apply a bounded sequence to one exclusively owned private image. Every
+    /// intermediate result is verified before applying its successor. Only the
+    /// final image is synced and sealed; no intermediate pin can escape. The
+    /// normal apply byte/page/file limits cover the entire sequence, and disk
+    /// admission reserves twice its largest intermediate image.
+    pub fn prepare_chain(
+        &self,
+        id: ImageId,
+        base: Option<&GenerationPin>,
+        updates: &[ImageUpdate<'_>],
+    ) -> Result<GenerationPin, GenerationError> {
+        let peak = apply::peak_chain_bytes(updates, &self.inner.limits.apply)?;
+        let update = updates.first().ok_or(ApplyError::Limit)?;
         if let Some(base) = base {
             if !Arc::ptr_eq(&self.inner, &base.inner) || base.state() != update.base {
                 return Err(GenerationError::Identity);
@@ -431,11 +531,11 @@ impl GenerationStore {
             let mut destination = self.inner.filesystem.create_read_write(&stage)?;
             stage_owned = true;
             let base_path = base.map(|p| self.inner.directory.join(final_name(p.id())));
-            let image = apply::apply_private(
+            let image = apply::apply_private_chain(
                 self.inner.filesystem.as_ref(),
                 base_path.as_deref(),
                 &mut destination,
-                update,
+                updates,
                 &self.inner.limits.apply,
             )?;
             destination.sync_all()?;
@@ -685,30 +785,25 @@ impl GenerationStore {
 
     pub fn usage(&self) -> Result<GenerationUsage, GenerationError> {
         let state = self.lock()?;
-        Ok(GenerationUsage {
-            generations: state.entries.len(),
-            bytes: state.bytes,
-            retained: state
-                .entries
-                .iter()
-                .filter(|(id, entry)| {
-                    entry.retained
-                        || state
-                            .references
-                            .values()
-                            .any(|reference| reference.active && reference.image == **id)
-                })
-                .count(),
-            busy: state.entries.values().filter(|e| e.busy).count(),
-        })
+        Ok(state.usage())
     }
 
-    fn lock(&self) -> Result<MutexGuard<'_, State>, GenerationError> {
-        let state = self
-            .inner
-            .state
-            .lock()
-            .map_err(|_| GenerationError::Quarantined)?;
+    fn lock(&self) -> Result<StateGuard<'_>, GenerationError> {
+        self.inner.lock()
+    }
+}
+
+impl Inner {
+    fn lock(&self) -> Result<StateGuard<'_>, GenerationError> {
+        let state = match self.state.lock() {
+            Ok(state) => StateGuard(state),
+            Err(poisoned) => {
+                if let Some(accounting) = &poisoned.into_inner().accounting {
+                    accounting.fail();
+                }
+                return Err(GenerationError::Quarantined);
+            }
+        };
         if state.quarantined {
             return Err(GenerationError::Quarantined);
         }

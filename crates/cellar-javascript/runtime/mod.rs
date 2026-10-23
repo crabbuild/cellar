@@ -17,18 +17,28 @@ pub mod node;
 /// process-fatal in V8; production binaries require an external supervisor.
 #[derive(Clone, Debug)]
 pub struct Options {
+    /// Maximum admitted invocations across this runtime, including pending I/O.
     pub max_invocations: usize,
+    /// Maximum retained JavaScript cell objects across live native activations.
     pub max_objects: usize,
+    /// Maximum outstanding SDK operations per invocation.
     pub max_pending_operations: usize,
+    /// Total SDK operation budget for one invocation, including completed calls.
     pub max_operations: usize,
+    /// Maximum encoded value size for an invocation, operation, reply, or result.
     pub max_value_bytes: usize,
+    /// Maximum buffered HTTP body size at the guest SDK boundary.
     pub max_body_bytes: usize,
+    /// Maximum operations accepted by one guest storage batch.
     pub max_batch_operations: usize,
+    /// Shared budget for retained bridge payloads; also bounds Node transport queues.
     pub max_bridge_bytes: usize,
+    /// V8 heap limit, or Node old-space limit. This does not cap process RSS.
     pub heap_bytes: usize,
     /// Startup compilation and module initialization budget.
     pub startup_timeout: Duration,
-    /// Maximum uninterrupted engine turn, including microtask checkpoints.
+    /// Embedded V8 pump budget, including its batch of calls and microtasks.
+    /// Node uses `NodeOptions::heartbeat_timeout` for event-loop liveness.
     pub turn_timeout: Duration,
 }
 
@@ -50,8 +60,10 @@ impl Default for Options {
     }
 }
 
+/// Revocable authority shared by the native invocation and the engine thread.
 pub(crate) type Life = Arc<AtomicBool>;
 
+/// Admission message. The byte permit follows the payload until it is dropped.
 pub(crate) struct Start {
     pub id: u64,
     pub payload: String,
@@ -61,6 +73,7 @@ pub(crate) struct Start {
     pub _bytes: OwnedSemaphorePermit,
 }
 
+/// Engine-to-host messages; SDK effects execute on the receiving native future.
 pub(crate) enum Event {
     Operation {
         id: u64,
@@ -75,6 +88,7 @@ pub(crate) enum Event {
     },
 }
 
+/// Encoded SDK outcome returned to one operation within one invocation.
 pub(crate) struct Reply {
     pub invocation: u64,
     pub id: u64,
@@ -95,6 +109,7 @@ pub(crate) struct Runtime {
 
 impl Runtime {
     pub fn id(&self) -> Result<u64> {
+        // IDs cross JSON and JavaScript Number; never allocate an inexact integer.
         self.next
             .fetch_update(Ordering::AcqRel, Ordering::Acquire, |v| {
                 (v < 9_007_199_254_740_991).then_some(v + 1)
@@ -103,6 +118,7 @@ impl Runtime {
     }
 
     pub fn reserve(&self, n: usize) -> Result<OwnedSemaphorePermit> {
+        // Refuse overload immediately instead of queuing unbounded payloads.
         ensure!(
             n <= self.options.max_value_bytes,
             "JavaScript value exceeds limit"
@@ -148,6 +164,8 @@ pub struct JavaScriptRuntime;
 
 #[cfg(feature = "embed")]
 impl JavaScriptRuntime {
+    /// Initialize V8 and validate registrations before calling `host`.
+    /// Returning from `host` stops and joins the engine before this call returns.
     pub fn run<T>(
         options: Options,
         source: Source,
@@ -240,6 +258,7 @@ fn run_with<T>(
                 "JavaScript application initialization failed"
             )),
         };
+        // Signal shutdown before joining, including when host startup failed.
         drop(close);
         let engine = worker
             .join()

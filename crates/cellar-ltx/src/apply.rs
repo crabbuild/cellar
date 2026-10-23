@@ -213,16 +213,59 @@ pub(crate) fn peak_image_bytes(
     Ok(peak)
 }
 
+/// Bound the whole private chain before reserving disk or starting I/O. Each
+/// intermediate image retains the same geometry/checksum/digest contract.
+pub(crate) fn peak_chain_bytes(
+    updates: &[ImageUpdate<'_>],
+    limits: &ApplyLimits,
+) -> Result<u64, ApplyError> {
+    limits.validate()?;
+    if updates.is_empty() || updates.len() > limits.max_files {
+        return Err(ApplyError::Limit);
+    }
+    let mut previous = updates[0].base;
+    let (mut peak, mut files, mut encoded, mut decoded, mut pages) =
+        (0u64, 0usize, 0usize, 0u64, 0usize);
+    for update in updates {
+        if update.base != previous {
+            return Err(ApplyError::Chain);
+        }
+        peak = peak.max(peak_image_bytes(update, limits)?);
+        for segment in &update.segments {
+            files = files.checked_add(1).ok_or(ApplyError::Limit)?;
+            encoded = encoded
+                .checked_add(segment.bytes.len())
+                .ok_or(ApplyError::Limit)?;
+            decoded = decoded
+                .checked_add(segment.decoded_bytes)
+                .ok_or(ApplyError::Limit)?;
+            pages = pages
+                .checked_add(segment.page_count)
+                .ok_or(ApplyError::Limit)?;
+        }
+        if files > limits.max_files
+            || encoded > limits.max_total_encoded_bytes
+            || decoded > limits.max_total_decoded_bytes
+            || pages > limits.max_total_pages
+        {
+            return Err(ApplyError::Limit);
+        }
+        previous = update.result;
+    }
+    Ok(peak)
+}
+
 /// Only called with an exclusively created private destination. No public API
 /// can ask this helper to mutate a published/pinned generation in place.
-pub(crate) fn apply_private(
+pub(crate) fn apply_private_chain(
     fs: &dyn FileSystem,
     base: Option<&Path>,
     target: &mut HostFile,
-    update: &ImageUpdate<'_>,
+    updates: &[ImageUpdate<'_>],
     limits: &ApplyLimits,
 ) -> Result<ImageState, ApplyError> {
-    peak_image_bytes(update, limits)?;
+    peak_chain_bytes(updates, limits)?;
+    let update = updates.first().ok_or(ApplyError::Limit)?;
     if target.file_len()? != 0 {
         return Err(ApplyError::Geometry);
     }
@@ -238,6 +281,22 @@ pub(crate) fn apply_private(
         }
         CHECKSUM_FLAG
     };
+    let mut state = update.base;
+    for update in updates {
+        rolling = apply_private_update(target, update, limits, rolling)?;
+        state = update.result;
+    }
+    Ok(state)
+}
+
+// This target belongs exclusively to apply_private_chain. No intermediate
+// image is exposed, but every result is physically inspected before proceeding.
+fn apply_private_update(
+    target: &mut HostFile,
+    update: &ImageUpdate<'_>,
+    limits: &ApplyLimits,
+    mut rolling: u64,
+) -> Result<u64, ApplyError> {
     let mut count = if update.base.page_size == 0 {
         0
     } else {
@@ -332,7 +391,7 @@ pub(crate) fn apply_private(
     if observed != rolling {
         return Err(ApplyError::Checksum);
     }
-    Ok(update.result)
+    Ok(observed)
 }
 
 fn read_page(file: &mut HostFile, pgno: u32, page_size: u64) -> Result<Vec<u8>, ApplyError> {
