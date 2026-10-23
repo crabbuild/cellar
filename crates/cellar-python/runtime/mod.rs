@@ -20,6 +20,8 @@ use std::{
 use tokio::sync::{mpsc as async_mpsc, watch, Semaphore};
 
 mod bridge;
+mod reply_value;
+pub(crate) use reply_value::{prepare as prepare_reply, ReplyValue};
 mod budget;
 mod identity;
 mod lifetime;
@@ -298,11 +300,12 @@ impl Runtime {
         &self,
         invocation: u64,
         operation: u64,
-        output: (String, Option<Vec<u8>>),
+        output: (ReplyValue, Option<Vec<u8>>),
         observation: telemetry::Operation,
     ) -> Result<()> {
         let (value, body) = output;
-        let charge = crate::values::envelope_size(value.len(), body.as_ref().map_or(0, Vec::len))?;
+        let charge =
+            crate::values::envelope_size(value.encoded_len(), body.as_ref().map_or(0, Vec::len))?;
         self.replies
             .try_send(Reply {
                 invocation,
@@ -321,7 +324,7 @@ impl Runtime {
 struct Reply {
     invocation: u64,
     operation: u64,
-    value: String,
+    value: ReplyValue,
     body: Option<Vec<u8>>,
     reservation: Reservation,
     observation: telemetry::Operation,
@@ -337,7 +340,7 @@ struct Inbox {
 }
 
 type StartDelivery = (u64, Py<PyString>, Py<PyBytes>, Py<InvocationBridge>);
-type ReplyDelivery = (u64, u64, Py<PyString>, Option<Py<PyBytes>>);
+type ReplyDelivery = (u64, u64, Py<PyAny>, Option<Py<PyBytes>>);
 
 #[pymethods]
 impl Inbox {
@@ -427,19 +430,19 @@ impl Inbox {
             .map_err(|_| pyo3::exceptions::PyRuntimeError::new_err("result channel poisoned"))?
             .try_iter()
             .collect();
-        Ok(replies
+        replies
             .into_iter()
             .map(|reply| {
                 let _reservation = reply.reservation;
-                let payload = PyString::new(py, &reply.value).unbind();
+                let (payload, copied) = reply.value.to_python(py)?;
                 self.runtime
                     .budget
-                    .copied_output(reply.value.len() + reply.body.as_ref().map_or(0, Vec::len));
+                    .copied_output(copied + reply.body.as_ref().map_or(0, Vec::len));
                 let body = reply.body.map(|body| PyBytes::new(py, &body).unbind());
                 reply.observation.delivered();
-                (reply.invocation, reply.operation, payload, body)
+                Ok((reply.invocation, reply.operation, payload, body))
             })
-            .collect())
+            .collect()
     }
 
     fn done(&self) -> PyResult<bool> {

@@ -20,13 +20,27 @@ pub fn result_parts(
     result: anyhow::Result<(Value, Option<Vec<u8>>)>,
     limit: usize,
 ) -> anyhow::Result<(String, Option<Vec<u8>>)> {
+    result_parts_with(name, result, limit, |_, _| None::<()>)
+        .map(|(encoded, body, _)| (encoded, body))
+}
+
+/// Prepare an optional alternate representation of an accepted success value.
+/// The callback runs only after the canonical JSON and binary-body limits pass;
+/// its second argument is the canonical envelope length. Errors and unavailable
+/// results keep their original sanitized JSON envelope and uncertain outcome.
+pub fn result_parts_with<T>(
+    name: &str,
+    result: anyhow::Result<(Value, Option<Vec<u8>>)>,
+    limit: usize,
+    prepare: impl FnOnce(&Value, usize) -> Option<T>,
+) -> anyhow::Result<(String, Option<Vec<u8>>, Option<T>)> {
     let result = result.and_then(|(value, body)| {
         crate::values::check_depth(&value)?;
         Ok((value, body))
     });
-    let (value, body) = match result {
-        Ok((value, body)) => (json!({"ok":true,"value":value}), body),
-        Err(error) => (envelope(name, &error), None),
+    let (value, body, success) = match result {
+        Ok((value, body)) => (json!({"ok":true,"value":value}), body, true),
+        Err(error) => (envelope(name, &error), None, false),
     };
     let encoded = encode(&value, limit).and_then(|encoded| {
         anyhow::ensure!(
@@ -37,12 +51,17 @@ pub fn result_parts(
         Ok(encoded)
     });
     match encoded {
-        Ok(encoded) => Ok((encoded, body)),
+        Ok(encoded) => {
+            let alternate = success
+                .then(|| prepare(&value["value"], encoded.len()))
+                .flatten();
+            Ok((encoded, body, alternate))
+        }
         Err(_) => encode(
             &envelope(name, &anyhow::anyhow!("SDK result unavailable")),
             limit,
         )
-        .map(|encoded| (encoded, None)),
+        .map(|encoded| (encoded, None, None)),
     }
 }
 
@@ -129,6 +148,61 @@ fn submitted(name: &str) -> (&'static str, &'static str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn alternate_values_cannot_bypass_result_limits_or_failure_classification() {
+        let value = json!({"present": true, "value": "é\"".repeat(100)});
+        let encoded = result("storage.read", Ok(value.clone()), usize::MAX).unwrap();
+        let calls = std::cell::Cell::new(0);
+        let prepare = |actual: &Value, length| {
+            calls.set(calls.get() + 1);
+            assert_eq!(actual, &value);
+            assert_eq!(length, encoded.len());
+            Some(42)
+        };
+        let accepted = result_parts_with(
+            "storage.read",
+            Ok((value.clone(), None)),
+            encoded.len(),
+            prepare,
+        )
+        .unwrap();
+        assert_eq!(accepted, (encoded.clone(), None, Some(42)));
+        assert_eq!(calls.get(), 1);
+        let refused = result_parts_with(
+            "storage.sql",
+            Ok((value, None)),
+            encoded.len() - 1,
+            |_, _| -> Option<()> { panic!("oversized result reached alternate encoder") },
+        )
+        .unwrap();
+        assert!(refused.1.is_none() && refused.2.is_none());
+        assert_eq!(
+            serde_json::from_str::<Value>(&refused.0).unwrap()["code"],
+            "Ambiguous"
+        );
+        let failure = result_parts_with(
+            "storage.read",
+            Err(anyhow::anyhow!("private")),
+            MIN_RESULT_BYTES,
+            |_, _| -> Option<()> { panic!("failure reached alternate encoder") },
+        )
+        .unwrap();
+        assert!(failure.2.is_none());
+        assert!(!failure.0.contains("private"));
+        let binary = result_parts_with(
+            "cell.fetch",
+            Ok((Value::Null, Some(vec![0; 1024]))),
+            MIN_RESULT_BYTES,
+            |_, _| -> Option<()> { panic!("oversized body reached alternate encoder") },
+        )
+        .unwrap();
+        assert!(binary.1.is_none() && binary.2.is_none());
+        assert_eq!(
+            serde_json::from_str::<Value>(&binary.0).unwrap()["code"],
+            "Ambiguous"
+        );
+    }
 
     #[test]
     fn binary_results_preserve_exact_encoded_limits_and_uncertainty() {

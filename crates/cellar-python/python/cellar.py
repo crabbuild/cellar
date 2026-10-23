@@ -388,7 +388,7 @@ class Context:
         future = self._pending.get(sequence)
         if future is None or future.done():
             return
-        value = _json.loads(payload)
+        value = payload if type(payload) is dict else _json.loads(payload)
         if value["ok"]:
             future.set_result(value["value"] if body is None else (value["value"], body))
         else:

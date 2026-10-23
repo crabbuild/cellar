@@ -408,7 +408,7 @@ def reply_delivery(mode):
                 elif mode == 'stopped':
                     inbox.stopped = True
                 value = dict(status=201, headers=[['x-result', 'accepted']], body='') if binary else '42'
-                reply = 'PRIVATE_SENTINEL_invalid_json' if mode == 'malformed' else json.dumps(dict(ok=True, value=value))
+                reply = 'PRIVATE_SENTINEL_invalid_json' if mode == 'malformed' else (dict(ok=True, value=value) if mode == 'owned' else json.dumps(dict(ok=True, value=value)))
                 output = b'\x00\xff' if binary else None
                 inbox.queue.append((1, sequence, reply, output))
                 if mode == 'duplicate':
@@ -482,7 +482,7 @@ def reply_delivery(mode):
     inbox = Inbox()
     try:
         report = runner.run(SimpleNamespace(fetch=fetch), inbox, 30, .2, 10, 16, 30)
-        expected = int(mode in ('normal', 'duplicate'))
+        expected = int(mode in ('normal', 'duplicate', 'owned'))
         assert state == dict(submitted=1, resumed=expected, completed=expected, cleaned=1, expired=1), state
         assert report['runtime_failed'] == (mode == 'malformed'), report
         assert report['pending_tasks'] == report['pending_objects'] == report['pending_threads'] == 0, report
@@ -892,7 +892,7 @@ class RunnerScheduling(unittest.TestCase):
         self.run_case("late-admission")
 
     def test_binary_reply_lifecycle(self):
-        for mode in ("normal", "duplicate", "expired", "stopped", "malformed"):
+        for mode in ("normal", "owned", "duplicate", "expired", "stopped", "malformed"):
             with self.subTest(mode=mode):
                 self.run_case("reply-binary-" + mode)
 
