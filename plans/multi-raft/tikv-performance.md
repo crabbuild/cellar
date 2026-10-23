@@ -1,9 +1,10 @@
 # TiKV comparison and Cellar performance investigation
 
-Status: investigation and implementation in progress. The latest four-worker,
-four-publisher configuration passes two 180-second windows with zero errors and
-p99 below 500 ms, averaging 206.88 TPS. A causal overall branch speedup and
-stable sustained capacity remain unqualified.
+Status: investigation and implementation in progress. The latest size-based
+archive candidate completes three 180-second windows at 212.82/198.91/185.47 TPS
+and 158.56/162.24/167.80 ms p99, but 375 first-window overload refusals fail the
+zero-error gate. Exact replica/archive checks and clean shutdown pass. A causal
+overall branch speedup and stable sustained capacity remain unqualified.
 
 ## Current performance priorities
 
@@ -14,18 +15,21 @@ publication as useful optimization targets. It instruments the frozen
 retain one vCPU, 3 GiB, 500 leaders and 1,000 followers each; each node has two
 SQL workers and two archive publishers. The subsequent capture-handoff
 comparison below still fails sustained throughput, latency and refusal gates.
-The latest sustained pressure profile does not reproduce those refusals, but
-finds long SQL queues with CPU headroom. The subsequent bounded-concurrency
-comparison below varies SQL workers at fixed total queue capacity, then archive
-publishers. Its tuned configuration passes the 500-ms gate but slows from
-245.20 to 168.56 TPS between windows. Attribution of admission failures and
-longer-run slowdown remains open.
+The bounded-concurrency comparison below varies SQL workers at fixed total
+queue capacity, then archive publishers. Its tuned configuration passes the
+500-ms gate but slows from 245.20 to 168.56 TPS between windows. A subsequent
+nine-minute profile finds growing archive-tail costs and SQL waits, without
+reproducing refusals. Size-based archive rotation reduces repeated payload
+reads in a deterministic regression, but its uninstrumented cluster run again
+returns overload refusals. Attribution of those failures and longer-run
+slowdown remains open; neither host contention nor an archive limit is yet a
+proven explanation for the refusals.
 
 | Priority | Observed gap | Next improvement to evaluate |
 | --- | --- | --- |
-| 1 | Four SQL owners/two archive publishers still produce 4,790 second-window refusals. Four publishers pass both windows, but throughput falls 31% and p99 rises from 115 to 355 ms. Archive publication grows from 18 to 26 ms in the diagnostic. | Repeat the tuned setting with retained-history/refusal counters over a longer interval. Evaluate snapshot rotation against retained-tail read/replay cost and coordinate redundant replica publication, preserving every follower's recovery proof and history-retention boundary. |
-| 2 | Committed preparation waits 17–24 ms, publication 15–21 ms and archive capture 19–22 ms for SQL workers. Four owners increase observed throughput, but shared-host conditions differ. | Keep 64 total work reservations; confirm the useful concurrency range and evaluate committed-completion priority with per-cell ordering, fairness, byte budgets and physical shutdown joins preserved. Defaults remain unchanged. |
-| 3 | The deeper profile measures 12.4–13.4 ms staging, including 5.1–5.4 ms preview construction, 1.5–1.6 ms private-file cleanup and 1.5–1.6 ms private LTX writes. | Reduce disposable file creation/cleanup and image copying. The bounded encoded-capture handoff removes read-back, but its isolated comparison does not qualify a throughput gain. |
+| 1 | Archive publication grows from 25 to 50 ms as mean tail count grows from 8 to 18 in the tuned diagnostic. The new rotation policy reduces payload reads by 70.4% in a deterministic test, but the cluster candidate still returns 375 overload refusals and slows 12.9%. | Add low-cost, bounded refusal-reason and retained-history counters to the actual benchmark path, then reproduce the refusals. Distinguish retained bytes/entries, work reservations and deadline expiry before tuning admission. Continue evaluating size-based rotation and coordinated replica publication while preserving every follower's recovery proof. |
+| 2 | With four SQL owners, committed preparation still waits 6.0–6.9 ms, publication 5.5–6.0 ms and archive capture 8.6–10.2 ms in the tuned diagnostic. | Keep 64 total work reservations; evaluate bounded priority for committed completions and archive progress, preserving per-cell ordering, fair service for new work, byte budgets and physical shutdown joins. A deeper queue alone is not a latency improvement. |
+| 3 | Tuned staging averages 16.5–20.4 ms. The earlier deeper profile attributes 5.1–5.4 ms to preview construction and about 1.5–1.6 ms each to private-file cleanup and private LTX writes. | Reduce disposable file creation/cleanup and image copying. The bounded encoded-capture handoff already removes read-back; evaluate avoiding disposable output writes with exact checkpoint-cut, receipt and restart tests. Keep authoritative image/log barriers intact. |
 | 4 | Shared Raft persistence averages 0.71–0.72 ms but handles only about 1.24 groups per batch. | Improve bounded coalescing and investigate combined progress writes. Measure the benefit before adding delay; avoid busy spinning on a one-vCPU node. |
 | 5 | Every command still constructs immutable images across replicas. | Explore separate applied and checkpointed progress with Raft-log replay, following TiKV's recovery model. This needs explicit replay retention, snapshot/GC boundaries and power-loss recovery tests before changing acknowledgement semantics. |
 
@@ -260,8 +264,47 @@ their existing download/replay assertions. Default-policy intermediate-digest
 refusal stays active, and prior-payload corruption cases now include size-based
 rotation. Strict all-target/all-feature Clippy, formatting/layout, dependency,
 documentation and nine performance-harness checks pass. An uninstrumented
-control/candidate comparison remains required before claiming a throughput
-improvement or finalizing this policy.
+control/candidate comparison is recorded below; it does not qualify this policy
+for sustained throughput.
+
+### Uninstrumented size-based archive comparison
+
+The [comparison record](evidence/tikv-tail-cost-comparison.json) preserves a
+frozen `b08cb6c` control and `972264b` candidate. Runtime manifests differ only
+in `archive/mod.rs`, and load-generation code is identical. Both use four SQL
+owners, 64 total reservations and four archive publishers per node, with fresh
+persistent volumes and a cold benchmark-VM restart. The planned workload is
+three 180-second windows at twelve writers, retaining the same 1-vCPU / 3-GiB
+nodes, 1,500 three-voter groups and durability contract.
+
+| Build | Window | Successful TPS | Successful-request p99 | Write errors |
+| --- | --- | --- | --- | --- |
+| Control | 1 | 88.32 | 779.35 ms | 2 ambiguous outcomes |
+| Size-based rotation | 1 | 212.82 | 158.56 ms | 375 overload refusals |
+| Size-based rotation | 2 | 198.91 | 162.24 ms | 0 |
+| Size-based rotation | 3 | 185.47 | 167.80 ms | 0 |
+
+The control stops after its first window; it has no later-window measurements.
+Its two uncertain original requests reconcile within their original deadlines,
+then a separate read-only scan verifies all 4,500 replica values and 1,500 archive
+positions. The original timed run remains failed. The candidate completes normal
+verification of all 4,500 replica values and 1,500 archive positions; its overload
+refusals are not retried. Both cohorts stop cleanly, retaining every volume.
+
+Candidate mean throughput is 199.06 successful TPS, with p99 below 200 ms in all
+three windows. Nevertheless, first-window refusals fail both the 200- and 500-ms
+zero-error gates, and throughput declines 12.9% from first to last window. The
+independent analyzer therefore selects no qualified configuration. Final archive
+coverage takes 5.78 seconds after replica verification; this is not a steady-state
+archive-lag measurement. Successful-request latency excludes refused requests.
+
+Other builds appear in 66/66 control and 59/126 candidate host samples, with about
+9.5 GiB of host swap in use. The failed, shorter control and changing shared-host
+conditions prevent a causal overall speedup claim. The 70.4% deterministic read
+reduction remains established, while the default ratio-two policy remains a
+candidate under evaluation. The next useful step is to capture refusal causes
+in the failing workload, then compare sustained successful TPS without relaxing
+latency, admission, durability or data-verification gates.
 
 ## Scope and reproducible baseline
 
