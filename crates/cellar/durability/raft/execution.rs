@@ -350,6 +350,22 @@ pub enum StageOutcome {
     Duplicate(CommittedReceipt),
 }
 
+/// A deferred result proves receipt lookup found no duplicate and no callback
+/// or SQL mutation began. It is not inferred from an arbitrary overload error.
+pub(crate) enum StageAdmission {
+    Complete(StageOutcome),
+    Deferred,
+}
+
+impl StageAdmission {
+    fn outcome(self) -> Result<StageOutcome, ExecutionError> {
+        match self {
+            Self::Complete(outcome) => Ok(outcome),
+            Self::Deferred => Err(ExecutionError::Invalid("admitted stage deferred")),
+        }
+    }
+}
+
 pub enum AppliedExecution {
     Command(CommittedReceipt),
     Pruned {
@@ -500,7 +516,8 @@ impl PrivateExecutor {
         class: &RaftClass,
         input: &[u8],
     ) -> Result<StageOutcome, ExecutionError> {
-        self.stage_registered_admitted(attempt, class, input, true)
+        self.stage_registered_admitted(attempt, class, input, true)?
+            .outcome()
     }
 
     pub(crate) fn stage_registered_admitted(
@@ -509,7 +526,7 @@ impl PrivateExecutor {
         class: &RaftClass,
         input: &[u8],
         allow_new: bool,
-    ) -> Result<StageOutcome, ExecutionError> {
+    ) -> Result<StageAdmission, ExecutionError> {
         self.stage_registered_kind(attempt, class, input, allow_new, false)
     }
 
@@ -519,7 +536,7 @@ impl PrivateExecutor {
         class: &RaftClass,
         input: &[u8],
         allow_new: bool,
-    ) -> Result<StageOutcome, ExecutionError> {
+    ) -> Result<StageAdmission, ExecutionError> {
         self.stage_registered_kind(attempt, class, input, allow_new, true)
     }
 
@@ -530,7 +547,7 @@ impl PrivateExecutor {
         input: &[u8],
         allow_new: bool,
         system: bool,
-    ) -> Result<StageOutcome, ExecutionError> {
+    ) -> Result<StageAdmission, ExecutionError> {
         let contract = OperationContract {
             operation: attempt.request.operation.clone(),
             kind: OperationKind::Command,
@@ -681,7 +698,7 @@ impl PrivateExecutor {
         attempt: CommandAttempt,
         command: impl FnOnce(&CommandTransaction<'_>) -> anyhow::Result<Vec<u8>>,
     ) -> Result<StageOutcome, ExecutionError> {
-        self.stage_admitted(attempt, true, command)
+        self.stage_admitted(attempt, true, command)?.outcome()
     }
 
     fn stage_admitted(
@@ -689,7 +706,7 @@ impl PrivateExecutor {
         attempt: CommandAttempt,
         allow_new: bool,
         command: impl FnOnce(&CommandTransaction<'_>) -> anyhow::Result<Vec<u8>>,
-    ) -> Result<StageOutcome, ExecutionError> {
+    ) -> Result<StageAdmission, ExecutionError> {
         self.ready()?;
         if attempt.request.operation.is_empty() || attempt.request.operation.len() > 128 {
             return Err(ExecutionError::Invalid("command operation"));
@@ -711,7 +728,7 @@ impl PrivateExecutor {
                     .as_ref()
                     .ok_or(ExecutionError::Invalid("receipt without base"))?,
             )?;
-            return Ok(StageOutcome::Duplicate(receipt));
+            return Ok(StageAdmission::Complete(StageOutcome::Duplicate(receipt)));
         }
         let count = receipts::retained_count(working.database.framework())?;
         let ceiling = self.options.limits.max_retained_receipts;
@@ -745,10 +762,10 @@ impl PrivateExecutor {
             return Err(ExecutionError::Invalid("command retry window"));
         }
         // Duplicate receipt lookup above remains available under archive
-        // pressure. A known refusal has not mutated SQL or capture state and
-        // must not force the next request to reconstruct the private image.
+        // pressure. This explicit result proves SQL and capture state remain
+        // unchanged; the host may retain the original input for admission.
         if !allow_new {
-            return Err(ExecutionError::Refused(CommandFailure::Overloaded));
+            return Ok(StageAdmission::Deferred);
         }
         self.rebuild_required = true;
         self.working
@@ -778,7 +795,7 @@ impl PrivateExecutor {
             attempt.preview,
             Kind::Command(attempt.request),
         )?;
-        Ok(StageOutcome::Prepared(prepared))
+        Ok(StageAdmission::Complete(StageOutcome::Prepared(prepared)))
     }
 
     pub fn stage_prune(

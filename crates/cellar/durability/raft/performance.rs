@@ -128,6 +128,7 @@ pub(crate) enum Counter {
     PersistEntries,
     PersistEntryBytes,
     SqlStageInputBytes,
+    SqlStageAdmissionDeferred,
     SqlPreparedProposalBytes,
     SqlPreparedLtxBytes,
     SqlQueryInputBytes,
@@ -157,7 +158,7 @@ pub(crate) enum Counter {
     ArchiveCoverageMissingCell,
 }
 
-const COUNTERS: [Counter; 34] = [
+const COUNTERS: [Counter; 35] = [
     Counter::EngineReadBytes,
     Counter::EngineWriteRequestedBytes,
     Counter::EngineWriteCompletedBytes,
@@ -165,6 +166,7 @@ const COUNTERS: [Counter; 34] = [
     Counter::PersistEntries,
     Counter::PersistEntryBytes,
     Counter::SqlStageInputBytes,
+    Counter::SqlStageAdmissionDeferred,
     Counter::SqlPreparedProposalBytes,
     Counter::SqlPreparedLtxBytes,
     Counter::SqlQueryInputBytes,
@@ -204,6 +206,7 @@ impl Counter {
             Self::PersistEntries => "engine_persist_entries",
             Self::PersistEntryBytes => "engine_persist_entry_bytes",
             Self::SqlStageInputBytes => "sql_stage_input_bytes",
+            Self::SqlStageAdmissionDeferred => "sql_stage_admission_deferred",
             Self::SqlPreparedProposalBytes => "sql_prepared_proposal_bytes",
             Self::SqlPreparedLtxBytes => "sql_prepared_ltx_bytes",
             Self::SqlQueryInputBytes => "sql_query_input_bytes",

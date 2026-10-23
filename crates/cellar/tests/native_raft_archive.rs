@@ -1794,7 +1794,7 @@ async fn quorum_s3_outage() -> Result<()> {
         native
             .write(3, Durability::Quorum, std::time::Duration::from_secs(2))
             .await,
-        Err(CommandFailure::Overloaded)
+        Err(CommandFailure::Unavailable)
     ));
     ensure!(
         native.calls.load(Ordering::SeqCst) == 2,
@@ -1813,7 +1813,7 @@ async fn quorum_s3_outage() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn archive_refusal_preserves_private_workspace_and_duplicate_receipts() -> Result<()> {
+async fn archive_wait_expiry_preserves_private_workspace_and_duplicate_receipts() -> Result<()> {
     let store = Arc::new(faults::Store::default());
     store.archive_unavailable.store(true, Ordering::Release);
     let trace = image_fault::Faults::new(std::path::PathBuf::from("unused"), None);
@@ -1834,13 +1834,17 @@ async fn archive_refusal_preserves_private_workspace_and_duplicate_receipts() ->
         native.retry(1, Durability::Quorum).await?;
         native.retry(2, Durability::Quorum).await?;
         let before = trace.private_image_copies.load(Ordering::Acquire);
-        for _ in 0..3 {
-            ensure!(matches!(
-                native
-                    .write(3, Durability::Quorum, std::time::Duration::from_secs(2))
-                    .await,
-                Err(CommandFailure::Overloaded)
-            ));
+        for attempt in 0..3 {
+            let outcome = native
+                .write(3, Durability::Quorum, std::time::Duration::from_secs(2))
+                .await;
+            ensure!(
+                matches!(outcome, Err(CommandFailure::Unavailable)),
+                "archive wait {attempt} did not expire: {outcome:?}"
+            );
+            // The caller's deadline can precede the driver's cancellation
+            // turn. Join that slot before starting the next independent wait.
+            public_node::ready(&native.cell()?).await?;
         }
         let metrics = native.service.performance();
         let count = |name| {
@@ -1858,7 +1862,7 @@ async fn archive_refusal_preserves_private_workspace_and_duplicate_receipts() ->
         ensure!(native.calls.load(Ordering::SeqCst) == 2);
         ensure!(
             trace.private_image_copies.load(Ordering::Acquire) == before,
-            "known admission refusal rebuilt the private image"
+            "expired archive wait rebuilt the private image"
         );
         store.archive_unavailable.store(false, Ordering::Release);
         let third = native.retry(3, Durability::S3).await?;
@@ -1896,8 +1900,251 @@ async fn archive_refusal_preserves_private_workspace_and_duplicate_receipts() ->
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn impossible_archive_reservation_refuses_without_waiting() -> Result<()> {
+    let mut options = RaftHostOptions::default();
+    options.archive.max_unarchived_bytes = 4096;
+    let native = Native::start(
+        Arc::new(faults::Store::default()),
+        options,
+        Durability::Quorum,
+    )
+    .await?;
+    let result = async {
+        let outcome = native
+            .write(1, Durability::Quorum, std::time::Duration::from_secs(2))
+            .await;
+        ensure!(matches!(outcome, Err(CommandFailure::Overloaded)));
+        public_node::ready(&native.cell()?).await?;
+        ensure!(native.calls.load(Ordering::SeqCst) == 0);
+        ensure!(native
+            .service
+            .performance()
+            .operations
+            .into_iter()
+            .any(|op| { op.name == "archive_admission_wait" && op.started == 0 }));
+        Ok::<_, anyhow::Error>(())
+    }
+    .await;
+    result.and(native.close().await)
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn callback_overload_is_never_treated_as_archive_deferral() -> Result<()> {
+    let mut options = RaftHostOptions::default();
+    options.execution.max_result_bytes = 4;
+    let native = Native::start(
+        Arc::new(faults::Store::default()),
+        options,
+        Durability::Quorum,
+    )
+    .await?;
+    let result = async {
+        let before = native.cell()?.status().await?.applied;
+        // The counter mutates SQL, then returns eight bytes. The result limit
+        // produces Overloaded after callback execution and must not be retried.
+        for expected_calls in 1..=2 {
+            let outcome = native
+                .write(1, Durability::Quorum, std::time::Duration::from_secs(5))
+                .await;
+            ensure!(matches!(outcome, Err(CommandFailure::Overloaded)));
+            public_node::ready(&native.cell()?).await?;
+            ensure!(native.calls.load(Ordering::SeqCst) == expected_calls);
+            ensure!(native.cell()?.status().await?.applied == before);
+        }
+        ensure!(
+            native
+                .service
+                .performance()
+                .counters
+                .into_iter()
+                .find(|counter| counter.name == "sql_stage_admission_deferred")
+                .unwrap()
+                .value
+                == 0
+        );
+        Ok::<_, anyhow::Error>(())
+    }
+    .await;
+    result.and(native.close().await)
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn unknown_command_reservation_waits_for_prepared_size() -> Result<()> {
     check_unknown_reservation(false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn retained_archive_wait_resumes_original_command_once() -> Result<()> {
+    check_retained_archive_wait(ArchiveWaitEnd::Recover).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn retained_archive_wait_cancellation_never_executes() -> Result<()> {
+    check_retained_archive_wait(ArchiveWaitEnd::Cancel).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn retained_archive_wait_keeps_original_deadline() -> Result<()> {
+    check_retained_archive_wait(ArchiveWaitEnd::Deadline).await
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ArchiveWaitEnd {
+    Recover,
+    Cancel,
+    Deadline,
+    Shutdown,
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn retained_archive_wait_shutdown_joins_without_execution() -> Result<()> {
+    check_retained_archive_wait(ArchiveWaitEnd::Shutdown).await
+}
+
+async fn check_retained_archive_wait(stop: ArchiveWaitEnd) -> Result<()> {
+    use std::time::Duration;
+    let store = Arc::new(faults::Store::default());
+    store.archive_unavailable.store(true, Ordering::Release);
+    let mut options = RaftHostOptions::default();
+    options.archive.max_unarchived_entries = 2;
+    let native = Native::start_many(store.clone(), options, Durability::Quorum, 2).await?;
+    let mut task = None;
+    let result = async {
+        let cells = [
+            native.cell()?,
+            native
+                .service
+                .cell(native.registration.namespace.namespace, "Counter:extra-1")?,
+        ];
+        for cell in &cells {
+            let receipt = cell
+                .command(
+                    native.definition.increment.clone(),
+                    1_i64.to_be_bytes().to_vec(),
+                    public_node::options(1)?,
+                )
+                .await?;
+            ensure!(receipt.result == 1_i64.to_be_bytes());
+            public_node::ready(cell).await?;
+        }
+        let mut options = public_node::options(2)?;
+        options.timeout = if stop == ArchiveWaitEnd::Deadline {
+            Duration::from_millis(500)
+        } else {
+            Duration::from_secs(5)
+        };
+        task = Some(tokio::spawn(cells[0].command(
+            native.definition.increment.clone(),
+            1_i64.to_be_bytes().to_vec(),
+            options,
+        )));
+        tokio::time::timeout(Duration::from_secs(3), async {
+            loop {
+                let waiting = native
+                    .service
+                    .performance()
+                    .operations
+                    .into_iter()
+                    .any(|op| op.name == "archive_admission_wait" && op.started > op.count);
+                if waiting {
+                    break;
+                }
+                ensure!(
+                    !task.as_ref().unwrap().is_finished(),
+                    "retained pressure refused the original command instead of waiting"
+                );
+                tokio::time::sleep(Duration::from_millis(1)).await;
+            }
+            Ok::<_, anyhow::Error>(())
+        })
+        .await??;
+        ensure!(native.calls.load(Ordering::SeqCst) == 2);
+        // A different cell's committed receipt must bypass the node-wide backlog
+        // and waiter FIFO without invoking its callback again.
+        let duplicate = cells[1]
+            .command(
+                native.definition.increment.clone(),
+                1_i64.to_be_bytes().to_vec(),
+                public_node::options(1)?,
+            )
+            .await?;
+        ensure!(duplicate.result == 1_i64.to_be_bytes());
+        ensure!(native.calls.load(Ordering::SeqCst) == 2);
+        match stop {
+            ArchiveWaitEnd::Shutdown => {
+                tokio::time::timeout(Duration::from_secs(5), native.service.close()).await??;
+                let outcome = task.take().unwrap().await?;
+                ensure!(matches!(outcome, Err(CommandFailure::Unavailable)));
+                ensure!(native.calls.load(Ordering::SeqCst) == 2);
+                return Ok(());
+            }
+            ArchiveWaitEnd::Cancel => {
+                let task = task.take().unwrap();
+                task.abort();
+                ensure!(task.await.is_err_and(|error| error.is_cancelled()));
+            }
+            ArchiveWaitEnd::Deadline => {
+                let outcome =
+                    tokio::time::timeout(Duration::from_secs(2), task.as_mut().unwrap()).await??;
+                task.take();
+                ensure!(
+                    matches!(outcome, Err(CommandFailure::Unavailable)),
+                    "unsubmitted wait did not expire at its original deadline: {outcome:?}"
+                );
+            }
+            ArchiveWaitEnd::Recover => (),
+        }
+        if stop != ArchiveWaitEnd::Recover {
+            public_node::ready(&cells[0]).await?;
+            ensure!(native.calls.load(Ordering::SeqCst) == 2);
+        }
+        store.archive_unavailable.store(false, Ordering::Release);
+        if let Some(task) = task.as_mut() {
+            let receipt = tokio::time::timeout(Duration::from_secs(5), task).await???;
+            ensure!(receipt.result == 2_i64.to_be_bytes());
+            ensure!(native.calls.load(Ordering::SeqCst) == 3);
+        } else {
+            // Joining a duplicate at S3 proves archive recovery has progressed;
+            // neither a cancelled nor an expired request may run afterward.
+            cells[1]
+                .command(
+                    native.definition.increment.clone(),
+                    1_i64.to_be_bytes().to_vec(),
+                    public_node::archived_options(1)?,
+                )
+                .await?;
+            ensure!(native.calls.load(Ordering::SeqCst) == 2);
+            let receipt = cells[0]
+                .command(
+                    native.definition.increment.clone(),
+                    1_i64.to_be_bytes().to_vec(),
+                    public_node::archived_options(2)?,
+                )
+                .await?;
+            ensure!(receipt.result == 2_i64.to_be_bytes());
+            ensure!(native.calls.load(Ordering::SeqCst) == 3);
+        }
+        task.take();
+        let deferred = native
+            .service
+            .performance()
+            .counters
+            .into_iter()
+            .find(|counter| counter.name == "sql_stage_admission_deferred")
+            .context("missing explicit stage-deferral count")?;
+        ensure!(
+            deferred.value == 1,
+            "receipt preflight repeated while waiting"
+        );
+        Ok::<_, anyhow::Error>(())
+    }
+    .await;
+    store.archive_unavailable.store(false, Ordering::Release);
+    if let Some(task) = task {
+        task.abort();
+        let _ = task.await;
+    }
+    result.and(native.close().await)
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -2114,8 +2361,8 @@ async fn check_prepared_archive_reservations(
                     )
                     .await;
                 ensure!(
-                    matches!(refused, Err(CommandFailure::Overloaded)),
-                    "retained archive bytes were not charged: {refused:?}"
+                    matches!(refused, Err(CommandFailure::Unavailable)),
+                    "retained archive bytes did not hold the request until its deadline: {refused:?}"
                 );
                 continue;
             }
@@ -2269,7 +2516,7 @@ async fn retention_preserves_only_copy() -> Result<()> {
         native
             .write(3, Durability::Quorum, std::time::Duration::from_secs(2))
             .await,
-        Err(CommandFailure::Overloaded)
+        Err(CommandFailure::Unavailable)
     ));
     let native = native.restart().await?;
     ensure!(

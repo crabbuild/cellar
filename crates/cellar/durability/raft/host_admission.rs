@@ -1,4 +1,4 @@
-//! Retained history refuses new work; temporary reservations defer callbacks.
+//! Bounded waiting for archive retention and temporary callback reservations.
 use super::{Driver, Phase};
 use crate::raft::{
     cache::{CachedGroup, GroupLog},
@@ -79,6 +79,7 @@ impl Retained {
 pub(super) enum Decision {
     Granted,
     Deferred,
+    Retained,
     Refused,
 }
 
@@ -107,6 +108,14 @@ impl Driver {
         let mut entries = 1u64;
         let mut reserved_bytes = 0u64;
         let mut reserved_entries = 0u64;
+        // Archive progress cannot make an individually oversized reservation
+        // fit. Preserve immediate refusal (and duplicate lookup) in that case.
+        if reservation > self.options.archive.max_unarchived_bytes {
+            self.local
+                .performance
+                .increment(MeasuredCounter::ArchiveAdmissionRetainedBytesRefused, 1);
+            return Decision::Refused;
+        }
         for cell in self.cells.values_mut() {
             let Ok(usage) = cell.archive_retained.observe(&cell.group, cell.archived) else {
                 self.local
@@ -127,13 +136,13 @@ impl Driver {
                 self.local
                     .performance
                     .increment(MeasuredCounter::ArchiveAdmissionRetainedBytesRefused, 1);
-                return Decision::Refused;
+                return Decision::Retained;
             }
             if entries > self.options.archive.max_unarchived_entries as u64 {
                 self.local
                     .performance
                     .increment(MeasuredCounter::ArchiveAdmissionRetainedEntriesRefused, 1);
-                return Decision::Refused;
+                return Decision::Retained;
             }
         }
         let (decision, counter) =
@@ -154,6 +163,47 @@ impl Driver {
             };
         self.local.performance.increment(counter, 1);
         decision
+    }
+
+    pub(super) fn defer_archive(
+        &mut self,
+        scope: &cellar_logic::consensus::GroupScope,
+        input: Vec<u8>,
+    ) {
+        let Some(cell) = self.cells.get_mut(scope) else {
+            return;
+        };
+        let Some(pending) = cell.pending.as_mut() else {
+            return;
+        };
+        let Some(identity) = pending.identity.take() else {
+            self.fail(scope);
+            return;
+        };
+        // Only the worker's explicit non-mutating result reaches here. Its
+        // physical owner has returned; no executor proposal or SQL mutation
+        // remains to discard. Re-admission must obtain fresh authority.
+        if pending.allow_new || cell.core.discard_completed(&identity).is_err() {
+            self.fail(scope);
+            return;
+        }
+        pending.input = Some(input);
+        if !pending.wait_for_archive {
+            self.refuse(scope, cellar_logic::consensus::CommandFailure::Overloaded);
+            return;
+        }
+        if pending.request.control.cancelled() {
+            pending.phase = Phase::Discard;
+            return;
+        }
+        pending.phase = Phase::AwaitAdmission;
+        pending.admission_wait = Some(
+            self.local
+                .performance
+                .timer(MeasuredOperation::ArchiveAdmissionWait),
+        );
+        self.admission_waiters.push_back(scope.clone());
+        self.admission_at = 0;
     }
 
     pub(super) fn pump_admission(&mut self) {
@@ -180,7 +230,7 @@ impl Driver {
                 continue;
             }
             let decision = self.archive_admission();
-            if decision == Decision::Deferred {
+            if matches!(decision, Decision::Deferred | Decision::Retained) {
                 self.admission_waiters.push_front(scope);
                 break;
             }
@@ -190,6 +240,7 @@ impl Driver {
                 .and_then(|cell| cell.pending.as_mut())
             {
                 pending.allow_new = decision == Decision::Granted;
+                pending.wait_for_archive = false;
                 if let Some(timer) = pending.admission_wait.take() {
                     timer.finish(pending.allow_new);
                 }

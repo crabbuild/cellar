@@ -1,16 +1,83 @@
 # TiKV comparison and Cellar performance investigation
 
-Status: PR #98's conflicts are resolved through main `1455fb0`. The fresh
-archive-completion comparison is complete: candidate `472850c` has 13.83% lower
-mean successful TPS, 32,571 overload refusals and a 527.66-ms worst p99. The control
-has 3,558 refusals and a 208.83-ms worst p99. Both verify all 4,500 replica values
-and 1,500 archive positions, then stop cleanly without OOM. Neither qualifies.
-Compiler activity overlaps the candidate but not the control, limiting causal
-attribution. The archive-completion implementation is reverted; its local stall
-regressions and full frozen source remain in `472850c`. No repeatable throughput
-gain is claimed. The previous control-frame gathering experiment was also
-reverted after 18.71% lower mean TPS. Two-cell archive batching remains the
-production default after singleton batching reduced mean TPS by 20.01%.
+Status: PR #98's conflicts are resolved through main `1455fb0`. The bounded
+retained-history admission candidate passes local qualification: 518 library,
+59 archive, 19 execution, 29 host and nine multi-group tests, strict Clippy and
+repository checks. Its fresh sustained three-node comparison remains pending.
+The prior archive-completion experiment is reverted in `9c9630f`: mean successful
+TPS fell 13.83%, with 32,571 candidate refusals and 527.66-ms worst p99. Unequal
+compiler overlap limits causal attribution; neither cohort qualified. The earlier
+control-frame gathering experiment was also reverted after 18.71% lower mean TPS.
+No repeatable throughput gain is claimed. Two-cell archive batching and the
+256-MiB admission budget remain unchanged.
+
+## Bounded admission under retained-history pressure
+
+The latest pair attributes every overload refusal to retained data-entry pressure,
+with zero publication failures and zero rejected coverage updates. Three ranked
+hypotheses motivate this candidate: temporary retention can drain while the same
+request waits; retaining it can avoid repeated refused-request lookup/scheduling;
+or archive/image service rate may be the hard limit, in which case waiting may
+reduce errors while moving the cost into latency. The end-to-end comparison must
+measure successful TPS, p99 and all errors before selecting the change.
+
+At pinned TiKV revision `b3995dab28308f09cbb7c125bf32f789dbc203fe`,
+`src/storage/txn/scheduler.rs::handle_flow_control` waits within the write deadline
+and returns consumed quota when the deadline fails. Cellar borrows bounded
+waiting and cancellation ownership, not TiKV's byte estimator or adaptive rate
+controller. Cellar reserves worst-case image/envelope capacity before arbitrary
+callbacks run; TiKV's flow-control path has a calculated write size.
+
+A real Node/SDK regression fills a two-entry backlog while RustFS is unavailable.
+The old implementation refuses the original request before recovery, failing the
+regression. The candidate first performs the existing receipt lookup. A private
+`StageAdmission::Deferred` result explicitly proves no callback or SQL mutation
+began, then returns the same input under its original request permit. Only that
+result can join the host's bounded admission FIFO; generic overload failures stay
+terminal. The physical SQL owner returns before its provisional command identity
+is released. A grant requires fresh leadership status and all existing execution
+checks. There is no extra per-group task, new queue capacity or larger budget.
+
+The waiter owns no execution reservation. Archive completion wakes the FIFO;
+a bounded turn stops at its first blocked waiter. The original request deadline,
+retry identity and cancellation control remain unchanged. A different cell's
+committed duplicate can bypass retention pressure without running its callback.
+The existing single business-command slot per cell remains. Individually oversized
+reservations and failed accounting still refuse new work after receipt lookup.
+Public staging result types and all acknowledgement/recovery proofs are unchanged.
+
+Six focused cases cover recovery of the original request exactly once, cancellation,
+deadline expiry without later execution, joined shutdown, a post-mutation overload
+that must never retry, and an impossible reservation that must not wait. The native
+expiry fixture now waits for its previous cancelled slot to become ready before
+starting another independent wait. Outage tests explicitly expect deadline expiry
+(`Unavailable`) while preserving callback counts, duplicate results, image-copy,
+retained-byte and restart/recovery assertions. No deadline or retry assertion is
+relaxed. New test task handles remain owned through failed timeout cleanup.
+
+[Local evidence](evidence/tikv-retained-wait-local.json) records 518 passing library,
+59 archive, 19 execution, 29 host and nine multi-group cases with four simultaneous
+test cases, strict all-target/all-feature Clippy, formatting/layout across 871 Rust
+files, native dependency policy and docs checks. Three ignored entries are child
+process helpers exercised by crash tests. The initial archive suite passed 55/58;
+it exposed the two fixture/contract updates above and the unchanged 500-ms archive
+retry test's attempt-count failure under concurrent load. That test passes unchanged
+alone and in the final suite. One formatter check failed to launch its helper when
+Cargo aliases overlapped; the serial retry passes. Every failed invocation remains.
+
+The `sql_stage_admission_deferred` counter distinguishes successful receipt probes
+from completed writes inside the existing SQL-stage timing. Retained `*_refused`
+counters now also include checks made by waiting requests; they cannot be equated
+with terminal client errors. The comparison analyzer must reconcile these probes
+separately and retain the existing no-timed-retry and exact-state gates.
+
+[Preservation evidence](evidence/tikv-retained-wait-preservation.json) covers
+636 closed historical Raft logs in 21 node volumes, SHA-256/size/mode/owner/mtime
+verification and 42 read-only probes through original volume identities. Transparent
+compression recovers 6.89 GiB without removing logical contents, raw evidence,
+images or volumes. Fresh timed storage uses the same backing. The prepared next
+pair runs candidate first with unchanged 24 writers and two 180-second windows;
+performance and reversed-order confirmation are still outstanding.
 
 ## Rejected independent completion within archive bundles
 

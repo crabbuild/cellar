@@ -290,8 +290,11 @@ Archive admission exposes two fixed-size duration histograms. The
 `archive_admission_check` timer covers each complete node-wide policy evaluation,
 including grants, deferrals and refusals; its success means evaluation completed,
 not that a callback was granted. Existing decision counters retain the reason.
+The retained-byte/entry `*_refused` counters count checks that cannot grant a
+reservation, including waiter rechecks; they are not terminal client errors.
 `archive_admission_wait` starts only when a command joins the bounded deferred
-FIFO and ends when admission grants or refuses it, before authority/SQL work.
+FIFO and ends when admission grants or refuses it, before fresh authority and
+callback execution. Retained-pressure waiters first finish duplicate lookup.
 A cancelled or retired waiter records abandonment when its owner is released.
 The wait includes fairness behind existing waiters; it does not include the
 subsequent SQL queue, command execution or archive publication.
@@ -307,10 +310,25 @@ protocol entries; it is not the admission count of retained data-bearing entries
 These observations do not change publication, retry or admission policy. Live
 snapshots may cross a counter update and are not atomic multi-counter proofs.
 
-A known archive-admission refusal still permits duplicate receipt lookup, then
-refuses new work before opening a transaction or invalidating private capture
-state. It does not require a private-image rebuild. Failures after mutation
-begins retain the existing rebuild requirement.
+Retained-history pressure first permits duplicate receipt lookup. A worker result
+that explicitly proves no callback or SQL mutation began returns the original
+input to the host's bounded admission FIFO. It keeps the original request/input
+permit and deadline, holds no execution reservation, and checks fresh leadership
+before a grant can run the callback. The provisional command identity is released
+only after the physical worker returns. Archive completion wakes the FIFO; each
+bounded turn stops at its first blocked waiter. Cancellation, deadline expiry and
+shutdown never execute a waiting callback. Expiry returns the existing unsubmitted
+`Unavailable` outcome; it does not extend the original deadline. Duplicate receipt
+lookup remains available on other cells while the FIFO waits. A cell still admits
+only one business command at a time.
+
+An individually oversized reservation or failed accounting still refuses fresh
+work after duplicate lookup. Generic `Overloaded` errors remain terminal and are
+never interpreted as proof that no callback ran. The private image stays Ready
+only for the explicit non-mutating deferral; failures after mutation retain the
+existing rebuild requirement. The `sql_stage_admission_deferred` counter identifies
+these completed receipt probes within `sql_stage`; successful stage counts must
+not be equated with successful writes without accounting for those probes.
 
 The transaction stores the command ID, operation/contract/request digests,
 bounded encoded result, minimum requested durability and retry deadline beside
