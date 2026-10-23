@@ -15,7 +15,10 @@ Separate store instances and processes still coordinate through SQLite. Prefix
 listings use the key index before decoding metadata, so restoring one cell does
 not scan every unrelated cell's history. Literal prefixes and delimiter/page
 boundaries retain their object-store semantics. This backend is for local
-development; these measurements do not establish production
+development. Listing queries and result conversion run in the owning execution
+domain's blocking pool; cancellation leaves entered SQLite work tracked until
+shutdown joins it. A listing stream retains its original domain even when
+another domain polls it. These measurements do not establish production
 object-store throughput or lease-renewal latency.
 
 The default run measures empty and 4,096-byte echo plus durable counters at

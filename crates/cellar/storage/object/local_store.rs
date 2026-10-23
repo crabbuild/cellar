@@ -14,7 +14,7 @@ use bytes::Bytes;
 use futures_util::future::BoxFuture;
 use futures_util::stream::{self, BoxStream};
 use futures_util::FutureExt as _;
-use futures_util::StreamExt as _;
+use futures_util::{StreamExt as _, TryStreamExt as _};
 use object_store::list::{PaginatedListOptions, PaginatedListResult, PaginatedListStore};
 use object_store::path::Path;
 use object_store::{
@@ -44,6 +44,8 @@ pub(crate) struct LocalStore {
     read_gate: Option<Arc<read_tests::ReadGate>>,
     #[cfg(test)]
     metadata_gate: Option<Arc<read_tests::ReadGate>>,
+    #[cfg(test)]
+    list_gate: Option<Arc<read_tests::ReadGate>>,
     #[cfg(test)]
     put_gate: Option<(String, Arc<read_tests::ReadGate>)>,
 }
@@ -75,6 +77,8 @@ impl LocalStore {
             read_gate: None,
             #[cfg(test)]
             metadata_gate: None,
+            #[cfg(test)]
+            list_gate: None,
             #[cfg(test)]
             put_gate: None,
         };
@@ -213,6 +217,10 @@ impl LocalStore {
 
     fn metadata(&self, prefix: &str) -> object_store::Result<Vec<StoredObject>> {
         let connection = self.connect()?;
+        #[cfg(test)]
+        if let Some(gate) = &self.list_gate {
+            gate.wait();
+        }
         // Restoration lists one cell/epoch at a time. Restrict the indexed
         // scan before decoding rows so its cost does not grow with unrelated
         // cells and their histories. BINARY ordering preserves literal '%' and
@@ -501,51 +509,75 @@ impl ObjectStore for LocalStore {
 
     fn list(&self, prefix: Option<&Path>) -> BoxStream<'static, object_store::Result<ObjectMeta>> {
         let prefix = prefix.cloned();
-        let result = self
-            .metadata(prefix.as_ref().map_or("", |path| path.as_ref()))
-            .and_then(|objects| {
-                objects
-                    .into_iter()
-                    .map(|object| object_meta(&object))
-                    .filter(|meta| {
-                        meta.as_ref().map_or(true, |meta| {
-                            prefix.as_ref().is_none_or(|prefix| {
-                                meta.location
-                                    .prefix_match(prefix)
-                                    .is_some_and(|mut remainder| remainder.next().is_some())
+        let store = self.clone();
+        // A returned stream may be polled by another domain. Its SQLite work
+        // remains owned by the domain that created it, including after caller
+        // cancellation; a closed original owner refuses new I/O.
+        #[cfg(not(cellar_internal_tests))]
+        let owner = crate::asyncrt::services().domain_token();
+        let operation = move || {
+            store
+                .metadata(prefix.as_ref().map_or("", |path| path.as_ref()))
+                .and_then(|objects| {
+                    objects
+                        .into_iter()
+                        .map(|object| object_meta(&object))
+                        .filter(|meta| {
+                            meta.as_ref().map_or(true, |meta| {
+                                prefix.as_ref().is_none_or(|prefix| {
+                                    meta.location
+                                        .prefix_match(prefix)
+                                        .is_some_and(|mut remainder| remainder.next().is_some())
+                                })
                             })
                         })
-                    })
-                    .collect::<object_store::Result<Vec<_>>>()
-            });
-        match result {
-            Ok(objects) => stream::iter(objects.into_iter().map(Ok)).boxed(),
-            Err(error) => stream::once(async move { Err(error) }).boxed(),
-        }
+                        .collect::<object_store::Result<Vec<_>>>()
+                })
+        };
+        stream::once(async move {
+            #[cfg(not(cellar_internal_tests))]
+            let result = owner
+                .ok_or_else(|| domain_error(crate::asyncrt::DomainClosed))?
+                .blocking(operation)
+                .map_err(domain_error)?
+                .await
+                .map_err(db_error)?;
+            #[cfg(cellar_internal_tests)]
+            let result = store_blocking!(operation).await.map_err(db_error)?;
+            result
+        })
+        .map_ok(|objects| stream::iter(objects.into_iter().map(Ok)))
+        .try_flatten()
+        .boxed()
     }
 
     async fn list_with_delimiter(&self, prefix: Option<&Path>) -> object_store::Result<ListResult> {
         let prefix = prefix.cloned().unwrap_or_default();
-        let mut common_prefixes = BTreeSet::new();
-        let mut objects = Vec::new();
-        for object in self.metadata(prefix.as_ref())? {
-            let location = stored_location(&object.key)?;
-            let Some(mut remainder) = location.prefix_match(&prefix) else {
-                continue;
-            };
-            let Some(child) = remainder.next() else {
-                continue;
-            };
-            if remainder.next().is_some() {
-                common_prefixes.insert(prefix.child(child));
-            } else {
-                objects.push(object_meta(&object)?);
+        let store = self.clone();
+        store_blocking!(move || {
+            let mut common_prefixes = BTreeSet::new();
+            let mut objects = Vec::new();
+            for object in store.metadata(prefix.as_ref())? {
+                let location = stored_location(&object.key)?;
+                let Some(mut remainder) = location.prefix_match(&prefix) else {
+                    continue;
+                };
+                let Some(child) = remainder.next() else {
+                    continue;
+                };
+                if remainder.next().is_some() {
+                    common_prefixes.insert(prefix.child(child));
+                } else {
+                    objects.push(object_meta(&object)?);
+                }
             }
-        }
-        Ok(ListResult {
-            common_prefixes: common_prefixes.into_iter().collect(),
-            objects,
+            Ok(ListResult {
+                common_prefixes: common_prefixes.into_iter().collect(),
+                objects,
+            })
         })
+        .await
+        .map_err(db_error)?
     }
 
     async fn copy(&self, from: &Path, to: &Path) -> object_store::Result<()> {
@@ -653,54 +685,59 @@ impl PaginatedListStore for LocalStore {
         prefix: Option<&str>,
         options: PaginatedListOptions,
     ) -> object_store::Result<PaginatedListResult> {
-        let prefix = prefix.unwrap_or_default();
-        let after = options.page_token.as_deref().or(options.offset.as_deref());
-        let delimiter = options.delimiter.as_deref();
-        let limit = options.max_keys.unwrap_or(usize::MAX);
-        let mut entries: Vec<(String, Option<Path>, Option<ObjectMeta>)> = Vec::new();
-        for object in self.metadata(prefix)? {
-            let Some(remainder) = object.key.strip_prefix(prefix) else {
-                continue;
-            };
-            if after.is_some_and(|after| object.key.as_str() <= after) {
-                continue;
-            }
-            let common = delimiter.and_then(|delimiter| {
-                remainder.find(delimiter).map(|index| {
-                    stored_location(&format!("{prefix}{}{}", &remainder[..index], delimiter))
-                })
-            });
-            let common = common.transpose()?;
-            if let Some(common) = common {
-                if let Some((last, Some(previous), _)) = entries.last_mut() {
-                    if *previous == common {
-                        *last = object.key;
-                        continue;
-                    }
+        let prefix = prefix.unwrap_or_default().to_owned();
+        let store = self.clone();
+        store_blocking!(move || {
+            let after = options.page_token.as_deref().or(options.offset.as_deref());
+            let delimiter = options.delimiter.as_deref();
+            let limit = options.max_keys.unwrap_or(usize::MAX);
+            let mut entries: Vec<(String, Option<Path>, Option<ObjectMeta>)> = Vec::new();
+            for object in store.metadata(&prefix)? {
+                let Some(remainder) = object.key.strip_prefix(&prefix) else {
+                    continue;
+                };
+                if after.is_some_and(|after| object.key.as_str() <= after) {
+                    continue;
                 }
-                entries.push((object.key, Some(common), None));
-            } else {
-                entries.push((object.key.clone(), None, Some(object_meta(&object)?)));
+                let common = delimiter.and_then(|delimiter| {
+                    remainder.find(delimiter).map(|index| {
+                        stored_location(&format!("{prefix}{}{}", &remainder[..index], delimiter))
+                    })
+                });
+                let common = common.transpose()?;
+                if let Some(common) = common {
+                    if let Some((last, Some(previous), _)) = entries.last_mut() {
+                        if *previous == common {
+                            *last = object.key;
+                            continue;
+                        }
+                    }
+                    entries.push((object.key, Some(common), None));
+                } else {
+                    entries.push((object.key.clone(), None, Some(object_meta(&object)?)));
+                }
             }
-        }
-        let truncated = entries.len() > limit;
-        entries.truncate(limit);
-        let page_token = truncated
-            .then(|| entries.last().map(|(last, _, _)| last.clone()))
-            .flatten();
-        let mut result = ListResult {
-            common_prefixes: Vec::new(),
-            objects: Vec::new(),
-        };
-        for (_, common, object) in entries {
-            if let Some(common) = common {
-                result.common_prefixes.push(common);
+            let truncated = entries.len() > limit;
+            entries.truncate(limit);
+            let page_token = truncated
+                .then(|| entries.last().map(|(last, _, _)| last.clone()))
+                .flatten();
+            let mut result = ListResult {
+                common_prefixes: Vec::new(),
+                objects: Vec::new(),
+            };
+            for (_, common, object) in entries {
+                if let Some(common) = common {
+                    result.common_prefixes.push(common);
+                }
+                if let Some(object) = object {
+                    result.objects.push(object);
+                }
             }
-            if let Some(object) = object {
-                result.objects.push(object);
-            }
-        }
-        Ok(PaginatedListResult { result, page_token })
+            Ok(PaginatedListResult { result, page_token })
+        })
+        .await
+        .map_err(db_error)?
     }
 }
 
