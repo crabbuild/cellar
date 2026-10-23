@@ -5,6 +5,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 struct Controlled {
     application: Arc<dyn Application>,
+    direct_cells: bool,
     stop: Arc<tokio::sync::Notify>,
     memory: Arc<Mutex<Value>>,
     observe: Observation,
@@ -50,6 +51,32 @@ impl Application for Controlled {
                         http::Response::new(200, Vec::new(), Vec::new()).into_http(&context)?,
                     ))
                 });
+            }
+        }
+        if self.direct_cells {
+            if let Invocation::Fetch(request) = event {
+                // Diagnostic topology only: the same namespace fetch, executed
+                // natively instead of by the Python forwarding-only handler.
+                let path = match http::Url::new(&request.url, None) {
+                    Ok(url) => url.pathname().to_owned(),
+                    Err(error) => return Box::pin(async move { Err(error.into()) }),
+                };
+                if let Some(name) = path.strip_prefix("/cells/").filter(|name| !name.is_empty()) {
+                    let name = name.to_owned();
+                    return Box::pin(async move {
+                        Ok(Output::Http(
+                            context
+                                .namespace("ENTITIES")?
+                                .get_by_name(&name)
+                                .fetch(&context, request)
+                                .await?,
+                        ))
+                    });
+                }
+                return self
+                    .application
+                    .clone()
+                    .invoke(context, Invocation::Fetch(request));
             }
         }
         self.application.clone().invoke(context, event)
@@ -182,6 +209,7 @@ pub(super) async fn drive(
         json!({"sample":memory(), "sampled_elapsed_ns":0}),
     ));
     let app: Arc<dyn Application> = Arc::new(Controlled {
+        direct_cells: arguments.mode.contains("-direct"),
         application,
         stop: shutdown.clone(),
         memory: samples.clone(),

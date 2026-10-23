@@ -350,6 +350,8 @@ jobs:
               raise SystemExit('Load checkout differs from requested SHA')
           print(f'Optimized load source {actual}', flush=True)
           baseline = os.environ['CELLAR_LOAD_BASELINE_SHA']
+          if baseline:
+              raise SystemExit('Routing topology probe uses one Python build with explicit modes; omit baseline SHA')
           if baseline and not re.fullmatch('[0-9a-f]{40}', baseline):
               raise SystemExit('load_baseline_sha must be a full lowercase commit SHA')
           cpus = sorted(os.sched_getaffinity(0))
@@ -420,7 +422,7 @@ jobs:
       - name: Qualify activation churn and owner-loss recovery
         run: |
           python tools/python/churn.py --native-host "$RUNNER_TEMP/load-native" \
-            --python-host "selected=$RUNNER_TEMP/load-python" --output "$RUNNER_TEMP/python-load/churn" \
+            --python-host "selected=$RUNNER_TEMP/load-python" --native-gateway-host selected --output "$RUNNER_TEMP/python-load/churn" \
             --build-profile lab --population 128 --rounds 16 --concurrency 4 --repetitions "$CELLAR_LOAD_REPETITIONS"
           python tools/python/churn_report.py "$RUNNER_TEMP/python-load/churn/churn.json" > "$RUNNER_TEMP/python-load/churn/report.md"
           python tools/python/test_churn.py --evidence "$RUNNER_TEMP/python-load/churn/churn.json"
@@ -430,6 +432,8 @@ jobs:
           expected_free = os.environ['CELLAR_LOAD_PYTHON'].endswith('t')
           for case in report['cases']:
               runtime = case['python_runtime']
+              if runtime is not None and case['host']['mode'] != 'python-direct':
+                  raise SystemExit('Churn did not exercise the native gateway')
               if runtime is not None and (runtime['free_threaded'] != expected_free or runtime['gil_enabled'] == expected_free):
                   raise SystemExit('Loaded Python ABI/GIL state differs from selected matrix runtime')
           PY
@@ -447,7 +451,8 @@ jobs:
             workload+=(--cell-echo)
           fi
           python tools/python/offered.py --client target/lab/examples/python-offered-load \
-            --native-host "$RUNNER_TEMP/load-native" --python-host "selected=$RUNNER_TEMP/load-python" \
+            --native-host "$RUNNER_TEMP/load-native" --python-host "forwarded=$RUNNER_TEMP/load-python" \
+            --python-host "direct=$RUNNER_TEMP/load-python" --native-gateway-host direct \
             "${comparison[@]}" "${workload[@]}" \
             --output "$RUNNER_TEMP/python-load/offered" --build-profile lab \
             --host-cpus "$CELLAR_LOAD_HOST_CPUS" --client-cpus "$CELLAR_LOAD_CLIENT_CPUS" \
@@ -468,7 +473,7 @@ jobs:
           expected_route = '/' if report['read_cells'] else ('/cell-echo' if report['cell_echo'] else '/echo')
           builds = json.loads((Path(sys.argv[1]).parent.parent / 'builds.json').read_text())
           for host in report['hosts']:
-              if host['sha256'] != builds['executables'][host['label']]['sha256']:
+              if host['sha256'] != builds['executables']['selected' if host['label'] in ('forwarded', 'direct') else host['label']]['sha256']:
                   raise SystemExit('Measured executable differs from frozen build')
           for case in report['cases']:
               runtime = case['python_runtime']

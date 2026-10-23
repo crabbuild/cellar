@@ -38,7 +38,15 @@ impl Arguments {
         ensure!(
             matches!(
                 args[0].as_str(),
-                "native" | "python" | "python-defaults" | "native-resident" | "python-resident"
+                "native"
+                    | "python"
+                    | "python-defaults"
+                    | "native-resident"
+                    | "python-resident"
+                    | "native-direct-resident"
+                    | "python-direct-resident"
+                    | "native-direct"
+                    | "python-direct"
             ),
             "invalid host mode"
         );

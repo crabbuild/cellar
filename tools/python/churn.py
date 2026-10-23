@@ -148,12 +148,14 @@ def recover(host, ledger, evidence):
 def run_case(artifact, root, args, case, checkpoint):
     primary = recovered = None
     python = artifact["mode"] == "python"
+    host_mode = artifact["mode"] + ("-direct" if artifact.get("native_gateway", False) else "")
     case.update(status="running", rounds=[], load_average_before=list(os.getloadavg()))
     try:
-        primary = Host(Path(artifact["path"]), artifact["mode"], root, "primary")
+        primary = Host(Path(artifact["path"]), host_mode, root, "primary")
         try:
             case["startup_ns"] = primary.readiness()
             case["host"] = primary.ready
+            require(primary.ready["mode"] == host_mode, "incorrect explicit routing mode")
             require(primary.ready["max_resident"] < args.population and primary.ready["durability"] == "bucket", "workload does not exceed durable residency")
             require(primary.ready["embed_compiled"] == python and
                     primary.ready["debug_assertions"] == (args.build_profile == "dev"), "incorrect host build mode/profile")
@@ -180,8 +182,10 @@ def run_case(artifact, root, args, case, checkpoint):
             case["owner_disk_removed"] = True
             time.sleep(primary.ready["lease_ttl_ms"] / 1000 + .1)
             case["recovery"] = {}
-            recovered = Host(Path(artifact["path"]), artifact["mode"], root, "recovered")
+            recovered = Host(Path(artifact["path"]), host_mode, root, "recovered")
             case["recovery"]["startup_ns"] = recovered.readiness()
+            case["recovery"]["host"] = recovered.ready
+            require(recovered.ready["mode"] == host_mode, "recovery changed explicit routing mode")
             recover(recovered, bounds(args.population, case["rounds"]), case["recovery"])
             case["recovery"]["after"] = settled(recovered, python)
             case["recovery"]["python_runtime"] = recovered.python_runtime() if python else None
@@ -208,6 +212,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--native-host", type=Path, required=True)
     parser.add_argument("--python-host", action="append", required=True, metavar="LABEL=PATH")
+    parser.add_argument("--native-gateway-host", action="append", default=[], metavar="LABEL")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--build-profile", choices=("dev", "lab", "release"), required=True)
     parser.add_argument("--population", type=int, default=128)
@@ -224,6 +229,7 @@ def main():
         hosts.append((label, "python", Path(path).resolve(strict=True)))
     require(len({label for label, _, _ in hosts}) == len(hosts) and
             args.population * (args.rounds + 1) * args.repetitions * len(hosts) <= 1_000_000, "duplicate label or excessive workload")
+    require(set(args.native_gateway_host) <= {label for label, _, _ in hosts}, "unknown native gateway label")
     args.output = args.output.resolve()
     args.output.mkdir(parents=True, exist_ok=False)
     report = dict(format=1, status="running", cases=[],
@@ -234,7 +240,7 @@ def main():
         platform=platform.platform(), client_python=sys.version,
         client_gil_enabled=getattr(sys, "_is_gil_enabled", lambda: True)(),
         workload={key: getattr(args, key) for key in ("population", "rounds", "concurrency", "repetitions", "build_profile")},
-        artifacts=[dict(label=label, mode=mode, path=str(path), sha256=digest(path)) for label, mode, path in hosts],
+        artifacts=[dict(label=label, mode=mode, native_gateway=label in args.native_gateway_host, path=str(path), sha256=digest(path)) for label, mode, path in hosts],
         scope="Closed-loop loopback; private SQLite bucket; cached memory samples; no remote-store, fleet capacity or production SLO claim.")
     def checkpoint():
         save(args.output / "churn.json", report)

@@ -91,7 +91,7 @@ class ClientFailures(unittest.TestCase):
         with counters() as (http, values), tempfile.TemporaryDirectory() as directory:
             class Host:
                 def __init__(self, executable, mode, root, role):
-                    self.root, self.role, self.origin = root, role, http.origin
+                    self.root, self.role, self.origin, self.mode = root, role, http.origin, mode
                     self.process = SimpleNamespace(returncode=None, poll=lambda: None)
                     self.ready = None
 
@@ -99,7 +99,7 @@ class ClientFailures(unittest.TestCase):
                     if self.role == "recovered":
                         self_assert.assertFalse((self.root / "disk").exists())
                     (self.root / "disk").mkdir()
-                    self.ready = dict(max_resident=1, durability="bucket", embed_compiled=False,
+                    self.ready = dict(mode=self.mode, max_resident=1, durability="bucket", embed_compiled=False,
                                       debug_assertions=True, lease_ttl_ms=0)
                     return 1
 

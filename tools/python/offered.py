@@ -140,7 +140,8 @@ def measure(client, host, args, rate, duration, path, reads=()):
 def run_case(client, executable, mode, args, root, case):
     cpus = args.cpu_placement["host"] if args.cpu_placement else None
     evidence = root / "host-affinity.json"
-    host = Host(executable, mode + "-resident", root, "primary",
+    host_mode = mode + ("-direct-resident" if case.get("native_gateway", False) else "-resident")
+    host = Host(executable, host_mode, root, "primary",
                 command_prefix=affinity.prefix(cpus, evidence))
     case.update(status="running", phases=[], load_average_before=list(os.getloadavg()))
     try:
@@ -150,6 +151,7 @@ def run_case(client, executable, mode, args, root, case):
             require(sorted(os.sched_getaffinity(host.process.pid)) == cpus,
                     "host changed CPU affinity after startup")
         case["host"] = host.ready
+        require(host.ready["mode"] == host_mode, "incorrect explicit routing mode")
         require(host.ready["embed_compiled"] == (mode == "python")
                 and host.ready["debug_assertions"] == (args.build_profile == "dev")
                 and host.ready["durability"] == "local-only", "incorrect measurement host")
@@ -183,7 +185,7 @@ def run_case(client, executable, mode, args, root, case):
                 before = phase["before"]["runtime"]["interpreter"]["interpreter"]
                 after = phase["after"]["runtime"]["interpreter"]["interpreter"]
                 require(after["handlers_completed"] - before["handlers_completed"]
-                        >= (2 if population else 1) * phase["measurement"]["outcomes"].get("success", 0),
+                        >= (2 if population and not (args.read_cells and case.get("native_gateway", False)) else 1) * phase["measurement"]["outcomes"].get("success", 0),
                         "interpreter observation omitted completed requests")
             print(f"{case['runtime']} r{case['repetition']} offered={rate}: "
                   f"{phase['measurement']['outcomes']}", flush=True)
@@ -204,6 +206,7 @@ def main():
     parser.add_argument("--client", type=Path, required=True)
     parser.add_argument("--native-host", type=Path, required=True)
     parser.add_argument("--python-host", action="append", required=True, metavar="LABEL=PATH")
+    parser.add_argument("--native-gateway-host", action="append", default=[], metavar="LABEL")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--build-profile", choices=("dev", "lab", "release"), required=True)
     parser.add_argument("--rates", type=int, nargs="+", default=[1000, 5000, 10000])
@@ -239,6 +242,7 @@ def main():
         require(label and all(c.isascii() and (c.isalnum() or c in "-_") for c in label), "invalid label")
         hosts.append((label, "python", Path(path).resolve(strict=True)))
     require(len({label for label, _, _ in hosts}) == len(hosts), "duplicate label")
+    require(set(args.native_gateway_host) <= {label for label, _, _ in hosts}, "unknown native gateway label")
     args.output = args.output.resolve()
     args.output.mkdir(parents=True, exist_ok=False)
     report = {"format": 1, "status": "running", "environment": {"platform": platform.platform(),
@@ -250,7 +254,7 @@ def main():
         "client": {"path": str(client), "sha256": digest(client)},
         "measurement_sources": {name: digest(Path(__file__).with_name(name))
                                 for name in ("offered.py", "offered_load.rs", "baseline.py", "residency.py", "affinity.py")},
-        "hosts": [{"label": label, "mode": mode, "path": str(path), "sha256": digest(path)}
+        "hosts": [{"label": label, "mode": mode, "native_gateway": label in args.native_gateway_host, "path": str(path), "sha256": digest(path)}
                   for label, mode, path in hosts], "cases": [],
         "limits": ["Local-only loopback root/cell echo or resident-cell reads; no durable-write, network-store or multi-node capacity claim.",
                    "Two native client workers share the host machine; dispatch jitter and client drops remain visible.",
@@ -267,7 +271,7 @@ def main():
             for label, mode, executable in order:
                 root = args.output / f"{label}-{repetition}"
                 root.mkdir()
-                case = {"runtime": label, "repetition": repetition}
+                case = {"runtime": label, "repetition": repetition, "native_gateway": label in args.native_gateway_host}
                 report["cases"].append(case)
                 save(path, report)
                 run_case(client, executable, mode, args, root, case)
