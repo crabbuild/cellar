@@ -60,6 +60,17 @@ fixture endpoint reports actual physical owners and reservation capacity; the
 runner checks these before and after timing, and the independent analyzer
 rejects mismatches. Setup continuation requires the original worker settings.
 
+The latest [bounded-concurrency comparison](../../plans/multi-raft/tikv-performance.md#bounded-sql-and-archive-concurrency-comparison)
+tested `--sql-workers 4 --sql-worker-queue 16 --archive-producers 4` at twelve
+writers for two 180-second windows. It averaged 206.88 successful writes/sec,
+with worst p99 355.05 ms and zero errors, while verifying all 4,500 replica values
+and 1,500 archive positions. It used persistent internal node bind volumes and
+external RustFS; storage backing and shared-host contention affect comparisons.
+The second window slowed substantially, and the 200-ms gate did not pass.
+Treat this as an experimental configuration; defaults remain unchanged.
+Four publishers also double aggregate capture allowance from 8 to 16 MiB and
+increase concurrent bounded recovery sets within the same 3-GiB container cap.
+
 To find an operating point below the latency limit, pace aggregate requests
 while retaining three independent clients:
 

@@ -1,7 +1,9 @@
 # TiKV comparison and Cellar performance investigation
 
-Status: investigation and implementation in progress. No new end-to-end
-throughput improvement is qualified by this document yet.
+Status: investigation and implementation in progress. The latest four-worker,
+four-publisher configuration passes two 180-second windows with zero errors and
+p99 below 500 ms, averaging 206.88 TPS. A causal overall branch speedup and
+stable sustained capacity remain unqualified.
 
 ## Current performance priorities
 
@@ -13,15 +15,17 @@ retain one vCPU, 3 GiB, 500 leaders and 1,000 followers each; each node has two
 SQL workers and two archive publishers. The subsequent capture-handoff
 comparison below still fails sustained throughput, latency and refusal gates.
 The latest sustained pressure profile does not reproduce those refusals, but
-finds long SQL queues with CPU headroom. The next experiment varies worker
-concurrency at fixed total queue capacity. Attribution of earlier admission
-failures remains open.
+finds long SQL queues with CPU headroom. The subsequent bounded-concurrency
+comparison below varies SQL workers at fixed total queue capacity, then archive
+publishers. Its tuned configuration passes the 500-ms gate but slows from
+245.20 to 168.56 TPS between windows. Attribution of admission failures and
+longer-run slowdown remains open.
 
 | Priority | Observed gap | Next improvement to evaluate |
 | --- | --- | --- |
-| 1 | In the latest twelve-writer profile, committed preparation waits 17–24 ms, publication 15–21 ms and archive capture 19–22 ms for SQL workers. Average node CPU is 57–68%. | Compare two versus four fixed SQL owners while retaining 64 total reservations. Then evaluate committed-completion priority with per-cell ordering, fairness, byte budgets and physical shutdown joins preserved. |
-| 2 | The deeper profile measures 12.4–13.4 ms staging, including 5.1–5.4 ms preview construction, 1.5–1.6 ms private-file cleanup and 1.5–1.6 ms private LTX writes. | Reduce disposable file creation/cleanup and image copying. The bounded encoded-capture handoff removes read-back, but the full comparison below does not qualify a throughput gain. |
-| 3 | Prior sustained runs produce overload refusals, while the latest profile stays below retained-history limits. Archive publication grows from 18 to 26 ms as history accumulates. | Continue measuring exact refusal reasons during a failing load. Evaluate earlier snapshot rotation against retained-tail cost; measure requests, bytes and backlog, retaining previous-object checks, physical replay, exact CAS and corruption refusal. |
+| 1 | Four SQL owners/two archive publishers still produce 4,790 second-window refusals. Four publishers pass both windows, but throughput falls 31% and p99 rises from 115 to 355 ms. Archive publication grows from 18 to 26 ms in the diagnostic. | Repeat the tuned setting with retained-history/refusal counters over a longer interval. Evaluate snapshot rotation against retained-tail read/replay cost and coordinate redundant replica publication, preserving every follower's recovery proof and history-retention boundary. |
+| 2 | Committed preparation waits 17–24 ms, publication 15–21 ms and archive capture 19–22 ms for SQL workers. Four owners increase observed throughput, but shared-host conditions differ. | Keep 64 total work reservations; confirm the useful concurrency range and evaluate committed-completion priority with per-cell ordering, fairness, byte budgets and physical shutdown joins preserved. Defaults remain unchanged. |
+| 3 | The deeper profile measures 12.4–13.4 ms staging, including 5.1–5.4 ms preview construction, 1.5–1.6 ms private-file cleanup and 1.5–1.6 ms private LTX writes. | Reduce disposable file creation/cleanup and image copying. The bounded encoded-capture handoff removes read-back, but its isolated comparison does not qualify a throughput gain. |
 | 4 | Shared Raft persistence averages 0.71–0.72 ms but handles only about 1.24 groups per batch. | Improve bounded coalescing and investigate combined progress writes. Measure the benefit before adding delay; avoid busy spinning on a one-vCPU node. |
 | 5 | Every command still constructs immutable images across replicas. | Explore separate applied and checkpointed progress with Raft-log replay, following TiKV's recovery model. This needs explicit replay retention, snapshot/GC boundaries and power-loss recovery tests before changing acknowledgement semantics. |
 
@@ -140,13 +144,66 @@ in the second. Archive publication grows from 17.80 to 25.95 ms as its retained
 tail grows; payload loading takes 2.41/5.22 ms and physical replay 0.84/2.06 ms.
 These nested means must not be added as exclusive request latency.
 
-The next isolated experiment compares two SQL owners with 32 reservations each
-against four owners with 16 each. Both retain 64 total reservations, identical
-business/archive byte budgets, two archive publishers and the same node CPU and
-memory limits. The fixture now exposes both settings and checks actual physical
-owner/capacity observations before and after traffic. This follows TiKV's use
-of bounded execution pools to overlap independent work; it is an experiment,
-not a claim that four threads improve every one-vCPU deployment.
+The fixture exposes SQL owner count and reservations per owner, checking actual
+physical owner/capacity observations before and after traffic. This follows
+TiKV's use of bounded execution pools to overlap independent work. Its analyzer
+rejects mismatched counts/capacities, missing observers and closed queues.
+
+### Bounded SQL and archive concurrency comparison
+
+The [comparison record](evidence/tikv-bounded-concurrency-comparison.json) uses
+one uninstrumented executable from `b08cb6c` for all four cohorts. Each has fresh
+persistent node volumes, a cold benchmark-VM restart and two 180-second windows
+at twelve writers. The sequence is two SQL owners/two publishers, four/two,
+two/two again, then four/four. Two owners have 32 work slots each; four have 16,
+retaining 64 total slots. Node limits stay at one vCPU and 3 GiB.
+
+| SQL owners / archive publishers | Mean window TPS | Worst window p99 | Refusals | Every window passes zero-error / 500-ms gate |
+| --- | --- | --- | --- | --- |
+| 2 / 2, initial control | 162.27 | 209.87 ms | 5,359 | No |
+| 4 / 2 | 215.72 | 145.64 ms | 4,790 | No |
+| 2 / 2, repeated control | 172.35 | 400.54 ms | 0 | Yes |
+| 4 / 4 | 206.88 | 355.05 ms | 0 | Yes |
+
+Four SQL owners improve observed mean throughput by 25–33% over the controls,
+but two publishers still fail the zero-error gate. Four publishers pass it:
+their windows achieve 245.20/168.56 TPS and 114.82/355.05 ms p99. Mean successful
+TPS is 20.0% above the repeated error-free control, with an 11.4% lower worst
+p99. No configuration passes both windows with zero errors and p99 below 200 ms.
+The tuned second window is 31.3% slower than its first; it does not establish
+stable capacity or explain the refusal mechanism.
+
+Increasing publishers also increases aggregate capture allowance from 8 to
+16 MiB and the number of bounded recovery sets in flight. Each capture remains
+limited to 4 MiB and each recovery set to 256 MiB. Retained-history limits remain
+256 MiB/4,096 entries; business budgets, total SQL reservations and node cgroup
+limits are unchanged. Actual capture/SQL capacities and startup settings are
+recorded. The four/four cohort averages 74–78% node CPU and peaks near 406 MiB
+per node over traffic and final verification.
+
+All four cohorts verify exactly 4,500 replica values and 1,500 archive positions,
+then stop cleanly with volumes retained. Timed writes never retry, and there are
+no uncertain outcomes or postfailure reconciliation in these cohorts. Final
+archive coverage waits 5.81/0.38/11.22/5.85 seconds respectively after replica
+verification; those waits are not measurements of steady-state archive lag.
+
+Shared-host builds appear in 77/102, 32/89, 72/94 and 41/90 samples respectively;
+swap declines from roughly 10.6 to 9.6 GiB. These unequal conditions limit causal
+attribution. Treat four/four as a promising measured configuration, retain the
+failed windows, and repeat it longer with targeted refusal/history counters.
+Production defaults remain two SQL owners and two publishers.
+
+The diagnostic also counts 8,706 and 3,773 publication attempts that find an
+already-advanced archive during its two windows. That path still loads and
+physically verifies the retained recovery set. Coordinating publication across
+replicas could reduce duplicate work, but followers must retain a verified
+recovery proof before releasing local Raft history.
+
+Fixture validation passes nine Python harness/analyzer cases, strict all-feature
+Clippy for the performance binary, Rust formatting/layout, native dependency and
+documentation checks, plus the frozen Linux image build and all four real-cluster
+runs. These checks do not replace longer soak, power-loss, failover or broader
+application/payload qualification.
 
 ## Scope and reproducible baseline
 
