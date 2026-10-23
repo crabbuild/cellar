@@ -157,11 +157,20 @@ webpki-roots.workspace = true
 libc.workspace = true
 nix.workspace = true
 
+[target.'cfg(target_os = "linux")'.dependencies]
+# Keep freed pages purging without subsequent allocations. Runtime enablement
+# alone failed in the Linux image and left the memory-pressure latch closed.
+tikv-jemallocator = { workspace = true, features = ["background_threads"] }
+
 [dev-dependencies]
 lz4_flex.workspace = true
 
 [build-dependencies]
 cc.workspace = true
+
+[[test]]
+name = "allocator_startup"
+harness = false
 
 # A real process runner: child invocations use the public daemon's CLI arguments.
 [[test]]
