@@ -6,13 +6,17 @@ import resource
 import sys
 import threading
 import time
-from cellar import Batch, Context, Request, Response, Scheduled, _encode, _current_invocation
+from cellar import Batch, Context, Overloaded, Request, Response, Scheduled, _encode_response, _current_invocation
 
 _failures = dict(unraisable_errors=0, thread_errors=0)
 # Collection while taking a snapshot can invoke another destructor on the same
 # thread. Serialize other threads without deadlocking that reentrant error hook.
 _failure_lock = threading.RLock()
 _memory_tracer = None
+
+
+class _TaskCapacity(RuntimeError):
+    """The managed factory refused a coroutine before constructing its task."""
 
 
 def configure_measurement(trace_allocations):
@@ -65,7 +69,18 @@ def validate(module, descriptor):
         handlers(cell, events, 3)
 
 
-async def _invoke(module, objects, payload, bridge, context, stats, maximum):
+def _complete_failure(bridge, payload):
+    if bridge.active():
+        try:
+            bridge.complete(payload, True)
+        except (RuntimeError, ValueError, BlockingIOError):
+            # A full mailbox/byte budget or concurrent native retirement can
+            # refuse even a fixed failure. Context cleanup wakes the driver
+            # without needing another queue slot; the runtime remains usable.
+            pass
+
+
+async def _invoke(module, objects, payload, body, bridge, context, stats, maximum):
     token = _current_invocation.set(bridge)
     started = time.perf_counter_ns()
     metrics = stats["interpreter"]
@@ -86,7 +101,7 @@ async def _invoke(module, objects, payload, bridge, context, stats, maximum):
             target = objects[key][0]
         kind, value = payload["kind"], payload["event"]
         handler = getattr(target, kind)
-        argument = {"fetch": lambda: Request._from_wire(value),
+        argument = {"fetch": lambda: Request._from_wire(value, body),
                     "queue": lambda: Batch(context, value),
                     "scheduled": lambda: Scheduled(context, value),
                     "alarm": lambda: value["scheduled_ms"]}[kind]()
@@ -96,25 +111,22 @@ async def _invoke(module, objects, payload, bridge, context, stats, maximum):
         result = await result
         if kind == "fetch" and not isinstance(result, Response):
             raise TypeError("fetch must return cellar.Response")
-        encoded = _encode(result._wire() if kind == "fetch" else None)
-        bridge.complete(encoded, False)
+        value, output_body = result._completion() if kind == "fetch" else (None, None)
+        bridge.complete(_encode_response(value) if kind == "fetch" else "null", False, output_body)
         metrics["handlers_completed"] += 1
     except asyncio.CancelledError:
         metrics["handlers_cancelled"] += 1
         raise
+    except Overloaded:
+        metrics["handlers_failed"] += 1
+        # Preserve the category without reading exception text or its claimed
+        # outcome. A parent can commit before a nested admission refusal.
+        _complete_failure(bridge, '{"error":"Overloaded"}')
     except BaseException:
         metrics["handlers_failed"] += 1
         # Exception messages, class names and tracebacks can contain request data
         # or credentials. The public failure carries no application-supplied text.
-        if bridge.active():
-            try:
-                bridge.complete('"Python handler failed"', True)
-            except (RuntimeError, ValueError, BlockingIOError):
-                # A full mailbox/byte budget or concurrent native retirement
-                # can refuse even this fixed failure envelope. Closing below
-                # wakes the native driver without needing another queue slot;
-                # one refused response must not terminate the entire runtime.
-                pass
+        _complete_failure(bridge, '"Python handler failed"')
     finally:
         elapsed = time.perf_counter_ns() - started
         metrics["handler_wall_ns_sum"] += elapsed
@@ -132,9 +144,29 @@ def _observe_delay(histogram, ns):
     histogram["bucket_counts"][index] += 1
 
 
-async def _serve(module, inbox, interval, shutdown, stats, maximum, max_tasks, telemetry, sample):
+async def _serve(module, inbox, interval, shutdown, stats, maximum, telemetry, sample):
     invocations, objects = {}, {}
-    expected_wake = None
+    loop = asyncio.get_running_loop()
+    ready = asyncio.Event()
+    descriptor = inbox.wakeup_fd()
+
+    def readable():
+        try:
+            inbox.drain_wakeup()
+        finally:
+            ready.set()
+
+    def completed(task):
+        ready.set()
+
+    def observe_ready(expected):
+        _observe_delay(stats["interpreter"]["loop_delay"], max(0, time.perf_counter_ns() - expected))
+
+    def deadline_ready(expected):
+        observe_ready(expected)
+        ready.set()
+
+    loop.add_reader(descriptor, readable)
     next_sample = 0
 
     def publish_work(retiring=0):
@@ -145,9 +177,8 @@ async def _serve(module, inbox, interval, shutdown, stats, maximum, max_tasks, t
         sample()
     try:
         while not inbox.done():
+            ready.clear()
             now = time.perf_counter_ns()
-            if expected_wake is not None:
-                _observe_delay(stats["interpreter"]["loop_delay"], max(0, now - expected_wake))
             if any(_failures.values()):
                 stats["runtime_failed"] = True
                 inbox.stop()
@@ -159,22 +190,39 @@ async def _serve(module, inbox, interval, shutdown, stats, maximum, max_tasks, t
                 # A cancelled task can retain its cell through its traceback.
                 # An idle pump may receive no later reply to overwrite entry.
                 del entry, result
-            while (start := inbox.take()) is not None:
-                invocation, payload, bridge = start
-                context = Context(bridge, json.loads(payload)["identity"])
-                if len(asyncio.all_tasks()) >= max_tasks:
-                    stats["budget_exhaustions"] += 1
+            # Rejections free native admission immediately. A continuously
+            # replenished inbox must still yield to replies, timers and cleanup.
+            for _ in range(64):
+                start = inbox.take()
+                if start is None:
+                    break
+                invocation, payload, body, bridge = start
+                del start
+                payload = json.loads(payload)
+                context = Context(bridge, payload["identity"])
+                try:
+                    # The managed factory checks all live tasks, including
+                    # application-created ones, immediately before construction.
+                    # Do not scan the same task registry twice per admission.
+                    task = asyncio.create_task(_invoke(module, objects, payload, body, bridge, context, stats, maximum),
+                                               eager_start=True)
+                except _TaskCapacity:
                     token = _current_invocation.set(bridge)
                     try:
                         bridge.complete('"Python task capacity exhausted"', True)
                     finally:
                         context._close()
                         _current_invocation.reset(token)
-                    del context, bridge, payload
+                    del context, bridge, payload, body
                     continue
-                task = asyncio.create_task(_invoke(module, objects, json.loads(payload), bridge, context, stats, maximum))
+                if not task.done():
+                    task.add_done_callback(completed)
                 invocations[invocation] = (task, context, bridge)
-                del task, context, bridge, payload
+                del task, context, bridge, payload, body
+            else:
+                # Defer the continuation so ready.wait() actually yields. No
+                # additional native notification is required for queued starts.
+                loop.call_soon(ready.set)
             for invocation, (task, context, bridge) in tuple(invocations.items()):
                 if not bridge.active() and not task.done():
                     task.cancel()
@@ -188,7 +236,14 @@ async def _serve(module, inbox, interval, shutdown, stats, maximum, max_tasks, t
                 # Registry removal must also release this iteration's strong
                 # references; an empty next iteration cannot overwrite them.
                 del task, context, bridge
-            retiring = [key for key, (_, bridge) in objects.items() if not bridge.owner_active()]
+            # Native owner drops publish a bounded dirty hint after revoking
+            # authority. Consume it before scanning so a concurrent drop is
+            # retained for another pass. _invoke checks authority before object
+            # construction and does not yield before registering the object;
+            # a queued invocation cannot register after consuming its own
+            # retirement hint. SDK calls still check authority individually.
+            retiring = ([key for key, (_, bridge) in objects.items() if not bridge.owner_active()]
+                        if inbox.take_retirements() else [])
             if retiring:
                 # Publish before destructors can block. Rust can observe a stale
                 # snapshot with pending cleanup without acquiring the GIL.
@@ -199,9 +254,20 @@ async def _serve(module, inbox, interval, shutdown, stats, maximum, max_tasks, t
             if now >= next_sample:
                 publish_work()
                 next_sample = now + int(telemetry * 1_000_000_000)
-            expected_wake = time.perf_counter_ns() + int(interval * 1_000_000_000)
-            await asyncio.sleep(interval)
+            delay = min(interval, max(0, (next_sample - time.perf_counter_ns()) / 1_000_000_000))
+            # Queue the checkpoint after resumed tasks, using the start of this
+            # pump turn to include inline handler work. Host I/O awaits yield
+            # the loop and do not contribute their elapsed wait to this sample.
+            loop.call_soon(observe_ready, now)
+            now = time.perf_counter_ns()
+            timer = loop.call_later(delay, deadline_ready, now + int(delay * 1_000_000_000))
+            try:
+                await ready.wait()
+            finally:
+                timer.cancel()
     finally:
+        # The runtime retains the descriptor until the loop has removed it.
+        loop.remove_reader(descriptor)
         # Includes child tasks created directly by application code. Awaiting is
         # bounded; Python that blocks the interpreter requires a process watchdog.
         inbox.stop()
@@ -267,7 +333,7 @@ def run(module, inbox, interval, shutdown, max_tasks, max_objects, telemetry):
         if count >= max_tasks:
             stats["budget_exhaustions"] += 1
             coroutine.close()
-            raise RuntimeError("Cellar Python task capacity exhausted")
+            raise _TaskCapacity("Cellar Python task capacity exhausted")
         stats["peak_tasks"] = max(stats["peak_tasks"], count + 1)
         return asyncio.Task(coroutine, loop=loop, **kwargs)
 
@@ -280,7 +346,7 @@ def run(module, inbox, interval, shutdown, max_tasks, max_objects, telemetry):
 
     loop.set_exception_handler(exception_handler)
     loop.set_task_factory(task_factory)
-    serving = loop.create_task(_serve(module, inbox, interval, shutdown, stats, max_objects, max_tasks, telemetry, sample))
+    serving = loop.create_task(_serve(module, inbox, interval, shutdown, stats, max_objects, telemetry, sample))
     cleanup_stage = "serve"
     try:
         try:

@@ -8,6 +8,7 @@ fn mailbox_boundaries_release_every_reservation() {
     let budget = Budget::new(3);
     let event = || Event::Complete {
         payload: "x".into(),
+        body: None,
         failed: false,
         reservation: budget.reserve(1).unwrap(),
     };

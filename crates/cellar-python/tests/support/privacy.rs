@@ -21,7 +21,15 @@ pub(super) fn child() -> Result<()> {
                 let client = reqwest::Client::builder()
                     .timeout(Duration::from_secs(5))
                     .build()?;
-                for path in ["headers", "header-value", "body", "payload", "json"] {
+                for path in [
+                    "headers",
+                    "header-value",
+                    "body",
+                    "metadata-body",
+                    "missing-body",
+                    "payload",
+                    "json",
+                ] {
                     let response = client
                         .post(format!("{url}/{path}"))
                         .body("PRIVATE-UNMANAGED-EXCEPTION-SENTINEL")
@@ -79,7 +87,7 @@ pub(super) fn child() -> Result<()> {
                         .error_for_status()?
                         .json::<u64>()
                         .await?
-                        == 5
+                        == 7
                 );
                 stop(node, &monitor).await
             })

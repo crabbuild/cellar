@@ -4,6 +4,11 @@ This crate owns the native operation protocol used by the Python and JavaScript
 adapters: input validation, buffered HTTP conversion, checked storage batches,
 infrastructure bindings and typed failure envelopes. It contains no engine.
 
+HTTP conversion shares limits across JSON/base64 transports and Python's raw-byte
+transport. `request_parts` and `output_body` retain the latter without adding an
+encoding pass. Application overloads preserve their classification across nested
+calls while retaining an unknown mutation outcome.
+
 Call `operations::execute` only from the original `sdk::Context` invocation.
 Never move its SDK futures to an interpreter thread. This is adapter machinery;
 application code should use the language's SDK facade. Moving the Python

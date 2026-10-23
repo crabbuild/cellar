@@ -147,10 +147,26 @@ class Host:
         return report
 
     def cleanup(self):
-        if self.process.poll() is None:
-            self.process.kill()
-            self.process.wait(timeout=10)
-        self.log.close()
+        # A closed connection can precede the host's fence/proof diagnostic and
+        # terminal status. Preserve those before killing a still-running failed
+        # fixture. This sends no request and never retries a business mutation.
+        before = self.process.poll()
+        killed = False
+        try:
+            if before is None:
+                try:
+                    self.process.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    killed = True
+                    self.process.kill()
+                    self.process.wait(timeout=10)
+        finally:
+            self.log.close()
+            save(self.root / f"{self.role}-exit.json", {
+                "returncode_before_cleanup": before,
+                "killed_by_cleanup": killed,
+                "returncode": self.process.poll(),
+            })
 
 
 def phase(host, kind, size, concurrency, count, warmup, expected, attempts):
@@ -160,6 +176,8 @@ def phase(host, kind, size, concurrency, count, warmup, expected, attempts):
         measured_start[0] = time.perf_counter_ns()
     barrier = threading.Barrier(concurrency + 1, action=start_measurement)
     failed = threading.Event()
+    failure_lock = threading.Lock()
+    first_failure = []
     phase_name = f"{kind}-{size}-c{concurrency}"
     payload = b"x" * size
 
@@ -186,8 +204,15 @@ def phase(host, kind, size, concurrency, count, warmup, expected, attempts):
                 record["outcome"] = "acknowledged"
                 record["response_bytes"] = len(body)
             return local, value, time.perf_counter_ns()
-        except BaseException:
-            failed.set()
+        except BaseException as error:
+            # Publish the cause before other workers observe the abort. Future
+            # submission order is unrelated to which request actually failed.
+            with failure_lock:
+                if not first_failure:
+                    first_failure.append(error)
+                failed.set()
+            if local and local[-1]["outcome"] == "unknown":
+                local[-1]["error"] = {"type": type(error).__name__, "message": str(error)}
             barrier.abort()
             raise
         finally:
@@ -203,6 +228,10 @@ def phase(host, kind, size, concurrency, count, warmup, expected, attempts):
         except BaseException:
             failed.set()
             barrier.abort()
+            with failure_lock:
+                cause = first_failure[0] if first_failure else None
+            if cause is not None:
+                raise cause
             raise
     # The action stamps the epoch before releasing any measurement worker.
     samples = [record for rows, _, _ in results for record in rows if not record["warmup"]]

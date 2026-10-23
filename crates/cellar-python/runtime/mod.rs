@@ -6,7 +6,7 @@ use crate::application::{PythonApplication, Source};
 use anyhow::{ensure, Context as _, Result};
 use pyo3::{
     prelude::*,
-    types::{PyModule, PyString},
+    types::{PyBytes, PyModule, PyString},
 };
 use std::{
     ffi::CString,
@@ -33,6 +33,7 @@ pub use telemetry::{LatencyReport, OperationReport};
 mod snapshot;
 pub use snapshot::InterpreterSnapshot;
 mod memory;
+mod wakeup;
 pub(crate) use bridge::{Event, InvocationBridge, Life, Start};
 pub use environment::Environment;
 pub use initialization::Interpreter;
@@ -52,6 +53,7 @@ pub struct Options {
     pub max_invocations: usize,
     pub max_body_bytes: usize,
     /// Encoded invocation/result limit; at least 128 bytes for fixed failures.
+    /// Raw HTTP bodies count at their base64-equivalent encoded length.
     pub max_value_bytes: usize,
     pub max_bridge_bytes: usize,
     pub max_operations: usize,
@@ -61,6 +63,8 @@ pub struct Options {
     pub max_tasks: usize,
     pub max_objects: usize,
     pub shutdown_timeout: Duration,
+    /// Maximum housekeeping wait. Native work and retirement wake the loop
+    /// immediately; this timer also detects notification-channel failures.
     pub poll_interval: Duration,
     /// Periodic interpreter observations, published without executing SDK work.
     pub telemetry_interval: Duration,
@@ -85,7 +89,7 @@ impl Default for Options {
             max_tasks: 1024,
             max_objects: 4096,
             shutdown_timeout: Duration::from_secs(5),
-            poll_interval: Duration::from_millis(1),
+            poll_interval: Duration::from_millis(250),
             telemetry_interval: Duration::from_millis(250),
             trace_allocations: false,
         }
@@ -251,9 +255,18 @@ pub(crate) struct Runtime {
     pub closed: AtomicBool,
     pub stopped: watch::Sender<bool>,
     pub samples: snapshot::Samples,
+    wakeup: wakeup::Wakeup,
 }
 
 impl Runtime {
+    pub(crate) fn retire(&self) {
+        self.wakeup.retire();
+    }
+
+    pub(crate) fn notify(&self) {
+        self.wakeup.notify();
+    }
+
     pub fn id(&self) -> Result<u64> {
         identity::reserve(&self.next)
     }
@@ -265,7 +278,9 @@ impl Runtime {
         );
         self.starts
             .try_send(start)
-            .context("Python invocation admission is full or closed")
+            .context("Python invocation admission is full or closed")?;
+        self.notify();
+        Ok(())
     }
 
     pub fn reply(
@@ -283,7 +298,9 @@ impl Runtime {
                 value,
                 observation,
             })
-            .context("Python result channel is full or closed")
+            .context("Python result channel is full or closed")?;
+        self.notify();
+        Ok(())
     }
 }
 
@@ -303,11 +320,26 @@ struct Inbox {
     runtime: Arc<Runtime>,
 }
 
-type StartDelivery = (u64, Py<PyString>, Py<InvocationBridge>);
+type StartDelivery = (u64, Py<PyString>, Py<PyBytes>, Py<InvocationBridge>);
 type ReplyDelivery = (u64, u64, Py<PyString>);
 
 #[pymethods]
 impl Inbox {
+    fn take_retirements(&self) -> bool {
+        self.runtime.wakeup.take_retirements()
+    }
+
+    fn wakeup_fd(&self) -> i32 {
+        self.runtime.wakeup.fd()
+    }
+
+    fn drain_wakeup(&self) -> PyResult<()> {
+        self.runtime
+            .wakeup
+            .drain()
+            .map_err(|_| pyo3::exceptions::PyRuntimeError::new_err("Python wakeup channel failed"))
+    }
+
     fn sample(&self, encoded: &str) -> PyResult<()> {
         if encoded.len() > 16 * 1024 {
             return Err(pyo3::exceptions::PyValueError::new_err(
@@ -324,6 +356,7 @@ impl Inbox {
         self.runtime.closed.store(true, Ordering::Release);
         self.runtime.stopped.send_replace(true);
         self.runtime.permits.close();
+        self.runtime.notify();
     }
 
     fn take(&self, py: Python<'_>) -> PyResult<Option<StartDelivery>> {
@@ -342,8 +375,13 @@ impl Inbox {
             );
             let bridge = Py::new(py, start.bridge)?;
             let payload = PyString::new(py, &start.payload).unbind();
-            self.runtime.budget.copied_output(start.payload.len());
-            Ok((start.id, payload, bridge))
+            // Copy on the interpreter thread. No borrowed native buffer or
+            // Python reference crosses back into the invocation's SDK future.
+            let body = PyBytes::new(py, &start.body).unbind();
+            self.runtime
+                .budget
+                .copied_output(start.payload.len() + start.body.len());
+            Ok((start.id, payload, body, bridge))
         })
         .transpose()
     }
@@ -370,8 +408,11 @@ impl Inbox {
             .collect())
     }
 
-    fn done(&self) -> bool {
-        self.done.load(Ordering::Acquire)
+    fn done(&self) -> PyResult<bool> {
+        self.runtime.wakeup.check().map_err(|_| {
+            pyo3::exceptions::PyRuntimeError::new_err("Python wakeup channel failed")
+        })?;
+        Ok(self.done.load(Ordering::Acquire))
     }
 }
 
@@ -475,6 +516,7 @@ impl PythonRuntime {
             options: options.clone(),
             next: AtomicU64::new(1),
             closed: AtomicBool::new(false),
+            wakeup: wakeup::Wakeup::new().context("create Python readiness channel")?,
         });
         Python::attach(|py| -> Result<Report> {
             let info = py.import("sys")?.getattr("version_info")?;
@@ -560,6 +602,7 @@ impl PythonRuntime {
                 let application = Arc::new(PythonApplication::new(runtime.clone(), source));
                 let run = runner.getattr("run")?;
                 let finished = done.clone();
+                let finished_runtime = runtime.clone();
                 let worker = thread::Builder::new()
                     .name("cellar-python-host".into())
                     .spawn(move || {
@@ -576,6 +619,7 @@ impl PythonRuntime {
                             Err(anyhow::anyhow!("Rust Python host supervisor panicked"))
                         });
                         finished.store(true, Ordering::Release);
+                        finished_runtime.notify();
                         result
                     })?;
                 let outcome = run.call1((

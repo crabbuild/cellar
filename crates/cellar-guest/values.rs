@@ -18,6 +18,18 @@ impl std::fmt::Display for RequestBodyLimit {
 impl std::error::Error for RequestBodyLimit {}
 
 pub async fn request(context: &Context, request: Request, limit: usize) -> Result<Value> {
+    let (mut metadata, bytes) = request_parts(context, request, limit).await?;
+    metadata["body"] = json!(STANDARD.encode(bytes));
+    Ok(metadata)
+}
+
+/// Preserve raw HTTP bytes for adapters with a separate binary transport.
+/// The metadata has an empty body field; both transports share ingress limits.
+pub async fn request_parts(
+    context: &Context,
+    request: Request,
+    limit: usize,
+) -> Result<(Value, Vec<u8>)> {
     headers(&request.headers)?;
     let mut stream = context.take_body(request.body)?;
     let mut bytes = Vec::new();
@@ -29,9 +41,10 @@ pub async fn request(context: &Context, request: Request, limit: usize) -> Resul
         );
         bytes.extend(chunk);
     }
-    Ok(
-        json!({ "url":request.url, "method":request.method, "headers":request.headers, "body":STANDARD.encode(bytes) }),
-    )
+    Ok((
+        json!({ "url":request.url, "method":request.method, "headers":request.headers, "body":"" }),
+        bytes,
+    ))
 }
 
 pub fn input(value: &Value, limit: usize) -> Result<Request> {
@@ -53,6 +66,17 @@ pub fn output(
     value: &Value,
     limit: usize,
 ) -> Result<cellar::engine_api::HttpResponse> {
+    let bytes = STANDARD.decode(field(value, "body")?)?;
+    output_body(context, value, bytes, limit)
+}
+
+/// Apply the shared status, body and header limits to already decoded bytes.
+pub fn output_body(
+    context: &Context,
+    value: &Value,
+    bytes: Vec<u8>,
+    limit: usize,
+) -> Result<cellar::engine_api::HttpResponse> {
     let status = value["status"]
         .as_u64()
         .context("guest response needs an integer status")?;
@@ -60,7 +84,6 @@ pub fn output(
         (200..=599).contains(&status),
         "guest response status must be 200..599"
     );
-    let bytes = STANDARD.decode(field(value, "body")?)?;
     ensure!(bytes.len() <= limit, "guest response body exceeds limit");
     let response_headers: Vec<(String, String)> = serde_json::from_value(value["headers"].clone())?;
     headers(&response_headers)?;

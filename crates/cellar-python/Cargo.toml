@@ -55,6 +55,10 @@ tracing-subscriber.workspace = true
 name = "python-baseline"
 path = "../../tools/python/baseline.rs"
 
+[[example]]
+name = "python-offered-load"
+path = "../../tools/python/offered_load.rs"
+
 [[test]]
 name = "bridge"
 path = "tests/bridge.rs"

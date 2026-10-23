@@ -102,6 +102,7 @@ nix = { version = "0.31", features = ["feature", "fs"] }
 notify = "8"
 nu-ansi-term = "0.50"
 object_store = { version = "0.12", default-features = false }
+parking_lot = "0.12.5"
 # The native column-writer API only: no `arrow` feature, so the arrow
 # crate stack stays out of the binary. Revisit only if the telemetry
 # schema ever grows nested columns.

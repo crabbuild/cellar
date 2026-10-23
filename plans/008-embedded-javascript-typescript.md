@@ -911,3 +911,10 @@ Follow-up validation on macOS arm64 / Node 24.13.1:
 These are local development-bucket checks, not live fleet rollout or production
 fault/performance qualification. System prerequisites, Windows, broader Cellar
 transport APIs and the production gates above remain outstanding.
+
+During PR work, `origin/main` advanced to `64a4562` (Python bridge optimization).
+The integration preserves Python's raw-byte HTTP transport and wakeup changes:
+shared conversion now exposes bounded request parts and decoded response bodies,
+while the JavaScript transport retains its JSON/base64 wire shape. The upstream
+application-overload classification and unknown-outcome regression test move to
+`cellar-guest`, so both adapters retain the native output-gate precedence rules.

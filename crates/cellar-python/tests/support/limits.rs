@@ -80,6 +80,7 @@ pub(super) fn child() -> Result<()> {
                 .enable_all()
                 .build()?;
             runtime.block_on(async move {
+                let observed = application.clone();
                 let (node, url) = start_configured(
                     directory.path(),
                     Arc::new(WithResults(application)),
@@ -91,6 +92,71 @@ pub(super) fn child() -> Result<()> {
                 let client = reqwest::Client::builder()
                     .timeout(Duration::from_secs(10))
                     .build()?;
+                // Exercise binary request delivery through real ingress. The
+                // bridge must copy the body as bytes, not expand it into a
+                // base64 string in the invocation's JSON envelope.
+                let binary: Vec<u8> = (0..4096).map(|byte| byte as u8).collect();
+                for path in ["/echo", "/echo-buffer"] {
+                    let before = observed.bridge_report();
+                    let echoed = client
+                        .post(format!("{url}{path}"))
+                        .body(binary.clone())
+                        .send()
+                        .await?
+                        .error_for_status()?
+                        .bytes()
+                        .await?;
+                    ensure!(echoed.as_ref() == binary);
+                    let after = observed.bridge_report();
+                    let copied = after.output_copied_bytes - before.output_copied_bytes;
+                    ensure!(
+                        copied >= binary.len() && copied < binary.len() + 1024,
+                        "binary invocation expanded its body: {copied} copied bytes"
+                    );
+                    let copied = after.input_copied_bytes - before.input_copied_bytes;
+                    ensure!(
+                        copied >= binary.len() && copied < binary.len() + 1024,
+                        "binary completion expanded its body: {copied} copied bytes"
+                    );
+                }
+                // Raw delivery must retain the previous encoded-envelope
+                // bound, including escaped headers and base64-equivalent body
+                // length. Observe the real ingress metadata instead of assuming
+                // which transport headers the HTTP client adds.
+                let input_overhead = client
+                    .post(format!("{url}/input-envelope"))
+                    .header("x-boundary", "")
+                    .body(binary.clone())
+                    .send()
+                    .await?
+                    .error_for_status()?
+                    .json::<usize>()
+                    .await?;
+                let remaining = 65536_usize
+                    .checked_sub(input_overhead)
+                    .context("input envelope fixture overhead")?;
+                let exact_header = "\"".repeat(remaining / 2) + &"a".repeat(remaining % 2);
+                for excess in [false, true, false] {
+                    let header = if excess {
+                        exact_header.clone() + "a"
+                    } else {
+                        exact_header.clone()
+                    };
+                    let response = client
+                        .post(format!("{url}/input-envelope"))
+                        .header("x-boundary", header)
+                        .body(binary.clone())
+                        .send()
+                        .await?;
+                    if excess {
+                        ensure!(
+                            response.status().is_server_error(),
+                            "oversized invocation admitted"
+                        );
+                    } else {
+                        ensure!(response.error_for_status()?.json::<usize>().await? == 65536);
+                    }
+                }
                 let exact = client
                     .post(format!("{url}/echo"))
                     .body(vec![b'x'; 4096])

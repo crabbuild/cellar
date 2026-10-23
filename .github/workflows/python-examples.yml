@@ -83,3 +83,24 @@ jobs:
             --project "$RUNNER_TEMP/fastapi/environment/project.json" \
             --output "$RUNNER_TEMP/fastapi/perf-smoke" \
             --concurrency 1 8 --repetitions 1 --read-seconds .5 --writes 32
+      - name: Check independent-arrival reads and failure accounting
+        run: |
+          cargo build -p cellar-python --example python-offered-load --no-default-features --locked
+          python -B tools/python/test_offered.py "$CARGO_TARGET_DIR/debug/examples/python-offered-load"
+          python -B examples/python-fastapi/offered_perf.py \
+            --client "$CARGO_TARGET_DIR/debug/examples/python-offered-load" --client-profile dev \
+            --cellar "$CARGO_TARGET_DIR/debug/cellar" \
+            --project "python=$RUNNER_TEMP/fastapi/environment/project.json" \
+            --output "$RUNNER_TEMP/fastapi/offered-smoke" \
+            --rates 100 --duration-ms 500 --warmup-ms 100 --repetitions 1
+          python - "$RUNNER_TEMP/fastapi/offered-smoke/results.json" <<'PY'
+          import json, sys
+          with open(sys.argv[1]) as stream:
+              report = json.load(stream)
+          for case in report["cases"]:
+              for phase in case["phases"]:
+                  for name in ("warmup", "measurement"):
+                      outcomes = phase[name]["outcomes"]
+                      if not outcomes.get("success") or set(outcomes) - {"success", "client_late", "client_capacity"}:
+                          raise RuntimeError(f"FastAPI read smoke failed: {outcomes}")
+          PY

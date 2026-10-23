@@ -173,12 +173,20 @@ impl PythonApplication {
         cell: Option<(u64, String, Life)>,
         state: State,
     ) -> Result<Output> {
-        let _permit = self
-            .runtime
-            .permits
-            .clone()
-            .try_acquire_owned()
-            .map_err(|_| anyhow::anyhow!("Python invocation capacity exhausted"))?;
+        let _permit =
+            self.runtime
+                .permits
+                .clone()
+                .try_acquire_owned()
+                .map_err(|error| match error {
+                    tokio::sync::TryAcquireError::NoPermits => {
+                        anyhow::Error::new(cellar::sdk::ApplicationOverloaded)
+                    }
+                    tokio::sync::TryAcquireError::Closed => {
+                        anyhow::anyhow!("Python runtime admission is closed")
+                    }
+                })?;
+        let mut body = Vec::new();
         let (kind, payload) = if let Some(batch) = &state.queue {
             (
                 "queue",
@@ -186,10 +194,13 @@ impl PythonApplication {
             )
         } else {
             match event {
-                Invocation::Fetch(request) => (
-                    "fetch",
-                    values::request(&context, request, self.runtime.options.max_body_bytes).await?,
-                ),
+                Invocation::Fetch(request) => {
+                    let (metadata, bytes) =
+                        values::request(&context, request, self.runtime.options.max_body_bytes)
+                            .await?;
+                    body = bytes;
+                    ("fetch", metadata)
+                }
                 Invocation::Alarm { scheduled_ms } => {
                     ("alarm", json!({"scheduled_ms":scheduled_ms}))
                 }
@@ -211,21 +222,23 @@ impl PythonApplication {
             "undeclared Python event {kind}"
         );
         let active = Arc::new(AtomicBool::new(true));
-        let _lifetime = Lifetime(active.clone());
+        let _lifetime = Lifetime(active.clone(), self.runtime.clone());
         let (sender, mut receive) = runtime::channel(self.runtime.options.max_pending_operations);
         let (cancelled, mut cancellation) = tokio::sync::watch::channel(false);
         let invocation = self.runtime.id()?;
         let payload = serde_json::to_string(
             &json!({"kind":kind,"event":payload,"object":object,"class":class,"identity":identity}),
         )?;
+        let charge = values::envelope_size(payload.len(), body.len())?;
         ensure!(
-            payload.len() <= self.runtime.options.max_value_bytes,
+            charge <= self.runtime.options.max_value_bytes,
             "Python invocation exceeds value budget"
         );
         self.runtime.start(Start {
             id: invocation,
-            reservation: self.runtime.budget.reserve(payload.len())?,
+            reservation: self.runtime.budget.reserve(charge)?,
             payload,
+            body,
             bridge: InvocationBridge {
                 sender,
                 active: active.clone(),
@@ -323,11 +336,17 @@ impl PythonApplication {
                 }
                 Event::Complete {
                     payload,
+                    body,
                     failed,
                     reservation,
                 } => {
                     let _reservation = reservation;
-                    ensure!(!failed, "Python handler failed");
+                    if failed {
+                        if payload == "{\"error\":\"Overloaded\"}" {
+                            return Err(cellar::sdk::ApplicationOverloaded.into());
+                        }
+                        anyhow::bail!("Python handler failed");
+                    }
                     let value: Value = serde_json::from_str(&payload).map_err(|_| {
                         anyhow::anyhow!("Python handler completion decoding failed")
                     })?;
@@ -335,10 +354,11 @@ impl PythonApplication {
                         // Serde and HTTP conversion errors may quote malformed
                         // application values. Native ingress formats the full
                         // handler error chain, so replace it at this boundary.
-                        values::output(&context, &value, self.runtime.options.max_body_bytes)
+                        values::output(&context, &value, body, self.runtime.options.max_body_bytes)
                             .map(Output::Http)
                             .map_err(|_| anyhow::anyhow!("Python response conversion failed"))
                     } else {
+                        ensure!(body.is_none(), "Python event completion has an HTTP body");
                         Ok(Output::Done)
                     };
                 }
@@ -348,11 +368,12 @@ impl PythonApplication {
     }
 }
 
-struct Lifetime(Life);
+struct Lifetime(Life, Arc<Runtime>);
 
 impl Drop for Lifetime {
     fn drop(&mut self) {
         self.0.store(false, Ordering::Release);
+        self.1.notify();
     }
 }
 
@@ -449,6 +470,7 @@ struct PythonCell {
 impl Drop for PythonCell {
     fn drop(&mut self) {
         self.life.store(false, Ordering::Release);
+        self.application.runtime.retire();
     }
 }
 

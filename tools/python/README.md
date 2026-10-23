@@ -33,8 +33,9 @@ Startup verification is not a filesystem sandbox.
 The following uses an independent runtime, cached platform wheels, then an
 offline installation. `uv` is a build-time tool; it is never run by the host.
 Select the managed runtime executable printed by `uv python find`.
-The build and qualification scripts require Python 3.11 or newer. The commands
-below run them with the selected managed 3.14 interpreter.
+The build and packaging tools require Python 3.11 or newer. Runner scheduling
+tests use the selected CPython 3.14 or 3.14t interpreter. The commands below run
+the tools with the selected managed 3.14 interpreter.
 
 ```sh
 export CELLAR_PYTHON_PREFIX="/absolute/private/path/cellar-python-env"
@@ -243,6 +244,27 @@ harness mode:
 ```sh
 cargo test -p cellar-python --test bridge --features embed --locked -- --runtime-watchdog
 ```
+
+Each scenario prints a `PASS Python watchdog` line only after the recovered
+counter, durable alarm and duplicate-delivery assertions succeed. The bridge
+uses a custom test harness (`harness = false`); a preceding Cargo summary of
+`0 passed` belongs to another test target and does not describe these checks.
+Run `"$PYO3_PYTHON" -B tools/python/test_runner.py` with the selected interpreter
+to check continuous-arrival fairness, nested task admission, blocking-handler
+telemetry and timer-driven cancellation. These scheduling tests complement the
+real-node bridge suite's authority, durability and lifecycle checks.
+Run `"$PYO3_PYTHON" -B tools/python/test_encoding.py` to check HTTP metadata
+escaping, integer/nesting rejection, subclass fallback and owned header
+snapshots. The real-node suite also checks exact completion envelope limits,
+native header validation and sanitized failures after nested mutations.
+Any bridge failure still exits nonzero and fails `cargo test`.
+
+To isolate the main HTTP/storage/lifecycle contract after the subprocess drills,
+run `cargo test -p cellar-python --test bridge --features embed --locked -- --runtime-contract`.
+This runs the same contract and assertions as the full suite, including restart
+and owner handoff. Expected JSON responses check HTTP status and retain the
+failing URL; fleet write errors also identify the lifecycle stage. This mode
+does not replace the full suite or retry failed mutations.
 
 The bridge harness also pauses both real
 follower append traffic and bucket data writes in a three-node fleet: sync and
