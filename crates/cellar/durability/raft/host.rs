@@ -2958,8 +2958,16 @@ impl Driver {
             // Each cut remains in inflight, and retains its capture permit,
             // until this entire publication returns through on_job.
             let verifier = owner.verifier.clone();
+            let timer = self
+                .local
+                .performance
+                .timer(super::performance::Operation::ArchivePublicationBatch);
             self.jobs.push(Box::pin(async move {
-                Job::Archived(super::host_archive::publish(pending, verifier).await)
+                let completed = super::host_archive::publish(pending, verifier).await;
+                timer.finish(
+                    !completed.is_empty() && completed.iter().all(|cut| cut.result.is_ok()),
+                );
+                Job::Archived(completed)
             }));
         }
     }
@@ -3013,32 +3021,69 @@ impl Driver {
                     result,
                 } in completed
                 {
+                    use super::performance::Counter;
+                    self.local.performance.increment(
+                        if result.is_ok() {
+                            Counter::ArchivePublicationCutSucceeded
+                        } else {
+                            Counter::ArchivePublicationCutFailed
+                        },
+                        1,
+                    );
                     let Some(cell) = self.cells.get_mut(&scope) else {
+                        if result.is_ok() {
+                            self.local
+                                .performance
+                                .increment(Counter::ArchiveCoverageMissingCell, 1);
+                        }
                         continue;
                     };
                     if result.is_ok() && position.index > cell.archived {
                         // The proof names the captured local cut, even if another
                         // replica has already archived a later cut of this history.
                         // Never import that replica's later applied progress.
-                        if let Ok(Some(progress)) =
-                            progress(&cell.group, cell.image.as_ref(), position.index)
-                        {
-                            if cell.core.observe_progress(progress).is_ok() {
-                                cell.archived = position.index;
-                                // The confirmed cut resolves this wait. Re-run
-                                // the normal fresh authority/output checks now;
-                                // it is not itself permission to send a result.
-                                if let Some(pending) = cell.pending.as_mut() {
-                                    if pending.phase == Phase::AwaitFinish
-                                        && pending.result.as_ref().is_some_and(|receipt| {
-                                            receipt.position().index <= cell.archived
-                                        })
-                                    {
-                                        pending.phase = Phase::Finish;
+                        match progress(&cell.group, cell.image.as_ref(), position.index) {
+                            Ok(Some(progress)) => {
+                                if cell.core.observe_progress(progress).is_ok() {
+                                    self.local.performance.increment(
+                                        Counter::ArchiveCoverageIndexAdvance,
+                                        position.index.get() - cell.archived.get(),
+                                    );
+                                    self.local
+                                        .performance
+                                        .increment(Counter::ArchiveCoverageAdvanced, 1);
+                                    cell.archived = position.index;
+                                    // The confirmed cut resolves this wait. Re-run
+                                    // the normal fresh authority/output checks now;
+                                    // it is not itself permission to send a result.
+                                    if let Some(pending) = cell.pending.as_mut() {
+                                        if pending.phase == Phase::AwaitFinish
+                                            && pending.result.as_ref().is_some_and(|receipt| {
+                                                receipt.position().index <= cell.archived
+                                            })
+                                        {
+                                            pending.phase = Phase::Finish;
+                                        }
                                     }
+                                } else {
+                                    self.local
+                                        .performance
+                                        .increment(Counter::ArchiveCoverageRejected, 1);
                                 }
                             }
+                            Ok(None) => self
+                                .local
+                                .performance
+                                .increment(Counter::ArchiveCoverageImagePending, 1),
+                            Err(_) => self
+                                .local
+                                .performance
+                                .increment(Counter::ArchiveCoverageRejected, 1),
                         }
+                    } else if result.is_ok() {
+                        self.local
+                            .performance
+                            .increment(Counter::ArchiveCoverageUnchanged, 1);
                     }
                     // A confirmed cut may already have newer work waiting. Keep it
                     // eligible for the next fair scan; back off failures or a proof

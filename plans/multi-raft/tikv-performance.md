@@ -10,6 +10,41 @@ verify without reconciliation. No repeatable, error-free TPS gain is claimed.
 The archive budget remains 256 MiB. Earlier comparisons and failures remain
 preserved, including the rejected capture candidate `8a34732`.
 
+## Distinguish publication from local archive coverage
+
+The next observation leaves runtime policy unchanged and adds fixed counters
+for successful/failed publication cuts and coverage outcomes: advanced,
+unchanged, incoherent local image, rejected progress, or removed cell. The
+`archive_publication_batch` histogram starts when a batch is scheduled and ends
+when all its cuts return. It includes object I/O, physical replay, shared verifier
+waiting and scheduling; it is not isolated disk time. Successful publication
+does not itself establish that the host accepted a local progress observation.
+Advanced index distance includes protocol entries and must not be equated with
+admission's retained data-entry count. Live counters are not an atomic snapshot.
+
+The public regression fails because the old host lacks failed-publication
+observations. With the metrics present, an unavailable archive reports failure
+without advancing coverage. Restoring storage lets the same command gain S3
+durability without a second callback, and successful cut outcomes reconcile
+after the single-cell fixture becomes quiescent.
+[Local validation](evidence/tikv-archive-progress-local.json) passes 518
+library, 53 archive, 29 host and nine multi-group tests plus strict Clippy.
+
+Three hypotheses remain: insufficient publication/replay throughput; completed
+proofs rejected while the local image catches up with its durable marker; and
+disproportionate VM activity on node one's pinned CPU. The diagnostic wrapper
+adds one VM CPU/softirq snapshot at each window boundary, outside the timed
+client process, to the existing per-container CPU counters. It neither samples
+each request nor changes the load AST. A preflight validates all eight CPUs and
+six softirq categories. Different snapshot times and shared-host activity still
+limit attribution. The 1,500-group observation retains the 256-MiB byte budget,
+4,096-entry cap and existing durability, error and exact-verification gates.
+
+[Verified lossless compression](evidence/tikv-closed-log-compression-r4.json)
+preserves another 424 closed Raft logs across nine historical node volumes,
+recovering 4.86 GB of physical allocation. Original volume paths and options,
+logical contents and metadata remain intact. Fresh timed data is not compressed.
+
 ## Seek before evaluating archive eligibility
 
 The next candidate addresses a concrete cost in `pump_archive`: its filtered

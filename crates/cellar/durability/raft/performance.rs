@@ -54,9 +54,10 @@ pub(crate) enum Operation {
     DataAdmit,
     ArchiveAdmissionCheck,
     ArchiveAdmissionWait,
+    ArchivePublicationBatch,
 }
 
-const OPERATIONS: [Operation; 25] = [
+const OPERATIONS: [Operation; 26] = [
     Operation::EngineQueue,
     Operation::EngineFileSync,
     Operation::EngineDirectorySync,
@@ -82,6 +83,7 @@ const OPERATIONS: [Operation; 25] = [
     Operation::DataAdmit,
     Operation::ArchiveAdmissionCheck,
     Operation::ArchiveAdmissionWait,
+    Operation::ArchivePublicationBatch,
 ];
 
 impl Operation {
@@ -112,6 +114,7 @@ impl Operation {
             Self::DataAdmit => "transport_data_admit",
             Self::ArchiveAdmissionCheck => "archive_admission_check",
             Self::ArchiveAdmissionWait => "archive_admission_wait",
+            Self::ArchivePublicationBatch => "archive_publication_batch",
         }
     }
 }
@@ -144,9 +147,17 @@ pub(crate) enum Counter {
     ArchiveAdmissionRetainedEntriesRefused,
     ArchiveAdmissionReservedBytesDeferred,
     ArchiveAdmissionReservedEntriesDeferred,
+    ArchivePublicationCutSucceeded,
+    ArchivePublicationCutFailed,
+    ArchiveCoverageAdvanced,
+    ArchiveCoverageIndexAdvance,
+    ArchiveCoverageImagePending,
+    ArchiveCoverageRejected,
+    ArchiveCoverageUnchanged,
+    ArchiveCoverageMissingCell,
 }
 
-const COUNTERS: [Counter; 26] = [
+const COUNTERS: [Counter; 34] = [
     Counter::EngineReadBytes,
     Counter::EngineWriteRequestedBytes,
     Counter::EngineWriteCompletedBytes,
@@ -173,6 +184,14 @@ const COUNTERS: [Counter; 26] = [
     Counter::ArchiveAdmissionRetainedEntriesRefused,
     Counter::ArchiveAdmissionReservedBytesDeferred,
     Counter::ArchiveAdmissionReservedEntriesDeferred,
+    Counter::ArchivePublicationCutSucceeded,
+    Counter::ArchivePublicationCutFailed,
+    Counter::ArchiveCoverageAdvanced,
+    Counter::ArchiveCoverageIndexAdvance,
+    Counter::ArchiveCoverageImagePending,
+    Counter::ArchiveCoverageRejected,
+    Counter::ArchiveCoverageUnchanged,
+    Counter::ArchiveCoverageMissingCell,
 ];
 
 impl Counter {
@@ -212,6 +231,14 @@ impl Counter {
             Self::ArchiveAdmissionReservedEntriesDeferred => {
                 "archive_admission_reserved_entries_deferred"
             }
+            Self::ArchivePublicationCutSucceeded => "archive_publication_cut_succeeded",
+            Self::ArchivePublicationCutFailed => "archive_publication_cut_failed",
+            Self::ArchiveCoverageAdvanced => "archive_coverage_advanced",
+            Self::ArchiveCoverageIndexAdvance => "archive_coverage_index_advance",
+            Self::ArchiveCoverageImagePending => "archive_coverage_image_pending",
+            Self::ArchiveCoverageRejected => "archive_coverage_rejected",
+            Self::ArchiveCoverageUnchanged => "archive_coverage_unchanged",
+            Self::ArchiveCoverageMissingCell => "archive_coverage_missing_cell",
         }
     }
 }

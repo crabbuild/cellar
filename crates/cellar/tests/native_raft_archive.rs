@@ -1719,6 +1719,69 @@ async fn s3_ack_complete_restore_set() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn archive_progress_metrics_distinguish_failed_publication_from_coverage() -> Result<()> {
+    use std::time::Duration;
+    let store = Arc::new(faults::Store::default());
+    store.archive_unavailable.store(true, Ordering::Release);
+    let native = Native::start(
+        store.clone(),
+        RaftHostOptions::default(),
+        Durability::Quorum,
+    )
+    .await?;
+    let result = async {
+        let receipt = native.retry(1, Durability::Quorum).await?;
+        let count = |name: &str| -> Result<u64> {
+            native
+                .service
+                .performance()
+                .counters
+                .into_iter()
+                .find(|counter| counter.name == name)
+                .map(|counter| counter.value)
+                .with_context(|| format!("missing {name}"))
+        };
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while count("archive_publication_cut_failed")? == 0 {
+                tokio::time::sleep(Duration::from_millis(1)).await;
+            }
+            Ok::<_, anyhow::Error>(())
+        })
+        .await??;
+        ensure!(count("archive_coverage_advanced")? == 0);
+        ensure!(count("archive_coverage_index_advance")? == 0);
+        store.archive_unavailable.store(false, Ordering::Release);
+        let duplicate = native.retry(1, Durability::S3).await?;
+        ensure!(duplicate.result == receipt.result);
+        ensure!(native.calls.load(Ordering::SeqCst) == 1);
+        ensure!(count("archive_publication_cut_succeeded")? > 0);
+        ensure!(count("archive_coverage_advanced")? > 0);
+        ensure!(count("archive_coverage_index_advance")? >= receipt.version.position.index.get());
+        ensure!(
+            count("archive_publication_cut_succeeded")?
+                == count("archive_coverage_advanced")?
+                    + count("archive_coverage_image_pending")?
+                    + count("archive_coverage_rejected")?
+                    + count("archive_coverage_unchanged")?
+                    + count("archive_coverage_missing_cell")?
+        );
+        let metrics = native.service.performance();
+        let operation = metrics
+            .operations
+            .iter()
+            .find(|operation| operation.name == "archive_publication_batch")
+            .context("missing archive batch timing")?;
+        ensure!(operation.failed > 0 && operation.succeeded > 0);
+        ensure!(operation.abandoned == 0 && operation.timing_unavailable == 0);
+        Ok(())
+    }
+    .await;
+    store.archive_unavailable.store(false, Ordering::Release);
+    native.close().await?;
+    result
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn quorum_s3_outage() -> Result<()> {
     let store = Arc::new(faults::Store::default());
     store.archive_unavailable.store(true, Ordering::Release);

@@ -296,6 +296,17 @@ A cancelled or retired waiter records abandonment when its owner is released.
 The wait includes fairness behind existing waiters; it does not include the
 subsequent SQL queue, command execution or archive publication.
 
+Archive publication exposes an `archive_publication_batch` timer from scheduling
+until every captured cut returns, including object I/O, replay and waiting for
+the shared verifier. A successful batch means all its cuts verified; it does not
+mean the host accepted every local progress observation. Fixed counters record
+succeeded/failed cuts separately from coverage that advances, is unchanged,
+waits for a coherent applied image, is rejected, or names a removed cell.
+`archive_coverage_index_advance` sums advanced Raft index distances, including
+protocol entries; it is not the admission count of retained data-bearing entries.
+These observations do not change publication, retry or admission policy. Live
+snapshots may cross a counter update and are not atomic multi-counter proofs.
+
 A known archive-admission refusal still permits duplicate receipt lookup, then
 refuses new work before opening a transaction or invalidating private capture
 state. It does not require a private-image rebuild. Failures after mutation

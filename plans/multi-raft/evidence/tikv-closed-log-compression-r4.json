@@ -1,0 +1,12 @@
+{
+  "completed": true,
+  "purpose": "Losslessly compress stopped verified historical Raft logs; all images, volumes and logical evidence retained. Fresh benchmark directories remain uncompressed.",
+  "files": 424,
+  "volumes": 9,
+  "logical_bytes": 7050283455,
+  "allocated_bytes_saved": 4864561152,
+  "content_and_metadata_verified": true,
+  "original_volume_options_retained": true,
+  "docker_read_only_probes": 18,
+  "raw_record_sha256": "fa27b94ebcff1c32bb11c31287e0bfd7de4d0949f9690fe0a4f95779fd6eb891"
+}
