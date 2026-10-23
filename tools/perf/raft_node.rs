@@ -115,6 +115,13 @@ async fn main() -> Result<()> {
         (1..=4).contains(&archive_producers),
         "invalid archive producer limit"
     );
+    let archive_batch_groups: usize = std::env::var("RAFT_ARCHIVE_BATCH_GROUPS")
+        .unwrap_or_else(|_| RaftArchiveOptions::default().max_batch_groups.to_string())
+        .parse()?;
+    ensure!(
+        (1..=2).contains(&archive_batch_groups),
+        "invalid archive batch size"
+    );
     let archive_max_unarchived_mib: u64 = std::env::var("RAFT_ARCHIVE_MAX_UNARCHIVED_MIB")
         .unwrap_or_else(|_| {
             (RaftArchiveOptions::default().max_unarchived_bytes / (1024 * 1024)).to_string()
@@ -347,6 +354,7 @@ async fn main() -> Result<()> {
     };
     host.close_report.max_groups = local_count;
     host.archive.max_producers = archive_producers;
+    host.archive.max_batch_groups = archive_batch_groups;
     host.archive.max_unarchived_bytes = archive_max_unarchived_bytes;
     let service = node
         .start_raft_cells(
@@ -435,6 +443,7 @@ async fn main() -> Result<()> {
                 }
                 let mut usage = serde_json::json!(service.resource_usage());
                 usage["archive_max_unarchived_bytes"] = archive_max_unarchived_bytes.into();
+                usage["archive_batch_groups"] = archive_batch_groups.into();
                 (axum::http::StatusCode::OK, usage.to_string())
             }
         }),

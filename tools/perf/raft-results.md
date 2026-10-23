@@ -183,3 +183,14 @@ The analyzer recomputes quantiles from raw response times and reconciles all
 acknowledged increments, including seed commands, with exact replica values and
 verified archive indices. Selection requires every retained repeat for a setting
 to be error-free and strictly below the chosen latency limit.
+
+## Archive publication batch experiment
+
+The three-node `raft.py` runner accepts `--archive-batch-groups 1|2` (default 2).
+This changes cells per immutable-object publication batch, independently of
+`--archive-producers` and `--archive-max-unarchived-mib`. Each node reports the
+configured batch size at `/resources`; the runner and `analyze_raft.py` require
+matching initial and final observations. Setup continuation preserves the size.
+Compare both settings with the same frozen binary and retained artifacts before
+changing production defaults: singleton publication avoids partner completion
+waiting but can increase object-store operations.

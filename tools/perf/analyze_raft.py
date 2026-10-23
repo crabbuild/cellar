@@ -77,6 +77,12 @@ def analyze(root, p99_limit_ms=200):
             scratch = limits['Tmpfs']
             assert set(scratch) == {'/data/node/raft-cells/archive-verifier'}
             assert 'size=512m' in next(iter(scratch.values()))
+    if 'archive_batch_groups' in report:
+        assert report['archive_batch_groups'] in (1, 2)
+        for phase in ('initial_resources', 'final_resources'):
+            assert len(report[phase]) == 3
+            for usage in report[phase]:
+                assert usage['archive_batch_groups'] == report['archive_batch_groups']
     if 'archive_max_unarchived_mib' in report:
         assert 1 <= report['archive_max_unarchived_mib'] <= 16384
         for phase in ('initial_resources', 'final_resources'):

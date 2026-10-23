@@ -1,14 +1,13 @@
 # TiKV comparison and Cellar performance investigation
 
-Status: PR #98's conflicts are resolved through main `1455fb0`. Latest runtime
-`bd33ce8` seeks before evaluating archive eligibility, following direct-image
-candidate `71074d6`. Its fresh observation reaches 307.69 / 277.78 TPS with
-157.46 / 205.26-ms p99, but **fails end-to-end performance qualification**:
-window one has 25 known overload refusals at node one's retained-entry gate.
-Window two is error-free. All 4,500 replica values and 1,500 archive positions
-verify without reconciliation. No repeatable, error-free TPS gain is claimed.
-The archive budget remains 256 MiB. Earlier comparisons and failures remain
-preserved, including the rejected capture candidate `8a34732`.
+Status: PR #98's conflicts are resolved through main `1455fb0`. Observation
+build `e9748fa` completes the 1,500-group diagnostic at 217.23 / 178.17 TPS and
+249.13 / 366.59-ms p99, with 17,313 / zero known overload refusals. It **fails
+end-to-end performance qualification** despite exact 4,500-replica / 1,500-archive
+verification. Publication failures and rejected progress observations are zero;
+only 60 of 80,421 successful cuts encounter an incoherent local image. The next
+experiment isolates archive batch size, keeping four producers and all limits.
+No repeatable, error-free TPS gain is claimed. Earlier failures remain preserved.
 
 ## Distinguish publication from local archive coverage
 
@@ -39,6 +38,77 @@ each request nor changes the load AST. A preflight validates all eight CPUs and
 six softirq categories. Different snapshot times and shared-host activity still
 limit attribution. The 1,500-group observation retains the 256-MiB byte budget,
 4,096-entry cap and existing durability, error and exact-verification gates.
+
+The [completed diagnostic](evidence/tikv-archive-progress.json) produces:
+
+| Window | Successful TPS | Successful-request p99 ms | Known overload refusals |
+| --- | --- | --- | --- |
+| 1 | 217.23 | 249.13 | 17,313 |
+| 2 | 178.17 | 366.59 | 0 |
+
+All first-window failures match retained-entry refusal counters: 4,768 on node
+one, 6,238 on node two and 6,307 on node three, within respective 1.86 / 2.11 /
+2.13-second issuance spans. No publication cut fails and no
+progress observation is rejected. The image-coherence gate delays 36 / 24 cuts
+across the two windows, too few to establish it as the primary throughput cost.
+Publication batches average 42.04 / 46.93 ms; 44 / 30 batches exceed one second.
+These durations include all member work and shared replay waiting. They do not
+prove RustFS device saturation or identify a single slow operation.
+
+Window two has no refused attempts: staging averages 22.96 ms, preparation
+7.33 ms, SQL queue residence 9.47 ms, shared-log persistence 1.59 ms and admission
+waiting 44.91 ms per successful write. Window one's stage timings include 17,256
+failed attempts, so success-weighted admission formulas are omitted. Timings
+overlap and must not be added into a latency decomposition.
+
+Other builds overlap 36/36 and 28/35 boundary host samples. CPU 0 is 92.8–94.9%
+busy, with system/interrupt work at 37.3–39.0%; CPUs 1–2 are 79.5–82.8% busy.
+Container CPU utilization is 73.5–82.3%, with six throttled periods total. CPU 0
+skew exists, but refusals on all three nodes rule out treating that skew alone
+as the explanation. Different VM/cgroup boundaries prevent exact subtraction.
+This is not a matched control and cannot attribute the historical TPS decline
+to the observation counters. All data verifies without reconciliation, shutdown
+is clean, peak node memory is 1.37 GB, and final archive catch-up takes 6.74 s.
+Raw evidence, images and volumes remain retained.
+
+### Next bounded experiment: archive batch size
+
+`host_archive::publish` currently retains every cut reservation until
+`CellArchive::publish_batch` returns all members. The host receives all coverage
+updates and frees all producer slots at that whole-batch boundary. Thus a slow
+member can delay another member whose own head proof is already complete.
+This is a code-level dependency, not yet a measured attribution of the refusals.
+
+The performance fixture now accepts `--archive-batch-groups 1|2`, default two,
+and exposes the configured value at `/resources`. The runner and independent
+analyzer require matching observations at both boundaries; continuation cannot
+change it. A regression first accepts deliberately mismatched node observations
+and fails, then passes after validation is added. Production defaults and the
+native acknowledgement/recovery contracts are unchanged.
+
+Compare the same frozen binary at batch size two and one, each with four cut
+slots, 256 MiB admission bytes, 4,096 retained entries, four SQL workers / 64 work
+reservations, 24 writers and the same two-window load. Single-cell publication
+removes coalescing and the partner-completion dependency but may increase object
+I/O. Preserve all failures; require zero errors, p99 below 500 ms and exact data
+before considering a reversed confirmation. This tests the tradeoff before
+adding per-cut completion machinery, changing concurrency or increasing memory.
+
+[Capacity preservation](evidence/tikv-archive-batch-preservation.json) records
+lossless compression of 87 closed logs (1.00 GB saved), verified relocation of
+closed host evidence and nine historical node directories through their original
+aliases, and benchmark-only disk growth from 288 to 352 GiB for inode reserve.
+All volume options, images, logical contents and metadata remain. Fresh measured
+node data stays internal; RustFS stays on the original external VM disk. Both
+cohorts use the expanded filesystem and unchanged CPU/memory configuration.
+
+TiKV's `ApplyContext::write_to_db` flushes a shared KV write batch before
+callbacks; it does not justify acknowledging Cellar's independent images before
+their proof completes. Its scheduler also waits for flow-control quota under the
+original deadline. Cellar could use bounded waiting for retained pressure, but
+must preserve duplicate receipt lookup and pre-callback admission. Blindly
+retrying `Stage::Overloaded` would be unsafe because that generic result alone
+does not establish that arbitrary application code never ran.
 
 [Verified lossless compression](evidence/tikv-closed-log-compression-r4.json)
 preserves another 424 closed Raft logs across nine historical node volumes,
@@ -102,8 +172,7 @@ from a completed proof waiting for coherent local image progress. Admission
 accounting excludes covered entries on its next check after `cell.archived`
 advances; physical log deletion is not a separate release gate. `on_job` only
 advances that position when the image matches the durable applied marker and
-the state-machine progress observation accepts it. Current counters do not
-separate those cases. A paired/reversed performance confirmation remains
+the state-machine progress observation accepts it. The newer publication/coverage counters above now separate those cases. A paired/reversed performance confirmation remains
 outstanding; this historical comparison cannot establish causality.
 
 [Preservation evidence](evidence/tikv-archive-cursor-preservation.json) records

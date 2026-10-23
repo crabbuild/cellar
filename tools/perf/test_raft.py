@@ -110,6 +110,25 @@ class EvidenceTests(unittest.TestCase):
             with self.subTest(phase=phase), self.assertRaises(AssertionError):
                 self.run_evidence(changed)
 
+    def test_archive_batch_size_requires_matching_node_observations(self):
+        evidence = self.fixture()
+        report = evidence['report.json']
+        report['archive_batch_groups'] = 1
+        for phase in ('initial_resources', 'final_resources'):
+            report[phase] = [{'archive_batch_groups': 1} for _ in range(3)]
+        self.assertTrue(self.run_evidence(evidence)['verified'])
+        for phase in ('initial_resources', 'final_resources'):
+            for wrong in (None, 2):
+                changed = copy.deepcopy(evidence)
+                changed['report.json'][phase][1]['archive_batch_groups'] = wrong
+                with self.subTest(phase=phase, wrong=wrong), self.assertRaises(AssertionError):
+                    self.run_evidence(changed)
+        for wrong in (0, 3):
+            changed = copy.deepcopy(evidence)
+            changed['report.json']['archive_batch_groups'] = wrong
+            with self.subTest(wrong=wrong), self.assertRaises(AssertionError):
+                self.run_evidence(changed)
+
     def test_sql_configuration_requires_matching_physical_owners(self):
         evidence = self.fixture()
         report = evidence['report.json']
