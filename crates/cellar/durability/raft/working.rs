@@ -120,7 +120,7 @@ impl Working {
         let limits = options.limits.envelope;
         let captured = self
             .capture
-            .capture_ephemeral(limits.max_files, limits.max_payload_bytes)?;
+            .capture_with_files(limits.max_files, limits.max_payload_bytes)?;
         let result_position = self.capture.pos()?;
         let base_state = base
             .map(|b| b.pin().state())
