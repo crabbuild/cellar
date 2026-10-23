@@ -232,6 +232,56 @@ Existing configured-limit tests separately cover tasks, objects, mailbox, batch,
 depth and byte exhaustion; this workload does not claim to saturate every limit
 simultaneously or to cap arbitrary Python heap or native-library pools.
 
+## Durable activation churn
+
+`churn.py` rotates through more cells than the host's 64-cell resident limit.
+Use the fixed executables from the build recipe above:
+
+```sh
+python3 tools/python/churn.py --native-host "$CELLAR_BASELINE_BIN/native" \
+  --python-host "gil=$CELLAR_BASELINE_BIN/python-gil" \
+  --python-host "free-threaded=$CELLAR_BASELINE_BIN/python-free-threaded" \
+  --output "$CELLAR_BASELINE_BIN/churn" --build-profile lab \
+  --population 128 --rounds 16 --concurrency 4 --repetitions 3
+python3 tools/python/churn_report.py "$CELLAR_BASELINE_BIN/churn/churn.json"
+python3 tools/python/test_churn.py --evidence "$CELLAR_BASELINE_BIN/churn/churn.json"
+```
+
+Each worker owns disjoint counters and sends each mutation once. Every round
+must settle to bounded resident objects with no active Python tasks, pending
+retirements or outstanding bridge work. The driver then kills the owner,
+removes its local disk, recovers every acknowledged counter from the private
+bucket and verifies fresh writes and complete joined shutdown. Fresh memory
+and interpreter samples accompany the receipts; cached RSS is not a heap-leak
+proof or an exact peak.
+
+Failed requests retain unknown outcomes. When the owner reached readiness,
+even a failed load run attempts recovery: reads must fall between acknowledged
+and attempted counts. New writes follow reconciliation and never replay an
+uncertain mutation. Successful recovery cannot change a failed load run into
+a pass. The reporter refuses incomplete, failed or inconsistent evidence.
+The regression tests include a server that commits and then drops its response.
+
+The SDK CI matrix runs a short two-round correctness check in both Python ABIs
+and retains its JSON and logs. For repeated optimized measurements on separate
+Linux jobs, dispatch the existing workflow on a branch containing these tools:
+
+```sh
+gh workflow run native-sdk.yml --ref YOUR_BRANCH \
+  -f mode=python-load -f load_repetitions=3
+```
+
+An optional `-f replay_sha=FULL_COMMIT_SHA` pins the checkout. Each ABI job
+builds fixed native/Python `lab` artifacts, performs sixteen churn rounds per
+repetition, then measures independent echo arrivals at 500, 5,000 and 15,000/s.
+It retains raw arrivals, refusals, client drops, process logs and recovery
+receipts for seven days, including failed runs. The diagnostic uses a separate
+concurrency group so it does not cancel release qualification. It rejects
+transport, body and unexpected HTTP errors; a completed experiment can still
+contain HTTP 503 refusals and client drops, which must be read alongside
+successful latency. These local SQLite/loopback workloads do not qualify the
+production backend, a fleet deployment or application SLOs.
+
 ## Interpret the evidence
 
 - This is closed-loop development traffic with client and server sharing a

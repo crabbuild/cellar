@@ -569,6 +569,13 @@ lifespan, WebSockets and streaming remain separate feature work. Preserve
 unsuccessful optimization measurements outside Git and defer candidates whose
 application-level benefit or regression risk remains unresolved.
 
+The [durable churn qualification](../tools/python/baseline.md#durable-activation-churn)
+now supplies a repeatable resource/recovery gate above the resident-cell limit,
+with a short CI check and an opt-in optimized Linux workload for each threading
+ABI. It preserves unknown mutation outcomes and failed runs even when recovery
+succeeds. Its private development bucket and sampled memory observations do not
+close the production-backend or sustained memory-stability gates.
+
 | Phase | Current assessment | Gate still open |
 | --- | --- | --- |
 | M0 | Bootstrap, invocation pump, authority and cancellation implemented; complete Linux matrix passes in both ABIs at 85cdef4 | No missing feature identified; shared reliability release gate remains |
