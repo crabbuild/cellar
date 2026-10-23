@@ -285,10 +285,18 @@ struct CaptureOutput {
     files: Vec<CapturedLtx>,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum CaptureStorage {
+    Files,
+    Ephemeral,
+    Failed,
+}
+
 pub struct Db {
     host: crate::LtxHost,
     durability: CaptureDurability,
     capture_output: Option<CaptureOutput>,
+    capture_storage: CaptureStorage,
     path: PathBuf,
     meta_path: PathBuf,
     /// Main connection: writes, PRAGMAs, checkpoints, page-size reads.
@@ -546,6 +554,7 @@ impl Db {
             host,
             durability,
             capture_output: None,
+            capture_storage: CaptureStorage::Files,
             path,
             meta_path,
             conn,
@@ -667,6 +676,7 @@ impl Db {
 
     /// Reads one local LTX file through the host filesystem.
     pub fn read_ltx_file(&self, level: u32, min_txid: TXID, max_txid: TXID) -> Result<Vec<u8>> {
+        self.require_file_history()?;
         let path = self.ltx_path(level, min_txid, max_txid);
         Ok(self.host.read(Path::new(&path))?)
     }
@@ -914,14 +924,23 @@ impl Db {
         Ok((min_txid, max_txid))
     }
 
-    /// The current replication position (cached; recomputed from the max L0 file).
+    /// The current replication position (cached; recomputed from the max L0 file
+    /// in file-backed mode). Ephemeral continuation never falls back to disk.
     ///
     /// Ported from `DB.Pos` (db.go:392-425). Wraps fs/decode failures in
     /// `LTXError` (db.go:412,418).
     pub fn pos(&mut self) -> Result<Pos> {
+        if self.capture_storage == CaptureStorage::Failed {
+            return Err(Error::Other(
+                "failed ephemeral capture requires rebuild".into(),
+            ));
+        }
         if let Some(p) = self.pos_cache {
             return Ok(p);
         }
+        // A volatile continuation cannot be reconstructed from an older local
+        // baseline. Never silently roll its position back to that file.
+        self.require_file_history()?;
 
         let (min_txid, max_txid) = self.max_ltx()?;
         if min_txid == TXID(0) {
@@ -972,6 +991,7 @@ impl Db {
     /// Removes local LTX files, forcing a fresh snapshot on the next sync.
     /// Ported from `DB.ResetLocalState` (db.go:309-328).
     pub fn reset_local_state(&mut self) -> Result<()> {
+        self.require_file_history()?;
         match self.host.remove_dir_all(Path::new(&self.ltx_dir())) {
             Ok(()) => {}
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
@@ -995,6 +1015,7 @@ impl Db {
     /// synchronous `Db` has no `ReplicaClient` handle of its own. Used by
     /// [`crate::replica::Replica::check_database_behind_replica`] (issue #781).
     pub fn seed_l0_baseline(&mut self, min_txid: TXID, max_txid: TXID, data: &[u8]) -> Result<()> {
+        self.require_file_history()?;
         // Clear local L0 files (db.go:1241-1249).
         let l0_dir = self.ltx_level_dir(0);
         match self.host.remove_dir_all(Path::new(&l0_dir)) {
@@ -1091,6 +1112,73 @@ impl Db {
         max_files: usize,
         max_encoded_bytes: usize,
     ) -> Result<Vec<CapturedLtx>> {
+        self.require_file_history()?;
+        self.collect_capture(max_files, max_encoded_bytes)
+    }
+
+    /// Return bounded cuts without creating local LTX files in a disposable
+    /// workspace. Size-triggered checkpoint cuts are included in TXID order.
+    ///
+    /// This is a one-way transition: subsequent capture must use this method.
+    /// File-history operations, standalone sync/checkpoint and snapshots are
+    /// refused. Position and WAL continuation remain in this exclusive owner;
+    /// no payload copy is retained after handing the batch to the caller.
+    /// Seed any authoritative baseline before the first call. A failure after capture
+    /// starts makes this owner refuse further progress, even if some cuts were already
+    /// produced. Discard and rebuild the entire workspace before retrying.
+    ///
+    /// Returned bytes are not a durability proof. Validate and persist them in
+    /// the authoritative log/image path before acknowledging a command.
+    pub fn capture_ephemeral(
+        &mut self,
+        max_files: usize,
+        max_encoded_bytes: usize,
+    ) -> Result<Vec<CapturedLtx>> {
+        if self.durability != CaptureDurability::Disposable
+            || self.capture_storage == CaptureStorage::Failed
+            || max_files == 0
+            || max_encoded_bytes == 0
+            || self.capture_output.is_some()
+        {
+            return Err(Error::Other(
+                "invalid ephemeral capture owner or bounds".into(),
+            ));
+        }
+        if self.capture_storage == CaptureStorage::Files {
+            self.pos_cache = Some(self.pos()?);
+            self.capture_storage = CaptureStorage::Ephemeral;
+        }
+        let result = self.collect_capture(max_files, max_encoded_bytes);
+        if result.is_err() {
+            self.capture_storage = CaptureStorage::Failed;
+        }
+        result
+    }
+
+    fn require_file_history(&self) -> Result<()> {
+        if self.capture_storage != CaptureStorage::Files {
+            return Err(Error::Other(
+                "ephemeral capture has no local LTX history".into(),
+            ));
+        }
+        Ok(())
+    }
+
+    fn require_capture_output(&self) -> Result<()> {
+        match self.capture_storage {
+            CaptureStorage::Files => Ok(()),
+            CaptureStorage::Ephemeral if self.capture_output.is_some() => Ok(()),
+            _ => Err(Error::Other(
+                "ephemeral capture requires a live bounded output owner".into(),
+            )),
+        }
+    }
+
+    fn collect_capture(
+        &mut self,
+        max_files: usize,
+        max_encoded_bytes: usize,
+    ) -> Result<Vec<CapturedLtx>> {
         if max_files == 0 || max_encoded_bytes == 0 || self.capture_output.is_some() {
             return Err(Error::Other("invalid or active capture output".into()));
         }
@@ -1121,6 +1209,7 @@ impl Db {
         hook: Option<Box<dyn FnOnce()>>,
         time_checkpoint: bool,
     ) -> Result<()> {
+        self.require_capture_output()?;
         self.last_sync_timing = SyncTiming::default();
         let phase = crate::host::telemetry_us();
         // Self-heal: recreate the control tables if something swept them out
@@ -1525,6 +1614,7 @@ impl Db {
     /// written (there were new pages or we were snapshotting). Atomic
     /// tmp→fsync→rename with the pos cache + anti-feedback flags updated after.
     fn sync_inner(&mut self, mut info: SyncInfo) -> Result<bool> {
+        self.require_capture_output()?;
         let phase = crate::host::telemetry_us();
         // A capture that starts at the WAL header reads a logical WAL with no
         // backfilled prefix: the first sync, a restart, or a boundary image.
@@ -1536,7 +1626,6 @@ impl Db {
         }
         let pos = self.pos()?;
         let tx_id = TXID(pos.txid.0 + 1);
-        let filename = self.ltx_path(0, tx_id, tx_id);
 
         let db_size = self.db_file_size()?;
         let mut commit = (db_size / self.page_size as i64) as u32;
@@ -1693,43 +1782,48 @@ impl Db {
         self.last_sync_timing.ltx_encode_us = crate::host::telemetry_us().saturating_sub(phase);
         let phase = crate::host::telemetry_us();
 
-        // Atomic tmp → fsync → rename (db.go:1609-1685).
-        let tmp_filename = format!("{filename}.tmp");
-        let parent = Path::new(&tmp_filename).parent().map(Path::to_path_buf);
-        if !self.l0_dir_ready {
-            if let Some(parent) = &parent {
-                self.host.create_dir_all(parent)?;
-            }
-            self.l0_dir_ready = true;
-        }
-        // On rename failure, clear the L0 cache + invalidate pos
-        // (db.go:1680-1684); the error path below does that. A directory
-        // that vanished under a ready flag is recreated once and the cut
-        // retried, so the flag saves a `mkdir` per sync without trusting it.
-        self.last_sync_timing.fsync_us = match write_file_atomic(
-            &self.host,
-            &tmp_filename,
-            &filename,
-            &encoded,
-            self.durability,
-        ) {
-            Err(Error::Io(error)) if error.kind() == std::io::ErrorKind::NotFound => {
+        // Ephemeral output already owns the bounded encoded bytes. Its
+        // continuation below is volatile and can never resume after failure.
+        if self.capture_storage == CaptureStorage::Files {
+            let filename = self.ltx_path(0, tx_id, tx_id);
+            // Atomic tmp → fsync → rename (db.go:1609-1685).
+            let tmp_filename = format!("{filename}.tmp");
+            let parent = Path::new(&tmp_filename).parent().map(Path::to_path_buf);
+            if !self.l0_dir_ready {
                 if let Some(parent) = &parent {
                     self.host.create_dir_all(parent)?;
                 }
-                write_file_atomic(
-                    &self.host,
-                    &tmp_filename,
-                    &filename,
-                    &encoded,
-                    self.durability,
-                )?
+                self.l0_dir_ready = true;
             }
-            other => other?,
-        };
-        self.last_sync_timing.file_write_us = crate::host::telemetry_us()
-            .saturating_sub(phase)
-            .saturating_sub(self.last_sync_timing.fsync_us);
+            // On rename failure, clear the L0 cache + invalidate pos
+            // (db.go:1680-1684); the error path below does that. A directory
+            // that vanished under a ready flag is recreated once and the cut
+            // retried, so the flag saves a `mkdir` per sync without trusting it.
+            self.last_sync_timing.fsync_us = match write_file_atomic(
+                &self.host,
+                &tmp_filename,
+                &filename,
+                &encoded,
+                self.durability,
+            ) {
+                Err(Error::Io(error)) if error.kind() == std::io::ErrorKind::NotFound => {
+                    if let Some(parent) = &parent {
+                        self.host.create_dir_all(parent)?;
+                    }
+                    write_file_atomic(
+                        &self.host,
+                        &tmp_filename,
+                        &filename,
+                        &encoded,
+                        self.durability,
+                    )?
+                }
+                other => other?,
+            };
+            self.last_sync_timing.file_write_us = crate::host::telemetry_us()
+                .saturating_sub(phase)
+                .saturating_sub(self.last_sync_timing.fsync_us);
+        }
         // The next verify reads exactly these fields back; caching them —
         // plus the final consumed WAL frame for the page check — is what
         // spares it re-reading the file it just watched being written.
@@ -1950,6 +2044,7 @@ impl Db {
     /// whether a checkpoint was attempted; a busy passive checkpoint remains
     /// eligible for a later maintenance pass.
     pub fn checkpoint_if_due(&mut self) -> Result<bool> {
+        self.require_capture_output()?;
         if self.page_size != 0
             && self.checkpoint_interval > Duration::ZERO
             && self.synced_since_checkpoint
@@ -2001,6 +2096,7 @@ impl Db {
         passive_unlocked_hook: Option<Box<dyn FnOnce() + Send>>,
         post_barrier_hook: Option<Box<dyn FnOnce() + Send>>,
     ) -> Result<()> {
+        self.require_capture_output()?;
         // Self-heal, as in `sync`: `checkpoint` writes to both control tables
         // and re-acquires the read lock through `__sys_ltx_seq`, and the
         // invariant is that the tables exist before any control-table
@@ -2249,6 +2345,7 @@ impl Db {
     /// page set is the full DB (lock page skipped), and — being a snapshot — the
     /// rolling post-apply checksum **is** tracked.
     pub fn snapshot_to_writer<W: std::io::Write>(&mut self, w: &mut W) -> Result<Pos> {
+        self.require_file_history()?;
         if self.page_size == 0 {
             return Err(Error::Other(
                 "db not ready: page size not initialized".into(),

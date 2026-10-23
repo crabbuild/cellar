@@ -117,6 +117,11 @@ async fn leader_seals_each_command_image_once_and_recovers_its_receipts() -> Res
         0,
         "encoded private captures must reach command preparation without file read-back"
     );
+    assert_eq!(
+        faults.private_ltx_creates.load(Ordering::Acquire),
+        0,
+        "bounded private captures must not write disposable LTX files"
+    );
 
     // Restart after private executor teardown and old-generation reclamation.
     let node = public_node::node(root.path(), definition.application.clone()).await?;
@@ -142,6 +147,17 @@ async fn leader_seals_each_command_image_once_and_recovers_its_receipts() -> Res
                 == 8_i64.to_be_bytes()
         );
         ensure!(calls.load(Ordering::SeqCst) == 8);
+        // The rebuilt workspace seeds the authoritative image before switching
+        // to returned cuts again; receipt replay above must not run callbacks.
+        let next = cell
+            .command(
+                definition.increment,
+                1_i64.to_be_bytes().to_vec(),
+                public_node::options(9)?,
+            )
+            .await?;
+        ensure!(next.result == 9_i64.to_be_bytes());
+        ensure!(calls.load(Ordering::SeqCst) == 9);
         Ok(())
     }
     .await;

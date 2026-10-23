@@ -12,6 +12,38 @@ shared host. Both builds meet the accepted 500-ms p99 gate and miss the preferre
 records the fresh comparison; the [rejected capture evidence](evidence/tikv-ephemeral-capture.json)
 retains the earlier failed windows. No additional end-to-end gain is promoted.
 
+## Combined capture and admission-reuse candidate
+
+The next candidate reintroduces bounded ephemeral capture on top of `230cd4f`.
+Its fresh control is that admission-reuse build, isolating capture savings from
+the already measured refusal fix. The native image/receipt regression first
+reports eight disposable LTX file writes for eight commands, then passes with
+zero after the capture change. Restart still recovers receipts and accepts the
+next command. The archive-outage regression additionally requires no disposable
+capture writes while preserving a clean owner through refusals; an actual
+callback mutation failure still forces reconstruction.
+
+The first hypothesis is that refusal-induced reconstruction amplified the
+earlier capture candidate's overload bursts. The alternatives are that faster
+staging outpaces archive service independently, or that shared-host variation
+dominates the end-to-end difference. Both candidate and control expose the same
+admission reason counters. Qualification still requires two complete zero-error
+windows below 500-ms p99, exact 4,500 replica values and 1,500 archive positions;
+local capture savings alone do not qualify this experiment.
+
+Only disposable private capture changes. Encoded cuts remain bounded, every
+checkpoint cut is returned in order, partial capture failure poisons its owner,
+and volatile position cannot fall back to older local history. The independently
+verified immutable image and shared Raft log retain their acknowledgement
+barriers. TiKV's separation of replayable work from recovery authority motivates
+avoiding redundant private output, but this does not implement its shared KV
+apply batch or delayed tablet persistence.
+
+The benchmark data disk grows from 224 to 288 GiB to supply inodes without
+deleting prior evidence. All 326 volumes and 46 images are retained, other
+profiles and the selected Docker context are unchanged, and each node still has
+one vCPU and 3 GiB. Fresh paired performance qualification is pending.
+
 ## Admission-reuse candidate
 
 The current candidate addresses refusal amplification without removing private

@@ -1797,6 +1797,10 @@ async fn archive_refusal_preserves_private_workspace_and_duplicate_receipts() ->
         ensure!(third.result == 3_i64.to_be_bytes());
         ensure!(native.calls.load(Ordering::SeqCst) == 3);
         ensure!(trace.private_image_copies.load(Ordering::Acquire) == before);
+        ensure!(
+            trace.private_ltx_creates.load(Ordering::Acquire) == 0,
+            "reused private workspace wrote disposable capture files"
+        );
 
         // A real SQL mutation followed by a callback error remains dirty.
         // Overflow changes SQLite's value to REAL, then the i64 result read

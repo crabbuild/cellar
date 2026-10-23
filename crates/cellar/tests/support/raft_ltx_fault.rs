@@ -27,6 +27,7 @@ pub struct Faults {
     pub collision: AtomicBool,
     pub reads: AtomicUsize,
     pub private_ltx_readbacks: AtomicUsize,
+    pub private_ltx_creates: AtomicUsize,
     pub private_image_copies: AtomicUsize,
     pub events: Mutex<Vec<&'static str>>,
     pub image_seals: Mutex<Vec<PathBuf>>,
@@ -45,6 +46,7 @@ impl Faults {
             collision: AtomicBool::new(false),
             reads: AtomicUsize::new(0),
             private_ltx_readbacks: AtomicUsize::new(0),
+            private_ltx_creates: AtomicUsize::new(0),
             private_image_copies: AtomicUsize::new(0),
             events: Mutex::new(Vec::new()),
             image_seals: Mutex::new(Vec::new()),
@@ -202,6 +204,15 @@ impl FileSystem for FaultFileSystem {
     }
 
     fn create(&self, path: &Path) -> io::Result<HostFile> {
+        if path
+            .file_name()
+            .is_some_and(|name| name.to_string_lossy().ends_with(".ltx.tmp"))
+            && path.components().any(|part| part.as_os_str() == "private")
+        {
+            self.faults
+                .private_ltx_creates
+                .fetch_add(1, Ordering::AcqRel);
+        }
         Ok(self.wrap(path, DirectFileSystem.create(path)?))
     }
 
