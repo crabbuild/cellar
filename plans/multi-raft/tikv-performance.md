@@ -1,11 +1,12 @@
 # TiKV comparison and Cellar performance investigation
 
-Status: PR #98's conflicts are resolved through main `1455fb0`. Direct-image
-candidate `71074d6` reduces physical preparation cost and raises observed
-successful throughput, but **fails end-to-end performance qualification**:
-window two has 5,697 known overload refusals at node one's retained-entry gate.
-All 4,500 replica values and 1,500 archive positions verify without reconciliation.
-The candidate remains unqualified; no repeatable, error-free TPS gain is claimed.
+Status: PR #98's conflicts are resolved through main `1455fb0`. Latest runtime
+`bd33ce8` seeks before evaluating archive eligibility, following direct-image
+candidate `71074d6`. Its fresh observation reaches 307.69 / 277.78 TPS with
+157.46 / 205.26-ms p99, but **fails end-to-end performance qualification**:
+window one has 25 known overload refusals at node one's retained-entry gate.
+Window two is error-free. All 4,500 replica values and 1,500 archive positions
+verify without reconciliation. No repeatable, error-free TPS gain is claimed.
 The archive budget remains 256 MiB. Earlier comparisons and failures remain
 preserved, including the rejected capture candidate `8a34732`.
 
@@ -32,10 +33,43 @@ initial/no cursor, wraparound, a cursor outside the map and an empty map.
 library tests, 52 archive tests and nine
 multi-group tests; the ignored multi-group case is a harness child entry point.
 Strict all-target/all-feature Clippy passes. This reduces verified scheduling
-work, but does not yet prove a sustained TPS improvement or explain the brief
-retained-entry breach. A fresh 1,500-group observation keeps the image change,
-256-MiB byte budget and 4,096-entry cap and requires zero timed errors plus
-exact replica/archive verification before a paired confirmation.
+work, but does not establish a sustained TPS improvement or eliminate the
+retained-entry breach.
+
+The [fresh observation](evidence/tikv-archive-cursor.json) keeps the image change,
+256-MiB byte budget, 4,096-entry cap, 1,500 groups, three pinned 1-vCPU / 3-GiB
+nodes, four SQL workers / 64 reservations and four archive-cut slots. Two
+180-second windows use 24 writers, fresh persistent volumes and a cold VM.
+
+| Window | Successful TPS | Successful-request p99 ms | Errors |
+| --- | --- | --- | --- |
+| 1 | 307.69 | 157.46 | 25 known overload refusals |
+| 2 | 277.78 | 205.26 | 0 |
+
+Both replica and archive verification pass exactly, without reconciliation.
+The cluster stops cleanly without OOM, peak node memory is 2.05 GB, and final
+archive catch-up takes 7.20 seconds. All raw outcomes, images and volumes remain.
+The first-window refusal counter localizes all 25 errors, issued within 100 ms,
+to node one's retained entry gate. Staging includes 24 failed attempts;
+success-weighted admission formulas are omitted for that window. The error-free second window averages
+13.83 ms staging, 4.54 ms preparation, 6.08 ms SQL queue residence and 1.05 ms
+shared-log persistence. These overlapping metrics are not additive latency.
+
+Other builds appear in 0/36 and 6/37 host samples. Node CPU utilization is
+72–86%, with two throttled periods across both windows. Node one's first-window
+ending group archive lag is 2,936 entries versus 1,473 / 1,484 on the other
+nodes; those boundary values are not continuous admission retained counts.
+The client runs on CPUs 6–7 and RustFS on 4–5, separate from nodes on 0–2.
+Unmeasured VM/kernel work on CPU 0 remains a hypothesis, not an attribution.
+
+The next diagnostic should distinguish archive publication/replay throughput
+from a completed proof waiting for coherent local image progress. Admission
+accounting excludes covered entries on its next check after `cell.archived`
+advances; physical log deletion is not a separate release gate. `on_job` only
+advances that position when the image matches the durable applied marker and
+the state-machine progress observation accepts it. Current counters do not
+separate those cases. A paired/reversed performance confirmation remains
+outstanding; this historical comparison cannot establish causality.
 
 [Preservation evidence](evidence/tikv-archive-cursor-preservation.json) records
 lossless compression of 428 closed log files and the verified return of nine
