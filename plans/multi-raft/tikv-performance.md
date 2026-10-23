@@ -121,6 +121,35 @@ replay path. Avoiding disposable LTX output also needs an explicit bounded
 in-memory capture continuation: the current `Db` reads its last L0 cut while
 checking capture/checkpoint progress, so simply skipping file writes is unsafe.
 
+### Bounded ephemeral capture candidate
+
+The next candidate removes private LTX output files from command staging. The
+existing bounded collector transfers every encoded checkpoint cut directly to
+Raft validation; only the exclusive disposable owner retains WAL continuation
+and position metadata. It cannot resume from stale local files, switch back to
+file capture, or continue after a partial capture failure. Recovery discards the
+private workspace and seeds a new owner from the committed image. Authoritative
+log and image barriers, receipts and acknowledgement proofs are unchanged.
+
+The native regression creates eight private LTX files before this change and
+zero afterward, then verifies duplicate receipts and a fresh command after
+restart. LTX tests cover empty captures, forced multi-cut checkpoints, contiguous
+positions, bounds failures, refusal of file-history operations and independent
+restoration including seeded continuation. The LTX suite passes 13 tests. The
+native library (514), host (29), archive (51), LTX (26), multi-group (9) and
+snapshot (44) cases pass. A concurrent execution-suite run reproduces the
+previous directory-lock reopen failure; a rerun passes all 19 cases and the
+affected restart test passes 30 isolated repetitions. Strict all-target,
+all-feature Clippy for `cellar` and `cellar-ltx` passes. The original failure
+remains recorded and is not attributed to this optimization.
+
+No throughput gain is established for this candidate yet. The planned comparison
+uses frozen candidate and integrated-control builds, identical workload code,
+fresh persistent volumes, cold benchmark-VM restarts, and two 180-second windows
+at 24 writers per build. Existing cumulative metrics are sampled outside timed
+load processes. Shared-host contention and the one-way test order limit causal
+attribution even if both cohorts pass exact replica/archive verification.
+
 ### Integrated runtime qualification
 
 The [frozen run](evidence/tikv-main-integration.json) uses three 1-vCPU / 3-GiB
