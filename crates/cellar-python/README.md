@@ -105,6 +105,7 @@ Import `Request`, `Response`, `Conflict`, `SDKError`, `Snapshot` and `MISSING` f
 | --- | --- |
 | `await ctx.storage.read_json(key)` | Presence-aware snapshot; JSON null differs from missing |
 | `await ctx.storage.read_json_many(keys)` | One host call returning a snapshot per distinct key, including missing keys |
+| `ctx.initial_storage` | Declared snapshots captured before this cell event starts; empty when none are configured |
 | `await ctx.storage.get_json(key, default=None)` | Read a JSON value |
 | `await ctx.storage.apply(checks={key: snapshot}, puts={...}, deletes=[...])` | One atomic checked batch; `Conflict` applies no mutations |
 | `await ctx.storage.put_json(key, value)` / `delete(key)` | Unconditional batch mutation |
@@ -148,6 +149,33 @@ read/compute/write sequence is not automatically atomic: pass its snapshots to
 `apply` to detect changes, and explicitly choose how to handle `Conflict`. Only
 `apply` combines mutations in a single transaction; multiple SQL calls are
 separate operations.
+
+For handlers that always need the same keys, register
+`Source::cell_initial_reads("Counter", EventKind::Fetch, ["count"])` alongside
+the cell's event registration. The original native invocation reads those keys
+before dispatching to Python, avoiding a separate SDK request and reply. A handler
+can use `snapshot = ctx.initial_storage["count"]` and pass that snapshot to
+`await ctx.storage.apply(checks={"count": snapshot}, puts={"count": next_value})`.
+
+The map's keys cannot be changed, and its snapshots contain owned data. They
+describe state at capture, not a reservation or a live cache. They do not refresh
+after an await or the handler's own writes; use normal storage reads when fresh
+state is needed. An intervening writer causes a checked write to conflict.
+Retaining a snapshot grants no authority to use an expired or foreign context.
+Missing keys and JSON null remain distinct.
+
+Capture happens before handler logic, including validation and authentication.
+A failed read, excessive nesting, or excessive combined invocation size refuses
+dispatch before the Python handler runs. The declared key count is bounded by
+`max_batch_operations`; metadata, captured state and the encoded-equivalent body
+share `max_value_bytes`. Capture streams one decoded row at a time rather than
+collecting every stored value before enforcing the encoded limit. These byte
+limits are not whole-process memory limits.
+
+For a verified package, include the matching declaration in the descriptor's
+`handlers.initial_reads`, for example
+`{"Counter":{"fetch":["count"]}}`. The inventory binds that declaration along
+with the source and existing handler registrations; a mismatch refuses startup.
 
 ## Resource and deployment contract
 

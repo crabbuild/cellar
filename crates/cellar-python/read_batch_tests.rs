@@ -90,3 +90,57 @@ fn depth_includes_snapshot_and_result_map() {
         assert_eq!(result.is_ok(), accepted);
     }
 }
+
+#[test]
+fn initial_storage_preserves_metadata_and_has_an_exact_combined_budget() {
+    let payload =
+        json!({"kind":"fetch","object":1,"event":{"url":"https://cell/é","body":""}}).to_string();
+    let keys = vec!["missing".into(), "null".into(), "é\"".into()];
+    let read = |key: &str| {
+        Ok(match key {
+            "missing" => None,
+            "null" => Some(Value::Null),
+            _ => Some(json!("escaped\n☃")),
+        })
+    };
+    let encoded = append(payload.clone(), &keys, 4096, read).unwrap();
+    let mut expected: Value = serde_json::from_str(&payload).unwrap();
+    expected["initial_storage"] = json!({
+        "missing":{"present":false,"value":null},
+        "null":{"present":true,"value":null},
+        "é\"":{"present":true,"value":"escaped\n☃"}
+    });
+    assert_eq!(serde_json::from_str::<Value>(&encoded).unwrap(), expected);
+    assert_eq!(
+        append(payload.clone(), &keys, encoded.len(), read).unwrap(),
+        encoded
+    );
+    assert!(append(payload.clone(), &keys, encoded.len() - 1, read).is_err());
+    let mut calls = 0;
+    assert!(append(payload.clone(), &keys, payload.len(), |_| {
+        calls += 1;
+        Ok(None)
+    })
+    .is_err());
+    assert_eq!(calls, 0, "refused metadata must not start storage reads");
+    assert!(append(payload, &keys, 256, |_| {
+        calls += 1;
+        Ok(Some(json!("x".repeat(1024))))
+    })
+    .is_err());
+    assert_eq!(calls, 1, "stop collecting at the first refused row");
+}
+
+#[test]
+fn initial_storage_uses_the_batch_snapshot_depth_limit() {
+    for (nesting, accepted) in [(62, true), (63, false)] {
+        let mut value = Value::Null;
+        for _ in 0..nesting {
+            value = json!([value]);
+        }
+        let result = append("{\"kind\":\"fetch\"}".into(), &["key".into()], 4096, |_| {
+            Ok(Some(value.take()))
+        });
+        assert_eq!(result.is_ok(), accepted);
+    }
+}

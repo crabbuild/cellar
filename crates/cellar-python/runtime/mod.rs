@@ -521,6 +521,7 @@ impl PythonRuntime {
     {
         options.validate()?;
         source.validate()?;
+        source.validate_initial_reads(options.max_batch_operations)?;
         initialization::ensure_main_thread()?;
         inventory::verify(&options, &source)
             .map_err(|_| anyhow::anyhow!("Python runtime inventory verification failed"))?;

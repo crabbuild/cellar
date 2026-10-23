@@ -22,6 +22,40 @@ pub(crate) fn execute(
     encode(keys, options.max_value_bytes, |key| storage.get_json(key))
 }
 
+pub(crate) fn append_initial(
+    context: &cellar::sdk::Context,
+    payload: String,
+    keys: &[String],
+    maximum: usize,
+) -> Result<String> {
+    let storage = context.storage()?;
+    append(payload, keys, maximum, |key| storage.get_json(key))
+}
+
+fn append(
+    mut payload: String,
+    keys: &[String],
+    maximum: usize,
+    read: impl FnMut(&str) -> Result<Option<Value>>,
+) -> Result<String> {
+    ensure!(payload.pop() == Some('}'), "expected invocation object");
+    ensure!(
+        payload.len() <= maximum,
+        "Python invocation exceeds value budget"
+    );
+    let mut output = Bounded {
+        bytes: payload.into_bytes(),
+        limit: maximum,
+    };
+    // The caller supplies a native-generated invocation object. Keep its
+    // existing fields and stream snapshots into its final field, without
+    // collecting all decoded rows or reparsing their encoded representation.
+    output.write_all(b",\"initial_storage\":{")?;
+    rows(keys.iter().map(String::as_str), &mut output, read)?;
+    output.write_all(b"}}")?;
+    Ok(String::from_utf8(output.bytes)?)
+}
+
 fn keys(value: &Value, limit: usize) -> Result<BTreeSet<&str>> {
     let object = value.as_object().context("read batch must be an object")?;
     ensure!(object.len() == 1, "read batch requires only keys");
@@ -55,13 +89,23 @@ impl Write for Bounded {
 fn encode(
     keys: BTreeSet<&str>,
     limit: usize,
-    mut read: impl FnMut(&str) -> Result<Option<Value>>,
+    read: impl FnMut(&str) -> Result<Option<Value>>,
 ) -> Result<Reply> {
     let mut output = Bounded {
         bytes: Vec::new(),
         limit,
     };
     output.write_all(b"{\"ok\":true,\"value\":{")?;
+    rows(keys, &mut output, read)?;
+    output.write_all(b"}}")?;
+    Ok(Reply(String::from_utf8(output.bytes)?))
+}
+
+fn rows<'a>(
+    keys: impl IntoIterator<Item = &'a str>,
+    output: &mut Bounded,
+    mut read: impl FnMut(&str) -> Result<Option<Value>>,
+) -> Result<()> {
     for (index, key) in keys.into_iter().enumerate() {
         let value = read(key)?;
         // Include the result-map level in the depth check. Keep only one decoded
@@ -76,12 +120,11 @@ fn encode(
         if index != 0 {
             output.write_all(b",")?;
         }
-        serde_json::to_writer(&mut output, key)?;
+        serde_json::to_writer(&mut *output, key)?;
         output.write_all(b":")?;
-        serde_json::to_writer(&mut output, &row[key])?;
+        serde_json::to_writer(&mut *output, &row[key])?;
     }
-    output.write_all(b"}}")?;
-    Ok(Reply(String::from_utf8(output.bytes)?))
+    Ok(())
 }
 
 #[cfg(test)]

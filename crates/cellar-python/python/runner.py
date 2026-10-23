@@ -244,7 +244,7 @@ async def _serve(module, inbox, interval, shutdown, stats, maximum, telemetry, s
                 invocation, payload, body, bridge = start
                 del start
                 payload = json.loads(payload)
-                context = Context(bridge, payload["identity"])
+                context = Context(bridge, payload["identity"], payload.get("initial_storage"))
                 try:
                     # The managed factory checks all live tasks, including
                     # application-created ones, immediately before construction.

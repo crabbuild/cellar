@@ -98,7 +98,8 @@ pub(super) fn child(fence: bool) -> Result<()> {
         Options::default(),
         Source::new(include_str!("authority.py"), "authority.py")
             .events([EventKind::Fetch])
-            .cell("Counter"),
+            .cell("Counter")
+            .cell_initial_reads("Counter", EventKind::Fetch, ["seed"]),
         move |application, monitor| {
             let runtime = tokio::runtime::Builder::new_multi_thread()
                 .worker_threads(2)

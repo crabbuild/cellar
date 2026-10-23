@@ -6,6 +6,7 @@ import json as _json
 from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Any, Iterable, Mapping, TypeAlias, TypedDict
+from types import MappingProxyType
 from urllib.parse import urlsplit
 
 
@@ -153,6 +154,7 @@ class Snapshot:
 
 
 MISSING = Snapshot(False)
+_EMPTY_INITIAL_STORAGE = MappingProxyType({})
 
 
 class Request:
@@ -350,12 +352,15 @@ class Scheduled:
 
 
 class Context:
-    def __init__(self, bridge: Any, identity: dict[str, Any] | None) -> None:
+    def __init__(self, bridge: Any, identity: dict[str, Any] | None, initial_storage=None) -> None:
         self._bridge = bridge
         self._loop = asyncio.get_running_loop()
         self._pending = {}
         self._sequence = 0
         self.identity: CellIdentity | None = CellIdentity(identity["name"], identity["class"], identity["scope"], identity["epoch"]) if identity else None
+        self.initial_storage: Mapping[str, Snapshot] = (MappingProxyType({
+            key: Snapshot(row["present"], row["value"]) for key, row in initial_storage.items()
+        }) if initial_storage else _EMPTY_INITIAL_STORAGE)
 
     @property
     def storage(self) -> Storage:

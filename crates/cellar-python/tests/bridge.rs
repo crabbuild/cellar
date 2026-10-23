@@ -28,6 +28,8 @@ mod fencing;
 #[path = "../../cellar/tests/support/html.rs"]
 #[allow(dead_code)]
 mod fixture;
+#[path = "support/initial_reads.rs"]
+mod initial_reads;
 #[path = "support/lifetimes.rs"]
 mod lifetimes;
 #[path = "support/limits.rs"]
@@ -229,6 +231,9 @@ fn main() -> Result<()> {
     let mode = std::env::args().nth(1).unwrap_or_default();
     if mode == "--runtime-contract" {
         return contract();
+    }
+    if mode == "--runtime-initial-reads" {
+        return initial_reads::child();
     }
     if mode == "--runtime-wakeups" {
         return wakeups::child();
@@ -473,6 +478,7 @@ fn main() -> Result<()> {
         "--runtime-binding-faults",
         "--runtime-queue-lost-ack",
         "--runtime-limits",
+        "--runtime-initial-reads",
         "--runtime-cycles",
         "--runtime-cycles-fence",
         "--runtime-cycles-inner-cancel",

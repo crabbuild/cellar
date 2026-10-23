@@ -18,7 +18,7 @@ use std::{
 };
 
 /// Handler registrations validated before the Rust host admits any work.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum EventKind {
     Fetch,
@@ -46,6 +46,8 @@ pub struct Source {
     pub(crate) classes: Vec<String>,
     pub(crate) events: Vec<EventKind>,
     pub(crate) cell_events: std::collections::BTreeMap<String, Vec<EventKind>>,
+    pub(crate) initial_reads:
+        std::collections::BTreeMap<String, std::collections::BTreeMap<EventKind, Vec<String>>>,
     pub(crate) distributions: Vec<(String, String)>,
 }
 
@@ -58,6 +60,7 @@ impl Source {
             distributions: Vec::new(),
             events: Vec::new(),
             cell_events: Default::default(),
+            initial_reads: Default::default(),
         }
     }
 
@@ -82,8 +85,48 @@ impl Source {
         self
     }
 
+    /// Capture declared JSON snapshots on the original native cell turn before
+    /// dispatching this event to Python. The handler receives `ctx.initial_storage`.
+    /// These snapshots do not reserve keys or refresh after an await or mutation;
+    /// use checked writes to detect intervening changes. Capture failure refuses
+    /// the invocation before the Python handler runs.
+    pub fn cell_initial_reads<K: Into<String>>(
+        mut self,
+        class: impl Into<String>,
+        event: EventKind,
+        keys: impl IntoIterator<Item = K>,
+    ) -> Self {
+        self.initial_reads
+            .entry(class.into())
+            .or_default()
+            .insert(event, keys.into_iter().map(Into::into).collect());
+        self
+    }
+
     pub(crate) fn descriptor(&self) -> Value {
-        json!({"events":self.events, "cells":self.cell_events})
+        let mut descriptor = json!({"events":self.events, "cells":self.cell_events});
+        if !self.initial_reads.is_empty() {
+            descriptor["initial_reads"] = json!(self.initial_reads);
+        }
+        descriptor
+    }
+
+    pub(crate) fn validate_initial_reads(&self, maximum: usize) -> Result<()> {
+        for (class, events) in &self.initial_reads {
+            for (event, keys) in events {
+                ensure!(
+                    self.supports(Some(class), event.name()),
+                    "initial reads require a registered Python cell event"
+                );
+                ensure!(
+                    keys.len() <= maximum,
+                    "initial reads exceed operation limit"
+                );
+                let unique: HashSet<_> = keys.iter().collect();
+                ensure!(unique.len() == keys.len(), "duplicate initial read key");
+            }
+        }
+        Ok(())
     }
 
     fn supports(&self, class: Option<&str>, kind: &str) -> bool {
@@ -226,9 +269,25 @@ impl PythonApplication {
         let (sender, mut receive) = runtime::channel(self.runtime.options.max_pending_operations);
         let (cancelled, mut cancellation) = tokio::sync::watch::channel(false);
         let invocation = self.runtime.id()?;
-        let payload = serde_json::to_string(
+        let mut payload = serde_json::to_string(
             &json!({"kind":kind,"event":payload,"object":object,"class":class,"identity":identity}),
         )?;
+        if let Some(keys) = class
+            .as_ref()
+            .and_then(|class| self.source.initial_reads.get(class))
+            .and_then(|events| events.iter().find(|(event, _)| event.name() == kind))
+            .map(|(_, keys)| keys)
+            .filter(|keys| !keys.is_empty())
+        {
+            let body_charge = values::envelope_size(0, body.len())?;
+            let maximum = self
+                .runtime
+                .options
+                .max_value_bytes
+                .checked_sub(body_charge)
+                .ok_or_else(|| anyhow::anyhow!("Python invocation exceeds value budget"))?;
+            payload = crate::read_batch::append_initial(&context, payload, keys, maximum)?;
+        }
         let charge = values::envelope_size(payload.len(), body.len())?;
         ensure!(
             charge <= self.runtime.options.max_value_bytes,
@@ -486,3 +545,7 @@ impl Cell for PythonCell {
         })
     }
 }
+
+#[cfg(test)]
+#[path = "application_tests.rs"]
+mod tests;
