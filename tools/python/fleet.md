@@ -56,6 +56,13 @@ a zero exit code or a saved `completed` flag alone does not establish success.
 These short runs have no host CPU/memory isolation and do not qualify throughput,
 latency, soak stability or fleet capacity.
 
+Recovery reads may retry while an owner is unavailable. Their reports retain
+the status counts and up to 16 failed-response samples, each containing at most
+the first 1,024 body bytes decoded as UTF-8. Sampling a stalled body stops after
+100 ms; it never authorizes a write retry. These diagnostics are for the synthetic
+counter fixture and can include internal peer addresses. Eventual recovery with
+no counter mismatches does not establish uninterrupted request availability.
+
 ## Linux runtime image and CI
 
 `fleet.Dockerfile` builds both applications and the load generator in one release

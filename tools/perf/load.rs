@@ -32,6 +32,40 @@ struct Reply {
     node: String,
 }
 
+/// Bounded diagnostics from the synthetic counter fixture. A sampled error
+/// never changes retry eligibility or establishes that a mutation rolled back.
+async fn sample_read_failure(
+    mut response: reqwest::Response,
+    cell: usize,
+    started: Instant,
+    samples: &mut Vec<serde_json::Value>,
+) {
+    if samples.len() >= 16 {
+        return;
+    }
+    let status = response.status().as_u16();
+    let mut prefix = Vec::new();
+    // A stalled error body must not consume the request's full 60-second
+    // timeout just to collect diagnostics. Preserve partial bytes on timeout.
+    let collected = tokio::time::timeout(Duration::from_millis(100), async {
+        while prefix.len() < 1024 {
+            match response.chunk().await {
+                Ok(Some(chunk)) => {
+                    let count = chunk.len().min(1024 - prefix.len());
+                    prefix.extend_from_slice(&chunk[..count]);
+                }
+                Ok(None) | Err(_) => break,
+            }
+        }
+    })
+    .await;
+    samples.push(serde_json::json!({
+        "cell": cell, "status": status, "elapsed_ms": started.elapsed().as_secs_f64() * 1000.0,
+        "response_prefix": String::from_utf8_lossy(&prefix),
+        "body_sample_timed_out": collected.is_err(),
+    }));
+}
+
 fn percentile(sorted: &[u64], p: f64) -> f64 {
     if sorted.is_empty() {
         return 0.0;
@@ -93,18 +127,27 @@ async fn main() -> Result<()> {
         let mut owners = BTreeMap::<String, usize>::new();
         let mut failures = Vec::new();
         let mut read_retries = BTreeMap::<String, u64>::new();
+        let mut read_failure_samples = Vec::new();
         let mut max_cell_read_ms = 0.0_f64;
         for (cell, expected) in accounting.writes.iter().enumerate() {
             let read_started = Instant::now();
             let reply: Reply = loop {
                 let result = async {
-                    client
+                    let response = client
                         .get(format!("{}/cells/{cell:04}", urls[cell % urls.len()]))
                         .send()
-                        .await?
-                        .error_for_status()?
-                        .json::<Reply>()
-                        .await
+                        .await?;
+                    if let Err(error) = response.error_for_status_ref() {
+                        sample_read_failure(
+                            response,
+                            cell,
+                            read_started,
+                            &mut read_failure_samples,
+                        )
+                        .await;
+                        return Err(error);
+                    }
+                    response.json::<Reply>().await
                 }
                 .await;
                 match result {
@@ -138,7 +181,7 @@ async fn main() -> Result<()> {
             }
         }
         report(
-            serde_json::json!({"operation": "verify", "cells": cells, "expected_writes": accounting.writes.iter().sum::<u64>(), "owners": owners, "elapsed_s": started.elapsed().as_secs_f64(), "read_retries": read_retries, "max_cell_read_ms": max_cell_read_ms, "mismatches": failures}),
+            serde_json::json!({"operation": "verify", "cells": cells, "expected_writes": accounting.writes.iter().sum::<u64>(), "owners": owners, "elapsed_s": started.elapsed().as_secs_f64(), "read_retries": read_retries, "read_failure_samples": read_failure_samples, "max_cell_read_ms": max_cell_read_ms, "mismatches": failures}),
         )?;
         anyhow::ensure!(failures.is_empty(), "durable state mismatch");
         return Ok(());
@@ -244,4 +287,42 @@ async fn main() -> Result<()> {
         "write errors occurred; ambiguous commits require investigation"
     );
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn recovery_diagnostics_bound_body_bytes_and_sample_count() {
+        let mut samples = Vec::new();
+        for cell in 0..20 {
+            let response = hyper::Response::builder()
+                .status(500)
+                .body(vec![b'x'; 4096])
+                .unwrap();
+            sample_read_failure(response.into(), cell, Instant::now(), &mut samples).await;
+        }
+        assert_eq!(samples.len(), 16);
+        for (cell, sample) in samples.iter().enumerate() {
+            assert_eq!(sample["cell"], cell);
+            assert_eq!(sample["status"], 500);
+            assert_eq!(sample["response_prefix"], "x".repeat(1024));
+            assert_eq!(sample["body_sample_timed_out"], false);
+        }
+    }
+
+    #[tokio::test]
+    async fn stalled_error_body_cannot_hold_verification_for_the_request_timeout() {
+        let body = reqwest::Body::wrap_stream(futures_util::stream::pending::<
+            Result<Vec<u8>, std::io::Error>,
+        >());
+        let response = hyper::Response::builder().status(503).body(body).unwrap();
+        let mut samples = Vec::new();
+        sample_read_failure(response.into(), 7, Instant::now(), &mut samples).await;
+        assert_eq!(samples.len(), 1);
+        assert_eq!(samples[0]["status"], 503);
+        assert_eq!(samples[0]["response_prefix"], "");
+        assert_eq!(samples[0]["body_sample_timed_out"], true);
+    }
 }

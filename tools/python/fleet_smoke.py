@@ -199,7 +199,7 @@ def main():
     args.warmup_seconds, args.seconds, args.repeats, args.concurrency = 5, 3, 1, [4]
     harness = LocalFleet(args)
     source_root = Path(__file__).resolve().parents[2]
-    sources = ("Cargo.toml", "Cargo.lock", "tools/perf/cells.rs", "tools/perf/deployment.rs",
+    sources = ("Cargo.toml", "Cargo.lock", "tools/perf/cells.rs", "tools/perf/load.rs", "tools/perf/deployment.rs",
                "tools/perf/embedded.rs", "tools/perf/run.py", "tools/python/fleet.rs",
                "tools/python/fleet_app.py", "tools/python/fleet.Dockerfile", "tools/python/fleet_smoke.py")
     metadata = {"scope": "functional S3 recovery; not a performance qualification",
