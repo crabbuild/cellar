@@ -11,6 +11,8 @@ mod node_assets;
 mod node_events;
 #[path = "support/node_http.rs"]
 mod node_http;
+#[path = "support/node_preserve.rs"]
+mod node_preserve;
 use anyhow::{ensure, Context as _, Result};
 use cellar::bucket::Bucket;
 use cellar::engine_api::HttpResponse;

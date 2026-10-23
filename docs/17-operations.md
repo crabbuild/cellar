@@ -40,6 +40,12 @@ Choose a stop mode from the intended restart:
 Both modes drain ingress, complete event drivers, cells and durability. Event
 draining includes background work, nested calls and prior generations.
 
+For `Preserve`, the drained cells publish their final per-cell database positions
+before the node log checks whether it can seal. A durable bundle alone does not
+prove that the per-cell layout can restore those writes. The clean-reload
+certificate is published only after preparation, durability quiescence and the
+final authority check succeed; failed proof still requires ordinary recovery.
+
 Require these report conditions before recording a graceful stop:
 
 ```text

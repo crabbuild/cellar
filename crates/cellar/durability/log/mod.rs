@@ -5865,8 +5865,16 @@ impl NodeLogManager {
                 .gather_uncovered_bundles(None, self.recovery_rows())
                 .await
             {
-                Ok(uncovered) => uncovered.is_empty(),
-                Err(_) => false,
+                Ok(uncovered) => {
+                    if !uncovered.is_empty() {
+                        eprintln!("node-log close: retained bundles contain rows outside per-cell coverage");
+                    }
+                    uncovered.is_empty()
+                }
+                Err(error) => {
+                    eprintln!("node-log close: retained-bundle coverage scan failed: {error:#}");
+                    false
+                }
             };
         if !log_tier::graceful_seal_allowed(
             &record,
@@ -5875,8 +5883,13 @@ impl NodeLogManager {
             per_cell_complete,
         ) {
             eprintln!(
-                "node-log close: not sealable (record epoch {} state {:?}, shipper epoch {}); record left open",
-                record.epoch, record.state, shipper.epoch
+                "node-log close: not sealable (record epoch {} state {:?}, shipper epoch {}, batch_in_flight={}, active_shipped_tiered={}, fragment_rows_tiered={}, tails_tiered={}, per_cell_complete={}); record left open",
+                record.epoch, record.state, shipper.epoch,
+                Self::shipper_batch_in_flight(&shipper),
+                self.ltx.all_shipped_tiered(),
+                self.ltx.all_fragment_rows_tiered(),
+                self.ltx.all_tails_tiered(),
+                per_cell_complete,
             );
             return;
         }
