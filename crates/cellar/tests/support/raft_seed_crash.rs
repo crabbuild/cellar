@@ -234,20 +234,24 @@ pub(super) async fn crash_matrix(s3: bool) -> Result<()> {
                     ..Default::default()
                 },
             )
-            .await?;
+            .await
+            .with_context(|| format!("read recovered seed after {cut}, s3={s3}"))?;
         assert_eq!(read.result, 5_i64.to_be_bytes(), "state after {cut}");
         ensure!(
             calls.iter().all(|n| n.load(Ordering::SeqCst) == 0),
             "recovery reran command at {cut}"
         );
-        let primary = leader(&cells[..3]).await?;
+        let primary = leader(&cells[..3])
+            .await
+            .with_context(|| format!("find recovered seed leader after {cut}, s3={s3}"))?;
         let receipt = cells[primary]
             .command(
                 definitions[primary].increment.clone(),
                 1_i64.to_be_bytes().to_vec(),
                 public_node::options(3)?,
             )
-            .await?;
+            .await
+            .with_context(|| format!("write after recovered seed {cut}, s3={s3}"))?;
         assert_eq!(receipt.result, 6_i64.to_be_bytes());
         let read = cells[3]
             .query(
@@ -259,7 +263,8 @@ pub(super) async fn crash_matrix(s3: bool) -> Result<()> {
                     ..Default::default()
                 },
             )
-            .await?;
+            .await
+            .with_context(|| format!("read fresh write after recovered seed {cut}, s3={s3}"))?;
         assert_eq!(read.result, 6_i64.to_be_bytes());
         assert_eq!(calls[3].load(Ordering::SeqCst), 0);
         cluster.close().await?;
@@ -300,7 +305,9 @@ async fn native_seed_process_fixture() -> Result<()> {
             )
         })
         .collect::<Result<Vec<_>, _>>()?;
-    let primary = leader(&cells).await?;
+    let primary = leader(&cells)
+        .await
+        .context("seed fixture initial leader")?;
     let mut options = public_node::options(1)?;
     options.durability = Durability::S3;
     let receipt = cells[primary]
@@ -309,7 +316,8 @@ async fn native_seed_process_fixture() -> Result<()> {
             5_i64.to_be_bytes().to_vec(),
             options,
         )
-        .await?;
+        .await
+        .context("seed fixture initial S3 command")?;
     assert_eq!(receipt.result, 5_i64.to_be_bytes());
     cells[primary]
         .add_learner(
@@ -319,11 +327,16 @@ async fn native_seed_process_fixture() -> Result<()> {
                 disk: DiskLineage::new([13; 16])?,
             },
             LearnerOptions {
-                expected_revision: cells[primary].status().await?.membership_revision,
+                expected_revision: cells[primary]
+                    .status()
+                    .await
+                    .context("seed fixture membership revision")?
+                    .membership_revision,
                 timeout: Duration::from_secs(5),
             },
         )
-        .await?;
+        .await
+        .context("seed fixture add learner")?;
     // The S3 proof forces an archive cut covering the learner configuration.
     let mut options = public_node::options(2)?;
     options.durability = Durability::S3;
@@ -333,7 +346,8 @@ async fn native_seed_process_fixture() -> Result<()> {
             0_i64.to_be_bytes().to_vec(),
             options,
         )
-        .await?;
+        .await
+        .context("seed fixture learner S3 command")?;
     let directory = cluster.nodes[3].info().data_dir.clone();
     let image_directory = directory
         .join("raft-cells")
@@ -355,7 +369,8 @@ async fn native_seed_process_fixture() -> Result<()> {
     file.sync_all()?;
     let joined = cluster
         .join_standby(definitions[3].application.clone(), placement(s3, primary)?)
-        .await?;
+        .await
+        .context("seed fixture standby attachment")?;
     ensure!(
         cut == "after-attachment",
         "seed cut was not exercised: {cut}"
