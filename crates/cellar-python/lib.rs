@@ -10,8 +10,6 @@ mod operations;
 #[cfg(feature = "embed")]
 mod runtime;
 #[cfg(feature = "embed")]
-mod storage;
-#[cfg(feature = "embed")]
 mod values;
 
 #[cfg(feature = "embed")]

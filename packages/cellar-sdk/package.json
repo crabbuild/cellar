@@ -1,0 +1,8 @@
+{
+  "name": "@cellar/sdk",
+  "version": "0.6.2",
+  "type": "module",
+  "license": "Apache-2.0",
+  "exports": {".": {"types": "./index.d.ts", "default": "./index.js"}},
+  "files": ["index.js", "index.d.ts", "README.md", "LICENSE"]
+}

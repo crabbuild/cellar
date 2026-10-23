@@ -18,6 +18,12 @@ covers Python handlers, cell storage, alarms and infrastructure bindings.
 The [FastAPI order service](../examples/python-fastapi/README.md) demonstrates
 framework HTTP routing and verified runtime/dependency deployment.
 
+The optional [JavaScript/TypeScript adapter](../crates/cellar-javascript/README.md)
+offers embedded V8 and an actual Node.js backend above the native SDK. Its [TypeScript/npm example](../examples/javascript/README.md)
+builds a native executable containing durable cell classes and npm business logic.
+The [Node.js example](../examples/node/README.md) adds Node built-ins, native npm
+addons, React server rendering and a verified runtime directory.
+
 ## Choose a reading path
 
 | Reader | Recommended path | Deliverable |

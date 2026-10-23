@@ -193,7 +193,10 @@ impl CompiledApplications {
         let feature = feature.into();
         let sha256 = sha256.into();
         anyhow::ensure!(
-            feature == crate::protocol::FEATURE_EMBEDDED_PYTHON_V1,
+            matches!(
+                feature.as_str(),
+                crate::protocol::FEATURE_EMBEDDED_PYTHON_V1 | crate::protocol::FEATURE_NODE_V1
+            ),
             "unsupported process runtime inventory"
         );
         anyhow::ensure!(
@@ -216,6 +219,17 @@ impl CompiledApplications {
         native: &crate::protocol::NativeDeployment,
         executable: &crate::protocol::NativeArtifact,
     ) -> anyhow::Result<()> {
+        let declared_node = native.node.iter().find(|environment| {
+            environment.target == executable.target
+                && environment.executable_sha256 == executable.sha256
+        });
+        let expected_node = self
+            .runtime_inventories
+            .get(crate::protocol::FEATURE_NODE_V1);
+        anyhow::ensure!(
+            declared_node.map(|environment| &environment.inventory_sha256) == expected_node,
+            "deployment Node inventory differs from the compiled process; replace the process before admission"
+        );
         let declared = native.python.iter().find(|environment| {
             environment.target == executable.target
                 && environment.executable_sha256 == executable.sha256

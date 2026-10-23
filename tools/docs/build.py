@@ -308,6 +308,7 @@ def catalog():
         ('adr/002-cell-authority-and-proof.md', 'ADR 002 · Authority and proof', 'Epochs, local authority and output durability proof.', 'Decision'),
         ('adr/003-explicit-host-lifetimes.md', 'ADR 003 · Explicit host lifetimes', 'Captured policies and returned lifecycle evidence.', 'Decision'),
         ('adr/004-embedded-python.md', 'ADR 004 · Embedded Python', 'Trusted CPython, original invocation authority and verified process replacement.', 'Decision'),
+        ('adr/005-embedded-javascript.md', 'ADR 005 · Embedded JavaScript and TypeScript', 'Compiled npm business logic, scoped V8 promises and native SDK effects.', 'Decision'),
         ('templates/application-brief.md', 'Application brief template', 'Define the domain, workload, correctness and recovery requirements.', 'Template'),
         ('templates/service-contract.md', 'Service contract template', 'Publish identity, schemas, retry and compatibility semantics.', 'Template'),
         ('templates/release-checklist.md', 'Release checklist template', 'Record candidate identity, gate evidence and go/no-go decision.', 'Template'),

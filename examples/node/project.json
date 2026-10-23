@@ -1,0 +1,19 @@
+{
+  "cargo_manifest": "../../Cargo.toml",
+  "package": "cellar-javascript",
+  "binary": "cellar-node-example",
+  "profile": "dev",
+  "features": ["node"],
+  "node_environment": {
+    "root": "../../.cellar/node-runtime",
+    "executable": "bin/node",
+    "entry": "app/dist/app.js",
+    "working_directory": "app"
+  },
+  "primary": {
+    "script_name": "node-example",
+    "application_version": "v1",
+    "cells": ["Counter"],
+    "bindings": [{"type":"durable_object_namespace","name":"COUNTERS","class_name":"Counter"}]
+  }
+}
