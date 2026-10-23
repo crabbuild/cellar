@@ -15,6 +15,10 @@ Read the [Rust source](main.rs) and [project configuration](project.json). The
 handler is a module compiled into `cellar-native-examples` by
 [main.rs](../main.rs), rather than a standalone `rustc` input.
 
+For a runnable Python model integration, see the
+[PydanticAI durable agent](../python-agent/README.md). It includes an offline test
+model, an OpenAI configuration and checkpointed tool execution.
+
 ## Run end to end
 
 Prerequisites: Rust 1.94.1 or newer, Cargo, the workspace's native C/C++ build tools,

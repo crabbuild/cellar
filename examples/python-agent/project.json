@@ -1,0 +1,23 @@
+{
+  "cargo_manifest": "../../Cargo.toml",
+  "package": "cellar-python",
+  "binary": "cellar-python-agent",
+  "profile": "dev",
+  "features": [
+    "embed"
+  ],
+  "primary": {
+    "script_name": "python-agent",
+    "application_version": "v1",
+    "cells": [
+      "DurableAgent"
+    ],
+    "bindings": [
+      {
+        "type": "durable_object_namespace",
+        "name": "AGENTS",
+        "class_name": "DurableAgent"
+      }
+    ]
+  }
+}

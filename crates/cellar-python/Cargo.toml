@@ -24,6 +24,11 @@ name = "cellar-python-fastapi"
 path = "../../examples/python-fastapi/main.rs"
 required-features = ["embed"]
 
+[[bin]]
+name = "cellar-python-agent"
+path = "../../examples/python-agent/main.rs"
+required-features = ["embed"]
+
 [dependencies]
 cellar-guest = { workspace = true, optional = true }
 anyhow.workspace = true

@@ -11,6 +11,8 @@ The [Python example](python/README.md) uses an optional PyO3 adapter in a native
 Rust host and has its own CPython 3.14 prerequisites and smoke test.
 The [FastAPI order API](python-fastapi/README.md) adds validated HTTP routes,
 OpenAPI, durable order receipts and a runnable runtime/package deployment drill.
+The [PydanticAI durable agent](python-agent/README.md) checkpoints model history,
+local tool effects and recovery alarms, with credential-free and OpenAI modes.
 [FleetCare](fleetcare/README.md) is a field-service application with embedded and
 daemon hosts, a local console and a repeatable fleet performance suite.
 
