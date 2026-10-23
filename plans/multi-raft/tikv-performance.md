@@ -1359,6 +1359,39 @@ all images and volumes, external disk backing, and the active Docker context.
 Other profiles and workloads stay untouched. This tests carryover from the long
 benchmark sequence; it does not assume that page cache explains the regression.
 
+## Fresh main comparison after benchmark VM restarts
+
+The [cold-start failure record](evidence/tikv-main-coldstart-failures.json)
+compares the clean `fb660b1` main executable with candidate `12d6e87` using fresh
+internal node volumes and the same external RustFS backing. The benchmark VM
+was stopped and started before each cohort, preserving its 8 CPUs, 16 GiB,
+images, volumes and active Docker context. Main uses one archive publisher;
+the candidate uses two within the same three 1-vCPU / 3-GiB node limits.
+
+| Build | Writers | TPS | p99 (ms) | Write errors |
+| --- | --- | --- | --- | --- |
+| Main `fb660b1` | 3 | 123.27 | 80.81 | 1 overloaded |
+| Main `fb660b1` | 6 | 152.77 | 98.34 | 1 overloaded |
+| Main `fb660b1` | 12 | 23.17 | 1,520.73 | 1,791 overloaded, 31 unavailable, 4 ambiguous |
+| Candidate `12d6e87` | 3 | 53.32 | 307.50 | 0 |
+| Candidate `12d6e87` | 6 | 132.38 | 251.35 | 1 ambiguous |
+
+Both runs stopped at their first window containing a non-admission error, so
+neither completed the planned 3/6/12/12/6/3 sweep. Main's 1,828 unsuccessful
+requests reconciled outside measurement; four needed a second attempt after
+another overload refusal. The candidate's one ambiguous request also
+reconciled. Every attempt retained the original identity, input and unexpired
+deadline. Both cohorts then verified all 4,500 exact replica values and 1,500
+archive positions and stopped with exit code zero, no OOM kills and all eight
+volumes retained. All failed windows and first reconciliation outcomes remain
+in the evidence.
+
+Other builds appeared in every host sample, with about 12.6–13.0 GiB of swap in
+use. The VM restarts did not remove the observed failures. The candidate was
+slower in the common three- and six-writer windows; the incomplete sequential
+comparison does not isolate the cause. No sustained performance qualification
+or general throughput gain is established.
+
 ## Remaining qualification
 
 - Repeat the Linux management-stop admission-seal qualification; the latest
