@@ -1,0 +1,27 @@
+{
+  "purpose": "Preserve stopped verified historical data and restore physical headroom; no logical pruning or fresh benchmark backing changes.",
+  "compression": {
+    "completed": true,
+    "files": 428,
+    "volumes": 12,
+    "logical_bytes": 7079846946,
+    "allocated_bytes_saved": 4950609920,
+    "raw_record_sha256": "d909fed11e7080efe3830c002ec54685a3743ac09f908fe8bebf0592296d12af"
+  },
+  "node_return": {
+    "completed": true,
+    "volumes": 9,
+    "files": 63351,
+    "logical_bytes": 7208229865,
+    "content_and_metadata_verified": true,
+    "original_aliases_verified": true,
+    "docker_inventory_unchanged": true,
+    "docker_read_only_probes": 27,
+    "external_mount_root_retained": true,
+    "raw_record_sha256": "1bd0c85e071b22092cc7df829c9b5153bfeb2abec2755930b2c07cc28829d1a8",
+    "initial_preflight_failure_sha256": "224dacd051a5f59917b2bed63249655eff4dfe39f8d47243add335a941129755",
+    "initial_preflight_failure_note": "Cohort record label initially treated as a path; corrected before any data copy or source change."
+  },
+  "external_free_after": 9461075968,
+  "internal_free_after": 8347906048
+}

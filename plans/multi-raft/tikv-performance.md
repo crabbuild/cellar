@@ -9,6 +9,41 @@ The candidate remains unqualified; no repeatable, error-free TPS gain is claimed
 The archive budget remains 256 MiB. Earlier comparisons and failures remain
 preserved, including the rejected capture candidate `8a34732`.
 
+## Seek before evaluating archive eligibility
+
+The next candidate addresses a concrete cost in `pump_archive`: its filtered
+map iterator evaluated eligibility before checking the round-robin cursor.
+Selecting the next cell after cursor 1,200 in a dense 1,500-cell map therefore
+evaluated 1,202 cells. An unsuccessful search evaluated every cell twice.
+Eligibility can read the group cache, so these are not merely key comparisons.
+
+Selection now seeks into the ordered map after the cursor, then wraps through
+the disjoint range ending at the cursor. Each cell is inspected at most once;
+the dense next-cell case evaluates one cell. The production predicate, in-flight
+exclusion, cyclic fairness, capture/publication bounds, retry timing, admission
+limits and persistence proofs are unchanged. This applies the scheduling lesson
+from TiKV's bounded active-FSM batches without claiming to implement TiKV's
+mailboxes or replacing Cellar's archive scheduler with a ready queue.
+
+Both regression tests fail on the original selection and pass with ordered
+ranges. The selection test covers all 64 eligibility subsets of six cells,
+initial/no cursor, wraparound, a cursor outside the map and an empty map.
+[Final local validation](evidence/tikv-archive-cursor-local.json) passes 518
+library tests, 52 archive tests and nine
+multi-group tests; the ignored multi-group case is a harness child entry point.
+Strict all-target/all-feature Clippy passes. This reduces verified scheduling
+work, but does not yet prove a sustained TPS improvement or explain the brief
+retained-entry breach. A fresh 1,500-group observation keeps the image change,
+256-MiB byte budget and 4,096-entry cap and requires zero timed errors plus
+exact replica/archive verification before a paired confirmation.
+
+[Preservation evidence](evidence/tikv-archive-cursor-preservation.json) records
+lossless compression of 428 closed log files and the verified return of nine
+historical node directories to internal storage. Original aliases, volume
+options and Docker inventories remain intact; read-only probes through all
+nine original named volumes verify the preserved bytes. Fresh benchmark data
+still uses its original internal backing and external RustFS VM disk.
+
 ## Direct exclusive image creation experiment
 
 The next candidate removes redundant per-image namespace operations while

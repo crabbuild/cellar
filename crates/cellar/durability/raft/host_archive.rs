@@ -7,7 +7,7 @@ use super::archive::{
 };
 use cellar_logic::consensus::{GroupScope, LogPosition};
 use cellar_ltx::generation::{GenerationLimits, GenerationStore, ImageId};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
 /// Node-owned archive I/O and new-command retention admission. S3 success still
@@ -89,6 +89,26 @@ pub(crate) struct Completed {
     pub scope: GroupScope,
     pub position: LogPosition,
     pub result: Result<(), ArchiveError>,
+}
+
+/// Select the next eligible cell in cyclic key order, starting after the cursor.
+pub(super) fn next_scope<'a, T>(
+    cells: &'a BTreeMap<GroupScope, T>,
+    cursor: Option<&GroupScope>,
+    mut eligible: impl FnMut(&GroupScope, &T) -> bool,
+) -> Option<&'a GroupScope> {
+    use std::ops::Bound::{Excluded, Included, Unbounded};
+    // Eligibility reads live group state. Seek before evaluating it, and use
+    // disjoint ranges so an unsuccessful scan inspects each cell only once.
+    let next = if let Some(cursor) = cursor {
+        cells
+            .range((Excluded(cursor), Unbounded))
+            .chain(cells.range((Unbounded, Included(cursor))))
+            .find(|(scope, cell)| eligible(scope, cell))
+    } else {
+        cells.iter().find(|(scope, cell)| eligible(scope, cell))
+    };
+    next.map(|(scope, _)| scope)
 }
 
 pub(crate) async fn publish(captured: Vec<Captured>, verifier: ArchiveVerifier) -> Vec<Completed> {
@@ -184,7 +204,78 @@ impl Owner {
 
 #[cfg(test)]
 mod tests {
-    use super::RaftArchiveOptions;
+    use super::{next_scope, RaftArchiveOptions};
+    use cellar_logic::consensus::{ClusterId, GroupId, GroupScope, IncarnationId, NamespaceId};
+    use std::collections::BTreeMap;
+
+    fn scope(index: u16) -> GroupScope {
+        GroupScope {
+            cluster: ClusterId::new([1; 16]).unwrap(),
+            namespace: NamespaceId::new([2; 16]).unwrap(),
+            cell: format!("Counter:{index:04}"),
+            group: GroupId::new([3; 16]).unwrap(),
+            incarnation: IncarnationId::new([4; 16]).unwrap(),
+        }
+    }
+
+    #[test]
+    fn archive_selection_does_not_inspect_cells_before_the_cursor() {
+        let cells = (0..1500)
+            .map(|i| (scope(i), ()))
+            .collect::<BTreeMap<_, _>>();
+        let cursor = scope(1200);
+        let mut inspected = Vec::new();
+        let selected = next_scope(&cells, Some(&cursor), |key, _| {
+            inspected.push(key.clone());
+            true
+        });
+        assert_eq!(selected, Some(&scope(1201)));
+        assert_eq!(
+            inspected.len(),
+            1,
+            "eligibility scanned the preceding cells"
+        );
+        assert_eq!(inspected, vec![scope(1201)]);
+    }
+
+    #[test]
+    fn archive_selection_wraps_once_and_preserves_cyclic_eligibility() {
+        let cells = (0..6).map(|i| (scope(i), ())).collect::<BTreeMap<_, _>>();
+        for cursor in [
+            None,
+            Some(scope(0)),
+            Some(scope(3)),
+            Some(scope(5)),
+            Some(scope(9)),
+        ] {
+            for mask in 0..64 {
+                let expected = cells
+                    .keys()
+                    .filter(|key| cursor.as_ref().is_none_or(|cursor| *key > cursor))
+                    .chain(
+                        cells
+                            .keys()
+                            .filter(|key| cursor.as_ref().is_some_and(|cursor| *key <= cursor)),
+                    )
+                    .find(|key| {
+                        let index: u16 = key.cell[8..].parse().unwrap();
+                        mask & (1 << index) != 0
+                    });
+                let mut inspected = Vec::new();
+                let selected = next_scope(&cells, cursor.as_ref(), |key, _| {
+                    inspected.push(key.clone());
+                    let index: u16 = key.cell[8..].parse().unwrap();
+                    mask & (1 << index) != 0
+                });
+                assert_eq!(selected, expected);
+                let mut unique = inspected.clone();
+                unique.sort();
+                unique.dedup();
+                assert_eq!(inspected.len(), unique.len(), "a cell was inspected twice");
+            }
+        }
+        assert!(next_scope::<()>(&BTreeMap::new(), None, |_, _| panic!("empty map")).is_none());
+    }
 
     #[test]
     fn archive_producers_require_a_bounded_nonempty_window() {

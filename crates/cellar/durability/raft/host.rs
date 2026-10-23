@@ -2901,7 +2901,7 @@ impl Driver {
         if now < owner.scan_at {
             return;
         }
-        let eligible = |cell: &&Cell| {
+        let eligible = |cell: &Cell| {
             !cell.failed
                 && !cell.sql_busy
                 && cell.image.is_some()
@@ -2913,17 +2913,12 @@ impl Driver {
         };
         let mut captures = Vec::new();
         while owner.inflight.len() < self.options.archive.max_producers {
-            let next = self
-                .cells
-                .iter()
-                .filter(|(scope, cell)| !owner.inflight.contains(*scope) && eligible(cell))
-                .find(|(scope, _)| owner.cursor.as_ref().is_none_or(|cursor| *scope > cursor))
-                .or_else(|| {
-                    self.cells
-                        .iter()
-                        .find(|(scope, cell)| !owner.inflight.contains(*scope) && eligible(cell))
-                })
-                .map(|(scope, _)| scope.clone());
+            let next = super::host_archive::next_scope(
+                &self.cells,
+                owner.cursor.as_ref(),
+                |scope, cell| !owner.inflight.contains(scope) && eligible(cell),
+            )
+            .cloned();
             let Some(scope) = next else {
                 owner.scan_at = now.saturating_add(self.options.poll_ms);
                 break;
