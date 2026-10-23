@@ -4,20 +4,22 @@ import contextvars
 import json
 import threading
 import weakref
-from cellar import Request, Response
+from cellar import Overloaded, Request, Response, SDKError
 
 _lock = threading.RLock()
 _active = {}
 _references = {}
 _visits = 0
 _created = 0
+_cell_visits = 0
 _background = []
 
 
 def snapshot():
     with _lock:
         return {"active": sorted(_active), "live": sum(ref() is not None for ref in _references.values()),
-                "visits": _visits, "created": _created, "background": len(_background)}
+                "visits": _visits, "created": _created, "cell_visits": _cell_visits,
+                "background": len(_background)}
 
 
 def release(key):
@@ -60,6 +62,11 @@ async def fetch(request, ctx):
     global _visits
     with _lock:
         _visits += 1
+    if request.path == "/private-overload":
+        class PrivateOverload(Overloaded):
+            def __str__(self):
+                raise AssertionError("PRIVATE-OVERLOAD-SENTINEL")
+        raise PrivateOverload("PRIVATE-OVERLOAD-SENTINEL", outcome="not_committed")
     if request.path.startswith("/background/"):
         loud = request.path.endswith("error")
         stubborn = not loud
@@ -112,6 +119,15 @@ async def fetch(request, ctx):
         await hold("replies", blocking=True)
     elif request.path.startswith("/cell/"):
         return await ctx.namespace("COUNTERS").get_by_name(request.path.rsplit("/", 1)[-1]).fetch(request)
+    elif request.path.startswith("/nested/"):
+        if request.path.endswith("commit-unhandled"):
+            return await ctx.namespace("COUNTERS").get_by_name("parent").fetch(
+                Request("https://cell/commit-unhandled"))
+        try:
+            return await ctx.namespace("COUNTERS").get_by_name("parent").fetch(
+                Request("https://cell/" + request.path.rsplit("/", 1)[-1]))
+        except SDKError as error:
+            return Response.json({"code": error.code, "outcome": error.outcome}, 503)
     return Response.json(True)
 
 
@@ -124,4 +140,18 @@ class Counter:
             _references[self.serial] = weakref.ref(self)
 
     async def fetch(self, request, ctx):
-        return Response.json({"serial": self.serial, "scope": ctx.identity.scope, "epoch": ctx.identity.epoch})
+        global _cell_visits
+        with _lock:
+            _cell_visits += 1
+        if request.path in ("/commit", "/commit-unhandled"):
+            await ctx.storage.put_json("unhandled_effect" if request.path.endswith("unhandled") else "effect", True)
+            if request.path.endswith("unhandled"):
+                return await ctx.namespace("COUNTERS").get_by_name("child").fetch(Request("https://cell/leaf"))
+            try:
+                return await ctx.namespace("COUNTERS").get_by_name("child").fetch(Request("https://cell/leaf"))
+            except SDKError as error:
+                return Response.json({"code": error.code, "outcome": error.outcome}, 503)
+        if request.path in ("/state", "/state-unhandled"):
+            return Response.json((await ctx.storage.read_json("unhandled_effect" if request.path.endswith("unhandled") else "effect")).value)
+        return Response.json({"serial": self.serial, "scope": ctx.identity.scope, "epoch": ctx.identity.epoch,
+                              "domain": await ctx.var("DOMAIN_MARKER")})

@@ -1,0 +1,106 @@
+{
+  "task_id": "MR-14",
+  "source_revision": "0638cf5a92632026764638f98a9b47cd21a70dcc",
+  "completion": "partial",
+  "scope": "Client HTTP phase attribution and a deterministic correction to the snapshot qualification fixture; no new physical performance result.",
+  "component_sources": {
+    "client_http_timing": "9c9ef027c931c5b6a6c334f755c9959398cd2a3b",
+    "snapshot_fixture": "0638cf5a92632026764638f98a9b47cd21a70dcc"
+  },
+  "changes": [
+    "Fault probes retain at most sixteen client HTTP spans in the existing fsynced ledger record. No retries, timeout changes or extra ledger syncs. Nested send/connect spans overlap and are not additive; overflow is explicit.",
+    "Probe client timing records phases, clocks and exception types, never credentials, URLs, headers or payloads. Normal HTTP and HTTP error results retain their behavior. HTTP error bodies now close on normal reads and read timeouts.",
+    "Both interrupted snapshot drills deliberately place the independent healthy-cell leader on the repair node, then request a transfer to the snapshot primary. Both arrangements share the original ten-second readiness deadline. Blocked reads, command progress from a different node, snapshot retry, final replica state, application call counts and joined shutdown remain checked."
+  ],
+  "ci_failure": {
+    "source_revision": "70c5695af923a5face23850a0c8d5fa7cd377225",
+    "run_id": 39880485458,
+    "job_id": 120176801283,
+    "python_mode": "3.14t",
+    "failed_cases": [
+      "native_snapshot_interrupted_transfer_retries_without_blocking_other_groups",
+      "native_snapshot_shutdown_joins_partial_transfer"
+    ],
+    "observation": "Both report a deadline. A deterministic local placement reproduces the healthy-leader wait failure without changing that assertion or its timeout. Independent Raft groups can legitimately elect the same node; waiting does not transfer leadership.",
+    "log_provenance": {
+      "source_revision": "70c5695af923a5face23850a0c8d5fa7cd377225",
+      "workflow_run_id": 39880485458,
+      "job_id": 120176801283,
+      "full_job_log_sha256": "bab01beaa77124b98a8a92ef01c381502bdf59bbfdcd06f5d5f0fc4c1466b587",
+      "job_url": "https://github.com/crabbuild/cellar/actions/runs/39880485458/job/120176801283",
+      "selection": "native_raft_snapshot execution through failure; raw full job log retained locally"
+    }
+  },
+  "validation": {
+    "client_python": {
+      "passed": 201,
+      "opt_in_docker_skipped": 1,
+      "http_phase_tests": 7,
+      "fault_controller_tests": 10,
+      "http_error_close_regression": "fails before / passes after"
+    },
+    "snapshot": {
+      "focused_cases_passed": 4,
+      "all_feature_target_passed": 42,
+      "child_process_helpers_ignored": 2,
+      "parent_crash_matrices_passed": true,
+      "failing_before_patch_base": "9c9ef027c931c5b6a6c334f755c9959398cd2a3b",
+      "failing_before_case": "native_snapshot_interruption_with_healthy_leader_on_repair_node",
+      "regression_now_exercised_by": "Both existing interrupted-transfer and shutdown cases force this placement; the temporary named reproducer and patch remain in the capsule."
+    },
+    "checks": [
+      "snapshot target Clippy, all features",
+      "format",
+      "layout (822 Rust files)",
+      "dependency guard",
+      "documentation",
+      "plan validation",
+      "17 plan tests",
+      "diff whitespace"
+    ],
+    "validated_file_sha256": {
+      "crates/cellar/tests/native_raft_snapshot.rs": "a47dd7a214cc8c06864dad8a90ff639eacda0e5cd554c9719cd4bea35a2b6849",
+      "tools/perf/raft_probe_http.py": "0294abafa70f264df11584a5b25957ceec3602fdab81d19953e22a6e889b6edf",
+      "tools/perf/test_raft_probe_http.py": "ffc10ceb649edb840164cc1c763c2c66b1dea84cfcce58b2aa15b6d5483a96d3",
+      "tools/perf/raft_run.py": "d850b93174f3c1e6cd655590ee8be035be6aecca94d3f93cd4ca5b1373611404",
+      "tools/perf/raft_faults.py": "29596fefce155a0c2b39eae9c3f9b9105b3f2617ef9a140ea75f819224f4025d",
+      "tools/perf/test_raft_faults.py": "26be1e2fec517e9de5fd5b2c8d6d3df1b8c290aaafee1243a06bb6ed818a1192",
+      "tools/perf/raft-performance.md": "0414823edfe9124c9782397adeaab5343581300dc334800176ef466035a64c23"
+    }
+  },
+  "raw_output": [
+    {
+      "path": "evidence/MR-14-client-validation.json.gz",
+      "bytes": 19057,
+      "sha256": "adff02695ca110dc45595384dc752bf575620ab12e23d63a607c911a3c5dbbf4"
+    }
+  ],
+  "build_without_experiment": {
+    "source_revision": "9c9ef027c931c5b6a6c334f755c9959398cd2a3b",
+    "argv": [
+      "docker",
+      "--context",
+      "colima-cellar-multi-raft",
+      "build",
+      "-f",
+      "tools/perf/raft.Dockerfile",
+      "--build-arg",
+      "TARGET_CACHE_ID=cellar-23c7-mr13-local-raft-target",
+      "--build-arg",
+      "SOURCE_REVISION=9c9ef027c931c5b6a6c334f755c9959398cd2a3b",
+      "-t",
+      "cellar-multi-raft:mr14-client-admission",
+      "."
+    ],
+    "exit_code": 0,
+    "elapsed_seconds": 115.74650692939758,
+    "image": "sha256:3c96dd008f4145315d29bd6924f0fd8012b98b3e187536f10f92f2cf34199f6d"
+  },
+  "limitations": [
+    "The client-timed image was built but no physical workload was run at that revision. The CI failure took priority. The separate Colima profile was stopped and no other profile was controlled.",
+    "The native target ran locally with Python 3.14 and all Rust features; fresh-head CI must still qualify both Python ABI jobs. No new remote CI success is claimed.",
+    "This fixes fixture placement, not a production consensus or latency defect. Prior intermittent findings are not closed by this case.",
+    "The healthy density timeout at source 17fd0b1 remains unqualified. A fresh source-matched image/run is still needed to locate the client HTTP wait.",
+    "MR-13 through MR-17 retain their remaining gates, including matched durability, sustained S3, instrumentation overhead, Q1, soak, scale and federation."
+  ]
+}

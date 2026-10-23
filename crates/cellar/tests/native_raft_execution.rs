@@ -1235,13 +1235,27 @@ async fn receipt_expiry_floor() -> Result<()> {
         Err(ExecutionError::RetentionNotExpired)
     ));
     executor.rebuild(host.applier.current(), host.authority().await?)?;
+    assert!(matches!(
+        executor.stage_prune(
+            ClientId::new([1; 16])?,
+            2,
+            ProposalId::new([4; 16])?,
+            images::id(68),
+            cellar::storage::CommandInputs {
+                now_unix_millis: 1000,
+                ..inputs
+            }
+        ),
+        Err(ExecutionError::RetentionNotExpired)
+    ));
+    executor.rebuild(host.applier.current(), host.authority().await?)?;
     let pruning = executor.stage_prune(
         ClientId::new([1; 16])?,
         2,
         ProposalId::new([4; 16])?,
         images::id(68),
         cellar::storage::CommandInputs {
-            now_unix_millis: 1000,
+            now_unix_millis: 1001,
             ..inputs
         },
     )?;
@@ -1281,6 +1295,101 @@ async fn receipt_expiry_floor() -> Result<()> {
         executor.stage(attempt(3, 6)?, |_| panic!("retained command executed"))?,
         StageOutcome::Duplicate(_)
     ));
+    drop(executor);
+    host.close().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn automatic_receipt_maintenance_commits_with_command_and_survives_restart() -> Result<()> {
+    let root = tempfile::tempdir()?;
+    let limits = ExecutionLimits {
+        max_client_identities: 1,
+        max_retained_receipts: 2,
+        ..Default::default()
+    };
+    let mut host = Host::open(root.path(), false).await?;
+    host.elect().await?;
+    let mut executor = host.private(root.path(), limits).await?;
+    let first = prepared(executor.stage(attempt(1, 1)?, initialize)?)?;
+    host.commit_private(&mut executor, first, 1).await?;
+    let second = prepared(executor.stage(attempt(2, 2)?, increment)?)?;
+    host.commit_private(&mut executor, second, 2).await?;
+    let request = |sequence, tag, now| -> Result<CommandAttempt> {
+        let mut request = attempt(sequence, tag)?;
+        request.inputs.now_unix_millis = now;
+        request.request.retry_until_ms = 3000;
+        Ok(request)
+    };
+    let published_receipts = |host: &Host| -> Result<(i64, Vec<u8>)> {
+        let query = images::query(host.applier.current().unwrap().pin())?;
+        let connection = query.connection();
+        Ok((
+            connection.query_row("SELECT count(*) FROM __sys_raft_receipts", [], |r| r.get(0))?,
+            connection.query_row("SELECT expired_through FROM __sys_raft_clients", [], |r| {
+                r.get(0)
+            })?,
+        ))
+    };
+    assert!(matches!(
+        executor.stage(request(3, 3, 1000)?, |_| panic!(
+            "live retention admitted callback"
+        )),
+        Err(ExecutionError::Refused(CommandFailure::Overloaded))
+    ));
+    assert!(executor
+        .stage(request(3, 3, 1001)?, |transaction| {
+            increment(transaction)?;
+            bail!("business callback failed after private cleanup")
+        })
+        .is_err());
+    assert_eq!(host.counter()?, 8);
+    assert_eq!(
+        published_receipts(&host)?,
+        (2, 0_u64.to_be_bytes().to_vec())
+    );
+    executor.rebuild(host.applier.current(), host.authority().await?)?;
+    let unsubmitted = prepared(executor.stage(request(3, 4, 1001)?, increment)?)?;
+    assert_eq!(
+        published_receipts(&host)?,
+        (2, 0_u64.to_be_bytes().to_vec())
+    );
+    drop(unsubmitted);
+    executor.rebuild(host.applier.current(), host.authority().await?)?;
+    assert!(matches!(
+        executor.stage(attempt(1, 5)?, |_| panic!("unsubmitted cleanup escaped"))?,
+        StageOutcome::Duplicate(_)
+    ));
+    let third = prepared(executor.stage(request(3, 6, 1001)?, increment)?)?;
+    host.commit_private(&mut executor, third, 3).await?;
+    assert_eq!(host.counter()?, 9);
+    assert_eq!(
+        published_receipts(&host)?,
+        (2, 1_u64.to_be_bytes().to_vec())
+    );
+    drop(executor);
+    host.close().await?;
+
+    let mut host = Host::open(root.path(), true).await?;
+    host.elect().await?;
+    let mut executor = host.private(root.path(), limits).await?;
+    assert!(matches!(
+        executor.stage(attempt(1, 7)?, |_| panic!("expired sequence replayed")),
+        Err(ExecutionError::Refused(CommandFailure::CommandExpired))
+    ));
+    let StageOutcome::Duplicate(receipt) =
+        executor.stage(attempt(2, 8)?, |_| panic!("retained receipt replayed"))?
+    else {
+        bail!("latest pre-maintenance acknowledgement lost")
+    };
+    assert_eq!(receipt.receipt().result(), 8_i64.to_be_bytes());
+    drop(receipt);
+    let fourth = prepared(executor.stage(request(4, 9, 1002)?, increment)?)?;
+    host.commit_private(&mut executor, fourth, 4).await?;
+    assert_eq!(host.counter()?, 10);
+    assert_eq!(
+        published_receipts(&host)?,
+        (2, 2_u64.to_be_bytes().to_vec())
+    );
     drop(executor);
     host.close().await
 }

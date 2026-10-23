@@ -19,6 +19,7 @@ pub(crate) struct ObjectRef {
     pub digest: [u8; 32],
     pub length: u64,
     pub range: Option<PositionRange>,
+    pub bundle: Option<super::archive::bundle::Reference>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -43,6 +44,7 @@ impl ObjectRef {
             digest: digest(bytes),
             length: bytes.len() as u64,
             range,
+            bundle: None,
         }
     }
 
@@ -65,6 +67,16 @@ impl ObjectRef {
     pub fn verify(&self, bytes: &[u8]) -> Result<(), ArchiveError> {
         if self.length != bytes.len() as u64 || self.digest != digest(bytes) {
             return Err(ArchiveError::Corrupt("archive object digest/length"));
+        }
+        Ok(())
+    }
+
+    pub fn validate_location(&self) -> Result<(), ArchiveError> {
+        if let Some(bundle) = &self.bundle {
+            if !matches!(self.kind, ObjectKind::Snapshot | ObjectKind::Tail) {
+                return Err(ArchiveError::Corrupt("archive bundle object domain"));
+            }
+            bundle.validate()?;
         }
         Ok(())
     }
@@ -199,6 +211,7 @@ impl Manifest {
             return Err(ArchiveError::Corrupt("archive history/schema binding"));
         }
         self.snapshot.position.decode()?;
+        self.snapshot.object.validate_location()?;
         self.position.decode()?;
         self.snapshot.image.decode()?;
         self.image.decode()?;
@@ -225,6 +238,7 @@ impl Manifest {
         let mut entries = 0usize;
         let mut total = self.snapshot.object.length;
         for tail in &self.tails {
+            tail.object.validate_location()?;
             tail.first.decode()?;
             tail.last.decode()?;
             if position.index.checked_add(1) != Some(tail.first.index)
@@ -257,6 +271,7 @@ impl Manifest {
         }
         let mut previous = None;
         for dependency in &self.dependencies {
+            dependency.validate_location()?;
             if dependency.kind != ObjectKind::Dependency
                 || dependency.range.is_some()
                 || previous.is_some_and(|p| p >= dependency.digest)

@@ -1,0 +1,422 @@
+{
+  "task_id": "MR-14",
+  "source_revision": "142fb23171452e09d266e9628ced40d48ec7cc80",
+  "completion": "partial",
+  "scope": "Bounded object API, below-TLS socket and controller observations, shared with engine/SQL metrics from host startup. No throughput, speedup or capacity qualification.",
+  "environment": {
+    "system": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+    "machine": "arm64",
+    "validation": "Native fixtures with real Raft-Engine, SQLite/LTX and HTTP/TLS; embedded object stores are InMemory. This evidence does not qualify 1-vCPU/3-GiB containers or Amazon S3."
+  },
+  "protocol_identity": "cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1/nodes-1/bundles-1",
+  "lockfile_sha256": "b9622cfd2713f81591f3cf200ff5a732418ab42e99df46e63c22c06a6d94b105",
+  "observation_contract": {
+    "scope": "One host startup or standalone engine open; random source nonce changes on reopen. No per-cell or peer labels.",
+    "counters": 20,
+    "operations": 17,
+    "duration_buckets_per_operation": 16,
+    "prometheus_samples": 413,
+    "object": "GET timer follows the consumed body through EOF/error/drop; HEAD and range calls share this operation. PUT classifies create/update/overwrite, attempted payloads and successfully acknowledged payloads. A failed reply does not prove a failed commit. Backend overrides and preconditions preserved. Unsupported operations delegate unchanged and mark observations unavailable.",
+    "transport": "Successful socket AsyncRead/AsyncWrite bytes below TLS, control/data/query directions; includes handshake and refused traffic, excludes TCP/IP headers, retransmissions, S3 HTTP and public ingress. Writes do not prove remote delivery.",
+    "controller": "Asynchronous probe/action attempts, not completed repairs or backend quiescence.",
+    "limits": "API bytes are not physical device bytes. SDK internal retries and billing are excluded. Durations report inclusive histogram bounds, not exact quantiles. Cross-operation snapshots are not transactional."
+  },
+  "native_checks": [
+    "Conditional create/update errors, partial/error/dropped GET streams, custom backend method overrides and unsupported-operation availability retain their original outcomes.",
+    "Partial vectored socket writes, pending/error writes and prefilled ReadBuf reads count only actual progress on each lane.",
+    "Real lost archive bundle PUT reply preserves exact recovery proofs and separates attempted from confirmed bytes.",
+    "Native remote query traffic records nonzero control/data/query bytes in both directions.",
+    "Completed native no-traffic repair produces controller probe/action observations.",
+    "Authenticated performance exports have identical 413 metric identities at one and 32 groups, and native JSON passes the Python analyzer."
+  ],
+  "rust_passed": 683,
+  "rust_failed": 1,
+  "validation_status": "Not fully passing: learner_before_promotion returned Overloaded in the matrix; isolated repeats passed without a fix. Earlier shutdown-handoff failure also remains unexplained.",
+  "tests": [
+    {
+      "target": "unittests lib.rs",
+      "passed": 465,
+      "failed": 0,
+      "ignored": 0,
+      "binary_sha256": "ee6a753e4bd8057d7676e652f188b10aaf54da529582496b406ae6cab4f6db7d"
+    },
+    {
+      "target": "unittests ../../tools/perf/raft_node.rs",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "binary_sha256": "860d8c0ef0c415656d148099d0d5accbfba1e61023f58110555677b04d51db85"
+    },
+    {
+      "target": "tests/native_raft_archive.rs",
+      "passed": 30,
+      "failed": 0,
+      "ignored": 0,
+      "binary_sha256": "9f935e26936c268bdb81c2a6252ad93dbe66fcfb9e7e53cd9f8321389d7f9978"
+    },
+    {
+      "target": "tests/native_raft_execution.rs",
+      "passed": 17,
+      "failed": 0,
+      "ignored": 2,
+      "binary_sha256": "16afe148ab6d6a99e2472b6431bb34dce0058af91355b739c34c66477a54bd7a"
+    },
+    {
+      "target": "tests/native_raft_host.rs",
+      "passed": 27,
+      "failed": 0,
+      "ignored": 0,
+      "binary_sha256": "1a2ecdde89955c01ad88233afd2830f21baa8024808b6fd020198f55c5d19736"
+    },
+    {
+      "target": "tests/native_raft_membership.rs",
+      "passed": 26,
+      "failed": 1,
+      "ignored": 1,
+      "binary_sha256": "9e2a6ef7f0a32cf67ba798ed49071e0c0daaf25bb7606bbd4fecf503113ae4c6"
+    },
+    {
+      "target": "tests/native_raft_multigroup.rs",
+      "passed": 6,
+      "failed": 0,
+      "ignored": 1,
+      "binary_sha256": "ce88112d99b960763e3c48cd0560790f681e92c3509752bbd6b8f11a736f0bd9"
+    },
+    {
+      "target": "tests/native_raft_operations.rs",
+      "passed": 18,
+      "failed": 0,
+      "ignored": 0,
+      "binary_sha256": "d895edc3b9bd35aaf34b83f393ee4e4757d71af9ee432c08dbd5b594ca98117d"
+    },
+    {
+      "target": "tests/native_raft_reads.rs",
+      "passed": 20,
+      "failed": 0,
+      "ignored": 0,
+      "binary_sha256": "fc6f904389cff46d6332b3930f3de032631ee69431fcbc9d15a413f7d5780086"
+    },
+    {
+      "target": "tests/native_raft_snapshot.rs",
+      "passed": 42,
+      "failed": 0,
+      "ignored": 2,
+      "binary_sha256": "9fc560388af6902f97a10d9512b9287d1e604ada6b7b060b053848efa003c4a6"
+    },
+    {
+      "target": "tests/native_raft_storage.rs",
+      "passed": 17,
+      "failed": 0,
+      "ignored": 1,
+      "binary_sha256": "82bf9d02e5e00db650170be140667676bd586f16b7b321d6a1287ca06d90e7d1"
+    },
+    {
+      "target": "tests/native_raft_transport.rs",
+      "passed": 14,
+      "failed": 0,
+      "ignored": 1,
+      "binary_sha256": "c7078b3ac77ad69621b16e35d77b526d1dcd7caae20a031168be1d4a51239b28"
+    }
+  ],
+  "python": {
+    "passed": 128,
+    "skipped": 1,
+    "skip_scope": "Existing opt-in Docker cache check."
+  },
+  "plan_tests_passed": 17,
+  "checks": [
+    {
+      "name": "matrix",
+      "source_revision": "142fb23171452e09d266e9628ced40d48ec7cc80",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--all-features",
+        "--locked",
+        "--lib",
+        "--bin",
+        "cellar-perf-raft",
+        "--test",
+        "native_raft_storage",
+        "--test",
+        "native_raft_reads",
+        "--test",
+        "native_raft_operations",
+        "--test",
+        "native_raft_host",
+        "--test",
+        "native_raft_execution",
+        "--test",
+        "native_raft_archive",
+        "--test",
+        "native_raft_multigroup",
+        "--test",
+        "native_raft_membership",
+        "--test",
+        "native_raft_transport",
+        "--test",
+        "native_raft_snapshot",
+        "--",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "exit_code": 101,
+      "duration_seconds": 436.955,
+      "sha256": "de2357ec7fa0d007f1f1ebe99e076df4f1b6ad404fdedb6fdca80312bcdf0c27",
+      "log_member": "matrix",
+      "output": "evidence/MR-14-io-metrics-validation.json.gz"
+    },
+    {
+      "name": "remaining-native",
+      "source_revision": "142fb23171452e09d266e9628ced40d48ec7cc80",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--all-features",
+        "--locked",
+        "--no-fail-fast",
+        "--test",
+        "native_raft_storage",
+        "--test",
+        "native_raft_reads",
+        "--test",
+        "native_raft_operations",
+        "--test",
+        "native_raft_multigroup",
+        "--test",
+        "native_raft_transport",
+        "--test",
+        "native_raft_snapshot",
+        "--",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "exit_code": 0,
+      "duration_seconds": 252.922,
+      "sha256": "2ff7c75d324fdfa765aa4731bd5a3d09cd527e7f72ce49480dab77ffdeaa1b12",
+      "log_member": "remaining-native",
+      "output": "evidence/MR-14-io-metrics-validation.json.gz"
+    },
+    {
+      "name": "clippy",
+      "source_revision": "142fb23171452e09d266e9628ced40d48ec7cc80",
+      "command": [
+        "cargo",
+        "clippy",
+        "-p",
+        "cellar",
+        "--all-targets",
+        "--all-features",
+        "--locked",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "duration_seconds": 57.107,
+      "sha256": "94965b2bbff3085357bd6cd573390444ea602898f1bdf80ba29e99a18d00cd03",
+      "log_member": "clippy",
+      "output": "evidence/MR-14-io-metrics-validation.json.gz"
+    },
+    {
+      "name": "native-only",
+      "source_revision": "142fb23171452e09d266e9628ced40d48ec7cc80",
+      "command": [
+        "cargo",
+        "check",
+        "-p",
+        "cellar",
+        "--no-default-features",
+        "--lib",
+        "--locked"
+      ],
+      "exit_code": 0,
+      "duration_seconds": 34.066,
+      "sha256": "1cdf3862587468dc2ac31a0e3b91044fff45ecd33504b568ab467fc8ce6d2c0d",
+      "log_member": "native-only",
+      "output": "evidence/MR-14-io-metrics-validation.json.gz"
+    },
+    {
+      "name": "format",
+      "source_revision": "142fb23171452e09d266e9628ced40d48ec7cc80",
+      "command": [
+        "cargo",
+        "format",
+        "--check"
+      ],
+      "exit_code": 0,
+      "duration_seconds": 46.944,
+      "sha256": "0fd8a5c327ab3d2eeebadb5aaab0a2f80becfba883274f1b8f7feb168ff8945d",
+      "log_member": "format",
+      "output": "evidence/MR-14-io-metrics-validation.json.gz"
+    },
+    {
+      "name": "layout",
+      "source_revision": "142fb23171452e09d266e9628ced40d48ec7cc80",
+      "command": [
+        "cargo",
+        "check-layout"
+      ],
+      "exit_code": 0,
+      "duration_seconds": 0.376,
+      "sha256": "21f9099e31b1af4265b96b55c1fff485d2ad205ae533adce93ef390e53820a94",
+      "log_member": "layout",
+      "output": "evidence/MR-14-io-metrics-validation.json.gz"
+    },
+    {
+      "name": "dependencies",
+      "source_revision": "142fb23171452e09d266e9628ced40d48ec7cc80",
+      "command": [
+        "python3",
+        "tools/check_native_dependencies.py"
+      ],
+      "exit_code": 0,
+      "duration_seconds": 0.703,
+      "sha256": "faf9bdb8df5819a63d590ede5d4a5f43eb4e8b00d8a6f44ccfb36bd8c4c5c238",
+      "log_member": "dependencies",
+      "output": "evidence/MR-14-io-metrics-validation.json.gz"
+    },
+    {
+      "name": "docs",
+      "source_revision": "142fb23171452e09d266e9628ced40d48ec7cc80",
+      "command": [
+        "python3",
+        "tools/docs/check.py"
+      ],
+      "exit_code": 0,
+      "duration_seconds": 0.098,
+      "sha256": "701e55367b1b8c08dcd388c3084250c7209af81cb161e4ba73339783b537eeb3",
+      "log_member": "docs",
+      "output": "evidence/MR-14-io-metrics-validation.json.gz"
+    },
+    {
+      "name": "python",
+      "source_revision": "142fb23171452e09d266e9628ced40d48ec7cc80",
+      "command": [
+        "python3",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "tools/perf"
+      ],
+      "exit_code": 0,
+      "duration_seconds": 2.245,
+      "sha256": "74f8e965a0652987867cbbcc6a05bbce71384702424d82040d477c73a0c2e816",
+      "log_member": "python",
+      "output": "evidence/MR-14-io-metrics-validation.json.gz"
+    },
+    {
+      "name": "plan-tests",
+      "source_revision": "142fb23171452e09d266e9628ced40d48ec7cc80",
+      "command": [
+        "python3",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "plans/multi-raft",
+        "-p",
+        "test_plan.py"
+      ],
+      "exit_code": 0,
+      "duration_seconds": 0.162,
+      "sha256": "0affb79ef4d435a079e97639d5f6df8a3cc8f9fb0a6df9ac98107a9544480735",
+      "log_member": "plan-tests",
+      "output": "evidence/MR-14-io-metrics-validation.json.gz"
+    },
+    {
+      "name": "plan-validate",
+      "source_revision": "142fb23171452e09d266e9628ced40d48ec7cc80",
+      "command": [
+        "python3",
+        "plans/multi-raft/plan.py",
+        "validate"
+      ],
+      "exit_code": 0,
+      "duration_seconds": 0.147,
+      "sha256": "375425d597159830ed48c81f1b0899d24387e95912944e5faf694f266c5b06c3",
+      "log_member": "plan-validate",
+      "output": "evidence/MR-14-io-metrics-validation.json.gz"
+    },
+    {
+      "name": "preflight",
+      "source_revision": "142fb23171452e09d266e9628ced40d48ec7cc80",
+      "command": [
+        "python3",
+        "plans/multi-raft/plan.py",
+        "preflight"
+      ],
+      "exit_code": 0,
+      "sha256": "b1b63a9578089d2d002a52d23243abf6d3a3361cb1035190770d511eaeec9adc",
+      "log_member": "preflight",
+      "output": "evidence/MR-14-io-metrics-validation.json.gz"
+    }
+  ],
+  "diagnostics": [
+    {
+      "name": "development-compile",
+      "source_revision": null,
+      "description": "Initial compile rejected three socket wrapper calls on RaftTransport instead of its State. Corrected before final checks.",
+      "log_member": "development-compile",
+      "sha256": "befcd340d182c60ea10a16621da478adf72ff3050735731440afbae06038fe4f"
+    },
+    {
+      "name": "development-target",
+      "source_revision": null,
+      "description": "Validation command named native_raft_snapshots; corrected to existing native_raft_snapshot. No source change.",
+      "log_member": "development-target",
+      "sha256": "f1c417d758d2456f9f58ee16238f7f4ca13d08257ce37fd6c745d710d792f403"
+    },
+    {
+      "name": "development-matrix",
+      "source_revision": null,
+      "description": "464 library cases passed. Membership suite failed node_shutdown_hands_off_to_published_voter with zero attempted transfers and one unavailable group. This intermittent failure remains unexplained; passing retries do not establish a repair.",
+      "log_member": "development-matrix",
+      "sha256": "8aa300111f11c7b6b69a593b6323654b0f9761c529a8da16e2fc888fafb718d2"
+    },
+    {
+      "name": "handoff-trace",
+      "source_revision": null,
+      "description": "Temporary diagnostic probes: isolated handoff passed; a no-candidate trace occurred during subsequent cleanup. No handoff behavior was changed.",
+      "log_member": "handoff-trace",
+      "sha256": "04c91cf8567909eb37ae9dc66c09ca24ce578e184f95646e19f421f068bda4cb"
+    },
+    {
+      "name": "handoff-repetitions",
+      "source_revision": null,
+      "description": "20 isolated repetitions with diagnostic probes passed. These do not explain the earlier failure.",
+      "log_member": "handoff-repetitions",
+      "sha256": "0ed66868cf5367433e2b8ab1efe0ceda356c392e979e65dc745a8cd569b0327f"
+    },
+    {
+      "name": "learner-repetitions",
+      "source_revision": null,
+      "description": "20 isolated learner_before_promotion repetitions passed. The final matrix returned Overloaded in this case; its cause remains unresolved.",
+      "log_member": "learner-repetitions",
+      "sha256": "2377bd2d76d5ba1383387036ba8caac709af3374d7ac396b963af3475c5b7453"
+    },
+    {
+      "name": "membership-trace",
+      "source_revision": null,
+      "description": "Traced membership suite passed 27 cases, one existing ignored case. Temporary diagnostic probes were removed before final source commit.",
+      "log_member": "membership-trace",
+      "sha256": "5663937082ca7330f569c93749cf3c357d2257417865cb6e8b85bf2b683f6c98"
+    }
+  ],
+  "raw_output": {
+    "path": "evidence/MR-14-io-metrics-validation.json.gz",
+    "sha256": "d6f53c0d874524ee1a661bfe2cdfa1d3532cd9060319fa7b50412f84540b539a",
+    "bytes": 46835
+  },
+  "remaining": [
+    "Investigate intermittent shutdown-handoff and learner_before_promotion admission failures retained in the logs; retries did not establish their causes.",
+    "Measure instrumentation overhead, steady state, archive cost and supported density in the bounded Colima/RustFS environment.",
+    "Implement executable Fleet/bucket comparison adapters with matched durability, workload, hardware and build contracts.",
+    "Q1 remains six processes and 10,000 three-voter cells: 5,000 average replicas per node versus unchanged 4,096 host bound. It is unqualified and outside the agreed local five-node ceiling."
+  ]
+}

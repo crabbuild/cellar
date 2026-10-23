@@ -17,6 +17,7 @@ fn native_event_host_protocol_refuses_unsupported_executables() -> Result<()> {
         host_protocol: 2,
         application_version: "test".into(),
         python: Vec::new(),
+        node: Vec::new(),
         artifacts: vec![cellar::protocol::NativeArtifact {
             target: current_target().into(),
             sha256: "a".repeat(64),
@@ -707,6 +708,45 @@ fn python_environment_requires_feature_and_exact_native_executable_pair() -> Res
     manifest.native.as_mut().unwrap().python.push(reference);
     assert!(validate_execution_manifest(&manifest).is_err());
     manifest.native.as_mut().unwrap().python.clear();
+    assert!(validate_execution_manifest(&manifest).is_err());
+    Ok(())
+}
+
+#[test]
+fn node_environment_requires_feature_and_exact_native_executable_pair() -> Result<()> {
+    use cellar::protocol::{NativeArtifact, NodeEnvironmentRef, FEATURE_NODE_V1};
+    let config: ApplicationConfig =
+        serde_json::from_value(json!({"script_name":"node-metadata","application_version":"v1"}))?;
+    let artifact = NativeArtifact {
+        target: current_target().into(),
+        sha256: "a".repeat(64),
+        bytes: 1,
+    };
+    let mut manifest = config.manifest(vec![artifact.clone()])?;
+    let reference = NodeEnvironmentRef {
+        format: 1,
+        target: artifact.target.clone(),
+        executable_sha256: artifact.sha256.clone(),
+        inventory_sha256: "b".repeat(64),
+        archive_sha256: "c".repeat(64),
+        archive_bytes: 1,
+        prefix: "/opt/cellar/node-v1".into(),
+    };
+    manifest
+        .native
+        .as_mut()
+        .unwrap()
+        .node
+        .push(reference.clone());
+    assert!(validate_execution_manifest(&manifest).is_err());
+    manifest.required_features.push(FEATURE_NODE_V1.into());
+    validate_execution_manifest(&manifest)?;
+    manifest.native.as_mut().unwrap().node[0].executable_sha256 = "d".repeat(64);
+    assert!(validate_execution_manifest(&manifest).is_err());
+    manifest.native.as_mut().unwrap().node[0] = reference.clone();
+    manifest.native.as_mut().unwrap().node.push(reference);
+    assert!(validate_execution_manifest(&manifest).is_err());
+    manifest.native.as_mut().unwrap().node.clear();
     assert!(validate_execution_manifest(&manifest).is_err());
     Ok(())
 }

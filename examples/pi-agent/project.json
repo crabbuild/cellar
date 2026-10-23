@@ -1,0 +1,19 @@
+{
+  "cargo_manifest": "../../Cargo.toml",
+  "package": "cellar-javascript",
+  "binary": "cellar-pi-agent-example",
+  "profile": "dev",
+  "features": ["node"],
+  "node_environment": {
+    "root": "../../.cellar/pi-agent-runtime",
+    "executable": "bin/node",
+    "entry": "app/dist/app.js",
+    "working_directory": "app"
+  },
+  "primary": {
+    "script_name": "pi-agent-example",
+    "application_version": "v1",
+    "cells": ["DurableAgent"],
+    "bindings": [{"type":"durable_object_namespace","name":"AGENTS","class_name":"DurableAgent"}]
+  }
+}

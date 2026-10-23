@@ -2,8 +2,10 @@
 //! SQL workers capture immutable cuts; network/archive replay never occupies a
 //! cell's private execution connection or creates a task for each resident cell.
 
-use super::archive::{apply_limits, ArchiveError, ArchiveLimits, ArchiveVerifier};
-use cellar_logic::consensus::GroupScope;
+use super::archive::{
+    apply_limits, ArchiveError, ArchiveLimits, ArchiveVerifier, CellArchive, CommittedArchiveCut,
+};
+use cellar_logic::consensus::{GroupScope, LogPosition};
 use cellar_ltx::generation::{GenerationLimits, GenerationStore, ImageId};
 use std::collections::BTreeSet;
 use std::path::PathBuf;
@@ -13,9 +15,13 @@ use std::path::PathBuf;
 #[derive(Clone, Copy, Debug)]
 pub struct RaftArchiveOptions {
     pub limits: ArchiveLimits,
+    /// Maximum cells per immutable-object publication batch (1..=2). The
+    /// total retained cuts across all batches remain bounded by `max_producers`.
+    pub max_batch_groups: usize,
     pub retry_ms: u64,
-    /// Concurrent publications across distinct cells (1..=4). Each reserves a
-    /// complete capture and retains its bounded recovery sets until completion.
+    /// Maximum distinct cells retained across capture, pending batches and
+    /// publication (1..=4). Each slot retains its complete capture reservation
+    /// and bounded recovery sets until publication completes.
     /// Object I/O overlaps; physical replay shares one exclusive workspace.
     pub max_producers: usize,
     /// New callbacks reserve their maximum image/envelope size, reduced to the
@@ -31,6 +37,7 @@ impl Default for RaftArchiveOptions {
     fn default() -> Self {
         Self {
             limits: ArchiveLimits::default(),
+            max_batch_groups: 2,
             retry_ms: 100,
             max_producers: 2,
             max_unarchived_bytes: 256 * 1024 * 1024,
@@ -47,7 +54,8 @@ impl RaftArchiveOptions {
             "invalid archive producer limit"
         );
         anyhow::ensure!(
-            (1..=60_000).contains(&self.retry_ms)
+            (1..=super::archive::bundle::MAX_GROUPS).contains(&self.max_batch_groups)
+                && (1..=60_000).contains(&self.retry_ms)
                 && (4096..=16 * 1024 * 1024 * 1024).contains(&self.max_unarchived_bytes)
                 && (1..=65_536).contains(&self.max_unarchived_entries),
             "invalid archive admission limits"
@@ -65,6 +73,72 @@ pub(crate) struct Owner {
     pub cursor: Option<GroupScope>,
     /// Empty inventory is retried by maintenance, not by every peer frame.
     pub scan_at: u64,
+    /// First pending capture's deadline; slow unrelated SQL cannot extend it.
+    pub publish_at: u64,
+    pub pending: Vec<Captured>,
+}
+
+pub(crate) struct Captured {
+    pub scope: GroupScope,
+    pub archive: CellArchive,
+    pub cut: CommittedArchiveCut,
+    pub reservation: Option<super::budget::Permit>,
+}
+
+pub(crate) struct Completed {
+    pub scope: GroupScope,
+    pub position: LogPosition,
+    pub result: Result<(), ArchiveError>,
+}
+
+pub(crate) async fn publish(captured: Vec<Captured>, verifier: ArchiveVerifier) -> Vec<Completed> {
+    let mut identities = Vec::with_capacity(captured.len());
+    let mut reservations = Vec::with_capacity(captured.len());
+    let inputs = captured
+        .into_iter()
+        .map(|capture| {
+            identities.push((capture.scope, capture.cut.position()));
+            reservations.push(capture.reservation);
+            (capture.archive, capture.cut)
+        })
+        .collect();
+    let result = CellArchive::publish_batch(inputs, &verifier).await;
+    let results = match result {
+        Ok(results) if results.len() == identities.len() => results,
+        Ok(_) => (0..identities.len())
+            .map(|_| Err(ArchiveError::Unconfirmed))
+            .collect(),
+        Err(error) => {
+            let mut error = Some(error);
+            (0..identities.len())
+                .map(|_| Err(error.take().unwrap_or(ArchiveError::Unconfirmed)))
+                .collect()
+        }
+    };
+    // The reservations remain owned through physical replay and every head CAS.
+    let completed = identities
+        .into_iter()
+        .zip(results)
+        .map(|((scope, position), result)| {
+            let result = result.and_then(|set| {
+                if set.scope() != &scope
+                    || set.position().index < position.index
+                    || set.position().index == position.index
+                        && set.position().term != position.term
+                {
+                    return Err(ArchiveError::Corrupt("archive output coverage"));
+                }
+                Ok(())
+            });
+            Completed {
+                scope,
+                position,
+                result,
+            }
+        })
+        .collect();
+    drop(reservations);
+    completed
 }
 
 impl Owner {
@@ -73,6 +147,7 @@ impl Owner {
         host: cellar_ltx::LtxHost,
         nonce: ImageId,
         mut apply: cellar_ltx::apply::ApplyLimits,
+        accounting: cellar_ltx::generation::GenerationAccounting,
     ) -> anyhow::Result<Self> {
         let filesystem = host.filesystem();
         let verifier = host
@@ -84,8 +159,9 @@ impl Owner {
                     max_generations: 4,
                     max_bytes: 512 * 1024 * 1024,
                 };
-                let images = GenerationStore::open(directory, filesystem, limits)
-                    .map_err(ArchiveError::Images)?;
+                let images =
+                    GenerationStore::open_observed(directory, filesystem, limits, &accounting)
+                        .map_err(ArchiveError::Images)?;
                 // This directory contains verification copies only, never an
                 // engine marker or the only acknowledged application image.
                 images.retain_only(&[]).map_err(ArchiveError::Images)?;
@@ -100,6 +176,8 @@ impl Owner {
             inflight: BTreeSet::new(),
             cursor: None,
             scan_at: 0,
+            publish_at: 0,
+            pending: Vec::new(),
         })
     }
 }

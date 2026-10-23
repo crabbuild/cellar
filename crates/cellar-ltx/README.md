@@ -74,13 +74,14 @@ truncation against the resulting SQLite header and full image digest. Published
 images are never patched in place. This first materialized implementation uses
 a full verified copy; it does not require filesystem reflinks.
 
-`GenerationStore::prepare_chain` applies several updates to one private copy.
-It verifies the full digest and checksum of every intermediate result before
-applying the next update, so a later overwrite cannot hide a corrupt image.
-Only the final image is sealed and returned. File, byte and page budgets apply
-to the whole batch; disk reservation covers its largest intermediate image.
-The single-update `prepare` uses the same path. `apply_limits` exposes the
-configured replay bounds for callers that split longer histories into batches.
+`GenerationStore::prepare_chain` replays several exact updates into one private
+image. It verifies every intermediate image's digest, SQLite geometry and optional
+rolling checksum before continuing, and seals only the final result. The existing
+file, encoded-byte, decoded-byte and page budgets apply to the whole chain;
+disk admission reserves twice the largest intermediate image, including growth
+that is later truncated. No intermediate pin is exposed. Archive recovery uses
+`limits()` to partition longer histories within the destination's captured limits,
+retiring each previous batch only after its successor is sealed.
 
 Image preparation also removes up to eight eligible retired files before its
 final directory sync, sharing that barrier with the new image's rename. Selected
@@ -108,6 +109,16 @@ marker, recovery and archive references are gone. Reader pins retain both the
 image and directory lock; bounded reclamation syncs deletion before refunding
 capacity. Default admission allows 64 generations and 512 MiB, reserving twice
 the largest intermediate image while an update is in progress.
+
+`GenerationStore::open_observed` attaches a `GenerationAccounting` observer to
+the same physical owner. Its constant-size snapshot reports open stores,
+generations, charged bytes, retained/busy images and aggregate capacities without
+I/O or directory enumeration. Pins retain the registration after store handles
+drop; reclamation refunds only synced deletion. Quarantine, poison or accounting
+overflow makes that observer unavailable for its remaining lifetime. Closing a
+store removes its reservations, but does not delete its durable image files;
+these observations do not inventory closed directories or grant reclamation
+authority. The ordinary `open` path does not enable accounting.
 
 After recovery adopts the complete authoritative reference set, `retain_only`
 retires the other inventory without selecting files by age or name. Every

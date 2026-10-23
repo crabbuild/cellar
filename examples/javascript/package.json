@@ -1,0 +1,5 @@
+{
+  "name": "cellar-typescript-example", "version": "0.6.2", "private": true, "type": "module",
+  "dependencies": {"@cellar/sdk": "file:../../packages/cellar-sdk", "zod": "4.6.7"},
+  "scripts": {"build": "node ../../tools/javascript/build.mjs javascript.json"}
+}

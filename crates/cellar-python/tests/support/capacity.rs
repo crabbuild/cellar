@@ -60,7 +60,7 @@ pub(super) fn child(mode: &str) -> Result<()> {
             1
         } else if mode == "objects" {
             4
-        } else if mode == "bytes" {
+        } else if matches!(mode, "bytes" | "nested-invocations" | "nested-remote") {
             3
         } else {
             2
@@ -94,32 +94,42 @@ pub(super) fn child(mode: &str) -> Result<()> {
                 .enable_all()
                 .build()?;
             runtime.block_on(async move {
-                let (node, url) = start_configured(
-                    directory.path(),
-                    application.clone(),
-                    "capacity",
-                    None,
-                    |config| config.runtime.handler_budget = Duration::from_secs(15),
-                )
-                .await?;
                 let client = reqwest::Client::builder()
                     .timeout(Duration::from_secs(12))
                     .build()?;
+                let remote = if host_mode == "nested-remote" {
+                    let bucket = cellar::bucket::Bucket::open_dev(&directory.path().join("fleet.sqlite"))?;
+                    let (owner, owner_url) = start_configured(
+                        &directory.path().join("owner"), application.clone(), "capacity-owner", Some(bucket.clone()),
+                        |config| config.runtime.handler_budget = Duration::from_secs(15),
+                    ).await?;
+                    let seeded: Value = client.get(format!("{owner_url}/nested/leaf")).send().await?
+                        .error_for_status()?.json().await?;
+                    ensure!(seeded["domain"] == "capacity-owner", "remote target was not placed on its owner");
+                    Some((owner, bucket))
+                } else { None };
+                let (node, url) = start_configured(
+                    &directory.path().join("primary"),
+                    application.clone(),
+                    "capacity",
+                    remote.as_ref().map(|(_, bucket)| bucket.clone()),
+                    |config| config.runtime.handler_budget = Duration::from_secs(15),
+                )
+                .await?;
                 match host_mode.as_str() {
                     "invocations" => {
                         let first = request(&client, &url, "/held/one");
                         let second = request(&client, &url, "/held/two");
                         observe(|view| active(view, "one") && active(view, "two")).await?;
-                        ensure!(
-                            client
+                        let refused = client
                                 .get(format!("{url}/health"))
                                 .timeout(Duration::from_secs(2))
                                 .send()
-                                .await?
-                                .status()
-                                .is_server_error(),
-                            "invocation limit admitted a third handler"
-                        );
+                                .await?;
+                        ensure!(refused.status() == reqwest::StatusCode::SERVICE_UNAVAILABLE,
+                            "Python invocation saturation must be HTTP 503, got {}", refused.status());
+                        ensure!(refused.json::<Value>().await? == json!({"error":"application admission refused", "code":"Overloaded", "outcome":"unknown"}),
+                            "Python invocation refusal lost its typed overload contract");
                         ensure!(
                             python_call("snapshot", None)?["visits"] == 2,
                             "refused handler entered Python"
@@ -133,6 +143,46 @@ pub(super) fn child(mode: &str) -> Result<()> {
                             .error_for_status()?;
                         python_call("release", Some("two"))?;
                         second.await??.error_for_status()?;
+                    }
+                    "nested-invocations" | "nested-remote" => {
+                        let before = python_call("snapshot", None)?;
+                        let first = request(&client, &url, "/held/one");
+                        let second = request(&client, &url, "/held/two");
+                        observe(|view| active(view, "one") && active(view, "two")).await?;
+                        let nested = client.get(format!("{url}/nested/leaf")).send().await?;
+                        ensure!(nested.status() == reqwest::StatusCode::SERVICE_UNAVAILABLE);
+                        let failure: Value = nested.json().await?;
+                        ensure!(failure == json!({"code":"Overloaded", "outcome":"unknown"}),
+                            "nested Python admission was not classified: {failure}");
+                        let after = python_call("snapshot", None)?;
+                        ensure!(after["created"] == before["created"] && after["cell_visits"] == before["cell_visits"],
+                            "refused nested handler entered Python");
+                        python_call("release", Some("one"))?;
+                        first.await??.error_for_status()?;
+                        let committed = client.get(format!("{url}/nested/commit")).send().await?;
+                        ensure!(committed.status() == reqwest::StatusCode::SERVICE_UNAVAILABLE);
+                        ensure!(committed.json::<Value>().await? == json!({"code":"Overloaded", "outcome":"unknown"}),
+                            "nested refusal fabricated a non-commit outcome");
+                        for path in ["/nested/commit-unhandled", "/private-overload"] {
+                            let propagated = client.get(format!("{url}{path}")).send().await?;
+                            ensure!(propagated.status() == reqwest::StatusCode::SERVICE_UNAVAILABLE,
+                                "propagated overload became an application fault: {path}");
+                            ensure!(propagated.json::<Value>().await? == json!({"error":"application admission refused", "code":"Overloaded", "outcome":"unknown"}),
+                                "propagated overload leaked private text or fabricated rollback: {path}");
+                        }
+                        ensure!(python_call("snapshot", None)?["created"] == 1,
+                            "refused child handler entered Python");
+                        python_call("release", Some("two"))?;
+                        second.await??.error_for_status()?;
+                        ensure!(client.get(format!("{url}/nested/state")).send().await?
+                            .error_for_status()?.json::<Value>().await? == true,
+                            "parent write was lost or nested refusal claimed rollback");
+                        ensure!(client.get(format!("{url}/nested/state-unhandled")).send().await?
+                            .error_for_status()?.json::<Value>().await? == true,
+                            "unhandled nested failure erased the parent's committed write");
+                        let subsequent: Value = client.get(format!("{url}/nested/leaf")).send().await?.error_for_status()?.json().await?;
+                        ensure!(subsequent["domain"] == if remote.is_some() {"capacity-owner"} else {"capacity"},
+                            "subsequent call changed owner/domain after refusal");
                     }
                     "tasks" => {
                         let result: Value = client
@@ -249,7 +299,11 @@ pub(super) fn child(mode: &str) -> Result<()> {
                         .await?
                         .error_for_status()?;
                 }
-                stop(node, &monitor).await
+                stop(node, &monitor).await?;
+                if let Some((owner, _)) = remote {
+                    stop(owner, &monitor).await?;
+                }
+                Ok(())
             })
         },
     );
@@ -289,6 +343,12 @@ pub(super) fn child(mode: &str) -> Result<()> {
         return Ok(());
     }
     let report = result?;
+    if mode == "nested-remote" {
+        ensure!(
+            report.native_outcomes.len() == 2,
+            "both native domains must report shutdown"
+        );
+    }
     ensure!(
         report.complete() && report.bridge.operations.settled(),
         "capacity refusal leaked work or poisoned host: {report:?}"

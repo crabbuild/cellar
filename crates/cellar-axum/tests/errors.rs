@@ -11,21 +11,25 @@ use std::sync::{
     Arc,
 };
 
-struct Overloaded(Arc<AtomicUsize>);
+struct Overloaded(Arc<AtomicUsize>, bool);
 
 impl Cell for Overloaded {
     fn invoke(self: Arc<Self>, _: Context, _: Invocation) -> HandlerFuture<Output> {
         Box::pin(async move {
             self.0.fetch_add(1, Ordering::SeqCst);
-            Err(cellar::engine_api::CellOverloaded.into())
+            Err(if self.1 {
+                cellar::sdk::ApplicationOverloaded.into()
+            } else {
+                cellar::engine_api::CellOverloaded.into()
+            })
         })
     }
 }
 
-fn definition(entered: Arc<AtomicUsize>) -> Result<ApplicationDefinition> {
+fn definition(entered: Arc<AtomicUsize>, application: bool) -> Result<ApplicationDefinition> {
     ApplicationBuilder::default()
         .cell("Counter", move |_, _| {
-            Ok(Arc::new(Overloaded(entered.clone())))
+            Ok(Arc::new(Overloaded(entered.clone(), application)))
         })?
         .cell_route("/counters/{name}", "COUNTERS", "Counter", "name")?
         .build()
@@ -34,13 +38,13 @@ fn definition(entered: Arc<AtomicUsize>) -> Result<ApplicationDefinition> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn forwarding_preserves_framework_overload_classification() -> Result<()> {
     let trace = lease_trace::install();
-    for external in [false, true] {
+    for (external, application) in [(false, false), (true, false), (false, true), (true, true)] {
         let dir = tempfile::tempdir()?;
         let entered = Arc::new(AtomicUsize::new(0));
         let observed = entered.clone();
         trace.mark(&format!("starting overload host external={external}"));
         let host = support::start(dir.path(), external, "", move || {
-            definition(observed.clone())
+            definition(observed.clone(), application)
         })
         .await
         .with_context(|| format!("starting overload host external={external}"))?;
@@ -53,8 +57,13 @@ async fn forwarding_preserves_framework_overload_classification() -> Result<()> 
                 .context("forwarded overload response head")?;
             trace.mark(&format!("overload response head external={external}"));
             ensure!(response.status() == 503, "{}", response.status());
-            ensure!(response.headers().contains_key("retry-after"));
-            ensure!(response.headers().get("x-cellar-overload").is_some());
+            if application {
+                ensure!(response.headers().get("x-cellar-overload").is_some_and(|value| value == "application"));
+                ensure!(response.json::<serde_json::Value>().await? == serde_json::json!({"error":"application admission refused", "code":"Overloaded", "outcome":"unknown"}));
+            } else {
+                ensure!(response.headers().contains_key("retry-after"));
+                ensure!(response.headers().get("x-cellar-overload").is_some());
+            }
             ensure!(
                 entered.load(Ordering::SeqCst) == 1,
                 "classified overload did not come from exactly one handler invocation"

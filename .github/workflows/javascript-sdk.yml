@@ -1,0 +1,94 @@
+name: JavaScript and Node SDK
+on:
+  pull_request:
+    paths:
+      - 'crates/**'
+      - 'packages/cellar-sdk/**'
+      - 'examples/javascript/**'
+      - 'examples/node/**'
+      - 'examples/pi-agent/**'
+      - 'tools/javascript/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/javascript-sdk.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  qualify:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    env:
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+      - name: Rust toolchain
+        run: |
+          rustup toolchain install 1.98.1 --profile minimal --component clippy --component rustfmt
+          rustup default 1.98.1
+      - name: Locked npm build
+        run: |
+          npm ci --prefix tools/javascript --ignore-scripts
+          npm ci --prefix examples/javascript --ignore-scripts
+          npm ci --prefix examples/node --ignore-scripts
+          npm ci --prefix examples/pi-agent --ignore-scripts
+          npm run --prefix examples/node build
+          npm run --prefix examples/pi-agent build
+          npm test --prefix examples/pi-agent
+          npm test --prefix tools/javascript
+          npm run --prefix examples/javascript build
+      - name: Adapter and real-node tests
+        run: cargo test --locked -p cellar-guest -p cellar-javascript --features cellar-javascript/embed,cellar-javascript/node
+      - name: Node-only feature
+        run: cargo test --locked -p cellar-javascript --no-default-features --features node
+      - name: Runtime archive and admission boundaries
+        run: |
+          cargo test --locked -p cellar --lib node_environment
+          cargo test --locked -p cellar --lib runtime_inventory
+          cargo test --locked -p cellar --lib python_environment::archive
+          cargo test --locked -p cellar --lib runtime_directories
+          cargo test --locked -p cellar --test native_artifacts
+      - name: Pi agent crash recovery
+        run: |
+          cargo build --locked -p cellar-javascript --no-default-features --features node --bin cellar-pi-agent-example
+          CELLAR_PI_HOST="${CARGO_TARGET_DIR:-$PWD/target}/debug/cellar-pi-agent-example" npm run --prefix examples/pi-agent test:e2e
+      - name: Quality and engine boundaries
+        run: |
+          cargo clippy --locked -p cellar-guest -p cellar-javascript --features cellar-javascript/embed,cellar-javascript/node --all-targets -- -D warnings
+          cargo format --check
+          cargo check-layout
+          python3 tools/check_native_dependencies.py
+          python3 tools/docs/check.py
+      - name: Native package
+        run: cargo run --locked -p cellar -- build examples/javascript/project.json --output .cellar/javascript-package
+      - name: Node runtime delivery
+        run: |
+          cargo build --locked -p cellar-javascript --no-default-features --features node --bin cellar-node-example
+          mkdir -p .cellar
+          node --input-type=module <<'JS'
+          import {writeFileSync} from 'node:fs';
+          import {resolve} from 'node:path';
+          writeFileSync('.cellar/node-delivery.json',JSON.stringify({host:resolve(process.env.CARGO_TARGET_DIR ?? 'target','debug/cellar-node-example'),application:'../examples/node',entry:'dist/app.js',files:['dist','package.json','package-lock.json','node_modules']}));
+          JS
+          node tools/javascript/node-package.mjs .cellar/node-delivery.json .cellar/node-delivery
+          .cellar/node-delivery/launch.sh --help
+          CELLAR_TEST_NODE_ENTRY="$PWD/.cellar/node-delivery/app/dist/app.js" CELLAR_TEST_NODE_EXECUTABLE="$PWD/.cellar/node-delivery/bin/node" cargo test --locked -p cellar-javascript --no-default-features --features node --test node_runtime
+      - name: Node fleet publish, restore and process recovery
+        run: |
+          node tools/javascript/node-package.mjs --runtime examples/node/runtime.json .cellar/node-runtime
+          cargo run --locked -p cellar -- build examples/node/project.json --output .cellar/node-fleet-package
+          # Restore from the published archive, without the captured source tree.
+          mv .cellar/node-runtime .cellar/node-runtime-captured
+          CELLAR_NODE_PACKAGE="$PWD/.cellar/node-fleet-package" cargo test --locked -p cellar-javascript --no-default-features --features node --test fleet_package published_node_package -- --ignored
+      - name: Pi agent installed package end to end
+        run: |
+          node tools/javascript/node-package.mjs --runtime examples/pi-agent/runtime.json .cellar/pi-agent-runtime
+          cargo run --locked -p cellar -- build examples/pi-agent/project.json --output .cellar/pi-agent-package
+          mv .cellar/pi-agent-runtime .cellar/pi-agent-runtime-captured
+          CELLAR_PI_PACKAGE="$PWD/.cellar/pi-agent-package" cargo test --locked -p cellar-javascript --no-default-features --features node --test fleet_package pi_agent_package -- --ignored --nocapture
+      - name: SDK archive
+        run: npm pack ./packages/cellar-sdk --pack-destination .cellar --ignore-scripts

@@ -1,0 +1,297 @@
+{
+  "task_id": "MR-14",
+  "source_revision": "729dd8e913617de4001acf1c4315d185b74f65f8",
+  "completion": "partial",
+  "scope": "Park consensus groups while their queued/in-flight log write awaits an exact sync receipt. No physical latency or capacity qualification in this slice.",
+  "implementation": [
+    "Derive persistence waiting from the existing Ready/light/apply/checkpoint/snapshot-abort phases; do not add another mutable durability flag. Uninstalled snapshots remain eligible for physical install/abort work.",
+    "Remove persistence waiters from the runnable queue without removing their independent FIFO write slots, reservations, deferred requests, coalesced ticks or hints.",
+    "Exact validated sync receipts wake their groups; rejected candidates wake failure reports. Backend admission overload preserves FIFO ordering and the existing retry deadline.",
+    "Existing acknowledgement, Ready, image-publication and resource-limit rules are unchanged. Global completion errors retain their fail-closed behavior."
+  ],
+  "reproducer": {
+    "baseline_revision": "c16f97afccae46ce2774b468b23e620be279d4f0",
+    "source_member": "red-source",
+    "log_member": "red-probe",
+    "observed": "32 groups awaiting new-term persistence remain in the runnable queue on the original scheduler. The focused regression fails at that bound.",
+    "fixed": "Hold the real persistence future, serve 32 unrelated heartbeats, then verify that each batch releases only its matching response set after actual engine persistence.",
+    "selection_correction": "The initial command combined a short filter with --exact and selected zero tests; it is retained and is not validation. The corrected selector executes one test and reproduces the intended failure."
+  },
+  "validation": {
+    "raft_unit_cases": 96,
+    "new_persistence_cases_included": 5,
+    "native_cases": 299,
+    "native_targets": 15,
+    "daemon": "separate custom production-process harness",
+    "regressions": [
+      "queued/in-flight waits leave runnable queue while independent heartbeat service continues",
+      "deferred per-group admission remains bounded and charged; coalesced hints/ticks survive",
+      "pre-I/O injected overload preserves FIFO and retry backoff",
+      "real engine candidate rejection reports failure and permits the next batch",
+      "mismatched receipt group identities never wake or acknowledge waiters"
+    ],
+    "notes": [
+      "The overload test injects a backend refusal before polling the I/O future; it supplies no success receipt. The candidate rejection test exercises the real engine with a term-regressing queued candidate.",
+      "Final unit inventory and all 96 unit cases were rerun after making the new backoff assertion independent of a ten-millisecond wall-clock race. Production sources were unchanged during integration validation.",
+      "These tests establish scheduler behavior and durability boundaries, not the cause of every prior physical queue/latency burst."
+    ]
+  },
+  "checks": [
+    {
+      "name": "unit-list",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--lib",
+        "--locked",
+        "raft::",
+        "--",
+        "--list"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 90.48520517349243,
+      "sha256": "b3c1ee0a066f9af21a65639dec84f0bf6c5af9290e28bb65aa66d001261942ff",
+      "source_revision": "729dd8e913617de4001acf1c4315d185b74f65f8",
+      "output": "evidence/MR-14-persistence-validation.json.gz",
+      "log_member": "unit-list"
+    },
+    {
+      "name": "unit-tests",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--lib",
+        "--locked",
+        "raft::",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 9.639518022537231,
+      "sha256": "0f1e50b1b3f25f2f3744afa405e140d23b55adc61bb7686d04c60ddf59a24b89",
+      "source_revision": "729dd8e913617de4001acf1c4315d185b74f65f8",
+      "output": "evidence/MR-14-persistence-validation.json.gz",
+      "log_member": "unit-tests"
+    },
+    {
+      "name": "native-list",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--locked",
+        "--test",
+        "native_raft_archive",
+        "--test",
+        "native_raft_contract",
+        "--test",
+        "native_raft_directory",
+        "--test",
+        "native_raft_effects",
+        "--test",
+        "native_raft_execution",
+        "--test",
+        "native_raft_host",
+        "--test",
+        "native_raft_ltx",
+        "--test",
+        "native_raft_membership",
+        "--test",
+        "native_raft_multigroup",
+        "--test",
+        "native_raft_operations",
+        "--test",
+        "native_raft_reads",
+        "--test",
+        "native_raft_runtime",
+        "--test",
+        "native_raft_snapshot",
+        "--test",
+        "native_raft_storage",
+        "--test",
+        "native_raft_transport",
+        "--",
+        "--list"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 156.1552450656891,
+      "sha256": "eb0331bdfd1889516852dd06a033b51d4c9db62561fd7623051dfa882b8cb596",
+      "source_revision": "729dd8e913617de4001acf1c4315d185b74f65f8",
+      "output": "evidence/MR-14-persistence-validation.json.gz",
+      "log_member": "native-list"
+    },
+    {
+      "name": "native-tests",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--locked",
+        "--test",
+        "native_raft_archive",
+        "--test",
+        "native_raft_contract",
+        "--test",
+        "native_raft_directory",
+        "--test",
+        "native_raft_effects",
+        "--test",
+        "native_raft_execution",
+        "--test",
+        "native_raft_host",
+        "--test",
+        "native_raft_ltx",
+        "--test",
+        "native_raft_membership",
+        "--test",
+        "native_raft_multigroup",
+        "--test",
+        "native_raft_operations",
+        "--test",
+        "native_raft_reads",
+        "--test",
+        "native_raft_runtime",
+        "--test",
+        "native_raft_snapshot",
+        "--test",
+        "native_raft_storage",
+        "--test",
+        "native_raft_transport",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 454.51320481300354,
+      "sha256": "2bc44be8ef13a6d3be72a7dc60bc9763a26ddb93c60a950e547f31a07a68fd58",
+      "source_revision": "729dd8e913617de4001acf1c4315d185b74f65f8",
+      "output": "evidence/MR-14-persistence-validation.json.gz",
+      "log_member": "native-tests"
+    },
+    {
+      "name": "daemon",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--test",
+        "native_raft_daemon",
+        "--locked"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 25.011954069137573,
+      "sha256": "411d7b577e42d9816debb371b8aa195fbf74ec89d7fab0262362a648df1f1e5b",
+      "source_revision": "729dd8e913617de4001acf1c4315d185b74f65f8",
+      "output": "evidence/MR-14-persistence-validation.json.gz",
+      "log_member": "daemon"
+    },
+    {
+      "name": "clippy",
+      "command": [
+        "cargo",
+        "clippy",
+        "-p",
+        "cellar",
+        "--all-targets",
+        "--all-features",
+        "--locked",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 66.41384482383728,
+      "sha256": "0e1a11cf5f3dcc9fa155eba879e3cb217aaed6c6d4bde60fd43d6bc509757cdf",
+      "source_revision": "729dd8e913617de4001acf1c4315d185b74f65f8",
+      "output": "evidence/MR-14-persistence-validation.json.gz",
+      "log_member": "clippy"
+    },
+    {
+      "name": "format-check",
+      "command": [
+        "cargo",
+        "format",
+        "--check"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 46.040297985076904,
+      "sha256": "e28721c922366ae7c8e0826e1617f374e82678a0eefd6bb2f187a5056e793a75",
+      "source_revision": "729dd8e913617de4001acf1c4315d185b74f65f8",
+      "output": "evidence/MR-14-persistence-validation.json.gz",
+      "log_member": "format-check"
+    },
+    {
+      "name": "layout",
+      "command": [
+        "cargo",
+        "check-layout"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 0.46647119522094727,
+      "sha256": "a5e63c378d503f33a2c2a112951194a3f02446da24a0dc1943d381b30982eec5",
+      "source_revision": "729dd8e913617de4001acf1c4315d185b74f65f8",
+      "output": "evidence/MR-14-persistence-validation.json.gz",
+      "log_member": "layout"
+    },
+    {
+      "name": "native-dependencies",
+      "command": [
+        "python3",
+        "tools/check_native_dependencies.py"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 0.2527658939361572,
+      "sha256": "faf9bdb8df5819a63d590ede5d4a5f43eb4e8b00d8a6f44ccfb36bd8c4c5c238",
+      "source_revision": "729dd8e913617de4001acf1c4315d185b74f65f8",
+      "output": "evidence/MR-14-persistence-validation.json.gz",
+      "log_member": "native-dependencies"
+    },
+    {
+      "name": "docs",
+      "command": [
+        "python3",
+        "tools/docs/check.py"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 0.08674788475036621,
+      "sha256": "701e55367b1b8c08dcd388c3084250c7209af81cb161e4ba73339783b537eeb3",
+      "source_revision": "729dd8e913617de4001acf1c4315d185b74f65f8",
+      "output": "evidence/MR-14-persistence-validation.json.gz",
+      "log_member": "docs"
+    }
+  ],
+  "raw_output": [
+    {
+      "path": "evidence/MR-14-persistence-validation.json.gz",
+      "bytes": 68128,
+      "sha256": "ea0b050706bf1e7d6d1c884d75d009e23574076b3a2d4396203972ffad074371"
+    }
+  ],
+  "prior_run_diagnosis": {
+    "source_revision": "e788e35554ec2562ad027285af22d082c3d26593",
+    "input": "plans/multi-raft/evidence/MR-14-pipeline-local-runs.json.gz",
+    "input_sha256": "4a5c11b5d7a7dcb68380515d34a034c5a26491a640e3ba87806e343c89abb3ce",
+    "raw_member": "prior-diagnosis",
+    "findings": [
+      "The prior 1,500-cell control throughput drops during the same observation intervals as queue buildup and longer sample/SQL phase durations; correlation does not identify the causal sub-operation.",
+      "The prior repeated 150-cell control ends with host load averages 22.93/15.93/11.79 and 12,517 MiB swap used on a 32-GiB Mac. Its first control meets traffic targets.",
+      "Current Colima inventory has default (2 GiB) and cellar-raft-perf (16 GiB) running; the dedicated five-node profile (22 GiB) is stopped. Configured VM limits would total 40 GiB, which is not a measure of actual resident memory."
+    ]
+  },
+  "limitations": [
+    "No new physical benchmark was launched; the dedicated profile remains stopped and other profiles were not mutated. Original physical outcomes and source pins are unchanged.",
+    "This removes demonstrated redundant scheduler work during persistence waits. Its contribution to the earlier shared-host latency and control-queue bursts is not established.",
+    "No equivalent-contract speedup, sustained S3 latency, Q1 capacity, independent failure domains, Amazon S3 or soak qualification."
+  ],
+  "remaining": [
+    "Complete matched-durability benchmark/fault execution and repeatable performance acceptance; preserve the original numeric gates and five-node authorization.",
+    "Continue causal analysis of physical queue/latency bursts in a controlled measurement window.",
+    "MR-13 management/receipt qualification/fenced disaster restore; MR-15 release qualification; MR-16 scale and MR-17 federation remain open."
+  ]
+}

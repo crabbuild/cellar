@@ -1,0 +1,10 @@
+{
+  "format": 1,
+  "target": "object-store",
+  "pause_ms": 12000,
+  "max_pause_ms": 14000,
+  "interval_ms": 15000,
+  "start_after_seconds": 3,
+  "stop_before_seconds": 3,
+  "max_start_lateness_ms": 250
+}

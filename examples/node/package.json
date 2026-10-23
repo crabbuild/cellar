@@ -1,0 +1,20 @@
+{
+  "name": "cellar-node-example",
+  "version": "0.6.2",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@cellar/sdk": "file:../../packages/cellar-sdk",
+    "@node-rs/argon2": "2.2.2",
+    "lodash": "4.18.1",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.2"
+  },
+  "scripts": {
+    "build": "node ../../tools/javascript/node-build.mjs tsconfig.json"
+  }
+}

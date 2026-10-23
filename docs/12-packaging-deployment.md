@@ -109,3 +109,20 @@ Sources: [builder](../crates/cellar/cli/native_deploy/build.rs),
 [protocol](../crates/cellar/deployment/protocol.rs).
 
 Embedded CPython projects can declare a target-specific `python_environment` inventory/archive. Native build/publish/install verifies and transports the closure using the `embedded-python-v1` feature gate; the installer requires an explicit immutable `--python-root`. Generation admission also checks the process-bound inventory digest. See the [environment workflow](../tools/python/README.md) and [qualification gates](../plans/007-embedded-python-pyo3.md#implementation-milestones-and-acceptance-gates).
+
+
+## Node.js runtime resources
+
+Projects using the optional Node backend can declare `node_environment` with an
+immutable root, Node executable, application entry and working directory.
+`cellar build` captures the full regular-file tree before compilation and embeds
+its inventory in the host. `cellar deploy` verifies and publishes the runtime
+archive before the deployment selector; `cellar install --node-root PREFIX`
+restores the exact compiled prefix before publishing the executable. Existing
+runtime directories are verified and never overwritten. The `node-runtime-v1`
+feature gate and process inventory check prevent admission with a mismatched
+runtime or npm graph. Native-only hosts retain no JavaScript engine dependency.
+
+See the [Node.js fleet workflow](../examples/node/README.md#native-fleet-packaging-and-installation)
+for runtime preparation and target-platform constraints. The separate relocatable
+Node directory format remains available for local-graph delivery.

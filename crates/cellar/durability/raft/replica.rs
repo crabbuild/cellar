@@ -197,6 +197,28 @@ impl Replica {
         !self.idle() || self.has_ready() || self.ready_bytes != 0 || !self.apply.is_empty()
     }
 
+    /// Only the matching persistence completion can advance these phases.
+    /// An uninstalled snapshot still needs its physical install/abort event;
+    /// it must not be mistaken for a pending log write.
+    pub fn waiting_for_persistence(&self) -> bool {
+        if !self.outbound.is_empty() {
+            return false;
+        }
+        match &self.phase {
+            Phase::Ready {
+                ready,
+                synced: false,
+                snapshot_authorized,
+                ..
+            } => ready.snapshot().is_empty() || *snapshot_authorized,
+            Phase::Light { synced: false, .. }
+            | Phase::Checkpoint { synced: false, .. }
+            | Phase::AbortSnapshot { synced: false, .. }
+            | Phase::Apply { synced: false, .. } => true,
+            _ => false,
+        }
+    }
+
     pub fn pending_reads(&self) -> usize {
         self.node.raft.read_only.pending_read_count()
     }

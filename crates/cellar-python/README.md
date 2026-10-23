@@ -5,6 +5,9 @@ an example-only buffered ASGI HTTP transport, durable cells and verified package
 deployment. General ASGI lifespan, WebSocket and streaming support remain outside
 the adapter's current SDK contract.
 
+The [PydanticAI agent](../../examples/python-agent/README.md) demonstrates
+durable model/tool steps, saved conversations and pending-alarm restart recovery.
+
 `cellar-python` implements Cellar's native `Application` and `Cell` contracts using
 PyO3 and **CPython 3.14 or free-threaded CPython 3.14t**. Enable the optional `embed` feature. A compiled
 Rust executable includes the Python source and starts one interpreter and one
@@ -129,10 +132,31 @@ separate operations.
 
 `Options` bounds concurrent invocations, request/response bytes, bridge value
 bytes, aggregate native bridge bytes, operations per invocation, operations per atomic batch, live asyncio tasks and resident Python objects. Admission
-fails immediately when full. `max_pending_operations` bounds each invocation's
+fails immediately when full. Top-level handlers and nested Python cell calls
+share `max_invocations`; a suspended caller continues to occupy a slot. Size
+admission for the application's fan-out instead of assuming every slot can
+serve an independent HTTP request. Capacity refusal uses the native SDK's
+`ApplicationOverloaded` contract: public HTTP returns 503 and SDK calls raise
+`Overloaded`, with an `unknown` mutation outcome. A caller may already have
+committed before a nested call was refused. The adapter does not retry it,
+and ownership/output-proof failures still take precedence. Closed runtime
+admission is a lifecycle failure, distinct from capacity exhaustion.
+`max_pending_operations` bounds each invocation's
 operation/completion mailbox (32 entries by default); zero and unsupported
 capacities are refused before bootstrap. The result mailbox holds at most twice
 `max_invocations` replies. Refused sends release their byte reservations.
+HTTP invocation bodies cross into Python as immutable bytes beside the JSON
+metadata. The value and aggregate bridge budgets still charge the complete
+base64-equivalent envelope, preserving admission limits without allocating that
+encoded body. The interpreter copies the body while its native reservation is
+held; queued, refused and cancelled invocations release that reservation normally.
+HTTP completions likewise pass an immutable byte body beside their metadata.
+Native byte and mailbox capacity are reserved before copying it into Rust; the
+reservation remains owned through response validation. Completion metadata and
+the body share the same base64-equivalent envelope limit as encoded delivery.
+Ordinary HTTP metadata uses a shallow encoder with owned header snapshots and
+identical JSON escaping and key order. Unusual metadata and subclasses retain
+the general SDK encoder; native HTTP validation and byte limits still apply.
 `max_value_bytes` limits the serialized UTF-8 JSON envelope of an entire atomic
 batch, rather than each row separately. `max_batch_operations` counts checks,
 puts, deletes and an optional alarm decision together. Rejected oversized
@@ -162,11 +186,39 @@ For alarms, persist a business occurrence ID in the same `apply` batch as
 use the persisted identity for the receipt, and commit that receipt with the
 business effect. The example uses a checked durable sequence and retains its
 current intent so a retry with a different delivery deadline still deduplicates.
-The single interpreter polls bridge messages every millisecond by default;
-`poll_interval` controls this latency/idle-CPU tradeoff. This is a first adapter,
-not a throughput-qualified Python service. The bridge report distinguishes queued/peak native bridge bytes, reservation totals and explicit UTF-8 copy bytes; it excludes Python heap, JSON/base64 intermediate allocations and native transport copies.
+The interpreter's asyncio loop wakes on native invocation admission, host
+replies, invocation cancellation, activation retirement and host completion.
+A nonblocking Unix socket pair carries coalesced readiness bytes; it carries no
+request data or SDK authority. Producers never acquire the GIL, call Python or
+wait for the interpreter. SDK operations still execute in their original native
+invocation. Notification failures fail the runtime instead of claiming a clean
+shutdown, and the loop removes its reader before the runtime closes the sockets.
+Native proxy destruction also publishes a coalesced retirement flag. The loop
+scans resident objects only after consuming that flag, so ordinary requests do
+not check every idle cell. Consuming the flag before the scan preserves concurrent
+retirements for another pass. Each SDK operation still checks its native owner
+and invocation authority independently of this cleanup optimization.
+
+The pump admits at most 64 starts before yielding to the event loop. Continuous
+arrivals, including requests rejected at task capacity, cannot indefinitely
+postpone timers and task cancellation. A deferred continuation services queued
+starts without waiting for another native notification.
+Managed invocations start eagerly until their first await; handlers that finish
+inline avoid an extra task-dispatch turn and completion callback. They still use
+the bounded task factory and invocation context. Individual handlers remain
+cooperative and can block the interpreter.
+
+`poll_interval` now bounds housekeeping waits (250 ms by default), rather than
+delaying ordinary requests. The telemetry deadline may shorten that wait. A
+longer housekeeping interval delays observation of background thread/unraisable
+failures and notification-channel faults; it does not delay normal admission,
+replies or native retirement. Throughput and capacity still need qualification
+against the application's workload and fleet. The bridge report distinguishes queued/peak native bridge charges, reservation totals and explicit UTF-8/body copy bytes; it excludes Python heap, JSON/base64 intermediate allocations and native transport copies.
 The managed task factory enforces `max_tasks` even for callbacks with an empty
-context. Shutdown can create up to two explicit supervisor tasks to join existing
+context. Each admission scans the live asyncio task registry once, including
+tasks constructed outside the factory. A refused invocation closes its unstarted
+coroutine and context before the pump continues; it never starts the handler.
+Shutdown can create up to two explicit supervisor tasks to join existing
 work; the reported peak includes them. These are cooperative resource limits,
 not isolation from trusted code that constructs raw `asyncio.Task` objects or
 replaces the task factory. Raw application threads and external native pools
@@ -314,8 +366,11 @@ library pools. Handler timing includes host awaits and can overlap across
 concurrent handlers, so its sum is not process elapsed time. The report also
 records whole-process peak RSS and initial/final CPython allocated-block counts.
 These are measurements, not per-cell limits or Python-only memory attribution.
-`loop_delay` measures lateness after the managed pump's scheduled wake, including
-blocking Python, GIL contention and OS scheduling; it cannot isolate one cause.
+`loop_delay` measures ready-queue checkpoint delay and housekeeping timer
+lateness, including blocking Python, GIL contention and OS scheduling; it cannot
+isolate one cause. Checkpoints cover inline pump/handler work and follow resumed
+handlers so a long housekeeping interval does not hide short blocking handlers. Time spent awaiting
+host I/O is not counted as event-loop delay.
 The exact bounded histogram layout is available through
 `LatencyReport::upper_bounds_ns()`: inclusive bounds of 1 µs, 10 µs, 100 µs,
 1 ms, 10 ms, 100 ms, 1 s and 10 s, followed by an unbounded bucket. Counts are
@@ -327,7 +382,7 @@ running and pending-reply work, success/failure, delivered replies and separate
 queued/running/undelivered abandonment. Queue wait, native SDK duration, completion
 to reply dequeue and admission to reply dequeue have bounded histograms. Native
 SDK duration includes parsing, validation and host await time; it is not Rust CPU
-time. Reply timing includes encoding and loop polling, and excludes subsequent
+time. Reply timing includes encoding and loop scheduling, and excludes subsequent
 Python future consumption. Dropped native futures retain their duration and
 terminal accounting without calling Python. `Report::complete()` requires zero
 pending work and matching admitted/terminal and started/completed counts; this
@@ -335,7 +390,9 @@ does not infer rollback of abandoned mutations.
 
 `reserved_bytes_total` counts successful payload reservations, including later
 abandonment. `input_copied_bytes` and `output_copied_bytes` count explicit owned
-UTF-8 copies across the adapter boundary. Admission checks precede Rust-owned
+UTF-8 and raw HTTP body copies across the adapter boundary. HTTP body
+charges conservatively include their base64-equivalent length, while copy counters
+record the raw body length actually copied across the boundary. Admission checks precede Rust-owned
 input copies; SDK operation names are bounded to 64 bytes. These counters exclude
 codec temporaries, Python UTF-8 caches and native transport/library copies. They
 are distinct from allocation bytes.

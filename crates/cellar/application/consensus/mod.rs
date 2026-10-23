@@ -6,12 +6,17 @@
 pub(crate) mod admission;
 mod class;
 pub(crate) mod client;
+mod performance;
+pub use performance::{
+    RaftDurationBucket, RaftOperationPerformance, RaftPerformanceCounter, RaftPerformanceSnapshot,
+};
 mod readiness;
 pub use readiness::{RaftQueryReadiness, RaftReplicaRole};
 mod resource_metrics;
 mod resources;
 pub use resources::{
-    RaftBudgetUsage, RaftQueryPinUsage, RaftResourceUsage, RaftSqlUsage, RaftTransportBanks,
+    RaftBudgetUsage, RaftConnectionReservations, RaftControllerResources, RaftGroupResources,
+    RaftImageUsage, RaftQueryPinUsage, RaftResourceUsage, RaftSqlUsage, RaftTransportBanks,
     RaftTransportResources,
 };
 pub(crate) mod protocol;
@@ -24,6 +29,7 @@ pub use crate::raft::effects::{
     RaftEffectVerificationKey, RaftInbox, RaftNativeEffectSink, RaftOutbox, RaftOutboxLimits,
     RaftOutboxProgress,
 };
+pub use crate::raft::receipt_maintenance::ReceiptMaintenanceLimits;
 
 pub use crate::raft::catalog::{
     BirthProposal, CatalogOptions, InitialMember, NamespaceConfig, VoterPolicy,

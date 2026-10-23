@@ -63,6 +63,7 @@ mod event_wait;
 mod ingress;
 pub(crate) mod operations;
 mod raft_metrics;
+mod raft_startup;
 mod source_operator;
 mod stream_operator;
 mod wake_discovery;
@@ -71,8 +72,10 @@ pub use embedded::*;
 #[cfg(not(cellar_internal_tests))]
 pub use ingress::{IngressBody, IngressHandle, IngressResponse};
 mod native;
+mod native_raft;
 use native::Backend;
 pub use native::{CompiledApplications, NativeDaemon};
+pub use native_raft::{NativeRaftCells, NativeRaftNode};
 
 /// Explicit configuration for the node's shared Raft infrastructure. Cell
 /// registration and namespace routing remain separate application contracts.
@@ -1977,6 +1980,22 @@ fn cell_overload_response() -> HttpReply {
     refused
 }
 
+fn application_overload_response() -> HttpReply {
+    let mut refused = response(
+        StatusCode::SERVICE_UNAVAILABLE,
+        "{\"error\":\"application admission refused\",\"code\":\"Overloaded\",\"outcome\":\"unknown\"}",
+    );
+    refused.headers_mut().insert(
+        hyper::header::CONTENT_TYPE,
+        hyper::header::HeaderValue::from_static("application/json"),
+    );
+    refused.headers_mut().insert(
+        hyper::header::HeaderName::from_static("x-cellar-overload"),
+        hyper::header::HeaderValue::from_static("application"),
+    );
+    refused
+}
+
 // The peer parser returns before a streamed body can cross its limit, so this
 // error arrives from the Worker and must retain the ingress 413 contract.
 fn internal_do_worker_error(error: anyhow::Error) -> HttpReply {
@@ -2288,6 +2307,9 @@ async fn dispatch_cell_fetch(
             response(StatusCode::PAYLOAD_TOO_LARGE, "request body too large")
         }
         Ok(Err(error)) if cell_overload_error(&error) => cell_overload_response(),
+        Ok(Err(error)) if crate::application::ApplicationOverloaded::matches(&error) => {
+            application_overload_response()
+        }
         Ok(Err(error)) => match error.downcast_ref::<RoutedRequestError>() {
             Some(error) => response(
                 StatusCode::SERVICE_UNAVAILABLE,
@@ -2767,6 +2789,9 @@ where
             response(StatusCode::PAYLOAD_TOO_LARGE, "request body too large")
         }
         Err(error) if cell_overload_error(&error) => cell_overload_response(),
+        Err(error) if crate::application::ApplicationOverloaded::matches(&error) => {
+            application_overload_response()
+        }
         Err(error) => match error.downcast_ref::<crate::pool::AdmitError>() {
             // Saturation is not a failure of the request. Answering it now
             // lets the caller retry or shed; holding the connection until its
@@ -3803,6 +3828,7 @@ fn shutdown_accept_failure_test_action() -> Action {
         unsafe_public_advertise: false,
         trust_forwarded_headers: false,
         dev_store: None,
+        data_dir: None,
     })
 }
 
@@ -3868,6 +3894,7 @@ fn run_host(
     local_graph: Option<DeploymentGraph>,
     stop: Option<HostStop>,
     observer: Option<HostObserver>,
+    raft: Option<native_raft::Startup>,
 ) -> anyhow::Result<()> {
     crate::env_vars::validate()?;
     // Parse the telemetry group once, before any command or runtime work.
@@ -3887,6 +3914,7 @@ fn run_host(
         local_graph,
         stop,
         observer,
+        raft,
     ))
 }
 
@@ -3896,8 +3924,11 @@ async fn async_main(
     mut local_graph: Option<DeploymentGraph>,
     stop: Option<HostStop>,
     observer: Option<HostObserver>,
+    raft: Option<native_raft::Startup>,
 ) -> anyhow::Result<()> {
+    let mut stop = stop;
     let return_to_caller = stop.is_some();
+    let raft_enabled = raft.is_some();
     #[cfg(all(test, cellar_internal_tests))]
     let shutdown_accept_failure_test_active =
         std::env::var_os("CELLAR_DRAIN_ACCEPT_FAILURE_CHILD").is_some();
@@ -4267,9 +4298,28 @@ async fn async_main(
     };
     let max_releases = crate::env_vars::positive::<usize>("CELLAR_RELEASES")?
         .unwrap_or(DEFAULT_MAX_CONCURRENT_RELEASES);
-    let data_dir = std::env::var_os("CELLAR_TEST_DATA_DIR")
-        .or_else(|| std::env::var_os("CELLAR_WATCH"))
-        .map(std::path::PathBuf::from)
+    if raft_enabled {
+        anyhow::ensure!(
+            settings
+                .data_dir
+                .as_ref()
+                .is_some_and(|path| path.is_absolute()),
+            "Raft CLI startup requires --data-dir with an absolute persistent directory"
+        );
+        anyhow::ensure!(
+            std::env::var_os("CELLAR_TEST_DATA_DIR").is_none()
+                && std::env::var_os("CELLAR_WATCH").is_none(),
+            "Raft CLI startup refuses test/dev directory overrides; use --data-dir"
+        );
+    }
+    let data_dir = settings
+        .data_dir
+        .clone()
+        .or_else(|| {
+            std::env::var_os("CELLAR_TEST_DATA_DIR")
+                .or_else(|| std::env::var_os("CELLAR_WATCH"))
+                .map(std::path::PathBuf::from)
+        })
         .unwrap_or_else(|| std::env::temp_dir().join(format!("cellar-{}", std::process::id())));
     let asset_cache = crate::assets::AssetCache::new(crate::assets::AssetCacheOptions::from_env(
         data_dir.join("asset-cache"),
@@ -4880,6 +4930,30 @@ async fn async_main(
     let services = crate::asyncrt::services();
     let initial_sample = crate::asyncrt::try_blocking(move || services.sample_metrics())?.await?;
     actor.store_load_sample(initial_sample);
+    let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+    let mut sigint = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())?;
+    if let Some(raft) = raft {
+        let result = {
+            let supplied_stop = async {
+                match stop.as_mut() {
+                    Some(stop) => stop.await,
+                    None => std::future::pending::<()>().await,
+                }
+            };
+            crate::asyncrt::select! {
+                result = raft.start(&app, data_dir.clone(), node.clone(), fleet_bucket.is_some()) => result,
+                _ = supplied_stop => Err(anyhow::anyhow!("Raft startup cancelled by host")),
+                _ = sigterm.recv() => Err(anyhow::anyhow!("Raft startup interrupted by SIGTERM")),
+                _ = sigint.recv() => Err(anyhow::anyhow!("Raft startup interrupted by SIGINT")),
+            }
+        };
+        if let Err(error) = result {
+            let _ = crate::asyncrt::services().raft_lifecycle().close().await;
+            #[cfg(not(cellar_internal_tests))]
+            crate::asyncrt::shutdown_process_domain().await;
+            return Err(error.context("production Raft startup refused; retain replica disks"));
+        }
+    }
     // The core is a serial ownership actor, not a Worker executor. It owns the
     // node lease timer, so ingress, proxy retries, and restore completions must
     // not consume every scheduler turn it needs. Its isolated single-thread
@@ -5192,7 +5266,7 @@ async fn async_main(
     // Arm the schedule, then watch the pointer. Adoption arms it again, so
     // a cron change travels with the deployment that carries it.
     spawn_cron_arm(app.clone());
-    if let Some(bucket) = deploy_bucket {
+    if let Some(bucket) = deploy_bucket.filter(|_| !raft_enabled) {
         start_pointer_watcher(
             app.clone(),
             DeploymentResources {
@@ -5237,8 +5311,6 @@ async fn async_main(
         internal_listener.local_addr()?,
         app.advertise
     ))?;
-    let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
-    let mut sigint = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())?;
     #[cfg(not(cellar_internal_tests))]
     let stop_operations = fleet_bucket
         .clone()

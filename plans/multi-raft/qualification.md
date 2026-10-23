@@ -101,10 +101,37 @@ overlapping application traffic.
 
 ## Harness delivery
 
-MR-14 extends the existing `tools/perf` patterns with proposed files
-`tools/perf/raft_run.py`, `raft_workload.rs` and a Cargo binary
-`cellar-perf-raft`. MR-15 adds `raft_history.py`, regression tests and result schema.
-They are future implementation outputs, not present executables in this package.
+MR-14 now provides `tools/perf/raft_run.py`, the native `raft_workload.rs`
+reference application in `cellar-perf-raft`, and `raft_analyze.py` for independent
+serialized-history and replica reconciliation. Controlled slow-follower runs add
+bounded process pauses, observed majority progress during third-voter lag and
+exact final replica recovery. The target's concurrent leader/query-follower roles
+are reported separately. Both Raft and Fleet/bucket runners also implement the
+shared `s3-outage` RustFS process-pause schedule and healthy controls. Independent
+checks require fresh submitted command witnesses, preserve each acknowledgement
+policy, refuse unresolved histories and bound final state recovery. The
+[eight-run physical matrix](evidence/MR-14-store-physical-progress.json) reconciles
+all four policies under bounded pauses, while retaining three outage traffic
+misses. It does not make cross-adapter contracts equivalent or qualify longer
+failures with ambiguous outcomes. A separate `s3-recovery` scenario now retains
+timed-out commands in measurement and resolves their original identities after
+measurement, requiring two matching receipts and the unchanged recovery bound.
+The [local recovery drills](evidence/MR-14-recovery-progress.json) recover four
+ambiguous commands in one Raft S3 run and one bucket run, while retaining a
+rejected Raft harness attempt and a bucket repeat that fences an expired owner.
+Both completed runs miss traffic targets. The distinct bucket-only
+`s3-fenced-recovery` scenario requires all owners to join their expired-lease
+fences before one exact-container restart on retained volumes. Two
+[local restart drills](evidence/MR-14-restart-progress.json) preserve every
+acknowledged prefix before retry, recover eight original identities and commit
+twelve new writes each within the original recovery bound. Missing old-process
+final counters explicitly prevent performance qualification. Mixed-owner restart,
+cold/disaster restore and broader long-outage recovery remain open.
+The runners refuse other unimplemented fault scenarios
+and soak before creating workload resources.
+`tools/perf/raft-performance.md` gives its current executable interface and
+qualification limits. MR-15's concurrent `raft_history.py` checker and complete
+fault/result qualification remain future outputs.
 
 Required runner interface:
 
@@ -112,7 +139,8 @@ Required runner interface:
 python3 tools/perf/raft_run.py
   --image <verified-image-digest>
   --profile <checked-in-workload.json>
-  --scenario <healthy|leader-loss|minority-partition|disk-stall|s3-outage|snapshot-crash>
+  --scenario <healthy|slow-follower|leader-loss|minority-partition|disk-stall|s3-outage|s3-recovery|snapshot-crash>
+  --fault-profile <checked-in-fault.json>  # required for slow-follower/s3-outage/s3-recovery; optional healthy control
   --output <new-run-directory>
 ```
 

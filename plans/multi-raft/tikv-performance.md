@@ -42,12 +42,78 @@ Admission scans average about 0.10 ms and archive inventory scans 0.16–0.17 ms
 they are lower priorities than the measured execution and queueing costs.
 These are nested operation means, not additive portions of request latency.
 
-The next integration prerequisite is main's `0903e80` (PR #94), observed at
-`64ebaf7`. It independently adds archive batching, transport changes, resource
-accounting and a richer performance runner. A read-only merge preview finds
-conflicts in these same components. Combine the contracts and regression cases
-before treating the measured branch as ready to merge; a source merge alone
-does not qualify performance of the integrated runtime.
+Main's `0903e80` (PR #94), observed at `64ebaf7`, independently adds archive
+batching, transport changes, resource accounting and a richer performance runner.
+Integration resolves the overlapping source changes; the combined runtime
+still needs a fresh frozen performance comparison. The combined
+archive scheduler bounds total retained cuts by `max_producers`, independently
+of the two-cell object batch limit. A completed capture has a fixed 5-ms
+collection deadline and its own host wakeup, so another cell's held SQL capture
+cannot extend that deadline. Compatible namespaces, schemas, roots and stores
+are required for batching. Archive seed reads additionally reserve up to 32 MiB
+for four containing-bundle buffers, retaining the reservation through cancelled
+physical extraction.
+
+The integration preserves main's eight-frame control window, per-frame
+authenticated outcomes, connection accounting and bidirectional exchange. A
+new real-TLS regression exposes the merged serial data lane: a second group's
+write-bearing append cannot reach its peer before the first admission reply.
+The restored data window drains at most sixteen already-admitted frames and
+1 MiB of conservatively charged bytes. A larger frame travels alone; a deferred
+frame keeps its FIFO position, queue timer and original permits. There is no
+wait to fill a window. Invalid replies cannot acknowledge their matching frame;
+earlier authenticated outcomes remain observed admission. Prior throughput
+results still cannot be assigned to the merged runtime.
+
+The native bundle failure exposed two integration boundaries. Its fixture
+assumed one old publication; concurrent producers need their old head
+publications synchronized before testing the next shared object. Even with
+both publications completing in the same millisecond, a receipt lookup kept
+one cell SQL-busy during the archive inventory scan. The cached empty scan
+then delayed that newly idle cell until maintenance, missing the collection
+window. SQL completion now invalidates that scan only when unarchived work
+exists outside an in-flight publication. The previously failing native case
+passes with the exact shared-object, lost-PUT confirmation, four-callback,
+independent restore and corruption-refusal assertions intact. This is an
+archive scheduling fix, not evidence of a measured TPS increase.
+
+The integrated library passes all 514 cases. Native archive (51), execution
+(19), multi-group (9) and operations (23) suites pass; the shared-bundle case
+also passes ten consecutive runs. Strict all-target/all-feature Clippy for
+`cellar` and `cellar-ltx` passes after consolidating a duplicate fixture module.
+A startup fixture's one-slot runtime reproduced a read-only status admission
+race on the third isolated run; a backtrace identifies the post-startup status
+query. That query now retries only `Overloaded` inside one fixed deadline,
+retaining the pre-start peer refusal and successful attached-group assertions.
+Earlier archive shutdown and concurrent restart-lock failures remain unproven
+despite passing reruns. Preserve those failures; these correctness checks do
+not establish an integrated TPS increase.
+
+### Storage-engine comparison and the next performance boundary
+
+The pinned TiKV source is `b3995dab28308f09cbb7c125bf32f789dbc203fe`.
+Its `raftstore/src/store/fsm/apply.rs` shares `ApplyContext::kv_wb` across region
+preparation and writes it through `write_to_db`; callbacks and apply-state
+progress follow the engine write. Cellar shares the Raft log, but each cell
+still has an independent SQLite image, LTX chain and committed-image marker.
+Transport batching and shared Raft fsync therefore do not amortize all apply
+work. Replacing per-command images with periodic checkpoints is a separate
+recovery design, requiring exact log retention, applied/checkpointed indices,
+receipt replay and crash tests before acknowledgement semantics can change.
+
+TiKV's `src/server/raft_client.rs::BatchMessageBuffer` bounds batches by bytes
+and message count, retains an overflowing message, and streams queued work.
+Cellar can use that scheduling principle while retaining its authenticated
+per-frame admission replies and separate control/data budgets. The new TLS
+regressions exercise this boundary directly. TiKV's
+`raftstore/src/store/async_io/write.rs` also batches shared log work, but the
+measured Cellar log persistence cost is smaller than staging and archive costs;
+adding an arbitrary coalescing sleep there is not the first optimization.
+
+The next end-to-end comparison must freeze the integrated executable, record
+archive lag and SQL queue tails, and retain exact 4,500-replica / 1,500-archive
+verification. The primary remaining opportunity is reducing repeated image
+and archive work, rather than increasing the number of queued commands.
 
 Remaining measurement gaps are longer steady-state runs, per-replica archive
 lag, hot-cell skew, larger SQLite images, mixed reads/writes and failure under

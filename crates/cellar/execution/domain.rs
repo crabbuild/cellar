@@ -549,6 +549,17 @@ impl DomainToken {
             .ok_or(DomainClosed)
     }
 
+    /// Enter the captured owner without granting process-global authority.
+    pub(crate) async fn run<F: Future>(&self, future: F) -> Result<F::Output, DomainClosed> {
+        let owner = self.owner()?;
+        let domain = owner
+            .domain
+            .get()
+            .and_then(Weak::upgrade)
+            .ok_or(DomainClosed)?;
+        run_scoped(domain, future).await
+    }
+
     pub(crate) fn same_owner(&self, other: &Self) -> bool {
         Weak::ptr_eq(&self.inner, &other.inner)
     }
@@ -586,6 +597,10 @@ impl DomainToken {
 
     pub(crate) fn mono_ms(&self) -> Result<u64, DomainClosed> {
         Ok(self.owner()?.started_at.elapsed().as_millis() as u64)
+    }
+
+    pub(crate) fn mono_us(&self) -> Result<u64, DomainClosed> {
+        Ok(u64::try_from(self.owner()?.started_at.elapsed().as_micros()).unwrap_or(u64::MAX))
     }
 
     /// Admit file work through the stream's original owner, even when its

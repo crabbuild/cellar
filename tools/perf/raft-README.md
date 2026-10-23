@@ -100,9 +100,22 @@ This pins all 500 leaders to node 1 and retains voting, durable replicas on node
 the same resource limits, real SDK command path and replica/archive checks.
 
 A small functional run uses `--cells-per-primary 4 --seconds 2 --repeats 1
---concurrency 1 8`. Run only one fixture at a time in this context: the isolated
-network subnet and loopback ports 19800–19803 are fixed. The runner uses the
-existing RustFS image pin from the Fleet harness. Public repository TLS fixtures
+--concurrency 1 8`. Run only one fixture at a time in this context because the
+isolated network subnet is fixed. `--port-base` selects four consecutive loopback
+ports, starting with RustFS; the default is 19800–19803. Use a distinct range
+when another Colima profile is running a fixture on the same Mac:
+
+```sh
+python3 tools/perf/raft.py --context colima-cellar-multi-raft --port-base 19900 \
+  --image cellar-multi-raft:mr13-local --cells-per-primary 1 \
+  --seconds 2 --repeats 1 --concurrency 1
+```
+
+The context must have the eight CPUs and 16 GiB required by this fixture's
+node/store/load limits. Continuation requires the original context and port
+range, and rejects a changed range before modifying the run or contacting Docker.
+The runner pins RustFS by digest and records the actual container image ID.
+Public repository TLS fixtures
 and development keys are restricted to this local test network.
 
 `--archive-tmpfs-mib 512` mounts only `/data/node/raft-cells/archive-verifier`

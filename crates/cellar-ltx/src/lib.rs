@@ -23,6 +23,7 @@ pub mod compactor;
 pub mod db;
 pub mod error;
 pub mod generation;
+mod generation_accounting;
 mod generation_vfs;
 pub mod host;
 pub mod ltx;

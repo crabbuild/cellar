@@ -385,10 +385,12 @@ impl RaftTransport {
             timeout_ms: remaining.min(state.options.snapshot_timeout_ms),
             kind,
         };
+        let _connection = state.outgoing_connections.acquire(Lane::Data);
         let mut stream = state
             .seed_process_io(&process, deadline, async {
                 let tcp = TcpStream::connect(source.data_address).await?;
                 tcp.set_nodelay(true)?;
+                let tcp = state.observed_socket(tcp, metrics::Lane::Data);
                 let name = rustls::pki_types::ServerName::try_from(source.server_name.clone())
                     .map_err(|_| TransportError::Identity)?;
                 tokio_rustls::TlsConnector::from(state.tls.client.clone())

@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Cellar · Durable agent studio</title>
+    <link rel="stylesheet" href="/style.css" />
+    <script src="/app.js" defer></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="Cellar home"
+        ><span class="brand-mark" aria-hidden="true">c</span>cellar<span
+          class="brand-detail"
+          >/ agent studio</span
+        ></a
+      >
+      <div class="header-actions">
+        <button
+          id="toggle-tasks"
+          class="toggle-tasks"
+          aria-expanded="false"
+          aria-controls="task-sidebar"
+        >
+          Tasks</button
+        ><button id="new-task-top" class="new-task-top">New task +</button
+        ><span class="connection"
+          ><i id="connection-dot"></i
+          ><span id="connection">Connecting</span></span
+        >
+      </div>
+    </header>
+    <div class="workspace">
+      <aside class="sidebar" id="task-sidebar">
+        <div class="sidebar-heading">
+          <span>YOUR TASKS</span
+          ><button id="new-task" class="icon-button" aria-label="New task">
+            +
+          </button>
+        </div>
+        <div id="history" class="history"></div>
+        <div class="sidebar-foot">
+          <span class="eyebrow">BUILT WITH PI</span>
+          <p>One task. One durable record.<br />Pick up where you left off.</p>
+          <div class="provider-label" id="provider">Loading model…</div>
+        </div>
+      </aside>
+      <main>
+        <div class="page-heading">
+          <div>
+            <span class="eyebrow">DURABLE AGENT DEMO</span>
+            <h1>A little work.<br /><em>A lasting result.</em></h1>
+          </div>
+          <div class="live-label">
+            <span class="signal" aria-hidden="true">▂▄▆</span
+            ><span id="mode-label">Live model stream</span>
+          </div>
+        </div>
+        <p class="intro">
+          Give the agent an amount to add. Watch it make a tool call, save its
+          work, and report the result.
+        </p>
+        <section class="conversation" aria-label="Agent conversation">
+          <div class="conversation-heading">
+            <span id="task-title">Start a new task</span
+            ><span class="badge" id="task-status">Ready</span>
+          </div>
+          <div id="empty" class="empty">
+            <div class="counter-glyph" aria-hidden="true">+<span>n</span></div>
+            <h2>Make a small change that lasts.</h2>
+            <p>
+              Each task has its own counter. Ask for an increment between 1 and
+              100.
+            </p>
+            <button id="example" class="example">
+              Add 7, then explain the result ↗
+            </button>
+          </div>
+          <div id="conversation-body" hidden>
+            <div class="message user-message">
+              <span class="speaker">YOU</span>
+              <p id="prompt-copy"></p>
+            </div>
+            <div class="tool-receipt" id="tool-receipt" hidden>
+              <span class="receipt-symbol">✓</span>
+              <div>
+                <strong>Counter updated</strong><span id="tool-copy"></span>
+              </div>
+              <span class="receipt-tag">Saved</span>
+            </div>
+            <div class="message assistant-message">
+              <div class="assistant-heading">
+                <span class="speaker">PI AGENT</span
+                ><span id="preview-label">Waiting for the model</span>
+              </div>
+              <p id="answer" class="answer"></p>
+              <span class="stream-cursor" id="cursor" hidden></span>
+            </div>
+          </div>
+          <form id="task-form">
+            <label class="sr-only" for="prompt">Task instructions</label
+            ><textarea
+              id="prompt"
+              rows="2"
+              maxlength="8000"
+              placeholder="Ask the agent to add an amount…"
+              required
+            ></textarea>
+            <div class="composer-bottom">
+              <span>Saved tasks resume after a restart.</span
+              ><button class="primary" id="run" type="submit">
+                Run task <span aria-hidden="true">↗</span>
+              </button>
+            </div>
+          </form>
+          <div id="notice" role="status" class="notice" hidden></div>
+        </section>
+        <div class="bottom-note">
+          <span class="small-dot"></span
+          ><span
+            >Text appears as the provider generates it. “Saved” means Cellar has
+            confirmed the checkpoint.</span
+          >
+        </div>
+      </main>
+      <aside class="inspector">
+        <div class="inspector-heading">
+          <h2>The durable record</h2>
+          <span class="small-dot"></span>
+        </div>
+        <div class="counter-display">
+          <span>Task counter</span><strong id="count">0</strong
+          ><span id="count-caption">No saved increment yet</span>
+        </div>
+        <dl class="facts">
+          <div>
+            <dt>Task</dt>
+            <dd id="task-id">—</dd>
+          </div>
+          <div>
+            <dt>Attempt</dt>
+            <dd id="attempt">—</dd>
+          </div>
+          <div>
+            <dt>Model responses saved</dt>
+            <dd id="steps">0</dd>
+          </div>
+          <div>
+            <dt>Tool receipts</dt>
+            <dd id="receipts">0</dd>
+          </div>
+          <div>
+            <dt>Live text events</dt>
+            <dd id="deltas">0</dd>
+          </div>
+        </dl>
+        <div class="timeline-heading">ACTIVITY</div>
+        <ol id="timeline" class="timeline">
+          <li>Waiting for a task</li>
+        </ol>
+        <section class="recovery">
+          <h3>Try an interruption</h3>
+          <p>
+            Restart the worker while it’s busy. Saved decisions and tool results
+            survive; unfinished text may change.
+          </p>
+          <button id="restart" class="secondary">
+            Restart worker <span aria-hidden="true">↻</span>
+          </button>
+          <p class="recovery-foot">
+            This restarts only this local demo worker.
+          </p>
+        </section>
+      </aside>
+    </div>
+  </body>
+</html>

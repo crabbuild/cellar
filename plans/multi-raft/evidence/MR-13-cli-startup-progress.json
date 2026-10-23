@@ -1,0 +1,840 @@
+{
+  "task_id": "MR-13",
+  "source_revision": "0fa09f1a387ebd5b8580b75b115606640c303369",
+  "completion": "partial",
+  "scope": "Production NativeDaemon startup for registered Raft cells using the actual active application and the same owned startup implementation as embedded Node. Explicit durable CLI directories, shared peer auth, deployment pinning, failed/cancelled startup joining and real daemon-process recovery. MR-13 remains IN_PROGRESS.",
+  "environment": "macOS; physical local SQLite/LTX/Raft Engine; local authenticated TLS and persistent development object-store adapter. No Colima Cellar-node, physical S3, deployment-fence, power-loss or scale qualification in this record. No cellar_internal_tests.",
+  "build_environment": {
+    "RUSTUP_TOOLCHAIN": "1.98.1",
+    "CARGO_TARGET_DIR": "$HOME/Workspace/crabbuild-target/cellar-23c7-multi-raft",
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "CARGO_PROFILE_TEST_DEBUG": "0",
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_BUILD_JOBS": "3",
+    "PYO3_PYTHON": "/opt/homebrew/bin/python3.14"
+  },
+  "source_files": [
+    {
+      "path": "crates/cellar-python/tests/support/watchdog.rs",
+      "sha256": "94cb88bf419c6a9527e8c52a5a0dab65f2add8e12bb7fe28fb0ea68f305b3830"
+    },
+    {
+      "path": "crates/cellar/Cargo.toml",
+      "sha256": "bcc52559878b741547a9ae6585a41556fa0d46bdeebead92ef8cff8bdf0be3c9"
+    },
+    {
+      "path": "crates/cellar/README.md",
+      "sha256": "7103671e905d8a301c256645f4b08a452483a8daceb8eb4a0588b3d4b6159d8d"
+    },
+    {
+      "path": "crates/cellar/cli/daemon.rs",
+      "sha256": "2e946e44e5cacce7941664caab2715271a3a0b37b0445db5ff41aa7ae487cb3f"
+    },
+    {
+      "path": "crates/cellar/execution/domain.rs",
+      "sha256": "c61fc17df3e2c2a802549ea92544fcd3103bddfc565deada5de4ffedc5b30634"
+    },
+    {
+      "path": "crates/cellar/node/embedded.rs",
+      "sha256": "4618263f2f3144e7d9821fe392342781a9886ff4a5233fcb3bce9fd6a5c23ffa"
+    },
+    {
+      "path": "crates/cellar/node/mod.rs",
+      "sha256": "bf5723b5766bac09c719acfb0f53852ae5fc2c9c16ac29715e69693466293de6"
+    },
+    {
+      "path": "crates/cellar/node/native.rs",
+      "sha256": "5714fe1d1002fe9c5f8ae9112c8ef67d05ebbace5df742cca7d68fa0315a7e05"
+    },
+    {
+      "path": "crates/cellar/node/native_raft.rs",
+      "sha256": "f7e5e11cebf9a5b5976b78fa491ac12cfd1206064f557467b8db4d4180f6d3e2"
+    },
+    {
+      "path": "crates/cellar/node/raft_startup.rs",
+      "sha256": "ac06e7e3f88c615cd2d76c9d7e49551fc98b5b38b87a8ff91c064c542d7ad415"
+    },
+    {
+      "path": "crates/cellar/runtime/generation.rs",
+      "sha256": "72677f0509c696257a5a7fac4615061fc8ea5bdce156e4efb4a5aef360b411bb"
+    },
+    {
+      "path": "crates/cellar/sdk.rs",
+      "sha256": "118d0997877ef2e48c3c378b85ffb87562b0dafef17867250d55f55c0f89024b"
+    },
+    {
+      "path": "crates/cellar/tests/native_raft_daemon.rs",
+      "sha256": "e7d45b0ae2577f2b23c7660429bea64e4eebf656a1e6cb0b6f3893acae164a10"
+    },
+    {
+      "path": "docs/23-cli-reference.md",
+      "sha256": "61f4282f6a27c966548ce97e4091033c742deddfe03b8cc51f0925e50a6b214a"
+    }
+  ],
+  "validation": {
+    "unit_integration_passes": 984,
+    "case_bearing_standard_binaries": 72,
+    "standard_binaries_including_empty": 82,
+    "custom_daemon_process_runner": "Passed separately: directory/registration refusals, exact active factory, same-process physical join after failed bind, retained two-group restart, strong queries, joined report, cancellation and three distinct daemon processes with two groups over TLS and local follower reads. Not added to standard case count.",
+    "doctest_passes": 15,
+    "python_watchdog": "Focused embedded Python bridge runtime watchdog passed with improved retained failure diagnostics. This is not the full Python matrix.",
+    "counting": "Use the final harness result per Cargo Running target. Exclude the nested one-case replay inside native_asset_hosts and do not add custom process acceptance checks to the standard count. Counts are not combined with other source revisions.",
+    "test_binaries": [
+      {
+        "label": "unittests lib.rs",
+        "name": "cellar-debae692237b72f0",
+        "sha256": "f17638dff46f5173ce05c4c75260f6b27dd06c694da68ba187a35e90aee942b7",
+        "passed": 441,
+        "ignored": 0
+      },
+      {
+        "label": "unittests cli/main.rs",
+        "name": "cellar-7378593aaf60dcab",
+        "sha256": "c013e803d7327de31604a678cd29f8f0c91543330bfdb465bdf57ccf0a6c4619",
+        "passed": 0,
+        "ignored": 0
+      },
+      {
+        "label": "unittests ../../examples/native-container/server.rs",
+        "name": "cellar_example_container_peer-9936640e521462cd",
+        "sha256": "4ecc44fc1d2ac070833584cc0e3b30293ba88159dacfa248fc43043372bc2337",
+        "passed": 0,
+        "ignored": 0
+      },
+      {
+        "label": "unittests ../../examples/embedded-node/main.rs",
+        "name": "cellar_example_embedded-ffba45a162fc7cf2",
+        "sha256": "e462aab9ca301240357204c7e5fc67dbea59248d632e38909296027629b65e5f",
+        "passed": 0,
+        "ignored": 0
+      },
+      {
+        "label": "unittests ../../examples/durable-streams/main.rs",
+        "name": "cellar_example_streams-2441388873be386e",
+        "sha256": "136248a74104973a0aaef75c7721346700456e4a3f1db7912e9d77b90dc7daf4",
+        "passed": 1,
+        "ignored": 0
+      },
+      {
+        "label": "unittests ../../examples/native-container/main.rs",
+        "name": "cellar_native_container-3977f6e9308ade15",
+        "sha256": "58fc1b2668a6ed15d9368c64f049241ca56b6d838722a64f874871acadc81f38",
+        "passed": 0,
+        "ignored": 0
+      },
+      {
+        "label": "unittests ../../examples/native-counter/main.rs",
+        "name": "cellar_native_counter-07cb8d6ce371f54c",
+        "sha256": "0c2060a84eb0abe449186caaa0eb097448037ca665ff629ba29bc9e74bca6a6c",
+        "passed": 0,
+        "ignored": 0
+      },
+      {
+        "label": "unittests ../../examples/main.rs",
+        "name": "cellar_native_examples-52dc649649503216",
+        "sha256": "e21afcaf7c41f71776261812eb7e04b2ea46173b340419ddbab5b6774a7b7710",
+        "passed": 1,
+        "ignored": 0
+      },
+      {
+        "label": "unittests ../../examples/native-websocket/main.rs",
+        "name": "cellar_native_websocket-579723585b62d264",
+        "sha256": "c709ec5c110a29075f079f0d42b9bcc1f74ab847ab9c1a976bab7bb047d847c4",
+        "passed": 0,
+        "ignored": 0
+      },
+      {
+        "label": "unittests ../../tools/perf/cells.rs",
+        "name": "cellar_perf_cells-4b0105c4d7d47406",
+        "sha256": "1c9731020fb41bee13d0fa726748799163efec6f1af69900ea7aa99a13ca9f20",
+        "passed": 2,
+        "ignored": 0
+      },
+      {
+        "label": "unittests ../../tools/perf/fault_cells.rs",
+        "name": "cellar_perf_fault_cells-8f5de62672ae861c",
+        "sha256": "3b63331935d6f3f37a5899a8c7f2098627867fbe8f50b5f0b2c2457f0b1bf88e",
+        "passed": 5,
+        "ignored": 0
+      },
+      {
+        "label": "unittests ../../tools/perf/load.rs",
+        "name": "cellar_perf_load-41cadbb16f2dd46c",
+        "sha256": "cdb177935e8d76b611c5c23b539f6efc3a637d9bd1106f32cc6ece3a2befe010",
+        "passed": 0,
+        "ignored": 0
+      },
+      {
+        "label": "unittests ../../tools/perf/storage_operations.rs",
+        "name": "cellar_perf_storage-1d46f8203a3e64e0",
+        "sha256": "d7222bed2c8e616cc2f34d84e1426fa80929d4c546b76efa2524ca0c65f3119a",
+        "passed": 0,
+        "ignored": 0
+      },
+      {
+        "label": "unittests ../../examples/raft-counter/main.rs",
+        "name": "cellar_raft_counter-7e5ab30864af56bf",
+        "sha256": "b8c76a77737ad670db9ce77e62f7113166de9ba71bf03308fc9b08006c904d54",
+        "passed": 0,
+        "ignored": 0
+      },
+      {
+        "label": "unittests ../../examples/raft-effects/main.rs",
+        "name": "cellar_raft_effects-f1e31f8cf0382163",
+        "sha256": "43b0aa3aac7e899f8dc54c730b80224b83f3a15545d707fb063adafd7808f57e",
+        "passed": 0,
+        "ignored": 0
+      },
+      {
+        "label": "tests/event_stream_policy.rs",
+        "name": "event_stream_policy-c5781dc6cec5a386",
+        "sha256": "7e6d78a54a2cc3a70703787d883f63d7d0f82ee5e22b30e935e075bbef72e134",
+        "passed": 13,
+        "ignored": 0
+      },
+      {
+        "label": "tests/event_stream_tokens.rs",
+        "name": "event_stream_tokens-05fa29e629b39e86",
+        "sha256": "9defbfd5c85bc4794ec2ebff6564f5fcf819d669491b5b3b69e9ec7ad9da9a7c",
+        "passed": 3,
+        "ignored": 0
+      },
+      {
+        "label": "tests/native_actor.rs",
+        "name": "native_actor-a22efa7480563129",
+        "sha256": "037d0bb0b6ef61800d9573ce0bcd6576953650716302ad34a7e8f983a5f918e6",
+        "passed": 6,
+        "ignored": 0
+      },
+      {
+        "label": "tests/native_artifacts.rs",
+        "name": "native_artifacts-682cb7d82ee0fa96",
+        "sha256": "0fe4c8002736ae88ee6cdbd6f149fcd4846433e5f78ed2b5c9c4e3af327a9b72",
+        "passed": 8,
+        "ignored": 0
+      },
+      {
+        "label": "tests/native_asset_hosts.rs",
+        "name": "native_asset_hosts-2f5ff6392d8e2fa0",
+        "sha256": "b533623b709433280082fac101ecfe01e50ecb221fb9225785b99730d8d6d2fe",
+        "passed": 4,
+        "ignored": 0
+      },
+      {
+        "label": "tests/native_assets_cache.rs",
+        "name": "native_assets_cache-69aa6de87297f9ef",
+        "sha256": "08e6025cf2d57c4067334aa03bf110d1427501df9076bc6719e0bff8e25c7500",
+        "passed": 1,
+        "ignored": 0
+      },
+      {
+        "label": "tests/native_blob.rs",
+        "name": "native_blob-05382b139712fcb9",
+        "sha256": "79d44aa091827d7d398b67d2188fa816e754ee005640ea7742d052771a76acfa",
+        "passed": 1,
+        "ignored": 0
+      },
+      {
+        "label": "tests/native_body.rs",
+        "name": "native_body-6397d29250a60f8c",
+        "sha256": "a40fec45d61dabb60d2bcdf532af3b42d9710a6580da79d420d71f155736b7ef",
+        "passed": 1,
+        "ignored": 0
+      },
+      {
+        "label": "tests/native_bound_websocket.rs",
+        "name": "native_bound_websocket-8df9a7a11d8c49b5",
+        "sha256": "f62d5f3502f8fec0a869f06505f5b36f8e316a08f507f6ce935b64cebb1815ee",
+        "passed": 1,
+        "ignored": 0
+      },
+      {
+        "label": "tests/native_call_order.rs",
+        "name": "native_call_order-f921236bc7a23d49",
+        "sha256": "08b87132312640fa18d262a276b5d9e427d62ca05290079a8695f09d3032bfde",
+        "passed": 3,
+        "ignored": 0
+      },
+      {
+        "label": "tests/native_cell_limits.rs",
+        "name": "native_cell_limits-5d93fc73518d84fc",
+        "sha256": "f0757308a81177619ab7f44503b95b1184ce6b377dbb806bad6202bcacf1eb3f",
+        "passed": 5,
+        "ignored": 0
+      },
+      {
+        "label": "tests/native_cells.rs",
+        "name": "native_cells-db0d2dca4326a1bc",
+        "sha256": "d49160316deb94f35489000e89b721c1f48d43eb99d20aa6210bebc7a5715625",
+        "passed": 1,
+        "ignored": 0
+      },
+      {
+        "label": "tests/native_cli.rs",
+        "name": "native_cli-016b8f06b316a00e",
+        "sha256": "61251f76b74d08b69082b86f297e0fb95b4f18759cb1c13ecdb394f9f17d2a0c",
+        "passed": 3,
+        "ignored": 0
+      },
+      {
+        "label": "tests/native_concurrency.rs",
+        "name": "native_concurrency-5d861b0d4902bdd6",
+        "sha256": "02affbbb4041c64cb96c7bacc684aa9f3f41dfcdf7df793388f3648559686574",
+        "passed": 1,
+        "ignored": 0
+      },
+      {
+        "label": "tests/native_container_packages.rs",
+        "name": "native_container_packages-a73c60756606a6f7",
+        "sha256": "ae6a1b616a5136636abb206a41245f1ab566c5f30c9d79e2369a0dc39c8c7085",
+        "passed": 1,
+        "ignored": 0
+      },
+      {
+        "label": "tests/native_containers.rs",
+        "name": "native_containers-a0f25c6dbb6e2054",
+        "sha256": "321a2871a2a08ec57d044ea7431d9ec2294d82a0bb3d262817ca1838054c5280",
+        "passed": 2,
+        "ignored": 0
+      },
+      {
+        "label": "tests/native_counter.rs",
+        "name": "native_counter-36d8328c6f5c9221",
+        "sha256": "0f19bd625da94bd0d95fe6f6daac3ea70f6d8c737b92c0327f92eb185010f4e8",
+        "passed": 1,
+        "ignored": 0
+      },
+      {
+        "label": "tests/native_cron.rs",
+        "name": "native_cron-e6a628e6bf090b6b",
+        "sha256": "1e1bb93b125e1bd877c2a15caa7af1eb1e38378845e684a5887e23c1dbf4c4ae",
+        "passed": 1,
+        "ignored": 0
+      },
+      {
+        "label": "tests/native_daemon.rs",
+        "name": "native_daemon-5d088e690da23b2e",
+        "sha256": "729276e23bf122baf2831aea137dc5fb359e686f72eadbddc1e251504ca33db2",
+        "passed": 1,
+        "ignored": 0
+      },
+      {
+        "label": "tests/native_dev.rs",
+        "name": "native_dev-f67e64424b984766",
+        "sha256": "c5f9cbbce708d7640f4223b57e3c6e62ff643fb4c0812a8ecdc747b820d4f9fc",
+        "passed": 1,
+        "ignored": 0
+      },
+      {
+        "label": "tests/native_domains.rs",
+        "name": "native_domains-ce5b5de9b07df3b3",
+        "sha256": "62a733949b26583b8373a22f7d7d3dcf1f66fed464417ff43c276dadce3e28ab",
+        "passed": 16,
+        "ignored": 0
+      },
+      {
+        "label": "tests/native_egress.rs",
+        "name": "native_egress-3607d80808e36fe5",
+        "sha256": "ce90310d72b65af7c42f302c4e2ffa868b70a751dd44f16a483a3549e2e19927",
+        "passed": 5,
+        "ignored": 0
+      },
+      {
+        "label": "tests/native_event_stream.rs",
+        "name": "native_event_stream-a3b9b777b1395d00",
+        "sha256": "dff9a1ad4d10e442ffba42dbd8838d220a6458c32ab160ab7703cfd2d56fcdd9",
+        "passed": 1,
+        "ignored": 0
+      },
+      {
+        "label": "tests/native_events.rs",
+        "name": "native_events-753a25866d2e3a9c",
+        "sha256": "cc9d63c3cd10d791ef15e2420925e0797a27cef2bb9127f579ad48bb14dbdeb8",
+        "passed": 1,
+        "ignored": 0
+      },
+      {
+        "label": "tests/native_execution.rs",
+        "name": "native_execution-ce5f30988779958a",
+        "sha256": "a7042bed4ad20f5b1504417088e0c0f39b1e8b9d78cacc956105825a4186a138",
+        "passed": 2,
+        "ignored": 0
+      },
+      {
+        "label": "tests/native_external_ingress.rs",
+        "name": "native_external_ingress-8be3fca5a0ccca9f",
+        "sha256": "3b1689b7641b35088635374202b02aa08f9ee993e3d27178d6234a2e3035bdaf",
+        "passed": 6,
+        "ignored": 0
+      },
+      {
+        "label": "tests/native_facets.rs",
+        "name": "native_facets-e606e5d2ce280d26",
+        "sha256": "b92af9fe262a7a85eba8e89f5101b42d419b00f2822700aa05f53b50974ef1c6",
+        "passed": 1,
+        "ignored": 0
+      },
+      {
+        "label": "tests/native_html_rewriter.rs",
+        "name": "native_html_rewriter-49b2b51cbf7f5d4b",
+        "sha256": "cf6c434a99ba8374268d890ff2ebce2eac03334d61282bb7b67475856792afd5",
+        "passed": 1,
+        "ignored": 0
+      },
+      {
+        "label": "tests/native_identifiers.rs",
+        "name": "native_identifiers-78ee3d0d417261a5",
+        "sha256": "736542db1272d0197d1ba3a396c6d01ed85f397b1d04bb2bbbb53fb22fda0189",
+        "passed": 2,
+        "ignored": 0
+      },
+      {
+        "label": "tests/native_kv.rs",
+        "name": "native_kv-706b1990748a8753",
+        "sha256": "5fbaeba8385eebdd8c7f5a483edaa2c565af523015437dd2136c6666fff041a6",
+        "passed": 1,
+        "ignored": 0
+      },
+      {
+        "label": "tests/native_loader.rs",
+        "name": "native_loader-d2e687ee1d149fce",
+        "sha256": "7bed4bc37201460be8499cd9f805b61a8e4b9d19a7a62567bb104edad4371383",
+        "passed": 1,
+        "ignored": 0
+      },
+      {
+        "label": "tests/native_loader_policy.rs",
+        "name": "native_loader_policy-3dbcfd2348da3bf5",
+        "sha256": "2e259e10031f0c7b11446814ead87a892593b4e58a75c9c96f80e8ee8094caff",
+        "passed": 6,
+        "ignored": 0
+      },
+      {
+        "label": "tests/native_log.rs",
+        "name": "native_log-e8929713b6b977ee",
+        "sha256": "b4dbbb8641f9d40ad12906f21e9ae00d9fcb3598cecc4ce4b047edbe91c20bc4",
+        "passed": 21,
+        "ignored": 0
+      },
+      {
+        "label": "tests/native_log_protocol.rs",
+        "name": "native_log_protocol-5310c16be077033d",
+        "sha256": "8802043fba8afca1d171eaedfe194edfb6847f5f2f6252faf9d99be421106d56",
+        "passed": 7,
+        "ignored": 0
+      },
+      {
+        "label": "tests/native_loopback.rs",
+        "name": "native_loopback-859749b6f5c2c05a",
+        "sha256": "766e61f70451faed8ac8c1774573cd97119c530e6673fd77d62df3ff1d1d2c99",
+        "passed": 1,
+        "ignored": 0
+      },
+      {
+        "label": "tests/native_node.rs",
+        "name": "native_node-6acd48731a6f450f",
+        "sha256": "de6410a4d498569d7493993648700689db216555c1c2d9769f83c1ec9fa8a8a7",
+        "passed": 89,
+        "ignored": 0
+      },
+      {
+        "label": "tests/native_outbound_websocket.rs",
+        "name": "native_outbound_websocket-938f3ae99d4365be",
+        "sha256": "70eacf69953b27c08d1823b49af09e93479dd6845208414ca0a0efd8ceb8643e",
+        "passed": 1,
+        "ignored": 0
+      },
+      {
+        "label": "tests/native_outbox.rs",
+        "name": "native_outbox-8525c3e512f9f70e",
+        "sha256": "40c4e9371dcd04c387e6c4425773d5cdbae2ec91dd3cb2e5cc6b4dfea8a1b4a5",
+        "passed": 1,
+        "ignored": 0
+      },
+      {
+        "label": "tests/native_queue.rs",
+        "name": "native_queue-81d4fa77b16b1e01",
+        "sha256": "241c6c71faf708a141e446a2635fb222b7946879ad4e879c2a65ba6a66b18ead",
+        "passed": 1,
+        "ignored": 0
+      },
+      {
+        "label": "tests/native_raft_archive.rs",
+        "name": "native_raft_archive-776525d0da24fa10",
+        "sha256": "e6efe503df2983f8e70dbde825b7b9b3d3158a2876f3c94f999aa91f915e6993",
+        "passed": 29,
+        "ignored": 0
+      },
+      {
+        "label": "tests/native_raft_contract.rs",
+        "name": "native_raft_contract-7180f82d0df006da",
+        "sha256": "eabed7eafaac2a9278114be0879d53f2afabdf0a64869c3492bd901616cd037e",
+        "passed": 6,
+        "ignored": 0
+      },
+      {
+        "label": "tests/native_raft_daemon.rs",
+        "name": "native_raft_daemon-490b5287a136d51b",
+        "sha256": "32246751042907dbe00a2099eb9a2e15a9ca1302b3517fd3531a2bf4220b1866",
+        "passed": null,
+        "ignored": null
+      },
+      {
+        "label": "tests/native_raft_directory.rs",
+        "name": "native_raft_directory-2292b0e7916eb703",
+        "sha256": "e8fadefe3a4663f86067ab6e012d6bea30cc4338f15ba75acec0458b8082eb24",
+        "passed": 16,
+        "ignored": 0
+      },
+      {
+        "label": "tests/native_raft_effects.rs",
+        "name": "native_raft_effects-f1996714c7e4495a",
+        "sha256": "0cff0783eef302ebe0ee6267bad498949196dd40c0d8cebcdb94f7499f95ede6",
+        "passed": 16,
+        "ignored": 0
+      },
+      {
+        "label": "tests/native_raft_execution.rs",
+        "name": "native_raft_execution-8148fdc997c272af",
+        "sha256": "c7022eb59ace9b42985507551c02b460d55dd7dd447f408add07218901f56e5e",
+        "passed": 16,
+        "ignored": 2
+      },
+      {
+        "label": "tests/native_raft_host.rs",
+        "name": "native_raft_host-83bc31023d3e1462",
+        "sha256": "3be35ea959cb97d5bbee26ed1e0b3e365829df7f31e20f3195bf005611db36e8",
+        "passed": 27,
+        "ignored": 0
+      },
+      {
+        "label": "tests/native_raft_ltx.rs",
+        "name": "native_raft_ltx-f8360cac02779d6a",
+        "sha256": "3cd259b019e3bddc6d8328599cf565e3c56838ea63569ac73310f451e1468035",
+        "passed": 19,
+        "ignored": 1
+      },
+      {
+        "label": "tests/native_raft_membership.rs",
+        "name": "native_raft_membership-2a48ed5f5eab2c3d",
+        "sha256": "1f3565aa0a39bbdd94547d3bac7686621c69bfc5761f36223c960b9c79054fc8",
+        "passed": 27,
+        "ignored": 1
+      },
+      {
+        "label": "tests/native_raft_operations.rs",
+        "name": "native_raft_operations-3113fc43c1728f80",
+        "sha256": "70cb8481e6d13a8c9b43c98157ff5fa065335baedbebc581fb6b0be0f41fc943",
+        "passed": 18,
+        "ignored": 0
+      },
+      {
+        "label": "tests/native_raft_reads.rs",
+        "name": "native_raft_reads-9e3ded424dd92e6a",
+        "sha256": "1ea90a1989d95fb6b02d279c62b1298805b60c05b176def8b8b468e6d3bd4d52",
+        "passed": 20,
+        "ignored": 0
+      },
+      {
+        "label": "tests/native_raft_runtime.rs",
+        "name": "native_raft_runtime-4f222cca40836c3b",
+        "sha256": "1e7d7df7574afff13b34bf5c79df38f0ac58e502c5d95f638f79098835d9cba0",
+        "passed": 15,
+        "ignored": 1
+      },
+      {
+        "label": "tests/native_raft_snapshot.rs",
+        "name": "native_raft_snapshot-59d90688d153cb6d",
+        "sha256": "bed818ba09065799419a25d0ff5980cc7084118f907fe147d5ad00666381b540",
+        "passed": 42,
+        "ignored": 2
+      },
+      {
+        "label": "tests/native_raft_storage.rs",
+        "name": "native_raft_storage-0fb9412eddac7153",
+        "sha256": "f98931aa907eedee79d265d1081f27d61632bcad4fd98c6767cf4b161732e7c2",
+        "passed": 17,
+        "ignored": 1
+      },
+      {
+        "label": "tests/native_raft_transport.rs",
+        "name": "native_raft_transport-f8cecd605e1c38e6",
+        "sha256": "ac41fed5f7085a4d6c52e0763bc1e23520d094e2e13308c50b4749268be2c515",
+        "passed": 14,
+        "ignored": 1
+      },
+      {
+        "label": "tests/native_replication.rs",
+        "name": "native_replication-08315626eafe470f",
+        "sha256": "bd47151d5479da1fa90c1a32a32f7e47a0e24d580502d4c33176d7d5c43d1a0d",
+        "passed": 6,
+        "ignored": 0
+      },
+      {
+        "label": "tests/native_runtime.rs",
+        "name": "native_runtime-4f9a6a114e908a66",
+        "sha256": "17db8c7844e66c214f5b8517a1705cb95278d87c1074ff8384695fc66b75ef69",
+        "passed": 1,
+        "ignored": 0
+      },
+      {
+        "label": "tests/native_runtime_policy.rs",
+        "name": "native_runtime_policy-c7be81b6fd695c90",
+        "sha256": "e82dcf97d4f6584be811048b8ecbf3cc31b607a1b37d32b686c6a9e61ea4eb72",
+        "passed": 6,
+        "ignored": 0
+      },
+      {
+        "label": "tests/native_sockets.rs",
+        "name": "native_sockets-783623a7125752f8",
+        "sha256": "1088eda0fa9f1b767aa990b6426a496703b0d97cc18590a9098c3cfda4a294d0",
+        "passed": 1,
+        "ignored": 0
+      },
+      {
+        "label": "tests/native_sql.rs",
+        "name": "native_sql-47d7d1c40ed79ab8",
+        "sha256": "1f6e6880199df6ab1a2663761cf9feb2ab965f631c3b13f03da3a9faeee17f39",
+        "passed": 1,
+        "ignored": 0
+      },
+      {
+        "label": "tests/native_storage.rs",
+        "name": "native_storage-bda1b0863bf816e0",
+        "sha256": "031a7a7b959d17bc1a3927e9df475eda6c6c3ccf3f084b74597e05b21aad7ae8",
+        "passed": 1,
+        "ignored": 0
+      },
+      {
+        "label": "tests/native_streams.rs",
+        "name": "native_streams-eedbf27c1e5d5783",
+        "sha256": "cc397304907307752377774a5ae6968632dcc085c910c4e377e9782ee18b0572",
+        "passed": 1,
+        "ignored": 0
+      },
+      {
+        "label": "tests/native_transactions.rs",
+        "name": "native_transactions-410ab4add05d8028",
+        "sha256": "a609f5f9970d0fae30eabe6d1b294b10ecce7abfa99d1d80dad73df964328769",
+        "passed": 1,
+        "ignored": 0
+      },
+      {
+        "label": "tests/native_web.rs",
+        "name": "native_web-d2910a99ff1d222a",
+        "sha256": "e1fdd324202e1f22c97786ecff22238fe01d95355b3bfe93ae057f300760b6dc",
+        "passed": 1,
+        "ignored": 0
+      },
+      {
+        "label": "tests/native_websocket.rs",
+        "name": "native_websocket-5231fdca3e8ab763",
+        "sha256": "de3710c4019b7129ba03b27e023137c381f4c4d95f68a8b498d083b938adf690",
+        "passed": 1,
+        "ignored": 0
+      },
+      {
+        "label": "tests/native_websocket_opening.rs",
+        "name": "native_websocket_opening-7f2c1a37f80c55e9",
+        "sha256": "a9d3cd753baa4c0ce9c2d722023b2ef7f94e254f6b41892eb2e45099a3ec3e4b",
+        "passed": 1,
+        "ignored": 0
+      },
+      {
+        "label": "tests/native_workflow.rs",
+        "name": "native_workflow-04da8ba8c16a4ef1",
+        "sha256": "440746fb41f9c33bc9788e7b476397994e298ca09a677a88d21d980bb3e859cc",
+        "passed": 2,
+        "ignored": 0
+      },
+      {
+        "label": "tests/native_workflow_cell.rs",
+        "name": "native_workflow_cell-9c7b64022e45fc19",
+        "sha256": "5b4035b6a6fe8c28ba4b77760d97c8bc5d57ac7e2034f87a051d901d14ccac7b",
+        "passed": 1,
+        "ignored": 0
+      },
+      {
+        "label": "tests/supervise.rs",
+        "name": "supervise-49439e9fe38df5d3",
+        "sha256": "2d437a6c304a5a6d65eeff67d87ae103214096321b2291f4ffd62db99809a4af",
+        "passed": 6,
+        "ignored": 1
+      }
+    ],
+    "commands": [
+      {
+        "name": "matrix",
+        "argv": [
+          "cargo",
+          "test",
+          "--locked",
+          "-p",
+          "cellar",
+          "--all-features",
+          "--lib",
+          "--tests",
+          "--",
+          "--test-threads=1"
+        ],
+        "exit_code": 0,
+        "seconds": 2297.471,
+        "source_revision": "0fa09f1a387ebd5b8580b75b115606640c303369",
+        "log": "/tmp/cellar-mr13-cli-qualified-matrix.log",
+        "sha256": "48b87dcced52ac3a1d62bf7c23a824ec736da8ac39c5403062389c26d0222680"
+      },
+      {
+        "name": "doctests",
+        "argv": [
+          "cargo",
+          "test",
+          "--locked",
+          "-p",
+          "cellar",
+          "--all-features",
+          "--doc"
+        ],
+        "exit_code": 0,
+        "seconds": 13.834,
+        "source_revision": "0fa09f1a387ebd5b8580b75b115606640c303369",
+        "log": "/tmp/cellar-mr13-cli-qualified-doctests.log",
+        "sha256": "552cd29e180f669a7a70661ef3ca5bbb1164ca4f2cb34d3f337071bd34819bd4"
+      },
+      {
+        "name": "python-watchdog",
+        "argv": [
+          "cargo",
+          "test",
+          "--locked",
+          "-p",
+          "cellar-python",
+          "--features",
+          "embed",
+          "--test",
+          "bridge",
+          "--",
+          "--runtime-watchdog"
+        ],
+        "exit_code": 0,
+        "seconds": 82.27,
+        "source_revision": "0fa09f1a387ebd5b8580b75b115606640c303369",
+        "log": "/tmp/cellar-mr13-cli-qualified-python-watchdog.log",
+        "sha256": "ba918037efa8359c6d5c329e573f46161b5b9934050b5630feab391e65a9ed9c"
+      },
+      {
+        "name": "format",
+        "argv": [
+          "cargo",
+          "format",
+          "--check"
+        ],
+        "exit_code": 0,
+        "seconds": 43.181,
+        "source_revision": "0fa09f1a387ebd5b8580b75b115606640c303369",
+        "log": "/tmp/cellar-mr13-cli-qualified-format.log",
+        "sha256": "f887daef32a8908185f8f3759a4ca64c76408ad86a571fbe55bfb74c56898662"
+      },
+      {
+        "name": "layout",
+        "argv": [
+          "cargo",
+          "check-layout"
+        ],
+        "exit_code": 0,
+        "seconds": 0.202,
+        "source_revision": "0fa09f1a387ebd5b8580b75b115606640c303369",
+        "log": "/tmp/cellar-mr13-cli-qualified-layout.log",
+        "sha256": "ccfa09d63f09b4d2b4d29b887d2f417938978fe35907bf3a6a20733e168f288d"
+      },
+      {
+        "name": "native-dependencies",
+        "argv": [
+          "python3",
+          "tools/check_native_dependencies.py"
+        ],
+        "exit_code": 0,
+        "seconds": 0.399,
+        "source_revision": "0fa09f1a387ebd5b8580b75b115606640c303369",
+        "log": "/tmp/cellar-mr13-cli-qualified-native-dependencies.log",
+        "sha256": "bb6ce74bc3067de8595c69fccdda01faf3be0a564eb5bde54fae281ee37c597c"
+      },
+      {
+        "name": "docs",
+        "argv": [
+          "python3",
+          "tools/docs/check.py"
+        ],
+        "exit_code": 0,
+        "seconds": 0.082,
+        "source_revision": "0fa09f1a387ebd5b8580b75b115606640c303369",
+        "log": "/tmp/cellar-mr13-cli-qualified-docs.log",
+        "sha256": "e7693fab112af17ce1071f3a345f155ff4327d9ae2a4c3b931be4a17aac1bc8b"
+      },
+      {
+        "name": "plan",
+        "argv": [
+          "python3",
+          "plans/multi-raft/plan.py",
+          "validate"
+        ],
+        "exit_code": 0,
+        "seconds": 0.12,
+        "source_revision": "0fa09f1a387ebd5b8580b75b115606640c303369",
+        "log": "/tmp/cellar-mr13-cli-qualified-plan.log",
+        "sha256": "3435c214fbb6cb878256e38206b1867ab3fdf81ea97c382303469fc4320cd5e6"
+      },
+      {
+        "name": "preflight",
+        "argv": [
+          "python3",
+          "plans/multi-raft/plan.py",
+          "preflight"
+        ],
+        "exit_code": 0,
+        "seconds": 0.118,
+        "source_revision": "0fa09f1a387ebd5b8580b75b115606640c303369",
+        "log": "/tmp/cellar-mr13-cli-qualified-preflight.log",
+        "sha256": "9edfd74a76256594ca067be37b82d0984a4cf46a41a681f98dd9097954eda61a"
+      },
+      {
+        "name": "plan-tests",
+        "argv": [
+          "python3",
+          "plans/multi-raft/test_plan.py"
+        ],
+        "exit_code": 0,
+        "seconds": 0.141,
+        "source_revision": "0fa09f1a387ebd5b8580b75b115606640c303369",
+        "log": "/tmp/cellar-mr13-cli-qualified-plan-tests.log",
+        "sha256": "cac38877907e2d8c44333c48961b598e19869d9f554b4c939775357fd1cb3bc3"
+      }
+    ],
+    "workspace_clippy": "All targets/all features, -D warnings passed at the same source.",
+    "log": "MR-13-cli-startup-validation.log.gz",
+    "log_uncompressed_sha256": "23b9ddeff100682c0ec05a139eda3e5e89708682ff407fead8c14acce5601057"
+  },
+  "initial_findings": [
+    {
+      "finding": "Concurrent first-open SQLite WAL initialization in the process fixture could fail database is locked, then strand peer rendezvous. Fixture now initializes the shared development stores before launching peers, matching the development supervisor. Original 15-second rendezvous and proof assertions remain.",
+      "fixed_at": "f550a008364e09bc7e16d349cf8bb49f2e001e3b"
+    },
+    {
+      "finding": "Two fixture std::println macros failed the repository diagnostic-writer lint; replaced with note! and qualified full-workspace Clippy.",
+      "fixed_at": "e58e0597483b0c53aa09caa866709ddb7fe14aab"
+    },
+    {
+      "finding": "Prior Python CI alarm failure discarded its HTTP body. Diagnostic change retains status/body and does not retry HTTP 500 or weaken the assertion. A focused passing replay does not close that CI finding.",
+      "related_ci": "https://github.com/crabbuild/cellar/actions/runs/39723205982/job/119641154633"
+    },
+    {
+      "finding": "A development broad run also hit the S3 seed setup Overloaded refusal. The frozen final CLI matrix passed, while a later targeted probe reproduced and repaired the setup race in the separate receipt-maintenance record. A passing replay alone is not the repair."
+    }
+  ],
+  "limits": [
+    "Raft daemons pin the initial compiled deployment until process restart; live Raft definition rebinding is not implemented.",
+    "Remote peers/query origins/inspection origins require a real Fleet bucket so the daemon obtains shared peer authentication; independently injecting an object store is insufficient.",
+    "Receipt maintenance, remaining management operations and verified fenced disaster restore are separate components.",
+    "Prior transfer, concurrent fallback and effect callback-count findings remain open. Additional 3.14t CI reports contain nonmember reads and Fleet event recovery/drain failures; this serial native matrix does not close those findings.",
+    "MR-13 through MR-17 remain open."
+  ]
+}

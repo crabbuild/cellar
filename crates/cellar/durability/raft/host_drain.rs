@@ -9,7 +9,7 @@ use std::ops::Bound::{Excluded, Unbounded};
 pub(super) struct Drain {
     request: Request,
     cursor: Option<GroupScope>,
-    waiting_until: Option<u64>,
+    waiting: Option<(GroupScope, u64)>,
     busy: bool,
     report: RaftDrainReport,
 }
@@ -40,7 +40,7 @@ impl Driver {
         self.drain = Some(Drain {
             request,
             cursor: None,
-            waiting_until: None,
+            waiting: None,
             busy: false,
             report: RaftDrainReport::default(),
         });
@@ -63,57 +63,59 @@ impl Driver {
             }
         };
         let expired = now >= drain.request.control.deadline() || drain.request.control.cancelled();
-        let next = if drain.waiting_until.is_some() {
-            drain
-                .cursor
-                .as_ref()
-                .and_then(|scope| self.cells.get_key_value(scope))
-        } else {
-            self.cells
-                .range((drain.cursor.as_ref().map_or(Unbounded, Excluded), Unbounded))
-                .next()
-        };
-        if expired || next.is_none() && drain.waiting_until.is_none() {
+        if expired {
             let Some(mut drain) = self.drain.take() else {
                 return;
             };
-            drain.report.deadline_elapsed = expired;
-            drain.report.unavailable_groups += usize::from(drain.waiting_until.is_some());
+            drain.report.deadline_elapsed = true;
+            drain.report.unavailable_groups += usize::from(drain.waiting.is_some());
             reply(&mut drain.request, Ok(Response::Drained(drain.report)));
             return;
         }
-        let Some((scope, cell)) = next else {
-            // A waiting replica may have been removed by consensus progress.
-            drain.waiting_until = None;
-            drain.report.unavailable_groups += 1;
-            return;
-        };
-        let scope = scope.clone();
-        // Capture and apply can briefly occupy SQL after application admission
-        // has drained. Revisit this group without recounting it or granting a
-        // new deadline. Waiting and handoff share the original one-second turn.
-        let deadline = drain.waiting_until.unwrap_or_else(|| {
+        let (scope, deadline) = if let Some(waiting) = drain.waiting.take() {
+            waiting
+        } else {
+            let next = self
+                .cells
+                .range((drain.cursor.as_ref().map_or(Unbounded, Excluded), Unbounded))
+                .next();
+            let Some((scope, _)) = next else {
+                let Some(mut drain) = self.drain.take() else {
+                    return;
+                };
+                reply(&mut drain.request, Ok(Response::Drained(drain.report)));
+                return;
+            };
+            let scope = scope.clone();
             drain.cursor = Some(scope.clone());
             drain.report.groups_examined += 1;
-            drain
+            // Waiting for admitted SQL/apply work and inspecting a successor
+            // share one turn. A busy group cannot renew its shutdown budget.
+            let deadline = drain
                 .request
                 .control
                 .deadline()
-                .min(now.saturating_add(1000))
-        });
-        let unsettled = cell.pending.is_some()
+                .min(now.saturating_add(1000));
+            (scope, deadline)
+        };
+        let Some(cell) = self.cells.get(&scope) else {
+            drain.report.unavailable_groups += 1;
+            return;
+        };
+        if cell.failed || cell.retired || now >= deadline {
+            drain.report.unavailable_groups += 1;
+            return;
+        }
+        if cell.pending.is_some()
             || cell.sql_busy
             || cell.configuration.is_some()
             || cell.incoming.is_some()
             || cell.apply.is_some()
-            || cell.publication.is_some();
-        if !cell.failed && !cell.retired && unsettled && now < deadline {
-            drain.waiting_until = Some(deadline);
-            return;
-        }
-        drain.waiting_until = None;
-        if cell.failed || cell.retired || unsettled || now >= deadline {
-            drain.report.unavailable_groups += 1;
+            || cell.publication.is_some()
+        {
+            // Completion jobs and the existing host poll wake this turn.
+            // In particular, a brief archive capture is not a failed group.
+            drain.waiting = Some((scope, deadline));
             return;
         }
         let Some(memory) = self.control_budget.acquire(2 * RESPONSE_RESERVATION) else {

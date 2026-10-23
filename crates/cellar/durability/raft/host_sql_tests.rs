@@ -14,9 +14,15 @@ fn scope(id: u8) -> GroupScope {
     }
 }
 
-fn request(id: u8, archive: bool, slots: &Arc<Semaphore>) -> Request {
+fn request(
+    id: u8,
+    archive: bool,
+    slots: &Arc<Semaphore>,
+    performance: &Arc<super::super::performance::Registry>,
+) -> Request {
     let (reply, _receive) = oneshot::channel();
     Request {
+        queued: performance.timer(super::super::performance::Operation::SqlQueue),
         scope: scope(id),
         action: if archive {
             Action::CaptureArchive {
@@ -36,13 +42,26 @@ fn request(id: u8, archive: bool, slots: &Arc<Semaphore>) -> Request {
     }
 }
 
-#[test]
-fn archive_capture_advances_past_unrelated_queued_sql_work() {
+#[tokio::test]
+async fn archive_capture_advances_past_unrelated_queued_sql_work() {
+    let domain = crate::asyncrt::ExecutionDomain::new(tokio::runtime::Handle::current());
+    let performance = domain
+        .run(async {
+            super::super::performance::Registry::new(
+                crate::asyncrt::services().domain_token().unwrap(),
+            )
+        })
+        .await
+        .unwrap();
     let slots = Arc::new(Semaphore::new(4));
     let (sender, receiver) = mpsc::sync_channel(4);
-    sender.send(request(1, false, &slots)).unwrap();
-    sender.send(request(2, false, &slots)).unwrap();
-    sender.send(request(3, true, &slots)).unwrap();
+    sender
+        .send(request(1, false, &slots, &performance))
+        .unwrap();
+    sender
+        .send(request(2, false, &slots, &performance))
+        .unwrap();
+    sender.send(request(3, true, &slots, &performance)).unwrap();
     let mut queue = RequestQueue::new(receiver, 4);
     assert_eq!(
         queue.next().unwrap().scope,
@@ -51,14 +70,26 @@ fn archive_capture_advances_past_unrelated_queued_sql_work() {
     );
     assert_eq!(queue.next().unwrap().scope, scope(1));
     assert_eq!(queue.next().unwrap().scope, scope(2));
+    domain.shutdown().await;
 }
 
-#[test]
-fn committed_publication_advances_without_releasing_its_reservation() {
+#[tokio::test]
+async fn committed_publication_advances_without_releasing_its_reservation() {
+    let domain = crate::asyncrt::ExecutionDomain::new(tokio::runtime::Handle::current());
+    let performance = domain
+        .run(async {
+            super::super::performance::Registry::new(
+                crate::asyncrt::services().domain_token().unwrap(),
+            )
+        })
+        .await
+        .unwrap();
     let slots = Arc::new(Semaphore::new(2));
     let (sender, receiver) = mpsc::sync_channel(2);
-    sender.send(request(1, false, &slots)).unwrap();
-    let mut publish = request(2, true, &slots);
+    sender
+        .send(request(1, false, &slots, &performance))
+        .unwrap();
+    let mut publish = request(2, true, &slots, &performance);
     publish.action = Action::Publish {
         ticket: ApplyTicket {
             owner: Arc::new(()),
@@ -87,15 +118,27 @@ fn committed_publication_advances_without_releasing_its_reservation() {
     assert_eq!(slots.available_permits(), 1);
     drop(queue);
     assert_eq!(slots.available_permits(), 2);
+    domain.shutdown().await;
 }
 
-#[test]
-fn progress_never_passes_an_earlier_request_for_the_same_cell() {
+#[tokio::test]
+async fn progress_never_passes_an_earlier_request_for_the_same_cell() {
+    let domain = crate::asyncrt::ExecutionDomain::new(tokio::runtime::Handle::current());
+    let performance = domain
+        .run(async {
+            super::super::performance::Registry::new(
+                crate::asyncrt::services().domain_token().unwrap(),
+            )
+        })
+        .await
+        .unwrap();
     let slots = Arc::new(Semaphore::new(3));
     let (sender, receiver) = mpsc::sync_channel(3);
-    sender.send(request(1, false, &slots)).unwrap();
-    sender.send(request(1, true, &slots)).unwrap();
-    sender.send(request(2, true, &slots)).unwrap();
+    sender
+        .send(request(1, false, &slots, &performance))
+        .unwrap();
+    sender.send(request(1, true, &slots, &performance)).unwrap();
+    sender.send(request(2, true, &slots, &performance)).unwrap();
     let mut queue = RequestQueue::new(receiver, 3);
     assert_eq!(queue.next().unwrap().scope, scope(2));
     let ordinary = queue.next().unwrap();
@@ -104,29 +147,55 @@ fn progress_never_passes_an_earlier_request_for_the_same_cell() {
     let capture = queue.next().unwrap();
     assert_eq!(capture.scope, scope(1));
     assert!(matches!(capture.action, Action::CaptureArchive { .. }));
+    domain.shutdown().await;
 }
 
-#[test]
-fn continuous_progress_cannot_starve_older_ordinary_work() {
+#[tokio::test]
+async fn continuous_progress_cannot_starve_older_ordinary_work() {
+    let domain = crate::asyncrt::ExecutionDomain::new(tokio::runtime::Handle::current());
+    let performance = domain
+        .run(async {
+            super::super::performance::Registry::new(
+                crate::asyncrt::services().domain_token().unwrap(),
+            )
+        })
+        .await
+        .unwrap();
     let slots = Arc::new(Semaphore::new(3));
     let (sender, receiver) = mpsc::sync_channel(3);
-    sender.send(request(1, false, &slots)).unwrap();
-    sender.send(request(2, true, &slots)).unwrap();
+    sender
+        .send(request(1, false, &slots, &performance))
+        .unwrap();
+    sender.send(request(2, true, &slots, &performance)).unwrap();
     let mut queue = RequestQueue::new(receiver, 3);
     for id in 2..=4 {
         assert_eq!(queue.next().unwrap().scope, scope(id));
-        sender.send(request(id + 1, true, &slots)).unwrap();
+        sender
+            .send(request(id + 1, true, &slots, &performance))
+            .unwrap();
     }
     assert_eq!(queue.next().unwrap().scope, scope(1));
     assert_eq!(queue.next().unwrap().scope, scope(5));
+    domain.shutdown().await;
 }
 
-#[test]
-fn disconnected_sender_does_not_discard_already_queued_work() {
+#[tokio::test]
+async fn disconnected_sender_does_not_discard_already_queued_work() {
+    let domain = crate::asyncrt::ExecutionDomain::new(tokio::runtime::Handle::current());
+    let performance = domain
+        .run(async {
+            super::super::performance::Registry::new(
+                crate::asyncrt::services().domain_token().unwrap(),
+            )
+        })
+        .await
+        .unwrap();
     let slots = Arc::new(Semaphore::new(3));
     let (sender, receiver) = mpsc::sync_channel(3);
     for id in 1..=3 {
-        sender.send(request(id, false, &slots)).unwrap();
+        sender
+            .send(request(id, false, &slots, &performance))
+            .unwrap();
     }
     drop(sender);
     let mut queue = RequestQueue::new(receiver, 3);
@@ -138,4 +207,5 @@ fn disconnected_sender_does_not_discard_already_queued_work() {
         Err(mpsc::RecvTimeoutError::Disconnected)
     ));
     assert_eq!(slots.available_permits(), 3);
+    domain.shutdown().await;
 }

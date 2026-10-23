@@ -31,6 +31,7 @@ pub struct Gate {
     release: Condvar,
     signal: Option<std::path::PathBuf>,
     pub sync_path: Mutex<Option<std::path::PathBuf>>,
+    pub image_read_paths: Mutex<Vec<std::path::PathBuf>>,
 }
 
 impl Gate {
@@ -42,6 +43,7 @@ impl Gate {
             release: Condvar::new(),
             signal,
             sync_path: Mutex::new(None),
+            image_read_paths: Mutex::new(vec![]),
         })
     }
 
@@ -84,19 +86,27 @@ impl FaultFileSystem {
     fn wrap(&self, path: &Path, inner: HostFile) -> HostFile {
         HostFile::from_io(FaultFile {
             inner,
+            path: path.into(),
             gate: self.gate.clone(),
             log: path
                 .parent()
                 .and_then(Path::file_name)
                 .is_some_and(|name| name == "log"),
+            image: path
+                .parent()
+                .and_then(Path::file_name)
+                .is_some_and(|name| name == "images")
+                && path.extension().is_some_and(|name| name == "sqlite"),
         })
     }
 }
 
 struct FaultFile {
     inner: HostFile,
+    path: std::path::PathBuf,
     gate: Arc<Gate>,
     log: bool,
+    image: bool,
 }
 
 struct TrackedLock {
@@ -139,7 +149,14 @@ impl HostFileIo for FaultFile {
     }
 
     fn read_exact_at(&mut self, offset: u64, len: usize) -> io::Result<Vec<u8>> {
+        // An empty selection preserves the generic capture-read fault. A
+        // named selection holds only the intended immutable generation read.
+        let selected = {
+            let paths = self.gate.image_read_paths.lock().unwrap();
+            paths.is_empty() || self.image && paths.contains(&self.path)
+        };
         if !self.log
+            && selected
             && self
                 .gate
                 .mode

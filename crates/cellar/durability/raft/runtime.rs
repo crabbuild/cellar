@@ -23,6 +23,10 @@ use tokio::sync::{mpsc, oneshot, Notify};
 #[path = "runtime_scheduler_tests.rs"]
 mod scheduler_tests;
 
+#[cfg(test)]
+#[path = "runtime_persistence_tests.rs"]
+mod persistence_tests;
+
 pub(crate) enum GroupAction {
     Campaign,
     ReplicationStatus,
@@ -701,12 +705,25 @@ impl Outbox {
 struct Group {
     replica: Replica,
     scheduled: bool,
+    write_scheduled: bool,
     deferred: VecDeque<Request>,
     inbound: Arc<Budget>,
     hints: BTreeMap<u64, PeerHint>,
     tick: bool,
     failed: Option<RuntimeError>,
     report_failure: bool,
+}
+
+impl Group {
+    fn wake(&mut self, scope: &GroupScope, order: &mut VecDeque<GroupScope>) {
+        if !self.scheduled
+            && (self.report_failure
+                || (self.failed.is_none() && !self.replica.waiting_for_persistence()))
+        {
+            self.scheduled = true;
+            order.push_back(scope.clone());
+        }
+    }
 }
 
 #[derive(Default)]
@@ -733,6 +750,9 @@ struct Worker {
     options: RaftRuntimeOptions,
     groups: BTreeMap<GroupScope, Group>,
     order: VecDeque<GroupScope>,
+    // One slot per group with a pending durable write. Consensus traffic must
+    // not reorder persistence waiters or repeatedly scan idle/applying groups.
+    writes: VecDeque<GroupScope>,
     ready_bytes: usize,
     apply_bytes: usize,
     pending_reads: usize,
@@ -767,6 +787,7 @@ impl Worker {
             options,
             groups: BTreeMap::new(),
             order: VecDeque::new(),
+            writes: VecDeque::new(),
             ready_bytes: 0,
             apply_bytes: 0,
             pending_reads: 0,
@@ -807,6 +828,7 @@ impl Worker {
             Group {
                 replica,
                 scheduled: true,
+                write_scheduled: false,
                 deferred: VecDeque::new(),
                 inbound: Budget::new(
                     (self.options.max_request_bytes / 4).max(self.options.max_message_bytes + 4096),
@@ -846,10 +868,7 @@ impl Worker {
         };
         if let Some(scope) = scope {
             if let Some(group) = self.groups.get_mut(scope) {
-                if !group.scheduled {
-                    group.scheduled = true;
-                    self.order.push_back(scope.clone());
-                }
+                group.wake(scope, &mut self.order);
             }
         }
         if let Command::Group { scope, .. } = &request.command {
@@ -999,10 +1018,7 @@ impl Worker {
     fn tick(&mut self) {
         for (scope, group) in &mut self.groups {
             group.tick = true;
-            if !group.scheduled && group.failed.is_none() {
-                group.scheduled = true;
-                self.order.push_back(scope.clone());
-            }
+            group.wake(scope, &mut self.order);
         }
     }
 
@@ -1097,8 +1113,13 @@ impl Worker {
             pending_reads = pending_reads - old_reads + group.replica.pending_reads();
             ready_bytes = ready_bytes - old_ready + group.replica.ready_bytes;
             apply_bytes = apply_bytes - old_apply + group.replica.apply_bytes;
+            if group.failed.is_none() && group.replica.write.is_some() && !group.write_scheduled {
+                group.write_scheduled = true;
+                self.writes.push_back(scope.clone());
+            }
             group.scheduled = group.report_failure
                 || (group.failed.is_none()
+                    && !group.replica.waiting_for_persistence()
                     && (group.tick
                         || !group.hints.is_empty()
                         || !group.deferred.is_empty()
@@ -1125,7 +1146,7 @@ impl Worker {
         // Reclamation must not share a batch with an append which cannot fit
         // until that reclamation persists. Otherwise retrying the same bounded
         // batch can indefinitely prevent the checkpoint from freeing capacity.
-        let checkpoints = self.order.iter().any(|scope| {
+        let checkpoints = self.writes.iter().any(|scope| {
             self.groups.get(scope).is_some_and(|group| {
                 group.failed.is_none()
                     && group.replica.write.as_ref().is_some_and(|(_, write)| {
@@ -1136,11 +1157,12 @@ impl Worker {
                     })
             })
         });
-        for _ in 0..self.order.len() {
-            let Some(scope) = self.order.pop_front() else {
+        for _ in 0..self.writes.len() {
+            let Some(scope) = self.writes.pop_front() else {
                 break;
             };
             let group = self.groups.get_mut(&scope).ok_or(RuntimeError::NotFound)?;
+            group.write_scheduled = false;
             if group.failed.is_none() {
                 if let Some((_, write)) = &group.replica.write {
                     if checkpoints
@@ -1149,12 +1171,14 @@ impl Worker {
                             Some(super::cache::SnapshotChange::Checkpoint(_))
                         )
                     {
-                        self.order.push_back(scope);
+                        group.write_scheduled = true;
+                        self.writes.push_back(scope);
                         continue;
                     }
                     let size = write.estimated_bytes()?;
                     if size + 1024 > self.log.limits().max_batch_bytes {
                         Self::fail(group, RuntimeError::Overloaded);
+                        group.wake(&scope, &mut self.order);
                     } else if bytes + size <= self.log.limits().max_batch_bytes {
                         let (ticket, write) =
                             group.replica.write.take().ok_or(RuntimeError::NotReady)?;
@@ -1164,10 +1188,16 @@ impl Worker {
                             ticket,
                             write,
                         });
+                    } else {
+                        // Keep the first waiter for the next batch. Skipping a
+                        // large write lets a stream of small writes bypass it
+                        // indefinitely, despite round-robin consensus turns.
+                        group.write_scheduled = true;
+                        self.writes.push_front(scope);
+                        break;
                     }
                 }
             }
-            self.order.push_back(scope);
             if jobs.len() >= self.options.max_batch_groups {
                 break;
             }
@@ -1200,11 +1230,12 @@ impl Worker {
                     return Err(RuntimeError::StaleCompletion);
                 }
                 for job in jobs {
-                    self.groups
+                    let group = self
+                        .groups
                         .get_mut(&job.scope)
-                        .ok_or(RuntimeError::NotFound)?
-                        .replica
-                        .synced(&job.ticket, receipt.sequence)?;
+                        .ok_or(RuntimeError::NotFound)?;
+                    group.replica.synced(&job.ticket, receipt.sequence)?;
+                    group.wake(&job.scope, &mut self.order);
                 }
             }
             Err(LogError::Overloaded) => {
@@ -1213,18 +1244,21 @@ impl Worker {
                     .mono_ms()
                     .map_err(|_| RuntimeError::Closed)?
                     .saturating_add(10);
-                for job in jobs {
-                    self.groups
+                for job in jobs.into_iter().rev() {
+                    let group = self
+                        .groups
                         .get_mut(&job.scope)
-                        .ok_or(RuntimeError::NotFound)?
-                        .replica
-                        .write = Some((job.ticket, job.write));
+                        .ok_or(RuntimeError::NotFound)?;
+                    group.replica.write = Some((job.ticket, job.write));
+                    group.write_scheduled = true;
+                    self.writes.push_front(job.scope);
                 }
             }
             Err(error @ (LogError::Invalid(_) | LogError::WrongIdentity)) => {
                 for job in jobs {
                     if let Some(group) = self.groups.get_mut(&job.scope) {
                         Self::fail(group, error.clone().into());
+                        group.wake(&job.scope, &mut self.order);
                     }
                 }
             }

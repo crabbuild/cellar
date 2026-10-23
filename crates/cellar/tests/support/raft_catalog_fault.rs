@@ -8,12 +8,19 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 #[derive(Debug, Default)]
 pub struct Store {
+    /// Hold one exact ordinal initial-member claim while the host initializes.
+    pub hold_nth_claim: AtomicUsize,
+    pub claim_hang: AtomicBool,
+    pub claim_waiting: tokio::sync::Notify,
+    pub claim_resume: tokio::sync::Notify,
     pub inner: object_store::memory::InMemory,
     pub fail_before: AtomicBool,
     pub fail_after: AtomicBool,
     pub fail_read: AtomicBool,
     pub fail_confirmation: AtomicBool,
+    pub fail_head_before: AtomicBool,
     pub fail_head_after: AtomicBool,
+    pub fail_bundle_after: AtomicBool,
     pub fail_head_confirmation: AtomicBool,
     pub fail_join_claim_before: AtomicBool,
     pub fail_join_claim_after: AtomicBool,
@@ -24,6 +31,9 @@ pub struct Store {
     pub archive_hang: AtomicBool,
     pub archive_resume: tokio::sync::Notify,
     pub archive_attempts: AtomicUsize,
+    pub archive_heads_hang: AtomicBool,
+    pub archive_heads_waiting: AtomicUsize,
+    pub archive_heads_resume: tokio::sync::Notify,
     pub archive_payload_reads: AtomicUsize,
     pub hold_archive_payloads: AtomicBool,
     pub active_payload_reads: AtomicUsize,
@@ -105,6 +115,25 @@ impl ObjectStore for Store {
             return Err(failure());
         }
         tokio::task::yield_now().await;
+        if path.as_ref().contains("/claims/")
+            && self
+                .hold_nth_claim
+                .fetch_update(Ordering::AcqRel, Ordering::Acquire, |remaining| {
+                    remaining.checked_sub(1)
+                })
+                .is_ok_and(|remaining| remaining == 1)
+        {
+            self.claim_waiting.notify_one();
+            loop {
+                let resumed = self.claim_resume.notified();
+                tokio::pin!(resumed);
+                resumed.as_mut().enable();
+                if !self.claim_hang.load(Ordering::Acquire) {
+                    break;
+                }
+                resumed.await;
+            }
+        }
         if path.filename() == Some("view") && self.hold_next_view.swap(false, Ordering::AcqRel) {
             self.view_waiting.store(true, Ordering::Release);
             loop {
@@ -129,7 +158,15 @@ impl ObjectStore for Store {
         if joining_claim && self.fail_join_claim_before.swap(false, Ordering::AcqRel) {
             return Err(failure());
         }
+        if path.filename() == Some("head") && self.fail_head_before.swap(false, Ordering::AcqRel) {
+            return Err(failure());
+        }
         let result = self.inner.put_opts(path, payload, options).await?;
+        if path.as_ref().contains("/archives/bundles/")
+            && self.fail_bundle_after.swap(false, Ordering::AcqRel)
+        {
+            return Err(failure());
+        }
         if joining_claim
             && self
                 .fail_join_claim_confirmation
@@ -142,6 +179,18 @@ impl ObjectStore for Store {
         }
 
         let head = path.filename() == Some("head");
+        if head && path.as_ref().contains("/archives/") {
+            self.archive_heads_waiting.fetch_add(1, Ordering::AcqRel);
+            loop {
+                let resumed = self.archive_heads_resume.notified();
+                tokio::pin!(resumed);
+                resumed.as_mut().enable();
+                if !self.archive_heads_hang.load(Ordering::Acquire) {
+                    break;
+                }
+                resumed.await;
+            }
+        }
         if head && self.fail_head_confirmation.swap(false, Ordering::AcqRel) {
             self.fail_read.store(true, Ordering::Release);
         }
@@ -196,7 +245,7 @@ impl ObjectStore for Store {
         }
         self.archive_fault(path).await?;
         let payload = path.as_ref().contains("/archives/")
-            && ["/snapshots/", "/tails/", "/dependencies/"]
+            && ["/snapshots/", "/tails/", "/dependencies/", "/bundles/"]
                 .iter()
                 .any(|part| path.as_ref().contains(part));
 

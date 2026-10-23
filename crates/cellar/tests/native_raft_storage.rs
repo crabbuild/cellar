@@ -89,7 +89,9 @@ async fn vote_survives_restart() -> Result<()> {
     let receipt = log.persist(OperationId::new(1), vec![write]).await?;
     assert_eq!(receipt.operation, OperationId::new(1));
     assert_eq!(receipt.groups, vec![group.identity().clone()]);
+    let previous_source = log.performance_snapshot().source;
     log.close().await?;
+    assert!(log.performance_snapshot().available);
     assert!(group.initial_state().is_err());
     let log = start(
         &domain,
@@ -97,6 +99,7 @@ async fn vote_survives_restart() -> Result<()> {
         Arc::new(DirectFileSystem),
     )
     .await?;
+    assert_ne!(log.performance_snapshot().source, previous_source);
     let group = log.group(&bootstrap(10).scope)?;
     assert_eq!(group.initial_state()?.hard_state.vote, 2);
     assert_eq!(group.initial_state()?.hard_state.term, 7);
@@ -160,6 +163,14 @@ async fn append_sync_boundary() -> Result<()> {
     )
     .await?;
     let group = log.create_group(bootstrap(10)).await?;
+    let sync = |log: &ReplicaLog| {
+        log.performance_snapshot()
+            .operations
+            .into_iter()
+            .find(|op| op.name == "engine_file_sync")
+            .unwrap()
+    };
+    let before = sync(&log);
     let release = gate.arm(HOLD_SYNC);
     let mut write = GroupWrite::new(&group);
     write.entries = vec![entry(2, 2, b"uncommitted")];
@@ -179,8 +190,18 @@ async fn append_sync_boundary() -> Result<()> {
             .await
             .is_err()
     );
+    let held = sync(&log);
+    assert_eq!(held.started, before.started + 1);
+    assert_eq!(
+        (held.succeeded, held.failed, held.count),
+        (before.succeeded, before.failed, before.count)
+    );
     drop(release);
     pending.await??;
+    let durable = sync(&log);
+    assert_eq!(durable.succeeded, before.succeeded + 1);
+    assert_eq!(durable.count, before.count + 1);
+    assert!(durable.sum_us >= before.sum_us + 30_000);
     assert_eq!(group.last_index()?, 2);
     assert_eq!(group.initial_state()?.hard_state.commit, 2);
     let _failure = gate.arm(FAIL_SYNC);
@@ -194,6 +215,29 @@ async fn append_sync_boundary() -> Result<()> {
         group.initial_state().is_err(),
         "a failed sync quarantines cached reads as well"
     );
+    let failed = sync(&log);
+    assert_eq!(failed.failed, durable.failed + 1);
+    assert_eq!(failed.succeeded, durable.succeeded);
+    let sample = log.performance_snapshot();
+    let counter = |name| {
+        sample
+            .counters
+            .iter()
+            .find(|counter| counter.name == name)
+            .unwrap()
+            .value
+    };
+    assert_eq!(counter("engine_persist_groups"), 1);
+    assert_eq!(counter("engine_persist_entries"), 1);
+    assert_eq!(
+        counter("engine_persist_entry_bytes"),
+        u64::from(entry(2, 2, b"uncommitted").compute_size())
+    );
+    assert!(
+        counter("engine_file_write_requested_bytes")
+            >= counter("engine_file_write_completed_bytes")
+    );
+    assert!(counter("engine_file_write_completed_bytes") > 0);
     assert!(matches!(
         log.persist(OperationId::new(3), Vec::new()).await,
         Err(LogError::Closed)

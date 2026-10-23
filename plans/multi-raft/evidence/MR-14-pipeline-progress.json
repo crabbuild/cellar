@@ -1,0 +1,4123 @@
+{
+  "task_id": "MR-14",
+  "source_revision": "e788e35554ec2562ad027285af22d082c3d26593",
+  "completion": "partial",
+  "scope": "Bounded control-lane pipelining and unchanged local density profiles.",
+  "implementation": [
+    "At most eight already-budgeted FIFO control frames share one peer connection; no wait to fill the window and no new connections or raised budgets. Bulk data stays one frame at a time.",
+    "Ordered writes and reads run concurrently to avoid full-buffer deadlock. The existing I/O deadline bounds the entire window.",
+    "Each response keeps its authenticated channel/request/sequence/route binding. Revalidate routes before sending, after receiving and before notifying observers.",
+    "On connection failure, retain observed earlier admissions, fail unresolved frames, close the stream and never replay the partially sent window automatically. Admissions never replace durable Raft responses.",
+    "Payloads and node/peer permits release before observer completion; dropped observers cannot release physical work before joined shutdown."
+  ],
+  "reproducer": {
+    "baseline_revision": "c03e6a534cb3ce565f2f2b0128289c15bb19964a",
+    "log_member": "red-probe",
+    "source_member": "red-source",
+    "result": "Original sender times out waiting for the second frame while the first admission reply is withheld. The final test receives exactly eight frames before replies and keeps the ninth queued.",
+    "test_repairs": "The initial test compile used a raw integer for LogIndex. The first pipeline prototype reached the later no-commit assertion, which incorrectly assumed bootstrap commit zero. Final tests compare before/after committed positions, preserving the no-advancement property; all original outputs are retained."
+  },
+  "validation": {
+    "transport_unit_cases": 31,
+    "new_pipeline_cases_included": 7,
+    "native_cases": 299,
+    "native_targets": 15,
+    "daemon": "separate custom process harness",
+    "python_passed": 161,
+    "python_skipped": 1,
+    "negative_cases": [
+      "window bound and FIFO groups",
+      "lost reply preserves only verified prefix",
+      "wrong-request reply authentication",
+      "route revocation after send",
+      "bounded held-reply timeout",
+      "cancelled observers and joined close",
+      "bidirectional progress through one-byte buffers"
+    ]
+  },
+  "checks": [
+    {
+      "name": "transport-list",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--lib",
+        "--locked",
+        "raft::transport",
+        "--",
+        "--list"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 2.3721210956573486,
+      "sha256": "b4f03be36f8571ab8c753e57ed1103851b495f91f26bc3740e62128c06df9269",
+      "source_revision": "e788e35554ec2562ad027285af22d082c3d26593",
+      "output": "evidence/MR-14-pipeline-validation.json.gz",
+      "log_member": "transport-list"
+    },
+    {
+      "name": "transport-tests",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--lib",
+        "--locked",
+        "raft::transport",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 7.125901699066162,
+      "sha256": "e083df120f4b4c9278208140658097bab6a2f5c8f82d754f18b379d18db6d225",
+      "source_revision": "e788e35554ec2562ad027285af22d082c3d26593",
+      "output": "evidence/MR-14-pipeline-validation.json.gz",
+      "log_member": "transport-tests"
+    },
+    {
+      "name": "native-list",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--locked",
+        "--test",
+        "native_raft_archive",
+        "--test",
+        "native_raft_contract",
+        "--test",
+        "native_raft_directory",
+        "--test",
+        "native_raft_effects",
+        "--test",
+        "native_raft_execution",
+        "--test",
+        "native_raft_host",
+        "--test",
+        "native_raft_ltx",
+        "--test",
+        "native_raft_membership",
+        "--test",
+        "native_raft_multigroup",
+        "--test",
+        "native_raft_operations",
+        "--test",
+        "native_raft_reads",
+        "--test",
+        "native_raft_runtime",
+        "--test",
+        "native_raft_snapshot",
+        "--test",
+        "native_raft_storage",
+        "--test",
+        "native_raft_transport",
+        "--",
+        "--list"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 178.1043357849121,
+      "sha256": "c3e69de62602c61958f2e1a29e34ead8071296a9a8d68682d7d99b8876100ce5",
+      "source_revision": "e788e35554ec2562ad027285af22d082c3d26593",
+      "output": "evidence/MR-14-pipeline-validation.json.gz",
+      "log_member": "native-list"
+    },
+    {
+      "name": "native-tests",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--locked",
+        "--test",
+        "native_raft_archive",
+        "--test",
+        "native_raft_contract",
+        "--test",
+        "native_raft_directory",
+        "--test",
+        "native_raft_effects",
+        "--test",
+        "native_raft_execution",
+        "--test",
+        "native_raft_host",
+        "--test",
+        "native_raft_ltx",
+        "--test",
+        "native_raft_membership",
+        "--test",
+        "native_raft_multigroup",
+        "--test",
+        "native_raft_operations",
+        "--test",
+        "native_raft_reads",
+        "--test",
+        "native_raft_runtime",
+        "--test",
+        "native_raft_snapshot",
+        "--test",
+        "native_raft_storage",
+        "--test",
+        "native_raft_transport",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 474.2461168766022,
+      "sha256": "4ff42391987542de55e3a8afe6845a566429271bd608f4b39e9f4b4cbdac478e",
+      "source_revision": "e788e35554ec2562ad027285af22d082c3d26593",
+      "output": "evidence/MR-14-pipeline-validation.json.gz",
+      "log_member": "native-tests"
+    },
+    {
+      "name": "daemon",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--test",
+        "native_raft_daemon",
+        "--locked"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 25.208765983581543,
+      "sha256": "83b4f821e9625247e02780d4274239ec4ba1578be60fdb173e89daab5e1b32d8",
+      "source_revision": "e788e35554ec2562ad027285af22d082c3d26593",
+      "output": "evidence/MR-14-pipeline-validation.json.gz",
+      "log_member": "daemon"
+    },
+    {
+      "name": "clippy",
+      "command": [
+        "cargo",
+        "clippy",
+        "-p",
+        "cellar",
+        "--all-targets",
+        "--all-features",
+        "--locked",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 81.00916075706482,
+      "sha256": "aaceb91ba32025fad02383ac640a314af1ef5399e6c33cd019d4f76c7635018b",
+      "source_revision": "e788e35554ec2562ad027285af22d082c3d26593",
+      "output": "evidence/MR-14-pipeline-validation.json.gz",
+      "log_member": "clippy"
+    },
+    {
+      "name": "format-check",
+      "command": [
+        "cargo",
+        "format",
+        "--check"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 55.79467701911926,
+      "sha256": "df6b8cef524983b07b9fe57d16c4aee2c72f390154d9529eb230314beb55ae35",
+      "source_revision": "e788e35554ec2562ad027285af22d082c3d26593",
+      "output": "evidence/MR-14-pipeline-validation.json.gz",
+      "log_member": "format-check"
+    },
+    {
+      "name": "layout",
+      "command": [
+        "cargo",
+        "check-layout"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 0.5411550998687744,
+      "sha256": "75541958f0e3554b43db2bdf81ba64cad6127b37dfb037e196db99d6c32ed363",
+      "source_revision": "e788e35554ec2562ad027285af22d082c3d26593",
+      "output": "evidence/MR-14-pipeline-validation.json.gz",
+      "log_member": "layout"
+    },
+    {
+      "name": "native-dependencies",
+      "command": [
+        "python3",
+        "tools/check_native_dependencies.py"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 0.5046100616455078,
+      "sha256": "faf9bdb8df5819a63d590ede5d4a5f43eb4e8b00d8a6f44ccfb36bd8c4c5c238",
+      "source_revision": "e788e35554ec2562ad027285af22d082c3d26593",
+      "output": "evidence/MR-14-pipeline-validation.json.gz",
+      "log_member": "native-dependencies"
+    },
+    {
+      "name": "docs",
+      "command": [
+        "python3",
+        "tools/docs/check.py"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 0.14250874519348145,
+      "sha256": "701e55367b1b8c08dcd388c3084250c7209af81cb161e4ba73339783b537eeb3",
+      "source_revision": "e788e35554ec2562ad027285af22d082c3d26593",
+      "output": "evidence/MR-14-pipeline-validation.json.gz",
+      "log_member": "docs"
+    },
+    {
+      "name": "python",
+      "command": [
+        "python3",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "tools/perf",
+        "-p",
+        "test_*.py"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 4.732471942901611,
+      "sha256": "a517ac5d4db05cb9ca6fbb21ea250d528d73d8fd2822668b517bc14e8d68a8a8",
+      "source_revision": "e788e35554ec2562ad027285af22d082c3d26593",
+      "output": "evidence/MR-14-pipeline-validation.json.gz",
+      "log_member": "python"
+    }
+  ],
+  "raw_output": [
+    {
+      "path": "evidence/MR-14-pipeline-validation.json.gz",
+      "bytes": 55151,
+      "sha256": "d9fcb3462b5b7fbe09426dcb3487b44d60938b7302a704909cd2b8f28c29eed3"
+    },
+    {
+      "path": "evidence/MR-14-pipeline-local-runs.json.gz",
+      "bytes": 4396571,
+      "sha256": "4a5c11b5d7a7dcb68380515d34a034c5a26491a640e3ba87806e343c89abb3ce"
+    }
+  ],
+  "local_runs": [
+    {
+      "run": "mr14-pipeline-local-density-1500-healthy-20261022-001",
+      "profile": "local-density-1500",
+      "scenario": "healthy",
+      "build": {
+        "image_id": "sha256:7522dfc6861037c982f438d38379719f6cf31f9e215239c9da70f8fa2f14d58b",
+        "binary_sha256": "501bcb55d3f2a89769d06e8fc75dd25fd83dca5f219353ef0cbc6f8bf72a4899",
+        "source_manifest_sha256": "2508126f272828fce5b0eadb9151019f9f01ee5c88aff004169c3312bf180b90",
+        "build_profile": "lab",
+        "source_revision": "e788e35554ec2562ad027285af22d082c3d26593",
+        "working_tree_dirty": false
+      },
+      "profile_sha256": "0a05d0d254333cff2a060b1027adf86e6160417578a3f5b7a3c1ea021051acc7",
+      "placement": [
+        {
+          "node": 1,
+          "leader_cells": 300,
+          "replica_cells": 900
+        },
+        {
+          "node": 2,
+          "leader_cells": 300,
+          "replica_cells": 900
+        },
+        {
+          "node": 3,
+          "leader_cells": 300,
+          "replica_cells": 900
+        },
+        {
+          "node": 4,
+          "leader_cells": 300,
+          "replica_cells": 900
+        },
+        {
+          "node": 5,
+          "leader_cells": 300,
+          "replica_cells": 900
+        }
+      ],
+      "completed": true,
+      "reconciled": true,
+      "traffic_objectives_met": false,
+      "memory_objectives_met": true,
+      "failure": null,
+      "analysis_rejection": null,
+      "summary": {
+        "counts": {
+          "submitted": 1071,
+          "completed": 1071,
+          "generator_rejected": 129,
+          "offered": 1200
+        },
+        "latency_ms": {
+          "p50": 14.890542009379892,
+          "p95": 306.70266701490334,
+          "p99": 1774.2411250015664,
+          "p99_9": 3119.1962920071037
+        },
+        "latency_by_operation_ms": {
+          "command": {
+            "p50": 23.266667022834753,
+            "p95": 305.52645901916264,
+            "p99": 542.805167025648,
+            "p99_9": 1465.7505420211264
+          },
+          "query": {
+            "p50": 9.161292022326961,
+            "p95": 320.1522920164308,
+            "p99": 2293.4785840217983,
+            "p99_9": 3761.060583998912
+          }
+        },
+        "completed_per_second": 8.925,
+        "offered_per_second": 10.0,
+        "error_fraction": 0.1075
+      },
+      "diagnosis": {
+        "qualification_status_unchanged": true,
+        "summary": {
+          "counts": {
+            "submitted": 1071,
+            "completed": 1071,
+            "generator_rejected": 129,
+            "offered": 1200
+          },
+          "latency_ms": {
+            "p50": 14.890542009379892,
+            "p95": 306.70266701490334,
+            "p99": 1774.2411250015664,
+            "p99_9": 3119.1962920071037
+          },
+          "latency_by_operation_ms": {
+            "command": {
+              "p50": 23.266667022834753,
+              "p95": 305.52645901916264,
+              "p99": 542.805167025648,
+              "p99_9": 1465.7505420211264
+            },
+            "query": {
+              "p50": 9.161292022326961,
+              "p95": 320.1522920164308,
+              "p99": 2293.4785840217983,
+              "p99_9": 3761.060583998912
+            }
+          },
+          "completed_per_second": 8.925,
+          "offered_per_second": 10.0,
+          "error_fraction": 0.1075
+        },
+        "history_counts": {
+          "commands_including_seed": 2209,
+          "queries": 662,
+          "cells": 1500
+        },
+        "replica_values_verified": 4500,
+        "post_scan_agreed_valid_leader_cells": 1500,
+        "post_scan_note": "Sequential observations only; this does not prove continuous availability or satisfy the fixed-placement benchmark gate.",
+        "refusal_counts": {},
+        "measurement_queue_max_observed_items_by_node": {
+          "1": 4000,
+          "2": 4040,
+          "3": 3896,
+          "4": 4025,
+          "5": 4049
+        },
+        "measurement_high_queue_offsets_seconds": [
+          60.282346375024645,
+          63.89235966702108,
+          67.47318991701468,
+          71.58409504202427,
+          75.43348287499975,
+          79.19334808402346
+        ],
+        "measurement_sampled_leader_count_ranges": {
+          "1": [
+            300,
+            300
+          ],
+          "2": [
+            300,
+            300
+          ],
+          "3": [
+            300,
+            300
+          ],
+          "4": [
+            300,
+            300
+          ],
+          "5": [
+            300,
+            300
+          ]
+        },
+        "docker_sampled_cpu_percent_ranges": {
+          "cellar-mr14-c98ffe41974e9df448a63570-node1": [
+            30.91,
+            93.15
+          ],
+          "cellar-mr14-c98ffe41974e9df448a63570-node2": [
+            32.67,
+            97.02
+          ],
+          "cellar-mr14-c98ffe41974e9df448a63570-node3": [
+            32.24,
+            99.49
+          ],
+          "cellar-mr14-c98ffe41974e9df448a63570-node4": [
+            31.49,
+            107.58
+          ],
+          "cellar-mr14-c98ffe41974e9df448a63570-node5": [
+            30.85,
+            102.54
+          ],
+          "cellar-mr14-c98ffe41974e9df448a63570-store": [
+            6.7,
+            110.49
+          ]
+        },
+        "docker_cpu_scope": "Coarse Docker CLI percentages, not phase-enclosing kernel CPU rates or proof of sustained saturation. Raw timestamps and samples are retained in resources.jsonl.",
+        "measurement_stage_p99_upper_us": {
+          "1": {
+            "engine_file_sync": 50000,
+            "engine_persist": 50000,
+            "sql_stage": 100000,
+            "sql_prepare": 100000,
+            "sql_publish": 25000,
+            "sql_query": 10000
+          },
+          "2": {
+            "engine_file_sync": 50000,
+            "engine_persist": 50000,
+            "sql_stage": 250000,
+            "sql_prepare": 100000,
+            "sql_publish": 50000,
+            "sql_query": 500
+          },
+          "3": {
+            "engine_file_sync": 50000,
+            "engine_persist": 50000,
+            "sql_stage": 100000,
+            "sql_prepare": 100000,
+            "sql_publish": 25000,
+            "sql_query": 500
+          },
+          "4": {
+            "engine_file_sync": 50000,
+            "engine_persist": 50000,
+            "sql_stage": 1000000,
+            "sql_prepare": 100000,
+            "sql_publish": 50000,
+            "sql_query": 500
+          },
+          "5": {
+            "engine_file_sync": 50000,
+            "engine_persist": 50000,
+            "sql_stage": 250000,
+            "sql_prepare": 250000,
+            "sql_publish": 250000,
+            "sql_query": 1000
+          }
+        },
+        "control_queue_max_observed_items_by_node": {
+          "1": 4000,
+          "2": 4040,
+          "3": 3896,
+          "4": 4025,
+          "5": 4049
+        },
+        "post_scan_leader_changed_count": 0,
+        "raw_member": "diagnosis.json"
+      },
+      "kernel": {
+        "warmup": [
+          {
+            "node": "cellar-mr14-c98ffe41974e9df448a63570-node1",
+            "interval_ns": {
+              "minimum": 30452667334,
+              "maximum": 30610724333
+            },
+            "observer_window_ns": {
+              "before": 81857541,
+              "after": 76199458
+            },
+            "cpu_delta": {
+              "usage_usec": 10610762,
+              "user_usec": 8621202,
+              "system_usec": 1989561,
+              "nr_periods": 305,
+              "nr_throttled": 0,
+              "throttled_usec": 0
+            },
+            "average_cpu_cores": {
+              "minimum": 0.3466354433358191,
+              "maximum": 0.34843456842787707
+            },
+            "cgroup_io_delta": {
+              "253:16": {
+                "rbytes": 4096,
+                "wbytes": 14987264,
+                "rios": 1,
+                "wios": 799,
+                "dbytes": 0,
+                "dios": 0
+              }
+            },
+            "lifetime_peak_memory_bytes": 230699008,
+            "lifetime_memory_headroom_fraction": 0.928381601969401,
+            "process_rss_bytes": {
+              "before": 140771328,
+              "after": 141598720
+            },
+            "process_threads": {
+              "before": 10,
+              "after": 10
+            },
+            "process_fds": {
+              "before": 3637,
+              "after": 3636
+            },
+            "memory_events": {
+              "low": 0,
+              "high": 0,
+              "max": 0,
+              "oom": 0,
+              "oom_kill": 0,
+              "oom_group_kill": 0
+            },
+            "memory_objective_met": true
+          },
+          {
+            "node": "cellar-mr14-c98ffe41974e9df448a63570-node2",
+            "interval_ns": {
+              "minimum": 30436394584,
+              "maximum": 30608749125
+            },
+            "observer_window_ns": {
+              "before": 92473416,
+              "after": 79881125
+            },
+            "cpu_delta": {
+              "usage_usec": 10561032,
+              "user_usec": 8517120,
+              "system_usec": 2043913,
+              "nr_periods": 306,
+              "nr_throttled": 0,
+              "throttled_usec": 0
+            },
+            "average_cpu_cores": {
+              "minimum": 0.3450331131426136,
+              "maximum": 0.3469869590122804
+            },
+            "cgroup_io_delta": {
+              "253:16": {
+                "rbytes": 0,
+                "wbytes": 19709952,
+                "rios": 0,
+                "wios": 1130,
+                "dbytes": 0,
+                "dios": 0
+              }
+            },
+            "lifetime_peak_memory_bytes": 231858176,
+            "lifetime_memory_headroom_fraction": 0.9280217488606771,
+            "process_rss_bytes": {
+              "before": 140128256,
+              "after": 141959168
+            },
+            "process_threads": {
+              "before": 9,
+              "after": 11
+            },
+            "process_fds": {
+              "before": 3637,
+              "after": 3636
+            },
+            "memory_events": {
+              "low": 0,
+              "high": 0,
+              "max": 0,
+              "oom": 0,
+              "oom_kill": 0,
+              "oom_group_kill": 0
+            },
+            "memory_objective_met": true
+          },
+          {
+            "node": "cellar-mr14-c98ffe41974e9df448a63570-node3",
+            "interval_ns": {
+              "minimum": 30422528208,
+              "maximum": 30596083084
+            },
+            "observer_window_ns": {
+              "before": 93747292,
+              "after": 79807584
+            },
+            "cpu_delta": {
+              "usage_usec": 11073705,
+              "user_usec": 8912586,
+              "system_usec": 2161118,
+              "nr_periods": 305,
+              "nr_throttled": 0,
+              "throttled_usec": 0
+            },
+            "average_cpu_cores": {
+              "minimum": 0.36193211299621925,
+              "maximum": 0.36399686851430135
+            },
+            "cgroup_io_delta": {
+              "253:16": {
+                "rbytes": 4096,
+                "wbytes": 26341376,
+                "rios": 1,
+                "wios": 1677,
+                "dbytes": 0,
+                "dios": 0
+              }
+            },
+            "lifetime_peak_memory_bytes": 231469056,
+            "lifetime_memory_headroom_fraction": 0.9281425476074219,
+            "process_rss_bytes": {
+              "before": 140042240,
+              "after": 141459456
+            },
+            "process_threads": {
+              "before": 10,
+              "after": 10
+            },
+            "process_fds": {
+              "before": 3637,
+              "after": 3636
+            },
+            "memory_events": {
+              "low": 0,
+              "high": 0,
+              "max": 0,
+              "oom": 0,
+              "oom_kill": 0,
+              "oom_group_kill": 0
+            },
+            "memory_objective_met": true
+          },
+          {
+            "node": "cellar-mr14-c98ffe41974e9df448a63570-node4",
+            "interval_ns": {
+              "minimum": 30430865166,
+              "maximum": 30591014542
+            },
+            "observer_window_ns": {
+              "before": 71470334,
+              "after": 88679042
+            },
+            "cpu_delta": {
+              "usage_usec": 10718316,
+              "user_usec": 8742887,
+              "system_usec": 1975428,
+              "nr_periods": 306,
+              "nr_throttled": 0,
+              "throttled_usec": 0
+            },
+            "average_cpu_cores": {
+              "minimum": 0.35037464956529196,
+              "maximum": 0.3522185761571916
+            },
+            "cgroup_io_delta": {
+              "253:16": {
+                "rbytes": 0,
+                "wbytes": 18538496,
+                "rios": 0,
+                "wios": 1067,
+                "dbytes": 0,
+                "dios": 0
+              }
+            },
+            "lifetime_peak_memory_bytes": 230928384,
+            "lifetime_memory_headroom_fraction": 0.9283103942871094,
+            "process_rss_bytes": {
+              "before": 139476992,
+              "after": 141369344
+            },
+            "process_threads": {
+              "before": 9,
+              "after": 11
+            },
+            "process_fds": {
+              "before": 3637,
+              "after": 3636
+            },
+            "memory_events": {
+              "low": 0,
+              "high": 0,
+              "max": 0,
+              "oom": 0,
+              "oom_kill": 0,
+              "oom_group_kill": 0
+            },
+            "memory_objective_met": true
+          },
+          {
+            "node": "cellar-mr14-c98ffe41974e9df448a63570-node5",
+            "interval_ns": {
+              "minimum": 30432189125,
+              "maximum": 30598600375
+            },
+            "observer_window_ns": {
+              "before": 87354500,
+              "after": 79056750
+            },
+            "cpu_delta": {
+              "usage_usec": 10455918,
+              "user_usec": 8456225,
+              "system_usec": 1999694,
+              "nr_periods": 305,
+              "nr_throttled": 0,
+              "throttled_usec": 0
+            },
+            "average_cpu_cores": {
+              "minimum": 0.34171229637492856,
+              "maximum": 0.3435808694883037
+            },
+            "cgroup_io_delta": {
+              "253:16": {
+                "rbytes": 0,
+                "wbytes": 15540224,
+                "rios": 0,
+                "wios": 824,
+                "dbytes": 0,
+                "dios": 0
+              }
+            },
+            "lifetime_peak_memory_bytes": 230195200,
+            "lifetime_memory_headroom_fraction": 0.9285380045572916,
+            "process_rss_bytes": {
+              "before": 139649024,
+              "after": 141086720
+            },
+            "process_threads": {
+              "before": 10,
+              "after": 11
+            },
+            "process_fds": {
+              "before": 3637,
+              "after": 3637
+            },
+            "memory_events": {
+              "low": 0,
+              "high": 0,
+              "max": 0,
+              "oom": 0,
+              "oom_kill": 0,
+              "oom_group_kill": 0
+            },
+            "memory_objective_met": true
+          },
+          {
+            "node": "cellar-mr14-c98ffe41974e9df448a63570-store",
+            "interval_ns": {
+              "minimum": 30423550000,
+              "maximum": 30601026792
+            },
+            "observer_window_ns": {
+              "before": 87696083,
+              "after": 89780709
+            },
+            "cpu_delta": {
+              "usage_usec": 4566780,
+              "user_usec": 3101524,
+              "system_usec": 1465257,
+              "nr_periods": 305,
+              "nr_throttled": 0,
+              "throttled_usec": 0
+            },
+            "average_cpu_cores": {
+              "minimum": 0.14923616880705093,
+              "maximum": 0.15010674296720797
+            },
+            "cgroup_io_delta": {
+              "253:16": {
+                "rbytes": 0,
+                "wbytes": 21700608,
+                "rios": 0,
+                "wios": 5718,
+                "dbytes": 0,
+                "dios": 0
+              }
+            },
+            "lifetime_peak_memory_bytes": 556998656,
+            "lifetime_memory_headroom_fraction": 0.8703136444091797,
+            "process_rss_bytes": {
+              "before": 297390080,
+              "after": 362037248
+            },
+            "process_threads": {
+              "before": 34,
+              "after": 34
+            },
+            "process_fds": {
+              "before": 35,
+              "after": 33
+            },
+            "memory_events": {
+              "low": 0,
+              "high": 0,
+              "max": 0,
+              "oom": 0,
+              "oom_kill": 0,
+              "oom_group_kill": 0
+            },
+            "memory_objective_met": true
+          }
+        ],
+        "measurement": [
+          {
+            "node": "cellar-mr14-c98ffe41974e9df448a63570-node1",
+            "interval_ns": {
+              "minimum": 120437203917,
+              "maximum": 120616662250
+            },
+            "observer_window_ns": {
+              "before": 90564667,
+              "after": 88893666
+            },
+            "cpu_delta": {
+              "usage_usec": 52601418,
+              "user_usec": 41764837,
+              "system_usec": 10836582,
+              "nr_periods": 1206,
+              "nr_throttled": 7,
+              "throttled_usec": 198700
+            },
+            "average_cpu_cores": {
+              "minimum": 0.43610407566223297,
+              "maximum": 0.4367538957168964
+            },
+            "cgroup_io_delta": {
+              "253:16": {
+                "rbytes": 0,
+                "wbytes": 48418816,
+                "rios": 0,
+                "wios": 2452,
+                "dbytes": 0,
+                "dios": 0
+              }
+            },
+            "lifetime_peak_memory_bytes": 241446912,
+            "lifetime_memory_headroom_fraction": 0.9250450134277344,
+            "process_rss_bytes": {
+              "before": 141602816,
+              "after": 144883712
+            },
+            "process_threads": {
+              "before": 10,
+              "after": 11
+            },
+            "process_fds": {
+              "before": 3636,
+              "after": 3636
+            },
+            "memory_events": {
+              "low": 0,
+              "high": 0,
+              "max": 0,
+              "oom": 0,
+              "oom_kill": 0,
+              "oom_group_kill": 0
+            },
+            "memory_objective_met": true
+          },
+          {
+            "node": "cellar-mr14-c98ffe41974e9df448a63570-node2",
+            "interval_ns": {
+              "minimum": 120442416292,
+              "maximum": 120612865875
+            },
+            "observer_window_ns": {
+              "before": 83683500,
+              "after": 86766083
+            },
+            "cpu_delta": {
+              "usage_usec": 53876146,
+              "user_usec": 43095630,
+              "system_usec": 10780515,
+              "nr_periods": 1205,
+              "nr_throttled": 29,
+              "throttled_usec": 644015
+            },
+            "average_cpu_cores": {
+              "minimum": 0.4466865587609519,
+              "maximum": 0.4473187076335544
+            },
+            "cgroup_io_delta": {
+              "253:16": {
+                "rbytes": 0,
+                "wbytes": 65257472,
+                "rios": 0,
+                "wios": 3220,
+                "dbytes": 0,
+                "dios": 0
+              }
+            },
+            "lifetime_peak_memory_bytes": 242278400,
+            "lifetime_memory_headroom_fraction": 0.9247868855794271,
+            "process_rss_bytes": {
+              "before": 141959168,
+              "after": 144760832
+            },
+            "process_threads": {
+              "before": 11,
+              "after": 11
+            },
+            "process_fds": {
+              "before": 3636,
+              "after": 3638
+            },
+            "memory_events": {
+              "low": 0,
+              "high": 0,
+              "max": 0,
+              "oom": 0,
+              "oom_kill": 0,
+              "oom_group_kill": 0
+            },
+            "memory_objective_met": true
+          },
+          {
+            "node": "cellar-mr14-c98ffe41974e9df448a63570-node3",
+            "interval_ns": {
+              "minimum": 120437691042,
+              "maximum": 120605975084
+            },
+            "observer_window_ns": {
+              "before": 91492917,
+              "after": 76791125
+            },
+            "cpu_delta": {
+              "usage_usec": 53813235,
+              "user_usec": 43253120,
+              "system_usec": 10560114,
+              "nr_periods": 1206,
+              "nr_throttled": 16,
+              "throttled_usec": 258235
+            },
+            "average_cpu_cores": {
+              "minimum": 0.4461904558420095,
+              "maximum": 0.4468139046374927
+            },
+            "cgroup_io_delta": {
+              "253:16": {
+                "rbytes": 0,
+                "wbytes": 83177472,
+                "rios": 0,
+                "wios": 3912,
+                "dbytes": 0,
+                "dios": 0
+              }
+            },
+            "lifetime_peak_memory_bytes": 243478528,
+            "lifetime_memory_headroom_fraction": 0.924414316813151,
+            "process_rss_bytes": {
+              "before": 141459456,
+              "after": 145866752
+            },
+            "process_threads": {
+              "before": 10,
+              "after": 11
+            },
+            "process_fds": {
+              "before": 3636,
+              "after": 3639
+            },
+            "memory_events": {
+              "low": 0,
+              "high": 0,
+              "max": 0,
+              "oom": 0,
+              "oom_kill": 0,
+              "oom_group_kill": 0
+            },
+            "memory_objective_met": true
+          },
+          {
+            "node": "cellar-mr14-c98ffe41974e9df448a63570-node4",
+            "interval_ns": {
+              "minimum": 120434109000,
+              "maximum": 120597173916
+            },
+            "observer_window_ns": {
+              "before": 80373708,
+              "after": 82691208
+            },
+            "cpu_delta": {
+              "usage_usec": 52914382,
+              "user_usec": 42572896,
+              "system_usec": 10341485,
+              "nr_periods": 1205,
+              "nr_throttled": 17,
+              "throttled_usec": 343763
+            },
+            "average_cpu_cores": {
+              "minimum": 0.43876966832453845,
+              "maximum": 0.4393637520081624
+            },
+            "cgroup_io_delta": {
+              "253:16": {
+                "rbytes": 4096,
+                "wbytes": 47251456,
+                "rios": 1,
+                "wios": 2367,
+                "dbytes": 0,
+                "dios": 0
+              }
+            },
+            "lifetime_peak_memory_bytes": 239378432,
+            "lifetime_memory_headroom_fraction": 0.9256871541341146,
+            "process_rss_bytes": {
+              "before": 141369344,
+              "after": 143892480
+            },
+            "process_threads": {
+              "before": 11,
+              "after": 11
+            },
+            "process_fds": {
+              "before": 3636,
+              "after": 3637
+            },
+            "memory_events": {
+              "low": 0,
+              "high": 0,
+              "max": 0,
+              "oom": 0,
+              "oom_kill": 0,
+              "oom_group_kill": 0
+            },
+            "memory_objective_met": true
+          },
+          {
+            "node": "cellar-mr14-c98ffe41974e9df448a63570-node5",
+            "interval_ns": {
+              "minimum": 120434114667,
+              "maximum": 120604370208
+            },
+            "observer_window_ns": {
+              "before": 82687583,
+              "after": 87567958
+            },
+            "cpu_delta": {
+              "usage_usec": 51376498,
+              "user_usec": 41259150,
+              "system_usec": 10117348,
+              "nr_periods": 1205,
+              "nr_throttled": 16,
+              "throttled_usec": 539985
+            },
+            "average_cpu_cores": {
+              "minimum": 0.4259920093392442,
+              "maximum": 0.42659422657820734
+            },
+            "cgroup_io_delta": {
+              "253:16": {
+                "rbytes": 0,
+                "wbytes": 27578368,
+                "rios": 0,
+                "wios": 1485,
+                "dbytes": 0,
+                "dios": 0
+              }
+            },
+            "lifetime_peak_memory_bytes": 237768704,
+            "lifetime_memory_headroom_fraction": 0.9261868794759115,
+            "process_rss_bytes": {
+              "before": 141086720,
+              "after": 142987264
+            },
+            "process_threads": {
+              "before": 11,
+              "after": 11
+            },
+            "process_fds": {
+              "before": 3637,
+              "after": 3637
+            },
+            "memory_events": {
+              "low": 0,
+              "high": 0,
+              "max": 0,
+              "oom": 0,
+              "oom_kill": 0,
+              "oom_group_kill": 0
+            },
+            "memory_objective_met": true
+          },
+          {
+            "node": "cellar-mr14-c98ffe41974e9df448a63570-store",
+            "interval_ns": {
+              "minimum": 120437847084,
+              "maximum": 120606415042
+            },
+            "observer_window_ns": {
+              "before": 83836875,
+              "after": 84731083
+            },
+            "cpu_delta": {
+              "usage_usec": 26974843,
+              "user_usec": 18006874,
+              "system_usec": 8967970,
+              "nr_periods": 1176,
+              "nr_throttled": 1,
+              "throttled_usec": 1386
+            },
+            "average_cpu_cores": {
+              "minimum": 0.22366010125254346,
+              "maximum": 0.22397314177482977
+            },
+            "cgroup_io_delta": {
+              "253:16": {
+                "rbytes": 0,
+                "wbytes": 47570944,
+                "rios": 0,
+                "wios": 10313,
+                "dbytes": 0,
+                "dios": 0
+              }
+            },
+            "lifetime_peak_memory_bytes": 721575936,
+            "lifetime_memory_headroom_fraction": 0.8319950103759766,
+            "process_rss_bytes": {
+              "before": 362037248,
+              "after": 479064064
+            },
+            "process_threads": {
+              "before": 34,
+              "after": 46
+            },
+            "process_fds": {
+              "before": 33,
+              "after": 39
+            },
+            "memory_events": {
+              "low": 0,
+              "high": 0,
+              "max": 0,
+              "oom": 0,
+              "oom_kill": 0,
+              "oom_group_kill": 0
+            },
+            "memory_objective_met": true
+          }
+        ]
+      },
+      "cleanup": [
+        {
+          "container": "cellar-mr14-c98ffe41974e9df448a63570-node5",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-c98ffe41974e9df448a63570-node4",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-c98ffe41974e9df448a63570-node3",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-c98ffe41974e9df448a63570-node2",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-c98ffe41974e9df448a63570-node1",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-c98ffe41974e9df448a63570-store",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        }
+      ],
+      "network_removed": true,
+      "offered_routes_sha256": "bdb1b41349e69bbc78833dbc046d7edcb73750eada07abb47c567fbf6096720e",
+      "replicas": 4500,
+      "commands_including_seed": 2209,
+      "queries": 662,
+      "final_archive_seconds": 1.7480667909840122
+    },
+    {
+      "run": "mr14-pipeline-local-density-500-healthy-20261022-001",
+      "profile": "local-density-500",
+      "scenario": "healthy",
+      "build": {
+        "image_id": "sha256:7522dfc6861037c982f438d38379719f6cf31f9e215239c9da70f8fa2f14d58b",
+        "binary_sha256": "501bcb55d3f2a89769d06e8fc75dd25fd83dca5f219353ef0cbc6f8bf72a4899",
+        "source_manifest_sha256": "2508126f272828fce5b0eadb9151019f9f01ee5c88aff004169c3312bf180b90",
+        "build_profile": "lab",
+        "source_revision": "e788e35554ec2562ad027285af22d082c3d26593",
+        "working_tree_dirty": false
+      },
+      "profile_sha256": "3a3768398ed8609c82acbeee2d903061f490b7709338c33bbdd5c15af0a2e1c2",
+      "placement": [
+        {
+          "node": 1,
+          "leader_cells": 100,
+          "replica_cells": 300
+        },
+        {
+          "node": 2,
+          "leader_cells": 100,
+          "replica_cells": 300
+        },
+        {
+          "node": 3,
+          "leader_cells": 100,
+          "replica_cells": 300
+        },
+        {
+          "node": 4,
+          "leader_cells": 100,
+          "replica_cells": 300
+        },
+        {
+          "node": 5,
+          "leader_cells": 100,
+          "replica_cells": 300
+        }
+      ],
+      "completed": true,
+      "reconciled": true,
+      "traffic_objectives_met": false,
+      "memory_objectives_met": true,
+      "failure": null,
+      "analysis_rejection": null,
+      "summary": {
+        "counts": {
+          "submitted": 1166,
+          "completed": 1166,
+          "generator_rejected": 34,
+          "offered": 1200
+        },
+        "latency_ms": {
+          "p50": 12.844250013586134,
+          "p95": 185.33108299598666,
+          "p99": 332.18874999438697,
+          "p99_9": 686.074791994173
+        },
+        "latency_by_operation_ms": {
+          "command": {
+            "p50": 17.816042009506816,
+            "p95": 216.73487499938915,
+            "p99": 431.8163750111097,
+            "p99_9": 892.2008749912465
+          },
+          "query": {
+            "p50": 9.726542007413741,
+            "p95": 132.27087500854395,
+            "p99": 223.98658299934482,
+            "p99_9": 326.3531250006082
+          }
+        },
+        "completed_per_second": 9.716666666666667,
+        "offered_per_second": 10.0,
+        "error_fraction": 0.028333333333333332
+      },
+      "diagnosis": {
+        "qualification_status_unchanged": true,
+        "summary": {
+          "counts": {
+            "submitted": 1166,
+            "completed": 1166,
+            "generator_rejected": 34,
+            "offered": 1200
+          },
+          "latency_ms": {
+            "p50": 12.844250013586134,
+            "p95": 185.33108299598666,
+            "p99": 332.18874999438697,
+            "p99_9": 686.074791994173
+          },
+          "latency_by_operation_ms": {
+            "command": {
+              "p50": 17.816042009506816,
+              "p95": 216.73487499938915,
+              "p99": 431.8163750111097,
+              "p99_9": 892.2008749912465
+            },
+            "query": {
+              "p50": 9.726542007413741,
+              "p95": 132.27087500854395,
+              "p99": 223.98658299934482,
+              "p99_9": 326.3531250006082
+            }
+          },
+          "completed_per_second": 9.716666666666667,
+          "offered_per_second": 10.0,
+          "error_fraction": 0.028333333333333332
+        },
+        "history_counts": {
+          "commands_including_seed": 1255,
+          "queries": 711,
+          "cells": 500
+        },
+        "replica_values_verified": 1500,
+        "post_scan_agreed_valid_leader_cells": 500,
+        "post_scan_note": "Sequential observations only; this does not prove continuous availability or satisfy the fixed-placement benchmark gate.",
+        "refusal_counts": {},
+        "measurement_queue_max_observed_items_by_node": {
+          "1": 431,
+          "2": 510,
+          "3": 161,
+          "4": 255,
+          "5": 275
+        },
+        "measurement_high_queue_offsets_seconds": [],
+        "measurement_sampled_leader_count_ranges": {
+          "1": [
+            100,
+            100
+          ],
+          "2": [
+            100,
+            100
+          ],
+          "3": [
+            100,
+            100
+          ],
+          "4": [
+            100,
+            100
+          ],
+          "5": [
+            100,
+            100
+          ]
+        },
+        "docker_sampled_cpu_percent_ranges": {
+          "cellar-mr14-f8cb95319d99a421dd93a3da-node1": [
+            11.59,
+            73.98
+          ],
+          "cellar-mr14-f8cb95319d99a421dd93a3da-node2": [
+            11.73,
+            98.98
+          ],
+          "cellar-mr14-f8cb95319d99a421dd93a3da-node3": [
+            11.32,
+            125.39
+          ],
+          "cellar-mr14-f8cb95319d99a421dd93a3da-node4": [
+            11.13,
+            82.73
+          ],
+          "cellar-mr14-f8cb95319d99a421dd93a3da-node5": [
+            11.07,
+            70.22
+          ],
+          "cellar-mr14-f8cb95319d99a421dd93a3da-store": [
+            4.88,
+            40.41
+          ]
+        },
+        "docker_cpu_scope": "Coarse Docker CLI percentages, not phase-enclosing kernel CPU rates or proof of sustained saturation. Raw timestamps and samples are retained in resources.jsonl.",
+        "measurement_stage_p99_upper_us": {
+          "1": {
+            "engine_file_sync": 10000,
+            "engine_persist": 10000,
+            "sql_stage": 250000,
+            "sql_prepare": 25000,
+            "sql_publish": 2500,
+            "sql_query": 1000
+          },
+          "2": {
+            "engine_file_sync": 10000,
+            "engine_persist": 10000,
+            "sql_stage": 250000,
+            "sql_prepare": 25000,
+            "sql_publish": 5000,
+            "sql_query": 1000
+          },
+          "3": {
+            "engine_file_sync": 10000,
+            "engine_persist": 10000,
+            "sql_stage": 100000,
+            "sql_prepare": 25000,
+            "sql_publish": 5000,
+            "sql_query": 500
+          },
+          "4": {
+            "engine_file_sync": 10000,
+            "engine_persist": 10000,
+            "sql_stage": 1000000,
+            "sql_prepare": 10000,
+            "sql_publish": 5000,
+            "sql_query": 1000
+          },
+          "5": {
+            "engine_file_sync": 5000,
+            "engine_persist": 5000,
+            "sql_stage": 100000,
+            "sql_prepare": 10000,
+            "sql_publish": 5000,
+            "sql_query": 500
+          }
+        },
+        "control_queue_max_observed_items_by_node": {
+          "1": 431,
+          "2": 510,
+          "3": 161,
+          "4": 255,
+          "5": 275
+        },
+        "post_scan_leader_changed_count": 0,
+        "raw_member": "diagnosis.json"
+      },
+      "kernel": {
+        "warmup": [
+          {
+            "node": "cellar-mr14-f8cb95319d99a421dd93a3da-node1",
+            "interval_ns": {
+              "minimum": 30389641625,
+              "maximum": 30539735000
+            },
+            "observer_window_ns": {
+              "before": 73683834,
+              "after": 76409541
+            },
+            "cpu_delta": {
+              "usage_usec": 4478595,
+              "user_usec": 3513833,
+              "system_usec": 964763,
+              "nr_periods": 305,
+              "nr_throttled": 0,
+              "throttled_usec": 0
+            },
+            "average_cpu_cores": {
+              "minimum": 0.14664812906857247,
+              "maximum": 0.1473724190388507
+            },
+            "cgroup_io_delta": {
+              "253:16": {
+                "rbytes": 0,
+                "wbytes": 10141696,
+                "rios": 0,
+                "wios": 660,
+                "dbytes": 0,
+                "dios": 0
+              }
+            },
+            "lifetime_peak_memory_bytes": 84348928,
+            "lifetime_memory_headroom_fraction": 0.9738146464029948,
+            "process_rss_bytes": {
+              "before": 61861888,
+              "after": 63651840
+            },
+            "process_threads": {
+              "before": 9,
+              "after": 11
+            },
+            "process_fds": {
+              "before": 1237,
+              "after": 1237
+            },
+            "memory_events": {
+              "low": 0,
+              "high": 0,
+              "max": 0,
+              "oom": 0,
+              "oom_kill": 0,
+              "oom_group_kill": 0
+            },
+            "memory_objective_met": true
+          },
+          {
+            "node": "cellar-mr14-f8cb95319d99a421dd93a3da-node2",
+            "interval_ns": {
+              "minimum": 30390934334,
+              "maximum": 30540616166
+            },
+            "observer_window_ns": {
+              "before": 75115791,
+              "after": 74566041
+            },
+            "cpu_delta": {
+              "usage_usec": 4670891,
+              "user_usec": 3651443,
+              "system_usec": 1019449,
+              "nr_periods": 305,
+              "nr_throttled": 0,
+              "throttled_usec": 0
+            },
+            "average_cpu_cores": {
+              "minimum": 0.15294030004541853,
+              "maximum": 0.15369356363533776
+            },
+            "cgroup_io_delta": {
+              "253:16": {
+                "rbytes": 0,
+                "wbytes": 15052800,
+                "rios": 0,
+                "wios": 1035,
+                "dbytes": 0,
+                "dios": 0
+              }
+            },
+            "lifetime_peak_memory_bytes": 84426752,
+            "lifetime_memory_headroom_fraction": 0.9737904866536459,
+            "process_rss_bytes": {
+              "before": 62271488,
+              "after": 63336448
+            },
+            "process_threads": {
+              "before": 10,
+              "after": 10
+            },
+            "process_fds": {
+              "before": 1237,
+              "after": 1237
+            },
+            "memory_events": {
+              "low": 0,
+              "high": 0,
+              "max": 0,
+              "oom": 0,
+              "oom_kill": 0,
+              "oom_group_kill": 0
+            },
+            "memory_objective_met": true
+          },
+          {
+            "node": "cellar-mr14-f8cb95319d99a421dd93a3da-node3",
+            "interval_ns": {
+              "minimum": 30395070416,
+              "maximum": 30535219459
+            },
+            "observer_window_ns": {
+              "before": 70428459,
+              "after": 69720584
+            },
+            "cpu_delta": {
+              "usage_usec": 5031614,
+              "user_usec": 3949307,
+              "system_usec": 1082307,
+              "nr_periods": 305,
+              "nr_throttled": 0,
+              "throttled_usec": 0
+            },
+            "average_cpu_cores": {
+              "minimum": 0.16478067258550433,
+              "maximum": 0.16554046202674208
+            },
+            "cgroup_io_delta": {
+              "253:16": {
+                "rbytes": 0,
+                "wbytes": 22573056,
+                "rios": 0,
+                "wios": 1619,
+                "dbytes": 0,
+                "dios": 0
+              }
+            },
+            "lifetime_peak_memory_bytes": 85807104,
+            "lifetime_memory_headroom_fraction": 0.9733619689941406,
+            "process_rss_bytes": {
+              "before": 62148608,
+              "after": 63959040
+            },
+            "process_threads": {
+              "before": 10,
+              "after": 11
+            },
+            "process_fds": {
+              "before": 1237,
+              "after": 1237
+            },
+            "memory_events": {
+              "low": 0,
+              "high": 0,
+              "max": 0,
+              "oom": 0,
+              "oom_kill": 0,
+              "oom_group_kill": 0
+            },
+            "memory_objective_met": true
+          },
+          {
+            "node": "cellar-mr14-f8cb95319d99a421dd93a3da-node4",
+            "interval_ns": {
+              "minimum": 30394664750,
+              "maximum": 30530633667
+            },
+            "observer_window_ns": {
+              "before": 70125292,
+              "after": 65843625
+            },
+            "cpu_delta": {
+              "usage_usec": 4675107,
+              "user_usec": 3713080,
+              "system_usec": 962027,
+              "nr_periods": 305,
+              "nr_throttled": 0,
+              "throttled_usec": 0
+            },
+            "average_cpu_cores": {
+              "minimum": 0.15312839723511004,
+              "maximum": 0.15381340897994278
+            },
+            "cgroup_io_delta": {
+              "253:16": {
+                "rbytes": 0,
+                "wbytes": 14553088,
+                "rios": 0,
+                "wios": 961,
+                "dbytes": 0,
+                "dios": 0
+              }
+            },
+            "lifetime_peak_memory_bytes": 84365312,
+            "lifetime_memory_headroom_fraction": 0.973809560139974,
+            "process_rss_bytes": {
+              "before": 62017536,
+              "after": 63848448
+            },
+            "process_threads": {
+              "before": 9,
+              "after": 11
+            },
+            "process_fds": {
+              "before": 1238,
+              "after": 1238
+            },
+            "memory_events": {
+              "low": 0,
+              "high": 0,
+              "max": 0,
+              "oom": 0,
+              "oom_kill": 0,
+              "oom_group_kill": 0
+            },
+            "memory_objective_met": true
+          },
+          {
+            "node": "cellar-mr14-f8cb95319d99a421dd93a3da-node5",
+            "interval_ns": {
+              "minimum": 30390377000,
+              "maximum": 30526885125
+            },
+            "observer_window_ns": {
+              "before": 70130625,
+              "after": 66377500
+            },
+            "cpu_delta": {
+              "usage_usec": 4405189,
+              "user_usec": 3490312,
+              "system_usec": 914876,
+              "nr_periods": 305,
+              "nr_throttled": 0,
+              "throttled_usec": 0
+            },
+            "average_cpu_cores": {
+              "minimum": 0.14430522413151053,
+              "maximum": 0.1449534173268071
+            },
+            "cgroup_io_delta": {
+              "253:16": {
+                "rbytes": 0,
+                "wbytes": 9900032,
+                "rios": 0,
+                "wios": 663,
+                "dbytes": 0,
+                "dios": 0
+              }
+            },
+            "lifetime_peak_memory_bytes": 83124224,
+            "lifetime_memory_headroom_fraction": 0.9741948445638021,
+            "process_rss_bytes": {
+              "before": 61542400,
+              "after": 62787584
+            },
+            "process_threads": {
+              "before": 9,
+              "after": 9
+            },
+            "process_fds": {
+              "before": 1237,
+              "after": 1237
+            },
+            "memory_events": {
+              "low": 0,
+              "high": 0,
+              "max": 0,
+              "oom": 0,
+              "oom_kill": 0,
+              "oom_group_kill": 0
+            },
+            "memory_objective_met": true
+          },
+          {
+            "node": "cellar-mr14-f8cb95319d99a421dd93a3da-store",
+            "interval_ns": {
+              "minimum": 30371820625,
+              "maximum": 30533061583
+            },
+            "observer_window_ns": {
+              "before": 84929958,
+              "after": 76311000
+            },
+            "cpu_delta": {
+              "usage_usec": 4568095,
+              "user_usec": 3263829,
+              "system_usec": 1304266,
+              "nr_periods": 296,
+              "nr_throttled": 0,
+              "throttled_usec": 0
+            },
+            "average_cpu_cores": {
+              "minimum": 0.14961142981296688,
+              "maximum": 0.1504057019301588
+            },
+            "cgroup_io_delta": {
+              "253:16": {
+                "rbytes": 0,
+                "wbytes": 22818816,
+                "rios": 0,
+                "wios": 4073,
+                "dbytes": 0,
+                "dios": 0
+              }
+            },
+            "lifetime_peak_memory_bytes": 337719296,
+            "lifetime_memory_headroom_fraction": 0.9213685989379883,
+            "process_rss_bytes": {
+              "before": 229511168,
+              "after": 271634432
+            },
+            "process_threads": {
+              "before": 26,
+              "after": 26
+            },
+            "process_fds": {
+              "before": 37,
+              "after": 28
+            },
+            "memory_events": {
+              "low": 0,
+              "high": 0,
+              "max": 0,
+              "oom": 0,
+              "oom_kill": 0,
+              "oom_group_kill": 0
+            },
+            "memory_objective_met": true
+          }
+        ],
+        "measurement": [
+          {
+            "node": "cellar-mr14-f8cb95319d99a421dd93a3da-node1",
+            "interval_ns": {
+              "minimum": 120383298041,
+              "maximum": 120547704625
+            },
+            "observer_window_ns": {
+              "before": 74843084,
+              "after": 89563500
+            },
+            "cpu_delta": {
+              "usage_usec": 21665107,
+              "user_usec": 16597991,
+              "system_usec": 5067116,
+              "nr_periods": 1205,
+              "nr_throttled": 7,
+              "throttled_usec": 248739
+            },
+            "average_cpu_cores": {
+              "minimum": 0.1797222690170323,
+              "maximum": 0.17996771439690348
+            },
+            "cgroup_io_delta": {
+              "253:16": {
+                "rbytes": 0,
+                "wbytes": 51712000,
+                "rios": 0,
+                "wios": 2660,
+                "dbytes": 0,
+                "dios": 0
+              }
+            },
+            "lifetime_peak_memory_bytes": 90791936,
+            "lifetime_memory_headroom_fraction": 0.9718144734700521,
+            "process_rss_bytes": {
+              "before": 63709184,
+              "after": 65150976
+            },
+            "process_threads": {
+              "before": 11,
+              "after": 11
+            },
+            "process_fds": {
+              "before": 1237,
+              "after": 1235
+            },
+            "memory_events": {
+              "low": 0,
+              "high": 0,
+              "max": 0,
+              "oom": 0,
+              "oom_kill": 0,
+              "oom_group_kill": 0
+            },
+            "memory_objective_met": true
+          },
+          {
+            "node": "cellar-mr14-f8cb95319d99a421dd93a3da-node2",
+            "interval_ns": {
+              "minimum": 120403713250,
+              "maximum": 120547542833
+            },
+            "observer_window_ns": {
+              "before": 69150167,
+              "after": 74679416
+            },
+            "cpu_delta": {
+              "usage_usec": 22750605,
+              "user_usec": 17536409,
+              "system_usec": 5214197,
+              "nr_periods": 1205,
+              "nr_throttled": 7,
+              "throttled_usec": 198568
+            },
+            "average_cpu_cores": {
+              "minimum": 0.18872723960468815,
+              "maximum": 0.1889526858092975
+            },
+            "cgroup_io_delta": {
+              "253:16": {
+                "rbytes": 0,
+                "wbytes": 72323072,
+                "rios": 0,
+                "wios": 3455,
+                "dbytes": 0,
+                "dios": 0
+              }
+            },
+            "lifetime_peak_memory_bytes": 93093888,
+            "lifetime_memory_headroom_fraction": 0.971099853515625,
+            "process_rss_bytes": {
+              "before": 63336448,
+              "after": 66400256
+            },
+            "process_threads": {
+              "before": 10,
+              "after": 11
+            },
+            "process_fds": {
+              "before": 1237,
+              "after": 1237
+            },
+            "memory_events": {
+              "low": 0,
+              "high": 0,
+              "max": 0,
+              "oom": 0,
+              "oom_kill": 0,
+              "oom_group_kill": 0
+            },
+            "memory_objective_met": true
+          },
+          {
+            "node": "cellar-mr14-f8cb95319d99a421dd93a3da-node3",
+            "interval_ns": {
+              "minimum": 120406495333,
+              "maximum": 120555883042
+            },
+            "observer_window_ns": {
+              "before": 71899834,
+              "after": 77487875
+            },
+            "cpu_delta": {
+              "usage_usec": 24043231,
+              "user_usec": 18613700,
+              "system_usec": 5429530,
+              "nr_periods": 1205,
+              "nr_throttled": 5,
+              "throttled_usec": 105757
+            },
+            "average_cpu_cores": {
+              "minimum": 0.19943639740603678,
+              "maximum": 0.19968383710119028
+            },
+            "cgroup_io_delta": {
+              "253:16": {
+                "rbytes": 0,
+                "wbytes": 95531008,
+                "rios": 0,
+                "wios": 4372,
+                "dbytes": 0,
+                "dios": 0
+              }
+            },
+            "lifetime_peak_memory_bytes": 95580160,
+            "lifetime_memory_headroom_fraction": 0.9703280131022135,
+            "process_rss_bytes": {
+              "before": 63959040,
+              "after": 67018752
+            },
+            "process_threads": {
+              "before": 11,
+              "after": 11
+            },
+            "process_fds": {
+              "before": 1237,
+              "after": 1239
+            },
+            "memory_events": {
+              "low": 0,
+              "high": 0,
+              "max": 0,
+              "oom": 0,
+              "oom_kill": 0,
+              "oom_group_kill": 0
+            },
+            "memory_objective_met": true
+          },
+          {
+            "node": "cellar-mr14-f8cb95319d99a421dd93a3da-node4",
+            "interval_ns": {
+              "minimum": 120412724833,
+              "maximum": 120609187709
+            },
+            "observer_window_ns": {
+              "before": 71260167,
+              "after": 125202709
+            },
+            "cpu_delta": {
+              "usage_usec": 21573740,
+              "user_usec": 16834502,
+              "system_usec": 4739237,
+              "nr_periods": 1205,
+              "nr_throttled": 6,
+              "throttled_usec": 165568
+            },
+            "average_cpu_cores": {
+              "minimum": 0.17887310585369395,
+              "maximum": 0.17916495146107314
+            },
+            "cgroup_io_delta": {
+              "253:16": {
+                "rbytes": 0,
+                "wbytes": 55283712,
+                "rios": 0,
+                "wios": 2624,
+                "dbytes": 0,
+                "dios": 0
+              }
+            },
+            "lifetime_peak_memory_bytes": 90411008,
+            "lifetime_memory_headroom_fraction": 0.9719327290852865,
+            "process_rss_bytes": {
+              "before": 63848448,
+              "after": 66048000
+            },
+            "process_threads": {
+              "before": 11,
+              "after": 11
+            },
+            "process_fds": {
+              "before": 1238,
+              "after": 1237
+            },
+            "memory_events": {
+              "low": 0,
+              "high": 0,
+              "max": 0,
+              "oom": 0,
+              "oom_kill": 0,
+              "oom_group_kill": 0
+            },
+            "memory_objective_met": true
+          },
+          {
+            "node": "cellar-mr14-f8cb95319d99a421dd93a3da-node5",
+            "interval_ns": {
+              "minimum": 120467345334,
+              "maximum": 120653332542
+            },
+            "observer_window_ns": {
+              "before": 70585250,
+              "after": 115401958
+            },
+            "cpu_delta": {
+              "usage_usec": 20259195,
+              "user_usec": 15981485,
+              "system_usec": 4277710,
+              "nr_periods": 1206,
+              "nr_throttled": 5,
+              "throttled_usec": 192865
+            },
+            "average_cpu_cores": {
+              "minimum": 0.16791243617699228,
+              "maximum": 0.16817167294448684
+            },
+            "cgroup_io_delta": {
+              "253:16": {
+                "rbytes": 0,
+                "wbytes": 32632832,
+                "rios": 0,
+                "wios": 1678,
+                "dbytes": 0,
+                "dios": 0
+              }
+            },
+            "lifetime_peak_memory_bytes": 87158784,
+            "lifetime_memory_headroom_fraction": 0.9729423522949219,
+            "process_rss_bytes": {
+              "before": 62787584,
+              "after": 64819200
+            },
+            "process_threads": {
+              "before": 9,
+              "after": 11
+            },
+            "process_fds": {
+              "before": 1237,
+              "after": 1235
+            },
+            "memory_events": {
+              "low": 0,
+              "high": 0,
+              "max": 0,
+              "oom": 0,
+              "oom_kill": 0,
+              "oom_group_kill": 0
+            },
+            "memory_objective_met": true
+          },
+          {
+            "node": "cellar-mr14-f8cb95319d99a421dd93a3da-store",
+            "interval_ns": {
+              "minimum": 120501599958,
+              "maximum": 120726132916
+            },
+            "observer_window_ns": {
+              "before": 81150333,
+              "after": 143382625
+            },
+            "cpu_delta": {
+              "usage_usec": 20300387,
+              "user_usec": 13985966,
+              "system_usec": 6314421,
+              "nr_periods": 1148,
+              "nr_throttled": 0,
+              "throttled_usec": 0
+            },
+            "average_cpu_cores": {
+              "minimum": 0.16815238349533485,
+              "maximum": 0.16846570507840194
+            },
+            "cgroup_io_delta": {
+              "253:16": {
+                "rbytes": 118784,
+                "wbytes": 53604352,
+                "rios": 2,
+                "wios": 11452,
+                "dbytes": 0,
+                "dios": 0
+              }
+            },
+            "lifetime_peak_memory_bytes": 418861056,
+            "lifetime_memory_headroom_fraction": 0.9024763107299805,
+            "process_rss_bytes": {
+              "before": 271634432,
+              "after": 344100864
+            },
+            "process_threads": {
+              "before": 26,
+              "after": 26
+            },
+            "process_fds": {
+              "before": 28,
+              "after": 38
+            },
+            "memory_events": {
+              "low": 0,
+              "high": 0,
+              "max": 0,
+              "oom": 0,
+              "oom_kill": 0,
+              "oom_group_kill": 0
+            },
+            "memory_objective_met": true
+          }
+        ]
+      },
+      "cleanup": [
+        {
+          "container": "cellar-mr14-f8cb95319d99a421dd93a3da-node5",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-f8cb95319d99a421dd93a3da-node4",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-f8cb95319d99a421dd93a3da-node3",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-f8cb95319d99a421dd93a3da-node2",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-f8cb95319d99a421dd93a3da-node1",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-f8cb95319d99a421dd93a3da-store",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        }
+      ],
+      "network_removed": true,
+      "offered_routes_sha256": "bdb1b41349e69bbc78833dbc046d7edcb73750eada07abb47c567fbf6096720e",
+      "replicas": 1500,
+      "commands_including_seed": 1255,
+      "queries": 711,
+      "final_archive_seconds": 0.4682818749861326
+    },
+    {
+      "run": "mr14-pipeline-local-five-healthy-20261022-001",
+      "profile": "local-five",
+      "scenario": "healthy",
+      "build": {
+        "image_id": "sha256:7522dfc6861037c982f438d38379719f6cf31f9e215239c9da70f8fa2f14d58b",
+        "binary_sha256": "501bcb55d3f2a89769d06e8fc75dd25fd83dca5f219353ef0cbc6f8bf72a4899",
+        "source_manifest_sha256": "2508126f272828fce5b0eadb9151019f9f01ee5c88aff004169c3312bf180b90",
+        "build_profile": "lab",
+        "source_revision": "e788e35554ec2562ad027285af22d082c3d26593",
+        "working_tree_dirty": false
+      },
+      "profile_sha256": "c1c3025c95109a618dd5d3d122e19630055563c1384abe57c8671cd8a6295b30",
+      "placement": [
+        {
+          "node": 1,
+          "leader_cells": 30,
+          "replica_cells": 90
+        },
+        {
+          "node": 2,
+          "leader_cells": 30,
+          "replica_cells": 90
+        },
+        {
+          "node": 3,
+          "leader_cells": 30,
+          "replica_cells": 90
+        },
+        {
+          "node": 4,
+          "leader_cells": 30,
+          "replica_cells": 90
+        },
+        {
+          "node": 5,
+          "leader_cells": 30,
+          "replica_cells": 90
+        }
+      ],
+      "completed": true,
+      "reconciled": true,
+      "traffic_objectives_met": true,
+      "memory_objectives_met": true,
+      "failure": null,
+      "analysis_rejection": null,
+      "summary": {
+        "counts": {
+          "submitted": 1200,
+          "completed": 1200,
+          "offered": 1200
+        },
+        "latency_ms": {
+          "p50": 12.007124995577101,
+          "p95": 28.069000004325773,
+          "p99": 54.367708001521464,
+          "p99_9": 220.37679199711135
+        },
+        "latency_by_operation_ms": {
+          "command": {
+            "p50": 16.64391701342538,
+            "p95": 38.960958016104996,
+            "p99": 107.18625002191118,
+            "p99_9": 224.38437500968433
+          },
+          "query": {
+            "p50": 8.611542003926331,
+            "p95": 12.680375005587052,
+            "p99": 13.689667015569285,
+            "p99_9": 17.524250003043917
+          }
+        },
+        "completed_per_second": 10.0,
+        "offered_per_second": 10.0,
+        "error_fraction": 0.0
+      },
+      "diagnosis": {
+        "qualification_status_unchanged": true,
+        "summary": {
+          "counts": {
+            "submitted": 1200,
+            "completed": 1200,
+            "offered": 1200
+          },
+          "latency_ms": {
+            "p50": 12.007124995577101,
+            "p95": 28.069000004325773,
+            "p99": 54.367708001521464,
+            "p99_9": 220.37679199711135
+          },
+          "latency_by_operation_ms": {
+            "command": {
+              "p50": 16.64391701342538,
+              "p95": 38.960958016104996,
+              "p99": 107.18625002191118,
+              "p99_9": 224.38437500968433
+            },
+            "query": {
+              "p50": 8.611542003926331,
+              "p95": 12.680375005587052,
+              "p99": 13.689667015569285,
+              "p99_9": 17.524250003043917
+            }
+          },
+          "completed_per_second": 10.0,
+          "offered_per_second": 10.0,
+          "error_fraction": 0.0
+        },
+        "history_counts": {
+          "commands_including_seed": 923,
+          "queries": 727,
+          "cells": 150
+        },
+        "replica_values_verified": 450,
+        "post_scan_agreed_valid_leader_cells": 150,
+        "post_scan_note": "Sequential observations only; this does not prove continuous availability or satisfy the fixed-placement benchmark gate.",
+        "refusal_counts": {},
+        "measurement_queue_max_observed_items_by_node": {
+          "1": 11,
+          "2": 0,
+          "3": 0,
+          "4": 6,
+          "5": 11
+        },
+        "measurement_high_queue_offsets_seconds": [],
+        "measurement_sampled_leader_count_ranges": {
+          "1": [
+            30,
+            30
+          ],
+          "2": [
+            30,
+            30
+          ],
+          "3": [
+            30,
+            30
+          ],
+          "4": [
+            30,
+            30
+          ],
+          "5": [
+            30,
+            30
+          ]
+        },
+        "docker_sampled_cpu_percent_ranges": {
+          "cellar-mr14-124898eee17966ed15e3459d-node1": [
+            4.15,
+            10.47
+          ],
+          "cellar-mr14-124898eee17966ed15e3459d-node2": [
+            4.22,
+            10.1
+          ],
+          "cellar-mr14-124898eee17966ed15e3459d-node3": [
+            4.42,
+            10.76
+          ],
+          "cellar-mr14-124898eee17966ed15e3459d-node4": [
+            3.59,
+            8.13
+          ],
+          "cellar-mr14-124898eee17966ed15e3459d-node5": [
+            3.73,
+            8.32
+          ],
+          "cellar-mr14-124898eee17966ed15e3459d-store": [
+            5.18,
+            25.13
+          ]
+        },
+        "docker_cpu_scope": "Coarse Docker CLI percentages, not phase-enclosing kernel CPU rates or proof of sustained saturation. Raw timestamps and samples are retained in resources.jsonl.",
+        "measurement_stage_p99_upper_us": {
+          "1": {
+            "engine_file_sync": 5000,
+            "engine_persist": 5000,
+            "sql_stage": 25000,
+            "sql_prepare": 10000,
+            "sql_publish": 2500,
+            "sql_query": 500
+          },
+          "2": {
+            "engine_file_sync": 5000,
+            "engine_persist": 5000,
+            "sql_stage": 25000,
+            "sql_prepare": 10000,
+            "sql_publish": 2500,
+            "sql_query": 500
+          },
+          "3": {
+            "engine_file_sync": 5000,
+            "engine_persist": 5000,
+            "sql_stage": 25000,
+            "sql_prepare": 10000,
+            "sql_publish": 5000,
+            "sql_query": 500
+          },
+          "4": {
+            "engine_file_sync": 5000,
+            "engine_persist": 5000,
+            "sql_stage": 25000,
+            "sql_prepare": 10000,
+            "sql_publish": 5000,
+            "sql_query": 500
+          },
+          "5": {
+            "engine_file_sync": 10000,
+            "engine_persist": 10000,
+            "sql_stage": 25000,
+            "sql_prepare": 25000,
+            "sql_publish": 5000,
+            "sql_query": 500
+          }
+        },
+        "control_queue_max_observed_items_by_node": {
+          "1": 11,
+          "2": 0,
+          "3": 0,
+          "4": 8,
+          "5": 11
+        },
+        "post_scan_leader_changed_count": 0,
+        "raw_member": "diagnosis.json"
+      },
+      "kernel": {
+        "warmup": [
+          {
+            "node": "cellar-mr14-124898eee17966ed15e3459d-node1",
+            "interval_ns": {
+              "minimum": 30452835875,
+              "maximum": 30762205667
+            },
+            "observer_window_ns": {
+              "before": 89145375,
+              "after": 220224417
+            },
+            "cpu_delta": {
+              "usage_usec": 1780896,
+              "user_usec": 1274010,
+              "system_usec": 506886,
+              "nr_periods": 307,
+              "nr_throttled": 0,
+              "throttled_usec": 0
+            },
+            "average_cpu_cores": {
+              "minimum": 0.0578923377367068,
+              "maximum": 0.05848046491663562
+            },
+            "cgroup_io_delta": {
+              "253:16": {
+                "rbytes": 0,
+                "wbytes": 8519680,
+                "rios": 0,
+                "wios": 667,
+                "dbytes": 0,
+                "dios": 0
+              }
+            },
+            "lifetime_peak_memory_bytes": 33062912,
+            "lifetime_memory_headroom_fraction": 0.9897359212239584,
+            "process_rss_bytes": {
+              "before": 34877440,
+              "after": 36106240
+            },
+            "process_threads": {
+              "before": 9,
+              "after": 11
+            },
+            "process_fds": {
+              "before": 397,
+              "after": 397
+            },
+            "memory_events": {
+              "low": 0,
+              "high": 0,
+              "max": 0,
+              "oom": 0,
+              "oom_kill": 0,
+              "oom_group_kill": 0
+            },
+            "memory_objective_met": true
+          },
+          {
+            "node": "cellar-mr14-124898eee17966ed15e3459d-node2",
+            "interval_ns": {
+              "minimum": 30590056875,
+              "maximum": 30778051209
+            },
+            "observer_window_ns": {
+              "before": 83008709,
+              "after": 104985625
+            },
+            "cpu_delta": {
+              "usage_usec": 2001847,
+              "user_usec": 1473295,
+              "system_usec": 528552,
+              "nr_periods": 307,
+              "nr_throttled": 0,
+              "throttled_usec": 0
+            },
+            "average_cpu_cores": {
+              "minimum": 0.06504138245811442,
+              "maximum": 0.06544110094924431
+            },
+            "cgroup_io_delta": {
+              "253:16": {
+                "rbytes": 0,
+                "wbytes": 13336576,
+                "rios": 0,
+                "wios": 1057,
+                "dbytes": 0,
+                "dios": 0
+              }
+            },
+            "lifetime_peak_memory_bytes": 33325056,
+            "lifetime_memory_headroom_fraction": 0.989654541015625,
+            "process_rss_bytes": {
+              "before": 34754560,
+              "after": 36057088
+            },
+            "process_threads": {
+              "before": 9,
+              "after": 11
+            },
+            "process_fds": {
+              "before": 397,
+              "after": 397
+            },
+            "memory_events": {
+              "low": 0,
+              "high": 0,
+              "max": 0,
+              "oom": 0,
+              "oom_kill": 0,
+              "oom_group_kill": 0
+            },
+            "memory_objective_met": true
+          },
+          {
+            "node": "cellar-mr14-124898eee17966ed15e3459d-node3",
+            "interval_ns": {
+              "minimum": 30611609875,
+              "maximum": 30820557000
+            },
+            "observer_window_ns": {
+              "before": 83431167,
+              "after": 125515958
+            },
+            "cpu_delta": {
+              "usage_usec": 2425363,
+              "user_usec": 1770771,
+              "system_usec": 654592,
+              "nr_periods": 307,
+              "nr_throttled": 0,
+              "throttled_usec": 0
+            },
+            "average_cpu_cores": {
+              "minimum": 0.07869302946082382,
+              "maximum": 0.07923016822387882
+            },
+            "cgroup_io_delta": {
+              "253:16": {
+                "rbytes": 0,
+                "wbytes": 21082112,
+                "rios": 0,
+                "wios": 1668,
+                "dbytes": 0,
+                "dios": 0
+              }
+            },
+            "lifetime_peak_memory_bytes": 34160640,
+            "lifetime_memory_headroom_fraction": 0.9893951416015625,
+            "process_rss_bytes": {
+              "before": 34779136,
+              "after": 36220928
+            },
+            "process_threads": {
+              "before": 9,
+              "after": 10
+            },
+            "process_fds": {
+              "before": 397,
+              "after": 397
+            },
+            "memory_events": {
+              "low": 0,
+              "high": 0,
+              "max": 0,
+              "oom": 0,
+              "oom_kill": 0,
+              "oom_group_kill": 0
+            },
+            "memory_objective_met": true
+          },
+          {
+            "node": "cellar-mr14-124898eee17966ed15e3459d-node4",
+            "interval_ns": {
+              "minimum": 30641278708,
+              "maximum": 30858295833
+            },
+            "observer_window_ns": {
+              "before": 95849000,
+              "after": 121168125
+            },
+            "cpu_delta": {
+              "usage_usec": 2066474,
+              "user_usec": 1559282,
+              "system_usec": 507192,
+              "nr_periods": 308,
+              "nr_throttled": 0,
+              "throttled_usec": 0
+            },
+            "average_cpu_cores": {
+              "minimum": 0.06696656261199309,
+              "maximum": 0.06744085387861026
+            },
+            "cgroup_io_delta": {
+              "253:16": {
+                "rbytes": 0,
+                "wbytes": 13074432,
+                "rios": 0,
+                "wios": 1000,
+                "dbytes": 0,
+                "dios": 0
+              }
+            },
+            "lifetime_peak_memory_bytes": 33525760,
+            "lifetime_memory_headroom_fraction": 0.9895922342936198,
+            "process_rss_bytes": {
+              "before": 35213312,
+              "after": 36810752
+            },
+            "process_threads": {
+              "before": 9,
+              "after": 11
+            },
+            "process_fds": {
+              "before": 397,
+              "after": 397
+            },
+            "memory_events": {
+              "low": 0,
+              "high": 0,
+              "max": 0,
+              "oom": 0,
+              "oom_kill": 0,
+              "oom_group_kill": 0
+            },
+            "memory_objective_met": true
+          },
+          {
+            "node": "cellar-mr14-124898eee17966ed15e3459d-node5",
+            "interval_ns": {
+              "minimum": 30684467958,
+              "maximum": 30853696125
+            },
+            "observer_window_ns": {
+              "before": 77980500,
+              "after": 91247667
+            },
+            "cpu_delta": {
+              "usage_usec": 1813964,
+              "user_usec": 1327938,
+              "system_usec": 486027,
+              "nr_periods": 308,
+              "nr_throttled": 0,
+              "throttled_usec": 0
+            },
+            "average_cpu_cores": {
+              "minimum": 0.0587924374652212,
+              "maximum": 0.05911668413097143
+            },
+            "cgroup_io_delta": {
+              "253:16": {
+                "rbytes": 0,
+                "wbytes": 8597504,
+                "rios": 0,
+                "wios": 636,
+                "dbytes": 0,
+                "dios": 0
+              }
+            },
+            "lifetime_peak_memory_bytes": 32968704,
+            "lifetime_memory_headroom_fraction": 0.9897651672363281,
+            "process_rss_bytes": {
+              "before": 34816000,
+              "after": 36257792
+            },
+            "process_threads": {
+              "before": 9,
+              "after": 11
+            },
+            "process_fds": {
+              "before": 397,
+              "after": 397
+            },
+            "memory_events": {
+              "low": 0,
+              "high": 0,
+              "max": 0,
+              "oom": 0,
+              "oom_kill": 0,
+              "oom_group_kill": 0
+            },
+            "memory_objective_met": true
+          },
+          {
+            "node": "cellar-mr14-124898eee17966ed15e3459d-store",
+            "interval_ns": {
+              "minimum": 30686752292,
+              "maximum": 30874393167
+            },
+            "observer_window_ns": {
+              "before": 88963750,
+              "after": 98677125
+            },
+            "cpu_delta": {
+              "usage_usec": 4748483,
+              "user_usec": 3273248,
+              "system_usec": 1475236,
+              "nr_periods": 283,
+              "nr_throttled": 0,
+              "throttled_usec": 0
+            },
+            "average_cpu_cores": {
+              "minimum": 0.1538000431074189,
+              "maximum": 0.1547404871918598
+            },
+            "cgroup_io_delta": {
+              "253:16": {
+                "rbytes": 12288,
+                "wbytes": 14225408,
+                "rios": 1,
+                "wios": 3349,
+                "dbytes": 0,
+                "dios": 0
+              }
+            },
+            "lifetime_peak_memory_bytes": 359096320,
+            "lifetime_memory_headroom_fraction": 0.9163913726806641,
+            "process_rss_bytes": {
+              "before": 235716608,
+              "after": 272859136
+            },
+            "process_threads": {
+              "before": 22,
+              "after": 22
+            },
+            "process_fds": {
+              "before": 27,
+              "after": 36
+            },
+            "memory_events": {
+              "low": 0,
+              "high": 0,
+              "max": 0,
+              "oom": 0,
+              "oom_kill": 0,
+              "oom_group_kill": 0
+            },
+            "memory_objective_met": true
+          }
+        ],
+        "measurement": [
+          {
+            "node": "cellar-mr14-124898eee17966ed15e3459d-node1",
+            "interval_ns": {
+              "minimum": 120496975458,
+              "maximum": 120740271833
+            },
+            "observer_window_ns": {
+              "before": 173643000,
+              "after": 69653375
+            },
+            "cpu_delta": {
+              "usage_usec": 6836197,
+              "user_usec": 5086599,
+              "system_usec": 1749598,
+              "nr_periods": 1206,
+              "nr_throttled": 0,
+              "throttled_usec": 0
+            },
+            "average_cpu_cores": {
+              "minimum": 0.05661902939439608,
+              "maximum": 0.056733349314504584
+            },
+            "cgroup_io_delta": {
+              "253:16": {
+                "rbytes": 20480,
+                "wbytes": 53137408,
+                "rios": 1,
+                "wios": 2537,
+                "dbytes": 0,
+                "dios": 0
+              }
+            },
+            "lifetime_peak_memory_bytes": 39604224,
+            "lifetime_memory_headroom_fraction": 0.9877052307128906,
+            "process_rss_bytes": {
+              "before": 36139008,
+              "after": 37568512
+            },
+            "process_threads": {
+              "before": 11,
+              "after": 11
+            },
+            "process_fds": {
+              "before": 397,
+              "after": 395
+            },
+            "memory_events": {
+              "low": 0,
+              "high": 0,
+              "max": 0,
+              "oom": 0,
+              "oom_kill": 0,
+              "oom_group_kill": 0
+            },
+            "memory_objective_met": true
+          },
+          {
+            "node": "cellar-mr14-124898eee17966ed15e3459d-node2",
+            "interval_ns": {
+              "minimum": 120457251833,
+              "maximum": 120634833125
+            },
+            "observer_window_ns": {
+              "before": 109376125,
+              "after": 68205167
+            },
+            "cpu_delta": {
+              "usage_usec": 7903474,
+              "user_usec": 5914122,
+              "system_usec": 1989352,
+              "nr_periods": 1205,
+              "nr_throttled": 0,
+              "throttled_usec": 0
+            },
+            "average_cpu_cores": {
+              "minimum": 0.06551568726265439,
+              "maximum": 0.06561227223544208
+            },
+            "cgroup_io_delta": {
+              "253:16": {
+                "rbytes": 0,
+                "wbytes": 75284480,
+                "rios": 0,
+                "wios": 3492,
+                "dbytes": 0,
+                "dios": 0
+              }
+            },
+            "lifetime_peak_memory_bytes": 42258432,
+            "lifetime_memory_headroom_fraction": 0.9868812561035156,
+            "process_rss_bytes": {
+              "before": 36069376,
+              "after": 38637568
+            },
+            "process_threads": {
+              "before": 11,
+              "after": 11
+            },
+            "process_fds": {
+              "before": 397,
+              "after": 397
+            },
+            "memory_events": {
+              "low": 0,
+              "high": 0,
+              "max": 0,
+              "oom": 0,
+              "oom_kill": 0,
+              "oom_group_kill": 0
+            },
+            "memory_objective_met": true
+          },
+          {
+            "node": "cellar-mr14-124898eee17966ed15e3459d-node3",
+            "interval_ns": {
+              "minimum": 120397615542,
+              "maximum": 120590288417
+            },
+            "observer_window_ns": {
+              "before": 127840958,
+              "after": 64831917
+            },
+            "cpu_delta": {
+              "usage_usec": 8777157,
+              "user_usec": 6609054,
+              "system_usec": 2168104,
+              "nr_periods": 1204,
+              "nr_throttled": 0,
+              "throttled_usec": 0
+            },
+            "average_cpu_cores": {
+              "minimum": 0.07278494077108995,
+              "maximum": 0.07290141885690535
+            },
+            "cgroup_io_delta": {
+              "253:16": {
+                "rbytes": 0,
+                "wbytes": 98914304,
+                "rios": 0,
+                "wios": 4491,
+                "dbytes": 0,
+                "dios": 0
+              }
+            },
+            "lifetime_peak_memory_bytes": 44294144,
+            "lifetime_memory_headroom_fraction": 0.9862492879231771,
+            "process_rss_bytes": {
+              "before": 36220928,
+              "after": 39424000
+            },
+            "process_threads": {
+              "before": 10,
+              "after": 11
+            },
+            "process_fds": {
+              "before": 397,
+              "after": 396
+            },
+            "memory_events": {
+              "low": 0,
+              "high": 0,
+              "max": 0,
+              "oom": 0,
+              "oom_kill": 0,
+              "oom_group_kill": 0
+            },
+            "memory_objective_met": true
+          },
+          {
+            "node": "cellar-mr14-124898eee17966ed15e3459d-node4",
+            "interval_ns": {
+              "minimum": 120382712458,
+              "maximum": 120527227250
+            },
+            "observer_window_ns": {
+              "before": 79735167,
+              "after": 64779625
+            },
+            "cpu_delta": {
+              "usage_usec": 7286218,
+              "user_usec": 5604986,
+              "system_usec": 1681233,
+              "nr_periods": 1204,
+              "nr_throttled": 0,
+              "throttled_usec": 0
+            },
+            "average_cpu_cores": {
+              "minimum": 0.060452879952898775,
+              "maximum": 0.06052545129801813
+            },
+            "cgroup_io_delta": {
+              "253:16": {
+                "rbytes": 0,
+                "wbytes": 56586240,
+                "rios": 0,
+                "wios": 2660,
+                "dbytes": 0,
+                "dios": 0
+              }
+            },
+            "lifetime_peak_memory_bytes": 38514688,
+            "lifetime_memory_headroom_fraction": 0.988043467203776,
+            "process_rss_bytes": {
+              "before": 36810752,
+              "after": 38350848
+            },
+            "process_threads": {
+              "before": 11,
+              "after": 11
+            },
+            "process_fds": {
+              "before": 397,
+              "after": 398
+            },
+            "memory_events": {
+              "low": 0,
+              "high": 0,
+              "max": 0,
+              "oom": 0,
+              "oom_kill": 0,
+              "oom_group_kill": 0
+            },
+            "memory_objective_met": true
+          },
+          {
+            "node": "cellar-mr14-124898eee17966ed15e3459d-node5",
+            "interval_ns": {
+              "minimum": 120370681042,
+              "maximum": 120512105500
+            },
+            "observer_window_ns": {
+              "before": 76811042,
+              "after": 64613416
+            },
+            "cpu_delta": {
+              "usage_usec": 6202878,
+              "user_usec": 4729688,
+              "system_usec": 1473189,
+              "nr_periods": 1204,
+              "nr_throttled": 0,
+              "throttled_usec": 0
+            },
+            "average_cpu_cores": {
+              "minimum": 0.051470995169028894,
+              "maximum": 0.05153146884527204
+            },
+            "cgroup_io_delta": {
+              "253:16": {
+                "rbytes": 0,
+                "wbytes": 32403456,
+                "rios": 0,
+                "wios": 1629,
+                "dbytes": 0,
+                "dios": 0
+              }
+            },
+            "lifetime_peak_memory_bytes": 35758080,
+            "lifetime_memory_headroom_fraction": 0.9888992309570312,
+            "process_rss_bytes": {
+              "before": 36257792,
+              "after": 37089280
+            },
+            "process_threads": {
+              "before": 11,
+              "after": 11
+            },
+            "process_fds": {
+              "before": 397,
+              "after": 395
+            },
+            "memory_events": {
+              "low": 0,
+              "high": 0,
+              "max": 0,
+              "oom": 0,
+              "oom_kill": 0,
+              "oom_group_kill": 0
+            },
+            "memory_objective_met": true
+          },
+          {
+            "node": "cellar-mr14-124898eee17966ed15e3459d-store",
+            "interval_ns": {
+              "minimum": 120351723709,
+              "maximum": 120508616583
+            },
+            "observer_window_ns": {
+              "before": 83570541,
+              "after": 73322333
+            },
+            "cpu_delta": {
+              "usage_usec": 15717404,
+              "user_usec": 11065193,
+              "system_usec": 4652211,
+              "nr_periods": 1082,
+              "nr_throttled": 0,
+              "throttled_usec": 0
+            },
+            "average_cpu_cores": {
+              "minimum": 0.13042556163753385,
+              "maximum": 0.13059558696478096
+            },
+            "cgroup_io_delta": {
+              "253:16": {
+                "rbytes": 86016,
+                "wbytes": 45080576,
+                "rios": 1,
+                "wios": 10063,
+                "dbytes": 0,
+                "dios": 0
+              }
+            },
+            "lifetime_peak_memory_bytes": 436477952,
+            "lifetime_memory_headroom_fraction": 0.8983745574951172,
+            "process_rss_bytes": {
+              "before": 272859136,
+              "after": 307888128
+            },
+            "process_threads": {
+              "before": 22,
+              "after": 22
+            },
+            "process_fds": {
+              "before": 34,
+              "after": 37
+            },
+            "memory_events": {
+              "low": 0,
+              "high": 0,
+              "max": 0,
+              "oom": 0,
+              "oom_kill": 0,
+              "oom_group_kill": 0
+            },
+            "memory_objective_met": true
+          }
+        ]
+      },
+      "cleanup": [
+        {
+          "container": "cellar-mr14-124898eee17966ed15e3459d-node5",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-124898eee17966ed15e3459d-node4",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-124898eee17966ed15e3459d-node3",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-124898eee17966ed15e3459d-node2",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-124898eee17966ed15e3459d-node1",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-124898eee17966ed15e3459d-store",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        }
+      ],
+      "network_removed": true,
+      "offered_routes_sha256": "bdb1b41349e69bbc78833dbc046d7edcb73750eada07abb47c567fbf6096720e",
+      "replicas": 450,
+      "commands_including_seed": 923,
+      "queries": 727,
+      "final_archive_seconds": 0.10941808400093578
+    },
+    {
+      "run": "mr14-pipeline-local-five-healthy-20261022-002",
+      "profile": "local-five",
+      "scenario": "healthy",
+      "build": {
+        "image_id": "sha256:7522dfc6861037c982f438d38379719f6cf31f9e215239c9da70f8fa2f14d58b",
+        "binary_sha256": "501bcb55d3f2a89769d06e8fc75dd25fd83dca5f219353ef0cbc6f8bf72a4899",
+        "source_manifest_sha256": "2508126f272828fce5b0eadb9151019f9f01ee5c88aff004169c3312bf180b90",
+        "build_profile": "lab",
+        "source_revision": "e788e35554ec2562ad027285af22d082c3d26593",
+        "working_tree_dirty": false
+      },
+      "profile_sha256": "c1c3025c95109a618dd5d3d122e19630055563c1384abe57c8671cd8a6295b30",
+      "placement": [
+        {
+          "node": 1,
+          "leader_cells": 30,
+          "replica_cells": 90
+        },
+        {
+          "node": 2,
+          "leader_cells": 30,
+          "replica_cells": 90
+        },
+        {
+          "node": 3,
+          "leader_cells": 30,
+          "replica_cells": 90
+        },
+        {
+          "node": 4,
+          "leader_cells": 30,
+          "replica_cells": 90
+        },
+        {
+          "node": 5,
+          "leader_cells": 30,
+          "replica_cells": 90
+        }
+      ],
+      "completed": true,
+      "reconciled": true,
+      "traffic_objectives_met": false,
+      "memory_objectives_met": true,
+      "failure": null,
+      "analysis_rejection": null,
+      "summary": {
+        "counts": {
+          "submitted": 1104,
+          "completed": 1104,
+          "generator_rejected": 96,
+          "offered": 1200
+        },
+        "latency_ms": {
+          "p50": 18.04349999874688,
+          "p95": 246.21016699820774,
+          "p99": 399.9572079919744,
+          "p99_9": 759.0439169784133
+        },
+        "latency_by_operation_ms": {
+          "command": {
+            "p50": 24.486791982781142,
+            "p95": 294.6400419925368,
+            "p99": 496.99262497597374,
+            "p99_9": 803.3641249872687
+          },
+          "query": {
+            "p50": 11.03124997462146,
+            "p95": 194.8840419994653,
+            "p99": 292.9617499816235,
+            "p99_9": 474.7762499842807
+          }
+        },
+        "completed_per_second": 9.2,
+        "offered_per_second": 10.0,
+        "error_fraction": 0.08
+      },
+      "diagnosis": {
+        "qualification_status_unchanged": true,
+        "summary": {
+          "counts": {
+            "submitted": 1104,
+            "completed": 1104,
+            "generator_rejected": 96,
+            "offered": 1200
+          },
+          "latency_ms": {
+            "p50": 18.04349999874688,
+            "p95": 246.21016699820774,
+            "p99": 399.9572079919744,
+            "p99_9": 759.0439169784133
+          },
+          "latency_by_operation_ms": {
+            "command": {
+              "p50": 24.486791982781142,
+              "p95": 294.6400419925368,
+              "p99": 496.99262497597374,
+              "p99_9": 803.3641249872687
+            },
+            "query": {
+              "p50": 11.03124997462146,
+              "p95": 194.8840419994653,
+              "p99": 292.9617499816235,
+              "p99_9": 474.7762499842807
+            }
+          },
+          "completed_per_second": 9.2,
+          "offered_per_second": 10.0,
+          "error_fraction": 0.08
+        },
+        "history_counts": {
+          "commands_including_seed": 882,
+          "queries": 672,
+          "cells": 150
+        },
+        "replica_values_verified": 450,
+        "post_scan_agreed_valid_leader_cells": 150,
+        "post_scan_note": "Sequential observations only; this does not prove continuous availability or satisfy the fixed-placement benchmark gate.",
+        "refusal_counts": {},
+        "measurement_queue_max_observed_items_by_node": {
+          "1": 9,
+          "2": 36,
+          "3": 11,
+          "4": 21,
+          "5": 14
+        },
+        "measurement_high_queue_offsets_seconds": [],
+        "measurement_sampled_leader_count_ranges": {
+          "1": [
+            30,
+            30
+          ],
+          "2": [
+            30,
+            30
+          ],
+          "3": [
+            30,
+            30
+          ],
+          "4": [
+            30,
+            30
+          ],
+          "5": [
+            30,
+            30
+          ]
+        },
+        "docker_sampled_cpu_percent_ranges": {
+          "cellar-mr14-8e51ff67f09fdd2fc90a1b7b-node1": [
+            3.65,
+            16.33
+          ],
+          "cellar-mr14-8e51ff67f09fdd2fc90a1b7b-node2": [
+            3.7,
+            56.09
+          ],
+          "cellar-mr14-8e51ff67f09fdd2fc90a1b7b-node3": [
+            3.97,
+            47.38
+          ],
+          "cellar-mr14-8e51ff67f09fdd2fc90a1b7b-node4": [
+            3.58,
+            80.23
+          ],
+          "cellar-mr14-8e51ff67f09fdd2fc90a1b7b-node5": [
+            3.68,
+            67.88
+          ],
+          "cellar-mr14-8e51ff67f09fdd2fc90a1b7b-store": [
+            6.38,
+            57.67
+          ]
+        },
+        "docker_cpu_scope": "Coarse Docker CLI percentages, not phase-enclosing kernel CPU rates or proof of sustained saturation. Raw timestamps and samples are retained in resources.jsonl.",
+        "measurement_stage_p99_upper_us": {
+          "1": {
+            "engine_file_sync": 25000,
+            "engine_persist": 25000,
+            "sql_stage": 250000,
+            "sql_prepare": 100000,
+            "sql_publish": 5000,
+            "sql_query": 500
+          },
+          "2": {
+            "engine_file_sync": 25000,
+            "engine_persist": 25000,
+            "sql_stage": 250000,
+            "sql_prepare": 25000,
+            "sql_publish": 25000,
+            "sql_query": 1000
+          },
+          "3": {
+            "engine_file_sync": 10000,
+            "engine_persist": 10000,
+            "sql_stage": 50000,
+            "sql_prepare": 25000,
+            "sql_publish": 25000,
+            "sql_query": 500
+          },
+          "4": {
+            "engine_file_sync": 10000,
+            "engine_persist": 10000,
+            "sql_stage": 25000,
+            "sql_prepare": 25000,
+            "sql_publish": 5000,
+            "sql_query": 1000
+          },
+          "5": {
+            "engine_file_sync": 5000,
+            "engine_persist": 5000,
+            "sql_stage": 25000,
+            "sql_prepare": 10000,
+            "sql_publish": 5000,
+            "sql_query": 1000
+          }
+        },
+        "control_queue_max_observed_items_by_node": {
+          "1": 9,
+          "2": 36,
+          "3": 33,
+          "4": 21,
+          "5": 14
+        },
+        "post_scan_leader_changed_count": 0,
+        "raw_member": "diagnosis.json"
+      },
+      "kernel": {
+        "warmup": [
+          {
+            "node": "cellar-mr14-8e51ff67f09fdd2fc90a1b7b-node1",
+            "interval_ns": {
+              "minimum": 30399590000,
+              "maximum": 30560043542
+            },
+            "observer_window_ns": {
+              "before": 74633125,
+              "after": 85820417
+            },
+            "cpu_delta": {
+              "usage_usec": 1630812,
+              "user_usec": 1166221,
+              "system_usec": 464592,
+              "nr_periods": 305,
+              "nr_throttled": 0,
+              "throttled_usec": 0
+            },
+            "average_cpu_cores": {
+              "minimum": 0.05336419098221192,
+              "maximum": 0.0536458550921246
+            },
+            "cgroup_io_delta": {
+              "253:16": {
+                "rbytes": 4096,
+                "wbytes": 7434240,
+                "rios": 1,
+                "wios": 580,
+                "dbytes": 0,
+                "dios": 0
+              }
+            },
+            "lifetime_peak_memory_bytes": 33021952,
+            "lifetime_memory_headroom_fraction": 0.9897486368815104,
+            "process_rss_bytes": {
+              "before": 35221504,
+              "after": 35778560
+            },
+            "process_threads": {
+              "before": 9,
+              "after": 11
+            },
+            "process_fds": {
+              "before": 397,
+              "after": 397
+            },
+            "memory_events": {
+              "low": 0,
+              "high": 0,
+              "max": 0,
+              "oom": 0,
+              "oom_kill": 0,
+              "oom_group_kill": 0
+            },
+            "memory_objective_met": true
+          },
+          {
+            "node": "cellar-mr14-8e51ff67f09fdd2fc90a1b7b-node2",
+            "interval_ns": {
+              "minimum": 30415029542,
+              "maximum": 30590917292
+            },
+            "observer_window_ns": {
+              "before": 70381417,
+              "after": 105506333
+            },
+            "cpu_delta": {
+              "usage_usec": 1897063,
+              "user_usec": 1406688,
+              "system_usec": 490376,
+              "nr_periods": 304,
+              "nr_throttled": 0,
+              "throttled_usec": 0
+            },
+            "average_cpu_cores": {
+              "minimum": 0.06201392988291042,
+              "maximum": 0.06237255161565281
+            },
+            "cgroup_io_delta": {
+              "253:16": {
+                "rbytes": 4096,
+                "wbytes": 12337152,
+                "rios": 1,
+                "wios": 933,
+                "dbytes": 0,
+                "dios": 0
+              }
+            },
+            "lifetime_peak_memory_bytes": 33202176,
+            "lifetime_memory_headroom_fraction": 0.9896926879882812,
+            "process_rss_bytes": {
+              "before": 34889728,
+              "after": 35987456
+            },
+            "process_threads": {
+              "before": 9,
+              "after": 11
+            },
+            "process_fds": {
+              "before": 397,
+              "after": 397
+            },
+            "memory_events": {
+              "low": 0,
+              "high": 0,
+              "max": 0,
+              "oom": 0,
+              "oom_kill": 0,
+              "oom_group_kill": 0
+            },
+            "memory_objective_met": true
+          },
+          {
+            "node": "cellar-mr14-8e51ff67f09fdd2fc90a1b7b-node3",
+            "interval_ns": {
+              "minimum": 30445336250,
+              "maximum": 30594091292
+            },
+            "observer_window_ns": {
+              "before": 75210209,
+              "after": 73544833
+            },
+            "cpu_delta": {
+              "usage_usec": 2219700,
+              "user_usec": 1571775,
+              "system_usec": 647925,
+              "nr_periods": 305,
+              "nr_throttled": 0,
+              "throttled_usec": 0
+            },
+            "average_cpu_cores": {
+              "minimum": 0.0725532253536952,
+              "maximum": 0.07290771833732006
+            },
+            "cgroup_io_delta": {
+              "253:16": {
+                "rbytes": 0,
+                "wbytes": 19537920,
+                "rios": 0,
+                "wios": 1431,
+                "dbytes": 0,
+                "dios": 0
+              }
+            },
+            "lifetime_peak_memory_bytes": 34320384,
+            "lifetime_memory_headroom_fraction": 0.9893455505371094,
+            "process_rss_bytes": {
+              "before": 34938880,
+              "after": 36257792
+            },
+            "process_threads": {
+              "before": 9,
+              "after": 10
+            },
+            "process_fds": {
+              "before": 397,
+              "after": 397
+            },
+            "memory_events": {
+              "low": 0,
+              "high": 0,
+              "max": 0,
+              "oom": 0,
+              "oom_kill": 0,
+              "oom_group_kill": 0
+            },
+            "memory_objective_met": true
+          },
+          {
+            "node": "cellar-mr14-8e51ff67f09fdd2fc90a1b7b-node4",
+            "interval_ns": {
+              "minimum": 30446010500,
+              "maximum": 30595689042
+            },
+            "observer_window_ns": {
+              "before": 72872459,
+              "after": 76806083
+            },
+            "cpu_delta": {
+              "usage_usec": 1907788,
+              "user_usec": 1419724,
+              "system_usec": 488063,
+              "nr_periods": 305,
+              "nr_throttled": 0,
+              "throttled_usec": 0
+            },
+            "average_cpu_cores": {
+              "minimum": 0.062354797676924305,
+              "maximum": 0.06266134605714598
+            },
+            "cgroup_io_delta": {
+              "253:16": {
+                "rbytes": 0,
+                "wbytes": 12734464,
+                "rios": 0,
+                "wios": 864,
+                "dbytes": 0,
+                "dios": 0
+              }
+            },
+            "lifetime_peak_memory_bytes": 33325056,
+            "lifetime_memory_headroom_fraction": 0.989654541015625,
+            "process_rss_bytes": {
+              "before": 35168256,
+              "after": 36237312
+            },
+            "process_threads": {
+              "before": 9,
+              "after": 10
+            },
+            "process_fds": {
+              "before": 397,
+              "after": 397
+            },
+            "memory_events": {
+              "low": 0,
+              "high": 0,
+              "max": 0,
+              "oom": 0,
+              "oom_kill": 0,
+              "oom_group_kill": 0
+            },
+            "memory_objective_met": true
+          },
+          {
+            "node": "cellar-mr14-8e51ff67f09fdd2fc90a1b7b-node5",
+            "interval_ns": {
+              "minimum": 30448584000,
+              "maximum": 30597283875
+            },
+            "observer_window_ns": {
+              "before": 74234458,
+              "after": 74465417
+            },
+            "cpu_delta": {
+              "usage_usec": 1690343,
+              "user_usec": 1274775,
+              "system_usec": 415568,
+              "nr_periods": 305,
+              "nr_throttled": 0,
+              "throttled_usec": 0
+            },
+            "average_cpu_cores": {
+              "minimum": 0.055244870979581355,
+              "maximum": 0.05551466695462751
+            },
+            "cgroup_io_delta": {
+              "253:16": {
+                "rbytes": 0,
+                "wbytes": 8749056,
+                "rios": 0,
+                "wios": 628,
+                "dbytes": 0,
+                "dios": 0
+              }
+            },
+            "lifetime_peak_memory_bytes": 33140736,
+            "lifetime_memory_headroom_fraction": 0.9897117614746094,
+            "process_rss_bytes": {
+              "before": 34926592,
+              "after": 36323328
+            },
+            "process_threads": {
+              "before": 10,
+              "after": 11
+            },
+            "process_fds": {
+              "before": 397,
+              "after": 397
+            },
+            "memory_events": {
+              "low": 0,
+              "high": 0,
+              "max": 0,
+              "oom": 0,
+              "oom_kill": 0,
+              "oom_group_kill": 0
+            },
+            "memory_objective_met": true
+          },
+          {
+            "node": "cellar-mr14-8e51ff67f09fdd2fc90a1b7b-store",
+            "interval_ns": {
+              "minimum": 30436099167,
+              "maximum": 30604920666
+            },
+            "observer_window_ns": {
+              "before": 86951958,
+              "after": 81869541
+            },
+            "cpu_delta": {
+              "usage_usec": 4659043,
+              "user_usec": 3239369,
+              "system_usec": 1419674,
+              "nr_periods": 291,
+              "nr_throttled": 0,
+              "throttled_usec": 0
+            },
+            "average_cpu_cores": {
+              "minimum": 0.15223182738636803,
+              "maximum": 0.1530762196047618
+            },
+            "cgroup_io_delta": {
+              "253:16": {
+                "rbytes": 0,
+                "wbytes": 18313216,
+                "rios": 0,
+                "wios": 4350,
+                "dbytes": 0,
+                "dios": 0
+              }
+            },
+            "lifetime_peak_memory_bytes": 271482880,
+            "lifetime_memory_headroom_fraction": 0.9367904663085938,
+            "process_rss_bytes": {
+              "before": 250900480,
+              "after": 292814848
+            },
+            "process_threads": {
+              "before": 27,
+              "after": 28
+            },
+            "process_fds": {
+              "before": 35,
+              "after": 37
+            },
+            "memory_events": {
+              "low": 0,
+              "high": 0,
+              "max": 0,
+              "oom": 0,
+              "oom_kill": 0,
+              "oom_group_kill": 0
+            },
+            "memory_objective_met": true
+          }
+        ],
+        "measurement": [
+          {
+            "node": "cellar-mr14-8e51ff67f09fdd2fc90a1b7b-node1",
+            "interval_ns": {
+              "minimum": 120389557916,
+              "maximum": 120699390417
+            },
+            "observer_window_ns": {
+              "before": 76407042,
+              "after": 233425459
+            },
+            "cpu_delta": {
+              "usage_usec": 11066168,
+              "user_usec": 7978598,
+              "system_usec": 3087570,
+              "nr_periods": 1206,
+              "nr_throttled": 1,
+              "throttled_usec": 32323
+            },
+            "average_cpu_cores": {
+              "minimum": 0.091683710760824,
+              "maximum": 0.09191966638602703
+            },
+            "cgroup_io_delta": {
+              "253:16": {
+                "rbytes": 0,
+                "wbytes": 48447488,
+                "rios": 0,
+                "wios": 2375,
+                "dbytes": 0,
+                "dios": 0
+              }
+            },
+            "lifetime_peak_memory_bytes": 39735296,
+            "lifetime_memory_headroom_fraction": 0.987664540608724,
+            "process_rss_bytes": {
+              "before": 35864576,
+              "after": 37957632
+            },
+            "process_threads": {
+              "before": 11,
+              "after": 11
+            },
+            "process_fds": {
+              "before": 397,
+              "after": 396
+            },
+            "memory_events": {
+              "low": 0,
+              "high": 0,
+              "max": 0,
+              "oom": 0,
+              "oom_kill": 0,
+              "oom_group_kill": 0
+            },
+            "memory_objective_met": true
+          },
+          {
+            "node": "cellar-mr14-8e51ff67f09fdd2fc90a1b7b-node2",
+            "interval_ns": {
+              "minimum": 120554944417,
+              "maximum": 121093745000
+            },
+            "observer_window_ns": {
+              "before": 68039958,
+              "after": 470760625
+            },
+            "cpu_delta": {
+              "usage_usec": 12511808,
+              "user_usec": 9182017,
+              "system_usec": 3329791,
+              "nr_periods": 1209,
+              "nr_throttled": 0,
+              "throttled_usec": 0
+            },
+            "average_cpu_cores": {
+              "minimum": 0.10332332194367265,
+              "maximum": 0.10378510861173483
+            },
+            "cgroup_io_delta": {
+              "253:16": {
+                "rbytes": 0,
+                "wbytes": 66990080,
+                "rios": 0,
+                "wios": 3184,
+                "dbytes": 0,
+                "dios": 0
+              }
+            },
+            "lifetime_peak_memory_bytes": 41115648,
+            "lifetime_memory_headroom_fraction": 0.9872360229492188,
+            "process_rss_bytes": {
+              "before": 36052992,
+              "after": 38297600
+            },
+            "process_threads": {
+              "before": 11,
+              "after": 11
+            },
+            "process_fds": {
+              "before": 397,
+              "after": 397
+            },
+            "memory_events": {
+              "low": 0,
+              "high": 0,
+              "max": 0,
+              "oom": 0,
+              "oom_kill": 0,
+              "oom_group_kill": 0
+            },
+            "memory_objective_met": true
+          },
+          {
+            "node": "cellar-mr14-8e51ff67f09fdd2fc90a1b7b-node3",
+            "interval_ns": {
+              "minimum": 120953659500,
+              "maximum": 121473451750
+            },
+            "observer_window_ns": {
+              "before": 72046042,
+              "after": 447746208
+            },
+            "cpu_delta": {
+              "usage_usec": 13427514,
+              "user_usec": 9796193,
+              "system_usec": 3631320,
+              "nr_periods": 1214,
+              "nr_throttled": 1,
+              "throttled_usec": 53140
+            },
+            "average_cpu_cores": {
+              "minimum": 0.11053867167317076,
+              "maximum": 0.11101370603838571
+            },
+            "cgroup_io_delta": {
+              "253:16": {
+                "rbytes": 0,
+                "wbytes": 89636864,
+                "rios": 0,
+                "wios": 4183,
+                "dbytes": 0,
+                "dios": 0
+              }
+            },
+            "lifetime_peak_memory_bytes": 43720704,
+            "lifetime_memory_headroom_fraction": 0.9864273071289062,
+            "process_rss_bytes": {
+              "before": 36265984,
+              "after": 39256064
+            },
+            "process_threads": {
+              "before": 10,
+              "after": 11
+            },
+            "process_fds": {
+              "before": 397,
+              "after": 397
+            },
+            "memory_events": {
+              "low": 0,
+              "high": 0,
+              "max": 0,
+              "oom": 0,
+              "oom_kill": 0,
+              "oom_group_kill": 0
+            },
+            "memory_objective_met": true
+          },
+          {
+            "node": "cellar-mr14-8e51ff67f09fdd2fc90a1b7b-node4",
+            "interval_ns": {
+              "minimum": 121327252500,
+              "maximum": 121611699167
+            },
+            "observer_window_ns": {
+              "before": 74154125,
+              "after": 210292542
+            },
+            "cpu_delta": {
+              "usage_usec": 11425903,
+              "user_usec": 8425765,
+              "system_usec": 3000139,
+              "nr_periods": 1215,
+              "nr_throttled": 0,
+              "throttled_usec": 0
+            },
+            "average_cpu_cores": {
+              "minimum": 0.09395397875585708,
+              "maximum": 0.09417424992789646
+            },
+            "cgroup_io_delta": {
+              "253:16": {
+                "rbytes": 0,
+                "wbytes": 51666944,
+                "rios": 0,
+                "wios": 2564,
+                "dbytes": 0,
+                "dios": 0
+              }
+            },
+            "lifetime_peak_memory_bytes": 38682624,
+            "lifetime_memory_headroom_fraction": 0.9879913330078125,
+            "process_rss_bytes": {
+              "before": 36253696,
+              "after": 38584320
+            },
+            "process_threads": {
+              "before": 10,
+              "after": 11
+            },
+            "process_fds": {
+              "before": 397,
+              "after": 397
+            },
+            "memory_events": {
+              "low": 0,
+              "high": 0,
+              "max": 0,
+              "oom": 0,
+              "oom_kill": 0,
+              "oom_group_kill": 0
+            },
+            "memory_objective_met": true
+          },
+          {
+            "node": "cellar-mr14-8e51ff67f09fdd2fc90a1b7b-node5",
+            "interval_ns": {
+              "minimum": 121459630833,
+              "maximum": 121665833666
+            },
+            "observer_window_ns": {
+              "before": 77915000,
+              "after": 128287833
+            },
+            "cpu_delta": {
+              "usage_usec": 9900946,
+              "user_usec": 7321236,
+              "system_usec": 2579711,
+              "nr_periods": 1216,
+              "nr_throttled": 0,
+              "throttled_usec": 0
+            },
+            "average_cpu_cores": {
+              "minimum": 0.08137819551855714,
+              "maximum": 0.08151635182897296
+            },
+            "cgroup_io_delta": {
+              "253:16": {
+                "rbytes": 0,
+                "wbytes": 30363648,
+                "rios": 0,
+                "wios": 1607,
+                "dbytes": 0,
+                "dios": 0
+              }
+            },
+            "lifetime_peak_memory_bytes": 36323328,
+            "lifetime_memory_headroom_fraction": 0.9887237548828125,
+            "process_rss_bytes": {
+              "before": 36323328,
+              "after": 37560320
+            },
+            "process_threads": {
+              "before": 11,
+              "after": 11
+            },
+            "process_fds": {
+              "before": 397,
+              "after": 396
+            },
+            "memory_events": {
+              "low": 0,
+              "high": 0,
+              "max": 0,
+              "oom": 0,
+              "oom_kill": 0,
+              "oom_group_kill": 0
+            },
+            "memory_objective_met": true
+          },
+          {
+            "node": "cellar-mr14-8e51ff67f09fdd2fc90a1b7b-store",
+            "interval_ns": {
+              "minimum": 121505879291,
+              "maximum": 121914539167
+            },
+            "observer_window_ns": {
+              "before": 82038959,
+              "after": 326620917
+            },
+            "cpu_delta": {
+              "usage_usec": 26529094,
+              "user_usec": 18569886,
+              "system_usec": 7959209,
+              "nr_periods": 1064,
+              "nr_throttled": 0,
+              "throttled_usec": 0
+            },
+            "average_cpu_cores": {
+              "minimum": 0.21760402148311556,
+              "maximum": 0.2183358875702159
+            },
+            "cgroup_io_delta": {
+              "253:16": {
+                "rbytes": 0,
+                "wbytes": 47783936,
+                "rios": 0,
+                "wios": 9609,
+                "dbytes": 0,
+                "dios": 0
+              }
+            },
+            "lifetime_peak_memory_bytes": 326893568,
+            "lifetime_memory_headroom_fraction": 0.92388916015625,
+            "process_rss_bytes": {
+              "before": 292814848,
+              "after": 309784576
+            },
+            "process_threads": {
+              "before": 28,
+              "after": 28
+            },
+            "process_fds": {
+              "before": 37,
+              "after": 27
+            },
+            "memory_events": {
+              "low": 0,
+              "high": 0,
+              "max": 0,
+              "oom": 0,
+              "oom_kill": 0,
+              "oom_group_kill": 0
+            },
+            "memory_objective_met": true
+          }
+        ]
+      },
+      "cleanup": [
+        {
+          "container": "cellar-mr14-8e51ff67f09fdd2fc90a1b7b-node5",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-8e51ff67f09fdd2fc90a1b7b-node4",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-8e51ff67f09fdd2fc90a1b7b-node3",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-8e51ff67f09fdd2fc90a1b7b-node2",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-8e51ff67f09fdd2fc90a1b7b-node1",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-8e51ff67f09fdd2fc90a1b7b-store",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        }
+      ],
+      "network_removed": true,
+      "offered_routes_sha256": "bdb1b41349e69bbc78833dbc046d7edcb73750eada07abb47c567fbf6096720e",
+      "replicas": 450,
+      "commands_including_seed": 882,
+      "queries": 672,
+      "final_archive_seconds": 2.2584699589933734
+    }
+  ],
+  "comparison_scope": "The retained earlier density failures remain failed at their original pins. Workload/profile and offered-route identities can be compared, but short runs on a shared host do not establish a causal speedup or sustained capacity.",
+  "limitations": [
+    "One shared Mac, one Colima VM, at most five 1-vCPU/3-GiB/no-swap Cellar nodes and RustFS; no independent failure domains or Amazon S3 qualification.",
+    "Control queues still fill during the 1,500-cell measured run. Mean CPU does not rule out the shorter pressure burst visible in Docker samples; SQL-stage bounds identify a phase, not a proven causal sub-operation.",
+    "Only 30 active cells at 10 operations/second with Quorum acknowledgements and 100 ms ticks. Q1 retains six processes, 10,000 cells, different active fraction/data distribution/tick interval, and a 24-hour soak.",
+    "No group-limit increase. Q1 average 5,000 replicas/process still exceeds the 4,096 bound before reserve. Instrumentation overhead and whole-device attribution remain open.",
+    "Exact owned containers are stopped and their empty networks removed; volumes remain. The dedicated profile is stopped; other profiles were not mutated."
+  ],
+  "remaining": [
+    "Repeatable sustained and S3-durable latency, controlled equivalent-contract Fleet/bucket fault baselines and Q1 qualification.",
+    "MR-13 receipt/management/fenced disaster restore and unresolved intermittent findings.",
+    "MR-15 release qualification and MR-16/MR-17 scale/federation gates."
+  ]
+}

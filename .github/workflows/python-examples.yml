@@ -5,6 +5,7 @@ on:
     paths:
       - '.github/workflows/python-examples.yml'
       - 'examples/python-fastapi/**'
+      - 'examples/python-agent/**'
       - 'crates/cellar-python/**'
       - 'crates/cellar/**'
       - 'tools/python/**'
@@ -14,6 +15,7 @@ on:
     paths:
       - '.github/workflows/python-examples.yml'
       - 'examples/python-fastapi/**'
+      - 'examples/python-agent/**'
       - 'crates/cellar-python/**'
       - 'crates/cellar/**'
       - 'tools/python/**'
@@ -83,3 +85,65 @@ jobs:
             --project "$RUNNER_TEMP/fastapi/environment/project.json" \
             --output "$RUNNER_TEMP/fastapi/perf-smoke" \
             --concurrency 1 8 --repetitions 1 --read-seconds .5 --writes 32
+      - name: Check independent-arrival reads and failure accounting
+        run: |
+          cargo build -p cellar-python --example python-offered-load --no-default-features --locked
+          python -B tools/python/test_offered.py "$CARGO_TARGET_DIR/debug/examples/python-offered-load"
+          python -B examples/python-fastapi/offered_perf.py \
+            --client "$CARGO_TARGET_DIR/debug/examples/python-offered-load" --client-profile dev \
+            --cellar "$CARGO_TARGET_DIR/debug/cellar" \
+            --project "python=$RUNNER_TEMP/fastapi/environment/project.json" \
+            --output "$RUNNER_TEMP/fastapi/offered-smoke" \
+            --rates 100 --duration-ms 500 --warmup-ms 100 --repetitions 1
+          python - "$RUNNER_TEMP/fastapi/offered-smoke/results.json" <<'PY'
+          import json, sys
+          with open(sys.argv[1]) as stream:
+              report = json.load(stream)
+          for case in report["cases"]:
+              for phase in case["phases"]:
+                  for name in ("warmup", "measurement"):
+                      outcomes = phase[name]["outcomes"]
+                      if not outcomes.get("success") or set(outcomes) - {"success", "client_late", "client_capacity"}:
+                          raise RuntimeError(f"FastAPI read smoke failed: {outcomes}")
+          PY
+
+  agent:
+    name: Durable PydanticAI agent (${{ matrix.runtime }})
+    runs-on: ubuntu-22.04
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runtime: '3.14.5'
+            smoke_flags: ''
+          - runtime: '3.14.5t'
+            smoke_flags: '--expect-free-threaded'
+    env:
+      CARGO_TARGET_DIR: ${{ github.workspace }}/target
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYDANTIC_AI_NO_BANNER: '1'
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.14'
+      - name: Install build tools
+        run: |
+          rustup toolchain install "$RUST_VERSION" --profile minimal
+          rustup default "$RUST_VERSION"
+          python -m pip install uv==0.11.19
+      - name: Package the agent with its pinned runtime and dependencies
+        run: |
+          mkdir -p "$RUNNER_TEMP/agent"
+          python examples/python-agent/package.py --runtime '${{ matrix.runtime }}' \
+            --prefix "$RUNNER_TEMP/agent/environment" --output "$RUNNER_TEMP/agent/package"
+      - name: Test durable agent boundaries and real host restart
+        run: |
+          export PYO3_PYTHON="$(UV_PYTHON_INSTALL_DIR="$RUNNER_TEMP/agent/environment/runtime" uv python find --managed-python '${{ matrix.runtime }}')"
+          export CELLAR_PYTHON_SITE_PACKAGES="$RUNNER_TEMP/agent/environment/site"
+          PYTHONPATH="$CELLAR_PYTHON_SITE_PACKAGES" "$PYO3_PYTHON" -B examples/python-agent/test_app.py
+          python -B examples/python-agent/smoke.py --cellar "$CARGO_TARGET_DIR/debug/cellar" \
+            --project "$RUNNER_TEMP/agent/environment/project.json" ${{ matrix.smoke_flags }}

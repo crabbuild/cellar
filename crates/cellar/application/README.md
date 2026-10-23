@@ -3,6 +3,13 @@
 Applications use `cellar::sdk` for cell handlers, bindings and configuration.
 The implementation lives here, alongside the runtime adapters that execute it.
 
+Adapters can return `ApplicationOverloaded` when their own invocation budget is
+full. Public HTTP ingress returns 503 with code `Overloaded` and outcome
+`unknown`. A caller may propagate a nested refusal after committing its own
+writes, so this classification does not authorize replay or prove rollback.
+Native ownership and durability verdicts take precedence over a retained
+application admission error.
+
 | Component | Provides |
 | --- | --- |
 | `sql/` | Database bindings, prepared statements and request normalization |

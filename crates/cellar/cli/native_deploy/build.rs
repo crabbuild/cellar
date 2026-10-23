@@ -18,9 +18,14 @@ pub struct Project {
     pub target: Option<String>,
     #[serde(default)]
     pub features: Vec<String>,
+    /// Explicitly permit the optional cellar-javascript V8 adapter.
+    #[serde(default)]
+    pub javascript: bool,
     pub primary: ApplicationConfig,
     #[serde(default)]
     pub python_environment: Option<PythonProject>,
+    #[serde(default)]
+    pub node_environment: Option<NodeProject>,
     #[serde(default)]
     pub cohosted: Vec<ApplicationConfig>,
 }
@@ -41,6 +46,14 @@ fn cargo_features(command: &mut Command, features: &[String]) {
 /// Check the selected application's normal/build dependency graph, including
 /// dependencies' enabled features, before invoking the compiler.
 pub fn verify_native_dependencies(metadata: &serde_json::Value, package: &str) -> Result<()> {
+    verify_dependencies(metadata, package, false)
+}
+
+fn verify_dependencies(
+    metadata: &serde_json::Value,
+    package: &str,
+    javascript: bool,
+) -> Result<()> {
     let packages = metadata["packages"]
         .as_array()
         .context("Cargo metadata has no packages")?;
@@ -61,6 +74,8 @@ pub fn verify_native_dependencies(metadata: &serde_json::Value, package: &str) -
         .iter()
         .filter_map(|p| Some((p["id"].as_str()?, p)))
         .collect();
+    let mut adapter = false;
+    let mut engine = false;
     let mut visited = std::collections::BTreeSet::new();
     let mut pending = vec![root];
     while let Some(id) = pending.pop() {
@@ -70,23 +85,26 @@ pub fn verify_native_dependencies(metadata: &serde_json::Value, package: &str) -
         let name = packages.get(id).context("dependency package is missing")?["name"]
             .as_str()
             .context("dependency has no name")?;
+        adapter |= name == "cellar-javascript";
+        engine |= name == "v8";
         anyhow::ensure!(
-            !matches!(
-                name,
-                "v8" | "deno_core"
-                    | "boa_engine"
-                    | "quickjs"
-                    | "quick-js"
-                    | "libquickjs-sys"
-                    | "rquickjs"
-                    | "rquickjs-core"
-                    | "rquickjs-sys"
-                    | "javascriptcore"
-                    | "javascriptcore-rs"
-                    | "javascriptcore-rs-sys"
-                    | "mozjs"
-                    | "mozjs_sys"
-            ),
+            (javascript && name == "v8")
+                || !matches!(
+                    name,
+                    "v8" | "deno_core"
+                        | "boa_engine"
+                        | "quickjs"
+                        | "quick-js"
+                        | "libquickjs-sys"
+                        | "rquickjs"
+                        | "rquickjs-core"
+                        | "rquickjs-sys"
+                        | "javascriptcore"
+                        | "javascriptcore-rs"
+                        | "javascriptcore-rs-sys"
+                        | "mozjs"
+                        | "mozjs_sys"
+                ),
             "native application dependency graph contains JavaScript engine {name}"
         );
         let node = nodes.get(id).context("dependency graph node is missing")?;
@@ -106,6 +124,10 @@ pub fn verify_native_dependencies(metadata: &serde_json::Value, package: &str) -
             }
         }
     }
+    anyhow::ensure!(
+        !javascript || (adapter && engine),
+        "JavaScript build requires cellar-javascript with embed enabled"
+    );
     Ok(())
 }
 
@@ -146,6 +168,17 @@ impl Project {
             .python_environment
             .as_ref()
             .map(|config| config.prepare(base))
+            .transpose()?;
+        let node = project
+            .node_environment
+            .as_ref()
+            .map(|config| {
+                config.prepare(
+                    base,
+                    output,
+                    project.target.as_deref().unwrap_or(current_target()),
+                )
+            })
             .transpose()?;
         if dev {
             std::fs::create_dir_all(output)?;
@@ -191,6 +224,11 @@ impl Project {
             }
         } else {
             build.env_remove("CELLAR_PYTHON_INVENTORY");
+        }
+        if let Some(node) = &node {
+            build.env("CELLAR_NODE_INVENTORY", &node.inventory_path);
+        } else {
+            build.env_remove("CELLAR_NODE_INVENTORY");
         }
         if let Some(target) = &project.target {
             build.arg("--target").arg(target);
@@ -256,6 +294,11 @@ impl Project {
                 python.stage(manifest, &artifact, output)?;
             }
         }
+        if let Some(node) = &node {
+            for manifest in std::iter::once(&mut package.primary).chain(&mut package.cohosted) {
+                node.stage(manifest, &artifact, output)?;
+            }
+        }
         package.validate()?;
         let destination = output.join(&artifact.sha256);
         if destination.exists() {
@@ -294,7 +337,7 @@ fn inspect_metadata(project: &Project, manifest: &Path) -> Result<serde_json::Va
         String::from_utf8_lossy(&output.stderr)
     );
     let metadata = serde_json::from_slice(&output.stdout)?;
-    verify_native_dependencies(&metadata, &project.package)?;
+    verify_dependencies(&metadata, &project.package, project.javascript)?;
     Ok(metadata)
 }
 
@@ -380,3 +423,7 @@ fn watch_roots(metadata: &serde_json::Value, project: &Path) -> WatchPaths {
         .collect();
     WatchPaths { roots, ignored }
 }
+
+#[cfg(test)]
+#[path = "build_tests.rs"]
+mod tests;

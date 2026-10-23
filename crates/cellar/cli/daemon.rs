@@ -10,6 +10,7 @@
 
 pub(crate) struct Settings {
     pub(crate) control_plane: bool,
+    pub(crate) data_dir: Option<std::path::PathBuf>,
     pub(crate) bucket: Option<String>,
     pub(crate) load_deployment: bool,
     pub(crate) endpoint: Option<String>,
@@ -148,6 +149,7 @@ pub(crate) fn action_from_process_with_application(
     let mut json = false;
     let mut settings = Settings {
         control_plane,
+        data_dir: None,
         bucket: fixture_bucket.or_else(|| cellar_bucket.clone()),
         load_deployment: cellar_bucket.is_some(),
         endpoint: env("S3_ENDPOINT"),
@@ -176,6 +178,18 @@ pub(crate) fn action_from_process_with_application(
     let mut args = arguments.into_iter();
     while let Some(argument) = args.next() {
         match argument.as_str() {
+            "--data-dir" if !diagnose => {
+                anyhow::ensure!(
+                    settings.data_dir.is_none(),
+                    "--data-dir may be supplied only once"
+                );
+                let path = std::path::PathBuf::from(
+                    args.next()
+                        .ok_or_else(|| anyhow::anyhow!("--data-dir requires a path"))?,
+                );
+                anyhow::ensure!(path.is_absolute(), "--data-dir requires an absolute path");
+                settings.data_dir = Some(path);
+            }
             "--control-plane" => settings.control_plane = true,
             "--bucket" => {
                 let bucket = args
@@ -313,6 +327,7 @@ OPTIONS:
                          rejects --endpoint and ignores --region for both). A
                          PREFIX puts every object under it, so several fleets
                          can share one bucket
+  --data-dir PATH        Absolute persistent node working directory
   --endpoint URL         Optional S3-compatible endpoint
   --region REGION        Storage region (default: AWS_REGION or us-east-1)
   --listen IP:PORT       Public Worker listener (default: 127.0.0.1:8080;

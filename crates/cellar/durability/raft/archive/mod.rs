@@ -23,7 +23,15 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+pub(crate) mod bundle;
 mod replay;
+
+const READ_WINDOW: usize = 4;
+
+// Logical recovery limits exclude the containing bundles. Retain an additional
+// full bundle for every concurrent extraction, including cancelled workers.
+pub(crate) const MAX_RECOVERY_READ_BYTES: usize =
+    256 * 1024 * 1024 + READ_WINDOW * bundle::MAX_BYTES;
 
 #[derive(Debug)]
 pub enum ArchiveError {
@@ -338,6 +346,7 @@ impl CommittedArchiveCut {
 pub struct CellArchive {
     store: Arc<dyn ObjectStore>,
     prefix: String,
+    bundle_prefix: String,
     scope: GroupScope,
     root: [u8; 32],
     birth: [u8; 32],
@@ -348,6 +357,7 @@ pub struct CellArchive {
     cancellation: Option<tokio::sync::watch::Receiver<bool>>,
     io_domain: Option<crate::asyncrt::DomainToken>,
     read_retention: Option<Arc<super::budget::Permit>>,
+    bundle_client: Option<bundle::Client>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -365,7 +375,7 @@ pub struct ArchiveReference(ObjectRef);
 
 impl ArchiveReference {
     pub fn position(&self) -> Result<LogPosition, ArchiveError> {
-        if self.0.kind != ObjectKind::Manifest {
+        if self.0.kind != ObjectKind::Manifest || self.0.bundle.is_some() {
             return Err(ArchiveError::Corrupt("archive reference domain"));
         }
         let range = self
@@ -436,7 +446,7 @@ pub struct ArchiveRecoverySet {
 impl CellArchive {
     pub(crate) fn new(
         store: Arc<dyn ObjectStore>,
-        prefix: String,
+        archive_prefix: String,
         birth: &super::catalog::GroupBirth,
         root: [u8; 32],
         schema: [u8; 32],
@@ -458,7 +468,13 @@ impl CellArchive {
         };
         Self {
             store,
-            prefix,
+            prefix: format!(
+                "{}/{}/{}",
+                archive_prefix,
+                hex::encode(birth.scope().group.bytes()),
+                hex::encode(birth.scope().incarnation.bytes())
+            ),
+            bundle_prefix: format!("{archive_prefix}/bundles"),
             scope: birth.scope().clone(),
             root,
             birth: birth.digest(),
@@ -469,11 +485,22 @@ impl CellArchive {
             cancellation: None,
             io_domain: crate::asyncrt::runtime_services().domain_token(),
             read_retention: None,
+            bundle_client: None,
         }
     }
 
-    pub(crate) fn max_set_bytes(&self) -> usize {
+    pub(crate) fn can_batch_with(&self, other: &Self) -> bool {
+        self.bundle_prefix == other.bundle_prefix
+            && self.root == other.root
+            && self.schema == other.schema
+            && self.scope.cluster == other.scope.cluster
+            && self.scope.namespace == other.scope.namespace
+            && Arc::ptr_eq(&self.store, &other.store)
+    }
+
+    pub(crate) fn read_memory_bound(&self) -> usize {
         self.limits.max_set_bytes
+            + READ_WINDOW * bundle::MAX_BYTES.min(self.limits.max_object_bytes)
     }
 
     pub(crate) fn with_read_retention(mut self, retention: Arc<super::budget::Permit>) -> Self {
@@ -909,7 +936,7 @@ impl CellArchive {
     }
 
     async fn load_metadata(&self, object: &ObjectRef) -> Result<ArchiveMetadata, ArchiveError> {
-        if object.kind != ObjectKind::Manifest {
+        if object.kind != ObjectKind::Manifest || object.bundle.is_some() {
             return Err(ArchiveError::Corrupt("archive head domain"));
         }
         let bytes = self.get_object(object).await?;
@@ -955,8 +982,8 @@ impl CellArchive {
         } = metadata;
         // The validated manifest bounds the sum of these exact object lengths.
         // Reads enforce each declared length before allocating its body. A
-        // small ordered window overlaps I/O without multiplying the set budget
-        // or leaving detached requests behind on error/cancellation.
+        // small ordered window overlaps I/O. The read reservation also includes
+        // one full containing bundle per slot until physical extraction ends.
         let objects = std::iter::once(&manifest.snapshot.object)
             .chain(manifest.tails.iter().map(|tail| &tail.object))
             .chain(manifest.dependencies.iter());
@@ -964,7 +991,7 @@ impl CellArchive {
             .map(|object| self.get_object(object))
             .collect::<Vec<_>>();
         let mut bodies = futures_util::stream::iter(reads)
-            .buffered(4)
+            .buffered(READ_WINDOW)
             .try_collect::<Vec<_>>()
             .await?
             .into_iter();
@@ -1043,15 +1070,25 @@ impl CellArchive {
         object: ObjectRef,
         bytes: &[u8],
     ) -> Result<ObjectRef, ArchiveError> {
+        if matches!(object.kind, ObjectKind::Snapshot | ObjectKind::Tail) {
+            if let Some(client) = &self.bundle_client {
+                return client.put(self, object, bytes.to_vec()).await;
+            }
+        }
+        self.put_direct(object, bytes.to_vec()).await
+    }
+
+    async fn put_direct(
+        &self,
+        object: ObjectRef,
+        bytes: Vec<u8>,
+    ) -> Result<ObjectRef, ArchiveError> {
         let path = self.key(&object.name());
         let result = self
             .io(
                 self.deadline()?,
-                self.store.put_opts(
-                    &path,
-                    bytes.to_vec().into(),
-                    PutOptions::from(PutMode::Create),
-                ),
+                self.store
+                    .put_opts(&path, bytes.into(), PutOptions::from(PutMode::Create)),
             )
             .await;
         match self
@@ -1074,6 +1111,7 @@ impl CellArchive {
     }
 
     async fn get_object(&self, object: &ObjectRef) -> Result<Vec<u8>, ArchiveError> {
+        object.validate_location()?;
         let limit = if object.kind == ObjectKind::Manifest {
             self.limits.max_manifest_bytes
         } else {
@@ -1081,6 +1119,31 @@ impl CellArchive {
         };
         if object.length > limit as u64 {
             return Err(ArchiveError::Limit);
+        }
+        if let Some(reference) = &object.bundle {
+            if reference.length > self.limits.max_object_bytes as u64 {
+                return Err(ArchiveError::Limit);
+            }
+            let bytes = self
+                .read(
+                    &self.bundle_key(reference),
+                    bundle::MAX_BYTES.min(self.limits.max_object_bytes),
+                    Some(reference.length),
+                )
+                .await?
+                .ok_or(ArchiveError::Corrupt("missing archive bundle"))?
+                .0;
+            let archive = self.clone();
+            let expected = object.clone();
+            let retention = self.read_retention.clone();
+            return self
+                .host
+                .run_blocking(move || {
+                    let _retention = retention;
+                    bundle::extract(&archive, &expected, &bytes)
+                })
+                .await
+                .map_err(ArchiveError::Worker)?;
         }
         let bytes = self
             .read(&self.key(&object.name()), limit, Some(object.length))
@@ -1144,6 +1207,15 @@ impl CellArchive {
             return Err(ArchiveError::Corrupt("short archive object"));
         }
         Ok(Some((bytes, version)))
+    }
+
+    fn bundle_key(&self, reference: &bundle::Reference) -> Path {
+        Path::from(format!(
+            "{}/{}-{}",
+            self.bundle_prefix,
+            reference.length,
+            hex::encode(reference.digest)
+        ))
     }
 }
 

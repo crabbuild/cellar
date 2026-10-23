@@ -427,6 +427,11 @@ async fn saturated_query_peer_refuses_and_expires_queued_work() -> Result<()> {
         .context("target transport observer")?;
     assert!(source_usage.outgoing.query.items > 0 && source_usage.outgoing.query.bytes > 0);
     assert!(target_usage.incoming.query.items > 0 && target_usage.incoming.query.bytes > 0);
+    assert!(source_usage.outgoing_connections.query > 0);
+    assert!(target_usage.incoming_connections.query > 0);
+    assert!(
+        target_usage.incoming_connections.query <= target_usage.incoming_connection_limits.query
+    );
     assert!(source_usage.outgoing.query.bytes <= source_usage.outgoing.query.max_bytes);
     assert!(target_usage.incoming.query.bytes <= target_usage.incoming.query.max_bytes);
     let queued: Vec<_> = (0..64)
@@ -489,6 +494,49 @@ async fn saturated_query_peer_refuses_and_expires_queued_work() -> Result<()> {
         }
     })
     .await?;
+    let performance: Vec<_> = fixture
+        .cluster
+        .services
+        .iter()
+        .map(RaftCells::performance)
+        .collect();
+    assert!(performance
+        .iter()
+        .all(|sample| sample.available && !sample.saturated));
+    for lane in ["control", "data", "query"] {
+        for direction in ["read", "write"] {
+            let name = format!("transport_{lane}_{direction}_bytes");
+            let bytes: u64 = performance
+                .iter()
+                .map(|sample| {
+                    sample
+                        .counters
+                        .iter()
+                        .find(|counter| counter.name == name)
+                        .unwrap()
+                        .value
+                })
+                .sum();
+            assert!(bytes > 0, "real TLS traffic missing from {name}");
+        }
+    }
+    for lane in ["control", "data"] {
+        for phase in ["queue", "exchange", "admit"] {
+            let name = format!("transport_{lane}_{phase}");
+            let successes: u64 = performance
+                .iter()
+                .map(|sample| {
+                    sample
+                        .operations
+                        .iter()
+                        .find(|operation| operation.name == name)
+                        .unwrap()
+                        .succeeded
+                })
+                .sum();
+            assert!(successes > 0, "real TLS traffic missing from {name}");
+        }
+    }
     fixture.close().await
 }
 

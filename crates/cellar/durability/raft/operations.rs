@@ -81,7 +81,8 @@ pub struct RaftNodeShutdownReport {
 }
 
 /// Each registered local replica receives at most one bounded handoff turn.
-/// Temporary local work and candidate inspection share that turn's deadline.
+/// Waiting for admitted group work and inspecting a successor share that turn's
+/// deadline; a busy group cannot renew its budget or delay every other group.
 /// Acceptance is not an election result; release observes the old leader step
 /// down. Neither observation fences a deployment or authorizes disk deletion.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -127,19 +128,29 @@ pub(crate) struct NodeLifecycle {
 }
 
 impl NodeLifecycle {
+    fn sample_service(
+        &self,
+    ) -> Result<Option<crate::application::consensus::RaftCells>, CommandFailure> {
+        let state = self.state.lock().map_err(|_| CommandFailure::Unavailable)?;
+        if state.poisoned || state.started && state.service.is_none() {
+            return Err(CommandFailure::Unavailable);
+        }
+        Ok(state.service.clone())
+    }
+
     pub(crate) fn resource_usage(
         &self,
     ) -> Result<Option<crate::application::consensus::RaftResourceUsage>, CommandFailure> {
-        let service = {
-            let state = self.state.lock().map_err(|_| CommandFailure::Unavailable)?;
-            if state.poisoned || state.started && state.service.is_none() {
-                // Starting/cancelled/removed hosts have no live sampler. A
-                // missing observation cannot become a healthy zero snapshot.
-                return Err(CommandFailure::Unavailable);
-            }
-            state.service.clone()
-        };
-        Ok(service.map(|service| service.resource_usage()))
+        Ok(self
+            .sample_service()?
+            .map(|service| service.resource_usage()))
+    }
+
+    pub(crate) fn performance(
+        &self,
+    ) -> Result<Option<crate::application::consensus::RaftPerformanceSnapshot>, CommandFailure>
+    {
+        Ok(self.sample_service()?.map(|service| service.performance()))
     }
 
     pub(crate) fn begin(self: &Arc<Self>) -> Result<Starting, CommandFailure> {

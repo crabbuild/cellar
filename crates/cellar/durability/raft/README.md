@@ -646,8 +646,13 @@ membership/leadership authority. Snapshot installation and fresh-member recovery
 remain separate operations.
 
 `RaftHostOptions::archive` configures `RaftArchiveOptions` and `ArchiveLimits`.
-Defaults allow two producers, 4 MiB of captured log bytes per producer, 128 MiB
-objects, a 256-MiB recovery set, 32 tails, 1,024 tail entries and 128 dependencies.
+Defaults allow two retained cell cuts across capture and publication, with up
+to two compatible cells per immutable-object batch. Each cut reserves 4 MiB of
+captured log bytes (8 MiB node-wide by default). Logical objects are bounded at
+128 MiB and each cell recovery set at 256 MiB, 32 tails, 1,024 tail entries and
+128 dependencies. `max_batch_groups = 1` selects independent publication;
+`max_producers` still bounds all retained cuts. A completed capture waits at most
+5 ms for a companion capture before it becomes eligible for publication.
 `ArchiveLimits::max_tail_image_ratio` also bounds the projected encoded tail
 bytes relative to the current image's uncompressed length (default 2; accepted
 range 1–128). Crossing that ratio selects a new snapshot before the hard
@@ -667,6 +672,11 @@ most `max_producers` cuts. Each producer retains its own bounded recovery sets;
 their aggregate memory scales with this explicit concurrency limit. All
 producers share cancellation and are joined before the single replay workspace
 is released. Setting the limit to one retains serial publication.
+Recovery reads overlap at most four objects. Each may temporarily retain an
+8-MiB containing bundle while selecting its logical object, so archive seed
+admission reserves an additional 32 MiB above the logical recovery-set bound.
+The reservation remains held through physical extraction after cancellation.
+This does not change the logical archive format or its accepted size limits.
 
 Retained log/image charges are reused for the same group cache, durable cache
 revision and archive position. Storage publishes the revision under its cache
@@ -674,6 +684,29 @@ write lock after a successful sync; append, replacement, apply and snapshot
 changes therefore invalidate prior accounting. Each admission still checks
 closure, cache poisoning and current pending reservations. This avoids walking
 unchanged histories while preserving the existing admission decisions.
+
+The producer gathers at most two due cuts from the same namespace. Small snapshot
+and tail uploads can share a content-addressed bundle under the namespace archive
+prefix. A bundle is at most 8 MiB including its bounded index, and also fits each
+member's object limit. The coordinator uses a 5 ms coalescing deadline for a
+second ready payload; lone or large objects use direct publication. Dependencies, manifests
+and conditional heads remain separate. Successful cuts with newer backlog become
+eligible immediately; failed attempts retain the configured retry delay.
+
+The marker-1 index binds cluster, namespace, cell, group, incarnation, namespace
+root, birth, schema, object kind, exact term/index range, offset, length and
+payload checksum. Ordered, non-overlapping members partition the body exactly.
+Recovery verifies the complete bounded bundle and selected member before replay;
+a foreign member or corrupt byte cannot supply a successful recovery set. Each
+cell physically replays its own complete snapshot/tail/dependency set before its
+head CAS. Partial publication across members is allowed; no cross-cell atomic
+commit or shared durability proof is claimed. Batching can retain two complete
+recovery sets; resource reservations are not a physical RSS qualification.
+
+This archive reference change is a marker-1 hard cutover with protocol identity
+`cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1/nodes-1/bundles-1`. Use a fresh
+experimental namespace/prefix and local state. Earlier measurement evidence keeps
+its original executable and storage format; no migration reader is provided.
 
 Archive captures have an independent budget from command/query output. Reads
 have one 10-second deadline including their stream. Recovery material uses at
@@ -841,7 +874,7 @@ lost claim response without resetting its log or votes. Normal follower proofs
 still govern queries after attachment.
 
 The internal namespace protocol identity is
-`cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1/nodes-1`; format markers remain 1. Use a fresh
+`cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1/nodes-1/bundles-1`; format markers remain 1. Use a fresh
 experimental namespace/prefix and local state after this hard cutover.
 
 
@@ -952,7 +985,7 @@ during an active repair. Complete node-load collection is available through
 inspection; automatic balancing remains open.
 
 This extends the internal protocol to
-`cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1/nodes-1`; numeric format markers stay 1.
+`cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1/nodes-1/bundles-1`; numeric format markers stay 1.
 Earlier roots/state have no compatibility reader. Use a fresh experimental
 namespace/prefix and local state. The earlier MR-10 evidence retains its exact
 historical protocol and source scope.

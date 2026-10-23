@@ -151,10 +151,10 @@ impl RaftTransport {
         ) {
             old.stop.send_replace(true);
         }
-        drop(registry);
         if !state.inspection_enabled.swap(true, Ordering::AcqRel) {
             state.control_connections.add_permits(SLOTS);
         }
+        drop(registry);
         Ok(())
     }
 
@@ -340,9 +340,11 @@ impl State {
         stage: Arc<AtomicU8>,
     ) -> Result<Box<InspectionSnapshot>, TransportError> {
         stage.store(1, Ordering::Release);
+        let _connection = self.outgoing_connections.acquire(Lane::Control);
         let tcp = TcpStream::connect(peer.control_address).await?;
         stage.store(2, Ordering::Release);
         tcp.set_nodelay(true)?;
+        let tcp = self.observed_socket(tcp, metrics::Lane::Control);
         let name = rustls::pki_types::ServerName::try_from(peer.server_name.clone())
             .map_err(|_| TransportError::Identity)?;
         let mut stream = tokio_rustls::TlsConnector::from(self.tls.client.clone())

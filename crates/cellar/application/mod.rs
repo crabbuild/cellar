@@ -6,6 +6,8 @@ use std::collections::HashMap;
 use std::future::Future;
 use std::sync::{Arc, Mutex};
 
+mod admission;
+pub use admission::ApplicationOverloaded;
 pub mod assets;
 pub mod blob;
 pub mod cache;

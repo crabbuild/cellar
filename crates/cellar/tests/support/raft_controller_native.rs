@@ -1,7 +1,7 @@
 //! Six actual nodes. All sources use identical advertised physical endpoints;
 //! data cuts leave direct control/inspection connections live.
 #![allow(clippy::disallowed_methods)]
-use super::{cluster, log_fault, public_node};
+use super::{cluster, faults as archive_faults, log_fault, public_node};
 use anyhow::{ensure, Context as _, Result};
 use cellar::sdk::{
     consensus::*, Node, NodeOutcome, NodeRaftConfig, NodeRaftListeners, ShutdownMode,
@@ -30,6 +30,20 @@ struct CaptureFixture {
     store: Arc<dyn object_store::ObjectStore>,
 }
 
+struct SqlHold {
+    store: Arc<archive_faults::Store>,
+    reads: Vec<Arc<super::log_fault::Gate>>,
+}
+
+struct ArchiveRelease(Arc<archive_faults::Store>);
+
+impl Drop for ArchiveRelease {
+    fn drop(&mut self) {
+        self.0.archive_hang.store(false, Ordering::Release);
+        self.0.archive_resume.notify_waiters();
+    }
+}
+
 impl Fixture {
     async fn start(groups: usize, balance: bool, draining: Option<usize>) -> Result<Self> {
         Self::start_with_report_limits(
@@ -49,6 +63,18 @@ impl Fixture {
         report_limits: RaftCloseReportLimits,
         capture: Option<&CaptureFixture>,
     ) -> Result<Self> {
+        Self::start_configured(groups, balance, draining, report_limits, None, capture).await
+    }
+
+    async fn start_configured(
+        groups: usize,
+        balance: bool,
+        draining: Option<usize>,
+        report_limits: RaftCloseReportLimits,
+        hold: Option<SqlHold>,
+        capture: Option<&CaptureFixture>,
+    ) -> Result<Self> {
+        ensure!(hold.is_none() || capture.is_none());
         ensure!((1..=16).contains(&groups));
         let (gate, entered) = public_node::Gate::new();
         gate.release();
@@ -56,11 +82,11 @@ impl Fixture {
         let definitions = calls
             .iter()
             .map(|calls| {
-                if capture.is_some() {
-                    public_node::counter_with_blobs(calls.clone(), gate.clone())
-                } else {
-                    public_node::counter(calls.clone(), gate.clone())
-                }
+                public_node::counter_with_blobs(
+                    calls.clone(),
+                    gate.clone(),
+                    hold.is_some() || capture.is_some(),
+                )
             })
             .collect::<Result<Vec<_>>>()?;
         let namespace = NamespaceConfig::new(
@@ -96,13 +122,11 @@ impl Fixture {
                 })
             })
             .collect::<Result<Vec<_>>>()?;
-        let store: Arc<dyn object_store::ObjectStore> = capture.map_or_else(
-            || {
-                Arc::new(object_store::memory::InMemory::new())
-                    as Arc<dyn object_store::ObjectStore>
-            },
-            |capture| capture.store.clone(),
-        );
+        let store: Arc<dyn object_store::ObjectStore> = match (&hold, capture) {
+            (Some(hold), _) => hold.store.clone(),
+            (None, Some(capture)) => capture.store.clone(),
+            (None, None) => Arc::new(object_store::memory::InMemory::new()),
+        };
         let mut fixture = Self {
             nodes: vec![],
             services: vec![],
@@ -119,14 +143,15 @@ impl Fixture {
         for index in 0..6 {
             let root = tempfile::tempdir()?;
             let label = format!("automatic-native-{}", index + 1);
-            let filesystem: Arc<dyn cellar_ltx::FileSystem> = capture.map_or_else(
-                || Arc::new(cellar_ltx::DirectFileSystem) as Arc<dyn cellar_ltx::FileSystem>,
-                |capture| {
-                    Arc::new(log_fault::FaultFileSystem {
-                        gate: capture.gates[index].clone(),
-                    })
-                },
-            );
+            let filesystem: Arc<dyn cellar_ltx::FileSystem> = match (&hold, capture) {
+                (Some(hold), _) => Arc::new(log_fault::FaultFileSystem {
+                    gate: hold.reads[index].clone(),
+                }),
+                (None, Some(capture)) => Arc::new(log_fault::FaultFileSystem {
+                    gate: capture.gates[index].clone(),
+                }),
+                (None, None) => Arc::new(cellar_ltx::DirectFileSystem),
+            };
             let node = public_node::node_declared_with_filesystem(
                 root.path(),
                 fixture.definitions[index].application.clone(),
@@ -163,6 +188,10 @@ impl Fixture {
                 close_report: report_limits,
                 ..Default::default()
             };
+            if hold.is_some() {
+                host.blocking_workers = 1;
+                host.archive.max_batch_groups = 1;
+            }
             let reservation = host.images.max_bytes;
             host.node_profile = Some(RaftNodeProfile {
                 pool: "native".into(),
@@ -377,6 +406,27 @@ pub async fn no_traffic_repair() -> Result<()> {
     })
     .await??;
     fixture.enable(false).await?;
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            if let Some(usage) = fixture.service(primary)?.resource_usage().controller {
+                if !usage.enabled && usage.probe_rounds > 0 {
+                    ensure!(
+                        usage.metadata.max_bytes > 0
+                            && usage.metadata.bytes <= usage.metadata.max_bytes
+                    );
+                    let text = fixture.service(primary)?.resource_usage().prometheus();
+                    ensure!(
+                        text.contains("cellar_raft_controller_sample_available 1\n")
+                            && text.contains("cellar_raft_controller_enabled 0\n")
+                    );
+                    break;
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        Ok::<_, anyhow::Error>(())
+    })
+    .await??;
     let before = fixture
         .service(primary)?
         .controller_status()
@@ -437,6 +487,16 @@ pub async fn no_traffic_repair() -> Result<()> {
             .sum::<usize>(),
         1
     );
+    let performance = fixture.service(primary)?.performance();
+    ensure!(performance.available && !performance.saturated);
+    for name in ["controller_probe", "controller_action"] {
+        let operation = performance
+            .operations
+            .iter()
+            .find(|operation| operation.name == name)
+            .context("controller measurements")?;
+        ensure!(operation.started > 0 && operation.succeeded > 0 && operation.count > 0);
+    }
     fixture.close().await
 }
 
@@ -596,6 +656,172 @@ async fn shutdown_handoff_scenario(
     if let Some(shutdown) = shutdown {
         shutdown.await??;
     }
+    fixture.close().await?;
+    result
+}
+
+/// Hold the published image read inside the real SQL archive-capture worker.
+/// No accepted application command or query can delay Node's application drain.
+#[allow(dead_code)] // Also compiled by the membership/controller fixture target.
+pub async fn shutdown_handoff_with_busy_sql(expire: bool) -> Result<()> {
+    let reads: Vec<_> = (0..6).map(|_| super::log_fault::Gate::new(None)).collect();
+    let mut release_read = None;
+    let store = Arc::new(archive_faults::Store::default());
+    store.archive_hang.store(true, Ordering::Release);
+    let mut release_archive = Some(ArchiveRelease(store.clone()));
+    let mut fixture = Fixture::start_configured(
+        1,
+        false,
+        None,
+        RaftCloseReportLimits::default(),
+        Some(SqlHold {
+            store: store.clone(),
+            reads: reads.clone(),
+        }),
+        None,
+    )
+    .await?;
+    let result = async {
+        fixture.enable(false).await?;
+        let primary = fixture.leader(0).await?;
+        fixture.write(0, 1, 4).await?;
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while store.archive_attempts.load(Ordering::Acquire) < 3 {
+                tokio::time::sleep(Duration::from_millis(2)).await;
+            }
+        })
+        .await
+        .context("all voter archive producers entered object I/O")?;
+        let scope = &fixture.registrations[0].birth.scope;
+        let images = fixture.nodes[primary]
+            .as_ref()
+            .context("node")?
+            .info()
+            .data_dir
+            .join("raft-cells")
+            .join(hex::encode(scope.namespace.bytes()))
+            .join(hex::encode(scope.group.bytes()))
+            .join(hex::encode(scope.incarnation.bytes()))
+            .join("images");
+        let image_paths = || -> Result<std::collections::BTreeSet<std::path::PathBuf>> {
+            Ok(std::fs::read_dir(&images)?
+                .map(|entry| entry.map(|entry| entry.path()))
+                .collect::<std::io::Result<Vec<_>>>()?
+                .into_iter()
+                .filter(|path| path.extension().is_some_and(|ext| ext == "sqlite"))
+                .collect())
+        };
+        let before = image_paths()?;
+        let receipt = fixture.write(0, 2, 3).await?;
+        for index in 0..3 {
+            let read = fixture
+                .cell(index, 0)?
+                .query(
+                    fixture.definitions[index].get.clone(),
+                    vec![],
+                    QueryOptions {
+                        consistency: QueryConsistency::AtLeast(receipt.version_token.clone()),
+                        ..Default::default()
+                    },
+                )
+                .await?;
+            ensure!(read.result == 7i64.to_be_bytes());
+        }
+        let after = image_paths()?;
+        let added: Vec<_> = after.difference(&before).cloned().collect();
+        // Committed apply reuses the exactly matched sealed leader preview.
+        // It did not belong to the first cut, which must finish before capture.
+        ensure!(added.len() == 1, "expected one reused committed preview");
+        *reads[primary].image_read_paths.lock().unwrap() = added;
+        release_read = Some(reads[primary].arm(super::log_fault::HOLD_IMAGE_READ));
+        drop(release_archive.take());
+        tokio::time::timeout(Duration::from_secs(5), reads[primary].entered.notified())
+            .await
+            .context("archive capture did not enter physical image read")?;
+        let service = fixture.service(primary)?.clone();
+        let performance = service.performance();
+        let capture = performance
+            .operations
+            .iter()
+            .find(|op| op.name == "sql_archive_capture")
+            .context("archive capture observation")?;
+        ensure!(
+            capture.started > capture.succeeded + capture.failed + capture.abandoned,
+            "held read is not owned by the SQL archive capture"
+        );
+        let started = tokio::time::Instant::now();
+        let stop = tokio::spawn(
+            fixture.nodes[primary]
+                .take()
+                .context("node")?
+                .shutdown(ShutdownMode::Preserve),
+        );
+        let observed_close = if expire {
+            tokio::time::timeout(Duration::from_secs(3), async {
+                while !service
+                    .resource_usage()
+                    .sql
+                    .is_some_and(|sql| sql.queue_closed)
+                {
+                    tokio::time::sleep(Duration::from_millis(5)).await;
+                }
+            })
+            .await
+            .is_ok()
+        } else {
+            tokio::time::sleep(Duration::from_millis(600)).await;
+            service
+                .resource_usage()
+                .sql
+                .is_some_and(|sql| sql.queue_closed)
+        };
+        let elapsed = started.elapsed();
+        // Release the physical read and join shutdown before asserting, including
+        // the pre-fix early-close regression. Waiter cancellation is not a join.
+        drop(release_read.take());
+        let outcome = tokio::time::timeout(Duration::from_secs(15), stop).await???;
+        let NodeOutcome::Stopped(report) = outcome else {
+            anyhow::bail!("unexpected stop: {outcome:?}")
+        };
+        let raft = report.raft.context("missing Raft report")?;
+        let drain = raft.drain.context("missing handoff result")??;
+        ensure!(
+            drain.groups_examined == 1 && !drain.deadline_elapsed,
+            "unexpected drain: {drain:?}"
+        );
+        if expire {
+            ensure!(
+                observed_close && elapsed >= Duration::from_millis(900),
+                "SQL wait did not retain its bounded turn: {elapsed:?}, {drain:?}"
+            );
+            ensure!(
+                drain.handoff_attempts == 0
+                    && drain.handoffs_accepted == 0
+                    && drain.leadership_released == 0
+                    && drain.unavailable_groups == 1,
+                "stalled SQL invented a handoff: {drain:?}"
+            );
+        } else {
+            ensure!(!observed_close, "busy SQL caused early close: {drain:?}");
+            ensure!(
+                drain.handoff_attempts == 1
+                    && drain.handoffs_accepted == 1
+                    && drain.leadership_released == 1
+                    && drain.unavailable_groups == 0,
+                "handoff after physical SQL release failed: {drain:?}"
+            );
+        }
+        let closed = raft.result?;
+        ensure!(closed.unfinished.is_empty() && service.close().await? == closed);
+        fixture.services[primary].take();
+        let successor = fixture.leader(0).await?;
+        ensure!(successor != primary);
+        ensure!(fixture.write(0, 3, 3).await?.result == 10i64.to_be_bytes());
+        Ok(())
+    }
+    .await;
+    drop(release_archive);
+    drop(release_read);
     fixture.close().await?;
     result
 }
@@ -905,7 +1131,10 @@ pub async fn minority_refused() -> Result<()> {
 
 pub async fn plan_recovery() -> Result<()> {
     let mut fixture = Fixture::start(1, false, Some(2)).await?;
-    let receipt = fixture.write(0, 1, 9).await?;
+    let receipt = fixture
+        .write(0, 1, 9)
+        .await
+        .context("repair recovery setup command")?;
     assert_eq!(
         fixture
             .cell(0, 0)?
@@ -921,7 +1150,9 @@ pub async fn plan_recovery() -> Result<()> {
             .result,
         9_i64.to_be_bytes()
     );
-    force_leader(&fixture, 0, 0).await?;
+    force_leader(&fixture, 0, 0)
+        .await
+        .context("repair recovery leader placement")?;
     fixture.data[5].block(true).await?;
     fixture.enable(true).await?;
     let initial = tokio::time::timeout(Duration::from_secs(10), async {
@@ -934,7 +1165,8 @@ pub async fn plan_recovery() -> Result<()> {
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
     })
-    .await??;
+    .await
+    .context("repair recovery initial seeding deadline")??;
     assert_eq!(initial.plan.obsolete, MemberId::new(3)?);
     assert_eq!(initial.plan.replacement.member, MemberId::new(4)?);
     assert_eq!(initial.plan.replacement.node, fixture.peers[5].node);
@@ -948,8 +1180,14 @@ pub async fn plan_recovery() -> Result<()> {
         .context("controller lost the committed plan")?;
     assert_eq!(retried.plan, initial.plan);
     assert_eq!(retried.phase, RepairPhase::Seeding);
-    fixture.stop(0).await?;
-    let successor = fixture.leader(0).await?;
+    fixture
+        .stop(0)
+        .await
+        .context("repair recovery old leader shutdown")?;
+    let successor = fixture
+        .leader(0)
+        .await
+        .context("repair recovery successor election")?;
     let recovered = fixture
         .cell(successor, 0)?
         .repair_status()
@@ -964,7 +1202,10 @@ pub async fn plan_recovery() -> Result<()> {
     fixture.data[5].block(false).await?;
     // The next repair may legitimately replace the now-dead old leader too.
     tokio::time::sleep(Duration::from_secs(7)).await;
-    let primary = fixture.leader(0).await?;
+    let primary = fixture
+        .leader(0)
+        .await
+        .context("repair recovery completed-plan leader")?;
     let final_plan = fixture
         .cell(primary, 0)?
         .repair_status()

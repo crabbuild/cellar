@@ -70,6 +70,10 @@ name = "cellar-perf-raft"
 path = "../../tools/perf/raft_node.rs"
 
 [[bin]]
+name = "cellar-perf-baseline"
+path = "../../tools/perf/baseline_node.rs"
+
+[[bin]]
 name = "cellar-perf-storage"
 path = "../../tools/perf/storage_operations.rs"
 
@@ -117,6 +121,7 @@ md-5.workspace = true
 notify.workspace = true
 nu-ansi-term.workspace = true
 object_store = { workspace = true, features = ["aws", "azure", "gcp"] }
+parking_lot.workspace = true
 parquet.workspace = true
 percent-encoding.workspace = true
 rand.workspace = true
@@ -157,3 +162,8 @@ lz4_flex.workspace = true
 
 [build-dependencies]
 cc.workspace = true
+
+# A real process runner: child invocations use the public daemon's CLI arguments.
+[[test]]
+name = "native_raft_daemon"
+harness = false

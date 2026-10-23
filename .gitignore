@@ -12,3 +12,12 @@ console-audit.sqlite*
 
 # Local embedded-Python environments
 .venv/
+
+# JS/TS executable inputs are reproduced from committed lockfiles.
+/examples/javascript/app.bundle.js*
+!/examples/javascript/package-lock.json
+!/tools/javascript/package-lock.json
+/examples/node/dist/
+!/examples/node/package-lock.json
+/examples/pi-agent/dist/
+!/examples/pi-agent/package-lock.json

@@ -275,6 +275,16 @@ async fn node_shutdown_archive_capture_does_not_extend_handoff_budget() -> Resul
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn node_shutdown_handoff_waits_for_physical_sql() -> Result<()> {
+    automatic::shutdown_handoff_with_busy_sql(false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn node_shutdown_handoff_sql_wait_is_bounded() -> Result<()> {
+    automatic::shutdown_handoff_with_busy_sql(true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
 async fn node_shutdown_report_bounds_preserve_complete_lag_count() -> Result<()> {
     automatic::bounded_shutdown_report().await
 }
@@ -510,6 +520,29 @@ async fn node_shutdown_reports_parked_archive_unknown() -> Result<()> {
         ),
         Err(CommandFailure::Unavailable)
     ));
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            if let Some(sample) = resumed.resource_usage().groups {
+                ensure!(
+                    sample.durable_groups == 2
+                        && sample.attached_groups == 1
+                        && sample.parked_groups == 1
+                );
+                ensure!(
+                    sample.leaders
+                        + sample.voters
+                        + sample.learners
+                        + sample.removed
+                        + sample.unknown
+                        == 1
+                );
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        Ok::<_, anyhow::Error>(())
+    })
+    .await??;
     let outcome = node.shutdown(ShutdownMode::Preserve).await?;
     let NodeOutcome::Stopped(report) = outcome else {
         anyhow::bail!("unexpected stop: {outcome:?}")

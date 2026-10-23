@@ -123,7 +123,8 @@ class Counter:
             await refused(lambda: old.storage.apply(puts={"forbidden": True}), "ContextMismatch")
             await refused(lambda: old.namespace("COUNTERS").get_by_name("late").fetch(Request("http://cell/cell/state")), "ContextMismatch")
             for call in (lambda: old._bridge.submit(99999, "storage.apply", '{"puts":{"forbidden":true}}'),
-                         lambda: old._bridge.complete("null", False)):
+                         lambda: old._bridge.complete("null", False),
+                         lambda: old._bridge.complete('{"status":200,"headers":[],"body":""}', False, b"forbidden")):
                 try:
                     call()
                 except RuntimeError as error:

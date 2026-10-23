@@ -1,0 +1,524 @@
+{
+  "task_id": "MR-14",
+  "source_revision": "142fb23171452e09d266e9628ced40d48ec7cc80",
+  "completion": "partial",
+  "scope": "Fresh three-node Quorum and S3 healthy experiments with archive bundling and full current owner metrics. No equivalent speedup, steady-state, density or overhead qualification.",
+  "environment": {
+    "system": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+    "profile": "cellar-multi-raft",
+    "vm_cpus": 8,
+    "vm_memory_bytes": 17179869184,
+    "cellar_nodes": 3,
+    "node_cpus": 1,
+    "node_memory_bytes": 3221225472,
+    "node_swap_bytes": 0,
+    "object_store": "RustFS",
+    "rustfs_image": "ghcr.io/rustfs/rustfs@sha256:bffcab0c9d647aab0055d1c69d340b202d0909966b385932d4ead1aeb7602858",
+    "generator": "Host process with durable journal; arrival latency includes journal and scheduling costs.",
+    "failure_domains": 1,
+    "confounders": {
+      "observed_at_unix": 1792670949.184128,
+      "system": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+      "hardware": "hw.memsize: 34359738368\nhw.ncpu: 12\nvm.swapusage: total = 11264.00M  used = 10072.38M  free = 1191.62M  (encrypted)\n",
+      "owned_profile": {
+        "name": "cellar-multi-raft",
+        "status": "Running",
+        "arch": "aarch64",
+        "cpus": 8,
+        "memory": 17179869184,
+        "disk": 64424509440,
+        "runtime": "docker"
+      },
+      "other_running_profile_count": 2,
+      "other_running_profiles_configured_memory_bytes": 19327352832,
+      "limits": "Other host workloads are uncontrolled. Configured VM memory is not measured resident use; swap is a confounder, not proof of latency causality."
+    }
+  },
+  "runs": [
+    {
+      "name": "mr14-io-q0-20261022-001",
+      "durability": "quorum",
+      "build": {
+        "image_id": "sha256:3a76a52466ae42d02def9dc970e510bff2d00f3ec16a5d0c9b71d4dc466ddb9c",
+        "binary_sha256": "962364a2251a2c93ad7535c5d1805005a26c7f1753d2e1120be624e1bec30aa8",
+        "source_manifest_sha256": "f4bb5272aa003d7ed8eabbf95dee28a7b37f3eeca0ba728f2e2b6f6b1ae57c03",
+        "build_profile": "lab",
+        "source_revision": "142fb23171452e09d266e9628ced40d48ec7cc80",
+        "working_tree_dirty": true
+      },
+      "profile_sha256": "1c3657717825fffede206222cf9e5419a46f1cab4b27d02e21c5ac795098ae09",
+      "completed": true,
+      "reconciled": true,
+      "replicas": 36,
+      "summary": {
+        "counts": {
+          "submitted": 172,
+          "completed": 172,
+          "generator_rejected": 28,
+          "offered": 200
+        },
+        "latency_ms": {
+          "p50": 17.66991599870382,
+          "p95": 228.06725000264194,
+          "p99": 579.0964160085421,
+          "p99_9": 678.7277909956177
+        },
+        "latency_by_operation_ms": {
+          "command": {
+            "p50": 127.6239160069963,
+            "p95": 242.98095800331865,
+            "p99": 299.45237500651257,
+            "p99_9": 299.45237500651257
+          },
+          "query": {
+            "p50": 6.5139999962404715,
+            "p95": 34.316999997827224,
+            "p99": 678.7277909956177,
+            "p99_9": 678.7277909956177
+          }
+        },
+        "completed_per_second": 8.6,
+        "offered_per_second": 10.0,
+        "error_fraction": 0.14
+      },
+      "traffic_objectives_met": false,
+      "counter_sums": {
+        "engine_file_read_bytes": 0,
+        "engine_file_write_requested_bytes": 1528227,
+        "engine_file_write_completed_bytes": 1528227,
+        "engine_persist_groups": 702,
+        "engine_persist_entries": 234,
+        "engine_persist_entry_bytes": 696204,
+        "sql_stage_input_bytes": 46683,
+        "sql_prepared_proposal_bytes": 230118,
+        "sql_prepared_ltx_bytes": 163506,
+        "sql_query_input_bytes": 0,
+        "sql_query_output_bytes": 11927,
+        "object_get_body_bytes": 18132779,
+        "object_put_requested_bytes": 1273285,
+        "object_put_confirmed_bytes": 881995,
+        "transport_control_read_bytes": 12128112,
+        "transport_control_write_bytes": 12128112,
+        "transport_data_read_bytes": 830011,
+        "transport_data_write_bytes": 835551,
+        "transport_query_read_bytes": 0,
+        "transport_query_write_bytes": 0
+      },
+      "operation_sums": {
+        "engine_queue": {
+          "count": 702,
+          "sum_us": 20861,
+          "failed": 0,
+          "abandoned": 0
+        },
+        "engine_file_sync": {
+          "count": 702,
+          "sum_us": 6378314,
+          "failed": 0,
+          "abandoned": 0
+        },
+        "engine_directory_sync": {
+          "count": 0,
+          "sum_us": 0,
+          "failed": 0,
+          "abandoned": 0
+        },
+        "engine_persist": {
+          "count": 702,
+          "sum_us": 6465065,
+          "failed": 0,
+          "abandoned": 0
+        },
+        "sql_queue": {
+          "count": 827,
+          "sum_us": 394399,
+          "failed": 0,
+          "abandoned": 0
+        },
+        "sql_stage": {
+          "count": 78,
+          "sum_us": 4475430,
+          "failed": 0,
+          "abandoned": 0
+        },
+        "sql_prepare": {
+          "count": 234,
+          "sum_us": 5793081,
+          "failed": 0,
+          "abandoned": 0
+        },
+        "sql_publish": {
+          "count": 234,
+          "sum_us": 1004187,
+          "failed": 0,
+          "abandoned": 0
+        },
+        "sql_query": {
+          "count": 94,
+          "sum_us": 15975,
+          "failed": 0,
+          "abandoned": 0
+        },
+        "sql_archive_capture": {
+          "count": 109,
+          "sum_us": 1283,
+          "failed": 0,
+          "abandoned": 0
+        },
+        "sql_other": {
+          "count": 78,
+          "sum_us": 82,
+          "failed": 0,
+          "abandoned": 0
+        },
+        "object_get": {
+          "count": 4495,
+          "sum_us": 1233144,
+          "failed": 0,
+          "abandoned": 0
+        },
+        "object_put_create": {
+          "count": 174,
+          "sum_us": 461265,
+          "failed": 58,
+          "abandoned": 0
+        },
+        "object_put_update": {
+          "count": 98,
+          "sum_us": 402706,
+          "failed": 55,
+          "abandoned": 0
+        },
+        "object_put_overwrite": {
+          "count": 0,
+          "sum_us": 0,
+          "failed": 0,
+          "abandoned": 0
+        },
+        "controller_probe": {
+          "count": 0,
+          "sum_us": 0,
+          "failed": 0,
+          "abandoned": 0
+        },
+        "controller_action": {
+          "count": 0,
+          "sum_us": 0,
+          "failed": 0,
+          "abandoned": 0
+        }
+      },
+      "peak_memory_bytes": [
+        16125952,
+        16764928,
+        16252928
+      ],
+      "final_archive_seconds": 2.592592208995484,
+      "files": [
+        {
+          "name": "analysis.json",
+          "sha256": "52704a81954504cca768b794825a9804392f435ecbf001cc2ab1e45b3bfe44aa",
+          "bytes": 89337
+        },
+        {
+          "name": "cellar-mr14-f3e14430a300174a268f0fd1-node1.log",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "bytes": 0
+        },
+        {
+          "name": "cellar-mr14-f3e14430a300174a268f0fd1-node2.log",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "bytes": 0
+        },
+        {
+          "name": "cellar-mr14-f3e14430a300174a268f0fd1-node3.log",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "bytes": 0
+        },
+        {
+          "name": "measurements.json",
+          "sha256": "95edeafed8b74e7c1dca0f5983f981f18e4bbc62c028c0bca1fab05b57ef28b1",
+          "bytes": 200638
+        },
+        {
+          "name": "node-samples.jsonl",
+          "sha256": "11fe8b1e1b461011dfdb54fab08e07b754dc8259c144e0c00fbde6300b687aed",
+          "bytes": 502806
+        },
+        {
+          "name": "operations.jsonl",
+          "sha256": "8a0817a6953490c1daa152cbe79cb5f73a8934e50a7cfdfe11b44936f92098e0",
+          "bytes": 445069
+        },
+        {
+          "name": "replicas.json",
+          "sha256": "517b77df71711d48925681386f16954fa3bf27ac2493044e6bc840f59cfd1170",
+          "bytes": 24652
+        },
+        {
+          "name": "report.json",
+          "sha256": "b1ca488411e99422d480b8acec546e65e6483125ac2e83cf276c004fa23c0cc0",
+          "bytes": 109929
+        },
+        {
+          "name": "resources.jsonl",
+          "sha256": "3e0f2caba63080b5c6c11db3d61d8816b45189d66ab22846e5728e1e8439be16",
+          "bytes": 12748
+        }
+      ]
+    },
+    {
+      "name": "mr14-io-s3-20261022-001",
+      "durability": "s3",
+      "build": {
+        "image_id": "sha256:3a76a52466ae42d02def9dc970e510bff2d00f3ec16a5d0c9b71d4dc466ddb9c",
+        "binary_sha256": "962364a2251a2c93ad7535c5d1805005a26c7f1753d2e1120be624e1bec30aa8",
+        "source_manifest_sha256": "f4bb5272aa003d7ed8eabbf95dee28a7b37f3eeca0ba728f2e2b6f6b1ae57c03",
+        "build_profile": "lab",
+        "source_revision": "142fb23171452e09d266e9628ced40d48ec7cc80",
+        "working_tree_dirty": true
+      },
+      "profile_sha256": "bf73355d7bd02d508af8e40c5508b7ac771b981056309ac42f74dd277c76f411",
+      "completed": true,
+      "reconciled": true,
+      "replicas": 36,
+      "summary": {
+        "counts": {
+          "submitted": 126,
+          "completed": 126,
+          "generator_rejected": 74,
+          "offered": 200
+        },
+        "latency_ms": {
+          "p50": 14.690375002100353,
+          "p95": 793.4666250075679,
+          "p99": 1203.668165995623,
+          "p99_9": 1460.2955409995052
+        },
+        "latency_by_operation_ms": {
+          "command": {
+            "p50": 330.54537499556335,
+            "p95": 1180.0674160069314,
+            "p99": 1460.2955409995052,
+            "p99_9": 1460.2955409995052
+          },
+          "query": {
+            "p50": 9.913833005702699,
+            "p95": 27.236457998515817,
+            "p99": 82.51183300453668,
+            "p99_9": 82.51183300453668
+          }
+        },
+        "completed_per_second": 6.3,
+        "offered_per_second": 10.0,
+        "error_fraction": 0.37
+      },
+      "traffic_objectives_met": false,
+      "counter_sums": {
+        "engine_file_read_bytes": 0,
+        "engine_file_write_requested_bytes": 923532,
+        "engine_file_write_completed_bytes": 923532,
+        "engine_persist_groups": 459,
+        "engine_persist_entries": 153,
+        "engine_persist_entry_bytes": 375198,
+        "sql_stage_input_bytes": 31607,
+        "sql_prepared_proposal_bytes": 123791,
+        "sql_prepared_ltx_bytes": 80267,
+        "sql_query_input_bytes": 0,
+        "sql_query_output_bytes": 9495,
+        "object_get_body_bytes": 14229312,
+        "object_put_requested_bytes": 1334466,
+        "object_put_confirmed_bytes": 473975,
+        "transport_control_read_bytes": 11714133,
+        "transport_control_write_bytes": 11714133,
+        "transport_data_read_bytes": 496810,
+        "transport_data_write_bytes": 502342,
+        "transport_query_read_bytes": 0,
+        "transport_query_write_bytes": 0
+      },
+      "operation_sums": {
+        "engine_queue": {
+          "count": 459,
+          "sum_us": 11583,
+          "failed": 0,
+          "abandoned": 0
+        },
+        "engine_file_sync": {
+          "count": 459,
+          "sum_us": 2622274,
+          "failed": 0,
+          "abandoned": 0
+        },
+        "engine_directory_sync": {
+          "count": 0,
+          "sum_us": 0,
+          "failed": 0,
+          "abandoned": 0
+        },
+        "engine_persist": {
+          "count": 459,
+          "sum_us": 2646324,
+          "failed": 0,
+          "abandoned": 0
+        },
+        "sql_queue": {
+          "count": 646,
+          "sum_us": 226233,
+          "failed": 0,
+          "abandoned": 0
+        },
+        "sql_stage": {
+          "count": 51,
+          "sum_us": 1630799,
+          "failed": 0,
+          "abandoned": 0
+        },
+        "sql_prepare": {
+          "count": 153,
+          "sum_us": 2476468,
+          "failed": 0,
+          "abandoned": 0
+        },
+        "sql_publish": {
+          "count": 153,
+          "sum_us": 559997,
+          "failed": 0,
+          "abandoned": 0
+        },
+        "sql_query": {
+          "count": 75,
+          "sum_us": 13751,
+          "failed": 0,
+          "abandoned": 0
+        },
+        "sql_archive_capture": {
+          "count": 163,
+          "sum_us": 2256,
+          "failed": 0,
+          "abandoned": 0
+        },
+        "sql_other": {
+          "count": 51,
+          "sum_us": 54,
+          "failed": 0,
+          "abandoned": 0
+        },
+        "object_get": {
+          "count": 5335,
+          "sum_us": 1407340,
+          "failed": 0,
+          "abandoned": 0
+        },
+        "object_put_create": {
+          "count": 287,
+          "sum_us": 570584,
+          "failed": 186,
+          "abandoned": 0
+        },
+        "object_put_update": {
+          "count": 147,
+          "sum_us": 508299,
+          "failed": 96,
+          "abandoned": 0
+        },
+        "object_put_overwrite": {
+          "count": 0,
+          "sum_us": 0,
+          "failed": 0,
+          "abandoned": 0
+        },
+        "controller_probe": {
+          "count": 0,
+          "sum_us": 0,
+          "failed": 0,
+          "abandoned": 0
+        },
+        "controller_action": {
+          "count": 0,
+          "sum_us": 0,
+          "failed": 0,
+          "abandoned": 0
+        }
+      },
+      "peak_memory_bytes": [
+        14069760,
+        14401536,
+        13639680
+      ],
+      "final_archive_seconds": 0.01185691700084135,
+      "files": [
+        {
+          "name": "analysis.json",
+          "sha256": "4dc59515271972798de45dccc2ce97efdbb165803c777368a11500e1b3a79a2a",
+          "bytes": 89167
+        },
+        {
+          "name": "cellar-mr14-501f0dfd8339db0dcc707143-node1.log",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "bytes": 0
+        },
+        {
+          "name": "cellar-mr14-501f0dfd8339db0dcc707143-node2.log",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "bytes": 0
+        },
+        {
+          "name": "cellar-mr14-501f0dfd8339db0dcc707143-node3.log",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "bytes": 0
+        },
+        {
+          "name": "measurements.json",
+          "sha256": "5a8e34e44c34284056841d21f7bf6d4c4f1dc96251b6fc28dfc18c0ec3c9b3f0",
+          "bytes": 200390
+        },
+        {
+          "name": "node-samples.jsonl",
+          "sha256": "8e9c463b85bc4c68e053d22d7c92b7caca99f63228fd8c0f592020e94be28d6f",
+          "bytes": 451807
+        },
+        {
+          "name": "operations.jsonl",
+          "sha256": "da27f3723568ae61dd57e13104b7c2d943dd4a97a2f713b7962127b08a2cba27",
+          "bytes": 342080
+        },
+        {
+          "name": "replicas.json",
+          "sha256": "1c56846ca02adc83d8bb940ef04492d9267a1676cbad679fda6138a2a051c07f",
+          "bytes": 24649
+        },
+        {
+          "name": "report.json",
+          "sha256": "4844d98ebe0b0f6c3338540313393d5d9c4684efc57e64fdcf2ca7fa4df4ade8",
+          "bytes": 109783
+        },
+        {
+          "name": "resources.jsonl",
+          "sha256": "705c1c4cbf575cfa01b893d59daaf5cd1ce6bf54df1cdee7964e364ffbb1f506",
+          "bytes": 11492
+        }
+      ]
+    }
+  ],
+  "measurement_interpretation": [
+    "Each workload offers 200 operations over 20 seconds after five seconds of warmup; all submitted operations, 36 replicas and final archive cuts reconcile in each run.",
+    "Generator rejections are retained in the offered-load error fraction. Both runs miss the declared local traffic objectives.",
+    "Cross-node operation sums cover staggered sampling windows and overlap in time. Engine persist includes engine sync; elapsed sums cannot be added into CPU time or a critical-path attribution.",
+    "Object failed-response counts include conditional conflicts and are not business-command failure counts. Requested PUT bytes are not confirmed durability. Socket endpoint sums double-count traffic when read and write totals are combined.",
+    "The local workload reads followers through public HTTP, so the peer query-lane byte count can be zero. The healthy runner does not enable the automatic repair controller; its zero attempt counts do not measure repair performance.",
+    "The image and deployed executable were verified against all copied source inputs before each run. Only plan/evidence files were uncommitted; production source is pinned.",
+    "Quorum and S3 acknowledgements have different durability contracts and cannot establish an equivalent speedup. Other host workloads and swap were uncontrolled; no comparison with older runs establishes causality."
+  ],
+  "raw_output": {
+    "path": "evidence/MR-14-io-local-runs.json.gz",
+    "bytes": 221107,
+    "sha256": "be3e652aecebf577316fb7f4c198423471fd0fdf2f8afaabf07f9880657fa5bd"
+  },
+  "cleanup": "Stopped each run's four exact labelled containers, retained volumes and raw run directories, then stopped only the owned cellar-multi-raft profile. Other profiles unchanged.",
+  "remaining": [
+    "Explain the intermittent native shutdown-handoff and learner admission failures retained in MR-14-io-metrics-progress.json.",
+    "Measure instrumentation overhead and isolate SQL staging/preparation, engine synchronization and archive GET/CAS work under controlled steady-state offered load.",
+    "Implement and execute matched Fleet/bucket workload adapters; preserve acknowledgement, retention and read contracts.",
+    "Measure supported resident/active density under the local resource ceiling. Q1 stays unqualified: six nodes and 5,000 average replicas per node exceed the agreed five-node ceiling and current 4,096-group bound."
+  ]
+}

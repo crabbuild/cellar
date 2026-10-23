@@ -56,9 +56,12 @@ struct Fixture {
 
 impl Fixture {
     async fn new(limits: ArchiveLimits) -> Result<Self> {
+        Self::new_group(limits, Arc::new(faults::Store::default()), 7).await
+    }
+
+    async fn new_group(limits: ArchiveLimits, store: Arc<faults::Store>, id: u8) -> Result<Self> {
         let root = tempfile::tempdir()?;
         let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
-        let store = Arc::new(faults::Store::default());
         let catalog = Catalog::new(
             store.clone(),
             CatalogOptions {
@@ -79,8 +82,8 @@ impl Fixture {
                 scope: GroupScope {
                     cluster: ClusterId::new([1; 16])?,
                     namespace: NamespaceId::new([2; 16])?,
-                    cell: "Counter:7".into(),
-                    group: GroupId::new([7; 16])?,
+                    cell: format!("Counter:{id}"),
+                    group: GroupId::new([id; 16])?,
                     incarnation: IncarnationId::new([3; 16])?,
                 },
                 voters: vec![InitialMember {
@@ -589,6 +592,124 @@ async fn archive_reference_refuses_substitution_and_missing_material() -> Result
         fixture.archive.recovery_set_at(&reference).await,
         Err(ArchiveError::Corrupt("missing archive object"))
     ));
+    fixture.close().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn archive_tail_replay_seals_one_private_image() -> Result<()> {
+    // Exercise replay partitioning independently of size-triggered rotation.
+    let mut fixture = Fixture::new(ArchiveLimits {
+        max_tail_image_ratio: 128,
+        ..Default::default()
+    })
+    .await?;
+    let first = fixture.commit(1, vec![]).await?;
+    fixture.publish(first).await?;
+    let mut cut = None;
+    for value in 2..=33 {
+        cut = Some(fixture.commit(value, vec![]).await?);
+    }
+    let set = fixture.publish(cut.context("missing tail")?).await?;
+    ensure!(set.tail_entries() == 32);
+    let directory = tempfile::tempdir()?;
+    let faults = image_fault::Faults::new(directory.path().join("images"), None);
+    let images = GenerationStore::open(
+        faults.directory.clone(),
+        Arc::new(image_fault::FaultFileSystem {
+            faults: faults.clone(),
+        }),
+        GenerationLimits::default(),
+    )?;
+    faults.events.lock().unwrap().clear();
+    let started = std::time::Instant::now();
+    let restored = set.restore(&images, images::id(93))?;
+    let elapsed = started.elapsed();
+    ensure!(
+        restored.state()
+            == fixture
+                .pin
+                .as_ref()
+                .context("missing committed image")?
+                .state()
+    );
+    let bytes = std::fs::read(
+        directory
+            .path()
+            .join("images")
+            .join(format!("{}.sqlite", hex::encode(restored.id().bytes()))),
+    )?;
+    ensure!(bytes == fixture.bytes, "restore changed physical bytes");
+    let events = faults.events.lock().unwrap().clone();
+    let syncs = events
+        .iter()
+        .filter(|event| **event == "image-sync")
+        .count();
+    // Intermediate cuts remain private, but their exact physical checksums and
+    // digests must still be checked before the final immutable image is sealed.
+    ensure!(
+        syncs == 1,
+        "32-entry archive replay sealed {syncs} images in {elapsed:?}: {events:?}"
+    );
+    ensure!(
+        events == ["image-sync", "rename", "directory-sync"],
+        "unexpected publication work: {events:?}"
+    );
+    fixture.close().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn archive_tail_replay_partitions_at_destination_limits() -> Result<()> {
+    // Exercise replay partitioning independently of size-triggered rotation.
+    let mut fixture = Fixture::new(ArchiveLimits {
+        max_tail_image_ratio: 128,
+        ..Default::default()
+    })
+    .await?;
+    let first = fixture.commit(1, vec![]).await?;
+    fixture.publish(first).await?;
+    let mut cut = None;
+    for value in 2..=66 {
+        cut = Some(fixture.commit(value, vec![]).await?);
+    }
+    let set = fixture.publish(cut.context("missing tail")?).await?;
+    ensure!(set.tail_entries() == 65);
+    for max_files in [64, 7, 1] {
+        let directory = tempfile::tempdir()?;
+        let faults = image_fault::Faults::new(directory.path().join("images"), None);
+        let mut limits = GenerationLimits::default();
+        limits.apply.max_files = max_files;
+        let images = GenerationStore::open(
+            faults.directory.clone(),
+            Arc::new(image_fault::FaultFileSystem {
+                faults: faults.clone(),
+            }),
+            limits,
+        )?;
+        faults.events.lock().unwrap().clear();
+        let restored = set.restore(&images, images::id(94))?;
+        ensure!(
+            restored.state()
+                == fixture
+                    .pin
+                    .as_ref()
+                    .context("missing committed image")?
+                    .state()
+        );
+        ensure!(images::read(&restored)? == fixture.bytes);
+        let events = faults.events.lock().unwrap().clone();
+        let syncs = events
+            .iter()
+            .filter(|event| **event == "image-sync")
+            .count();
+        ensure!(
+            syncs == 66usize.div_ceil(max_files),
+            "wrong partition count: {syncs}"
+        );
+        ensure!(
+            images.usage()?.generations == 1,
+            "retired batches were not reclaimed"
+        );
+    }
     fixture.close().await
 }
 
@@ -2171,7 +2292,18 @@ async fn check_archive_producer_shutdown(max_producers: usize) -> Result<()> {
     ensure!(reads_after_close == 0);
     ensure!(capture_after_close.bytes == 0 && capture_after_close.items == 0);
     for outcome in outcomes {
-        ensure!(matches!(outcome?, Err(CommandFailure::Ambiguous { .. })));
+        let outcome = outcome?;
+        let kind = outcome.as_ref().err().map(|error| {
+            format!("{error:?}")
+                .split(" {")
+                .next()
+                .unwrap_or("unknown")
+                .to_owned()
+        });
+        ensure!(
+            matches!(outcome, Err(CommandFailure::Ambiguous { .. })),
+            "committed S3 waiter at producer limit {max_producers} returned {kind:?}"
+        );
     }
     cleanup
 }
@@ -2615,4 +2747,76 @@ async fn unpolled_s3_waiter_cannot_receive_success_after_deadline() -> Result<()
     ensure!(native.retry(1, Durability::S3).await?.durability == Durability::S3);
     ensure!(native.calls.load(Ordering::SeqCst) == 1);
     native.close().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn archive_bundle_partial_head_failure_keeps_proofs_independent() -> Result<()> {
+    let store = Arc::new(faults::Store::default());
+    let mut a = Fixture::new_group(ArchiveLimits::default(), store.clone(), 7).await?;
+    let mut b = Fixture::new_group(ArchiveLimits::default(), store.clone(), 8).await?;
+    let cuts = [a.commit(17, vec![]).await?, b.commit(29, vec![]).await?];
+    let archives = [a.archive.clone(), b.archive.clone()];
+    let scopes = [a.birth.scope().clone(), b.birth.scope().clone()];
+    store.fail_head_before.store(true, Ordering::Release);
+    let results = CellArchive::publish_batch(
+        archives.iter().cloned().zip(cuts.iter().cloned()).collect(),
+        &a.verifier,
+    )
+    .await?;
+    ensure!(results.len() == 2 && results.iter().filter(|result| result.is_ok()).count() == 1);
+    ensure!(!store.fail_head_before.load(Ordering::Acquire));
+    for (index, result) in results.into_iter().enumerate() {
+        let selected = archives[index].recovery_set().await?;
+        match result {
+            Ok(set) => {
+                ensure!(set.scope() == &scopes[index] && set.position() == cuts[index].position());
+                ensure!(selected.is_some(), "successful member has no own head");
+                restored(&set, [17, 29][index])?;
+            }
+            Err(_) => {
+                ensure!(selected.is_none(), "failed member borrowed the other head");
+                restored(
+                    &archives[index]
+                        .publish(cuts[index].clone(), &a.verifier)
+                        .await?,
+                    [17, 29][index],
+                )?;
+            }
+        }
+    }
+    let objects = store.inner.list(None).try_collect::<Vec<_>>().await?;
+    ensure!(
+        objects
+            .iter()
+            .filter(|object| object.location.as_ref().contains("/archives/bundles/"))
+            .count()
+            == 1
+    );
+    // Reject invalid batches before any member can publish.
+    let before = objects.len();
+    ensure!(CellArchive::publish_batch(
+        vec![
+            (archives[0].clone(), cuts[0].clone()),
+            (archives[0].clone(), cuts[0].clone())
+        ],
+        &a.verifier
+    )
+    .await
+    .is_err());
+    let mut foreign = Fixture::new(ArchiveLimits::default()).await?;
+    let foreign_cut = foreign.commit(31, vec![]).await?;
+    ensure!(CellArchive::publish_batch(
+        vec![
+            (archives[0].clone(), cuts[0].clone()),
+            (foreign.archive.clone(), foreign_cut)
+        ],
+        &a.verifier
+    )
+    .await
+    .is_err());
+    ensure!(store.inner.list(None).try_collect::<Vec<_>>().await?.len() == before);
+    ensure!(foreign.archive.recovery_set().await?.is_none());
+    foreign.close().await?;
+    a.close().await?;
+    b.close().await
 }

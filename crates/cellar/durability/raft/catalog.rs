@@ -306,12 +306,7 @@ impl NamespaceCatalog {
         limits.validate().map_err(|_| CatalogError::Limit)?;
         Ok(super::archive::CellArchive::new(
             self.inner.store.clone(),
-            format!(
-                "{}/archives/{}/{}",
-                self.data_prefix,
-                hex::encode(birth.scope.group.bytes()),
-                hex::encode(birth.scope.incarnation.bytes())
-            ),
+            format!("{}/archives", self.data_prefix),
             birth,
             self.root_digest,
             self.config.schema_digest,

@@ -596,3 +596,102 @@ pub(crate) fn held_upload_store(
     store.put_gate = Some((prefix.to_owned(), gate.clone()));
     Ok((Arc::new(store), UploadGate(gate)))
 }
+
+// The single runtime thread must remain available while a real listing owns
+// its SQLite connection. The external watchdog only prevents a broken adapter
+// from deadlocking the regression; its release is explicitly a test failure.
+#[cfg(not(cellar_internal_tests))]
+#[tokio::test]
+async fn listings_yield_and_join_entered_sqlite_work() -> Result<()> {
+    use futures_util::{FutureExt as _, TryStreamExt as _};
+    for kind in ["stream", "delimiter", "page"] {
+        let directory = tempfile::tempdir()?;
+        let owner = ExecutionDomain::new(tokio::runtime::Handle::current());
+        let gate = ReadGate::new(&owner);
+        let mut store = LocalStore::open(directory.path().join("list.sqlite"))?;
+        store.put_sync("selected/key".into(), Bytes::new(), PutOptions::default())?;
+        store.list_gate = Some(gate.clone());
+        let (release, released) = std::sync::mpsc::channel();
+        let watchdog_gate = gate.clone();
+        let watchdog = std::thread::spawn(move || {
+            let requested = released.recv_timeout(Duration::from_secs(3)).is_ok();
+            watchdog_gate.release();
+            requested
+        });
+        let task = owner.spawn(async move {
+            let prefix = Path::from("selected");
+            let objects = match kind {
+                "stream" => store.list(Some(&prefix)).try_collect::<Vec<_>>().await?,
+                "delimiter" => store.list_with_delimiter(Some(&prefix)).await?.objects,
+                _ => {
+                    store
+                        .list_paginated(Some("selected/"), PaginatedListOptions::default())
+                        .await?
+                        .result
+                        .objects
+                }
+            };
+            Ok::<_, anyhow::Error>(objects)
+        })?;
+        #[allow(clippy::disallowed_methods)]
+        let entered = tokio::time::timeout(Duration::from_secs(2), gate.entered.notified()).await;
+        let yielded = !*gate.released.lock().unwrap();
+        task.abort();
+        let cancelled = task.await;
+        owner.close();
+        let mut shutdown = Box::pin(owner.shutdown());
+        let joining = shutdown.as_mut().now_or_never().is_none();
+        let _ = release.send(());
+        if joining {
+            shutdown.await;
+        }
+        let timely = watchdog.join().expect("listing watchdog panicked");
+        entered?;
+        ensure!(
+            yielded && timely,
+            "{kind} listing blocked the async runtime"
+        );
+        ensure!(cancelled.is_err(), "{kind} caller did not cancel");
+        ensure!(joining, "{kind} shutdown did not join entered SQLite work");
+        ensure!(gate.calls.load(std::sync::atomic::Ordering::SeqCst) == 1);
+    }
+    Ok(())
+}
+
+#[cfg(not(cellar_internal_tests))]
+#[tokio::test]
+async fn listing_stream_keeps_its_original_domain_and_refuses_a_closed_owner() -> Result<()> {
+    use futures_util::TryStreamExt as _;
+    for closed in [false, true] {
+        let directory = tempfile::tempdir()?;
+        let owner = ExecutionDomain::new(tokio::runtime::Handle::current());
+        let consumer = ExecutionDomain::new(tokio::runtime::Handle::current());
+        let gate = ReadGate::new(&owner);
+        gate.release();
+        let mut store = LocalStore::open(directory.path().join("list.sqlite"))?;
+        store.put_sync("selected/key".into(), Bytes::new(), PutOptions::default())?;
+        store.list_gate = Some(gate.clone());
+        let listing = owner.run(async { store.list(None) }).await?;
+        if closed {
+            owner.shutdown().await;
+        }
+        let result = consumer
+            .run(async { listing.try_collect::<Vec<_>>().await })
+            .await;
+        consumer.shutdown().await;
+        owner.shutdown().await;
+        let result = result?;
+        if closed {
+            ensure!(
+                result.is_err(),
+                "closed owner admitted listing I/O on another domain"
+            );
+            ensure!(gate.calls.load(std::sync::atomic::Ordering::SeqCst) == 0);
+        } else {
+            let objects = result?;
+            ensure!(objects.len() == 1 && objects[0].location == Path::from("selected/key"));
+            ensure!(gate.calls.load(std::sync::atomic::Ordering::SeqCst) == 1);
+        }
+    }
+    Ok(())
+}

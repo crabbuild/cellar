@@ -692,160 +692,26 @@ impl Node {
             !self.is_closed() && !self.app.is_draining(),
             "node is closing"
         );
-        let starting = self.domain.services().raft_lifecycle().begin()?;
-        match self.start_raft_cells_inner(config, services).await {
-            Ok(service) => match starting.install(service.clone()) {
-                Ok(()) => Ok(service),
-                Err(error) => {
-                    let _ = service.close().await;
-                    Err(error.into())
-                }
-            },
-            Err(error) => {
-                starting.failed();
-                Err(error)
-            }
-        }
-    }
-
-    async fn start_raft_cells_inner(
-        &self,
-        config: crate::application::consensus::RaftCellsConfig,
-        services: crate::application::consensus::RaftCellsServices,
-    ) -> anyhow::Result<crate::application::consensus::RaftCells> {
-        use crate::application::consensus::{RaftCellPlacement, RegistrationError};
-        config.host.validate()?;
-        config.infrastructure.transport.validate()?;
-        config
-            .infrastructure
-            .transport
-            .snapshot_limits(config.host.execution.max_image_bytes)?;
-        anyhow::ensure!(
-            !config.cells.is_empty() && config.cells.len() <= config.host.max_groups,
-            "invalid registered Raft cell count"
-        );
-        let mut definitions = Vec::new();
-        for cell in &config.cells {
-            anyhow::ensure!(
-                !services.application.supports_cell(&cell.class)
-                    && !services.application.supports_workflow(&cell.class),
-                RegistrationError::UnsupportedFactory(cell.class.clone())
-            );
-            let class = services.application.resolve_raft_class(&cell.class)?;
-            class.validate_host(&config.host)?;
-            anyhow::ensure!(
-                cell.namespace.mode == cellar_logic::NamespaceMode::Raft
-                    && cell.namespace.schema_digest == class.schema_digest(),
-                "Raft namespace mode/schema disagrees with registration"
-            );
-            anyhow::ensure!(
-                cellar_logic::cell::valid_cell_scope(&cell.birth.scope.cell)
-                    && cell
-                        .birth
-                        .scope
-                        .cell
-                        .split_once(':')
-                        .is_some_and(|(name, _)| name == class.name()),
-                "Raft cell scope must name its registered class"
-            );
-            definitions.push(class);
-        }
-        let registrations = self
-            .domain
+        self.domain
             .run(async {
-                let catalog = crate::raft::catalog::Catalog::new(services.store, config.catalog)?;
-                let mut registrations = Vec::new();
-                for (cell, class) in config.cells.into_iter().zip(definitions) {
-                    let namespace = match cell.placement {
-                        RaftCellPlacement::Replica => {
-                            catalog.open_namespace(cell.namespace).await?
-                        }
-                        RaftCellPlacement::QueryRouter { .. }
-                        | RaftCellPlacement::Standby
-                        | RaftCellPlacement::Joining { .. }
-                        | RaftCellPlacement::JoiningFromS3 { .. } => {
-                            catalog.existing_namespace(cell.namespace).await?
-                        }
-                    };
-                    let now_ms = u64::try_from(crate::asyncrt::wall_ms())?;
-                    namespace
-                        .require_version_keys(&services.versions, now_ms)
-                        .await?;
-                    let birth = match cell.placement {
-                        RaftCellPlacement::Replica => namespace.resolve_birth(cell.birth).await?,
-                        RaftCellPlacement::QueryRouter { .. }
-                        | RaftCellPlacement::Standby
-                        | RaftCellPlacement::Joining { .. }
-                        | RaftCellPlacement::JoiningFromS3 { .. } => {
-                            let mut expected = cell.birth;
-                            expected.voters.sort_by_key(|member| member.member);
-                            expected.learners.sort_by_key(|member| member.member);
-                            let birth =
-                                namespace
-                                    .birth(&expected.scope.cell)
-                                    .await?
-                                    .ok_or_else(|| {
-                                        anyhow::anyhow!("existing member/route birth missing")
-                                    })?;
-                            anyhow::ensure!(
-                                birth.scope() == &expected.scope
-                                    && birth.voters() == expected.voters.as_slice()
-                                    && birth.learners() == expected.learners.as_slice(),
-                                "member/route disagrees with existing birth"
-                            );
-                            birth
-                        }
-                    };
-                    registrations.push(crate::raft::host::Registration {
-                        placement: cell.placement,
-                        namespace,
-                        birth,
-                        class,
-                    });
+                super::raft_startup::Startup {
+                    domain: self
+                        .domain
+                        .services()
+                        .domain_token()
+                        .ok_or(crate::asyncrt::DomainClosed)?,
+                    data_dir: &self.info.data_dir,
+                    node: &self.info.node,
+                    auth: self.raft_auth.clone(),
                 }
-                Ok::<_, anyhow::Error>(registrations)
+                .start(config, services)
+                .await
             })
-            .await??;
-        let service = self
-            .start_raft_service(config.infrastructure, services.listeners, services.tls)
-            .await?;
-        let log = service.log.clone();
-        let runtime = service.runtime.clone();
-        let transport = service.transport.clone();
-        let result = self
-            .domain
-            .run(crate::raft::host::start(
-                service,
-                crate::raft::host::Registrations {
-                    cells: registrations,
-                    peers: config.peers,
-                    origins: config.query_origins,
-                },
-                self.info.data_dir.join("raft-cells"),
-                self.info.node.clone(),
-                config.host,
-                services.versions,
-            ))
-            .await;
-        let result = match result {
-            Ok(result) => result,
-            Err(error) => Err(error.into()),
-        };
-        if result.is_err() {
-            // Domain entry/cancellation can fail before the host's owned
-            // startup guard runs. Join the infrastructure here as well.
-            let _ = runtime.close().await;
-            transport.close().await;
-            let _ = log.close().await;
-        }
-        result
+            .await?
     }
 
-    /// Start opt-in Raft infrastructure on this node's existing executor and
-    /// injected filesystem. It does not change Fleet routing or register Raft
-    /// cell handlers. The caller owns event dispatch and listener configuration.
-    /// All groups, including recovered ones, start parked. Reconcile catalog
-    /// birth/member claims before attaching them through a bootstrap permit.
+    /// Start opt-in verification infrastructure. Recovered groups remain parked;
+    /// callers own dispatch and must reconcile catalog claims before attachment.
     #[doc(hidden)]
     pub async fn start_raft_service(
         &self,
@@ -853,48 +719,18 @@ impl Node {
         listeners: super::NodeRaftListeners,
         tls: crate::application::consensus::verification::RaftTls,
     ) -> anyhow::Result<super::NodeRaftService> {
-        use crate::application::consensus::verification::{RaftRuntime, RaftTransport, ReplicaLog};
-        anyhow::ensure!(
-            config.log.directory == self.info.data_dir.join("raft"),
-            "Raft log must use this node's raft directory"
-        );
-        self.domain
-            .run(async {
-                let log = ReplicaLog::open(config.log, crate::asyncrt::fs()).await?;
-                let (runtime, events) =
-                    match RaftRuntime::start_parked(log.clone(), config.consensus).await {
-                        Ok(runtime) => runtime,
-                        Err(error) => {
-                            let _ = log.close().await;
-                            return Err(anyhow::Error::new(error));
-                        }
-                    };
-                let transport = match RaftTransport::start(
-                    runtime.clone(),
-                    self.raft_auth.clone(),
-                    tls,
-                    listeners.control,
-                    listeners.data,
-                    listeners.query,
-                    config.transport,
-                )
-                .await
-                {
-                    Ok(transport) => transport,
-                    Err(error) => {
-                        let _ = runtime.close().await;
-                        let _ = log.close().await;
-                        return Err(anyhow::Error::new(error));
-                    }
-                };
-                Ok(super::NodeRaftService {
-                    log,
-                    runtime,
-                    events,
-                    transport,
-                })
-            })
-            .await?
+        super::raft_startup::Startup {
+            domain: self
+                .domain
+                .services()
+                .domain_token()
+                .ok_or(crate::asyncrt::DomainClosed)?,
+            data_dir: &self.info.data_dir,
+            node: &self.info.node,
+            auth: self.raft_auth.clone(),
+        }
+        .infrastructure(config, listeners, tls, None)
+        .await
     }
 
     pub fn services(&self) -> Arc<HostServices> {

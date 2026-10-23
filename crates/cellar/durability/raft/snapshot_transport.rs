@@ -230,10 +230,12 @@ impl RaftTransport {
             &peer.label,
             route.schema_digest,
         )?;
+        let _connection = state.outgoing_connections.acquire(Lane::Data);
         let mut stream = state
             .snapshot_io(&pool, deadline, async {
                 let tcp = TcpStream::connect(peer.data_address).await?;
                 tcp.set_nodelay(true)?;
+                let tcp = state.observed_socket(tcp, metrics::Lane::Data);
                 let name = rustls::pki_types::ServerName::try_from(peer.server_name.clone())
                     .map_err(|_| TransportError::Identity)?;
                 tokio_rustls::TlsConnector::from(state.tls.client.clone())
@@ -674,10 +676,12 @@ impl RaftTransport {
                 reservation,
             });
         }
+        let _connection = state.outgoing_connections.acquire(Lane::Data);
         let mut stream = state
             .seed_process_io(&process, deadline, async {
                 let tcp = TcpStream::connect(peer.data_address).await?;
                 tcp.set_nodelay(true)?;
+                let tcp = state.observed_socket(tcp, metrics::Lane::Data);
                 let name = rustls::pki_types::ServerName::try_from(peer.server_name.clone())
                     .map_err(|_| TransportError::Identity)?;
                 tokio_rustls::TlsConnector::from(state.tls.client.clone())

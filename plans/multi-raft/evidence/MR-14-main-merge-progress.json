@@ -1,0 +1,146 @@
+{
+  "task_id": "MR-14",
+  "source_revision": "b0bc2ffae28da54bc55d55816209b638ff8094d2",
+  "completion": "partial",
+  "scope": "Merge latest main and preserve per-group snapshot qualification, bounded shutdown and client probe diagnostics. No new physical performance result.",
+  "merge_commit": "1209e0d349cf69fa7344c6dea34f37833fcc3b3b",
+  "merged_main": "64a45626c8b2b865642af2749f8295151070b32f",
+  "merge_resolutions": [
+    "Retain upstream per-cell snapshot callback accounting and deliberate healthy leadership on the repair node, replacing the narrower local fixture placement while preserving its historical source-pinned reproducer.",
+    "Combine observed counter callbacks with the existing immutable-blob counter contract.",
+    "Retain upstream shutdown waiting for admitted group work within the same one-second budget, including cancellation and joined physical ownership.",
+    "Retain upstream Python qualification commands plus baseline failure-artifact uploads."
+  ],
+  "validation": {
+    "full_native_suite": {
+      "source_revision": "1209e0d349cf69fa7344c6dea34f37833fcc3b3b",
+      "targets": 5,
+      "passed": 127,
+      "failed": 0,
+      "child_helpers_ignored": 4,
+      "parents_passed": true
+    },
+    "final_shared_helper": {
+      "source_revision": "b0bc2ffae28da54bc55d55816209b638ff8094d2",
+      "snapshot_cases_passed": 6,
+      "all_feature_clippy_targets": 5,
+      "note": "The default counter uses the per-group observer wrapper; the optional Blob path uses the same common builder. No warning suppression or behavior assertion was removed."
+    },
+    "performance_python_passed": 201,
+    "performance_python_opt_in_docker_skipped": 1,
+    "python_qualification_guards": [
+      {
+        "check": "test_native_prerequisites.py",
+        "exit_code": 0
+      },
+      {
+        "check": "test_qualification_guards.py",
+        "exit_code": 0
+      },
+      {
+        "check": "test_baseline.py",
+        "exit_code": 0
+      },
+      {
+        "check": "test_runner.py",
+        "exit_code": 0
+      },
+      {
+        "check": "test_encoding.py",
+        "exit_code": 0
+      }
+    ],
+    "checks": [
+      "format",
+      "layout (828 Rust files)",
+      "dependency guard",
+      "documentation",
+      "workflow YAML parsing",
+      "plan validation",
+      "17 plan tests",
+      "diff whitespace"
+    ],
+    "validated_file_sha256": {
+      "crates/cellar/durability/raft/host_drain.rs": "cc8d1547296e632bdf42c6dc26f08d9228c7f9dccd94143e8adab2efd41f817a",
+      "crates/cellar/tests/native_raft_snapshot.rs": "4c81e5143fa46e1301dfe65d3219c53440719bae3f22bb605a8425d15723a5c9",
+      "crates/cellar/tests/support/raft_node.rs": "f9080cede9af63ac8417f7ecb344be1fe01c039437a9195c16a8c7f50e62dec7",
+      ".github/workflows/native-sdk.yml": "18c96404fbaba2fd8770cbfb489cc30e86f83dc333fe5d49e0f05d04729f6117",
+      "tools/perf/raft_probe_http.py": "0294abafa70f264df11584a5b25957ceec3602fdab81d19953e22a6e889b6edf",
+      "tools/perf/raft_run.py": "d850b93174f3c1e6cd655590ee8be035be6aecca94d3f93cd4ca5b1373611404",
+      "tools/perf/raft_faults.py": "29596fefce155a0c2b39eae9c3f9b9105b3f2617ef9a140ea75f819224f4025d"
+    }
+  },
+  "retained_failed_attempts": [
+    "Initial dependency guard lacked cargo on PATH. Its failure log is retained; rerun with explicit checkout environment passed.",
+    "Optional workflow YAML check could not import PyYAML. The installed Ruby YAML parser passed; no dependency was installed.",
+    "Clippy caught an unused per-group observer after combining fixtures; the first correction exposed the unused Blob wrapper. Both failures remain retained. The final helper chain exercises both wrappers and passes Clippy."
+  ],
+  "old_head_ci": {
+    "job_id": 120176800765,
+    "source_revision": "70c5695af923a5face23850a0c8d5fa7cd377225",
+    "status": "completed",
+    "conclusion": "cancelled",
+    "started_at": "2026-10-23T00:51:35Z",
+    "completed_at": "2026-10-23T02:22:04Z",
+    "annotations": [
+      {
+        "path": ".github",
+        "blob_href": "https://github.com/crabbuild/cellar/blob/70c5695af923a5face23850a0c8d5fa7cd377225/.github",
+        "start_line": 1,
+        "start_column": null,
+        "end_line": 1,
+        "end_column": null,
+        "annotation_level": "failure",
+        "title": "",
+        "message": "The job has exceeded the maximum execution time of 1h30m0s",
+        "raw_details": ""
+      },
+      {
+        "path": ".github",
+        "blob_href": "https://github.com/crabbuild/cellar/blob/70c5695af923a5face23850a0c8d5fa7cd377225/.github",
+        "start_line": 340,
+        "start_column": null,
+        "end_line": 340,
+        "end_column": null,
+        "annotation_level": "failure",
+        "title": "",
+        "message": "The operation was canceled.",
+        "raw_details": ""
+      }
+    ]
+  },
+  "build_without_experiment": {
+    "source_revision": "1209e0d349cf69fa7344c6dea34f37833fcc3b3b",
+    "argv": [
+      "docker",
+      "--context",
+      "colima-cellar-multi-raft",
+      "build",
+      "-f",
+      "tools/perf/raft.Dockerfile",
+      "--build-arg",
+      "TARGET_CACHE_ID=cellar-23c7-mr13-local-raft-target",
+      "--build-arg",
+      "SOURCE_REVISION=1209e0d349cf69fa7344c6dea34f37833fcc3b3b",
+      "-t",
+      "cellar-multi-raft:mr14-ingress-admission",
+      "."
+    ],
+    "exit_code": 0,
+    "elapsed_seconds": 153.40787506103516,
+    "image": "sha256:607079f137b0835c06b76a8f62d40a04fa68974ddf6429f26cfd69af676b58c5"
+  },
+  "raw_output": [
+    {
+      "path": "evidence/MR-14-main-merge-validation.json.gz",
+      "bytes": 22155,
+      "sha256": "dcd8ebae1b57f32ac2b241a187fbd2aae579badefb88f6ba0a53b3c5708731be"
+    }
+  ],
+  "limitations": [
+    "No local free-threaded Python qualification is claimed; both fresh-head CI jobs must pass separately.",
+    "The former head failed one snapshot test job and exceeded the 90-minute workflow limit in the other job. Upstream main now sets 120 minutes for its expanded matrix; no individual test deadline or performance SLO was changed here.",
+    "The image at merge revision 1209e0d was built but no physical workload was run before the shared test helper changed. A fresh source-matched image is required for the next client-timed run.",
+    "The healthy timeout and prior traffic misses remain unqualified. No performance improvement, matched-contract ratio or Q1 capacity is claimed. MR-13 through MR-17 retain their remaining gates."
+  ]
+}

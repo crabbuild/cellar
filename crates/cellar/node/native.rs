@@ -19,6 +19,7 @@ pub(super) fn print_help() -> anyhow::Result<()> {
            --listen IP:PORT                        Public application listener\n\
            --internal-listen IP:PORT               Peer and operator listener\n\
            --advertise HOST:PORT                   Address reachable by peers\n\
+           --data-dir PATH                         Persistent absolute node directory\n\
            --control-plane                         Use enrolled fleet configuration\n\
            --trust-forwarded-headers               Trust proxy scheme/host headers\n\n\
          Embedded graphs serve the code and configuration compiled into this\n\
@@ -53,6 +54,7 @@ pub(super) fn print_help() -> anyhow::Result<()> {
 pub struct NativeDaemon {
     local_graph: Option<DeploymentGraph>,
     applications: CompiledApplications,
+    raft: Option<super::native_raft::Startup>,
 }
 
 impl NativeDaemon {
@@ -65,6 +67,7 @@ impl NativeDaemon {
         Self {
             local_graph: Some(graph),
             applications: CompiledApplications::default(),
+            raft: None,
         }
     }
 
@@ -75,6 +78,7 @@ impl NativeDaemon {
         Self {
             local_graph: None,
             applications: CompiledApplications::default(),
+            raft: None,
         }
     }
 
@@ -99,6 +103,43 @@ impl NativeDaemon {
         sha256: impl Into<String>,
     ) -> anyhow::Result<Self> {
         self.applications = self.applications.runtime_inventory(feature, sha256)?;
+        Ok(self)
+    }
+
+    /// Start one node-owned Raft cell host before public ingress opens. The
+    /// script must belong to the active compiled deployment. Preparation runs
+    /// on the node executor; `bind` installs the resulting SDK handles in the
+    /// application's ingress. A failed preparation or binding refuses startup
+    /// and joins acquired work. Require `--data-dir` with a persistent absolute
+    /// directory. Remote peer routes require a fleet bucket for shared peer
+    /// authentication. Raft-enabled daemons pin their deployment until process restart;
+    /// live deployment reload does not yet rebind Raft definitions safely.
+    pub fn raft_cells<F, Fut>(
+        mut self,
+        script: impl Into<String>,
+        prepare: F,
+        bind: impl FnOnce(crate::application::consensus::RaftCells) -> anyhow::Result<()>
+            + Send
+            + 'static,
+    ) -> anyhow::Result<Self>
+    where
+        F: FnOnce(super::NativeRaftNode) -> Fut + Send + 'static,
+        Fut: std::future::Future<Output = anyhow::Result<super::NativeRaftCells>> + Send + 'static,
+    {
+        anyhow::ensure!(
+            self.raft.is_none(),
+            "only one Raft cell host may own a node directory"
+        );
+        let script = script.into();
+        anyhow::ensure!(
+            !script.is_empty(),
+            "Raft application script must not be empty"
+        );
+        self.raft = Some(super::native_raft::Startup {
+            script,
+            prepare: Box::new(move |node| Box::pin(prepare(node))),
+            bind: Box::new(bind),
+        });
         Ok(self)
     }
 
@@ -171,6 +212,7 @@ impl NativeDaemon {
             local_graph,
             stop,
             observer,
+            self.raft,
         )
     }
 }
@@ -193,7 +235,10 @@ impl CompiledApplications {
         let feature = feature.into();
         let sha256 = sha256.into();
         anyhow::ensure!(
-            feature == crate::protocol::FEATURE_EMBEDDED_PYTHON_V1,
+            matches!(
+                feature.as_str(),
+                crate::protocol::FEATURE_EMBEDDED_PYTHON_V1 | crate::protocol::FEATURE_NODE_V1
+            ),
             "unsupported process runtime inventory"
         );
         anyhow::ensure!(
@@ -216,6 +261,17 @@ impl CompiledApplications {
         native: &crate::protocol::NativeDeployment,
         executable: &crate::protocol::NativeArtifact,
     ) -> anyhow::Result<()> {
+        let declared_node = native.node.iter().find(|environment| {
+            environment.target == executable.target
+                && environment.executable_sha256 == executable.sha256
+        });
+        let expected_node = self
+            .runtime_inventories
+            .get(crate::protocol::FEATURE_NODE_V1);
+        anyhow::ensure!(
+            declared_node.map(|environment| &environment.inventory_sha256) == expected_node,
+            "deployment Node inventory differs from the compiled process; replace the process before admission"
+        );
         let declared = native.python.iter().find(|environment| {
             environment.target == executable.target
                 && environment.executable_sha256 == executable.sha256
