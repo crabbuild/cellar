@@ -80,7 +80,16 @@ pub fn envelope(name: &str, error: &Error) -> Value {
             RequestError::DurabilityUnproven => ("Ambiguous", "unknown"),
             _ => submitted(name),
         }
-    } else if cellar::sdk::ApplicationOverloaded::matches(error) {
+    } else if cellar::sdk::ApplicationOverloaded::matches(error)
+        || error.chain().any(|cause| {
+            cause
+                .downcast_ref::<cellar::engine_api::CellOverloaded>()
+                .is_some()
+                || cause
+                    .to_string()
+                    .contains(cellar::engine_api::CELL_OVERLOAD_ERROR_MARKER)
+        })
+    {
         // A parent may have committed before its nested invocation was refused.
         ("Overloaded", "unknown")
     } else {
@@ -188,5 +197,27 @@ mod tests {
         );
         let gated = refused.context(RoutedRequestError(RequestError::DurabilityUnproven));
         assert_eq!(envelope("cell.fetch", &gated)["code"], "Ambiguous");
+    }
+
+    #[test]
+    fn cell_capacity_refusal_stays_typed_across_guest_and_peer_boundaries() {
+        for refused in [
+            Error::new(cellar::engine_api::CellOverloaded).context("private caller"),
+            anyhow::anyhow!(
+                "peer handler failed: {}",
+                cellar::engine_api::CellOverloaded
+            ),
+        ] {
+            assert_eq!(
+                envelope("cell.fetch", &refused),
+                json!({"ok":false,"error":"Overloaded","code":"Overloaded","outcome":"unknown"})
+            );
+            let gated = refused.context(RoutedRequestError(RequestError::DurabilityUnproven));
+            assert_eq!(envelope("cell.fetch", &gated)["code"], "Ambiguous");
+        }
+        assert_eq!(
+            envelope("cell.fetch", &anyhow::anyhow!("cell overload"))["code"],
+            "Ambiguous"
+        );
     }
 }

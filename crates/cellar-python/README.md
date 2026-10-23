@@ -141,6 +141,11 @@ serve an independent HTTP request. Capacity refusal uses the native SDK's
 committed before a nested call was refused. The adapter does not retry it,
 and ownership/output-proof failures still take precedence. Closed runtime
 admission is a lifecycle failure, distinct from capacity exhaustion.
+Peer placement candidates that refuse cell capacity may be retried only within
+the original fetch routing budget. Exhaustion returns a typed overload instead
+of cycling indefinitely between peers. Native cell-capacity refusals retain
+`Overloaded/unknown` across the Python bridge, including forwarded failures;
+they do not establish that a parent invocation made no writes.
 `max_pending_operations` bounds each invocation's
 operation/completion mailbox (32 entries by default); zero and unsupported
 capacities are refused before bootstrap. The result mailbox holds at most twice

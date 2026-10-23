@@ -49,6 +49,8 @@ use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::{mpsc, oneshot, watch};
 
+#[cfg(test)]
+mod capacity_tests;
 mod catalog_operator;
 mod driver;
 #[cfg(not(cellar_internal_tests))]
@@ -638,6 +640,22 @@ impl RemoteRouteRetry {
                 crate::asyncrt::sleep(wait).await;
                 RemoteRetryOutcome::Ready
             }
+        }
+    }
+
+    async fn wait_capacity(
+        &mut self,
+        cancel: Option<&mut oneshot::Receiver<()>>,
+    ) -> RemoteRetryOutcome {
+        // Candidate changes reset the owner backoff, but must not reset the
+        // original operation deadline. Keep the capacity loop's minimum pace
+        // to avoid exhausting ephemeral ports on repeated tunnel refusals.
+        self.next_wait_ms = self.next_wait_ms.max(25);
+        match self.wait(cancel).await {
+            RemoteRetryOutcome::Ready if crate::asyncrt::mono_ms() >= self.deadline_ms => {
+                RemoteRetryOutcome::Stop
+            }
+            outcome => outcome,
         }
     }
 }
@@ -1535,13 +1553,24 @@ async fn dispatch_do_call(app: AppHandle, call: DoCallReq) {
                             .any(|cause| cause.downcast_ref::<StalePeerRoute>().is_some());
                     if capacity_refused {
                         app.invalidate_remote(scope.clone(), node, epoch).await;
-                        // Pace this unbounded retry. Each attempt now costs a
-                        // fresh tunnel connection, and a tight loop against a
-                        // candidate that is still restoring floods the client
-                        // ephemeral-port range into TIME_WAIT (os error 49),
-                        // which then poisons every dial for the next 15s.
-                        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
-                        continue;
+                        let cancel = if deliver_abort_to_handler {
+                            None
+                        } else {
+                            cancel.as_mut()
+                        };
+                        match dispatcher.wait_capacity(cancel).await {
+                            RemoteRetryOutcome::Ready => continue,
+                            RemoteRetryOutcome::Cancelled => {
+                                break Err(anyhow::anyhow!("Durable Object call cancelled"));
+                            }
+                            RemoteRetryOutcome::Stop => {
+                                // Every attempt was explicitly refused before
+                                // execution. Preserve typed admission failure;
+                                // an ambiguous transport result never enters
+                                // this branch and is never replayed here.
+                                break Err(anyhow::Error::new(crate::engine_api::CellOverloaded));
+                            }
+                        }
                     }
                     let cancel = if deliver_abort_to_handler {
                         None
