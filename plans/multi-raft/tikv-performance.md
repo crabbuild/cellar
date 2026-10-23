@@ -1,14 +1,16 @@
 # TiKV comparison and Cellar performance investigation
 
-Status: investigation and implementation in progress. The latest size-based
-archive candidate completes three 180-second windows at 212.82/198.91/185.47 TPS
-and 158.56/162.24/167.80 ms p99, but 375 first-window overload refusals fail the
-zero-error gate. Exact replica/archive checks and clean shutdown pass. A causal
-overall branch speedup and stable sustained capacity remain unqualified.
+Status: the SQL priority candidate passes two 180-second, 24-writer windows at
+247.25/212.02 successful TPS and 201.85/220.11 ms p99, with zero write errors.
+All 4,500 replica values and 1,500 archive positions verify independently, and
+shutdown is clean. This passes the 500-ms gate, but not the preferred 200-ms gate;
+throughput falls 14.2% between windows. Shared-host variation prevents attributing
+the full observed gain to scheduling. Newly merged main changes still need
+integration and fresh validation; these results describe frozen `3aeb3ad`.
 
 ## Current performance priorities
 
-The [current internal-storage profile](evidence/tikv-current-io-diagnosis.json)
+The [internal-storage profile](evidence/tikv-current-io-diagnosis.json)
 identifies command staging, image construction, SQL worker queueing and archive
 publication as useful optimization targets. It instruments the frozen
 `12d6e87` runtime without changing durability or retry behavior. Three nodes
@@ -21,14 +23,15 @@ queue capacity, then archive publishers. Its tuned configuration passes the
 nine-minute profile finds growing archive-tail costs and SQL waits, without
 reproducing refusals. Size-based archive rotation reduces repeated payload
 reads in a deterministic regression, but its uninstrumented cluster run again
-returns overload refusals. Attribution of those failures and longer-run
-slowdown remains open; neither host contention nor an archive limit is yet a
-proven explanation for the refusals.
+returns overload refusals. The subsequent bounded SQL priority comparison passes
+the 500-ms gate, but still slows between windows. Attribution of earlier refusals
+and longer-run slowdown remains open; neither host contention nor an archive
+limit is yet a proven explanation for those refusals.
 
 | Priority | Observed gap | Next improvement to evaluate |
 | --- | --- | --- |
-| 1 | Archive publication grows from 25 to 50 ms as mean tail count grows from 8 to 18 in the tuned diagnostic. The new rotation policy reduces payload reads by 70.4% in a deterministic test, but the cluster candidate still returns 375 overload refusals and slows 12.9%. | Add low-cost, bounded refusal-reason and retained-history counters to the actual benchmark path, then reproduce the refusals. Distinguish retained bytes/entries, work reservations and deadline expiry before tuning admission. Continue evaluating size-based rotation and coordinated replica publication while preserving every follower's recovery proof. |
-| 2 | With four SQL owners, committed preparation still waits 6.0–6.9 ms, publication 5.5–6.0 ms and archive capture 8.6–10.2 ms in the tuned diagnostic. | Keep 64 total work reservations; evaluate bounded priority for committed completions and archive progress, preserving per-cell ordering, fair service for new work, byte budgets and physical shutdown joins. A deeper queue alone is not a latency improvement. |
+| 1 | Archive publication grows from 25 to 50 ms as mean tail count grows from 8 to 18 in the tuned diagnostic. Size-based rotation reduces payload reads by 70.4% in a deterministic test, but earlier overload bursts remain unexplained and the latest candidate still slows 14.2%. | Measure steady-state archive lag and retained history on every replica. Evaluate coordinated publication and fewer repeated object reads/replays, preserving follower recovery proofs and publisher failover. Retain refusal counters to distinguish retained bytes/entries, reservations and deadline expiry; the diagnostic has not reproduced those refusals. |
+| 2 | With four SQL owners, committed preparation waits 6.0–6.9 ms, publication 5.5–6.0 ms and archive capture 8.6–10.2 ms in the tuned diagnostic. Bounded priority now passes the measured 500-ms gate at 229.64 mean TPS, but misses 200 ms. | Retain the fair scheduling candidate and validate it after integration with main. Measure queue and execution tails separately under sustained offered load; keep per-cell order, 64 total reservations, byte budgets and physical joins. A deeper queue alone is not a latency improvement. |
 | 3 | Tuned staging averages 16.5–20.4 ms. The earlier deeper profile attributes 5.1–5.4 ms to preview construction and about 1.5–1.6 ms each to private-file cleanup and private LTX writes. | Reduce disposable file creation/cleanup and image copying. The bounded encoded-capture handoff already removes read-back; evaluate avoiding disposable output writes with exact checkpoint-cut, receipt and restart tests. Keep authoritative image/log barriers intact. |
 | 4 | Shared Raft persistence averages 0.71–0.72 ms but handles only about 1.24 groups per batch. | Improve bounded coalescing and investigate combined progress writes. Measure the benefit before adding delay; avoid busy spinning on a one-vCPU node. |
 | 5 | Every command still constructs immutable images across replicas. | Explore separate applied and checkpointed progress with Raft-log replay, following TiKV's recovery model. This needs explicit replay retention, snapshot/GC boundaries and power-loss recovery tests before changing acknowledgement semantics. |
@@ -38,6 +41,21 @@ writers on this backing. Removing those barriers is not the first experiment.
 Admission scans average about 0.10 ms and archive inventory scans 0.16–0.17 ms;
 they are lower priorities than the measured execution and queueing costs.
 These are nested operation means, not additive portions of request latency.
+
+The next integration prerequisite is main's `0903e80` (PR #94), observed at
+`64ebaf7`. It independently adds archive batching, transport changes, resource
+accounting and a richer performance runner. A read-only merge preview finds
+conflicts in these same components. Combine the contracts and regression cases
+before treating the measured branch as ready to merge; a source merge alone
+does not qualify performance of the integrated runtime.
+
+Remaining measurement gaps are longer steady-state runs, per-replica archive
+lag, hot-cell skew, larger SQLite images, mixed reads/writes and failure under
+load. Initial/final leader archive coverage is not a steady-state lag measure.
+The current node volumes use host storage through Colima virtiofs; compare
+native Linux block storage as a separate environment experiment. Preserve
+shared-host measurements and record contention instead of attributing all
+slowdowns to it. Check both available bytes and inodes before setup.
 
 The diagnostic ran four 60-second windows at 3/6/6/3 writers: respectively
 134.84/198.12/200.17/108.76 successful writes/sec, with p99
@@ -350,9 +368,50 @@ draining work after sender disconnect. The [validation record](evidence/tikv-sql
 confirms 458 library and 138 native archive/execution/host/snapshot cases pass
 (596 total), with four process helpers invoked by parent cases. Strict
 all-target/all-feature Clippy, formatting/layout, native dependency policy and
-documentation checks also pass. An uninstrumented comparison against `972264b`
-with the same archive policy remains required before claiming a throughput or
-latency improvement.
+documentation checks also pass. The uninstrumented comparison against `972264b`
+with the same archive policy is recorded below.
+
+### Uninstrumented SQL priority comparison
+
+The [comparison record](evidence/tikv-sql-priority-comparison.json) freezes
+`972264b` control and `3aeb3ad` candidate. Only `host_sql.rs` differs in production
+runtime; load generation is identical. Both use three 1-vCPU / 3-GiB nodes,
+500 leaders and 1,000 followers each, four SQL owners with 64 total reservations,
+four archive publishers, fresh persistent volumes and a cold VM restart. Each
+cohort runs two 180-second windows at 24 writers, without timed mutation retries.
+
+| Build | Window | Successful TPS | Successful-request p99 | Write errors |
+| --- | --- | --- | --- | --- |
+| FIFO control | 1 | 202.05 | 584.41 ms | 0 |
+| FIFO control | 2 | 92.12 | 1,191.32 ms | 0 |
+| Bounded priority | 1 | 247.25 | 201.85 ms | 0 |
+| Bounded priority | 2 | 212.02 | 220.11 ms | 0 |
+
+Both cohorts independently verify all 4,500 replica values and 1,500 archive
+positions, then stop cleanly with volumes retained. Candidate mean throughput
+is 229.64 TPS versus 147.08 for control, an observed 56.1% increase; worst-window
+p99 is 81.5% lower. The analyzer selects the candidate at the 500-ms limit and
+selects neither build at 200 ms. Candidate throughput declines 14.2% between
+windows versus 54.4% for control. This is a useful bounded comparison, not stable
+capacity or proof of a causal overall branch speedup.
+
+Other builds appear in 62/91 control and 91/98 candidate host samples. Swap is
+about 9.47–9.52 GiB for control and 8.27–9.47 GiB for candidate. Node CPU averages
+74–81% and peak node memory stays below 417 MiB across traffic and verification.
+Final archive waits are 0.95/5.81 seconds after replica checks; they do not measure
+archive lag during traffic. The fixed counter workload and sequential shared-host
+cohorts limit the conclusions.
+
+The first control setup failed before any timed window: all 1,500 seed writes
+were acknowledged, but RustFS archive coverage stalled when the VM filesystem
+exhausted its inodes despite 37.1 GiB of available bytes. That attempt remains
+failed and has no complete data-verification claim. Its containers stopped
+cleanly and all volumes remained. Growing only the benchmark data disk from
+160 to 224 GiB added 4.19 million free inodes while retaining 290 volumes,
+43 images, CPU/memory limits, other profiles and the selected Docker context.
+Both replacement cohorts use that same expanded disk and require at least
+two million free inodes and 16 GiB free bytes before setup. This environment
+failure does not establish the cause of earlier overload refusals.
 
 ## Scope and reproducible baseline
 
