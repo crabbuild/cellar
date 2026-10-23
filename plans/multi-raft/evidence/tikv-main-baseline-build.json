@@ -1,0 +1,25 @@
+{
+  "format": 1,
+  "source": {
+    "revision": "fb660b164b3cb0c8f88afcb659473445928a92a2",
+    "tag": "cellar-raft-perf:tikv-main-final-ios-7da4ddb5",
+    "image": "sha256:0aa1203f722754ff3ff561d562fd65a8e3fe9f7862f6d6611a3aea31886655a8",
+    "binary_sha256": "926cb8c74c321b557f4fb6bf1266c55054c2dfa67f50e52f1dfe1aca2ab41158",
+    "context_sha256": "b93a25c25c4e6899266cd31b762ba687df9d2ae2d26fcac79bcd22e1b40dc5cd"
+  },
+  "build_profile": "lab",
+  "rust_toolchain": "1.98.1",
+  "locked": true,
+  "source_capture": "Unmodified clean origin/main checkout, exported with git archive. Every input file in the recorded manifest matched the checkout before build.",
+  "source_manifest_files": 97,
+  "source_manifest_sha256": "a748b0c8627c901b1a1f449176ffed0d186ca8594ecff98c5631e641e0146115",
+  "build_log_sha256": "731934ba54eac5df9d587049b6df97166f22a6b4a47803e53f0a96e8aa5069b6",
+  "earlier_image": {
+    "image": "sha256:f7d8781239d87d2876ee8c8e542cc94ee87dbe311377e1746ec0e3330c6bb9df",
+    "revision_label": "a849cc213f323788b68ccbe7f9334065e62cb24f",
+    "later_run_checkout": "fb660b164b3cb0c8f88afcb659473445928a92a2",
+    "binary_sha256": "926cb8c74c321b557f4fb6bf1266c55054c2dfa67f50e52f1dfe1aca2ab41158",
+    "matches_fresh_main_executable": true
+  },
+  "limitation": "Executable equality resolves the older binary provenance question. It does not make historical runs a controlled baseline for the current storage layout and shared-host conditions."
+}

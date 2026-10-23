@@ -1318,10 +1318,13 @@ windows at twelve writers per image, control first. Both subsequently failed as
 recorded below.
 
 The older `accelerated` baseline image carries revision label `a849cc2`, while
-its later run report names `fb660b1` with a nonempty working diff. Its exact
-relationship to clean current `main` has not been re-established here. It will
-not serve as the final overall baseline without fresh source-provenance proof;
-a clean current-main build is required for that comparison.
+its later run report names `fb660b1` with a nonempty working diff. A subsequent
+[clean current-main build](evidence/tikv-main-baseline-build.json), exported from
+unmodified `fb660b1` and compiled with locked dependencies, produced the exact
+same executable SHA-256 as that older image. This resolves the executable's
+provenance gap. The fresh image is used for the final comparison; executable
+equality does not make historical measurements a controlled baseline for the
+current storage layout and host conditions.
 
 ## Longer shared-barrier confirmation failures
 
