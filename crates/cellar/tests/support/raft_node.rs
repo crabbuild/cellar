@@ -423,14 +423,15 @@ pub fn counter_with_blobs(
     gate: Arc<Gate>,
     blobs: bool,
 ) -> Result<Counter> {
-    counter_observed_with_blobs(
-        move |_| {
-            calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-            Ok(())
-        },
-        gate,
-        blobs,
-    )
+    let observe = move |_: &GroupScope| {
+        calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Ok(())
+    };
+    if blobs {
+        counter_observed_with_blobs(observe, gate, true)
+    } else {
+        counter_observed(observe, gate)
+    }
 }
 
 /// Attribute private execution to its group without changing counter SQL or gates.
