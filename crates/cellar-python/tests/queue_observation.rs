@@ -37,6 +37,7 @@ fn observes_committed_wal_lease_and_alarm_without_message_contents() -> Result<(
     let snapshot = observation::capture(directory.path());
     assert_eq!(snapshot["databases"].as_array().unwrap().len(), 1);
     let state = &snapshot["databases"][0]["state"];
+    assert_eq!(state["messages"]["rows"][0]["id"], "1");
     assert_eq!(state["messages"]["rows"][0]["lease_id"], "lease");
     assert_eq!(state["messages"]["rows"][0]["lease_generation"], 3);
     assert_eq!(state["messages"]["rows"][0]["leased_until"], 21000);

@@ -42,7 +42,7 @@ fn database(path: &Path) -> rusqlite::Result<Value> {
     // One read transaction keeps the lease, alarm and wake record consistent.
     // Dropping the connection also releases the snapshot on any query error.
     connection.execute_batch("BEGIN")?;
-    let messages = rows(&connection, "SELECT seq,size,attempts,lease_id,lease_generation,leased_until,visible_at,enqueued_at,purge_on_settle FROM __sys_queue_messages ORDER BY seq LIMIT 33")?;
+    let messages = rows(&connection, "SELECT id,seq,size,attempts,lease_id,lease_generation,leased_until,visible_at,enqueued_at,purge_on_settle FROM __sys_queue_messages ORDER BY seq LIMIT 33")?;
     let alarms = rows(
         &connection,
         "SELECT at_ms,retry,counted_retry,generation FROM __sys_cell_alarm LIMIT 33",

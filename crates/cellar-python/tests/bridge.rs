@@ -40,6 +40,8 @@ mod privacy;
 mod proof_authority;
 #[path = "support/python_control.rs"]
 mod python_control;
+#[path = "support/queue_lost_ack.rs"]
+mod queue_lost_ack;
 #[path = "support/queue_observation.rs"]
 mod queue_observation;
 #[path = "support/routing.rs"]
@@ -298,6 +300,9 @@ fn main() -> Result<()> {
     if mode == "--runtime-binding-faults" {
         return binding_faults::child();
     }
+    if mode == "--runtime-queue-lost-ack" {
+        return queue_lost_ack::child();
+    }
     if mode == "--runtime-limits" {
         return limits::child();
     }
@@ -466,6 +471,7 @@ fn main() -> Result<()> {
         "--runtime-schedules",
         "--runtime-schedule-recovery",
         "--runtime-binding-faults",
+        "--runtime-queue-lost-ack",
         "--runtime-limits",
         "--runtime-cycles",
         "--runtime-cycles-fence",
@@ -853,6 +859,7 @@ fn lifecycle_mode(mode: &str) -> Result<()> {
                 | "--runtime-routing"
                 | "--runtime-bindings"
                 | "--runtime-delivery"
+                | "--runtime-queue-lost-ack"
                 | "--runtime-schedules"
                 | "--runtime-lifetimes"
                 | "--runtime-lifetimes-close"

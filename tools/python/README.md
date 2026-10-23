@@ -274,6 +274,12 @@ final output wait for proof, actual follower acknowledgements release success
 while bucket writes remain held, and failure of both paths refuses success.
 Independent KV/shared-SQL/producer fault matrices also cover cancellation,
 unknown results without replay, explicit reconciliation and bounded overlap.
+The `--runtime-queue-lost-ack` bridge mode commits real bucket writes while
+discarding their receipts. It checks an unknown producer outcome, the same
+message and lease after owner recovery, delivery only after the persisted
+deadline, reconciliation without duplicate business effects, restart persistence
+and complete shutdown. The separate binding-fault matrix retains its original
+drain deadline; this drill does not excuse an unexplained failure there.
 Their evidence scope and remaining qualification are in the completion audit.
 The shipped Unix process supervisor provides finite
 startup/probe/stop deadlines and bounded restarts independently of Python.

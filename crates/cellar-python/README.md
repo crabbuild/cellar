@@ -124,6 +124,11 @@ existing at-least-once semantics. Use idempotency keys for business effects.
 Queue acknowledgements are settlement decisions inside the current delivery;
 the broker persists them when dispatch returns. An acknowledgement followed by
 a handler exception is retained; a timeout that drops dispatch can redeliver.
+An unknown storage outcome can preserve a queue lease across owner recovery,
+even when the consumer has not started. Redelivery waits for that stored lease
+to expire. Its lifetime covers native admission, handler and settlement budgets;
+recovery does not extend it. Include this interval when setting recovery SLOs,
+and reconcile unknown producer outcomes with business idempotency keys.
 The first conflicting message/batch ack or retry decision wins. Cron retries
 retain the original occurrence timestamp across timeout, activation recreation
 and owner recovery. The native scheduling cell checkpoints completed expressions
