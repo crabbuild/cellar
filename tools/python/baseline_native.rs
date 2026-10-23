@@ -30,7 +30,37 @@ impl Cell for Entity {
                 return echo(&context, request).await;
             }
             let storage = context.storage()?;
+            if request.method == "GET" {
+                if let Some((_, query)) = request.url.split_once('?') {
+                    let count = match query {
+                        "fields=2&batch=0" | "fields=2&batch=1" => 2,
+                        "fields=8&batch=0" | "fields=8&batch=1" => 8,
+                        _ => anyhow::bail!("invalid measured read query"),
+                    };
+                    let mut total = 0_u64;
+                    for index in 0..count {
+                        let key = if index == 0 {
+                            "count".to_owned()
+                        } else {
+                            format!("field-{index}")
+                        };
+                        total += storage
+                            .get_json(&key)?
+                            .and_then(|v| v.as_u64())
+                            .context("missing measured value")?;
+                    }
+                    return Ok(Output::Http(
+                        Response::from_json(&json!({"value":total}))?.into_http(&context)?,
+                    ));
+                }
+            }
             let previous = storage.get_json("count")?;
+            for index in 1..8 {
+                ensure!(
+                    storage.get_json(&format!("field-{index}"))? == previous,
+                    "recovered fields differ"
+                );
+            }
             let mut value = match &previous {
                 None => 0,
                 Some(value) => value
@@ -45,6 +75,9 @@ impl Cell for Entity {
                             storage.get_json("count")? == previous,
                             "checked update conflict"
                         );
+                        for index in 1..8 {
+                            storage.put_json(&format!("field-{index}"), &json!(value))?;
+                        }
                         storage.put_json("count", &json!(value))
                     })?;
                 }

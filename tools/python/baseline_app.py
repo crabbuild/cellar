@@ -2,6 +2,7 @@
 from cellar import Response
 import asyncio
 import sys
+from urllib.parse import urlsplit, parse_qs
 
 held = None
 
@@ -49,11 +50,24 @@ class Entity:
     async def fetch(self, request, ctx):
         if request.path == "/cell-echo" and request.method == "POST":
             return Response(request.body, headers=[("content-type", "application/octet-stream")])
-        previous = await ctx.storage.read_json("count")
+        query = parse_qs(urlsplit(request.url).query)
+        if request.method == "GET" and "fields" in query:
+            count = int(query["fields"][0])
+            assert count in (2, 8)
+            keys = ["count"] + [f"field-{index}" for index in range(1, count)]
+            if query["batch"] == ["1"]:
+                values = await ctx.storage.read_json_many(keys)
+            else:
+                values = {key: await ctx.storage.read_json(key) for key in keys}
+            assert all(row.present for row in values.values())
+            return Response.json({"value": sum(row.value for row in values.values())})
+        recovered = await ctx.storage.read_json_many(["count"] + [f"field-{index}" for index in range(1, 8)])
+        previous = recovered["count"]
+        assert all(row == previous for row in recovered.values()), "recovered fields differ"
         value = previous.value if previous.present else 0
         if request.method == "POST":
             value += 1
-            await ctx.storage.apply(checks={"count": previous}, puts={"count": value})
+            await ctx.storage.apply(checks={"count": previous}, puts={"count": value, **{f"field-{index}": value for index in range(1, 8)}})
         elif request.method != "GET":
             return Response("invalid method", 405)
         return Response.json({"value": value})

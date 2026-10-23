@@ -128,7 +128,7 @@ impl Workload {
                         && !target.path.starts_with("//")
                         && target.path.len() <= 256
                         && target.path.bytes().all(|byte| byte.is_ascii_alphanumeric()
-                            || matches!(byte, b'/' | b'-' | b'_'))
+                            || matches!(byte, b'/' | b'-' | b'_' | b'?' | b'&' | b'='))
                         && paths.insert(&target.path)
                         && target.expected_body.len() <= 65_536,
                     "invalid or duplicate read target"
