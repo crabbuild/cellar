@@ -371,7 +371,7 @@ pub async fn run(scenario: Scenario) -> Result<()> {
                 .await??;
         }
         let owner = node.take().context("node")?;
-        let mut stopping = tokio::spawn(async move {
+        let mut stopping = Box::pin(async move {
             if scenario == Scenario::Cancelled {
                 owner.cancel().await
             } else {
@@ -380,6 +380,16 @@ pub async fn run(scenario: Scenario) -> Result<()> {
                     .await
             }
         });
+        if scenario == Scenario::Cancelled {
+            // First polling cancel closes the domain synchronously. Spawning
+            // alone does not order cancellation before the SQL gate release:
+            // a delayed task could observe an already graceful completion.
+            ensure!(
+                futures_util::poll!(stopping.as_mut()).is_pending(),
+                "Node cancellation returned while private SQL was held"
+            );
+        }
+        let mut stopping = tokio::spawn(stopping);
         if held_sql {
             tokio::time::sleep(Duration::from_millis(30)).await;
             ensure!(
@@ -410,7 +420,10 @@ pub async fn run(scenario: Scenario) -> Result<()> {
                 ensure!(receipt.domain_joined);
                 let encoded = serde_json::to_value(&receipt)?;
                 if scenario == Scenario::Cancelled {
-                    ensure!(matches!(outcome, NodeOutcome::Cancelled));
+                    ensure!(
+                        matches!(outcome, NodeOutcome::Cancelled),
+                        "unexpected cancellation outcome: {outcome:?}"
+                    );
                     ensure!(receipt.phase == "failed" && receipt.proof.is_none());
                     ensure!(pending.is_err());
                     return Ok::<_, anyhow::Error>(());
