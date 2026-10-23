@@ -104,8 +104,10 @@ requested MR-14 focus; it does not waive MR-13's release dependency.
    cell-25 request has no server-handler record; all other 413 attempted probes
    correlate, and the final source-stable sample still ends at cell 20. This
    narrows the next work to HTTP ingress and executor responsiveness under
-   density, with client connect/send/response timing and a bounded scheduler
-   regression to distinguish them. The separate slow-follower run completes
+   density. [Client HTTP timing](evidence/MR-14-client-progress.json) now records
+   bounded connect/send/response phases without retries or changed deadlines;
+   a fresh physical run and a bounded scheduler regression must distinguish the
+   remaining causes. The separate slow-follower run completes
    116 cycles and verifies 4,500 replicas/archive coverage but still misses the
    declared traffic targets (304.107 ms p99, 24 rejected arrivals). Do not call
    the new diagnostic instrumentation a performance fix or qualify the failed
@@ -1415,6 +1417,22 @@ final replica/archive verification never runs. Both experiments retain host/VM
 pressure samples; these are periodic observations, not per-request causal traces.
 Exact containers are stopped, empty owned networks removed, volumes retained and
 the dedicated profile stopped. The prior failed attempt remains unqualified.
+
+The [client timing and fixture evidence](evidence/MR-14-client-progress.json)
+records the diagnostic change at `9c9ef02` and the deterministic snapshot
+qualification reproducer at `0638cf5`. Client spans preserve HTTP error behavior,
+close response bodies on read failure and exclude credentials and payloads.
+There is no physical workload result at either revision. The later merge from
+`origin/main` (`64a4562`) adopts stronger snapshot coverage: callback counts are
+separate for each cell, and the recovering node deliberately leads an independent
+healthy cell during both retry and shutdown. This replaces the narrower local
+fixture placement; its original failure and validation remain at their source
+pins. The [merged-source validation](evidence/MR-14-main-merge-progress.json)
+records 127 passing native cases at `1209e0d` and six focused snapshot cases plus
+five-target Clippy after the shared-helper correction. Formatting, layout,
+dependency/docs checks, 201 performance-tool cases (one opt-in Docker skip),
+Python qualification guards and 17 plan tests pass. Fresh-head CI remains a
+separate gate. Snapshot qualification is distinct from the healthy density timeout.
 
 The [all-owner restart evidence](evidence/MR-14-restart-progress.json), source
 `aaa83f8`, records two three-node bucket runs under an explicit twelve-second
