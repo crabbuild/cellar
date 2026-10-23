@@ -1,20 +1,22 @@
 # TiKV comparison and Cellar performance investigation
 
-Status: PR #98's conflicts are resolved through main `1455fb0`. The ephemeral
-capture candidate `68b82e1` removes private LTX output files but fails the
-sustained zero-error gate at both 24 and 16 writers. It is reverted by `69192d2`;
-that revert restored the previously qualified `86297e7`/`57dcfa5` state.
-The admission-reuse candidate `230cd4f` passes two sustained windows with zero
-errors and exact replica/archive verification. Its mean 246.43 TPS versus
-244.52 TPS for control does not establish a throughput improvement on this
-shared host. Both builds meet the accepted 500-ms p99 gate and miss the preferred
-200-ms gate. The [admission-reuse evidence](evidence/tikv-admission-reuse.json)
-records the fresh comparison; the [rejected capture evidence](evidence/tikv-ephemeral-capture.json)
-retains the earlier failed windows. No additional end-to-end gain is promoted.
+Status: PR #98's conflicts are resolved through main `1455fb0`. The combined
+capture/admission-reuse candidate `8a34732` passes its first complete paired
+qualification: 253.70 mean TPS versus 234.78 for control, an observed 8.06%
+increase. Candidate p99 is higher, at 260.35/296.57 ms versus 199.22/226.49 ms,
+but stays below the accepted 500-ms bound. Shared-host variation and test order
+require confirmation before treating this gain as repeatable. The
+[combined evidence](evidence/tikv-capture-reuse.json) preserves every window.
+
+The original ephemeral candidate `68b82e1` failed at both 24 and 16 writers and
+was reverted by `69192d2`; the new candidate reintroduces capture savings only
+after the refusal/rebuild fix. The [rejected capture evidence](evidence/tikv-ephemeral-capture.json)
+retains those failures. The admission-reuse fix alone was effectively neutral
+at 246.43 versus 244.52 mean TPS in its [own comparison](evidence/tikv-admission-reuse.json).
 
 ## Combined capture and admission-reuse candidate
 
-The next candidate reintroduces bounded ephemeral capture on top of `230cd4f`.
+Candidate `8a34732` reintroduces bounded ephemeral capture on top of `230cd4f`.
 Its fresh control is that admission-reuse build, isolating capture savings from
 the already measured refusal fix. The native image/receipt regression first
 reports eight disposable LTX file writes for eight commands, then passes with
@@ -42,7 +44,51 @@ apply batch or delayed tablet persistence.
 The benchmark data disk grows from 224 to 288 GiB to supply inodes without
 deleting prior evidence. All 326 volumes and 46 images are retained, other
 profiles and the selected Docker context are unchanged, and each node still has
-one vCPU and 3 GiB. Fresh paired performance qualification is pending.
+one vCPU and 3 GiB.
+
+The fresh pair uses 1,500 groups, 500 leaders and 1,000 followers per node,
+four SQL workers / 64 reservations, four archive-cut slots and 24 writers.
+Both builds use the same load-function AST and two 180-second windows, with
+fresh persistent volumes and a cold benchmark VM for each cohort. There are
+no timed mutation retries and no builds or profiling from this task during load.
+
+| Build | TPS, windows 1 / 2 | p99 ms, windows 1 / 2 | Errors |
+| --- | --- | --- | --- |
+| Combined capture `8a34732` | 277.52 / 229.89 | 260.35 / 296.57 | 0 / 0 |
+| Admission-reuse control `230cd4f` | 245.48 / 224.09 | 199.22 / 226.49 | 0 / 0 |
+
+Both cohorts verify all 4,500 replica values and 1,500 RustFS archive positions
+and stop cleanly without OOM kills. Peak node memory is 1.80 GB for candidate
+and 1.65 GB for control, within the 3-GiB limits. Every image, volume and raw
+outcome is retained. Candidate staging averages 12.08/15.05 ms versus
+16.79/17.74 ms for control, reductions of 28.0%/15.2%. The first-window native
+file-write regression and these stage measurements support the intended local
+cost reduction; overlapping operations are not additive request latency.
+
+Candidate throughput falls 17.2% between windows. Staging, committed preparation,
+log persistence and object PUT time all increase. Other builds appear in 3/37
+and 21/36 candidate samples inside the metric brackets, versus 3/36 and 0/36
+for control. This association does not prove the slowdown's cause. The observed
+8.06% mean TPS gain comes with higher p99 and cannot be treated as a repeatable
+causal effect from one sequential pair. A reversed-order confirmation remains
+necessary; the preferred sustained sub-200-ms p99 target remains unmet.
+
+Neither build records observation failures, retained-byte/entry refusals or
+reservation-entry deferrals. Temporary byte-reservation deferral decisions are
+155,853/132,158 for candidate and 150,039/144,953 for control. These include
+waiter rechecks, not distinct requests or wait durations. Candidate per-group
+archive lag is at most nine entries at the measured window ends. Final archive
+catch-up takes 5.80 seconds for candidate and 0.35 for control; different
+outstanding work makes these waits unsuitable as an archive service-rate
+comparison. Continuous lag, admission wait duration and repeated material reads
+remain the next attribution gaps.
+
+Validation passes 7 disposable-capture and 6 checkpoint tests; 514 Cellar
+library tests; native archive 52, execution 19, host 29, multi-group 9 and
+snapshot 44; strict all-target/all-feature Clippy for cellar and cellar-ltx;
+formatting, layout, dependency policy and documentation checks. The LTX library
+target itself contains no enabled tests; its two integration targets provide
+the capture/checkpoint coverage above.
 
 ## Admission-reuse candidate
 
