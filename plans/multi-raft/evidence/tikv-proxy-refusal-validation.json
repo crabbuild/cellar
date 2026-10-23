@@ -1,0 +1,37 @@
+{
+  "scope": "Native Node fault-injection proxy only; no production or performance-path change.",
+  "problem": "A typed pre-execution HTTP 503 Unavailable was treated as a failed successful-reply assertion and terminated the proxy listener.",
+  "change": "Forward the typed refusal unchanged and retain the armed successful-reply fault; untyped failures retain the strict assertion.",
+  "reproduction": {
+    "test": "event_refusal_preserves_listener_and_armed_proven_reply_cut",
+    "before": "failed: proxy swallowed the original refusal; listener owner returned event RPC did not produce a successful HTTP reply",
+    "after": "passed"
+  },
+  "checks": {
+    "native_node_all_features": {
+      "passed": 91,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 677.91,
+      "threads": 1
+    },
+    "affected_clippy": "passed with -D warnings",
+    "format_check": "passed",
+    "layout": "passed",
+    "native_dependencies": "passed; 452 reachable packages; cargo was initially absent from PATH, then rerun with Rust 1.98.1",
+    "docs": "passed",
+    "diff_check": "passed"
+  },
+  "limits": [
+    "Does not establish the cause of all three failures in GitHub Actions run 39872942054.",
+    "Does not qualify throughput, latency, or multi-Raft recovery."
+  ],
+  "raw_logs_sha256": {
+    "proxy-refusal-before.log": "2a14c0322a8eb812db000cf7a15eeecd89c840e5de6f41c80d5e4c8878b2bdff",
+    "proxy-refusal-after.log": "905e85ae5e3149f88e7ca41b40fbf43c994230342f884b4f937b019fc0837c3f",
+    "proxy-refusal-native-node.log": "61770ad58a25a9f4bc7724f740b793a46e5e55f3a979cb50704aee08b15fb96c",
+    "proxy-refusal-clippy.log": "1d772e196c0139b4bab32f07a80c9f53b9cf4b67a6c4f1173504bda25264f1a2",
+    "proxy-refusal-format-check.log": "5c195b75a52a9abb95647977bb521696c4aac1d9e426851c81f872707e70872e",
+    "proxy-refusal-layout.log": "519dd0ce90645915d740ab40b851b8219b3efa58c892bc921987036396fb6a72"
+  }
+}
