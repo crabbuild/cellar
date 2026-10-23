@@ -257,6 +257,9 @@ jobs:
             ${{ runner.temp }}/native-failure-fixtures/**/failure.json
             ${{ runner.temp }}/native-failure-fixtures/**/cold-read-failure.json
             ${{ runner.temp }}/native-failure-fixtures/**/cold-start-failure.json
+            ${{ runner.temp }}/native-failure-fixtures/**/cold-adopt-failure.json
+            ${{ runner.temp }}/native-failure-fixtures/**/initial-settlement-failure.json
+            ${{ runner.temp }}/native-failure-fixtures/**/settlement-failure.json
             ${{ runner.temp }}/native-failure-fixtures/**/delayed-cold-read.json
             ${{ runner.temp }}/native-failure-fixtures/**/accepted-prefix.json
             ${{ runner.temp }}/native-failure-fixtures/**/post-recovery-fetch.json
@@ -546,6 +549,9 @@ jobs:
             /tmp/cellar-native-replay-${{ github.run_id }}-${{ github.run_attempt }}/**/failure.json
             /tmp/cellar-native-replay-${{ github.run_id }}-${{ github.run_attempt }}/**/cold-read-failure.json
             /tmp/cellar-native-replay-${{ github.run_id }}-${{ github.run_attempt }}/**/cold-start-failure.json
+            /tmp/cellar-native-replay-${{ github.run_id }}-${{ github.run_attempt }}/**/cold-adopt-failure.json
+            /tmp/cellar-native-replay-${{ github.run_id }}-${{ github.run_attempt }}/**/initial-settlement-failure.json
+            /tmp/cellar-native-replay-${{ github.run_id }}-${{ github.run_attempt }}/**/settlement-failure.json
             /tmp/cellar-native-replay-${{ github.run_id }}-${{ github.run_attempt }}/**/delayed-cold-read.json
             /tmp/cellar-native-replay-${{ github.run_id }}-${{ github.run_attempt }}/**/accepted-prefix.json
             /tmp/cellar-native-replay-${{ github.run_id }}-${{ github.run_attempt }}/**/post-recovery-fetch.json

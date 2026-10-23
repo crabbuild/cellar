@@ -638,18 +638,29 @@ async fn run_case(
     )
     .await?;
     ensure!(original_write == "source:1");
-    tokio::time::timeout(Duration::from_secs(5), async {
-        while pending(&client, &source)
-            .await
-            .context("initial source settlement inspection")?["pending_rows"]
-            != "0"
-        {
+    let mut initial_pending = Value::Null;
+    let initial_settlement = tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            initial_pending = pending(&client, &source)
+                .await
+                .context("initial source settlement inspection")?;
+            if initial_pending["pending_rows"] == "0" {
+                return Ok::<_, anyhow::Error>(());
+            }
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
-        Ok::<_, anyhow::Error>(())
     })
-    .await
-    .context("settle original obligation before clock-only cut")??;
+    .await;
+    if initial_settlement.is_err() {
+        let saved = save_clock_evidence(
+            directory,
+            "initial-settlement-failure.json",
+            &json!({"format":1,"source_response":original_write,
+                "last_source":initial_pending,"cutoff_utc_ms":wall()}),
+        );
+        anyhow::bail!("settle original obligation before clock-only cut: original five-second deadline elapsed; last_source={initial_pending}; evidence={saved:?}");
+    }
+    initial_settlement.context("settle original obligation before clock-only cut")??;
     let original = fetch(
         &client,
         &source,
@@ -1124,27 +1135,26 @@ async fn run_case(
         source = source_result.context("restart retained cold source/follower")?;
         let mut node = witness_result.context("restart retained cold witness")?;
         if read_cut.is_some() {
-            let mut definition = graph(1, false);
-            definition.primary.event_streams.clear();
-            source
-                .adopt(definition, applications("source")?)
-                .await
-                .with_context(|| {
-                    format!(
-                        "restore cold source bindings after {:?}",
-                        cold_started.elapsed()
-                    )
-                })?;
-            let mut definition = graph(1, false);
-            definition.primary.event_streams.clear();
-            node.adopt(definition, applications("witness")?)
-                .await
-                .with_context(|| {
-                    format!(
-                        "restore cold witness bindings after {:?}",
-                        cold_started.elapsed()
-                    )
-                })?;
+            for (name, peer) in [("source", &mut source), ("witness", &mut node)] {
+                let mut definition = graph(1, false);
+                definition.primary.event_streams.clear();
+                if let Err(error) = peer.adopt(definition, applications(name)?).await {
+                    let elapsed_ms = cold_started.elapsed().as_millis();
+                    // Observe only after failure. These roots are diagnostic
+                    // samples, not a proof of their state at the deadline.
+                    let roots = cold_root_snapshot(&observer, &bucket).await;
+                    let saved = save_clock_evidence(
+                        directory,
+                        "cold-adopt-failure.json",
+                        &json!({"format":1,"node":name,"elapsed_ms":elapsed_ms,
+                            "error":format!("{error:#}"),"roots_after_failure":
+                            roots.unwrap_or_else(|e|json!({"error":format!("{e:#}")}))}),
+                    );
+                    return Err(error).context(format!(
+                        "restore cold {name} bindings after {elapsed_ms}ms; evidence={saved:?}"
+                    ));
+                }
+            }
         }
         super::super::ready(&source).await?;
         super::super::ready(&node).await?;
@@ -1694,10 +1704,19 @@ async fn run_case(
             .as_str()
             .context("replacement receipt missing")?,
     )?;
-    ensure!(
-        settle(&client, &source, "projection", "ack", &replacement, 0).await?
-            == json!({"status":"Acknowledged"})
-    );
+    let acknowledgment = settle(&client, &source, "projection", "ack", &replacement, 0).await?;
+    if acknowledgment != json!({"status":"Acknowledged"}) {
+        let saved = save_clock_evidence(
+            directory,
+            "settlement-failure.json",
+            &json!({"format":1,"stage":"replacement receipt","response":acknowledgment,
+                "fetch":replay,"expiry_cut":expiry_cut,"cutoff_utc_ms":wall(),
+                "held_append_ms":retry_held.elapsed().as_millis()}),
+        );
+        anyhow::bail!(
+            "replacement receipt acknowledgment refused: {acknowledgment}; evidence={saved:?}"
+        );
+    }
     let retry_held_ms = retry_held.elapsed().as_millis();
     ensure!(
         retry_held.elapsed() < operation_budget,
@@ -1745,10 +1764,16 @@ async fn run_case(
             .as_str()
             .context("second receipt missing")?,
     )?;
-    ensure!(
-        settle(&client, &source, "projection", "ack", &receipt, 0).await?
-            == json!({"status":"Acknowledged"})
-    );
+    let acknowledgment = settle(&client, &source, "projection", "ack", &receipt, 0).await?;
+    if acknowledgment != json!({"status":"Acknowledged"}) {
+        let saved = save_clock_evidence(
+            directory,
+            "settlement-failure.json",
+            &json!({"format":1,"stage":"delivered second record","response":acknowledgment,
+                "fetch":second,"expiry_cut":expiry_cut,"cutoff_utc_ms":wall()}),
+        );
+        anyhow::bail!("second record acknowledgment refused: {acknowledgment}; evidence={saved:?}");
+    }
     let finished = pending(&client, &source).await?;
     ensure!(
         finished["pending_rows"] == "0"
