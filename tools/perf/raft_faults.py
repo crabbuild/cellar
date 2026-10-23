@@ -14,6 +14,7 @@ import time
 
 from raft_topology import members
 from raft_workload import Ledger, input_digest
+from raft_probe_http import ProbeTrace
 
 LABEL = 'io.cellar.mr14.run'
 
@@ -143,18 +144,20 @@ class SlowFollower:
                         require(remaining > .05, 'pause observation exhausted its time budget')
                         timeout = min(.1, remaining - .05)
                         probe_id = f'{cycle}:{cell}'
+                        trace = ProbeTrace()
                         started = time.monotonic()
                         try:
-                            code, reply = self.probe(cell, timeout, probe_id)
+                            code, reply = self.probe(cell, timeout, probe_id, trace)
                         except Exception as error:
                             # Record the failed read before cleanup can obscure
                             # its cell/budget. It is never retried or qualified.
                             self.record(cycle, 'probe_failed', cell=cell, probe_id=probe_id,
                                         started_monotonic_seconds=started, timeout_seconds=timeout,
                                         elapsed_seconds=time.monotonic() - started,
-                                        error_type=type(error).__name__)
+                                        error_type=type(error).__name__, http_trace=trace.snapshot())
                             raise
-                        self.record(cycle, 'probe', cell=cell, probe_id=probe_id, started_monotonic_seconds=started, status=code, response=reply)
+                        self.record(cycle, 'probe', cell=cell, probe_id=probe_id, started_monotonic_seconds=started,
+                                    status=code, response=reply, http_trace=trace.snapshot())
                     release_state = self.inspect()
                     self.record(cycle, 'release', state=release_state)
                     require(release_state['paused'] is (self.scenario == 'slow-follower'), 'pause changed before release')

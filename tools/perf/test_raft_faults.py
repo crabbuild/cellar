@@ -9,6 +9,7 @@ from unittest.mock import Mock, patch
 from raft_faults import SlowFollower, preflight_pause, validate_fault, validate_scenario, verify_fault
 from raft_run import read_json
 from raft_workload import input_digest
+from raft_probe_http import ProbeTrace
 
 
 def fixture():
@@ -173,13 +174,19 @@ class Ownership(unittest.TestCase):
             return ''
         probe = Mock(return_value=(200, events[2]['response']))
         if mode == 'probe_failure':
-            probe.side_effect = TimeoutError('probe timeout')
+            def fail_probe(cell, timeout, probe_id, trace):
+                def stalled_headers():
+                    raise TimeoutError('probe timeout')
+                return trace.call('response_headers', stalled_headers)
+            probe.side_effect = fail_probe
         with tempfile.TemporaryDirectory() as directory:
             owner = SlowFollower(directory, 'healthy' if mode == 'control' else 'slow-follower',
                                  report['fault_profile'], report['profile'], 'fixture', 'owned', docker, probe)
             owner.drive(time.monotonic())
             if mode in ('control', 'probe_failure'):
-                probe.assert_called_once_with(0, .1, '0:0')
+                probe.assert_called_once()
+                self.assertEqual(probe.call_args.args[:3], (0, .1, '0:0'))
+                self.assertIsInstance(probe.call_args.args[3], ProbeTrace)
             owner.close()
             recorded = [json.loads(line) for line in (Path(directory) / 'faults.jsonl').read_text().splitlines()]
         return state, actions, recorded, owner.failure
@@ -201,6 +208,8 @@ class Ownership(unittest.TestCase):
         self.assertEqual(error['probe_id'], '0:0')
         self.assertEqual((error['cycle'], error['cell'], error['error_type']), (0, 0, 'TimeoutError'))
         self.assertEqual(error['timeout_seconds'], .1)
+        self.assertEqual(error['http_trace']['events'][0]['phase'], 'response_headers')
+        self.assertEqual(error['http_trace']['events'][0]['error_type'], 'TimeoutError')
         self.assertGreaterEqual(error['elapsed_seconds'], 0)
         self.assertGreaterEqual(error['monotonic_seconds'] - error['started_monotonic_seconds'], error['elapsed_seconds'])
         released = next(row for row in recorded if row['event'] == 'released')

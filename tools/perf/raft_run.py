@@ -24,6 +24,7 @@ from store_faults import StorePause, is_store_fault
 from workload_recovery import apply_resolutions, recover_commands
 from raft_docker import BoundContainer, discover as discover_fault_engine
 from raft_kernel import capture as capture_kernel, analyze as analyze_kernel
+from raft_probe_http import ProbeHTTP
 from raft_topology import local_placement, members, verify_topology, verify_resources, verify_populations, verify_traffic, vm_requirements
 from run import create_bucket
 
@@ -147,15 +148,20 @@ def matched_comparison(left, right):
     return {'matched_contract': True, 'throughput_ratio': right['completed_per_second'] / left['completed_per_second']}
 
 
-def request(base, path, token, *, method='GET', body=None, headers=None, timeout=6):
+def request(base, path, token, *, method='GET', body=None, headers=None, timeout=6, http_trace=None, http_client=None):
     wire = None if body is None else json.dumps(body, sort_keys=True, separators=(',', ':')).encode()
     req = urllib.request.Request(base + path, data=wire, method=method,
         headers={'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json', **(headers or {})})
+    require(http_trace is None or http_client is not None, 'missing probe HTTP client')
+    def read(response):
+        return response.read() if http_trace is None else http_trace.read(response)
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as response:
-            return response.status, json.loads(response.read())
+        response = urllib.request.urlopen(req, timeout=timeout) if http_trace is None else http_client.open(req, timeout, http_trace)
+        with response:
+            return response.status, json.loads(read(response))
     except urllib.error.HTTPError as error:
-        raw = error.read().decode()
+        with error:
+            raw = read(error).decode()
         try:
             raw = json.loads(raw)
         except ValueError:
@@ -303,7 +309,7 @@ def run(args, profile, build, docker, cpus, memory):
               'fault_profile': args.fault_config, 'fault_profile_sha256': input_digest(args.fault_config),
               'fault_capability': args.fault_capability,
               'fault_engine': args.fault_engine,
-              'runner_sha256': {name: hashlib.sha256((ROOT / 'tools/perf' / name).read_bytes()).hexdigest() for name in ('raft_run.py', 'raft_workload.py', 'raft_analyze.py', 'raft_metrics.py', 'raft_topology.py', 'raft_faults.py', 'store_faults.py', 'workload_recovery.py', 'raft_docker.py', 'raft_kernel.py', 'raft.py', 'run.py')},
+              'runner_sha256': {name: hashlib.sha256((ROOT / 'tools/perf' / name).read_bytes()).hexdigest() for name in ('raft_run.py', 'raft_workload.py', 'raft_analyze.py', 'raft_metrics.py', 'raft_topology.py', 'raft_faults.py', 'raft_probe_http.py', 'store_faults.py', 'workload_recovery.py', 'raft_docker.py', 'raft_kernel.py', 'raft.py', 'run.py')},
               'capacity': capacity(profile), 'placement': planned, 'vm': {'cpus': cpus, 'memory_bytes': memory},
               'completed': False, 'reconciled': False,
               'limitations': ['One local VM and RustFS; no independent failure domains or Amazon S3 qualification.',
@@ -475,9 +481,10 @@ def run(args, profile, build, docker, cpus, memory):
                 fault = StorePause(root, args.scenario, args.fault_config, profile, prefix, run_id, control)
             else:
                 control = BoundContainer(**args.fault_engine, node=f"{prefix}-node{args.fault_config['node']}", owner=run_id)
+                probe_http = ProbeHTTP()
                 fault = SlowFollower(root, args.scenario, args.fault_config, profile, prefix, run_id, control,
-                                     lambda cell, timeout, probe_id: request(bases[cell % node_count], f'/admin/{cell}', token, timeout=timeout,
-                                         headers={'x-cellar-probe': probe_id}), control.close)
+                                     lambda cell, timeout, probe_id, trace: request(bases[cell % node_count], f'/admin/{cell}', token, timeout=timeout,
+                                         headers={'x-cellar-probe': probe_id}, http_trace=trace, http_client=probe_http), control.close)
         for phase, seconds in [('warmup', profile['timing']['warmup_seconds']), ('measurement', profile['timing']['measurement_seconds'])]:
             if seconds:
                 print(f'{phase}: {seconds}s, {profile["arrival"]["rate_per_second"]} offered operations/sec', flush=True)

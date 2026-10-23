@@ -281,6 +281,17 @@ A server completion can occur after the client times out. It is diagnostic
 evidence only and never replaces the original HTTP result, quorum witness or
 replica/archive verification. Sampling gaps and evictions remain explicit.
 
+Each probe's existing fault-ledger record also retains up to sixteen client
+HTTP spans: connect, send, response headers and body. The urllib connection
+methods, timeout, result and exceptions are preserved; the opener is created
+before measurement and no retry or extra ledger sync is added. Send may include
+connect, so nested spans overlap and must not be added. Missing/overflowed spans
+remain explicit. Only phase names, monotonic times and exception types are
+recorded: no credentials, URLs, headers or response bodies. These HTTP client
+spans distinguish the location of a wait; they do not explain its cause or
+override the original probe outcome. HTTP error response bodies are explicitly
+closed, including when reading the error body times out.
+
 The [first stage-timed pair](../../plans/multi-raft/evidence/MR-14-probe-progress.json)
 at `17fd0b1` completes the slow-follower schedule and verifies 4,500 replicas and
 archive coverage, while missing the unchanged traffic targets (304.107 ms p99,
