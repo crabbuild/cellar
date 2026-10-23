@@ -13,10 +13,17 @@ pub struct State {
 
 /// Only operations known to have no business effects may overlap a mutation.
 /// Arbitrary SQL and nested fetches are conservatively mutation-class operations.
+/// Python's bounded reply adapter implements `storage.read_many` separately.
 pub fn is_read(name: &str) -> bool {
     matches!(
         name,
-        "clock.now" | "storage.read" | "alarm.get" | "var" | "kv.get" | "kv.list"
+        "clock.now"
+            | "storage.read"
+            | "storage.read_many"
+            | "alarm.get"
+            | "var"
+            | "kv.get"
+            | "kv.list"
     )
 }
 

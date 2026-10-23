@@ -220,6 +220,13 @@ class Storage:
         value = await self._context._call("storage.read", key=key)
         return Snapshot(value["present"], value["value"])
 
+    async def read_json_many(self, keys: Iterable[str]) -> dict[str, Snapshot]:
+        """Read bounded snapshots in one host call; duplicate keys share one entry."""
+        if isinstance(keys, (str, bytes)):
+            raise ValidationError("keys must be an iterable of strings")
+        value = await self._context._call("storage.read_many", keys=list(keys))
+        return {key: Snapshot(row["present"], row["value"]) for key, row in value.items()}
+
     async def get_json(self, key: str, default: JSON = None) -> JSON:
         snapshot = await self.read_json(key)
         return snapshot.value if snapshot.present else default

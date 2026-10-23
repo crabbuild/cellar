@@ -128,6 +128,23 @@ class Counter:
                 assert error.code == "HostError" and error.outcome == "unknown"
             else:
                 raise AssertionError("over-depth SDK result was accepted")
+            batch = await storage.read_json_many(["batch-result-exact"])
+            encoded = dict(ok=True, value={key: dict(present=row.present, value=row.value) for key, row in batch.items()})
+            assert len(_encode(encoded).encode()) == 65536
+            for keys in (["batch-result-over"], ["batch-result-exact", "missing"], ["result-depth-exact"]):
+                try:
+                    await storage.read_json_many(keys)
+                except SDKError as error:
+                    assert error.code == "HostError" and error.outcome == "unknown"
+                    assert "xxxx" not in str(error)
+                else:
+                    raise AssertionError("oversized or over-depth read batch accepted")
+            assert (await storage.read_json_many(["batch-result-exact"])) == batch
+            depth = (await storage.read_json_many(["batch-depth-exact"]))["batch-depth-exact"].value
+            for _ in range(62):
+                assert len(depth) == 1
+                depth = depth[0]
+            assert depth is None
             await storage.sql("CREATE TABLE result_effects (payload TEXT)")
             try:
                 await storage.sql("INSERT INTO result_effects VALUES (printf('%.*c', 65536, 'x')) RETURNING payload")

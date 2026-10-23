@@ -622,6 +622,7 @@ fn contract() -> Result<()> {
                 ensure!(response_json::<u32>(call("/duplicate-alarm").send().await?).await? == 1);
                 ensure!(response_json::<bool>(call("/generator").send().await?).await?);
                 ensure!(call("/atomic").send().await?.error_for_status().context("atomic storage")?.json::<bool>().await?);
+                ensure!(response_json::<bool>(call("/read-batch").send().await?).await?);
                 ensure!(call("/batch-validation").send().await?.error_for_status().context("batch validation")?.json::<bool>().await?);
                 ensure!(call("/protocol-validation").send().await?.error_for_status().context("protocol validation")?.json::<bool>().await?);
                 ensure!(response_json::<bool>(call("/unawaited").send().await?).await?);

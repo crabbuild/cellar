@@ -310,9 +310,15 @@ def storage_lifetime():
             self.closed = True
 
         def submit(self, sequence, operation, payload):
-            assert operation == "storage.read" and json.loads(payload) == {"key": "value"}
             self.submitted += 1
-            reference()._reply(sequence, '{"ok":true,"value":{"present":true,"value":42}}')
+            snapshot = dict(present=True, value=42)
+            if operation == "storage.read_many":
+                assert json.loads(payload) == {"keys": ["value"]}
+                value = {"value": snapshot}
+            else:
+                assert operation == "storage.read" and json.loads(payload) == {"key": "value"}
+                value = snapshot
+            reference()._reply(sequence, json.dumps(dict(ok=True, value=value)))
 
     async def exercise():
         nonlocal reference
@@ -323,14 +329,16 @@ def storage_lifetime():
         token = _current_invocation.set(bridge)
         try:
             assert (await storage.read_json("value")).value == 42
+            assert (await storage.read_json_many(["value"]))["value"].value == 42
             other = _current_invocation.set(object())
             try:
-                try:
-                    await storage.read_json("value")
-                except ContextMismatch:
-                    pass
-                else:
-                    raise AssertionError("storage handle escaped invocation authority")
+                for operation in (lambda: storage.read_json("value"), lambda: storage.read_json_many(["value"])):
+                    try:
+                        await operation()
+                    except ContextMismatch:
+                        pass
+                    else:
+                        raise AssertionError("storage handle escaped invocation authority")
             finally:
                 _current_invocation.reset(other)
             context._close()
@@ -342,7 +350,13 @@ def storage_lifetime():
                 assert error.code == "ContextExpired"
             else:
                 raise AssertionError("retained storage admitted an expired mutation")
-            assert bridge.submitted == 1
+            try:
+                await storage.read_json_many(["value"])
+            except SDKError as error:
+                assert error.code == "ContextExpired"
+            else:
+                raise AssertionError("retained storage admitted an expired batch read")
+            assert bridge.submitted == 2
             del storage
             assert reference() is None, "SDK storage cycle needs cyclic collection"
         finally:

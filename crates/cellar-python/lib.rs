@@ -8,6 +8,8 @@ mod failure;
 #[cfg(feature = "embed")]
 mod operations;
 #[cfg(feature = "embed")]
+mod read_batch;
+#[cfg(feature = "embed")]
 mod runtime;
 #[cfg(feature = "embed")]
 mod values;

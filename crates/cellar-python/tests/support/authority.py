@@ -78,6 +78,18 @@ class Counter:
                 assert str(error) == "ContextExpired"
             else:
                 raise AssertionError("expired native sender admitted a late mutation")
+            try:
+                await ctx.storage.read_json_many(["seed"])
+            except SDKError as error:
+                assert error.code == "ContextExpired"
+            else:
+                raise AssertionError("expired invocation admitted a batch read")
+            try:
+                ctx._bridge.submit(10001, "storage.read_many", '{"keys":["seed"]}')
+            except RuntimeError as error:
+                assert str(error) == "ContextExpired"
+            else:
+                raise AssertionError("expired native sender admitted a batch read")
             with _lock:
                 _refused = True
             return Response.json(False)

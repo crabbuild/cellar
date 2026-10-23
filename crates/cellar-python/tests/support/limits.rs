@@ -71,10 +71,23 @@ impl Cell for ResultWriter {
                 context.storage()?.transaction_sync(|tx| {
                     tx.put_json("result-exact", &json!("x".repeat(65536 - overhead)))?;
                     tx.put_json("result-over", &json!("x".repeat(65537 - overhead)))?;
+                    let batch_overhead = serde_json::to_vec(&json!({"ok":true,"value":{
+                        "batch-result-exact":{"present":true,"value":""}
+                    }}))?
+                    .len();
+                    tx.put_json(
+                        "batch-result-exact",
+                        &json!("x".repeat(65536 - batch_overhead)),
+                    )?;
+                    tx.put_json(
+                        "batch-result-over",
+                        &json!("x".repeat(65538 - batch_overhead)),
+                    )?;
                     let mut depth = Value::Null;
                     for _ in 0..63 {
                         depth = json!([depth]);
                     }
+                    tx.put_json("batch-depth-exact", &depth[0])?;
                     tx.put_json("result-depth-exact", &depth)?;
                     tx.put_json("result-depth-over", &json!([depth]))
                 })?;

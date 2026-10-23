@@ -104,6 +104,7 @@ Import `Request`, `Response`, `Conflict`, `SDKError`, `Snapshot` and `MISSING` f
 | API | Behavior |
 | --- | --- |
 | `await ctx.storage.read_json(key)` | Presence-aware snapshot; JSON null differs from missing |
+| `await ctx.storage.read_json_many(keys)` | One host call returning a snapshot per distinct key, including missing keys |
 | `await ctx.storage.get_json(key, default=None)` | Read a JSON value |
 | `await ctx.storage.apply(checks={key: snapshot}, puts={...}, deletes=[...])` | One atomic checked batch; `Conflict` applies no mutations |
 | `await ctx.storage.put_json(key, value)` / `delete(key)` | Unconditional batch mutation |
@@ -191,6 +192,15 @@ the general SDK encoder; native HTTP validation and byte limits still apply.
 batch, rather than each row separately. `max_batch_operations` counts checks,
 puts, deletes and an optional alarm decision together. Rejected oversized
 batches apply no partial writes or alarm changes.
+
+`read_json_many` counts all supplied keys, including duplicates, against
+`max_batch_operations`. It reads synchronously in the original native invocation
+and returns a dictionary of snapshots usable in `apply(checks=...)`. Missing keys
+remain distinct from JSON null. The complete reply must fit `max_value_bytes`;
+collection stops at that limit and an error returns no partial result. The host
+retains at most one decoded stored value beside the bounded encoded reply.
+Like a single read, this is not a reservation against later writers: use checked
+`apply` to reject stale snapshots. No Python HTTP handler or middleware is bypassed.
 
 SDK results also enforce a depth of 64 on the returned value (before its transport
 envelope) and `max_value_bytes` on the complete encoded success envelope. The
