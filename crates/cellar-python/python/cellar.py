@@ -9,6 +9,11 @@ from typing import Any, Iterable, Mapping, TypeAlias, TypedDict
 from urllib.parse import urlsplit
 
 
+# Configure once. CPython allocates recursion/circular-reference state inside
+# each encode call; the encoder retains neither request values nor results.
+_value_encoder = _json.JSONEncoder(allow_nan=False, separators=(",", ":"))
+
+
 JSON: TypeAlias = type(None) | bool | int | float | str | list["JSON"] | dict[str, "JSON"]
 Headers: TypeAlias = Iterable[tuple[str, str]]
 Body: TypeAlias = str | bytes | bytearray | memoryview
@@ -59,7 +64,7 @@ def _check_value(item, depth=0):
 def _encode(value):
     try:
         _check_value(value)
-        return _json.dumps(value, allow_nan=False, separators=(",", ":"))
+        return _value_encoder.encode(value)
     except (ValueError, TypeError, RecursionError) as error:
         raise ValidationError("Unsupported Cellar value") from error
 
@@ -90,7 +95,7 @@ def _encode_response(value):
     # This shape is shallow and contains only checked, immutable scalars.
     # Keep key order and ASCII escaping: native admission charges these bytes.
     # HTTP status/header validation still belongs to the native output boundary.
-    return _json.dumps(snapshot, allow_nan=False, separators=(",", ":"))
+    return _value_encoder.encode(snapshot)
 
 
 class SDKError(Exception):

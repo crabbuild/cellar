@@ -1,9 +1,13 @@
 """SDK values and HTTP metadata preserve JSON representation and rejection rules."""
 from http import HTTPStatus
+from concurrent.futures import ThreadPoolExecutor
+import gc
 import json
 from pathlib import Path
 import sys
+import threading
 import unittest
+import weakref
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "crates/cellar-python/python"))
@@ -149,15 +153,47 @@ class EncodingTests(unittest.TestCase):
         value = dict(status=200, headers=headers, body="")
         dumps = json.dumps
 
-        def mutate_then_encode(snapshot, **options):
+        def mutate_then_encode(snapshot):
             row[1] = {"invalid": object()}
             headers.append(object())
             value["status"] = 2**64
-            return dumps(snapshot, **options)
+            return dumps(snapshot, allow_nan=False, separators=(",", ":"))
 
-        with patch("cellar._json.dumps", side_effect=mutate_then_encode):
+        with patch("cellar._value_encoder.encode", side_effect=mutate_then_encode) as encode:
             self.assertEqual(_encode_response(value),
                              '{"status":200,"headers":[["x","before"]],"body":""}')
+            encode.assert_called_once()
+
+    def test_shared_encoder_keeps_concurrent_calls_independent(self):
+        shared = {"nested": [None, True, "é😀", {"number": 1.25}]}
+        barrier = threading.Barrier(4)
+
+        def worker(index):
+            value = {"worker": index, "left": shared, "right": shared}
+            expected = json.dumps(value, allow_nan=False, separators=(",", ":"))
+            response = dict(status=200 + index, headers=[("x-worker", str(index))], body="")
+            encoded_response = json.dumps(response, separators=(",", ":"))
+            barrier.wait(timeout=5)
+            for _ in range(1000):
+                self.assertEqual(_encode(value), expected)
+                self.assertEqual(_encode_response(response), encoded_response)
+                with self.assertRaises(ValidationError):
+                    _encode({"invalid": float("nan")})
+            return index
+
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            self.assertEqual(list(pool.map(worker, range(4))), list(range(4)))
+
+    def test_shared_encoder_does_not_retain_application_values(self):
+        class Payload(list):
+            pass
+
+        value = Payload([{"private": "data"}])
+        reference = weakref.ref(value)
+        self.assertEqual(_encode(value), '[{"private":"data"}]')
+        del value
+        gc.collect()
+        self.assertIsNone(reference())
 
 
 if __name__ == "__main__":
