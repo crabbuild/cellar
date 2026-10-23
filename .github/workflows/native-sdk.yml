@@ -24,6 +24,14 @@ on:
         description: Read 1-64 resident cells instead of echo (0 keeps echo)
         type: number
         default: 0
+      load_cell_echo:
+        description: Echo through one resident cell (requires load_read_cells=0)
+        type: boolean
+        default: false
+      load_body_bytes:
+        description: Echo body bytes (0-65536, ignored for cell reads)
+        type: number
+        default: 4096
       load_baseline_sha:
         description: Optional full commit SHA for a same-runner Python before/after comparison
         type: string
@@ -306,6 +314,8 @@ jobs:
       PYTHONDONTWRITEBYTECODE: '1'
       CELLAR_LOAD_REPETITIONS: ${{ inputs.load_repetitions }}
       CELLAR_LOAD_READ_CELLS: ${{ inputs.load_read_cells }}
+      CELLAR_LOAD_CELL_ECHO: ${{ inputs.load_cell_echo }}
+      CELLAR_LOAD_BODY_BYTES: ${{ inputs.load_body_bytes }}
       CELLAR_LOAD_SHA: ${{ inputs.replay_sha }}
       CELLAR_LOAD_PYTHON: ${{ matrix.python }}
       CELLAR_LOAD_BASELINE_SHA: ${{ inputs.load_baseline_sha }}
@@ -328,6 +338,12 @@ jobs:
               raise SystemExit('load_repetitions must be from 1 to 5')
           if not 0 <= int(os.environ['CELLAR_LOAD_READ_CELLS']) <= 64:
               raise SystemExit('load_read_cells must be from 0 to 64')
+          if os.environ['CELLAR_LOAD_CELL_ECHO'] not in ('true', 'false'):
+              raise SystemExit('load_cell_echo must be a boolean')
+          if os.environ['CELLAR_LOAD_CELL_ECHO'] == 'true' and int(os.environ['CELLAR_LOAD_READ_CELLS']):
+              raise SystemExit('cell echo and cell reads are distinct workloads')
+          if not 0 <= int(os.environ['CELLAR_LOAD_BODY_BYTES']) <= 65536:
+              raise SystemExit('load_body_bytes must be from 0 to 65536')
           actual = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
           expected = os.environ.get('CELLAR_LOAD_SHA', '').lower()
           if expected and actual != expected:
@@ -424,9 +440,11 @@ jobs:
           if test -n "$CELLAR_LOAD_BASELINE_SHA"; then
             comparison=(--python-host "baseline=$RUNNER_TEMP/load-python-before")
           fi
-          workload=(--body-bytes 4096)
+          workload=(--body-bytes "$CELLAR_LOAD_BODY_BYTES")
           if test "$CELLAR_LOAD_READ_CELLS" -gt 0; then
             workload=(--body-bytes 0 --read-cells "$CELLAR_LOAD_READ_CELLS")
+          elif test "$CELLAR_LOAD_CELL_ECHO" = true; then
+            workload+=(--cell-echo)
           fi
           python tools/python/offered.py --client target/lab/examples/python-offered-load \
             --native-host "$RUNNER_TEMP/load-native" --python-host "selected=$RUNNER_TEMP/load-python" \
@@ -444,6 +462,10 @@ jobs:
               raise SystemExit('Incomplete offered-load experiment')
           if report['read_cells'] != int(os.environ['CELLAR_LOAD_READ_CELLS']):
               raise SystemExit('Measured cell population differs from requested workload')
+          if report['cell_echo'] != (os.environ['CELLAR_LOAD_CELL_ECHO'] == 'true'):
+              raise SystemExit('Measured echo route differs from requested workload')
+          expected_body = 0 if report['read_cells'] else int(os.environ['CELLAR_LOAD_BODY_BYTES'])
+          expected_route = '/' if report['read_cells'] else ('/cell-echo' if report['cell_echo'] else '/echo')
           builds = json.loads((Path(sys.argv[1]).parent.parent / 'builds.json').read_text())
           for host in report['hosts']:
               if host['sha256'] != builds['executables'][host['label']]['sha256']:
@@ -458,6 +480,8 @@ jobs:
                   for name in ('warmup', 'measurement'):
                       prefix = 'warmup' if name == 'warmup' else 'measured'
                       raw = json.loads((root / f"{prefix}-{phase['rate']}.json").read_text())
+                      if raw['workload']['body_bytes'] != expected_body or raw['workload']['url'] != case['host']['url'].rstrip('/') + expected_route:
+                          raise SystemExit('Raw workload differs from requested body or route')
                       if summarize(raw) != phase[name]:
                           raise SystemExit('Offered-load summary differs from raw arrivals')
                       for row in raw['samples']:

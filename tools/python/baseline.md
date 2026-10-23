@@ -123,6 +123,14 @@ retire every created object at shutdown. The same scheduling, failure accounting
 and rotated comparisons apply. This measures read dispatch and bridge overhead;
 it does not test durable mutations or fleet recovery.
 
+For nested HTTP bodies, add `--cell-echo --body-bytes 65536` and choose a new
+output directory. The root handler forwards each POST to one resident cell,
+which echoes the exact request bytes without storage access. The driver checks
+that cell's residency, two Python handler completions per successful request,
+and joined object retirement. Empty through 65,536-byte bodies are supported;
+`--cell-echo` cannot be combined with `--read-cells`. This isolates nested body
+transport from database work while retaining real native cell dispatch.
+
 On Linux, pass `--host-cpus 0,1 --client-cpus 2,3` to place the host and client
 on disjoint logical CPU sets. Choose IDs from `os.sched_getaffinity(0)` on the
 measurement machine; both lists are required, and unavailable or overlapping
@@ -138,8 +146,11 @@ the same masks, body sizes, rates, build profile and repetition count.
 
 The SDK workflow's `python-load` mode applies disjoint CPU sets on Linux.
 Set `load_read_cells` to 1–64 to select the resident-cell read workload; its
-default of zero retains echo. Live host thread masks are checked before and
-after each measured phase for both workloads.
+default of zero retains echo. Set `load_cell_echo=true` with zero read cells to
+forward echoes through one resident cell. `load_body_bytes` selects the echo
+body size (0–65,536, default 4,096); cell reads always use zero request bytes.
+Live host thread masks are checked before and after each measured phase for all
+workloads.
 Set its optional `load_baseline_sha` to a full commit SHA to build another Python
 host on that same runner and include it in the rotated offered-load comparison.
 Both revisions use the selected matrix interpreter and toolchain. The job

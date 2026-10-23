@@ -97,12 +97,13 @@ impl Workload {
                 && url.port().is_some()
                 && url.username().is_empty()
                 && url.password().is_none()
-                && url.path() == "/"
+                && matches!(url.path(), "/" | "/cell-echo")
                 && url.query().is_none()
                 && url.fragment().is_none(),
             "a private loopback origin is required"
         );
         let reads: Vec<ReadTarget> = if let Some(path) = args.get(8) {
+            ensure!(url.path() == "/", "read targets require a root origin");
             let mut bytes = Vec::new();
             File::open(path)?
                 .take(5 * 1_048_576 + 1)
@@ -113,7 +114,9 @@ impl Workload {
             );
             serde_json::from_slice(&bytes)?
         } else {
-            url.set_path("/echo");
+            if url.path() == "/" {
+                url.set_path("/echo");
+            }
             Vec::new()
         };
         if args.len() == 9 {

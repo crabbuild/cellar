@@ -103,13 +103,14 @@ class NativeArrivalTests(unittest.TestCase):
                     "--client", str(CLIENT), "--native-host", str(CLIENT),
                     "--python-host", f"python={CLIENT}", "--build-profile", "lab", "--output", str(output)]
             for arguments in (["--read-cells", "-1"], ["--read-cells", "65"],
-                              ["--read-cells", "32", "--body-bytes", "1"]):
+                              ["--read-cells", "32", "--body-bytes", "1"],
+                              ["--read-cells", "1", "--body-bytes", "0", "--cell-echo"]):
                 with self.subTest(arguments=arguments):
                     result = subprocess.run([*base, *arguments], capture_output=True, timeout=10)
                     self.assertNotEqual(result.returncode, 0)
                     self.assertFalse(output.exists(), result.stderr.decode())
 
-    def run_client(self, mode, *, inflight=16, timeout=500, body_bytes=137, reads=False):
+    def run_client(self, mode, *, inflight=16, timeout=500, body_bytes=137, reads=False, cell_echo=False):
         server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         server.mode, server.received, server.lock = mode, 0, threading.Lock()
         server.paths = []
@@ -119,7 +120,8 @@ class NativeArrivalTests(unittest.TestCase):
         try:
             with tempfile.TemporaryDirectory() as root:
                 output = Path(root) / "samples.json"
-                command = [str(CLIENT), f"http://127.0.0.1:{server.server_port}",
+                origin = f"http://127.0.0.1:{server.server_port}" + ("/cell-echo" if cell_echo else "")
+                command = [str(CLIENT), origin,
                            "100", "500", str(inflight), str(0 if reads else body_bytes), str(timeout), "200", str(output)]
                 if reads:
                     manifest = Path(root) / "reads.json"
@@ -137,6 +139,8 @@ class NativeArrivalTests(unittest.TestCase):
                     self.assertEqual(server.received, dispatched, "redirect or hidden resend")
                     if reads:
                         self.assertEqual(set(server.paths), {("GET", path) for path in server.reads})
+                    else:
+                        self.assertEqual(set(server.paths), {("POST", "/cell-echo" if cell_echo else "/echo")})
                 # Existing evidence must be refused before another request.
                 again = subprocess.run(command, capture_output=True, timeout=10)
                 self.assertNotEqual(again.returncode, 0)
@@ -178,6 +182,32 @@ class NativeArrivalTests(unittest.TestCase):
         _, summary = self.run_client("echo", body_bytes=0)
         self.assertGreater(summary["outcomes"].get("success", 0), 0)
         self.assertFalse(set(summary["outcomes"]) - {"success", "client_late", "client_capacity"})
+
+    def test_cell_echo_keeps_route_and_checks_empty_and_binary_bodies(self):
+        for size in (0, 4096):
+            with self.subTest(body_bytes=size):
+                report, summary = self.run_client("echo", body_bytes=size, cell_echo=True)
+                self.assertTrue(report["workload"]["url"].endswith("/cell-echo"))
+                self.assertEqual(report["workload"]["body_bytes"], size)
+                self.assertGreater(summary["outcomes"].get("success", 0), 0)
+                self.assertFalse(set(summary["outcomes"]) - {"success", "client_late", "client_capacity"})
+        _, summary = self.run_client("wrong", cell_echo=True)
+        self.assertGreater(summary["outcomes"].get("body_mismatch", 0), 0)
+        self.assertNotIn("success", summary["outcomes"])
+
+    def test_cell_echo_cannot_mix_read_manifest_or_accept_other_paths(self):
+        with tempfile.TemporaryDirectory() as root:
+            manifest, output = Path(root) / "reads.json", Path(root) / "samples.json"
+            manifest.write_text(json.dumps([dict(path="/orders/one", expected_body=[1])]))
+            for route, reads in (("/cell-echo", True), ("/other", False),
+                                 ("/cell-echo/", False), ("/cell-echo?x=1", False)):
+                command = [str(CLIENT), "http://127.0.0.1:9" + route, "1", "1000", "1",
+                           "0", "100", "1", str(output)]
+                if reads:
+                    command.append(str(manifest))
+                result = subprocess.run(command, capture_output=True, timeout=5)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse(output.exists(), result.stderr.decode())
 
     def test_http_redirects_are_not_followed(self):
         _, summary = self.run_client("redirect")
