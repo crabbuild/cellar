@@ -38,7 +38,7 @@ impl Arguments {
         ensure!(
             matches!(
                 args[0].as_str(),
-                "native" | "python" | "python-defaults" | "native-resident" | "python-resident"
+                "native" | "python" | "python-defaults" | "native-resident" | "python-resident" | "python-initial" | "python-initial-resident" | "python-sequential" | "python-sequential-resident"
             ),
             "invalid host mode"
         );
@@ -123,14 +123,17 @@ fn python(arguments: Arguments, before: Value) -> Result<()> {
         "max_objects": options.max_objects, "shutdown_timeout_ms": options.shutdown_timeout.as_millis(),
         "poll_interval_ns": options.poll_interval.as_nanos(), "telemetry_interval_ms": options.telemetry_interval.as_millis(),
     });
+    let source = Source::new(include_str!("baseline_app.py"), "baseline_app.py")
+        .events([EventKind::Fetch]).cell("Entity");
+    let source = if !arguments.mode.starts_with("python-sequential") {
+        source.cell_initial_reads("Entity", EventKind::Fetch, ["count"])
+    } else { source };
     // SAFETY: this executable initializes once on its main thread, before any
     // node or foreign Python caller exists. The owned supervisor joins below.
     let report = unsafe {
         PythonRuntime::run(
             options,
-            Source::new(include_str!("baseline_app.py"), "baseline_app.py")
-                .events([EventKind::Fetch])
-                .cell("Entity"),
+            source,
             move |application, monitor| {
                 let observed = application.clone();
                 let observation: Observation = Arc::new(move || {

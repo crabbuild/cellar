@@ -107,7 +107,7 @@ def summarize(report):
 
 def read_targets(population):
     require(0 <= population <= 64, "read population must be from 0 to 64")
-    return [dict(path=f"/cells/resident-{index}", expected_body=list(b'{"value":0}'))
+    return [dict(path=f"/cells/resident-{index}", expected_body=list(b'{"value":1}'))
             for index in range(population)]
 
 
@@ -150,15 +150,21 @@ def run_case(client, executable, mode, args, root, case):
             require(sorted(os.sched_getaffinity(host.process.pid)) == cpus,
                     "host changed CPU affinity after startup")
         case["host"] = host.ready
-        require(host.ready["embed_compiled"] == (mode == "python")
+        require(host.ready["embed_compiled"] == (mode.startswith("python"))
                 and host.ready["debug_assertions"] == (args.build_profile == "dev")
                 and host.ready["durability"] == "local-only", "incorrect measurement host")
-        case["python_runtime"] = host.python_runtime() if mode == "python" else None
+        case["python_runtime"] = host.python_runtime() if mode.startswith("python") else None
         reads = read_targets(args.read_cells)
         population = 1 if args.cell_echo else args.read_cells
         if reads:
             save(root / "reads.json", reads)
             populate(host, 0, args.read_cells)
+            connection = Connection(host.origin)
+            try:
+                for index in range(args.read_cells):
+                    require(json.loads(connection.request("POST", f"/cells/resident-{index}")) == {"value": 1}, "seed did not commit")
+            finally:
+                connection.close()
             case["populated"] = observed_idle(host, args.read_cells)
         elif args.cell_echo:
             connection = Connection(host.origin)
@@ -179,7 +185,7 @@ def run_case(client, executable, mode, args, root, case):
             phase["after"] = observed_idle(host, population)
             if cpus is not None:
                 phase["affinity_after"] = affinity.verify_threads(host.process.pid, cpus)
-            if mode == "python":
+            if mode.startswith("python"):
                 before = phase["before"]["runtime"]["interpreter"]["interpreter"]
                 after = phase["after"]["runtime"]["interpreter"]["interpreter"]
                 require(after["handlers_completed"] - before["handlers_completed"]
@@ -187,10 +193,10 @@ def run_case(client, executable, mode, args, root, case):
                         "interpreter observation omitted completed requests")
             print(f"{case['runtime']} r{case['repetition']} offered={rate}: "
                   f"{phase['measurement']['outcomes']}", flush=True)
-        if mode == "python":
+        if mode.startswith("python"):
             require(host.python_runtime() == case["python_runtime"], "ABI/GIL state changed")
         case["shutdown"] = host.stop()
-        if mode == "python":
+        if mode.startswith("python"):
             report = case["shutdown"]["python"]
             require(report["objects_created"] == report["objects_retired"] == population,
                     "resident objects churned or escaped joined cleanup")
@@ -229,6 +235,7 @@ def main():
             and all(1 <= duration <= 120000 and all(1 <= rate * duration // 1000 <= 1000000
                     for rate in args.rates) for duration in (args.warmup_ms, args.duration_ms)),
             "invalid offered rates or durations")
+    require(args.read_cells == 8, "snapshot diagnostic requires eight populated cells")
     read_targets(args.read_cells)
     require(not args.cell_echo or not args.read_cells, "cell echo and cell reads are distinct workloads")
     require(not args.read_cells or args.body_bytes == 0, "cell reads require --body-bytes 0")
@@ -237,7 +244,8 @@ def main():
     for argument in args.python_host:
         label, path = argument.split("=", 1)
         require(label and all(c.isascii() and (c.isalnum() or c in "-_") for c in label), "invalid label")
-        hosts.append((label, "python", Path(path).resolve(strict=True)))
+        hosts.append((label, "python-sequential", Path(path).resolve(strict=True)))
+        hosts.append((label + "-initial", "python", Path(path).resolve(strict=True)))
     require(len({label for label, _, _ in hosts}) == len(hosts), "duplicate label")
     args.output = args.output.resolve()
     args.output.mkdir(parents=True, exist_ok=False)
