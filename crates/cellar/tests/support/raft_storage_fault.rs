@@ -149,14 +149,14 @@ impl HostFileIo for FaultFile {
     }
 
     fn read_exact_at(&mut self, offset: u64, len: usize) -> io::Result<Vec<u8>> {
-        if self.image
-            && self.gate.mode.load(Ordering::Acquire) == HOLD_IMAGE_READ
-            && self
-                .gate
-                .image_read_paths
-                .lock()
-                .unwrap()
-                .contains(&self.path)
+        // An empty selection preserves the generic capture-read fault. A
+        // named selection holds only the intended immutable generation read.
+        let selected = {
+            let paths = self.gate.image_read_paths.lock().unwrap();
+            paths.is_empty() || self.image && paths.contains(&self.path)
+        };
+        if !self.log
+            && selected
             && self
                 .gate
                 .mode

@@ -1,5 +1,6 @@
 //! A startup error owns infrastructure until actual file-lock release.
 #![allow(clippy::disallowed_methods)]
+use super::storage_fault as fault;
 use super::*;
 use crate::raft::{
     options::{LogOpenMode, RaftRuntimeOptions, ReplicaLogOptions},
@@ -9,9 +10,6 @@ use crate::raft::{
 };
 use anyhow::Context as _;
 use std::time::Duration;
-#[path = "../../tests/support/raft_storage_fault.rs"]
-#[allow(dead_code)]
-mod fault;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn failed_preflight_joins_infrastructure_with_retained_handles() -> anyhow::Result<()> {

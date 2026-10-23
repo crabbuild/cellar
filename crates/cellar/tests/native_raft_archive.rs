@@ -5,11 +5,13 @@
 #[path = "support/raft_cluster.rs"]
 #[allow(dead_code)]
 mod cluster;
+#[path = "support/raft_archive_download.rs"]
+mod download;
 #[path = "support/raft_catalog_fault.rs"]
 mod faults;
-#[allow(dead_code)]
 #[path = "support/raft_ltx_fault.rs"]
-mod image_faults;
+#[allow(dead_code)]
+mod image_fault;
 #[allow(dead_code)]
 #[path = "support/raft_ltx_fixture.rs"]
 mod images;
@@ -196,6 +198,22 @@ impl Fixture {
                 &format!("UPDATE counter SET value={value}"),
             )?
         };
+        self.commit_bytes(next, dependencies, |update| {
+            if corrupt {
+                let bytes = &mut update.files[0].bytes;
+                let last = bytes.len() - 1;
+                bytes[last] ^= 0xff;
+            }
+        })
+        .await
+    }
+
+    async fn commit_bytes(
+        &mut self,
+        next: Vec<u8>,
+        dependencies: Vec<ArchiveDependency>,
+        mutate: impl FnOnce(&mut CellUpdate),
+    ) -> Result<CommittedArchiveCut> {
         let cut = images::Cut::new(
             &self.bytes,
             &next,
@@ -208,17 +226,12 @@ impl Fixture {
                 .prepare(images::id(self.txid + 1), self.pin.as_ref(), &cut.update())?;
         let index = self.group.applied()?.position.index.get() + 1;
         let mut write = GroupWrite::new(&self.group);
-        let mut payload = self.payload(&cut)?;
-        if corrupt {
-            // The mechanical storage fixture can lie about applied bytes. A
-            // real ImageApplier refuses this entry; archive replay must also
-            // refuse it before advancing the independently verified head.
-            let mut update = CellUpdate::decode(&payload, EnvelopeLimits::default())?;
-            let bytes = &mut update.files[0].bytes;
-            let last = bytes.len() - 1;
-            bytes[last] ^= 0xff;
-            payload = update.encode(EnvelopeLimits::default())?;
-        }
+        // The mechanical storage fixture can lie about applied bytes. A real
+        // ImageApplier refuses such entries; archive replay must also refuse
+        // them before advancing the independently verified head.
+        let mut update = CellUpdate::decode(&self.payload(&cut)?, EnvelopeLimits::default())?;
+        mutate(&mut update);
+        let payload = update.encode(EnvelopeLimits::default())?;
         write.entries.push(Entry {
             index,
             term: 1,
@@ -362,6 +375,133 @@ fn restored(set: &ArchiveRecoverySet, expected: i64) -> Result<Vec<u8>> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn archive_replay_seals_one_generation_for_a_bounded_tail_batch() -> Result<()> {
+    let mut fixture = Fixture::new(ArchiveLimits {
+        // Exercise replay batching with a retained twenty-entry tail.
+        max_tail_image_ratio: 128,
+        ..Default::default()
+    })
+    .await?;
+    let first = fixture.commit(1, vec![]).await?;
+    fixture.publish(first).await?;
+    for value in 2..=20 {
+        fixture.commit(value, vec![]).await?;
+    }
+    let last = fixture.commit(21, vec![]).await?;
+    let set = fixture.publish(last).await?;
+    ensure!(set.tail_entries() == 20);
+    for (max_files, expected_seals) in [(64, 1), (3, 7), (1, 21)] {
+        let root = tempfile::tempdir()?;
+        let directory = root.path().join("replay");
+        let faults = image_fault::Faults::new(directory.clone(), None);
+        let mut limits = GenerationLimits::default();
+        limits.apply.max_files = max_files;
+        let store = GenerationStore::open(
+            directory,
+            Arc::new(image_fault::FaultFileSystem {
+                faults: faults.clone(),
+            }),
+            limits,
+        )?;
+        faults.events.lock().unwrap().clear();
+        let pin = set.restore(&store, images::id(91))?;
+        ensure!(images::read(&pin)? == fixture.bytes);
+        let events = faults.events.lock().unwrap().clone();
+        assert_eq!(
+            events
+                .iter()
+                .filter(|&&event| event == "image-sync")
+                .count(),
+            expected_seals,
+            "archive replay image-sync count with {max_files} files per batch"
+        );
+        assert!(
+            !events.contains(&"rename"),
+            "exclusive image files need no rename"
+        );
+    }
+    fixture.close().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn archive_replay_batches_preserve_shrink_then_growth_capacity() -> Result<()> {
+    let mut fixture = Fixture::new(ArchiveLimits::default()).await?;
+    let initial = images::image(
+        None,
+        "CREATE TABLE counter(value INTEGER); INSERT INTO counter VALUES(1);\
+         CREATE TABLE payload(value BLOB); INSERT INTO payload VALUES(zeroblob(32768))",
+    )?;
+    let initial_length = initial.len() as u64;
+    let first = fixture.commit_bytes(initial, vec![], |_| {}).await?;
+    fixture.publish(first).await?;
+    fixture.commit(2, vec![]).await?;
+    let shrunk = images::image(Some(&fixture.bytes), "DELETE FROM payload; VACUUM")?;
+    let shrunk_length = shrunk.len() as u64;
+    fixture.commit_bytes(shrunk, vec![], |_| {}).await?;
+    let grown = images::image(
+        Some(&fixture.bytes),
+        "INSERT INTO payload VALUES(zeroblob(36864))",
+    )?;
+    let capacity = 3 * initial_length;
+    ensure!(shrunk_length + 2 * grown.len() as u64 <= capacity);
+    ensure!(initial_length + 2 * grown.len() as u64 > capacity);
+    let last = fixture.commit_bytes(grown, vec![], |_| {}).await?;
+    let set = fixture.publish(last).await?;
+    let root = tempfile::tempdir()?;
+    let mut limits = GenerationLimits {
+        max_generations: 2,
+        max_bytes: capacity,
+        ..Default::default()
+    };
+    limits.apply.max_files = 2;
+    let store = GenerationStore::open(
+        root.path().join("replay"),
+        Arc::new(DirectFileSystem),
+        limits,
+    )?;
+    let pin = set.restore(&store, images::id(91))?;
+    ensure!(images::read(&pin)? == fixture.bytes);
+    fixture.close().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn archive_replay_refuses_an_overwritten_intermediate_image_digest() -> Result<()> {
+    let mut fixture = Fixture::new(ArchiveLimits::default()).await?;
+    let first = fixture.commit(1, vec![]).await?;
+    fixture.publish(first.clone()).await?;
+    let middle = images::image(Some(&fixture.bytes), "UPDATE counter SET value=2")?;
+    let mut false_digest = [0; 32];
+    fixture
+        .commit_bytes(middle, vec![], |update| {
+            update.result.image_digest[0] ^= 1;
+            false_digest = update.result.image_digest;
+        })
+        .await?;
+    let final_image = images::image(Some(&fixture.bytes), "UPDATE counter SET value=3")?;
+    let last = fixture
+        .commit_bytes(final_image, vec![], |update| {
+            update.base.image_digest = false_digest;
+        })
+        .await?;
+    ensure!(matches!(
+        fixture.publish(last).await,
+        Err(ArchiveError::Images(
+            cellar_ltx::generation::GenerationError::Apply(
+                cellar_ltx::apply::ApplyError::ResultDigest
+            )
+        ))
+    ));
+    let set = fixture
+        .archive
+        .recovery_set()
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("missing prior head"))?;
+    ensure!(set.position() == first.position());
+    restored(&set, 1)?;
+    fixture.close().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn archive_reference_stays_exact_after_head_advance() -> Result<()> {
     let mut fixture = Fixture::new(ArchiveLimits::default()).await?;
     ensure!(fixture.archive.recovery_metadata().await?.is_none());
@@ -462,7 +602,12 @@ async fn archive_reference_refuses_substitution_and_missing_material() -> Result
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn archive_tail_replay_seals_one_private_image() -> Result<()> {
-    let mut fixture = Fixture::new(ArchiveLimits::default()).await?;
+    // Exercise replay partitioning independently of size-triggered rotation.
+    let mut fixture = Fixture::new(ArchiveLimits {
+        max_tail_image_ratio: 128,
+        ..Default::default()
+    })
+    .await?;
     let first = fixture.commit(1, vec![]).await?;
     fixture.publish(first).await?;
     let mut cut = None;
@@ -472,10 +617,10 @@ async fn archive_tail_replay_seals_one_private_image() -> Result<()> {
     let set = fixture.publish(cut.context("missing tail")?).await?;
     ensure!(set.tail_entries() == 32);
     let directory = tempfile::tempdir()?;
-    let faults = image_faults::Faults::new(directory.path().join("images"), None);
+    let faults = image_fault::Faults::new(directory.path().join("images"), None);
     let images = GenerationStore::open(
         faults.directory.clone(),
-        Arc::new(image_faults::FaultFileSystem {
+        Arc::new(image_fault::FaultFileSystem {
             faults: faults.clone(),
         }),
         GenerationLimits::default(),
@@ -511,7 +656,7 @@ async fn archive_tail_replay_seals_one_private_image() -> Result<()> {
         "32-entry archive replay sealed {syncs} images in {elapsed:?}: {events:?}"
     );
     ensure!(
-        events == ["image-sync", "rename", "directory-sync"],
+        events == ["image-sync", "directory-sync"],
         "unexpected publication work: {events:?}"
     );
     fixture.close().await
@@ -519,7 +664,12 @@ async fn archive_tail_replay_seals_one_private_image() -> Result<()> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn archive_tail_replay_partitions_at_destination_limits() -> Result<()> {
-    let mut fixture = Fixture::new(ArchiveLimits::default()).await?;
+    // Exercise replay partitioning independently of size-triggered rotation.
+    let mut fixture = Fixture::new(ArchiveLimits {
+        max_tail_image_ratio: 128,
+        ..Default::default()
+    })
+    .await?;
     let first = fixture.commit(1, vec![]).await?;
     fixture.publish(first).await?;
     let mut cut = None;
@@ -530,12 +680,12 @@ async fn archive_tail_replay_partitions_at_destination_limits() -> Result<()> {
     ensure!(set.tail_entries() == 65);
     for max_files in [64, 7, 1] {
         let directory = tempfile::tempdir()?;
-        let faults = image_faults::Faults::new(directory.path().join("images"), None);
+        let faults = image_fault::Faults::new(directory.path().join("images"), None);
         let mut limits = GenerationLimits::default();
         limits.apply.max_files = max_files;
         let images = GenerationStore::open(
             faults.directory.clone(),
-            Arc::new(image_faults::FaultFileSystem {
+            Arc::new(image_fault::FaultFileSystem {
                 faults: faults.clone(),
             }),
             limits,
@@ -598,6 +748,175 @@ async fn committed_archive_restores_snapshot_and_physical_tail() -> Result<()> {
         .await?
         .ok_or_else(|| anyhow::anyhow!("missing archive head"))?;
     ensure!(restored(&set, 19)? == expected);
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn archive_extension_reads_retained_payloads_once() -> Result<()> {
+    let mut fixture = Fixture::new(ArchiveLimits {
+        // Keep the history needed to count retained-payload reads.
+        max_tail_image_ratio: 128,
+        ..Default::default()
+    })
+    .await?;
+    let first = fixture
+        .commit(7, vec![ArchiveDependency(b"retained dependency".to_vec())])
+        .await?;
+    fixture.publish(first).await?;
+    for value in 8..=10 {
+        let cut = fixture.commit(value, vec![]).await?;
+        fixture.publish(cut).await?;
+    }
+    let cut = fixture.commit(11, vec![]).await?;
+    fixture
+        .store
+        .archive_payload_reads
+        .store(0, Ordering::Release);
+    let set = fixture.publish(cut).await?;
+    ensure!(set.tail_entries() == 4);
+    // The new tail is read back after PUT. Complete final verification then
+    // reads one snapshot, four tails and the retained dependency exactly once.
+    // Reading the old set for planning alone adds five redundant object reads.
+    let reads = fixture.store.archive_payload_reads.load(Ordering::Acquire);
+    ensure!(reads == 7, "archive extension used {reads} payload reads");
+    ensure!(restored(&set, 11)? == fixture.bytes);
+    let selected = fixture
+        .archive
+        .recovery_set()
+        .await?
+        .context("archive head")?;
+    ensure!(selected.reference() == set.reference());
+    ensure!(restored(&selected, 11)? == fixture.bytes);
+    let cut = fixture
+        .commit(12, vec![ArchiveDependency(b"retained dependency".to_vec())])
+        .await?;
+    fixture
+        .store
+        .archive_payload_reads
+        .store(0, Ordering::Release);
+    let set = fixture.publish(cut).await?;
+    let reads = fixture.store.archive_payload_reads.load(Ordering::Acquire);
+    ensure!(
+        reads == 8,
+        "reused dependency added redundant payload reads: {reads}"
+    );
+    ensure!(set.tail_entries() == 5);
+    ensure!(restored(&set, 12)? == fixture.bytes);
+    fixture.close().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn archive_publication_rechecks_prior_payloads_before_head_success() -> Result<()> {
+    for operation in [
+        "covered",
+        "extend",
+        "extend-with-dependency",
+        "rotate",
+        "rotate-by-size",
+    ] {
+        let mut fixture = Fixture::new(ArchiveLimits {
+            max_tails: if operation == "rotate" { 1 } else { 32 },
+            max_tail_image_ratio: if operation == "rotate-by-size" {
+                2
+            } else {
+                128
+            },
+            ..Default::default()
+        })
+        .await?;
+        let first = fixture
+            .commit(
+                7,
+                vec![ArchiveDependency(b"required prior object".to_vec())],
+            )
+            .await?;
+        fixture.publish(first).await?;
+        let second = fixture.commit(8, vec![]).await?;
+        let previous = fixture.publish(second.clone()).await?;
+        ensure!(previous.tail_entries() == 1);
+        let cut = if operation == "covered" {
+            second
+        } else {
+            let dependencies = if operation == "extend-with-dependency" {
+                vec![ArchiveDependency(b"required prior object".to_vec())]
+            } else {
+                vec![]
+            };
+            fixture.commit(9, dependencies).await?
+        };
+        let objects = fixture.store.list(None).try_collect::<Vec<_>>().await?;
+        let head = objects
+            .iter()
+            .find(|o| o.location.filename() == Some("head"))
+            .context("archive head")?;
+        let head_bytes = fixture
+            .store
+            .inner
+            .get(&head.location)
+            .await?
+            .bytes()
+            .await?;
+        for kind in ["/snapshots/", "/tails/", "/dependencies/"] {
+            let object = objects
+                .iter()
+                .find(|o| o.location.as_ref().contains(kind))
+                .context("prior recovery payload")?;
+            let bytes = fixture
+                .store
+                .inner
+                .get(&object.location)
+                .await?
+                .bytes()
+                .await?;
+            for missing in [true, false] {
+                if missing {
+                    fixture.store.inner.delete(&object.location).await?;
+                } else {
+                    let mut corrupt = bytes.to_vec();
+                    corrupt[0] ^= 0xff;
+                    fixture
+                        .store
+                        .inner
+                        .put(&object.location, corrupt.into())
+                        .await?;
+                }
+                ensure!(
+                    matches!(
+                        fixture.publish(cut.clone()).await,
+                        Err(ArchiveError::Corrupt(_))
+                    ),
+                    "{operation} accepted invalid prior {kind} (missing={missing})"
+                );
+                ensure!(
+                    fixture
+                        .store
+                        .inner
+                        .get(&head.location)
+                        .await?
+                        .bytes()
+                        .await?
+                        == head_bytes,
+                    "{operation} advanced the head with invalid prior {kind}"
+                );
+                fixture
+                    .store
+                    .inner
+                    .put(&object.location, bytes.clone().into())
+                    .await?;
+            }
+        }
+        let set = fixture.publish(cut).await?;
+        ensure!(
+            set.tail_entries()
+                == match operation {
+                    "covered" => 1,
+                    "extend" | "extend-with-dependency" => 2,
+                    _ => 0,
+                }
+        );
+        ensure!(restored(&set, if operation == "covered" { 8 } else { 9 })? == fixture.bytes);
+        fixture.close().await?;
+    }
     Ok(())
 }
 
@@ -717,6 +1036,91 @@ async fn archive_cut_pins_retired_image_during_outage() -> Result<()> {
     // The first image was retired and is no longer the current engine marker.
     // Its immutable captured receipt still pins the bytes needed for archiving.
     restored(&fixture.publish(first).await?, 7)?;
+    fixture.close().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn archive_size_rotation_reduces_repeated_payload_reads() -> Result<()> {
+    let mut reads = Vec::new();
+    for ratio in [2, 128] {
+        let mut fixture = Fixture::new(ArchiveLimits {
+            max_tail_image_ratio: ratio,
+            ..Default::default()
+        })
+        .await?;
+        for value in 1..=20 {
+            let cut = fixture.commit(value, vec![]).await?;
+            let set = fixture.publish(cut).await?;
+            ensure!(restored(&set, value)? == fixture.bytes);
+        }
+        let count = fixture.store.archive_payload_reads.load(Ordering::Acquire);
+        eprintln!("archive tail/image ratio={ratio}, payload reads={count}");
+        reads.push(count);
+        fixture.close().await?;
+    }
+    ensure!(
+        reads[0] < reads[1],
+        "size-based rotation did not reduce repeated payload reads: {reads:?}"
+    );
+    Ok(())
+}
+
+#[test]
+fn archive_tail_image_ratio_has_explicit_bounds() {
+    for ratio in [0, 1, 2, 128, 129, u32::MAX] {
+        let result = ArchiveLimits {
+            max_tail_image_ratio: ratio,
+            ..Default::default()
+        }
+        .validate();
+        if (1..=128).contains(&ratio) {
+            assert!(result.is_ok());
+        } else {
+            assert!(matches!(result, Err(ArchiveError::Limit)));
+        }
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn archive_small_updates_rotate_before_tail_count_limit() -> Result<()> {
+    let mut fixture = Fixture::new(ArchiveLimits::default()).await?;
+    let mut rotations = 0;
+    for value in 7..=22 {
+        let cut = fixture.commit(value, vec![]).await?;
+        let set = fixture.publish(cut).await?;
+        ensure!(restored(&set, value)? == fixture.bytes);
+        if value > 7 && set.tail_entries() == 0 {
+            rotations += 1;
+        }
+    }
+    ensure!(
+        rotations > 0,
+        "small images accumulated fifteen tails without a size-based snapshot"
+    );
+    let expected = fixture.bytes.clone();
+    let archive = fixture.archive.clone();
+    fixture.close().await?;
+    let set = archive.recovery_set().await?.context("archive head")?;
+    ensure!(restored(&set, 22)? == expected);
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn archive_large_image_keeps_short_efficient_tails() -> Result<()> {
+    let mut fixture = Fixture::new(ArchiveLimits::default()).await?;
+    let next = images::image(
+        None,
+        "CREATE TABLE counter(value INTEGER);INSERT INTO counter VALUES(7);\
+         CREATE TABLE padding(bytes BLOB);INSERT INTO padding VALUES(zeroblob(65536))",
+    )?;
+    let cut = fixture.commit_bytes(next, vec![], |_| {}).await?;
+    fixture.publish(cut).await?;
+    for value in 8..=18 {
+        let cut = fixture.commit(value, vec![]).await?;
+        let set = fixture.publish(cut).await?;
+        ensure!(set.tail_entries() == (value - 7) as usize);
+        ensure!(restored(&set, value)? == fixture.bytes);
+    }
     fixture.close().await
 }
 
@@ -1026,7 +1430,8 @@ async fn archive_refuses_different_engine_birth() -> Result<()> {
 }
 
 struct Native {
-    _entered: tokio::sync::mpsc::UnboundedReceiver<()>,
+    entered: tokio::sync::mpsc::UnboundedReceiver<()>,
+    gate: Arc<public_node::Gate>,
     root: tempfile::TempDir,
     node: cellar::sdk::Node,
     service: RaftCells,
@@ -1043,11 +1448,52 @@ impl Native {
         options: RaftHostOptions,
         minimum: Durability,
     ) -> Result<Self> {
+        Self::start_many(store, options, minimum, 1).await
+    }
+
+    async fn start_many(
+        store: Arc<faults::Store>,
+        options: RaftHostOptions,
+        minimum: Durability,
+        count: u8,
+    ) -> Result<Self> {
+        Self::start_gated(store, options, minimum, count, false).await
+    }
+
+    async fn start_gated(
+        store: Arc<faults::Store>,
+        options: RaftHostOptions,
+        minimum: Durability,
+        count: u8,
+        hold: bool,
+    ) -> Result<Self> {
+        Self::start_with_filesystem(
+            store,
+            options,
+            minimum,
+            count,
+            hold,
+            Arc::new(DirectFileSystem),
+        )
+        .await
+    }
+
+    async fn start_with_filesystem(
+        store: Arc<faults::Store>,
+        options: RaftHostOptions,
+        minimum: Durability,
+        count: u8,
+        hold: bool,
+        filesystem: Arc<dyn cellar_ltx::FileSystem>,
+    ) -> Result<Self> {
+        ensure!((1..=32).contains(&count));
         let root = tempfile::tempdir()?;
         let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let (gate, entered) = public_node::Gate::new();
-        gate.release();
-        let definition = public_node::counter(calls.clone(), gate)?;
+        if !hold {
+            gate.release();
+        }
+        let definition = public_node::counter(calls.clone(), gate.clone())?;
         let mut namespace = NamespaceConfig::new(
             ClusterId::new([1; 16])?,
             NamespaceId::new([2; 16])?,
@@ -1075,18 +1521,34 @@ impl Native {
                 learners: vec![],
             },
         };
-        let node = public_node::node(root.path(), definition.application.clone()).await?;
-        let service = public_node::cells_with_host(
+        let node = public_node::node_declared_with_filesystem(
+            root.path(),
+            definition.application.clone(),
+            "raft-host",
+            vec![],
+            filesystem,
+        )
+        .await?;
+        let mut registrations = vec![registration.clone()];
+        for id in 1..count {
+            let mut extra = registration.clone();
+            extra.birth.scope.cell = format!("Counter:extra-{id}");
+            extra.birth.scope.group = GroupId::new([5 + id; 16])?;
+            registrations.push(extra);
+        }
+        let service = public_node::cells_many(
             &node,
             definition.application.clone(),
             store.clone(),
-            registration.clone(),
+            registrations.clone(),
             false,
             options.clone(),
+            TransportOptions::default(),
         )
         .await?;
         let native = Self {
-            _entered: entered,
+            entered,
+            gate,
             root,
             node,
             service,
@@ -1096,7 +1558,13 @@ impl Native {
             registration,
             options,
         };
-        public_node::ready(&native.cell()?).await?;
+        for registration in registrations {
+            public_node::ready(&native.service.cell(
+                registration.namespace.namespace,
+                &registration.birth.scope.cell,
+            )?)
+            .await?;
+        }
         Ok(native)
     }
 
@@ -1251,6 +1719,69 @@ async fn s3_ack_complete_restore_set() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn archive_progress_metrics_distinguish_failed_publication_from_coverage() -> Result<()> {
+    use std::time::Duration;
+    let store = Arc::new(faults::Store::default());
+    store.archive_unavailable.store(true, Ordering::Release);
+    let native = Native::start(
+        store.clone(),
+        RaftHostOptions::default(),
+        Durability::Quorum,
+    )
+    .await?;
+    let result = async {
+        let receipt = native.retry(1, Durability::Quorum).await?;
+        let count = |name: &str| -> Result<u64> {
+            native
+                .service
+                .performance()
+                .counters
+                .into_iter()
+                .find(|counter| counter.name == name)
+                .map(|counter| counter.value)
+                .with_context(|| format!("missing {name}"))
+        };
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while count("archive_publication_cut_failed")? == 0 {
+                tokio::time::sleep(Duration::from_millis(1)).await;
+            }
+            Ok::<_, anyhow::Error>(())
+        })
+        .await??;
+        ensure!(count("archive_coverage_advanced")? == 0);
+        ensure!(count("archive_coverage_index_advance")? == 0);
+        store.archive_unavailable.store(false, Ordering::Release);
+        let duplicate = native.retry(1, Durability::S3).await?;
+        ensure!(duplicate.result == receipt.result);
+        ensure!(native.calls.load(Ordering::SeqCst) == 1);
+        ensure!(count("archive_publication_cut_succeeded")? > 0);
+        ensure!(count("archive_coverage_advanced")? > 0);
+        ensure!(count("archive_coverage_index_advance")? >= receipt.version.position.index.get());
+        ensure!(
+            count("archive_publication_cut_succeeded")?
+                == count("archive_coverage_advanced")?
+                    + count("archive_coverage_image_pending")?
+                    + count("archive_coverage_rejected")?
+                    + count("archive_coverage_unchanged")?
+                    + count("archive_coverage_missing_cell")?
+        );
+        let metrics = native.service.performance();
+        let operation = metrics
+            .operations
+            .iter()
+            .find(|operation| operation.name == "archive_publication_batch")
+            .context("missing archive batch timing")?;
+        ensure!(operation.failed > 0 && operation.succeeded > 0);
+        ensure!(operation.abandoned == 0 && operation.timing_unavailable == 0);
+        Ok(())
+    }
+    .await;
+    store.archive_unavailable.store(false, Ordering::Release);
+    native.close().await?;
+    result
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn quorum_s3_outage() -> Result<()> {
     let store = Arc::new(faults::Store::default());
     store.archive_unavailable.store(true, Ordering::Release);
@@ -1279,6 +1810,368 @@ async fn quorum_s3_outage() -> Result<()> {
     let third = native.retry(3, Durability::S3).await?;
     ensure!(third.result == 3_i64.to_be_bytes());
     native.close().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn archive_refusal_preserves_private_workspace_and_duplicate_receipts() -> Result<()> {
+    let store = Arc::new(faults::Store::default());
+    store.archive_unavailable.store(true, Ordering::Release);
+    let trace = image_fault::Faults::new(std::path::PathBuf::from("unused"), None);
+    let mut options = RaftHostOptions::default();
+    options.archive.max_unarchived_entries = 2;
+    let native = Native::start_with_filesystem(
+        store.clone(),
+        options,
+        Durability::Quorum,
+        1,
+        false,
+        Arc::new(image_fault::FaultFileSystem {
+            faults: trace.clone(),
+        }),
+    )
+    .await?;
+    let result = async {
+        native.retry(1, Durability::Quorum).await?;
+        native.retry(2, Durability::Quorum).await?;
+        let before = trace.private_image_copies.load(Ordering::Acquire);
+        for _ in 0..3 {
+            ensure!(matches!(
+                native
+                    .write(3, Durability::Quorum, std::time::Duration::from_secs(2))
+                    .await,
+                Err(CommandFailure::Overloaded)
+            ));
+        }
+        let metrics = native.service.performance();
+        let count = |name| {
+            metrics
+                .counters
+                .iter()
+                .find(|counter| counter.name == name)
+                .unwrap()
+                .value
+        };
+        ensure!(count("archive_admission_retained_entries_refused") >= 3);
+        ensure!(count("archive_admission_retained_bytes_refused") == 0);
+        let duplicate = native.retry(1, Durability::Quorum).await?;
+        ensure!(duplicate.result == 1_i64.to_be_bytes());
+        ensure!(native.calls.load(Ordering::SeqCst) == 2);
+        ensure!(
+            trace.private_image_copies.load(Ordering::Acquire) == before,
+            "known admission refusal rebuilt the private image"
+        );
+        store.archive_unavailable.store(false, Ordering::Release);
+        let third = native.retry(3, Durability::S3).await?;
+        ensure!(third.result == 3_i64.to_be_bytes());
+        ensure!(native.calls.load(Ordering::SeqCst) == 3);
+        ensure!(trace.private_image_copies.load(Ordering::Acquire) == before);
+
+        // A real SQL mutation followed by a callback error remains dirty.
+        // Overflow changes SQLite's value to REAL, then the i64 result read
+        // fails. The transaction must roll back and the next command rebuild.
+        let mut overflow_options = public_node::options(1)?;
+        overflow_options.id = CommandId::new(ClientId::new([8; 16])?, 1)?;
+        let overflow = native
+            .cell()?
+            .command(
+                native.definition.increment.clone(),
+                i64::MAX.to_be_bytes().to_vec(),
+                overflow_options,
+            )
+            .await;
+        ensure!(matches!(overflow, Err(CommandFailure::Unavailable)));
+        ensure!(native.calls.load(Ordering::SeqCst) == 4);
+        let fourth = native.retry(4, Durability::S3).await?;
+        ensure!(fourth.result == 4_i64.to_be_bytes());
+        ensure!(native.calls.load(Ordering::SeqCst) == 5);
+        ensure!(
+            trace.private_image_copies.load(Ordering::Acquire) > before,
+            "callback mutation failure reused uncertain private state"
+        );
+        Ok(())
+    }
+    .await;
+    store.archive_unavailable.store(false, Ordering::Release);
+    result.and(native.close().await)
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn unknown_command_reservation_waits_for_prepared_size() -> Result<()> {
+    check_unknown_reservation(false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn cancelled_archive_reservation_waiter_never_executes() -> Result<()> {
+    check_unknown_reservation(true).await
+}
+
+async fn check_unknown_reservation(cancel_waiter: bool) -> Result<()> {
+    use std::time::Duration;
+    let mut options = RaftHostOptions::default();
+    options.archive.max_unarchived_bytes = options.execution.max_image_bytes
+        + options.execution.envelope.max_payload_bytes as u64
+        + options.execution.envelope.max_header_bytes as u64
+        + 1024
+        + 256 * 1024;
+    let mut native = Native::start_gated(
+        Arc::new(faults::Store::default()),
+        options,
+        Durability::Quorum,
+        2,
+        true,
+    )
+    .await?;
+    let mut tasks = Vec::new();
+    let result = async {
+        let cells = [
+            native.cell()?,
+            native
+                .service
+                .cell(native.registration.namespace.namespace, "Counter:extra-1")?,
+        ];
+        for cell in &cells {
+            cell.command(
+                native.definition.increment.clone(),
+                1_i64.to_be_bytes().to_vec(),
+                public_node::archived_options(1)?,
+            )
+            .await?;
+            public_node::ready(cell).await?;
+        }
+        tasks.push(tokio::spawn(cells[0].command(
+            native.definition.increment.clone(),
+            1_i64.to_be_bytes().to_vec(),
+            public_node::options(2)?,
+        )));
+        tokio::time::timeout(Duration::from_secs(5), native.entered.recv())
+            .await?
+            .context("first callback did not enter")?;
+        let wait_before = native
+            .service
+            .performance()
+            .operations
+            .into_iter()
+            .find(|operation| operation.name == "archive_admission_wait")
+            .context("missing archive admission wait timing")?;
+        tasks.push(tokio::spawn(cells[1].command(
+            native.definition.increment.clone(),
+            1_i64.to_be_bytes().to_vec(),
+            public_node::options(2)?,
+        )));
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                let metrics = native.service.performance();
+                if metrics.counters.iter().any(|counter| {
+                    counter.name == "archive_admission_reserved_bytes_deferred" && counter.value > 0
+                }) && metrics.operations.iter().any(|operation| {
+                    operation.name == "archive_admission_wait"
+                        && operation.started == wait_before.started + 1
+                        && operation.count == wait_before.count
+                }) {
+                    break;
+                }
+                ensure!(
+                    !tasks[1].is_finished(),
+                    "reservation waiter exited before deferral"
+                );
+                tokio::time::sleep(Duration::from_millis(1)).await;
+            }
+            Ok::<_, anyhow::Error>(())
+        })
+        .await??;
+        ensure!(
+            native.calls.load(Ordering::SeqCst) == 3,
+            "second callback ran without a worst-case reservation"
+        );
+        ensure!(
+            !tasks[1].is_finished(),
+            "transient reservation pressure refused the queued command"
+        );
+        if cancel_waiter {
+            let task = tasks.pop().unwrap();
+            task.abort();
+            ensure!(task.await.is_err_and(|error| error.is_cancelled()));
+            // Cancellation must release this cell while the other producer
+            // still owns its unknown-size reservation.
+            public_node::ready(&cells[1]).await?;
+            ensure!(native.calls.load(Ordering::SeqCst) == 3);
+        }
+        native.gate.release();
+        for task in tasks.drain(..) {
+            let receipt = tokio::time::timeout(Duration::from_secs(5), task).await???;
+            ensure!(receipt.result == 2_i64.to_be_bytes());
+        }
+        if cancel_waiter {
+            let value = cells[1]
+                .query(
+                    native.definition.get.clone(),
+                    vec![],
+                    QueryOptions {
+                        consistency: QueryConsistency::Linearizable,
+                        ..Default::default()
+                    },
+                )
+                .await?;
+            ensure!(value.result == 1_i64.to_be_bytes());
+            let receipt = cells[1]
+                .command(
+                    native.definition.increment.clone(),
+                    1_i64.to_be_bytes().to_vec(),
+                    public_node::options(2)?,
+                )
+                .await?;
+            ensure!(receipt.result == 2_i64.to_be_bytes());
+        }
+        let metrics = native.service.performance();
+        let wait_after = metrics
+            .operations
+            .iter()
+            .find(|operation| operation.name == "archive_admission_wait")
+            .context("missing completed archive admission wait")?;
+        ensure!(wait_after.started == wait_before.started + 1);
+        ensure!(wait_after.failed == wait_before.failed);
+        ensure!(wait_after.succeeded == wait_before.succeeded + u64::from(!cancel_waiter));
+        ensure!(wait_after.abandoned == wait_before.abandoned + u64::from(cancel_waiter));
+        ensure!(wait_after.count == wait_before.count + 1);
+        ensure!(wait_after.sum_us > wait_before.sum_us);
+        let checks = metrics
+            .operations
+            .iter()
+            .find(|operation| operation.name == "archive_admission_check")
+            .context("missing archive admission check timing")?;
+        let decisions: u64 = metrics
+            .counters
+            .iter()
+            .filter(|counter| counter.name.starts_with("archive_admission_"))
+            .map(|counter| counter.value)
+            .sum();
+        ensure!(checks.succeeded == decisions);
+        ensure!(checks.failed == 0 && checks.abandoned == 0);
+        ensure!(native.calls.load(Ordering::SeqCst) == 4);
+        Ok::<_, anyhow::Error>(())
+    }
+    .await;
+    native.gate.release();
+    for task in tasks {
+        task.abort();
+        let _ = task.await;
+    }
+    let cleanup = native.close().await;
+    result.and(cleanup)
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn prepared_small_commands_release_worst_case_archive_reservations() -> Result<()> {
+    // Retain the real 256-MiB backlog cap and 64-MiB image/16-MiB envelope
+    // limits. Eight small prepared commands fit; eight worst-case ones do not.
+    check_prepared_archive_reservations(RaftHostOptions::default(), 8, 8).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn prepared_commands_keep_actual_archive_byte_charge() -> Result<()> {
+    let mut options = RaftHostOptions::default();
+    // Enough room for one unknown callback and the initial protocol entries,
+    // but not another unknown callback plus the first committed counter image.
+    options.archive.max_unarchived_bytes = options.execution.max_image_bytes
+        + options.execution.envelope.max_payload_bytes as u64
+        + options.execution.envelope.max_header_bytes as u64
+        + 1024
+        + 16 * 1024;
+    check_prepared_archive_reservations(options, 2, 1).await
+}
+
+async fn check_prepared_archive_reservations(
+    host: RaftHostOptions,
+    count: u8,
+    admitted: usize,
+) -> Result<()> {
+    use std::time::Duration;
+    let store = Arc::new(faults::Store::default());
+    store.archive_unavailable.store(true, Ordering::Release);
+    let native = Native::start_many(store.clone(), host, Durability::Quorum, count)
+        .await
+        .context("start native groups for archive admission")?;
+    let mut tasks = Vec::new();
+    let result = async {
+        for id in 0..usize::from(count) {
+            let name = if id == 0 {
+                "Counter:one".into()
+            } else {
+                format!("Counter:extra-{id}")
+            };
+            let cell = native
+                .service
+                .cell(native.registration.namespace.namespace, &name)?;
+            let mut options = public_node::options(1)?;
+            options.durability = Durability::S3;
+            if id >= admitted {
+                options.timeout = Duration::from_secs(2);
+                let refused = cell
+                    .command(
+                        native.definition.increment.clone(),
+                        1_i64.to_be_bytes().to_vec(),
+                        options,
+                    )
+                    .await;
+                ensure!(
+                    matches!(refused, Err(CommandFailure::Overloaded)),
+                    "retained archive bytes were not charged: {refused:?}"
+                );
+                continue;
+            }
+            options.timeout = Duration::from_secs(30);
+            tasks.push(tokio::spawn(cell.command(
+                native.definition.increment.clone(),
+                1_i64.to_be_bytes().to_vec(),
+                options,
+            )));
+            tokio::time::timeout(Duration::from_secs(5), async {
+                loop {
+                    ensure!(
+                        !tasks.last().unwrap().is_finished(),
+                        "small command {id} refused before archive recovery"
+                    );
+                    let applied = match cell.status().await {
+                        Ok(status) => status.applied.index.get() > 2,
+                        Err(CommandFailure::Overloaded) => false,
+                        Err(error) => {
+                            return Err(anyhow::Error::new(error).context("observe applied command"))
+                        }
+                    };
+                    if native.calls.load(Ordering::SeqCst) == id + 1 && applied {
+                        return Ok::<_, anyhow::Error>(());
+                    }
+                    tokio::time::sleep(Duration::from_millis(5)).await;
+                }
+            })
+            .await
+            .context("wait for small command to apply")??;
+        }
+        ensure!(native.calls.load(Ordering::SeqCst) == admitted);
+        if admitted < usize::from(count) {
+            let metrics = native.service.performance();
+            ensure!(metrics.counters.iter().any(|counter| counter.name
+                == "archive_admission_retained_bytes_refused"
+                && counter.value > 0));
+        }
+        store.archive_unavailable.store(false, Ordering::Release);
+        for task in tasks.drain(..) {
+            let receipt = tokio::time::timeout(Duration::from_secs(10), task).await???;
+            ensure!(receipt.result == 1_i64.to_be_bytes());
+        }
+        Ok(())
+    }
+    .await;
+    store.archive_unavailable.store(false, Ordering::Release);
+    for task in tasks {
+        task.abort();
+        let _ = task.await;
+    }
+    let cleanup = native
+        .close()
+        .await
+        .context("close archive admission groups");
+    result.and(cleanup)
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -1402,6 +2295,268 @@ async fn retention_preserves_only_copy() -> Result<()> {
     ensure!(set.position().index >= repeated.version.position.index);
     restored(&set, 2)?;
     Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn independent_cell_archives_while_another_publication_is_stalled() -> Result<()> {
+    use std::time::Duration;
+    let store = Arc::new(faults::Store::default());
+    let native = Native::start_many(
+        store.clone(),
+        RaftHostOptions::default(),
+        Durability::Quorum,
+        2,
+    )
+    .await?;
+    store.payload_hang.store(true, Ordering::Release);
+    store.hold_next_payload.store(true, Ordering::Release);
+    let first = native.cell()?;
+    let blocked = first.command(
+        native.definition.increment.clone(),
+        1_i64.to_be_bytes().to_vec(),
+        public_node::archived_options(1)?,
+    );
+    let result = async {
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while !store.payload_waiting.load(Ordering::Acquire) {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .context("first archive did not enter its payload gate")?;
+        let second = native
+            .service
+            .cell(native.registration.namespace.namespace, "Counter:extra-1")?;
+        let receipt = tokio::time::timeout(
+            Duration::from_secs(2),
+            second.command(
+                native.definition.increment.clone(),
+                1_i64.to_be_bytes().to_vec(),
+                public_node::archived_options(1)?,
+            ),
+        )
+        .await
+        .context("independent archive waited behind stalled publication")??;
+        ensure!(receipt.result == 1_i64.to_be_bytes());
+        let first_status = archive_status(&first).await?;
+        ensure!(first_status.archived < first_status.committed);
+        let second_status = archive_status(&second).await?;
+        ensure!(second_status.archived >= second_status.committed);
+        ensure!(store.payload_waiting.load(Ordering::Acquire));
+        ensure!(native.calls.load(Ordering::Acquire) == 2);
+        Ok::<_, anyhow::Error>(())
+    }
+    .await;
+    // Release and join both real SDK owners even when the progress assertion fails.
+    store.release_payload();
+    let first_result = tokio::time::timeout(Duration::from_secs(5), blocked).await;
+    let cleanup = native.close().await;
+    result?;
+    ensure!(first_result??.result == 1_i64.to_be_bytes());
+    cleanup
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn archive_producer_excludes_its_cell_until_captured_cut_finishes() -> Result<()> {
+    use std::time::Duration;
+    let store = Arc::new(faults::Store::default());
+    let native = Native::start(
+        store.clone(),
+        RaftHostOptions::default(),
+        Durability::Quorum,
+    )
+    .await?;
+    store.hold_archive_payloads.store(true, Ordering::Release);
+    let result = async {
+        let cell = native.cell()?;
+        let first = native
+            .write(1, Durability::Quorum, Duration::from_secs(5))
+            .await?;
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while store.active_payload_reads.load(Ordering::Acquire) != 1 {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await?;
+        let mut command = public_node::options(2)?;
+        let second = cell
+            .command(
+                native.definition.increment.clone(),
+                1_i64.to_be_bytes().to_vec(),
+                command.clone(),
+            )
+            .await?;
+        ensure!(first.result == 1_i64.to_be_bytes() && second.result == 2_i64.to_be_bytes());
+        let value = cell
+            .query(
+                native.definition.get.clone(),
+                vec![],
+                QueryOptions {
+                    consistency: QueryConsistency::Linearizable,
+                    ..Default::default()
+                },
+            )
+            .await?;
+        ensure!(value.result == 2_i64.to_be_bytes());
+        ensure!(native.service.resource_usage().archive_capture.items == 1);
+        ensure!(store.active_payload_reads.load(Ordering::Acquire) == 1);
+        ensure!(store.peak_payload_reads.load(Ordering::Acquire) == 1);
+        command.durability = Durability::S3;
+        let archived = cell.command(
+            native.definition.increment.clone(),
+            1_i64.to_be_bytes().to_vec(),
+            command,
+        );
+        store.hold_archive_payloads.store(false, Ordering::Release);
+        store.payload_window_resume.notify_waiters();
+        ensure!(archived.await?.result == 2_i64.to_be_bytes());
+        ensure!(native.calls.load(Ordering::Acquire) == 2);
+        let set = native
+            .archive()
+            .await?
+            .recovery_set()
+            .await?
+            .context("missing archive")?;
+        restored(&set, 2)?;
+        Ok::<_, anyhow::Error>(())
+    }
+    .await;
+    store.hold_archive_payloads.store(false, Ordering::Release);
+    store.payload_window_resume.notify_waiters();
+    let cleanup = native.close().await;
+    result.and(cleanup)
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn archive_producer_limits_hold_until_joined_shutdown() -> Result<()> {
+    for max_producers in [1, 2, 4] {
+        check_archive_producer_shutdown(max_producers).await?;
+    }
+    Ok(())
+}
+
+async fn archive_status(handle: &RaftCellHandle) -> Result<CellStatus> {
+    use std::time::Duration;
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            match handle.status().await {
+                Ok(status) => return Ok(status),
+                // A read-only observation can collide with the host's existing
+                // status poll for a command waiting on S3. Keep one deadline.
+                Err(CommandFailure::Overloaded) => {
+                    tokio::time::sleep(Duration::from_millis(5)).await;
+                }
+                Err(error) => return Err(error.into()),
+            }
+        }
+    })
+    .await
+    .context("observe archive progress while a command waits for S3")?
+}
+
+async fn check_archive_producer_shutdown(max_producers: usize) -> Result<()> {
+    use std::time::Duration;
+    let store = Arc::new(faults::Store::default());
+    let mut options = RaftHostOptions::default();
+    options.archive.max_producers = max_producers;
+    // This case counts held physical reads one-for-one with producer slots.
+    // Bundle coalescing has separate coverage and can serve two cuts with one
+    // object read, so it must not change this fixture's occupancy observation.
+    options.archive.max_batch_groups = 1;
+    let capture_bytes = options.archive.limits.max_capture_bytes;
+    let count = max_producers + 1;
+    let native =
+        Native::start_many(store.clone(), options, Durability::Quorum, count as u8).await?;
+    store.hold_archive_payloads.store(true, Ordering::Release);
+    let mut handles = vec![native.cell()?];
+    for id in 1..count {
+        handles.push(native.service.cell(
+            native.registration.namespace.namespace,
+            &format!("Counter:extra-{id}"),
+        )?);
+    }
+    // Startup has already committed its leader barrier. Observing index > 1
+    // can therefore finish before these commands commit, making Unavailable
+    // on shutdown legitimate. Require progress beyond each pre-command cut.
+    let mut before_commands = Vec::new();
+    for handle in &handles {
+        before_commands.push(archive_status(handle).await?.committed);
+    }
+    let mut pending = Vec::new();
+    for handle in &handles {
+        let mut command = public_node::archived_options(1)?;
+        command.timeout = Duration::from_secs(15);
+        pending.push(handle.command(
+            native.definition.increment.clone(),
+            1_i64.to_be_bytes().to_vec(),
+            command,
+        ));
+    }
+    let observed = async {
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                let mut committed = 0;
+                for (handle, before) in handles.iter().zip(&before_commands) {
+                    let status = archive_status(handle).await?;
+                    if status.committed > *before && status.applied.index >= status.committed {
+                        committed += 1;
+                    }
+                    ensure!(status.archived < status.committed);
+                }
+                if committed == count
+                    && store.active_payload_reads.load(Ordering::Acquire) == max_producers
+                {
+                    return Ok::<_, anyhow::Error>(());
+                }
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .with_context(|| format!(
+            "archive producer window did not fill: limit={max_producers}, calls={}, reads={}, slots={}",
+            native.calls.load(Ordering::Acquire),
+            store.active_payload_reads.load(Ordering::Acquire),
+            native.service.resource_usage().archive_capture.items,
+        ))??;
+        ensure!(store.peak_payload_reads.load(Ordering::Acquire) == max_producers);
+        let capture = native.service.resource_usage().archive_capture;
+        ensure!(capture.items == max_producers && capture.max_items == max_producers);
+        ensure!(capture.bytes == capture_bytes * max_producers);
+        ensure!(capture.max_bytes == capture.bytes);
+        ensure!(native.calls.load(Ordering::Acquire) == count);
+        Ok::<_, anyhow::Error>(())
+    }
+    .await;
+    // Closing must cancel every held read without relying on this test's gates.
+    let closed = tokio::time::timeout(Duration::from_secs(5), native.service.close()).await;
+    let reads_after_close = store.active_payload_reads.load(Ordering::Acquire);
+    let capture_after_close = native.service.resource_usage().archive_capture;
+    store.hold_archive_payloads.store(false, Ordering::Release);
+    store.payload_window_resume.notify_waiters();
+    let mut outcomes = Vec::new();
+    for command in pending {
+        outcomes.push(tokio::time::timeout(Duration::from_secs(5), command).await);
+    }
+    let cleanup = native.close().await;
+    observed?;
+    closed??;
+    ensure!(reads_after_close == 0);
+    ensure!(capture_after_close.bytes == 0 && capture_after_close.items == 0);
+    for outcome in outcomes {
+        let outcome = outcome?;
+        let kind = outcome.as_ref().err().map(|error| {
+            format!("{error:?}")
+                .split(" {")
+                .next()
+                .unwrap_or("unknown")
+                .to_owned()
+        });
+        ensure!(
+            matches!(outcome, Err(CommandFailure::Ambiguous { .. })),
+            "committed S3 waiter at producer limit {max_producers} returned {kind:?}"
+        );
+    }
+    cleanup
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -1650,7 +2805,7 @@ async fn archive_io_deadline_retries_without_reexecuting() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn archive_pin_pressure_defers_committed_apply_without_corruption() -> Result<()> {
+async fn exact_leader_preview_publishes_under_archive_pin_pressure() -> Result<()> {
     let store = Arc::new(faults::Store::default());
     store.archive_hang.store(true, Ordering::Release);
     let mut options = RaftHostOptions::default();
@@ -1676,37 +2831,38 @@ async fn archive_pin_pressure_defers_committed_apply_without_corruption() -> Res
         .await
         .context("commit second pressure image")?;
     let cell = native.cell()?;
-    let mut third = Box::pin(cell.command(
-        native.definition.increment.clone(),
-        1_i64.to_be_bytes().to_vec(),
-        public_node::options(3)?,
-    ));
-    tokio::time::timeout(std::time::Duration::from_secs(5), async {
-        loop {
-            if cell
-                .status()
-                .await
-                .is_ok_and(|status| status.committed > status.applied.index)
-            {
-                break;
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-        }
-    })
+    let request = public_node::options(3)?;
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        cell.command(
+            native.definition.increment.clone(),
+            1_i64.to_be_bytes().to_vec(),
+            request.clone(),
+        ),
+    )
     .await
-    .context("third command did not reach commit ahead of apply")?;
-    ensure!(
-        tokio::time::timeout(std::time::Duration::from_millis(200), &mut third)
-            .await
-            .is_err(),
-        "image capacity was treated as corruption or acknowledged before apply"
-    );
+    .context("sealed preview did not publish while the archive pin was held")??;
+    ensure!(result.result == 3_i64.to_be_bytes());
+    ensure!(cell.status().await?.applied.index >= result.version.position.index);
+    ensure!(store.archive_hang.load(Ordering::Acquire));
+    ensure!(native.calls.load(Ordering::SeqCst) == 3);
+    // Three retained generations cover the old archive pin, current image and
+    // next preview. Applying the exact preview needs no fourth generation.
     store.archive_hang.store(false, Ordering::Release);
     store.archive_resume.notify_waiters();
-    let result = tokio::time::timeout(std::time::Duration::from_secs(5), third)
-        .await
-        .context("third command did not publish after archive release")??;
-    ensure!(result.result == 3_i64.to_be_bytes());
+    let mut archived = request;
+    archived.durability = Durability::S3;
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        cell.command(
+            native.definition.increment.clone(),
+            1_i64.to_be_bytes().to_vec(),
+            archived,
+        ),
+    )
+    .await
+    .context("archive did not catch up after releasing its old pin")??;
+    ensure!(result.result == 3_i64.to_be_bytes() && result.durability == Durability::S3);
     ensure!(native.calls.load(Ordering::SeqCst) == 3);
     native.close().await
 }

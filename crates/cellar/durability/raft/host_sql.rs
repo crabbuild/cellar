@@ -20,7 +20,7 @@ use cellar_logic::consensus::{CommandFailure, CommandIdentity, GroupScope};
 use cellar_ltx::generation::{GenerationLimits, GenerationStore, ImageId, ReadServices};
 use cellar_ltx::LtxHost;
 use futures_util::future::BoxFuture;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 use std::path::PathBuf;
 use std::sync::{
     atomic::{AtomicBool, AtomicUsize, Ordering},
@@ -28,6 +28,10 @@ use std::sync::{
 };
 use std::time::Duration;
 use tokio::sync::{oneshot, Semaphore};
+
+#[cfg(test)]
+#[path = "host_sql_tests.rs"]
+mod tests;
 
 #[derive(Clone)]
 pub(crate) struct CellStorage {
@@ -184,6 +188,83 @@ struct Request {
     _slot: tokio::sync::OwnedSemaphorePermit,
 }
 
+struct RequestQueue {
+    receiver: mpsc::Receiver<Request>,
+    pending: VecDeque<Request>,
+    capacity: usize,
+    progress_streak: usize,
+}
+
+impl RequestQueue {
+    fn new(receiver: mpsc::Receiver<Request>, capacity: usize) -> Self {
+        Self {
+            receiver,
+            pending: VecDeque::new(),
+            capacity,
+            progress_streak: 0,
+        }
+    }
+
+    fn next(&mut self) -> Result<Request, mpsc::RecvTimeoutError> {
+        if self.pending.is_empty() {
+            self.pending
+                .push_back(self.receiver.recv_timeout(Duration::from_millis(10))?);
+        }
+        // All requests, including this local batch and the executing callback,
+        // retain the same worker semaphore permits. Draining does not enlarge
+        // admission, and never waits to assemble a batch.
+        while self.pending.len() < self.capacity {
+            match self.receiver.try_recv() {
+                Ok(request) => self.pending.push_back(request),
+                Err(_) => break,
+            }
+        }
+        // Short progress work frees committed commands or archive retention.
+        // Never pass earlier work for the same cell. After three selections,
+        // serve the oldest request so ongoing progress cannot starve callbacks.
+        let index = if self.progress_streak < 3 {
+            self.pending
+                .iter()
+                .enumerate()
+                .find(|(index, request)| {
+                    request.action.progress_priority()
+                        && !self
+                            .pending
+                            .iter()
+                            .take(*index)
+                            .any(|earlier| earlier.scope == request.scope)
+                })
+                .map_or(0, |(index, _)| index)
+        } else {
+            0
+        };
+        let request = self
+            .pending
+            .remove(index)
+            .ok_or(mpsc::RecvTimeoutError::Disconnected)?;
+        self.progress_streak = if request.action.progress_priority() {
+            self.progress_streak.saturating_add(1).min(3)
+        } else {
+            0
+        };
+        Ok(request)
+    }
+}
+
+impl Action {
+    fn progress_priority(&self) -> bool {
+        matches!(
+            self,
+            Self::Submit { .. }
+                | Self::Discard { .. }
+                | Self::Retire { .. }
+                | Self::Publish { .. }
+                | Self::PublishSnapshot { .. }
+                | Self::CaptureArchive { .. }
+        )
+    }
+}
+
 pub(crate) struct Pool {
     performance: Arc<Performance>,
     domain: crate::asyncrt::DomainToken,
@@ -308,11 +389,12 @@ impl Pool {
                     // retire this physical worker count.
                     let _running = Running::enter(running);
                     let mut cells = BTreeMap::<GroupScope, Cell>::new();
+                    let mut requests = RequestQueue::new(receiver, queue);
                     let result = loop {
                         if stopped.load(Ordering::Acquire) || owner.mono_ms().is_err() {
                             break Ok(());
                         }
-                        let request = match receiver.recv_timeout(Duration::from_millis(10)) {
+                        let request = match requests.next() {
                             Ok(request) => request,
                             Err(mpsc::RecvTimeoutError::Timeout) => continue,
                             Err(mpsc::RecvTimeoutError::Disconnected) => break Ok(()),
@@ -692,6 +774,18 @@ impl Cell {
         {
             return Err(ExecutionError::Invalid("stale private discard"));
         }
+        // This serial SQL owner has joined staging. A pre-mutation refusal
+        // leaves no active proposal and an explicitly Ready private owner.
+        // Preserve that cache through both error cleanup and host discard;
+        // the next stage still checks authority against the published image.
+        if self.active.is_none()
+            && self
+                .private
+                .as_ref()
+                .is_some_and(|private| private.status() == ExecutionStatus::Ready)
+        {
+            return Ok(());
+        }
         if let Some(private) = self.private.as_mut() {
             private.discard_unsubmitted()?;
         }
@@ -805,14 +899,14 @@ impl Cell {
                     return Err(ExecutionError::Invalid("apply event"));
                 };
                 Ok(Value::Prepared(
-                    self.applier.prepare(ticket.clone(), entry, image).map_err(
-                        |error| match error {
+                    self.applier
+                        .prepare_private(ticket.clone(), entry, image, self.private.as_mut())
+                        .map_err(|error| match error {
                             super::apply::ImageApplyError::Images(
                                 cellar_ltx::generation::GenerationError::Limit,
                             ) => ExecutionError::Refused(CommandFailure::Overloaded),
                             error => super::execution::storage(error),
-                        },
-                    )?,
+                        })?,
                 ))
             }
             Action::Publish { ticket } => {

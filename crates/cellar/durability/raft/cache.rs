@@ -8,7 +8,7 @@ use cellar_logic::consensus::{LogIndex, LogPosition, ReplicaIdentity, Term};
 use protobuf::Message as _;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, RwLock, RwLockReadGuard};
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -128,6 +128,7 @@ pub struct GroupLog {
     pub(crate) owner: Arc<()>,
     pub(crate) closed: Arc<AtomicBool>,
     pub(crate) cache: Arc<RwLock<CachedGroup>>,
+    pub(crate) cache_revision: Arc<AtomicU64>,
 }
 
 impl std::fmt::Debug for GroupLog {
@@ -157,6 +158,19 @@ impl GroupLog {
     /// neither a fresh-member seeding capability nor proof of live quorum.
     pub fn membership(&self) -> Result<GroupMembership, LogError> {
         Ok(self.read()?.membership.clone())
+    }
+
+    /// Invalidate derived accounting after synced cache publication. This is
+    /// local to this cache instance, not a transferable durability proof.
+    pub(crate) fn cache_revision(&self) -> Result<u64, LogError> {
+        if self.closed.load(Ordering::Acquire) {
+            return Err(LogError::Closed);
+        }
+        if self.cache.is_poisoned() {
+            self.closed.store(true, Ordering::Release);
+            return Err(LogError::Corrupt("Raft cache lock poisoned".into()));
+        }
+        Ok(self.cache_revision.load(Ordering::Acquire))
     }
 
     pub(crate) fn read(&self) -> Result<RwLockReadGuard<'_, CachedGroup>, LogError> {

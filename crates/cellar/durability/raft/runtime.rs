@@ -69,6 +69,10 @@ const COMPLETION_BYTES: usize = COMPLETION_SLOTS * SNAPSHOT_COMPLETION_BYTES;
 const HINT_SLOTS: usize = 256;
 const HINT_BYTES: usize = HINT_SLOTS * 4096;
 
+// Coalesce already queued groups before collecting Ready and starting a sync.
+// Bound each dispatch turn so persistence, events, ticks and shutdown can run.
+const REQUEST_BATCH: usize = 64;
+
 enum Command {
     Group {
         scope: GroupScope,
@@ -321,17 +325,37 @@ impl RaftRuntime {
                 .map_err(|e| RuntimeError::Invalid(e.to_string()))?,
             _ => (),
         }
-        let budget = if matches!(
+        let completion = matches!(
             &command,
             Command::Apply(_) | Command::Snapshot(_) | Command::AbortSnapshot(_)
-        ) {
+        );
+        let budget = if completion {
             &self.inner.completions
         } else if matches!(&command, Command::Hint { .. }) {
             &self.inner.hints
         } else {
             &self.inner.budget
         };
-        let permit = budget.acquire(bytes).ok_or(RuntimeError::Overloaded)?;
+        let permit = if completion {
+            // These callers own physical work already issued by this runtime.
+            // Keep its ticket/image at the caller until a reserved slot opens;
+            // refusing a burst here would strand committed apply permanently.
+            loop {
+                let wake = budget.wake.notified();
+                tokio::pin!(wake);
+                wake.as_mut().enable();
+                self.admit()?;
+                if let Some(permit) = budget.acquire(bytes) {
+                    break permit;
+                }
+                crate::asyncrt::select! {
+                    _ = wake => (),
+                    _ = self.inner.terminal.wait() => return Err(RuntimeError::Closed),
+                }
+            }
+        } else {
+            budget.acquire(bytes).ok_or(RuntimeError::Overloaded)?
+        };
         let (reply, wait) = oneshot::channel();
         self.inner
             .sender
@@ -544,10 +568,14 @@ impl RaftRuntime {
             .map(|_| ())
     }
 
+    /// Wait for reserved completion capacity while retaining the physical
+    /// image and ticket. Success admits the marker; `Applied` proves its sync.
     pub async fn complete_apply(&self, completed: ApplyCompletion) -> Result<(), RuntimeError> {
         self.call(4096, Command::Apply(completed)).await.map(|_| ())
     }
 
+    /// Wait for reserved completion capacity before install authorization.
+    /// The installed event still follows the required persistence barrier.
     pub async fn complete_snapshot(
         &self,
         completed: SnapshotCompletion,
@@ -565,6 +593,7 @@ impl RaftRuntime {
     /// The older physical apply keeps its existing ticket until it completes.
     /// After `complete_snapshot` is accepted, cancellation is refused; a stale
     /// completion error does not prove install failure. Join its final outcome.
+    /// This call waits for reserved completion capacity before admission.
     pub async fn abort_snapshot(&self, ticket: ApplyTicket) -> Result<(), RuntimeError> {
         self.call(4096, Command::AbortSnapshot(ticket))
             .await
@@ -634,6 +663,7 @@ impl RaftRuntime {
     /// waiter never abandons shutdown. This is not a fleet drain.
     pub async fn close(&self) -> Result<(), RuntimeError> {
         self.inner.closing.store(true, Ordering::Release);
+        self.inner.completions.wake.notify_waiters();
         self.inner.stop.notify_one();
         self.inner.terminal.wait().await
     }
@@ -1130,11 +1160,38 @@ impl Worker {
         }
         let mut bytes = 1024;
         let mut jobs = Vec::new();
-        while let Some(scope) = self.writes.pop_front() {
+        // Reclamation must not share a batch with an append which cannot fit
+        // until that reclamation persists. Otherwise retrying the same bounded
+        // batch can indefinitely prevent the checkpoint from freeing capacity.
+        let checkpoints = self.writes.iter().any(|scope| {
+            self.groups.get(scope).is_some_and(|group| {
+                group.failed.is_none()
+                    && group.replica.write.as_ref().is_some_and(|(_, write)| {
+                        matches!(
+                            write.snapshot,
+                            Some(super::cache::SnapshotChange::Checkpoint(_))
+                        )
+                    })
+            })
+        });
+        for _ in 0..self.writes.len() {
+            let Some(scope) = self.writes.pop_front() else {
+                break;
+            };
             let group = self.groups.get_mut(&scope).ok_or(RuntimeError::NotFound)?;
             group.write_scheduled = false;
             if group.failed.is_none() {
                 if let Some((_, write)) = &group.replica.write {
+                    if checkpoints
+                        && !matches!(
+                            write.snapshot,
+                            Some(super::cache::SnapshotChange::Checkpoint(_))
+                        )
+                    {
+                        group.write_scheduled = true;
+                        self.writes.push_back(scope);
+                        continue;
+                    }
                     let size = write.estimated_bytes()?;
                     if size + 1024 > self.log.limits().max_batch_bytes {
                         Self::fail(group, RuntimeError::Overloaded);
@@ -1268,7 +1325,14 @@ impl Worker {
                 }
             };
             crate::asyncrt::select! {
-                request=requests.receiver.recv()=> { match request { Some(request)=>self.dispatch(request),None=>return Ok(()) } }
+                request=requests.receiver.recv()=> {
+                    let Some(request) = request else { return Ok(()); };
+                    self.dispatch(request);
+                    for _ in 1..REQUEST_BATCH {
+                        let Ok(request) = requests.receiver.try_recv() else { break; };
+                        self.dispatch(request);
+                    }
+                }
                 _=stop.notified()=>return Ok(()),
                 result=io=> { self.finish_batch(result)?; }
                 _=timer=> { let now=self.domain.mono_ms().unwrap_or(0); if now>=tick_at { if self.options.tick_interval_ms.is_some() { self.tick(); } tick_at=now.saturating_add(self.options.tick_interval_ms.unwrap_or(1000)); } }

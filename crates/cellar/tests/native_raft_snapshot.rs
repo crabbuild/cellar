@@ -3977,8 +3977,9 @@ impl Drop for Child {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn snapshot_install_crash_matrix() -> Result<()> {
     for cut in [
+        "image-after-write",
         "image-before-sync",
-        "image-after-rename",
+        "image-after-file-sync",
         "image-after-directory-sync",
         "engine-before-sync",
         "engine-after-sync",
@@ -4092,7 +4093,8 @@ async fn snapshot_process_fixture() -> Result<()> {
     let package = source.package()?;
     let image_mode = match cut.as_str() {
         "image-before-sync" => image_fault::BEFORE_IMAGE_SYNC,
-        "image-after-rename" => image_fault::AFTER_RENAME,
+        "image-after-write" => image_fault::AFTER_IMAGE_WRITE,
+        "image-after-file-sync" => image_fault::AFTER_IMAGE_SYNC,
         "image-after-directory-sync" => image_fault::AFTER_DIRECTORY_SYNC,
         _ => 0,
     };

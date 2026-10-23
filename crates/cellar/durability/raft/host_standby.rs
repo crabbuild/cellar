@@ -173,6 +173,7 @@ impl Cell {
             retired: false,
             archive,
             archived: LogIndex::new(0),
+            archive_retained: super::admission::Retained::default(),
             archive_retry_at: 0,
             group,
             schema_digest,

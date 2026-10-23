@@ -85,6 +85,15 @@ def wait_for_placement(total, balance, deadline, log, scan=parallel,
         sleep(2)
 
 
+def save_measurement(root, result, ordinal):
+    """Retain each window even when one sweep repeats a load setting."""
+    rate = result['offered_rate']
+    suffix = f'-q{rate:g}' if rate else ''
+    result['evidence_file'] = f"write-w{ordinal}-r{result['repeat']}-c{result['concurrency']}{suffix}.json"
+    with (root / result['evidence_file']).open('x') as stream:
+        stream.write(json.dumps(result) + '\n')
+
+
 def load(config, seconds, concurrency, rate=0):
     """Closed-loop HTTP/1.1 keepalive clients, no write retries."""
     stop = time.monotonic() + seconds
@@ -160,6 +169,11 @@ def main():
     p.add_argument('--seconds',type=int,default=20)
     p.add_argument('--tick-ms',type=int,default=100)
     p.add_argument('--queue-items',type=int,default=256)
+    p.add_argument('--archive-producers',type=int,default=2,choices=range(1,5),help='bounded publications across distinct cells; physical replay shares one workspace')
+    p.add_argument('--archive-batch-groups',type=int,default=2,choices=(1,2),help='maximum cells per archive publication batch; producer and byte limits are unchanged')
+    p.add_argument('--archive-max-unarchived-mib',type=int,default=256,choices=range(1,16385),metavar='MIB',help='node-wide retained history and worst-case command reservation budget; production default 256 MiB')
+    p.add_argument('--sql-workers',type=int,default=2,choices=range(1,17),help='fixed SQL owners per node')
+    p.add_argument('--sql-worker-queue',type=int,default=32,choices=range(1,257),help='work reservations per SQL owner; total capacity is workers times this value')
     p.add_argument('--archive-tmpfs-mib',type=int,default=0,choices=[0,512],help='bounded disposable archive verification workspace; Raft images/logs stay on disk')
     p.add_argument('--concurrency',type=int,nargs='+',default=[1,8,32,64])
     p.add_argument('--repeats',type=int,default=2)
@@ -188,6 +202,14 @@ def main():
             raise ValueError('seed continuation requires its original command journal')
         if report['cells'] != total or report['context'] != args.context or report['tick_ms'] != args.tick_ms or report.get('archive_tmpfs_mib',0) != args.archive_tmpfs_mib or report.get('primary_only',False)!=args.primary_only or report.get('port_base',19800)!=args.port_base:
             raise ValueError('continuation must preserve cell count, context, port base and tick interval')
+        if report.get('archive_producers',1) != args.archive_producers:
+            raise ValueError('continuation must preserve archive producer concurrency')
+        if report.get('archive_batch_groups',2) != args.archive_batch_groups:
+            raise ValueError('continuation must preserve archive batch size')
+        if report.get('archive_max_unarchived_mib',256) != args.archive_max_unarchived_mib:
+            raise ValueError('continuation must preserve archive byte budget')
+        if report['sql_workers'] != args.sql_workers or report['sql_worker_queue'] != args.sql_worker_queue:
+            raise ValueError('continuation must preserve SQL workers and work capacity')
         shutil.copyfile(root/'report.json',root/f"report-before-continuation-{int(time.time())}.json")
         report.setdefault('setup_failures',[]).append(report.pop('failure','interrupted setup'))
         report.setdefault('continuations',[]).append({'unix':time.time(),
@@ -211,19 +233,38 @@ def main():
         (config/'load.json').write_text(json.dumps({'token':token,'cells':total,'primary_only':args.primary_only}))
         docker=lambda *a:command('docker','--context',args.context,*a)
         report={'source':command('git','rev-parse','HEAD'),'working_diff_sha256':hashlib.sha256(command('git','diff').encode()).hexdigest(),
-            'source_files':{str(p):hashlib.sha256(p.read_bytes()).hexdigest() for p in [Path('Cargo.toml'), Path('Cargo.lock'), Path('tools/perf/raft_node.rs'),Path('tools/perf/raft.py'),Path('tools/perf/raft.Dockerfile'),Path('examples/raft-counter/counter.rs'),Path('crates/cellar/Cargo.toml'), *Path('crates/cellar/durability/raft').glob('*.rs')]},
+            'source_files':{str(p):hashlib.sha256(p.read_bytes()).hexdigest() for p in [Path('Cargo.toml'), Path('Cargo.lock'), Path('tools/perf/raft_node.rs'),Path('tools/perf/raft.py'),Path('tools/perf/raft.Dockerfile'),Path('examples/raft-counter/counter.rs'),Path('crates/cellar/Cargo.toml'),Path('crates/cellar/storage/sqlite/command.rs'),Path('crates/cellar-ltx/src/db.rs'),Path('crates/cellar-ltx/src/apply.rs'),Path('crates/cellar-ltx/src/generation.rs'), *sorted(Path('crates/cellar/durability/raft').rglob('*.rs'))]},
             'image':docker('image','inspect',args.image,'--format','{{.Id}}'),
             'binary_sha256':docker('run','--rm','--entrypoint','sha256sum',args.image,'/usr/local/bin/cellar-perf-raft').split()[0],
             'context':args.context,'port_base':args.port_base,'prefix':tag,'cells':total,'voters':3,
             'vm_cpu_count':int(docker('info','--format','{{.NCPU}}')),
             'host_cpu_count':os.cpu_count(),
-            'archive_tmpfs_mib':args.archive_tmpfs_mib, 'queue_items':args.queue_items,'primary_only':args.primary_only,'tick_ms':args.tick_ms,'write_durability':'Quorum','archive':'RustFS','measurements':[], 'completed':False}
+            'archive_tmpfs_mib':args.archive_tmpfs_mib, 'archive_producers':args.archive_producers,
+            'archive_max_unarchived_mib':args.archive_max_unarchived_mib,
+            'archive_batch_groups':args.archive_batch_groups,
+            'sql_workers':args.sql_workers, 'sql_worker_queue':args.sql_worker_queue,
+            'queue_items':args.queue_items,'primary_only':args.primary_only,'tick_ms':args.tick_ms,'write_durability':'Quorum','archive':'RustFS','measurements':[], 'completed':False}
     def save(): (root/'report.json').write_text(json.dumps(report,indent=2)+'\n')
     save()
     def log(s): print(s,flush=True)
     log(f'Run directory: {root}\nDocker context: {args.context}\nResource prefix: {tag}')
     nodes=[tag+f'-node{n}' for n in range(1,4)]
     bases=[f'http://127.0.0.1:{args.port_base+1+n}' for n in range(3)]
+    def sql_resources():
+        observed=[]
+        for base in bases:
+            code,usage=request(base,'/resources',token)
+            if code!=200 or usage.get('sql') is None:
+                raise RuntimeError('SQL resource observation unavailable')
+            sql=usage['sql']
+            if sql['running_workers']!=args.sql_workers or sql['worker_capacity']!=args.sql_workers or sql['work_capacity']!=args.sql_workers*args.sql_worker_queue or sql['queue_closed']:
+                raise RuntimeError('physical SQL workers/capacity differ from requested configuration')
+            if usage.get('archive_max_unarchived_bytes') != args.archive_max_unarchived_mib*1024**2:
+                raise RuntimeError('node archive byte budget differs from requested configuration')
+            if usage.get('archive_batch_groups') != args.archive_batch_groups:
+                raise RuntimeError('node archive batch size differs from requested configuration')
+            observed.append(usage)
+        return observed
     try:
         if not continuing:
             docker('network','create','--subnet','172.29.81.0/24',tag)
@@ -249,7 +290,10 @@ def main():
                     '--ulimit','nofile=65536:65536','-p',f'127.0.0.1:{args.port_base+n}:8082',
                     '-v',name+':/data','-v',str(config)+':/config:ro',
                     *(['--tmpfs',f'/data/node/raft-cells/archive-verifier:rw,noexec,nosuid,nodev,size={args.archive_tmpfs_mib}m'] if args.archive_tmpfs_mib else []),
-                    '-e',f'RAFT_NODE={n}','-e',f'RAFT_CELLS={total}','-e',f'RAFT_TICK_MS={args.tick_ms}','-e',f'RAFT_PRIMARY_ONLY={int(args.primary_only)}','-e',f'RAFT_QUEUE_ITEMS={args.queue_items}',
+                    '-e',f'RAFT_NODE={n}','-e',f'RAFT_CELLS={total}','-e',f'RAFT_TICK_MS={args.tick_ms}','-e',f'RAFT_PRIMARY_ONLY={int(args.primary_only)}','-e',f'RAFT_QUEUE_ITEMS={args.queue_items}','-e',f'RAFT_ARCHIVE_PRODUCERS={args.archive_producers}',
+                    '-e',f'RAFT_ARCHIVE_MAX_UNARCHIVED_MIB={args.archive_max_unarchived_mib}',
+                    '-e',f'RAFT_ARCHIVE_BATCH_GROUPS={args.archive_batch_groups}',
+                    '-e',f'RAFT_SQL_WORKERS={args.sql_workers}','-e',f'RAFT_SQL_WORKER_QUEUE={args.sql_worker_queue}',
                     '-e','AWS_ACCESS_KEY_ID='+access,'-e','AWS_SECRET_ACCESS_KEY='+secret,args.image)
         log('Waiting for native multi-Raft registration and listeners...')
         deadline=time.monotonic()+900
@@ -338,6 +382,7 @@ def main():
         initial_states,initial_wait=wait_archive('Draining the initial verified RustFS archive backlog before measurement...')
         (root/'initial-archive-verification.json').write_text(json.dumps(initial_states)+'\n')
         report['initial_archive_wait_seconds']=initial_wait
+        report['initial_resources']=sql_resources()
         save()
         stop=threading.Event()
         def sample():
@@ -357,9 +402,7 @@ def main():
                         'python:3.12-slim','python','/work/raft.py','--load-config','/config/load.json',
                         '--seconds',str(args.seconds),'--concurrency',str(concurrency),'--rates',str(rate))
                     result=json.loads(raw);result['repeat']=repeat+1
-                    suffix=f'-q{rate:g}' if rate else ''
-                    result['evidence_file']=f'write-r{repeat+1}-c{concurrency}{suffix}.json'
-                    (root/result['evidence_file']).write_text(json.dumps(result)+'\n')
+                    save_measurement(root, result, len(report['measurements']) + 1)
                     for r in result.pop('receipts'):
                         c=r.pop('cell');expected[c]+=1
                         if r['index']>latest[c]['index']: latest[c]=r
@@ -384,6 +427,7 @@ def main():
         report['verified_replica_values']=len(verification)
         states,archive_wait=wait_archive('Waiting for verified RustFS archive coverage...')
         report['final_archive_wait_seconds']=archive_wait
+        report['final_resources']=sql_resources()
         (root/'archive-verification.json').write_text(json.dumps(states)+'\n')
         report['cgroups']=[{
             'node':name,

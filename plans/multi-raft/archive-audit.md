@@ -8,8 +8,9 @@ snapshot installation and authorized replacement-member recovery; the original
 ## Authority and proofs
 
 Each registered member has an archive capability bound to its immutable
-namespace/birth/schema. The node runs one archive producer at a time, rotating
-across eligible cells. A SQL worker captures an immutable published generation
+namespace/birth/schema. The node runs a bounded number of archive producers,
+rotating across eligible cells and excluding a cell until its prior publication
+finishes. A SQL worker captures an immutable published generation
 and its matching durable engine cut; network and physical verification run
 outside the private command connection. Captured log bytes have an independent
 budget, so a command waiting for S3 cannot consume the capacity needed to archive
@@ -23,6 +24,13 @@ archived a later cut of the same history. It never imports that replica's applie
 position. The pure core receives coherent archived progress and, for an original
 command, an Archived proof naming the same command identity, index/term and
 entry digest already proven Committed, Applied and Queryable.
+
+Tail planning uses the selected manifest's validated lengths, counts and
+coverage; it does not download the prior set separately. Complete final
+verification includes every retained payload. A covering head still requires
+material verification, and snapshot rotation validates the previous payloads
+before replacing their references. Missing or corrupt prior material therefore
+cannot become an acknowledgement or an advanced head through any of these paths.
 
 Quorum output requires commit and durable image publication. S3 output also
 requires the archive proof. A namespace minimum strengthens request options and
@@ -41,13 +49,17 @@ the archive format and verifier already accept explicit immutable dependencies.
 
 ## Capacity and lifetime
 
-Defaults allow one node-wide producer, 4 MiB of captured log bytes, 128 MiB per
+Defaults allow two node-wide producers (configurable from one to four), 4 MiB
+of captured log bytes per producer, 128 MiB per
 object, 256 MiB per recovery set, 32 tail bundles, 1,024 tail entries, 128
 dependencies and 256 KiB manifests. Object-store operations have a 10-second
 deadline, including the complete streamed read; failed attempts retry after
 100 ms. The timer stays bound to the originating execution domain. Shutdown
 cancels object-store waits and joins running blocking work before releasing
 the verification workspace and cell directories.
+Concurrent producers overlap object I/O while serializing physical replay
+through one exclusive workspace. Capture reservations cover the configured
+producer count; each in-flight publication retains its bounded recovery sets.
 
 New business callbacks reserve a conservative maximum image/envelope allocation
 against a 256-MiB aggregate unarchived-byte admission cap and 4,096 data-bearing

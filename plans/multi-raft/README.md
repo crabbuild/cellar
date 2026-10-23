@@ -3,6 +3,10 @@
 Status: MR-01 through MR-12 are complete at their recorded native boundaries.
 MR-13 through MR-17 remain open. The complete delivery goal is not achieved.
 
+The [TiKV performance comparison](tikv-performance.md) records the current
+batching and storage investigation, its regression evidence and remaining
+end-to-end qualification.
+
 Leaders execute private commands; serving replicas apply committed SQLite/LTX
 history and expose explicit follower queries. S3 stores verified committed images,
 tails and dependencies. A node can lead some groups and follow others. S3 restores

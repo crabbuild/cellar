@@ -16,7 +16,7 @@ use protobuf::Message;
 use raft_engine::{Command, Engine, LogBatch, MessageExt, ReadableSize, RecoveryMode};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{mpsc, Arc, Mutex, RwLock};
 use std::time::Duration;
 use tokio::sync::{oneshot, Notify};
@@ -116,6 +116,7 @@ struct LogHandle {
     domain: crate::asyncrt::DomainToken,
     groups: Catalog,
     pending: Arc<AtomicUsize>,
+    cache_usage: Arc<AtomicUsize>,
     options: ReplicaLogOptions,
     closing: Arc<AtomicBool>,
     runtime_claimed: AtomicBool,
@@ -243,6 +244,12 @@ impl ReplicaLog {
         &self.inner.options
     }
 
+    /// Advisory maintenance signal. The writer still enforces the hard bound
+    /// against the complete candidate batch before crossing its sync boundary.
+    pub(crate) fn cache_under_pressure(&self) -> bool {
+        self.inner.cache_usage.load(Ordering::Acquire) >= self.inner.options.max_cache_bytes / 2
+    }
+
     pub async fn open(
         options: ReplicaLogOptions,
         filesystem: Arc<dyn FileSystem>,
@@ -271,6 +278,7 @@ impl ReplicaLog {
         });
         let closing = Arc::new(AtomicBool::new(false));
         let owner = Arc::new(());
+        let cache_usage = Arc::new(AtomicUsize::new(0));
         let handle = Self {
             inner: Arc::new(LogHandle {
                 performance: performance.clone(),
@@ -280,6 +288,7 @@ impl ReplicaLog {
                 domain: domain.clone(),
                 groups: groups.clone(),
                 pending: Arc::new(AtomicUsize::new(0)),
+                cache_usage: cache_usage.clone(),
                 options: options.clone(),
                 closing: closing.clone(),
                 runtime_claimed: AtomicBool::new(false),
@@ -319,6 +328,7 @@ impl ReplicaLog {
                     groups,
                     owner,
                     closed.clone(),
+                    cache_usage,
                     performance,
                 );
                 let mut worker = match result {
@@ -505,6 +515,7 @@ struct Worker {
     owner: Arc<()>,
     closed: Arc<AtomicBool>,
     cache_bytes: usize,
+    cache_usage: Arc<AtomicUsize>,
 }
 
 impl Worker {
@@ -514,6 +525,7 @@ impl Worker {
         groups: Catalog,
         owner: Arc<()>,
         closed: Arc<AtomicBool>,
+        cache_usage: Arc<AtomicUsize>,
         performance: Arc<Performance>,
     ) -> Result<Self, LogError> {
         match options.mode {
@@ -623,8 +635,12 @@ impl Worker {
             owner,
             closed,
             cache_bytes: 0,
+            cache_usage,
         };
         worker.recover()?;
+        worker
+            .cache_usage
+            .store(worker.cache_bytes, Ordering::Release);
         Ok(worker)
     }
 
@@ -761,6 +777,7 @@ impl Worker {
             owner: self.owner.clone(),
             closed: self.closed.clone(),
             cache: Arc::new(RwLock::new(cache)),
+            cache_revision: Arc::new(AtomicU64::new(self.root.sequence)),
         })
     }
 
@@ -893,6 +910,7 @@ impl Worker {
             .insert(bootstrap.scope, handle.clone());
         self.mappings.insert(key, mapping);
         self.cache_bytes += bytes;
+        self.cache_usage.store(self.cache_bytes, Ordering::Release);
         Ok(handle)
     }
 
@@ -952,13 +970,23 @@ impl Worker {
         // No cache write lock is held during engine I/O. Readers may continue
         // to observe the previous durable prefix while a sync is stalled.
         for (write, next) in writes.iter().zip(candidates) {
-            *write
+            let mut cache = write
                 .group
                 .cache
                 .write()
-                .map_err(|_| LogError::Corrupt("cache publication lock poisoned".into()))? = next;
+                .map_err(|_| LogError::Corrupt("cache publication lock poisoned".into()))?;
+            *cache = next;
+            // Publish invalidation while still holding the cache write lock.
+            // A reader observing this revision can only acquire the new cache;
+            // an older revision observed before this publication is refreshed
+            // on its next lookup. Failed syncs never advance the revision.
+            write
+                .group
+                .cache_revision
+                .store(sequence, Ordering::Release);
         }
         self.cache_bytes = next_bytes;
+        self.cache_usage.store(self.cache_bytes, Ordering::Release);
         self.performance
             .increment(MeasuredCounter::PersistGroups, writes.len() as u64);
         for write in &writes {

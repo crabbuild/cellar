@@ -274,6 +274,16 @@ impl ImageApplier {
         entry: &Entry,
         id: ImageId,
     ) -> Result<ApplyCompletion, ImageApplyError> {
+        self.prepare_private(ticket, entry, id, None)
+    }
+
+    pub(super) fn prepare_private(
+        &mut self,
+        ticket: ApplyTicket,
+        entry: &Entry,
+        id: ImageId,
+        private: Option<&mut super::execution::PrivateExecutor>,
+    ) -> Result<ApplyCompletion, ImageApplyError> {
         if self.pending.is_some() {
             return Err(ImageApplyError::Busy);
         }
@@ -353,19 +363,35 @@ impl ImageApplier {
                 })
             })
             .collect::<Result<Vec<_>, ImageApplyError>>()?;
-        self.images.reclaim(8).map_err(ImageApplyError::Images)?;
-        let pin = self
-            .images
-            .prepare(
-                id,
-                self.current.as_ref().map(|h| &h.pin),
-                &ImageUpdate {
-                    base,
-                    result,
-                    segments,
-                },
+        self.images.usage().map_err(ImageApplyError::Images)?;
+        // The private owner has already replayed and sealed these exact bytes.
+        // Take its pin only after every durable ticket/head/schema check above,
+        // and after checking the image store's health. Followers
+        // and unmatched proposals retain the ordinary physical replay path.
+        let preview = private.and_then(|private| {
+            private.take_preview(
+                self.group.identity(),
+                &self.images,
+                &entry.data,
+                base,
+                result,
             )
-            .map_err(ImageApplyError::Images)?;
+        });
+        let pin = match preview {
+            Some(pin) => pin,
+            None => self
+                .images
+                .prepare(
+                    id,
+                    self.current.as_ref().map(|h| &h.pin),
+                    &ImageUpdate {
+                        base,
+                        result,
+                        segments,
+                    },
+                )
+                .map_err(ImageApplyError::Images)?,
+        };
         let image = marker(&pin);
         self.pending = Some(Pending {
             ticket: ticket.clone(),
@@ -417,7 +443,9 @@ impl ImageApplier {
                     .map_err(ImageApplyError::Images)?;
             }
         }
-        self.images.reclaim(8).map_err(ImageApplyError::Images)?;
+        // Eligible old images are reclaimed with the next image's directory
+        // publication barrier. They remain fully charged until that sync.
+        self.images.usage().map_err(ImageApplyError::Images)?;
         Ok(head)
     }
 }

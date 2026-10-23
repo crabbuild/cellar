@@ -91,6 +91,164 @@ async fn completed_status_releases_admission_before_waking_caller() -> anyhow::R
 }
 
 #[tokio::test]
+async fn checkpoint_reclaims_cache_ahead_of_capacity_blocked_append() -> anyhow::Result<()> {
+    use crate::raft::cache::DurableApply;
+    use crate::raft::snapshot::{SnapshotLimits, SnapshotPackage};
+    use raft::prelude::Entry;
+    use raft::Storage as _;
+    let root = tempfile::tempdir()?;
+    let domain = crate::asyncrt::ExecutionDomain::new(tokio::runtime::Handle::current());
+    let mut limits = ReplicaLogOptions::new(
+        root.path().join("raft"),
+        NodeId::new([1; 16])?,
+        DiskLineage::new([2; 16])?,
+        ProcessGeneration::new([3; 16])?,
+        LogOpenMode::Create,
+    );
+    limits.max_cache_bytes = 64 * 1024;
+    let log = domain
+        .run(ReplicaLog::open(
+            limits,
+            Arc::new(cellar_ltx::DirectFileSystem),
+        ))
+        .await??;
+    let mut scopes = Vec::new();
+    for id in 1..=2u8 {
+        let scope = GroupScope {
+            cluster: ClusterId::new([1; 16])?,
+            namespace: NamespaceId::new([2; 16])?,
+            cell: format!("Counter:cache-{id}"),
+            group: GroupId::new([id; 16])?,
+            incarnation: IncarnationId::new([4; 16])?,
+        };
+        let group = log
+            .create_group(GroupBootstrap {
+                scope: scope.clone(),
+                member: MemberId::new(1)?,
+                birth_digest: [id; 32],
+                voters: vec![MemberId::new(1)?],
+                learners: vec![],
+            })
+            .await?;
+        let mut write = GroupWrite::new(&group);
+        // Applied protocol entries have no physical image, but still consume
+        // retained log bytes and can be compacted by a verified empty snapshot.
+        write.entries = (2..=6)
+            .map(|index| Entry {
+                index,
+                term: 1,
+                context: vec![id; 4000].into(),
+                ..Default::default()
+            })
+            .collect();
+        let mut hard = group.initial_state()?.hard_state;
+        hard.commit = 6;
+        write.hard_state = Some(hard);
+        write.applied = Some(DurableApply {
+            position: LogPosition {
+                index: LogIndex::new(6),
+                term: Term::new(1),
+            },
+            image: None,
+        });
+        log.persist(OperationId::new(id as u64), vec![write])
+            .await?;
+        scopes.push(scope);
+    }
+    let (events, _receiver) = mpsc::channel(256);
+    let mut worker = Worker::new(
+        log.clone(),
+        RaftRuntimeOptions {
+            tick_interval_ms: None,
+            election_seed: Some([7; 32]),
+            ..Default::default()
+        },
+        events,
+        log.domain(),
+        true,
+    )?;
+    domain
+        .run(async {
+            worker
+                .groups
+                .get_mut(&scopes[0])
+                .unwrap()
+                .replica
+                .execute(GroupAction::Campaign, &worker.options)?;
+            for _ in 0..64 {
+                worker.progress()?;
+                if worker.start_batch()? {
+                    let done = worker.inflight.as_mut().unwrap().await;
+                    worker.finish_batch(done)?;
+                }
+                worker.outbox.events.clear();
+            }
+            assert!(worker.groups[&scopes[0]].replica.status()?.protocol_ready);
+            let before = log.group(&scopes[0])?.read()?.last_index();
+            let checkpoint = SnapshotPackage::capture_empty(
+                &log.group(&scopes[1])?,
+                [9; 32],
+                SnapshotLimits::default(),
+            )?;
+            let request = |command| {
+                let (reply, _) = oneshot::channel();
+                Request {
+                    command,
+                    reply,
+                    _permit: None,
+                    _inbound: None,
+                }
+            };
+            worker.dispatch(request(Command::Group {
+                scope: scopes[0].clone(),
+                action: GroupAction::Propose {
+                    context: vec![],
+                    data: vec![8; 32 * 1024],
+                },
+            }));
+            worker.dispatch(request(Command::Checkpoint(Box::new(
+                checkpoint.checkpoint_material(),
+            ))));
+            worker.progress()?;
+            // Deliberately visit the blocked append first, matching a retry turn.
+            worker.order = scopes.iter().cloned().collect();
+            assert!(worker.start_batch()?);
+            let done = worker.inflight.as_mut().unwrap().await;
+            assert!(
+                done.1.is_ok(),
+                "checkpoint must escape a capacity-blocked append batch: {:?}",
+                done.1
+            );
+            worker.finish_batch(done)?;
+            for _ in 0..64 {
+                worker.progress()?;
+                if worker.start_batch()? {
+                    let done = worker.inflight.as_mut().unwrap().await;
+                    worker.finish_batch(done)?;
+                }
+                worker.outbox.events.clear();
+                if log.group(&scopes[0])?.read()?.last_index() > before {
+                    break;
+                }
+            }
+            assert_eq!(
+                log.group(&scopes[1])?.read()?.snapshot.get_metadata().index,
+                6
+            );
+            assert!(
+                log.group(&scopes[0])?.read()?.last_index() > before,
+                "append must persist after reclamation"
+            );
+            Ok::<_, anyhow::Error>(())
+        })
+        .await??;
+    drop(worker);
+    log.close().await?;
+    domain.shutdown().await;
+    Ok(())
+}
+
+#[tokio::test]
 async fn idle_groups_leave_the_run_queue_and_reactivate_once() -> anyhow::Result<()> {
     let root = tempfile::tempdir()?;
     let domain = crate::asyncrt::ExecutionDomain::new(tokio::runtime::Handle::current());

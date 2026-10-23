@@ -51,6 +51,11 @@ async fn query_pin_shutdown_waits_for_physical_reader() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn command_waits_for_cell_sql_owner() -> Result<()> {
+    resources::command_waits_for_reader().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn metrics_group_cardinality() -> Result<()> {
     metrics::group_cardinality().await
 }
@@ -253,6 +258,20 @@ async fn shutdown_archive_lag() -> Result<()> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
 async fn node_shutdown_hands_off_to_published_voter() -> Result<()> {
     automatic::shutdown_handoff().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn node_shutdown_waits_for_archive_capture_before_handoff() -> Result<()> {
+    let store = Arc::new(faults::Store::default());
+    store.archive_unavailable.store(true, Ordering::Release);
+    automatic::shutdown_handoff_during_archive_capture(store, false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn node_shutdown_archive_capture_does_not_extend_handoff_budget() -> Result<()> {
+    let store = Arc::new(faults::Store::default());
+    store.archive_unavailable.store(true, Ordering::Release);
+    automatic::shutdown_handoff_during_archive_capture(store, true).await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]

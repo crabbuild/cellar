@@ -25,8 +25,12 @@ def analyze(root, p99_limit_ms=200):
             latest[c] = item['response']['index']
     assert set(seeds) == set(range(report['cells']))
     windows = []
+    measured_files = set()
     for summary in report['measurements']:
-        raw = json.loads((root / summary.get('evidence_file', f"write-r{summary['repeat']}-c{summary['concurrency']}.json")).read_text())
+        path = (root / summary.get('evidence_file', f"write-r{summary['repeat']}-c{summary['concurrency']}.json")).resolve()
+        assert path not in measured_files, 'reused measurement evidence'
+        measured_files.add(path)
+        raw = json.loads(path.read_text())
         samples = sorted(raw['samples_ms'])
         assert len(samples) == len(raw['receipts']) == summary['successful_writes'] > 0
         assert summary['tps'] == len(samples) / raw['elapsed_seconds']
@@ -73,6 +77,28 @@ def analyze(root, p99_limit_ms=200):
             scratch = limits['Tmpfs']
             assert set(scratch) == {'/data/node/raft-cells/archive-verifier'}
             assert 'size=512m' in next(iter(scratch.values()))
+    if 'archive_batch_groups' in report:
+        assert report['archive_batch_groups'] in (1, 2)
+        for phase in ('initial_resources', 'final_resources'):
+            assert len(report[phase]) == 3
+            for usage in report[phase]:
+                assert usage['archive_batch_groups'] == report['archive_batch_groups']
+    if 'archive_max_unarchived_mib' in report:
+        assert 1 <= report['archive_max_unarchived_mib'] <= 16384
+        for phase in ('initial_resources', 'final_resources'):
+            assert len(report[phase]) == 3
+            for usage in report[phase]:
+                assert usage['archive_max_unarchived_bytes'] == report['archive_max_unarchived_mib'] * 1024**2
+    if 'sql_workers' in report or 'sql_worker_queue' in report:
+        assert 1 <= report['sql_workers'] <= 16 and 1 <= report['sql_worker_queue'] <= 256
+        for phase in ('initial_resources', 'final_resources'):
+            assert len(report[phase]) == 3
+            for usage in report[phase]:
+                sql = usage['sql']
+                assert sql is not None and not sql['queue_closed']
+                assert sql['running_workers'] == sql['worker_capacity'] == report['sql_workers']
+                assert sql['work_capacity'] == report['sql_workers'] * report['sql_worker_queue']
+                assert 0 <= sql['work_reservations'] <= sql['work_capacity']
     candidates = []
     for concurrency,rate in sorted({(w['concurrency'],w['offered_rate']) for w in windows}):
         group = [w for w in windows if (w['concurrency'],w['offered_rate']) == (concurrency,rate)]

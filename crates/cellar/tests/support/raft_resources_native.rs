@@ -38,6 +38,109 @@ fn definition(
     })
 }
 
+pub async fn command_waits_for_reader() -> Result<()> {
+    let (gate, mut entered) = public_node::Gate::new();
+    let _release = public_node::Release(gate.clone());
+    let definition = definition(gate.clone(), Arc::new(AtomicUsize::new(0)))?;
+    let registration = two_registrations(definition.schema)?.remove(0);
+    let root = tempfile::tempdir()?;
+    let node = public_node::node(root.path(), definition.application.clone()).await?;
+    let service = public_node::cells(
+        &node,
+        definition.application.clone(),
+        Arc::new(faults::Store::default()),
+        registration.clone(),
+        false,
+    )
+    .await?;
+    let cell = service.cell(
+        registration.namespace.namespace,
+        &registration.birth.scope.cell,
+    )?;
+    let mut reader = None;
+    let mut writer = None;
+    let result = async {
+        public_node::ready(&cell).await?;
+        let first = cell
+            .command(
+                definition.increment.clone(),
+                1i64.to_be_bytes().to_vec(),
+                public_node::archived_options(1)?,
+            )
+            .await?;
+        reader = Some(tokio::spawn(cell.query(
+            definition.get.clone(),
+            b"hold".to_vec(),
+            QueryOptions {
+                consistency: QueryConsistency::AtLeast(first.version_token),
+                ..Default::default()
+            },
+        )));
+        tokio::time::timeout(Duration::from_secs(5), entered.recv())
+            .await?
+            .context("reader did not enter")?;
+        writer = Some(tokio::spawn(cell.command(
+            definition.increment.clone(),
+            2i64.to_be_bytes().to_vec(),
+            public_node::options(2)?,
+        )));
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        ensure!(
+            !writer.as_ref().unwrap().is_finished(),
+            "temporary SQL occupancy refused the command"
+        );
+        let excess = cell
+            .command(
+                definition.increment.clone(),
+                4i64.to_be_bytes().to_vec(),
+                public_node::options(3)?,
+            )
+            .await;
+        ensure!(
+            matches!(excess, Err(CommandFailure::Overloaded)),
+            "multiple pending commands admitted: {excess:?}"
+        );
+        gate.release();
+        let old = tokio::time::timeout(Duration::from_secs(5), reader.take().unwrap()).await???;
+        let new = tokio::time::timeout(Duration::from_secs(5), writer.take().unwrap()).await???;
+        ensure!(old.result == 1i64.to_be_bytes() && new.result == 3i64.to_be_bytes());
+        let read = cell
+            .query(
+                definition.get.clone(),
+                vec![],
+                QueryOptions {
+                    consistency: QueryConsistency::AtLeast(new.version_token),
+                    ..Default::default()
+                },
+            )
+            .await?;
+        ensure!(read.result == 3i64.to_be_bytes());
+        Ok::<_, anyhow::Error>(())
+    }
+    .await;
+    gate.release();
+    if let Some(task) = reader {
+        task.abort();
+        let _ = task.await;
+    }
+    if let Some(task) = writer {
+        task.abort();
+        let _ = task.await;
+    }
+    let cleanup = node.shutdown(ShutdownMode::Preserve).await;
+    result?;
+    let NodeOutcome::Stopped(report) = cleanup? else {
+        anyhow::bail!("node did not stop")
+    };
+    report.raft.context("missing Raft report")?.result?;
+    let sql = service
+        .resource_usage()
+        .sql
+        .context("missing retained SQL observer")?;
+    ensure!(sql.queue_closed && sql.running_workers == 0 && sql.work_reservations == 0);
+    Ok(())
+}
+
 pub async fn run(shutdown_held: bool) -> Result<()> {
     let (gate, mut entered) = public_node::Gate::new();
     let _release = public_node::Release(gate.clone());
@@ -79,10 +182,11 @@ pub async fn run(shutdown_held: bool) -> Result<()> {
                 }
         );
         ensure!(initial.business.max_items == 128 && initial.control.max_items == 16);
+        let archive = RaftArchiveOptions::default();
+        ensure!(initial.archive_capture.max_items == archive.max_producers);
         ensure!(
-            initial.archive_capture.max_items == 2
-                && initial.archive_capture.max_bytes
-                    == 2 * ArchiveLimits::default().max_capture_bytes
+            initial.archive_capture.max_bytes
+                == archive.limits.max_capture_bytes * archive.max_producers
         );
         let mut written = Vec::new();
         for handle in &handles {

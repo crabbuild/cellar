@@ -170,6 +170,12 @@ impl Driver {
 
     pub(super) fn pump_snapshots(&mut self) {
         let now = crate::asyncrt::mono_ms();
+        // Many short histories can exhaust the shared log cache before any
+        // reaches its entry-count threshold. Begin reclaiming at half capacity
+        // and prefer groups above that capacity's average share. The hard
+        // writer bound and the physical checkpoint proof remain unchanged.
+        let cache_pressure = self.log.cache_under_pressure();
+        let cache_share = self.log.limits().max_cache_bytes / 2 / self.cells.len().max(1);
         if self
             .snapshot_source
             .as_ref()
@@ -263,13 +269,14 @@ impl Driver {
                 continue;
             }
             let due = cell.group.read().is_ok_and(|cache| {
-                cache
+                let applied_entries = cache
                     .applied
                     .position
                     .index
                     .get()
-                    .saturating_sub(cache.snapshot.get_metadata().index)
-                    >= self.options.checkpoint_entries
+                    .saturating_sub(cache.snapshot.get_metadata().index);
+                applied_entries >= self.options.checkpoint_entries
+                    || (cache_pressure && applied_entries > 0 && cache.bytes() >= cache_share)
             });
             if !due {
                 continue;
