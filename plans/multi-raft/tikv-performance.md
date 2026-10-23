@@ -1,20 +1,20 @@
 # TiKV comparison and Cellar performance investigation
 
-Status: PR #98's conflicts are resolved through main `1455fb0`. The new archive
-completion candidate passes local qualification: 521 library, 53 archive, 29 host
-and nine multi-group tests, strict Clippy and repository checks. Fresh sustained
-three-node performance is still pending. The previous fresh
-control-frame gathering comparison is complete: candidate `3ceba4e` has 18.71%
-lower mean successful TPS and misses the 500-ms p99 gate in its first window.
-The control has 1,910 overload refusals. Both verify exact 4,500-replica /
-1,500-archive state and stop cleanly without OOM. Gathered writes are reverted;
-the existing per-reply sliding control window remains. No repeatable performance
-gain is claimed. Two-cell archive batching remains the production default after
-the separate singleton experiment reduced mean TPS by 20.01%.
+Status: PR #98's conflicts are resolved through main `1455fb0`. The fresh
+archive-completion comparison is complete: candidate `472850c` has 13.83% lower
+mean successful TPS, 32,571 overload refusals and a 527.66-ms worst p99. The control
+has 3,558 refusals and a 208.83-ms worst p99. Both verify all 4,500 replica values
+and 1,500 archive positions, then stop cleanly without OOM. Neither qualifies.
+Compiler activity overlaps the candidate but not the control, limiting causal
+attribution. The archive-completion implementation is reverted; its local stall
+regressions and full frozen source remain in `472850c`. No repeatable throughput
+gain is claimed. The previous control-frame gathering experiment was also
+reverted after 18.71% lower mean TPS. Two-cell archive batching remains the
+production default after singleton batching reduced mean TPS by 20.01%.
 
-## Independent completion within archive bundles
+## Rejected independent completion within archive bundles
 
-The next candidate preserves two-cell immutable uploads and separates completion
+The measured candidate `472850c` preserves two-cell immutable uploads and separates completion
 from the remaining member's lifetime. The prior host retained both capture
 permits and all recovery results until the entire `publish_batch` returned,
 even when one cell's physical verification and conditional head had finished.
@@ -29,10 +29,10 @@ The companion cancellation case confirms the completed proof survives a stopped
 partner and all reservations are released. The first full library run exposed
 unowned fixture timers borrowing another test's shutting-down runtime; both
 cases now use an explicit execution domain without relaxing their assertions.
-The corrected library run passes 520 tests. The archive suite passes 52 of 53;
-its existing 500-ms retry test misses its attempt-count bound under the full
-load, then passes unchanged alone. This failure remains in the evidence and
-broader qualification is still in progress.
+The intermediate corrected library run passes 520 tests. Its archive suite passes
+52 of 53; the existing 500-ms retry test misses its attempt-count bound under
+full load, then passes unchanged alone. This failure remains in the evidence;
+the final qualification follows below.
 
 A second regression holds a new upload while an already-covered member resumes
 reading and physically validating its own proof. It fails because the coordinator
@@ -48,12 +48,12 @@ dependency policy and docs checks pass. Clippy required the domain-aware select
 macro and one shared fault-store module; both were fixed without suppressing the
 warnings. The final host-focused run passes 25 tests after those test-only edits.
 [Local qualification and retained failures](evidence/tikv-archive-completion-local.json)
-record the limits; sustained three-node performance remains unmeasured.
+record the limits. The subsequent three-node comparison below fails qualification.
 
 [Storage preservation](evidence/tikv-archive-completion-preservation.json) verifies
-six stopped historical node volumes, their content/metadata, original Docker
-options and 18 read-only probes. All raw evidence, images and volume identities
-remain; fresh measured storage will use the original backing.
+12 stopped historical node volumes, their content/metadata, original Docker
+options and 36 read-only probes before both cohorts. All raw evidence, images and
+volume identities remain; fresh measured storage uses the original backing.
 
 The host keeps one bounded completion waiter per retained cut, plus the physical
 batch job in its existing joined job set. Only consuming a cut's completion frees
@@ -70,7 +70,59 @@ The relevant TiKV mechanism is shared I/O with per-region completion notificatio
 after the shared durable write. This is an analogy in ownership and notification,
 not a claim that TiKV implements Cellar's SQLite/RustFS archive path. Cellar still
 requires each independent archive head and physical recovery proof. Sustained
-TPS, p99, error rate and exact three-node recovery qualification remain pending.
+TPS, p99 and error-rate qualification are evaluated below.
+
+
+### Fresh paired measurement and disposition
+
+[Paired evidence](evidence/tikv-archive-completion.json) compares frozen control
+`0b07410` with `472850c`: three pinned 1-vCPU / 3-GiB nodes, 500 leaders and 1,000
+followers each, 24 writers, two 180-second windows, four retained archive cuts,
+two-cell bundles and unchanged 256-MiB / 4,096-entry admission limits. The load
+AST is identical; each cohort uses fresh internal node storage, unchanged external
+RustFS backing and a cold benchmark VM. Timed mutations never retry.
+
+| Build | Successful TPS, windows 1 / 2 | Successful-request p99 ms | Errors |
+| --- | --- | --- | --- |
+| Control | 265.57 / 259.18 | 178.65 / 208.83 | 3,558 / 0 |
+| Independent cut completion | 218.05 / 234.14 | 527.66 / 234.09 | 12,673 / 19,898 |
+
+Mean successful TPS falls **13.83%**, from 262.37 to 226.09. Neither cohort
+qualifies under the zero-error / 500-ms gate. All refusals match retained-entry
+admission counters exactly: control node one has 3,558; candidate nodes one,
+two and three have 9,374 / 1,653 / 1,646 in window one and 4,815 / 7,474 / 7,609
+in window two. Publication failures and rejected coverage remain zero. Temporary
+local-image coherence delays total 62 control / 50 candidate, with no lost data.
+Both verify exact 4,500 replica values and 1,500 archive positions without
+reconciliation, stop cleanly without OOM and retain every image and volume.
+Peak node memory is 1.83 / 1.57 GB; final archive catch-up is 0.35 / 5.81 seconds.
+
+Control archive-batch means are 36.98 / 36.65 ms versus 41.22 / 43.46 ms for the
+candidate. This timer remains the full physical batch lifetime; early cut
+completion does not redefine it as per-cut latency. Candidate control-queue
+means are 139.88 / 44.40 ms versus 31.59 / 42.75 ms, and image preparation is
+6.10 / 5.62 ms versus 5.08 / 5.04 ms. Shared persistence remains around
+1.03–1.26 ms. These operations overlap and cannot be summed into client latency;
+failed stages must not be assigned to successful-write denominators.
+
+Compiler activity overlaps 36/37 and 19/37 candidate samples versus 0/37 and
+0/37 control samples. Swap remains roughly 8.5 GiB. This control-first pair does
+not isolate the implementation's effect and does not establish a causal slowdown.
+Nevertheless, it provides no end-to-end benefit to justify the extra scheduling
+machinery. Production code, added fixture/test plumbing and active-contract
+documentation are restored exactly to `dc9d044`. The local regressions, negative
+results, frozen source and image remain available for future investigation.
+Restoration validation passes 22 focused host, 53 native archive and 29 native
+host tests, strict all-target/all-feature Clippy, formatting, layout across 871
+Rust files, native dependency policy across 454 packages and documentation checks.
+The first dependency check lacked Cargo in PATH; the corrected explicit toolchain
+environment passes, and both invocation logs remain.
+
+The priority now is bounded admission for retained-history pressure, preserving
+fast duplicate lookup, original deadlines, byte reservations and callback
+at-most-once behavior. Repeated physical image/replay work remains the larger
+storage-model opportunity. Increasing limits or producer counts has not earned
+a default change; shared Raft persistence is not the largest measured cost.
 
 ## Gather already-queued control frames
 

@@ -351,29 +351,6 @@ impl CellArchive {
         inputs: Vec<(Self, CommittedArchiveCut)>,
         verifier: &ArchiveVerifier,
     ) -> Result<Vec<Result<ArchiveRecoverySet, ArchiveError>>, ArchiveError> {
-        // Reject an oversized caller before allocating its result slots.
-        if inputs.len() > MAX_GROUPS {
-            return Err(ArchiveError::Invalid("archive batch namespace/count"));
-        }
-        let mut completed: Vec<Option<Result<ArchiveRecoverySet, ArchiveError>>> =
-            (0..inputs.len()).map(|_| None).collect();
-        Self::publish_batch_each(inputs, verifier, |number, result| {
-            completed[number] = Some(result);
-        })
-        .await?;
-        completed
-            .into_iter()
-            .map(|result| result.ok_or(ArchiveError::Unconfirmed))
-            .collect()
-    }
-
-    /// Deliver only a member's own fully verified result. The caller must keep
-    /// polling this owner until every remaining physical publication is joined.
-    pub(crate) async fn publish_batch_each(
-        inputs: Vec<(Self, CommittedArchiveCut)>,
-        verifier: &ArchiveVerifier,
-        mut complete: impl FnMut(usize, Result<ArchiveRecoverySet, ArchiveError>),
-    ) -> Result<(), ArchiveError> {
         let first = inputs.first().ok_or(ArchiveError::Limit)?;
         if inputs.len() > MAX_GROUPS
             || inputs
@@ -385,13 +362,13 @@ impl CellArchive {
         }
         if inputs.len() == 1 {
             let (archive, cut) = inputs.into_iter().next().ok_or(ArchiveError::Limit)?;
-            complete(0, archive.publish(cut, verifier).await);
-            return Ok(());
+            return Ok(vec![archive.publish(cut, verifier).await]);
         }
         let domain = first.0.io_domain.clone().ok_or(ArchiveError::Stopped)?;
         let (sender, mut receiver) = mpsc::channel(MAX_GROUPS);
         let mut jobs = FuturesUnordered::new();
-
+        let mut completed: Vec<Option<Result<ArchiveRecoverySet, ArchiveError>>> =
+            (0..inputs.len()).map(|_| None).collect();
         for (number, (mut archive, cut)) in inputs.into_iter().enumerate() {
             archive.bundle_client = Some(Client(sender.clone()));
             jobs.push(async move { (number, archive.publish(cut, verifier).await) });
@@ -400,7 +377,7 @@ impl CellArchive {
         while !jobs.is_empty() {
             let request = crate::asyncrt::select! {
                 done = jobs.next() => {
-                    if let Some((number, result)) = done { complete(number, result); }
+                    if let Some((number, result)) = done { completed[number] = Some(result); }
                     continue;
                 }
                 request = receiver.recv() => request.ok_or(ArchiveError::Unconfirmed)?,
@@ -416,26 +393,16 @@ impl CellArchive {
             tokio::pin!(timer);
             while requests.len() < jobs.len() && requests.len() < MAX_GROUPS {
                 crate::asyncrt::select! {
-                    done = jobs.next() => if let Some((number, result)) = done { complete(number, result); },
+                    done = jobs.next() => if let Some((number, result)) = done { completed[number] = Some(result); },
                     request = receiver.recv() => requests.push(request.ok_or(ArchiveError::Unconfirmed)?),
                     _ = &mut timer => break,
                 }
             }
-            // An unrelated member may finish while this upload is pending.
-            // Keep polling it, but never detach the physical flush owner. A
-            // member using this flush still awaits its own reply, which is sent
-            // only after upload/confirmation work has returned.
-            let flushing = flush(requests);
-            tokio::pin!(flushing);
-            loop {
-                crate::asyncrt::select! {
-                    _ = &mut flushing => break,
-                    done = jobs.next(), if !jobs.is_empty() => {
-                        if let Some((number, result)) = done { complete(number, result); }
-                    }
-                }
-            }
+            flush(requests).await;
         }
-        Ok(())
+        completed
+            .into_iter()
+            .map(|result| result.ok_or(ArchiveError::Unconfirmed))
+            .collect()
     }
 }

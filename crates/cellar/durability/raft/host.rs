@@ -34,11 +34,6 @@ use tokio::sync::{mpsc, Notify};
 mod startup_tests;
 
 #[cfg(test)]
-#[path = "../../tests/support/raft_catalog_fault.rs"]
-#[allow(dead_code)]
-pub(super) mod catalog_fault;
-
-#[cfg(test)]
 #[path = "../../tests/support/raft_storage_fault.rs"]
 #[allow(dead_code)]
 mod storage_fault;
@@ -1116,7 +1111,6 @@ enum Job {
         result: Result<(), RuntimeError>,
     },
     Archived(Vec<super::host_archive::Completed>),
-    ArchiveBatchJoined,
     Routed {
         request: Box<Request>,
         result: Result<super::query_route::RoutedOutput, CommandFailure>,
@@ -2961,47 +2955,25 @@ impl Driver {
                 };
                 pending.push(owner.pending.remove(next));
             }
-            // Each slot remains occupied until its own verified completion is
-            // consumed. Keep the physical batch job in this same joined owner;
-            // a notification never detaches or cancels its unfinished partner.
-            let mut completions = BTreeMap::new();
-            for cut in &pending {
-                let scope = cut.scope.clone();
-                let position = cut.cut.position();
-                let (sender, receiver) = tokio::sync::oneshot::channel();
-                completions.insert(scope.clone(), sender);
-                self.jobs.push(Box::pin(async move {
-                    Job::Archived(vec![receiver.await.unwrap_or(
-                        super::host_archive::Completed {
-                            scope,
-                            position,
-                            result: Err(ArchiveError::Unconfirmed),
-                        },
-                    )])
-                }));
-            }
+            // Each cut remains in inflight, and retains its capture permit,
+            // until this entire publication returns through on_job.
             let verifier = owner.verifier.clone();
             let timer = self
                 .local
                 .performance
                 .timer(super::performance::Operation::ArchivePublicationBatch);
             self.jobs.push(Box::pin(async move {
-                let success =
-                    super::host_archive::publish_each(pending, verifier, move |completed| {
-                        if let Some(sender) = completions.remove(&completed.scope) {
-                            let _ = sender.send(completed);
-                        }
-                    })
-                    .await;
-                timer.finish(success);
-                Job::ArchiveBatchJoined
+                let completed = super::host_archive::publish(pending, verifier).await;
+                timer.finish(
+                    !completed.is_empty() && completed.iter().all(|cut| cut.result.is_ok()),
+                );
+                Job::Archived(completed)
             }));
         }
     }
 
     fn on_job(&mut self, job: Job) {
         match job {
-            Job::ArchiveBatchJoined => (),
             Job::Drained(completed) => self.finish_node_drain(*completed),
             Job::Controller(completed) => self.finish_controller(*completed),
             Job::Effect(completed) => self.finish_effect(*completed),

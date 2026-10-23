@@ -19,11 +19,6 @@ pub struct Store {
     pub fail_read: AtomicBool,
     pub fail_confirmation: AtomicBool,
     pub fail_head_before: AtomicBool,
-    pub hold_next_archive_head: AtomicBool,
-    pub one_head_hang: AtomicBool,
-    pub one_head_waiting: AtomicBool,
-    pub one_head_resume: tokio::sync::Notify,
-    pub held_archive_head: std::sync::Mutex<Option<Path>>,
     pub fail_head_after: AtomicBool,
     pub fail_bundle_after: AtomicBool,
     pub fail_head_confirmation: AtomicBool,
@@ -48,9 +43,6 @@ pub struct Store {
     pub payload_chunks: std::sync::Arc<AtomicUsize>,
     pub refuse_archive_payload_reads: AtomicBool,
     pub hold_next_payload: AtomicBool,
-    pub hold_payload_puts: AtomicBool,
-    pub payload_put_waiting: AtomicBool,
-    pub payload_put_resume: tokio::sync::Notify,
     pub payload_hang: AtomicBool,
     pub payload_waiting: AtomicBool,
     pub payload_resume: tokio::sync::Notify,
@@ -156,24 +148,6 @@ impl ObjectStore for Store {
             self.view_waiting.store(false, Ordering::Release);
         }
         self.archive_fault(path).await?;
-        if path.as_ref().contains("/archives/")
-            && ["/snapshots/", "/tails/", "/bundles/"]
-                .iter()
-                .any(|part| path.as_ref().contains(part))
-            && self.hold_payload_puts.load(Ordering::Acquire)
-        {
-            self.payload_put_waiting.store(true, Ordering::Release);
-            loop {
-                let resumed = self.payload_put_resume.notified();
-                tokio::pin!(resumed);
-                resumed.as_mut().enable();
-                if !self.hold_payload_puts.load(Ordering::Acquire) {
-                    break;
-                }
-                resumed.await;
-            }
-            self.payload_put_waiting.store(false, Ordering::Release);
-        }
         if !matches!(options.mode, PutMode::Create) {
             self.non_create.fetch_add(1, Ordering::AcqRel);
         }
@@ -186,23 +160,6 @@ impl ObjectStore for Store {
         }
         if path.filename() == Some("head") && self.fail_head_before.swap(false, Ordering::AcqRel) {
             return Err(failure());
-        }
-        if path.filename() == Some("head")
-            && path.as_ref().contains("/archives/")
-            && self.hold_next_archive_head.swap(false, Ordering::AcqRel)
-        {
-            *self.held_archive_head.lock().map_err(|_| failure())? = Some(path.clone());
-            self.one_head_waiting.store(true, Ordering::Release);
-            loop {
-                let resumed = self.one_head_resume.notified();
-                tokio::pin!(resumed);
-                resumed.as_mut().enable();
-                if !self.one_head_hang.load(Ordering::Acquire) {
-                    break;
-                }
-                resumed.await;
-            }
-            self.one_head_waiting.store(false, Ordering::Release);
         }
         let result = self.inner.put_opts(path, payload, options).await?;
         if path.as_ref().contains("/archives/bundles/")
