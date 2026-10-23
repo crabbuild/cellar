@@ -84,24 +84,25 @@ work to queue bursts and repeatable latency within the authorized five-node
 Colima/RustFS scope. MR-13 and MR-14 remain in progress. This order reflects the
 requested MR-14 focus; it does not waive MR-13's release dependency.
 
-1. **Establish repeatable density and latency.** The sender pipelines at most
-   eight already-admitted control frames. Groups waiting for persistence leave
-   the runnable queue until exact sync receipts wake them. The latest
-   [startup correction](evidence/MR-14-startup-progress.json) also keeps peer
-   routes private until every local group has attached and the archive owner is
-   ready. A bounded real-TLS regression fails before the correction and passes
-   after it. One fresh, unchanged five-node 1,500-cell run verifies all 4,500
-   replicas and completes 1,200/1,200 operations at 123.939 ms p99, meeting its
-   short-run traffic targets. This uses thirty active cells and ten offered
-   operations per second; it does not establish saturation or steady state.
-   The earlier [phase-timed attempts](evidence/MR-14-phase-progress.json) retain
-   their 1,500-cell startup failure, 500-cell latency miss and inconsistent
-   repeated 150-cell control. Repeat healthy and slow-follower profiles before
-   claiming supported capacity. Use sender queue, exchange, receiver admission,
-   runtime and SQL observations to reproduce remaining delay causally. Aggregate
-   stage timings and mean CPU alone cannot explain prior tail-latency variation
-   or prove a cross-revision speedup. Preserve durability, authentication,
-   budgets and numeric SLOs, and measure instrumentation overhead.
+1. **Resolve slow-follower observation stalls and qualify repeatability.**
+   Startup now keeps peer routes private until every local group and the archive
+   owner are ready. The sender retains bounded eight-frame control pipelining
+   and persistence waiters leave the runnable queue until exact sync receipts.
+   The [paired 1,500-cell sequence](evidence/MR-14-repeat-progress.json) uses the
+   same immutable executable and identical probe schedules. Both healthy
+   controls verify all 4,500 replicas and archive coverage: 1,200/1,200 at
+   95.426 ms p99 and 1,199/1,200 at 79.254 ms p99, respectively. The intervening
+   slow-follower attempt times out during cycle 91's sixth leader probe and is
+   unqualified; final replica and archive verification never run. Keep that
+   failure, its 32 rejected arrivals and the incomplete fault schedule intact.
+   The next reproducer/profiling work must distinguish host/runtime observation
+   delay from transport queues or short CPU pressure without raising the 100 ms
+   probe cap, retrying failed probes or ignoring cycles. New failed-probe records
+   retain the exact cell, budget, elapsed time and exception type before cleanup.
+   The controls narrow the investigation but do not prove a cause. These runs
+   use thirty active cells and ten offered operations per second on one shared
+   Mac; sustained capacity, overhead and cross-revision speedup remain unproven.
+   Earlier startup and traffic misses remain at their original source pins.
 2. **Finish MR-14's performance acceptance.** Establish repeatable healthy and
    slow-follower latency before claiming a supported capacity. Complete sustained
    S3 acknowledgement and equivalent-contract Fleet/bucket fault comparisons.
@@ -1358,6 +1359,26 @@ removed, volumes preserved and the dedicated profile stopped. Earlier failures
 remain at their source pins. This one successful run validates the startup fix
 locally; repeatable latency, overhead, matched-contract benchmarks, sustained S3
 and Q1 capacity remain open.
+
+The [paired density sequence](evidence/MR-14-repeat-progress.json) uses checkout
+`70c5695` and the same immutable image built at `f96a94b`; only documentation
+changed and every compiled input and executable digest is independently checked.
+Two healthy 1,500-cell controls with the identical 116-cycle probe schedule pass
+all traffic, memory, replica and archive checks at 95.426/79.254 ms p99. The
+intervening pause attempt fails during cycle 91 after five leader probes. It
+confirms unpause and all containers exit normally, but final replica/archive
+checks never run. Its 1,168 successful replies, 32 rejected arrivals and diagnostic
+341.527 ms p99 do not qualify the declared fault profile: fault scheduling stops
+before the 120-second measurement ends. Raw observations and independent capsule
+extraction preserve this rejection.
+
+Source `f516e4f` subsequently records failed probe context before cleanup, with
+no retry or changed deadline. A failing-before/passing-after regression and a
+verifier refusal case pass; the performance-tool suite has 194 passes and one
+existing opt-in Docker skip. Documentation, dependency, plan validation and all
+17 plan tests pass; the initial missing-Cargo environment failure remains in the
+validation capsule. No new physical run is attributed to this diagnostic change.
+Only the dedicated profile was controlled and it is stopped; volumes remain.
 
 The [all-owner restart evidence](evidence/MR-14-restart-progress.json), source
 `aaa83f8`, records two three-node bucket runs under an explicit twelve-second

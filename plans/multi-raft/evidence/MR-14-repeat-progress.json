@@ -1,0 +1,688 @@
+{
+  "task_id": "MR-14",
+  "source_revision": "70c5695af923a5face23850a0c8d5fa7cd377225",
+  "completion": "partial",
+  "scope": "Unchanged five-node 1,500-cell healthy, slow-follower and repeated healthy runs with identical probe schedules and the previously verified immutable executable.",
+  "image_provenance": {
+    "checkout_revision": "70c5695af923a5face23850a0c8d5fa7cd377225",
+    "image_build_revision": "f96a94b98dddfd7b04fdbf875c793e61230999d5",
+    "image": "sha256:e1c017739cc0bb88884bcbed9cc86600154b8bd46b570938cef8261e73e5c0b7",
+    "changes_since_image": [
+      "plans/multi-raft/evidence/MR-14-startup-progress.json",
+      "plans/multi-raft/evidence/MR-14-startup-runs.json.gz",
+      "plans/multi-raft/evidence/MR-14-startup-validation.json.gz",
+      "plans/multi-raft/implementation-plan.md"
+    ],
+    "compiled_inputs_unchanged": true,
+    "original_build": {
+      "source_revision": "f96a94b98dddfd7b04fdbf875c793e61230999d5",
+      "argv": [
+        "docker",
+        "--context",
+        "colima-cellar-multi-raft",
+        "build",
+        "-f",
+        "tools/perf/raft.Dockerfile",
+        "--build-arg",
+        "TARGET_CACHE_ID=cellar-23c7-mr13-local-raft-target",
+        "--build-arg",
+        "SOURCE_REVISION=f96a94b98dddfd7b04fdbf875c793e61230999d5",
+        "-t",
+        "cellar-multi-raft:mr14-startup-admission",
+        "."
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 103.18787717819214,
+      "image": "sha256:e1c017739cc0bb88884bcbed9cc86600154b8bd46b570938cef8261e73e5c0b7"
+    },
+    "verification": "Every run requires the complete image source manifest to match the checkout, records executable SHA-256 and requires unchanged cgroup resource limits. Healthy and fault runs use the same probe profile."
+  },
+  "raw_output": [
+    {
+      "path": "evidence/MR-14-repeat-runs.json.gz",
+      "bytes": 5497032,
+      "sha256": "cfd927da2c06848a071968b5cb3081c08f706ea08ea721b828aba08a16338517"
+    },
+    {
+      "path": "evidence/MR-14-repeat-validation.json.gz",
+      "bytes": 25327,
+      "sha256": "7f95dd68ee7e655855289aecce95ce54da9949cdf4e0d1f6ec24a97f6bf94684"
+    },
+    {
+      "path": "evidence/MR-14-probe-context-validation.json.gz",
+      "bytes": 9181,
+      "sha256": "15d5ed41f27406c40cb37c7bcb645a4533be2209ab790aff6c92f2500e0411e4"
+    }
+  ],
+  "local_runs": [
+    {
+      "build": {
+        "image_id": "sha256:e1c017739cc0bb88884bcbed9cc86600154b8bd46b570938cef8261e73e5c0b7",
+        "binary_sha256": "c5b254116370ba5c43721e6e082abab7a2ebe6649b1204dcdbab1ce123eb7b3b",
+        "source_manifest_sha256": "b252464aedac8715a500455df1ca330b87e108feebdd110af70bca843ba2a4b7",
+        "build_profile": "lab",
+        "source_revision": "70c5695af923a5face23850a0c8d5fa7cd377225",
+        "working_tree_dirty": false
+      },
+      "profile_sha256": "0a05d0d254333cff2a060b1027adf86e6160417578a3f5b7a3c1ea021051acc7",
+      "completed": true,
+      "reconciled": true,
+      "traffic_objectives_met": true,
+      "memory_objectives_met": true,
+      "summary": {
+        "counts": {
+          "submitted": 1200,
+          "completed": 1200,
+          "offered": 1200
+        },
+        "latency_ms": {
+          "p50": 12.086458009434864,
+          "p95": 31.637082999805166,
+          "p99": 95.4258749959962,
+          "p99_9": 186.57754098531143
+        },
+        "latency_by_operation_ms": {
+          "command": {
+            "p50": 17.557958012911712,
+            "p95": 41.086541005643795,
+            "p99": 145.99808299681172,
+            "p99_9": 205.24370799539327
+          },
+          "query": {
+            "p50": 8.598624990554526,
+            "p95": 13.004707999058951,
+            "p99": 16.024707996984855,
+            "p99_9": 58.802375011140384
+          }
+        },
+        "completed_per_second": 10.0,
+        "offered_per_second": 10.0,
+        "error_fraction": 0.0
+      },
+      "failure": null,
+      "scenario": "healthy",
+      "fault_profile_sha256": "e9fcf43183efb751d867b08e1ce95d3c9b5c27df187b3006bf8c2f924a54e849",
+      "run": "mr14-repeat-local-density-1500-healthy-20261022-001",
+      "analysis_rejection": null,
+      "cleanup": [
+        {
+          "container": "cellar-mr14-2334599f50301283e215db62-node5",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-2334599f50301283e215db62-node4",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-2334599f50301283e215db62-node3",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-2334599f50301283e215db62-node2",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-2334599f50301283e215db62-node1",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-2334599f50301283e215db62-store",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        }
+      ],
+      "network_removed": true,
+      "replicas": 4500,
+      "measurement_control_items_max": {
+        "1": 230,
+        "2": 160,
+        "3": 137,
+        "4": 95,
+        "5": 49
+      },
+      "offered_route_sha256": "bdb1b41349e69bbc78833dbc046d7edcb73750eada07abb47c567fbf6096720e",
+      "phase_diagnosis_file": "phase-diagnosis.json in the raw run capsule",
+      "fault_summary": {
+        "cycles": 116,
+        "target_node": 3,
+        "recovery_upper_seconds": 9.795104124990758,
+        "cohort_summaries": {
+          "target_leader": {
+            "counts": {
+              "submitted": 352,
+              "completed": 352,
+              "offered": 352
+            },
+            "latency_ms": {
+              "p50": 11.986708000762292,
+              "p95": 28.144083003283527,
+              "p99": 46.850750013256004,
+              "p99_9": 153.59583298559266
+            },
+            "latency_by_operation_ms": {
+              "command": {
+                "p50": 16.92687500617751,
+                "p95": 32.106040988580276,
+                "p99": 52.944458002457395,
+                "p99_9": 153.59583298559266
+              },
+              "query": {
+                "p50": 8.765832986682653,
+                "p95": 12.758457998273798,
+                "p99": 15.487540990577031,
+                "p99_9": 53.09429098852014
+              }
+            },
+            "completed_per_second": 2.933333333333333,
+            "offered_per_second": 2.933333333333333,
+            "error_fraction": 0.0
+          },
+          "target_query_follower": {
+            "counts": {
+              "submitted": 336,
+              "completed": 336,
+              "offered": 336
+            },
+            "latency_ms": {
+              "p50": 12.043625005759395,
+              "p95": 28.74483299674324,
+              "p99": 42.482708010357584,
+              "p99_9": 70.89499999419502
+            },
+            "latency_by_operation_ms": {
+              "command": {
+                "p50": 17.114375007807325,
+                "p95": 31.13141599460434,
+                "p99": 49.81925000902265,
+                "p99_9": 70.89499999419502
+              },
+              "query": {
+                "p50": 8.598624990554526,
+                "p95": 12.799083004935596,
+                "p99": 14.204375009285286,
+                "p99_9": 16.399582987650874
+              }
+            },
+            "completed_per_second": 2.8,
+            "offered_per_second": 2.8,
+            "error_fraction": 0.0
+          },
+          "target_third_voter": {
+            "counts": {
+              "submitted": 406,
+              "completed": 406,
+              "offered": 406
+            },
+            "latency_ms": {
+              "p50": 12.242791004247522,
+              "p95": 30.219041008969327,
+              "p99": 42.502041009718994,
+              "p99_9": 57.05083300708935
+            },
+            "latency_by_operation_ms": {
+              "command": {
+                "p50": 17.997583001850614,
+                "p95": 34.25079100416184,
+                "p99": 47.56024999660724,
+                "p99_9": 57.05083300708935
+              },
+              "query": {
+                "p50": 8.795249997639587,
+                "p95": 13.708250003404032,
+                "p99": 16.024707996984855,
+                "p99_9": 17.664333002176846
+              }
+            },
+            "completed_per_second": 3.3833333333333333,
+            "offered_per_second": 3.3833333333333333,
+            "error_fraction": 0.0
+          },
+          "unaffected": {
+            "counts": {
+              "submitted": 106,
+              "completed": 106,
+              "offered": 106
+            },
+            "latency_ms": {
+              "p50": 12.374749989248812,
+              "p95": 145.99808299681172,
+              "p99": 186.57754098531143,
+              "p99_9": 205.24370799539327
+            },
+            "latency_by_operation_ms": {
+              "command": {
+                "p50": 22.921957995276188,
+                "p95": 183.17624999908588,
+                "p99": 205.24370799539327,
+                "p99_9": 205.24370799539327
+              },
+              "query": {
+                "p50": 7.772415986984527,
+                "p95": 12.086458009434864,
+                "p99": 58.802375011140384,
+                "p99_9": 58.802375011140384
+              }
+            },
+            "completed_per_second": 0.8833333333333333,
+            "offered_per_second": 0.8833333333333333,
+            "error_fraction": 0.0
+          }
+        },
+        "healthy_majority_witness_count": 0,
+        "lag_sample_count": 696,
+        "maximum_observed_lag": 0
+      }
+    },
+    {
+      "build": {
+        "image_id": "sha256:e1c017739cc0bb88884bcbed9cc86600154b8bd46b570938cef8261e73e5c0b7",
+        "binary_sha256": "c5b254116370ba5c43721e6e082abab7a2ebe6649b1204dcdbab1ce123eb7b3b",
+        "source_manifest_sha256": "b252464aedac8715a500455df1ca330b87e108feebdd110af70bca843ba2a4b7",
+        "build_profile": "lab",
+        "source_revision": "70c5695af923a5face23850a0c8d5fa7cd377225",
+        "working_tree_dirty": false
+      },
+      "profile_sha256": "0a05d0d254333cff2a060b1027adf86e6160417578a3f5b7a3c1ea021051acc7",
+      "completed": true,
+      "reconciled": true,
+      "traffic_objectives_met": true,
+      "memory_objectives_met": true,
+      "summary": {
+        "counts": {
+          "submitted": 1199,
+          "completed": 1199,
+          "generator_rejected": 1,
+          "offered": 1200
+        },
+        "latency_ms": {
+          "p50": 12.160917010618277,
+          "p95": 30.206042010107126,
+          "p99": 79.2537090019323,
+          "p99_9": 211.9154169980888
+        },
+        "latency_by_operation_ms": {
+          "command": {
+            "p50": 17.9783340019668,
+            "p95": 34.200499998405576,
+            "p99": 137.24133401410654,
+            "p99_9": 228.76795901683522
+          },
+          "query": {
+            "p50": 6.822042010028895,
+            "p95": 13.140959007432507,
+            "p99": 16.059792012676155,
+            "p99_9": 28.87233400251432
+          }
+        },
+        "completed_per_second": 9.991666666666667,
+        "offered_per_second": 10.0,
+        "error_fraction": 0.0008333333333333334
+      },
+      "failure": null,
+      "scenario": "healthy",
+      "fault_profile_sha256": "e9fcf43183efb751d867b08e1ce95d3c9b5c27df187b3006bf8c2f924a54e849",
+      "run": "mr14-repeat-local-density-1500-healthy-20261022-002",
+      "analysis_rejection": null,
+      "cleanup": [
+        {
+          "container": "cellar-mr14-342e76be8c6962d3b040035f-node5",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-342e76be8c6962d3b040035f-node4",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-342e76be8c6962d3b040035f-node3",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-342e76be8c6962d3b040035f-node2",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-342e76be8c6962d3b040035f-node1",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-342e76be8c6962d3b040035f-store",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        }
+      ],
+      "network_removed": true,
+      "replicas": 4500,
+      "measurement_control_items_max": {
+        "1": 254,
+        "2": 290,
+        "3": 354,
+        "4": 218,
+        "5": 138
+      },
+      "offered_route_sha256": "bdb1b41349e69bbc78833dbc046d7edcb73750eada07abb47c567fbf6096720e",
+      "phase_diagnosis_file": "phase-diagnosis.json in the raw run capsule",
+      "fault_summary": {
+        "cycles": 116,
+        "target_node": 3,
+        "recovery_upper_seconds": 14.158904167008586,
+        "cohort_summaries": {
+          "target_leader": {
+            "counts": {
+              "submitted": 352,
+              "completed": 352,
+              "offered": 352
+            },
+            "latency_ms": {
+              "p50": 11.75124999717525,
+              "p95": 27.533000009128727,
+              "p99": 31.013749999694085,
+              "p99_9": 44.06854201806709
+            },
+            "latency_by_operation_ms": {
+              "command": {
+                "p50": 17.919792013714186,
+                "p95": 29.19412500924068,
+                "p99": 33.944499999051914,
+                "p99_9": 44.06854201806709
+              },
+              "query": {
+                "p50": 7.203292014310136,
+                "p95": 12.951750005598228,
+                "p99": 14.819042006273264,
+                "p99_9": 18.352999998022312
+              }
+            },
+            "completed_per_second": 2.933333333333333,
+            "offered_per_second": 2.933333333333333,
+            "error_fraction": 0.0
+          },
+          "target_query_follower": {
+            "counts": {
+              "submitted": 335,
+              "completed": 335,
+              "generator_rejected": 1,
+              "offered": 336
+            },
+            "latency_ms": {
+              "p50": 12.240250018658472,
+              "p95": 28.677625017010655,
+              "p99": 36.07466701650708,
+              "p99_9": 137.24133401410654
+            },
+            "latency_by_operation_ms": {
+              "command": {
+                "p50": 17.165334010499578,
+                "p95": 32.12491700541875,
+                "p99": 49.88300000550794,
+                "p99_9": 137.24133401410654
+              },
+              "query": {
+                "p50": 6.657249992713332,
+                "p95": 13.007874990577761,
+                "p99": 17.884249996853896,
+                "p99_9": 19.628250016836546
+              }
+            },
+            "completed_per_second": 2.7916666666666665,
+            "offered_per_second": 2.8,
+            "error_fraction": 0.002976190476190476
+          },
+          "target_third_voter": {
+            "counts": {
+              "submitted": 406,
+              "completed": 406,
+              "offered": 406
+            },
+            "latency_ms": {
+              "p50": 12.359958997691933,
+              "p95": 29.84179201885695,
+              "p99": 40.18658399581909,
+              "p99_9": 73.64383401582586
+            },
+            "latency_by_operation_ms": {
+              "command": {
+                "p50": 18.004125019070116,
+                "p95": 33.1276670156484,
+                "p99": 47.17104201554889,
+                "p99_9": 73.64383401582586
+              },
+              "query": {
+                "p50": 6.581667001590574,
+                "p95": 13.379999995237313,
+                "p99": 15.456334006742622,
+                "p99_9": 28.87233400251432
+              }
+            },
+            "completed_per_second": 3.3833333333333333,
+            "offered_per_second": 3.3833333333333333,
+            "error_fraction": 0.0
+          },
+          "unaffected": {
+            "counts": {
+              "submitted": 106,
+              "completed": 106,
+              "offered": 106
+            },
+            "latency_ms": {
+              "p50": 12.273000017742675,
+              "p95": 142.019875010007,
+              "p99": 211.9154169980888,
+              "p99_9": 228.76795901683522
+            },
+            "latency_by_operation_ms": {
+              "command": {
+                "p50": 20.625291991748895,
+                "p95": 201.12912499462254,
+                "p99": 228.76795901683522,
+                "p99_9": 228.76795901683522
+              },
+              "query": {
+                "p50": 8.478375000407823,
+                "p95": 12.273000017742675,
+                "p99": 12.85633399383812,
+                "p99_9": 12.85633399383812
+              }
+            },
+            "completed_per_second": 0.8833333333333333,
+            "offered_per_second": 0.8833333333333333,
+            "error_fraction": 0.0
+          }
+        },
+        "healthy_majority_witness_count": 0,
+        "lag_sample_count": 696,
+        "maximum_observed_lag": 0
+      }
+    },
+    {
+      "build": {
+        "image_id": "sha256:e1c017739cc0bb88884bcbed9cc86600154b8bd46b570938cef8261e73e5c0b7",
+        "binary_sha256": "c5b254116370ba5c43721e6e082abab7a2ebe6649b1204dcdbab1ce123eb7b3b",
+        "source_manifest_sha256": "b252464aedac8715a500455df1ca330b87e108feebdd110af70bca843ba2a4b7",
+        "build_profile": "lab",
+        "source_revision": "70c5695af923a5face23850a0c8d5fa7cd377225",
+        "working_tree_dirty": false
+      },
+      "profile_sha256": "0a05d0d254333cff2a060b1027adf86e6160417578a3f5b7a3c1ea021051acc7",
+      "completed": false,
+      "reconciled": false,
+      "traffic_objectives_met": null,
+      "memory_objectives_met": null,
+      "summary": null,
+      "failure": "timed out",
+      "scenario": "slow-follower",
+      "fault_profile_sha256": "e9fcf43183efb751d867b08e1ce95d3c9b5c27df187b3006bf8c2f924a54e849",
+      "run": "mr14-repeat-local-density-1500-slow-follower-20261022-001",
+      "analysis_rejection": "ValueError: unfinished run",
+      "cleanup": [
+        {
+          "container": "cellar-mr14-1f7001c4c9d48be9da9a9ca9-node5",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-1f7001c4c9d48be9da9a9ca9-node4",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-1f7001c4c9d48be9da9a9ca9-node3",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-1f7001c4c9d48be9da9a9ca9-node2",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-1f7001c4c9d48be9da9a9ca9-node1",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        },
+        {
+          "container": "cellar-mr14-1f7001c4c9d48be9da9a9ca9-store",
+          "running": false,
+          "exit_code": 0,
+          "oom_killed": false
+        }
+      ],
+      "network_removed": true,
+      "offered_route_sha256": "bdb1b41349e69bbc78833dbc046d7edcb73750eada07abb47c567fbf6096720e",
+      "fault_summary": null
+    }
+  ],
+  "limitations": [
+    "One shared Mac and one Colima VM with RustFS; other profiles and workloads are observed, not controlled. This does not qualify Amazon S3 or independent failure domains.",
+    "Thirty active cells, ten offered operations/second, Quorum acknowledgement, at-least reads, 100 ms ticks, 30-second warmup and 120-second measurement remain unchanged. Each Cellar node has one CPU, 3 GiB and no swap.",
+    "Node 3 is paused as a whole process. It also leads cells and serves follower queries. Every role cohort retains its own observations; a process pause is not a follower-only fault.",
+    "The same probe schedule runs in both healthy controls. Fault timing, majority-progress witnesses, recovery deadlines, complete histories, replica verification and numeric traffic objectives are checked independently and are never relaxed.",
+    "One repeated short sequence is not steady-state capacity, saturation, a 24-hour soak, measurement-overhead qualification or a causal cross-revision speedup. Aggregate phase timers do not constitute per-command causal traces.",
+    "MR-14 remains in progress. Sustained S3, equivalent-contract comparisons and Q1 capacity retain their gates. Q1 exceeds the authorized five-node scope and unchanged 4,096 replica bound.",
+    "Exact owned containers are stopped, empty owned networks removed, and raw evidence and volumes retained. The dedicated profile is stopped; other profiles are not mutated."
+  ],
+  "probe_failure_diagnostic": {
+    "source_revision": "f516e4f31ed92653779342484fb8141cc60daf3e",
+    "validation": {
+      "source_revision": "f516e4f31ed92653779342484fb8141cc60daf3e",
+      "passed": {
+        "focused_fault_tests": 10,
+        "performance_python_tests": 194,
+        "existing_opt_in_docker_skip": 1,
+        "plan_tests": 17
+      },
+      "source_sha256": {
+        "tools/perf/raft_faults.py": "56b0953fdbcbe7ff064c371dde1bf9cde44648eb71775dab14fafe45c6ec7bf1",
+        "tools/perf/test_raft_faults.py": "92538f8ec73a797f9c8add66d6cb90597fb18d42a66844d3a3ae0bddf04cf09d",
+        "tools/perf/raft-performance.md": "2786e87c1fee42bac800120b04a60da6804a8ea8234fb1a35e0831c25f98dbac"
+      },
+      "checks": [
+        "python performance suite",
+        "documentation integrity",
+        "native dependency guard",
+        "plan validation",
+        "plan tests",
+        "git diff --check"
+      ],
+      "before_fix": "New failed-probe context assertion fails because no probe_failed event exists. The unchanged verifier already rejects an inserted failed probe even when a later successful probe follows.",
+      "initial_dependency_check": "First call failed before metadata inspection because cargo was absent from PATH; corrected with the required Rust environment and reran successfully.",
+      "limits": "No Rust code changes; no new native or container run is attributed to this diagnostic-only change."
+    },
+    "behavior": "Failed probe reads record cycle, cell, requested timeout, start, elapsed and exception type before unpause cleanup. Errors still propagate; no retry or deadline change. An inserted failed probe remains unqualifiable even if a later successful response follows.",
+    "physical_validation": "No new container run uses this diagnostic change. The three physical attempts use the unchanged image built at f96a94b and compiled-source-equivalent checkout 70c5695."
+  },
+  "execution_order": [
+    "mr14-repeat-local-density-1500-healthy-20261022-001",
+    "mr14-repeat-local-density-1500-slow-follower-20261022-001",
+    "mr14-repeat-local-density-1500-healthy-20261022-002"
+  ],
+  "findings": [
+    "Both healthy controls with the identical probe schedule pass independent analysis, including all 4,500 replicas, archive coverage, 116 cycles and memory/traffic targets. They complete 1,200/1,200 at 95.426 ms p99 and 1,199/1,200 at 79.254 ms p99 respectively; the second retains one generator rejection.",
+    "The intervening slow-follower attempt is unqualified. Its fault owner times out during cycle 91 after five of six leader probes, then confirms unpause. Only 91 complete cycle record shapes exist out of 116 scheduled cycles. Final replica and archive verification never run.",
+    "The failed measurement records 1,168 successful replies and 32 generator rejections, with a diagnostic-only 341.527 ms p99. Measurement continues to 120 seconds after fault scheduling stops, so these figures do not represent the declared fault profile or qualify performance/recovery.",
+    "The source and event prefix infer that the missing sixth probe targeted cell 25 under the existing 100 ms cap. The original trace did not record that failed call start, applied timeout or exception type. The subsequent diagnostic change records them directly without changing any gate.",
+    "Healthy controls on either side narrow the next investigation toward fault-time observation/processing stalls; one shared-host sequence does not prove the cause or establish sustained capacity. A bounded reproducer or profiling evidence is still required before changing scheduling."
+  ],
+  "workload": {
+    "topology": {
+      "nodes": 5,
+      "voters": 3,
+      "failure_domains": 1
+    },
+    "cells": {
+      "total": 1500,
+      "active": 30
+    },
+    "database_bytes": [
+      4096
+    ],
+    "write_bytes": [
+      64,
+      1024
+    ],
+    "read_fraction": 0.5,
+    "read_consistency": "at-least",
+    "skew": {
+      "hot_fraction": 0.1,
+      "hot_probability": 0.8
+    },
+    "arrival": {
+      "rate_per_second": 10,
+      "max_inflight": 8,
+      "max_lateness_ms": 100
+    },
+    "timing": {
+      "warmup_seconds": 30,
+      "measurement_seconds": 120,
+      "soak_seconds": 0,
+      "request_timeout_ms": 5000,
+      "retry_window_ms": 300000,
+      "startup_seconds": 600
+    },
+    "durability": "quorum",
+    "resources": {
+      "node_cpus": 1,
+      "node_memory_bytes": 3221225472,
+      "node_swap_bytes": 0,
+      "store_cpus": 2,
+      "store_memory_bytes": 4294967296
+    },
+    "tick_ms": 100,
+    "seed": 14,
+    "slo": {
+      "p99_ms": 200,
+      "max_error_fraction": 0.01,
+      "min_completed_per_second": 9.9,
+      "max_archive_lag_seconds": 60,
+      "max_recovery_seconds": 30,
+      "memory_headroom_fraction": 0.1
+    },
+    "qualification": "Local density observation only: 1500 seeded live three-voter cells, 900 replicas per node, and 30 active cells. Fixed active traffic isolates additional mostly idle consensus/image cost. Five nodes in one VM do not qualify Q1, steady state, recovery reserve or a capacity ceiling."
+  }
+}

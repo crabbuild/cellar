@@ -193,6 +193,29 @@ three assigned peers and best-effort kernel observations before shutdown. These
 diagnostics retain failures; they never retry a mutation or turn a refused seed
 into a successful workload run.
 
+## Current density qualification
+
+The [paired 1,500-cell sequence](../../plans/multi-raft/evidence/MR-14-repeat-progress.json)
+uses the same immutable image built at `f96a94b`, with compiled-source-equivalent
+checkout `70c5695`. Five nodes retain one CPU and 3 GiB each, with 900 replicas
+per node. Thirty cells are active at ten offered operations per second. Healthy
+controls use the same probe schedule as the pause attempt.
+
+| Run order | Recorded completions / offered | Overall p99 | Qualification |
+| --- | --- | --- | --- |
+| Healthy control | 1,200 / 1,200 | 95.426 ms | Short-run objectives and all 4,500 replicas verified |
+| Slow follower | 1,168 / 1,200 | 341.527 ms | Unqualified: probe timeout, incomplete fault schedule |
+| Healthy control | 1,199 / 1,200 | 79.254 ms | Short-run objectives and all 4,500 replicas verified |
+
+The failed run records only 91 complete cycle shapes out of 116 scheduled cycles.
+Its sixth leader probe in cycle 91 is missing; cleanup confirms unpause. The
+measurement continues after fault scheduling stops, so its diagnostic p99 does
+not represent the declared fault profile. Final replica and archive checks never
+run. The source/event prefix infers cell 25 as the missing probe; its failed-call
+start, exact budget and exception type were not recorded by that image. The
+subsequent diagnostic records those fields directly. Neither the paired controls
+nor this failed attempt establish steady-state capacity or a causal speedup.
+
 ## Controlled slow-follower experiments
 
 `--scenario slow-follower --fault-profile tools/perf/raft_slow_follower.json`
