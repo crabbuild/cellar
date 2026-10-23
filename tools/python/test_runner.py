@@ -1,4 +1,4 @@
-"""Pump scheduling tests; native authority and I/O belong to the bridge suite."""
+"""Pump/context lifetimes; native authority and I/O belong to the bridge suite."""
 import asyncio
 import gc
 import json
@@ -13,6 +13,9 @@ import weakref
 
 
 def continuous_arrivals(mode):
+    if mode == "storage-lifetime":
+        storage_lifetime()
+        return
     sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "crates/cellar-python/python"))
     import runner
     from cellar import Response, _current_invocation
@@ -37,6 +40,9 @@ def continuous_arrivals(mode):
             until = time.perf_counter_ns() + 40_000_000
             while time.perf_counter_ns() < until:
                 pass
+        if mode == "release-storage":
+            storage = context.storage
+            assert storage._context is context
         return Response(b"ok")
 
     class Bridge:
@@ -98,7 +104,6 @@ def continuous_arrivals(mode):
         def checkpoint(self):
             self.observed = self.issued
             if mode == "rejections":
-                gc.collect()
                 assert not self.bridges, "yielding pump retained a rejected invocation"
             asyncio.get_running_loop().call_later(.02, self.stop)
 
@@ -112,8 +117,7 @@ def continuous_arrivals(mode):
         def take(self):
             if self.stopped:
                 return None
-            if mode == "release-eager":
-                gc.collect()
+            if mode.startswith("release-"):
                 assert not self.bridges, "completed eager invocation retained until the end of the batch"
             self.issued += 1
             return self.issued, payload, b"", Bridge(self)
@@ -136,6 +140,9 @@ def continuous_arrivals(mode):
                 self.writer.send(b"x")
 
     inbox = Inbox()
+    if mode.startswith("release-") or mode == "rejections":
+        # Collection must not hide SDK-owned reference cycles between requests.
+        gc.disable()
     try:
         capacity = 902 if mode == "many-tasks" else 2 if mode == "rejections" else 3
         report = runner.run(SimpleNamespace(fetch=fetch), inbox, 30, .2, capacity, 16, 30)
@@ -173,6 +180,64 @@ def continuous_arrivals(mode):
         inbox.writer.close()
 
 
+def storage_lifetime():
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "crates/cellar-python/python"))
+    from cellar import Context, ContextMismatch, SDKError, _current_invocation
+
+    class Bridge:
+        closed = False
+        submitted = 0
+
+        def active(self):
+            return not self.closed
+
+        def expire(self):
+            self.closed = True
+
+        def submit(self, sequence, operation, payload):
+            assert operation == "storage.read" and json.loads(payload) == {"key": "value"}
+            self.submitted += 1
+            reference()._reply(sequence, '{"ok":true,"value":{"present":true,"value":42}}')
+
+    async def exercise():
+        nonlocal reference
+        bridge = Bridge()
+        context = Context(bridge, None)
+        reference = weakref.ref(context)
+        storage = context.storage
+        token = _current_invocation.set(bridge)
+        try:
+            assert (await storage.read_json("value")).value == 42
+            other = _current_invocation.set(object())
+            try:
+                try:
+                    await storage.read_json("value")
+                except ContextMismatch:
+                    pass
+                else:
+                    raise AssertionError("storage handle escaped invocation authority")
+            finally:
+                _current_invocation.reset(other)
+            context._close()
+            del context
+            assert reference() is not None, "retained storage lost its context"
+            try:
+                await storage.put_json("late", 1)
+            except SDKError as error:
+                assert error.code == "ContextExpired"
+            else:
+                raise AssertionError("retained storage admitted an expired mutation")
+            assert bridge.submitted == 1
+            del storage
+            assert reference() is None, "SDK storage cycle needs cyclic collection"
+        finally:
+            _current_invocation.reset(token)
+
+    reference = None
+    gc.disable()
+    asyncio.run(exercise())
+
+
 class RunnerScheduling(unittest.TestCase):
     def run_case(self, mode):
         child = subprocess.run(
@@ -189,6 +254,12 @@ class RunnerScheduling(unittest.TestCase):
 
     def test_immediate_completion_releases_context_before_next_admission(self):
         self.run_case("release-eager")
+
+    def test_storage_access_does_not_retain_completed_context(self):
+        self.run_case("release-storage")
+
+    def test_retained_storage_preserves_authority_and_expires(self):
+        self.run_case("storage-lifetime")
 
     def test_failed_eager_cleanup_remains_supervised(self):
         self.run_case("cleanup-failure")

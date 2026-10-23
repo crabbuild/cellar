@@ -341,7 +341,12 @@ class Context:
         self._pending = {}
         self._sequence = 0
         self.identity: CellIdentity | None = CellIdentity(identity["name"], identity["class"], identity["scope"], identity["epoch"]) if identity else None
-        self.storage = Storage(self)
+
+    @property
+    def storage(self) -> Storage:
+        # A handle retains its invocation, but the invocation must not retain
+        # the handle: that cycle otherwise delays every request's reclamation.
+        return Storage(self)
 
     async def _call(self, operation: str, **payload: Any) -> Any:
         if asyncio.get_running_loop() is not self._loop:

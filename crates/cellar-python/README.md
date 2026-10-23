@@ -55,7 +55,14 @@ returning handler are discarded; always await SDK operations. Do not retain
 contexts or binding handles between invocations. Live handles used by another invocation or asyncio
 loop are refused at both the Python API and native sender. The invocation scope
 is an additional caller check; native SDK authority still comes from the original
-Rust context. SDK errors do not automatically retry mutations:
+Rust context.
+
+`ctx.storage` creates a lightweight handle on access. A handle keeps
+its originating context alive, but the context does not cache the handle, so
+ordinary request cleanup does not depend on collecting a storage/context cycle.
+Bind `storage = ctx.storage` locally when reusing it within one invocation.
+
+SDK errors do not automatically retry mutations:
 a failed response may follow a committed write. `SDKError.code` distinguishes
 `ValidationError`, `Overloaded`, `OwnershipLost`, `Ambiguous`, `HostError`,
 `ContextExpired`, `ContextMismatch`, `NotSubmitted` and `Conflict`. Validation,
