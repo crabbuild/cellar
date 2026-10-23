@@ -447,14 +447,19 @@ async fn submitted_partition_retains_producer_until_follower_barrier() -> Result
             .await??)
         }
         let primary = leader(&handles, None).await?;
+        // Quorum acknowledgement can precede physical archive capture, which
+        // temporarily occupies the SQL worker and refuses a new command.
+        // Finish that setup work before isolating the leader: command 2 must
+        // exercise a submitted suffix, not pre-execution admission pressure.
         let receipt = handles[primary]
             .command(
                 definitions[primary].increment.clone(),
                 1_i64.to_be_bytes().to_vec(),
-                public_node::options(1)?,
+                public_node::archived_options(1)?,
             )
             .await?;
         assert_eq!(receipt.result, 1_i64.to_be_bytes());
+        assert!(status(&handles[primary]).await?.archived >= receipt.version.position.index);
         reads(&handles, &definitions[0].get, 1).await?;
         cluster.isolate(primary, retain_entry).await?;
         let mut options = public_node::options(2)?;

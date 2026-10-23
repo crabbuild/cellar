@@ -1652,7 +1652,10 @@ async fn native_snapshot_drill(
     let last = last.unwrap();
     let cut = tokio::time::timeout(Duration::from_secs(10), async {
         loop {
-            let status = handles[primary].status().await?;
+            let status = handles[primary]
+                .status()
+                .await
+                .context("snapshot source checkpoint status")?;
             if status.checkpoint.index > before.index {
                 return Ok::<_, anyhow::Error>(status.checkpoint);
             }
@@ -1706,11 +1709,24 @@ async fn native_snapshot_drill(
             let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
             tokio::time::timeout_at(deadline, async {
                 loop {
-                    if healthy[follower].status().await?.command_ready {
+                    if healthy[follower]
+                        .status()
+                        .await
+                        .context("recovering node healthy-group leadership status")?
+                        .command_ready
+                    {
                         return Ok::<_, anyhow::Error>(());
                     }
-                    for handle in &healthy {
-                        let status = handle.status().await?;
+                    for (node, handle) in healthy.iter().enumerate() {
+                        // The target can become leader after the observation
+                        // above. Recheck it on the next loop; never request a
+                        // transfer from the target back to itself.
+                        if node == follower {
+                            continue;
+                        }
+                        let status = handle.status().await.with_context(|| {
+                            format!("healthy-group transfer source status on node {node}")
+                        })?;
                         if status.command_ready {
                             match handle
                                 .transfer_leadership(
@@ -1729,7 +1745,10 @@ async fn native_snapshot_drill(
                                     | CommandFailure::NotLeader { .. }
                                     | CommandFailure::CommandConflict,
                                 ) => (),
-                                Err(error) => return Err(error.into()),
+                                Err(error) => return Err(anyhow::Error::new(error).context(format!(
+                                    "healthy-group transfer from node {node} to recovering node {follower}, term {:?}, revision {:?}",
+                                    status.term, status.membership_revision
+                                ))),
                             }
                         }
                     }
