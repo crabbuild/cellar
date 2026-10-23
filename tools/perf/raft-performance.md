@@ -678,6 +678,17 @@ window may include work that started before its first sample; both boundary
 in-flight counts remain in the report. No per-cell or per-peer metric labels are
 allocated. There is no claim yet that this instrumentation has negligible cost.
 
+Archive admission also reports fixed `archive_admission_*` counters: granted,
+observation-refused, retained-bytes-refused, retained-entries-refused,
+reserved-bytes-deferred and reserved-entries-deferred (names use underscores).
+A retained-limit check includes the next command's worst-case reservation;
+reserved-limit checks additionally include other admitted commands. One decision
+records the first encountered reason, checking bytes before entries. Counts
+include waiter rechecks and duplicate requests, so they are not HTTP error counts.
+Compare their deltas with failed staging operations and archive lag; missing
+counters in an older frozen build are unavailable, not zero. These observations
+add no capacity and change no admission decision.
+
 Control/data timing now separates sender queue residence, sender exchange windows
 and receiver runtime admission. Use their phase deltas alongside queue depth and
 CPU pressure to distinguish queue buildup from slow exchange or admission. An

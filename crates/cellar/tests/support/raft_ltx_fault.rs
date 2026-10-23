@@ -27,6 +27,7 @@ pub struct Faults {
     pub collision: AtomicBool,
     pub reads: AtomicUsize,
     pub private_ltx_readbacks: AtomicUsize,
+    pub private_image_copies: AtomicUsize,
     pub events: Mutex<Vec<&'static str>>,
     pub image_seals: Mutex<Vec<PathBuf>>,
     pub synced_paths: Mutex<Vec<PathBuf>>,
@@ -44,6 +45,7 @@ impl Faults {
             collision: AtomicBool::new(false),
             reads: AtomicUsize::new(0),
             private_ltx_readbacks: AtomicUsize::new(0),
+            private_image_copies: AtomicUsize::new(0),
             events: Mutex::new(Vec::new()),
             image_seals: Mutex::new(Vec::new()),
             synced_paths: Mutex::new(Vec::new()),
@@ -176,6 +178,18 @@ impl FileSystem for FaultFileSystem {
     }
 
     fn create_read_write(&self, path: &Path) -> io::Result<HostFile> {
+        if path
+            .file_name()
+            .is_some_and(|name| name == "working.sqlite")
+            && path
+                .parent()
+                .and_then(Path::file_name)
+                .is_some_and(|name| name == "private")
+        {
+            self.faults
+                .private_image_copies
+                .fetch_add(1, Ordering::AcqRel);
+        }
         Ok(self.wrap(path, DirectFileSystem.create_read_write(path)?))
     }
 

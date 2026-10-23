@@ -774,6 +774,18 @@ impl Cell {
         {
             return Err(ExecutionError::Invalid("stale private discard"));
         }
+        // This serial SQL owner has joined staging. A pre-mutation refusal
+        // leaves no active proposal and an explicitly Ready private owner.
+        // Preserve that cache through both error cleanup and host discard;
+        // the next stage still checks authority against the published image.
+        if self.active.is_none()
+            && self
+                .private
+                .as_ref()
+                .is_some_and(|private| private.status() == ExecutionStatus::Ready)
+        {
+            return Ok(());
+        }
         if let Some(private) = self.private.as_mut() {
             private.discard_unsubmitted()?;
         }

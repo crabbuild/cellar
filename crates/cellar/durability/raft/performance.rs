@@ -132,9 +132,15 @@ pub(crate) enum Counter {
     DataWriteBytes,
     QueryReadBytes,
     QueryWriteBytes,
+    ArchiveAdmissionGranted,
+    ArchiveAdmissionObservationRefused,
+    ArchiveAdmissionRetainedBytesRefused,
+    ArchiveAdmissionRetainedEntriesRefused,
+    ArchiveAdmissionReservedBytesDeferred,
+    ArchiveAdmissionReservedEntriesDeferred,
 }
 
-const COUNTERS: [Counter; 20] = [
+const COUNTERS: [Counter; 26] = [
     Counter::EngineReadBytes,
     Counter::EngineWriteRequestedBytes,
     Counter::EngineWriteCompletedBytes,
@@ -155,6 +161,12 @@ const COUNTERS: [Counter; 20] = [
     Counter::DataWriteBytes,
     Counter::QueryReadBytes,
     Counter::QueryWriteBytes,
+    Counter::ArchiveAdmissionGranted,
+    Counter::ArchiveAdmissionObservationRefused,
+    Counter::ArchiveAdmissionRetainedBytesRefused,
+    Counter::ArchiveAdmissionRetainedEntriesRefused,
+    Counter::ArchiveAdmissionReservedBytesDeferred,
+    Counter::ArchiveAdmissionReservedEntriesDeferred,
 ];
 
 impl Counter {
@@ -180,6 +192,20 @@ impl Counter {
             Self::DataWriteBytes => "transport_data_write_bytes",
             Self::QueryReadBytes => "transport_query_read_bytes",
             Self::QueryWriteBytes => "transport_query_write_bytes",
+            Self::ArchiveAdmissionGranted => "archive_admission_granted",
+            Self::ArchiveAdmissionObservationRefused => "archive_admission_observation_refused",
+            Self::ArchiveAdmissionRetainedBytesRefused => {
+                "archive_admission_retained_bytes_refused"
+            }
+            Self::ArchiveAdmissionRetainedEntriesRefused => {
+                "archive_admission_retained_entries_refused"
+            }
+            Self::ArchiveAdmissionReservedBytesDeferred => {
+                "archive_admission_reserved_bytes_deferred"
+            }
+            Self::ArchiveAdmissionReservedEntriesDeferred => {
+                "archive_admission_reserved_entries_deferred"
+            }
         }
     }
 }

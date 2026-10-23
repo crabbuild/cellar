@@ -286,6 +286,11 @@ ambient clock/random functions. Native application code remains trusted; this
 facade is not an OS sandbox. Callback errors, panics and oversized results roll
 back. Any uncertain private state requires rebuilding before another callback.
 
+A known archive-admission refusal still permits duplicate receipt lookup, then
+refuses new work before opening a transaction or invalidating private capture
+state. It does not require a private-image rebuild. Failures after mutation
+begins retain the existing rebuild requirement.
+
 The transaction stores the command ID, operation/contract/request digests,
 bounded encoded result, minimum requested durability and retry deadline beside
 the business mutation. Per-client sequence and expiry floors use canonical

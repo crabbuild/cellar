@@ -1462,6 +1462,25 @@ impl Native {
         count: u8,
         hold: bool,
     ) -> Result<Self> {
+        Self::start_with_filesystem(
+            store,
+            options,
+            minimum,
+            count,
+            hold,
+            Arc::new(DirectFileSystem),
+        )
+        .await
+    }
+
+    async fn start_with_filesystem(
+        store: Arc<faults::Store>,
+        options: RaftHostOptions,
+        minimum: Durability,
+        count: u8,
+        hold: bool,
+        filesystem: Arc<dyn cellar_ltx::FileSystem>,
+    ) -> Result<Self> {
         ensure!((1..=32).contains(&count));
         let root = tempfile::tempdir()?;
         let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
@@ -1497,7 +1516,14 @@ impl Native {
                 learners: vec![],
             },
         };
-        let node = public_node::node(root.path(), definition.application.clone()).await?;
+        let node = public_node::node_declared_with_filesystem(
+            root.path(),
+            definition.application.clone(),
+            "raft-host",
+            vec![],
+            filesystem,
+        )
+        .await?;
         let mut registrations = vec![registration.clone()];
         for id in 1..count {
             let mut extra = registration.clone();
@@ -1719,6 +1745,89 @@ async fn quorum_s3_outage() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn archive_refusal_preserves_private_workspace_and_duplicate_receipts() -> Result<()> {
+    let store = Arc::new(faults::Store::default());
+    store.archive_unavailable.store(true, Ordering::Release);
+    let trace = image_fault::Faults::new(std::path::PathBuf::from("unused"), None);
+    let mut options = RaftHostOptions::default();
+    options.archive.max_unarchived_entries = 2;
+    let native = Native::start_with_filesystem(
+        store.clone(),
+        options,
+        Durability::Quorum,
+        1,
+        false,
+        Arc::new(image_fault::FaultFileSystem {
+            faults: trace.clone(),
+        }),
+    )
+    .await?;
+    let result = async {
+        native.retry(1, Durability::Quorum).await?;
+        native.retry(2, Durability::Quorum).await?;
+        let before = trace.private_image_copies.load(Ordering::Acquire);
+        for _ in 0..3 {
+            ensure!(matches!(
+                native
+                    .write(3, Durability::Quorum, std::time::Duration::from_secs(2))
+                    .await,
+                Err(CommandFailure::Overloaded)
+            ));
+        }
+        let metrics = native.service.performance();
+        let count = |name| {
+            metrics
+                .counters
+                .iter()
+                .find(|counter| counter.name == name)
+                .unwrap()
+                .value
+        };
+        ensure!(count("archive_admission_retained_entries_refused") >= 3);
+        ensure!(count("archive_admission_retained_bytes_refused") == 0);
+        let duplicate = native.retry(1, Durability::Quorum).await?;
+        ensure!(duplicate.result == 1_i64.to_be_bytes());
+        ensure!(native.calls.load(Ordering::SeqCst) == 2);
+        ensure!(
+            trace.private_image_copies.load(Ordering::Acquire) == before,
+            "known admission refusal rebuilt the private image"
+        );
+        store.archive_unavailable.store(false, Ordering::Release);
+        let third = native.retry(3, Durability::S3).await?;
+        ensure!(third.result == 3_i64.to_be_bytes());
+        ensure!(native.calls.load(Ordering::SeqCst) == 3);
+        ensure!(trace.private_image_copies.load(Ordering::Acquire) == before);
+
+        // A real SQL mutation followed by a callback error remains dirty.
+        // Overflow changes SQLite's value to REAL, then the i64 result read
+        // fails. The transaction must roll back and the next command rebuild.
+        let mut overflow_options = public_node::options(1)?;
+        overflow_options.id = CommandId::new(ClientId::new([8; 16])?, 1)?;
+        let overflow = native
+            .cell()?
+            .command(
+                native.definition.increment.clone(),
+                i64::MAX.to_be_bytes().to_vec(),
+                overflow_options,
+            )
+            .await;
+        ensure!(matches!(overflow, Err(CommandFailure::Unavailable)));
+        ensure!(native.calls.load(Ordering::SeqCst) == 4);
+        let fourth = native.retry(4, Durability::S3).await?;
+        ensure!(fourth.result == 4_i64.to_be_bytes());
+        ensure!(native.calls.load(Ordering::SeqCst) == 5);
+        ensure!(
+            trace.private_image_copies.load(Ordering::Acquire) > before,
+            "callback mutation failure reused uncertain private state"
+        );
+        Ok(())
+    }
+    .await;
+    store.archive_unavailable.store(false, Ordering::Release);
+    result.and(native.close().await)
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn unknown_command_reservation_waits_for_prepared_size() -> Result<()> {
     check_unknown_reservation(false).await
 }
@@ -1774,7 +1883,22 @@ async fn check_unknown_reservation(cancel_waiter: bool) -> Result<()> {
             1_i64.to_be_bytes().to_vec(),
             public_node::options(2)?,
         )));
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                if native.service.performance().counters.iter().any(|counter| {
+                    counter.name == "archive_admission_reserved_bytes_deferred" && counter.value > 0
+                }) {
+                    break;
+                }
+                ensure!(
+                    !tasks[1].is_finished(),
+                    "reservation waiter exited before deferral"
+                );
+                tokio::time::sleep(Duration::from_millis(1)).await;
+            }
+            Ok::<_, anyhow::Error>(())
+        })
+        .await??;
         ensure!(
             native.calls.load(Ordering::SeqCst) == 3,
             "second callback ran without a worst-case reservation"
@@ -1919,6 +2043,12 @@ async fn check_prepared_archive_reservations(
             .context("wait for small command to apply")??;
         }
         ensure!(native.calls.load(Ordering::SeqCst) == admitted);
+        if admitted < usize::from(count) {
+            let metrics = native.service.performance();
+            ensure!(metrics.counters.iter().any(|counter| counter.name
+                == "archive_admission_retained_bytes_refused"
+                && counter.value > 0));
+        }
         store.archive_unavailable.store(false, Ordering::Release);
         for task in tasks.drain(..) {
             let receipt = tokio::time::timeout(Duration::from_secs(10), task).await???;
@@ -2224,6 +2354,10 @@ async fn check_archive_producer_shutdown(max_producers: usize) -> Result<()> {
     let store = Arc::new(faults::Store::default());
     let mut options = RaftHostOptions::default();
     options.archive.max_producers = max_producers;
+    // This case counts held physical reads one-for-one with producer slots.
+    // Bundle coalescing has separate coverage and can serve two cuts with one
+    // object read, so it must not change this fixture's occupancy observation.
+    options.archive.max_batch_groups = 1;
     let capture_bytes = options.archive.limits.max_capture_bytes;
     let count = max_producers + 1;
     let native =
@@ -2235,6 +2369,13 @@ async fn check_archive_producer_shutdown(max_producers: usize) -> Result<()> {
             native.registration.namespace.namespace,
             &format!("Counter:extra-{id}"),
         )?);
+    }
+    // Startup has already committed its leader barrier. Observing index > 1
+    // can therefore finish before these commands commit, making Unavailable
+    // on shutdown legitimate. Require progress beyond each pre-command cut.
+    let mut before_commands = Vec::new();
+    for handle in &handles {
+        before_commands.push(archive_status(handle).await?.committed);
     }
     let mut pending = Vec::new();
     for handle in &handles {
@@ -2250,9 +2391,9 @@ async fn check_archive_producer_shutdown(max_producers: usize) -> Result<()> {
         tokio::time::timeout(Duration::from_secs(5), async {
             loop {
                 let mut committed = 0;
-                for handle in &handles {
+                for (handle, before) in handles.iter().zip(&before_commands) {
                     let status = archive_status(handle).await?;
-                    if status.committed.get() > 1 && status.applied.index >= status.committed {
+                    if status.committed > *before && status.applied.index >= status.committed {
                         committed += 1;
                     }
                     ensure!(status.archived < status.committed);
@@ -2266,7 +2407,12 @@ async fn check_archive_producer_shutdown(max_producers: usize) -> Result<()> {
             }
         })
         .await
-        .context("archive producers did not fill their bounded window")??;
+        .with_context(|| format!(
+            "archive producer window did not fill: limit={max_producers}, calls={}, reads={}, slots={}",
+            native.calls.load(Ordering::Acquire),
+            store.active_payload_reads.load(Ordering::Acquire),
+            native.service.resource_usage().archive_capture.items,
+        ))??;
         ensure!(store.peak_payload_reads.load(Ordering::Acquire) == max_producers);
         let capture = native.service.resource_usage().archive_capture;
         ensure!(capture.items == max_producers && capture.max_items == max_producers);

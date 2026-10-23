@@ -568,12 +568,7 @@ impl PrivateExecutor {
                     )
                 })?;
         }
-        self.stage(attempt, |transaction| {
-            // Receipt lookup precedes this closure. A retry may recover its
-            // stored result while backlog admission refuses new business work.
-            if !allow_new {
-                return Err(anyhow::Error::new(CommandFailure::Overloaded));
-            }
+        self.stage_admitted(attempt, allow_new, |transaction| {
             if system {
                 class.invoke_system_command(
                     &contract,
@@ -686,6 +681,15 @@ impl PrivateExecutor {
         attempt: CommandAttempt,
         command: impl FnOnce(&CommandTransaction<'_>) -> anyhow::Result<Vec<u8>>,
     ) -> Result<StageOutcome, ExecutionError> {
+        self.stage_admitted(attempt, true, command)
+    }
+
+    fn stage_admitted(
+        &mut self,
+        attempt: CommandAttempt,
+        allow_new: bool,
+        command: impl FnOnce(&CommandTransaction<'_>) -> anyhow::Result<Vec<u8>>,
+    ) -> Result<StageOutcome, ExecutionError> {
         self.ready()?;
         if attempt.request.operation.is_empty() || attempt.request.operation.len() > 128 {
             return Err(ExecutionError::Invalid("command operation"));
@@ -739,6 +743,12 @@ impl PrivateExecutor {
                 .is_none_or(|window| window > self.options.limits.max_retry_window_ms)
         {
             return Err(ExecutionError::Invalid("command retry window"));
+        }
+        // Duplicate receipt lookup above remains available under archive
+        // pressure. A known refusal has not mutated SQL or capture state and
+        // must not force the next request to reconstruct the private image.
+        if !allow_new {
+            return Err(ExecutionError::Refused(CommandFailure::Overloaded));
         }
         self.rebuild_required = true;
         self.working

@@ -2,6 +2,7 @@
 use super::{Driver, Phase};
 use crate::raft::{
     cache::{CachedGroup, GroupLog},
+    performance::Counter as MeasuredCounter,
     storage::LogError,
 };
 use cellar_logic::consensus::LogIndex;
@@ -96,6 +97,9 @@ impl Driver {
         let mut reserved_entries = 0u64;
         for cell in self.cells.values_mut() {
             let Ok(usage) = cell.archive_retained.observe(&cell.group, cell.archived) else {
+                self.local
+                    .performance
+                    .increment(MeasuredCounter::ArchiveAdmissionObservationRefused, 1);
                 return Decision::Refused;
             };
             bytes = bytes.saturating_add(usage.bytes);
@@ -105,21 +109,39 @@ impl Driver {
                     reserved_bytes.saturating_add(pending.archive_bytes.unwrap_or(reservation));
                 reserved_entries = reserved_entries.saturating_add(1);
             }
-            if bytes > self.options.archive.max_unarchived_bytes
-                || entries > self.options.archive.max_unarchived_entries as u64
-            {
-                // Still execute duplicate lookup, but never a new callback.
+            // Record the first encountered limit. These count decisions,
+            // including waiter rechecks, rather than terminal client outcomes.
+            if bytes > self.options.archive.max_unarchived_bytes {
+                self.local
+                    .performance
+                    .increment(MeasuredCounter::ArchiveAdmissionRetainedBytesRefused, 1);
+                return Decision::Refused;
+            }
+            if entries > self.options.archive.max_unarchived_entries as u64 {
+                self.local
+                    .performance
+                    .increment(MeasuredCounter::ArchiveAdmissionRetainedEntriesRefused, 1);
                 return Decision::Refused;
             }
         }
-        if bytes.saturating_add(reserved_bytes) <= self.options.archive.max_unarchived_bytes
-            && entries.saturating_add(reserved_entries)
-                <= self.options.archive.max_unarchived_entries as u64
-        {
-            Decision::Granted
-        } else {
-            Decision::Deferred
-        }
+        let (decision, counter) =
+            if bytes.saturating_add(reserved_bytes) > self.options.archive.max_unarchived_bytes {
+                (
+                    Decision::Deferred,
+                    MeasuredCounter::ArchiveAdmissionReservedBytesDeferred,
+                )
+            } else if entries.saturating_add(reserved_entries)
+                > self.options.archive.max_unarchived_entries as u64
+            {
+                (
+                    Decision::Deferred,
+                    MeasuredCounter::ArchiveAdmissionReservedEntriesDeferred,
+                )
+            } else {
+                (Decision::Granted, MeasuredCounter::ArchiveAdmissionGranted)
+            };
+        self.local.performance.increment(counter, 1);
+        decision
     }
 
     pub(super) fn pump_admission(&mut self) {

@@ -3,11 +3,57 @@
 Status: PR #98's conflicts are resolved through main `1455fb0`. The ephemeral
 capture candidate `68b82e1` removes private LTX output files but fails the
 sustained zero-error gate at both 24 and 16 writers. It is reverted by `69192d2`;
-the runtime matches the previously qualified `86297e7`/`57dcfa5` state. Fresh
+that revert restored the previously qualified `86297e7`/`57dcfa5` state.
+The admission-reuse candidate below now awaits its own throughput qualification. Fresh
 control runs pass at 253.43/236.85 TPS (24 writers) and 238.90/204.46 TPS
 (16 writers), with all p99 values below 500 ms. No additional end-to-end
 performance gain is promoted. The [paired evidence](evidence/tikv-ephemeral-capture.json)
 retains failed windows, operation counters, host activity and exact verification.
+
+## Admission-reuse candidate
+
+The current candidate addresses refusal amplification without removing private
+LTX files or relaxing archive limits. Registered commands check a known archive
+refusal after duplicate receipt lookup and validation, before mutation begins.
+The serial SQL worker retains an owner only when staging has joined, no proposal
+is active and the executor reports `Ready`; both staging-error cleanup and the
+subsequent host discard observe that condition. Authority and published-image
+checks still precede the next callback. Dirty, prepared and submitted owners
+retain their existing cleanup and uncertainty rules.
+
+The real Node/SDK regression first failed on an unnecessary private-image copy.
+Moving only the executor check still failed because worker cleanup discarded
+every error. With both changes, three refused commands and a duplicate receipt
+produce no private-image copy; a subsequent S3 command succeeds. A deliberately
+overflowing SQL update then fails during its callback result read, rolls back,
+and forces reconstruction before the next successful command. The committed
+counter remains exact. Existing execution, cancellation, publication and
+multi-group tests pass alongside this regression.
+
+Fixed admission counters distinguish observation failures, retained bytes,
+retained entries and outstanding reservation bytes/entries. They report the first
+encountered decision reason, including duplicate attempts and waiter rechecks;
+they are not HTTP refusal counts. Native outage tests distinguish retained-entry,
+retained-byte and temporary reservation pressure. No budget or decision changes.
+This should identify whether the prior overload bursts came from archive
+admission; a staging-failure count alone cannot establish that cause.
+
+TiKV's pinned v1 `apply.rs::process_raft_cmd` uses write-batch savepoints and
+rollback on command failure while preserving the shared engine. Cellar's change
+is narrower: it preserves only a private owner that has not begun mutation;
+it does not assume arbitrary SQLite/capture failures can reuse the workspace.
+End-to-end throughput qualification for this candidate is pending.
+
+A repeated archive-suite run also reproduced the prior producer-shutdown
+fixture failure. Its `committed > 1` observation included the startup leader
+barrier, so it did not prove the command had committed before requiring an
+ambiguous shutdown outcome. The fixture now records each pre-command committed
+position and requires a later committed/applied cut. Producer bounds, physical
+joins and the ambiguous-result assertions remain unchanged. Repetition also
+exposed a second fixture assumption: bundled cuts can share one object read, so
+an exact read count cannot measure occupied group slots. This producer-limit
+case now explicitly uses one group per batch; separate bundle regressions retain
+their normal batching settings. The full 52-case archive suite and 30 consecutive producer-shutdown repetitions pass. Original failed runs remain in diagnostic evidence.
 
 ## Current performance priorities
 
