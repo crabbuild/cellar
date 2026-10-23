@@ -6,6 +6,7 @@ on:
       - 'packages/cellar-sdk/**'
       - 'examples/javascript/**'
       - 'examples/node/**'
+      - 'examples/pi-agent/**'
       - 'tools/javascript/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
@@ -34,7 +35,10 @@ jobs:
           npm ci --prefix tools/javascript --ignore-scripts
           npm ci --prefix examples/javascript --ignore-scripts
           npm ci --prefix examples/node --ignore-scripts
+          npm ci --prefix examples/pi-agent --ignore-scripts
           npm run --prefix examples/node build
+          npm run --prefix examples/pi-agent build
+          npm test --prefix examples/pi-agent
           npm test --prefix tools/javascript
           npm run --prefix examples/javascript build
       - name: Adapter and real-node tests
@@ -48,6 +52,10 @@ jobs:
           cargo test --locked -p cellar --lib python_environment::archive
           cargo test --locked -p cellar --lib runtime_directories
           cargo test --locked -p cellar --test native_artifacts
+      - name: Pi agent crash recovery
+        run: |
+          cargo build --locked -p cellar-javascript --no-default-features --features node --bin cellar-pi-agent-example
+          CELLAR_PI_HOST="${CARGO_TARGET_DIR:-$PWD/target}/debug/cellar-pi-agent-example" npm run --prefix examples/pi-agent test:e2e
       - name: Quality and engine boundaries
         run: |
           cargo clippy --locked -p cellar-guest -p cellar-javascript --features cellar-javascript/embed,cellar-javascript/node --all-targets -- -D warnings

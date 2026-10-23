@@ -23,6 +23,8 @@ offers embedded V8 and an actual Node.js backend above the native SDK. Its [Type
 builds a native executable containing durable cell classes and npm business logic.
 The [Node.js example](../examples/node/README.md) adds Node built-ins, native npm
 addons, React server rendering and a verified runtime directory.
+The [durable Pi agent](../examples/pi-agent/README.md) runs a TypeScript agent
+loop with checkpointed model decisions, atomic tool receipts and alarm recovery.
 
 ## Choose a reading path
 

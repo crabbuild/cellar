@@ -19,3 +19,5 @@ console-audit.sqlite*
 !/tools/javascript/package-lock.json
 /examples/node/dist/
 !/examples/node/package-lock.json
+/examples/pi-agent/dist/
+!/examples/pi-agent/package-lock.json

@@ -35,3 +35,8 @@ required-features = ["embed"]
 name = "cellar-node-example"
 path = "../../examples/node/main.rs"
 required-features = ["node"]
+
+[[bin]]
+name = "cellar-pi-agent-example"
+path = "../../examples/pi-agent/main.rs"
+required-features = ["node"]
