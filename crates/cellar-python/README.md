@@ -492,6 +492,16 @@ for fan-out. Full application admission uses native `ApplicationOverloaded`
 admission is a lifecycle failure. Native peer-capacity retries stay within the
 original routing budget; ownership and output-proof failures take precedence.
 
+Task and resident-object saturation reported through an invocation preserve this
+same typed overload contract, including an unknown mutation outcome. They never
+retry a handler or evict a live Python object independently of native ownership.
+Native residency and the Python object budget are separate limits: the CLI has
+no resident-cell ceiling unless `CELLAR_MAX_RESIDENT_CELLS` is configured. Set a
+native cap below `Options.max_objects`, leaving room for pending activation and
+retirement, when serving more distinct cells than the Python cache can hold.
+Library hosts configure `ActorPolicy.max_resident` explicitly. Native eviction
+retires the corresponding Python object; later activation reloads durable state.
+
 ```text
 HTTP value crossing the bridge
 +----------------------+--------------------------+

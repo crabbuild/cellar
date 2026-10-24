@@ -82,10 +82,13 @@ async def fetch(request, ctx):
         await hold(request.path.rsplit("/", 1)[-1])
     elif request.path.startswith("/block/"):
         await hold(request.path.rsplit("/", 1)[-1], blocking=True)
-    elif request.path in ("/tasks/check", "/tasks/hold"):
+    elif request.path in ("/tasks/check", "/tasks/hold", "/tasks/unhandled"):
         children = []
         try:
             children = [asyncio.create_task(asyncio.sleep(60)) for _ in range(2)]
+            if request.path.endswith("unhandled"):
+                children.append(asyncio.create_task(asyncio.sleep(60)))
+                raise AssertionError("unhandled child task escaped the configured budget")
             if request.path.endswith("check"):
                 scoped = False
                 try:

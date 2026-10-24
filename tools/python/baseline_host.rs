@@ -167,6 +167,12 @@ pub(super) async fn drive(
     let executor = tokio::runtime::Handle::current();
     let peer_http = reqwest::Client::builder().no_proxy().build()?;
     let peer_auth = Arc::new(PeerAuth::new([61; 32], &name)?);
+    let replication_policy = ReplicationOptions {
+        flush_interval: Duration::ZERO,
+        durability_timeout: Duration::from_secs(2),
+        compaction: None,
+        ..Default::default()
+    };
     let fleet = if arguments.residency() {
         None
     } else {
@@ -181,12 +187,7 @@ pub(super) async fn drive(
             )?,
             lease_bucket: bucket.clone(),
             bucket,
-            replication: ReplicationOptions {
-                flush_interval: Duration::ZERO,
-                durability_timeout: Duration::from_secs(2),
-                compaction: None,
-                ..Default::default()
-            },
+            replication: replication_policy.clone(),
             log_transport: Arc::new(SignedPeerTransport::from_clients(
                 peer_http.clone(),
                 peer_http.clone(),
@@ -252,6 +253,7 @@ pub(super) async fn drive(
             "native_max_stateless_requests":runtime_policy.max_stateless_requests,
             "native_admission_wait_ms":runtime_policy.admission_wait.as_millis(),
             "handler_budget_ms":runtime_policy.handler_budget.as_millis(), "max_resident":max_resident,
+            "coverage_cache_entries":(!arguments.residency()).then_some(replication_policy.coverage_cache_entries),
         }))?,
     )?;
     let serving = node.run_until(async move {

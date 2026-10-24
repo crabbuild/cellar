@@ -271,6 +271,7 @@ pub fn validate() -> anyhow::Result<()> {
         "CELLAR_DEPLOY_MAX_AGE_S",
         "CELLAR_LOCAL_CACHE_MAX_BYTES",
         "CELLAR_LTX_TRUNCATE_PAGES",
+        "CELLAR_LTX_COVERAGE_CACHE_ENTRIES",
         "CELLAR_LTX_RETENTION_SECS",
         "CELLAR_LOG_HEDGE_MS",
         "CELLAR_LOG_WINDOW",

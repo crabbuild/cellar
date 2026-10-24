@@ -196,18 +196,22 @@ pub(super) fn child(mode: &str) -> Result<()> {
                             result["scoped"] == true && result["unscoped"] == true,
                             "task factory bypassed through an unscoped callback: {result}"
                         );
+                        let nested = client.get(format!("{url}/tasks/unhandled")).send().await?;
+                        ensure!(nested.status() == reqwest::StatusCode::SERVICE_UNAVAILABLE,
+                            "unhandled child-task saturation must preserve HTTP 503");
+                        ensure!(nested.json::<Value>().await? == json!({"error":"application admission refused", "code":"Overloaded", "outcome":"unknown"}),
+                            "unhandled child-task saturation lost its overload classification");
                         let held = request(&client, &url, "/tasks/hold");
                         observe(|view| active(view, "tasks")).await?;
-                        ensure!(
-                            client
-                                .get(format!("{url}/health"))
-                                .timeout(Duration::from_secs(2))
-                                .send()
-                                .await?
-                                .status()
-                                .is_server_error(),
-                            "task limit admitted another handler"
-                        );
+                        let refused = client
+                            .get(format!("{url}/health"))
+                            .timeout(Duration::from_secs(2))
+                            .send()
+                            .await?;
+                        ensure!(refused.status() == reqwest::StatusCode::SERVICE_UNAVAILABLE,
+                            "Python task saturation must be HTTP 503, got {}", refused.status());
+                        ensure!(refused.json::<Value>().await? == json!({"error":"application admission refused", "code":"Overloaded", "outcome":"unknown"}),
+                            "Python task refusal lost its typed overload contract");
                         python_call("release", Some("tasks"))?;
                         held.await??.error_for_status()?;
                     }
@@ -225,15 +229,14 @@ pub(super) fn child(mode: &str) -> Result<()> {
                             .await?
                             .error_for_status()?;
                         observe(|view| view["live"] == 2).await?;
-                        ensure!(
-                            client
-                                .get(format!("{url}/cell/three"))
-                                .send()
-                                .await?
-                                .status()
-                                .is_server_error(),
-                            "resident object limit was exceeded"
-                        );
+                        let refused = client
+                            .get(format!("{url}/cell/three"))
+                            .send()
+                            .await?;
+                        ensure!(refused.status() == reqwest::StatusCode::SERVICE_UNAVAILABLE,
+                            "Python object saturation must be HTTP 503, got {}", refused.status());
+                        ensure!(refused.json::<Value>().await? == json!({"error":"application admission refused", "code":"Overloaded", "outcome":"unknown"}),
+                            "Python object refusal lost its typed overload contract");
                         ensure!(
                             python_call("snapshot", None)?["created"] == 2,
                             "refused constructor executed"

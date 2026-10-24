@@ -14,6 +14,7 @@
 //! shared storage client and fleet prefix; per-cell clients retain that
 //! client's connection pool and credential provider.
 
+use crate::replication_coverage::CoverageCache;
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::path::Path;
@@ -1318,7 +1319,9 @@ pub struct LtxRepl {
     /// 2 s budget judged about one bundle against roughly one new bundle a
     /// second, and the retained backlog grew for the life of the process.
     /// On 2026-09-03 a dead session's recovery read 209 of them.
-    covered_by_cell: Mutex<BTreeMap<(String, u64), u64>>,
+    /// Bounded historical metadata: evicted entries use the existing durable
+    /// listing path, and failed reads under-report coverage without caching it.
+    covered_by_cell: Mutex<CoverageCache>,
     /// Each stream's retired mark (`cells/<stream>/ltx/retired.json`) as
     /// last read or written, with the monotonic time of that read. A
     /// coverage question for a stream this node does not hold reads the mark
@@ -1623,7 +1626,7 @@ impl LtxRepl {
             snapshot_budget_bytes: AtomicU64::new(
                 durability_timeout_ms.saturating_mul(SNAPSHOT_BYTES_PER_MS),
             ),
-            covered_by_cell: Mutex::new(BTreeMap::new()),
+            covered_by_cell: Mutex::new(CoverageCache::new(options.coverage_cache_entries)),
             retired_marks: Mutex::new(BTreeMap::new()),
             epoch_gc_grace_ms: options.epoch_gc_grace.map(duration_ms),
             truncate_pages: Some(options.truncate_pages),
@@ -1850,8 +1853,8 @@ impl LtxRepl {
         }
         let covered = match resident.max(known) {
             Some(covered) => covered,
-            // Nothing this process put there: a cell it never served, or one
-            // it has not shipped yet. Ask the bucket once, with one listing
+            // No remembered value: a never-served/unshipped cell or an evicted
+            // historical cache entry. Ask the bucket, with one listing
             // of the epoch's whole prefix rather than one per level, and
             // remember the answer; the watermark only rises, so a remembered
             // value never over-reports. A restarting node recovers thousands
@@ -1891,9 +1894,10 @@ impl LtxRepl {
 
     /// Remember that the bucket holds this cell epoch through `txid`.
     fn note_covered(&self, cell: &str, epoch: u64, txid: u64) {
-        let mut covered = self.covered_by_cell.lock().unwrap();
-        let entry = covered.entry((cell.to_string(), epoch)).or_insert(0);
-        *entry = (*entry).max(txid);
+        self.covered_by_cell
+            .lock()
+            .unwrap()
+            .remember(cell, epoch, txid);
     }
 
     fn retired_mark_key(&self, cell: &str) -> cellar_ltx::object_store::path::Path {
@@ -5816,3 +5820,7 @@ mod source_facet_cleanup_tests {
         result
     }
 }
+
+#[cfg(test)]
+#[path = "backend_coverage_tests.rs"]
+mod coverage_tests;

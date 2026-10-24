@@ -192,10 +192,13 @@ def start_host(args, directory, *, host_cpus=None):
     directory.mkdir()
     project = private_project(args.project, directory)
     evidence = directory / "host-affinity.json"
+    environment = {"CELLAR_TOKIO_THREADS": str(args.rust_threads),
+                   "CELLAR_DURABILITY": "bucket", "CELLAR_SHUTDOWN_TOTAL_MS": "15000",
+                   "CELLAR_SHUTDOWN_REPORT_JSON": "1", "PYTHONDONTWRITEBYTECODE": "1"}
+    if getattr(args, "resident_cells", None) is not None:
+        environment["CELLAR_MAX_RESIDENT_CELLS"] = str(args.resident_cells)
     host = Host(args.cellar, project, directory, command_prefix=affinity.prefix(host_cpus, evidence),
-                extra_env={"CELLAR_TOKIO_THREADS": str(args.rust_threads),
-                "CELLAR_DURABILITY": "bucket", "CELLAR_SHUTDOWN_TOTAL_MS": "15000",
-                "CELLAR_SHUTDOWN_REPORT_JSON": "1", "PYTHONDONTWRITEBYTECODE": "1"})
+                extra_env=environment)
     try:
         origin = host.ready()
         children = subprocess.check_output(["pgrep", "-P", str(host.child.pid)], text=True).split()

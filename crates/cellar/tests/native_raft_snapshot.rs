@@ -1856,6 +1856,7 @@ async fn native_snapshot_drill(
     })
     .await
     .context("native snapshot installation")?;
+    let read_started = tokio::time::Instant::now();
     let read = handles[follower]
         .query(
             definitions[follower].get.clone(),
@@ -1866,8 +1867,30 @@ async fn native_snapshot_drill(
                 ..Default::default()
             },
         )
-        .await
-        .context("restored follower query")?;
+        .await;
+    let read = match read {
+        Ok(read) => read,
+        Err(error) => {
+            let elapsed = read_started.elapsed();
+            // Observe each node independently so one unresponsive status call
+            // cannot hide the other nodes or prevent an attempted joined stop.
+            // These observations diagnose failure; they supply no read proof.
+            let statuses = futures_util::future::join_all(
+                handles
+                    .iter()
+                    .map(|handle| tokio::time::timeout(Duration::from_secs(1), handle.status())),
+            )
+            .await;
+            let attempts = cluster.data_attempts(follower);
+            let close = tokio::time::timeout(Duration::from_secs(5), cluster.close()).await;
+            anyhow::bail!(
+                "restored follower query: {error:?}; elapsed={elapsed:?}, primary={primary}, \
+                 follower={follower}, cut={cut:?}, required={:?}, statuses={statuses:?}, \
+                 transfer_attempts={attempts}, close={close:?}",
+                last.version,
+            );
+        }
+    };
     assert_eq!(read.result, 12i64.to_be_bytes());
     let status = handles[follower].status().await?;
     ensure!(
