@@ -131,10 +131,11 @@ export async function accept(
     intents: {},
     messages: [],
   };
+  const now = await ctx.now();
   await ctx.storage.apply({
     checks: { run: snapshot },
-    puts: { run: json(run) },
-    alarm_at_ms: await ctx.now(),
+    puts: { run: json(run), updated_at: now },
+    alarm_at_ms: now,
   });
   await ctx.storage.sync();
   return run;
@@ -174,11 +175,13 @@ export async function execute(
     } = {},
   ) => {
     const value = json(run);
+    const now = await ctx.now();
     await ctx.storage.apply({
       checks: { run: snapshot, ...extra.checks },
-      puts: { run: value, ...extra.puts },
+      // Activity time commits with the checkpoint, never with a status read.
+      puts: { ...extra.puts, run: value, updated_at: now },
       ...(run.status === "pending"
-        ? { alarm_at_ms: (await ctx.now()) + retryMs }
+        ? { alarm_at_ms: now + retryMs }
         : { delete_alarm: true }),
     });
     await ctx.storage.sync();
