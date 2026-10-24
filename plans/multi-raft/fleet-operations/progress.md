@@ -316,6 +316,65 @@ The complete FO-03 listing still refuses six missing cases; the task remains
 `IN_PROGRESS`. RustFS deployment, full fleet workflows, TPS/p99, enforced Colima
 resource tiers and the endurance soak remain unqualified.
 
+## FO-03 progress: rooted managed birth admission
+
+Fresh managed namespace roots now bind birth admission to the exact fleet
+incarnation and scoped catalog key. Ordinary birth/cancellation cannot create
+histories in those namespaces. A reservation CAS installs the complete initial
+history descriptor and permanent name index before returning a birth capability.
+The root maintains a bounded history count, without scanning every history for
+each admission. Initial RF3 admission requires active, engine-pinned node records
+on three distinct declared physical hosts.
+
+The reservation and node-state update contend on the same root. An admitted
+writer delayed past drain remains inventoried; a writer whose reservation CAS
+loses cannot create a birth. Exact immutable-birth reconciliation changes the
+history to Live or Cancelled. Timeouts and lost replies retain the reference,
+and fresh adapters can reconcile the original admission after later root changes.
+Pending/cancelled histories cannot mint membership authority. Name tombstones
+remain permanent. These adapter tests do not certify a full node evacuation.
+
+History descriptors now retain schema, namespace-root and live-birth digests,
+initial node/member references and admission identity. Host startup, dormant
+registration and group enrollment compare the actual birth and schema. Ordinary
+bootstrap refuses fresh/bare managed genesis; it only resumes an already
+enrolled managed group. Guarded initial-member initialization remains a required
+integration step. Registering an observed import does not quiesce legacy creators,
+convert its namespace or certify inventory completeness.
+
+The protocol hard-cuts to `/birth-admission-1`; numeric markers remain 1 and there
+is no compatibility reader for earlier namespace/history records. Qualification
+and exact source/artifact identity are retained in the partial
+`implementation/fo03/managed-birth-boundary.json` record under ignored
+`.cellar/raft-perf/fleet-operations/`. This substep does not complete FO-03.
+
+Source `dec09d328b0c8be6881a3d07f2effdd76e781ce6` is qualified locally on macOS arm64/Rust 1.98.1:
+
+| Managed-birth verification | Result |
+| --- | --- |
+| Native regressions across 13 targets | 317 passed, including 34 enrollment cases |
+| Raft library and startup confirmation | 132 and 4 passed |
+| Affected-target Clippy | Passed with warnings denied |
+| Formatting, module layout and native dependencies | Passed; 923 Rust files, 454 reachable packages, no JavaScript engine |
+| Plan and documentation checks | Passed; 129 required cases, 67 reviewed source anchors and 10 validator tests |
+
+The final native cohort includes corruption classification and ordinary managed
+genesis refusal. The earlier 315-case cohort and 48-case focused cohort are retained
+with their narrower source scope; the initial duplicate-helper compile failure is
+retained separately. No assertions were weakened. Final source bytes were not
+changed after qualification. The partial record retains log and executable hashes;
+mutable target-cache paths do not imply that binary bytes were archived.
+
+Six mandatory FO-03 cases remain absent. The new reservation race and declared
+domain cases cover their adapter boundaries; they do not replace the full
+lifecycle, import, participant-acknowledgement or movement-policy cases.
+Guarded member initialization, complete import, group-identity conflict
+reconciliation and actual lifecycle execution remain open. Initial admission
+currently requires distinct declared physical hosts. Before same-host Colima
+qualification, implement an explicit rooted domain policy; never relabel colocated
+containers as independent physical failure domains. RustFS, resource enforcement,
+TPS/p99 and soak remain unqualified. Keep fleet management default-off.
+
 ## Next implementation boundary
 
 FO-03 adds the trusted dynamic node set, empty managed host readiness, bounded
@@ -349,8 +408,8 @@ safe admission ahead of automation; the manifest dependencies remain unchanged.
 
 | Priority | Boundary | Required result before advancing |
 | --- | --- | --- |
-| P0, first | FO-03 remaining trust and placement checks | Close `fleet_enrollment_unknown_node`, `fleet_enrollment_route_revocation` and `fleet_enrollment_physical_host`: cover unsolicited ingress, move-participant acknowledgement enforcement and strict physical-host policy. Empty-host metadata and current eligibility inspection are implemented locally; neither activates capacity. |
-| P0, next | FO-03 complete inventory and lifecycle exclusion | An incomplete import cannot authorize management; a concurrent birth cannot escape a drain cut; a retired physical binding cannot be reused. Cover `fleet_enrollment_incomplete_import`, `fleet_enrollment_birth_drain_race` and `fleet_enrollment_retired_binding`, then pass the complete FO-03 listing and behavior tests. |
+| P0, first | FO-03 complete inventory and member lifecycle | Finish guarded initial-member initialization and the explicit complete import cut; integrate the birth reservation boundary with actual lifecycle admission and retired-binding refusal. The new low-level birth/drain case does not replace `fleet_enrollment_birth_drain_race`. Cover that case, `fleet_enrollment_incomplete_import` and `fleet_enrollment_retired_binding`. |
+| P0, next | FO-03 remaining trust and placement checks | Close `fleet_enrollment_unknown_node`, `fleet_enrollment_route_revocation` and `fleet_enrollment_physical_host`: cover unsolicited ingress, move-participant acknowledgement enforcement and strict physical-host policy for movement. Initial birth-domain admission and cell-free observations are implemented locally; neither activates capacity. Pass the complete FO-03 listing and behavior tests before advancing. |
 | P1 | FO-04 placement, FO-05 fresh load, then FO-06 reconciliation | Validate final assignments and every staged move against retained/temporary costs, failure domains and one-node-loss restoration. Reconciliation must survive cancellation, restart and lost replies, with fresh terminal quorum proof before releasing reservations. Verify foreground overhead before enabling optional balancing. |
 | P2 | FO-07 maintenance, FO-08 operator surfaces, then FO-09 scaling | Deliver the durable stop fence and one-disruption slot, complete evacuation/removal proof, authenticated idempotent API/CLI workflows and observed-limit checks for resource changes. Proposed commands are not available until these packages pass. |
 | Release gate | FO-10 deployed qualification | Qualify RustFS conditional writes and real five/six/four-node workflows, faults and the 24-hour soak. At 1 vCPU/3 GiB per node, maximize successful TPS with p99 below 200 ms preferred and 500 ms hard ceiling. Measure enabled-idle controller cost and use matched comparisons for optional performance changes. |

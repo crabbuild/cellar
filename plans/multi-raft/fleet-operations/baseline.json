@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "revision": "164359427707f5bc80a64dd8d981debef7cd5d5e",
+  "revision": "dec09d328b0c8be6881a3d07f2effdd76e781ce6",
   "files": [
     {
       "path": ".github/workflows/native-sdk.yml",
@@ -48,11 +48,11 @@
     },
     {
       "path": "crates/cellar/application/consensus/mod.rs",
-      "sha256": "61d55432dec9d6e7fba5704181199a6b359c046c942e061cb988b9b13519d1e0"
+      "sha256": "92cf453ec5e3efc6ae4c458beed1c5486e47e8b2fe07997f7a00f2a0d772f7c1"
     },
     {
       "path": "crates/cellar/application/consensus/protocol.rs",
-      "sha256": "c0c31d3be2f3607a481a2f29f61ecf79819555b4f97aac6b8c2d48e5471d009e"
+      "sha256": "1e8a638ea821f018f9f52d88bcb07a0920c96fc8f1281250c777316263a19aaa"
     },
     {
       "path": "crates/cellar/application/consensus/resources.rs",
@@ -64,7 +64,7 @@
     },
     {
       "path": "crates/cellar/durability/raft/README.md",
-      "sha256": "831371a2fe622dc7a75093baf2a933abc4c8f0a269cc6b6ae07e01f6d3d46d24"
+      "sha256": "376eba53a45d36baecb74a08645542150604733dea8320796a38000848ef80db"
     },
     {
       "path": "crates/cellar/durability/raft/archive/mod.rs",
@@ -76,11 +76,11 @@
     },
     {
       "path": "crates/cellar/durability/raft/catalog.rs",
-      "sha256": "a9f0747e8d8d5eeb2d1667c116fed27e9b060390ef79d09bf7970258ab3b7c7f"
+      "sha256": "b47481e64d12ae15e794d487e57f7116e357b9f638d1b87de6f053a8ea863522"
     },
     {
       "path": "crates/cellar/durability/raft/catalog_wire.rs",
-      "sha256": "4ecf86098564e8b677be0e95fa8526d9444ea0cf15b0a1ab6b13294a1fb63cc5"
+      "sha256": "51df15a34a653812bb6d13b318d1ca56f4c386b79e8e09e18ee864a8b337fef8"
     },
     {
       "path": "crates/cellar/durability/raft/controller_action.rs",
@@ -248,7 +248,7 @@
     },
     {
       "path": "crates/cellar/tests/support/raft_catalog_fault.rs",
-      "sha256": "210b34f1b51fcc117377fe7bc4ceef820b5cda9f27435b98eb40dccdeb24ba78"
+      "sha256": "6cc836fd38bb430549df29f8b5d4e409b55ab27ada19a20d6f432dbe4a27de24"
     },
     {
       "path": "crates/cellar/tests/support/raft_metrics_native.rs",
