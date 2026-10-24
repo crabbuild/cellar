@@ -10,6 +10,7 @@ pub use nodes::{
     FleetHostAuthorization, FleetNodeEligibility, FleetNodeSpec, FleetNodeState,
     FleetRequestIdentity,
 };
+pub(crate) use nodes::{FleetTrustReader, FleetTrustSnapshot};
 pub use permits::{FleetGroupAuthorization, FleetPermitAuthorization};
 
 use records::{CommitRecord, Head, Pin};

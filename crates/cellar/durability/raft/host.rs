@@ -98,8 +98,8 @@ pub struct RaftHostOptions {
     pub inspection_origins: Vec<super::transport_options::NamespaceInspectionOrigin>,
     /// Enable read-only placement inspection with explicit capacity declarations.
     pub node_profile: Option<super::inspection::RaftNodeProfile>,
-    /// Publish and refresh explicitly configured physical node endpoints.
-    /// Requires a trusted self endpoint and stable member/standby storage.
+    /// Publish and refresh configured physical endpoints, or the complete rooted
+    /// node set for managed hosts. Requires a trusted self endpoint and storage.
     pub node_directory: Option<RaftNodeDirectoryOptions>,
     /// Explicit rooted node enrollment and compiled namespace capabilities.
     /// Capacity readiness/activation and complete inventory are separate proofs.
@@ -168,6 +168,10 @@ impl RaftHostOptions {
         self.close_report.validate()?;
         if let Some(managed) = &self.managed {
             managed.validate()?;
+            anyhow::ensure!(
+                self.max_control_bytes >= 4 * 1024 * 1024 + 4096 && self.max_control_requests >= 2,
+                "managed discovery requires bounded metadata and control capacity"
+            );
             anyhow::ensure!(
                 self.node_profile.is_some()
                     && self.node_directory.is_some()

@@ -30,6 +30,8 @@ use tokio::sync::{mpsc, oneshot, watch, Notify, Semaphore};
 mod control_sender;
 #[path = "transport_directory.rs"]
 mod directory;
+#[path = "transport_fleet.rs"]
+mod fleet;
 #[path = "inspection_transport.rs"]
 pub(crate) mod inspections;
 #[path = "transport_metrics.rs"]
@@ -266,6 +268,7 @@ struct Registry {
     inspection_peers: BTreeMap<NodeId, Arc<Budget>>,
     pools: BTreeMap<NodeId, Arc<Pool>>,
     node_views: BTreeMap<NodeId, crate::raft::catalog::NodeView>,
+    fleet_trust: Option<Arc<crate::raft::fleet_catalog::FleetTrustSnapshot>>,
     seed_peers: BTreeMap<NodeId, directory::SeedPeer>,
 }
 
@@ -425,6 +428,7 @@ impl RaftTransport {
                 inspection_peers: BTreeMap::new(),
                 pools: BTreeMap::new(),
                 node_views: BTreeMap::new(),
+                fleet_trust: None,
                 seed_peers: BTreeMap::new(),
             }),
             outgoing: Banks::new(

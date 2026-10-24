@@ -21,6 +21,87 @@ use std::{
 
 const TIMEOUT: Duration = Duration::from_secs(5);
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn fleet_enrollment_dynamic_trust_isolation() -> Result<()> {
+    let f = Fixture::new().await?;
+    let (_root, node, host) = f.empty_host().await?;
+    f.store.fleet_read_hang.store(true, Ordering::Release);
+    f.store.hold_next_fleet_read.store(true, Ordering::Release);
+    f.domain
+        .run(cellar::asyncrt::timeout(TIMEOUT, async {
+            while f.store.active_fleet_reads.load(Ordering::Acquire) == 0 {
+                cellar::asyncrt::sleep(Duration::from_millis(5)).await;
+            }
+        }))
+        .await??;
+    ensure!(host.resource_usage().control.bytes >= 4 * 1024 * 1024);
+    // A held background root read cannot own the foreground catalog turn.
+    let authorization = f.history(61).await?;
+    let cell = host
+        .register_managed_history(authorization, TIMEOUT)
+        .await?;
+    ensure!(host.observe_node(TIMEOUT).await?.dormant_histories == 1);
+    drop(cell);
+    let report = f
+        .domain
+        .run(cellar::asyncrt::timeout(TIMEOUT, host.close()))
+        .await???;
+    ensure!(report.unfinished.is_empty());
+    ensure!(f.store.active_fleet_reads.load(Ordering::Acquire) == 0);
+    ensure!(host.resource_usage().control.bytes == 0 && host.resource_usage().control.items == 0);
+    node.shutdown(ShutdownMode::Preserve).await?;
+    f.domain.shutdown().await;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn fleet_enrollment_dynamic_trust_refresh() -> Result<()> {
+    let f = Fixture::new().await?;
+    let (_root, node, host) = f.empty_host().await?;
+    let initial = host.observe_node(TIMEOUT).await?;
+    let installed = initial
+        .fleet_trust_revision
+        .ok_or_else(|| anyhow::anyhow!("missing rooted trust cut"))?;
+    let startup = initial.startup_enrollment.unwrap().revision;
+    let mut extra = f.spec.clone();
+    extra.node = NodeId::new([5; 16])?;
+    extra.disk = DiskLineage::new([15; 16])?;
+    extra.label = "fleet-extra".into();
+    let snapshot = f.catalog.read(TIMEOUT).await?;
+    ensure!(snapshot.revision() == installed);
+    let committed = f
+        .catalog
+        .register_node(
+            &snapshot,
+            &Fixture::request(60, snapshot.revision()),
+            &extra,
+            TIMEOUT,
+        )
+        .await?;
+    let revision = committed.snapshot.revision();
+    f.domain
+        .run(cellar::asyncrt::timeout(TIMEOUT, async {
+            loop {
+                let observation = host.observe_node(TIMEOUT).await?;
+                if observation.fleet_trust_revision == Some(revision) {
+                    ensure!(observation.startup_enrollment.unwrap().revision == startup);
+                    ensure!(observation.node.groups == 0 && observation.registered_histories == 0);
+                    return Ok::<_, anyhow::Error>(());
+                }
+                cellar::asyncrt::sleep(Duration::from_millis(10)).await;
+            }
+        }))
+        .await???;
+    f.domain
+        .run(cellar::asyncrt::timeout(TIMEOUT, host.close()))
+        .await???;
+    let usage = host.resource_usage();
+    ensure!(usage.control.bytes == 0 && usage.control.items == 0);
+    node.shutdown(ShutdownMode::Preserve).await?;
+    f.domain.shutdown().await;
+    Ok(())
+}
+
 #[derive(Debug)]
 struct NoListing;
 

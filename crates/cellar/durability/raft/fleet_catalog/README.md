@@ -109,9 +109,33 @@ fleet-aware reconciliation is integrated.
 `RaftCells::observe_node` uses bounded node control admission independently of
 cell handles. It returns actual engine identity, occupied and unattached history
 counts, configured profile and the explicitly named startup enrollment cut.
-It is a local observation, not fresh remote readiness, capacity activation or
-removal proof. Continuous trusted-node refresh/revocation, remote node inspection
-and complete inventory remain FO-03 work.
+It also reports `fleet_trust_revision`, the last complete rooted node cut
+installed by the owned directory worker. The startup cut remains unchanged.
+These are local observations, not fresh remote readiness, capacity activation or
+removal proof. Remote node inspection and complete inventory remain FO-03 work.
+
+Managed discovery reads the current catalog root and bounded node table rather
+than expanding trust from bucket objects or unsolicited traffic. An unchanged
+exact root reuses the validated immutable node cut without replaying its pages.
+New rooted nodes are discovered at exact directory keys, without configured
+addresses. Their namespace storage pin must equal the fleet pin. Missing or
+unavailable metadata preserves existing quorum transport and supplies no new
+authority.
+
+Trust installation rejects older cuts, identity/pin changes, missing retained
+records and removed-identity revival. It fences route/grant installation and
+seed work. Final `Removed` status cancels existing peer pools, query/inspection
+grants and physical seed epochs; their tasks retain reservations until exit.
+Restart, resize, draining and evacuated nodes retain transport while membership
+work resolves; their placement eligibility remains separate. This adapter does
+not establish the evacuation/removal proof required before publishing `Removed`.
+
+One owned discovery batch holds a 4 MiB administrative metadata reservation
+through completion. Its read-only catalog adapter has a separate bounded turn,
+so a held background root read cannot reject foreground history operations by
+owning their catalog turn. Managed hosts require at least that capacity plus a 4 KiB
+control request and two administrative items. The original batch deadline and
+joined shutdown apply to both trust reads and endpoint observations.
 
 `register_managed_history` lazily registers dormant metadata using an opaque
 rooted group authorization. The owning host rechecks current host/history

@@ -8,6 +8,10 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 #[derive(Debug, Default)]
 pub struct Store {
+    pub hold_next_fleet_read: AtomicBool,
+    pub fleet_read_hang: AtomicBool,
+    pub active_fleet_reads: AtomicUsize,
+    pub fleet_read_resume: tokio::sync::Notify,
     /// Hold one exact ordinal initial-member claim while the host initializes.
     pub hold_nth_claim: AtomicUsize,
     pub claim_hang: AtomicBool,
@@ -263,6 +267,28 @@ impl ObjectStore for Store {
 
     async fn get_opts(&self, path: &Path, options: GetOptions) -> object_store::Result<GetResult> {
         tokio::task::yield_now().await;
+        if path.as_ref().ends_with("/fleet/head")
+            && self.hold_next_fleet_read.swap(false, Ordering::AcqRel)
+        {
+            struct Reading<'a>(&'a AtomicUsize);
+
+            impl Drop for Reading<'_> {
+                fn drop(&mut self) {
+                    self.0.fetch_sub(1, Ordering::AcqRel);
+                }
+            }
+            self.active_fleet_reads.fetch_add(1, Ordering::AcqRel);
+            let _reading = Reading(&self.active_fleet_reads);
+            loop {
+                let resumed = self.fleet_read_resume.notified();
+                tokio::pin!(resumed);
+                resumed.as_mut().enable();
+                if !self.fleet_read_hang.load(Ordering::Acquire) {
+                    break;
+                }
+                resumed.await;
+            }
+        }
         if path.filename() == Some("birth")
             && self
                 .birth_confirmation_pending

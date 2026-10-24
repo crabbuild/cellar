@@ -16,6 +16,9 @@ pub struct RaftHostObservation {
     pub node: super::super::inspection::NodeInspection,
     /// Rooted observation used by this boot, never a fresh eligibility proof.
     pub startup_enrollment: Option<RaftHostEnrollmentObservation>,
+    /// Last complete rooted trust cut installed by the owned directory worker.
+    /// This acknowledgement grants neither placement eligibility nor quorum.
+    pub fleet_trust_revision: Option<u64>,
     pub declared_namespaces: u32,
     pub registered_histories: u32,
     pub dormant_histories: u32,
@@ -85,6 +88,10 @@ impl Driver {
                     capability_digest: auth.capability_digest(),
                 }
             }),
+            fleet_trust_revision: self
+                .directory
+                .as_ref()
+                .and_then(directory::Directory::rooted_revision),
             declared_namespaces: bounded(self.declared_namespaces.len())?,
             registered_histories: bounded(
                 self.cells

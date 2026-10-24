@@ -13,6 +13,7 @@ impl Registry {
     /// Once observed, a process view also fences later route/grant installs.
     /// Membership changes cannot reintroduce an older physical endpoint.
     pub(super) fn check_node_view(&self, peer: &RaftPeerNode) -> Result<(), TransportError> {
+        self.check_fleet_peer(peer)?;
         if self
             .node_views
             .get(&peer.node)
@@ -57,6 +58,15 @@ impl RaftTransport {
         }
         let mut registry = state.registry.lock().map_err(|_| TransportError::Closed)?;
         state.admit(&registry)?;
+        registry.check_fleet_peer(peer)?;
+        if registry.fleet_trust.as_ref().is_some_and(|trust| {
+            trust.node(peer.node).is_none_or(|node| {
+                node.cluster() != view.cluster()
+                    || node.storage_instance() != Some(view.storage_instance())
+            })
+        }) {
+            return Err(TransportError::Identity);
+        }
         if let Some(old) = registry.node_views.get(&peer.node) {
             if old.storage_instance() != view.storage_instance()
                 || !same_registration(old.peer(), peer)
@@ -192,8 +202,8 @@ fn refresh_routes(routes: &mut BTreeMap<GroupScope, Arc<GroupRoute>>, peer: &Raf
 /// It confers no group authority. The registry retains bounded tombstones for
 /// the process lifetime so a stale source hint cannot silently revive an owner.
 pub(super) struct SeedPeer {
-    peer: RaftPeerNode,
-    stop: watch::Sender<bool>,
+    pub(super) peer: RaftPeerNode,
+    pub(super) stop: watch::Sender<bool>,
 }
 
 impl State {

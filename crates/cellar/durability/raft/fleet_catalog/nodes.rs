@@ -153,6 +153,85 @@ impl fmt::Debug for FleetHostAuthorization {
 }
 
 impl FleetHostAuthorization {
+    /// The one owned discovery worker has its own bounded read turn. Sharing
+    /// the mutation adapter's turn would let a periodic read reject foreground
+    /// history admission while waiting on storage. Its caller retains the
+    /// separate physical metadata reservation through this reader's completion.
+    pub(crate) fn trust_reader(&self) -> FleetTrustReader {
+        let source = &self.catalog.inner;
+        let mut authorization = self.clone();
+        authorization.catalog = FleetCatalog {
+            inner: Arc::new(Inner {
+                bucket: source.bucket.clone(),
+                domain: source.domain.clone(),
+                prefix: source.prefix.clone(),
+                cluster: source.cluster,
+                incarnation: source.incarnation,
+                turn: Mutex::new(()),
+            }),
+        };
+        FleetTrustReader { authorization }
+    }
+
+    /// One current, complete rooted node cut. Process-view objects cannot add
+    /// entries, and removed identities remain in this cut as tombstones.
+    pub(crate) async fn trust_snapshot(&self, timeout: Duration) -> Result<FleetTrustSnapshot> {
+        self.refresh_trust(None, timeout).await
+    }
+
+    pub(crate) async fn refresh_trust(
+        &self,
+        previous: Option<&FleetTrustSnapshot>,
+        timeout: Duration,
+    ) -> Result<FleetTrustSnapshot> {
+        self.catalog
+            .run(timeout, async {
+                let snapshot = self.catalog.inner.current().await?;
+                let root_digest = hash(&encode(HEAD_KIND, &snapshot.head, ROOT_LIMIT)?);
+                if let Some(previous) = previous {
+                    if previous.fleet != self.fleet() || previous.cluster != self.cluster() {
+                        return Err(FleetCatalogError::Conflict);
+                    }
+                    if previous.revision == snapshot.revision() {
+                        if previous.root_digest != root_digest {
+                            return Err(FleetCatalogError::Conflict);
+                        }
+                        return Ok(previous.clone());
+                    }
+                }
+                let records = self.catalog.node_records(&snapshot).await?;
+                let nodes = records
+                    .into_iter()
+                    .map(|record| self.catalog.host_record(&snapshot, record))
+                    .collect::<Result<Vec<_>>>()?;
+                let local = nodes
+                    .iter()
+                    .find(|node| node.node == self.node)
+                    .ok_or(FleetCatalogError::Conflict)?;
+                self.require_successor(local)?;
+                Ok(FleetTrustSnapshot {
+                    revision: snapshot.revision(),
+                    fleet: self.fleet(),
+                    cluster: self.cluster(),
+                    root_digest,
+                    nodes: nodes.into(),
+                })
+            })
+            .await
+    }
+
+    pub(crate) fn permits_transport(&self) -> bool {
+        self.state() != FleetNodeState::Removed && self.storage_instance.is_some()
+    }
+
+    pub(crate) fn matches_peer(&self, peer: &crate::raft::transport_options::RaftPeerNode) -> bool {
+        self.permits_transport()
+            && peer.node == self.node
+            && peer.disk == self.disk
+            && peer.label == self.record.label
+            && peer.server_name == self.record.server_name
+    }
+
     pub fn node(&self) -> NodeId {
         self.node
     }
@@ -325,6 +404,79 @@ impl FleetHostAuthorization {
     }
 }
 
+/// Read-only surface of the single separately budgeted directory adapter.
+#[derive(Clone)]
+pub(crate) struct FleetTrustReader {
+    authorization: FleetHostAuthorization,
+}
+
+impl FleetTrustReader {
+    pub(crate) async fn refresh(
+        &self,
+        previous: Option<&FleetTrustSnapshot>,
+        timeout: Duration,
+    ) -> Result<FleetTrustSnapshot> {
+        self.authorization.refresh_trust(previous, timeout).await
+    }
+}
+
+/// Opaque complete node-table cut, produced only by a bounded current-root read.
+/// Eligibility is deliberately separate: restart, resize and evacuation keep
+/// transport available until final removal has resolved membership work.
+#[derive(Clone, Debug)]
+pub(crate) struct FleetTrustSnapshot {
+    revision: u64,
+    fleet: [u8; 16],
+    cluster: ClusterId,
+    root_digest: [u8; 32],
+    nodes: Arc<[FleetHostAuthorization]>,
+}
+
+impl FleetTrustSnapshot {
+    pub(crate) fn revision(&self) -> u64 {
+        self.revision
+    }
+
+    pub(crate) fn nodes(&self) -> &[FleetHostAuthorization] {
+        &self.nodes
+    }
+
+    pub(crate) fn node(&self, node: NodeId) -> Option<&FleetHostAuthorization> {
+        self.nodes.iter().find(|entry| entry.node == node)
+    }
+
+    pub(crate) fn check_successor(&self, previous: &Self) -> Result<()> {
+        if self.fleet != previous.fleet
+            || self.cluster != previous.cluster
+            || self.revision < previous.revision
+        {
+            return Err(FleetCatalogError::Conflict);
+        }
+        for old in previous.nodes.iter() {
+            let current = self.node(old.node).ok_or(FleetCatalogError::Conflict)?;
+            old.require_successor(current)?;
+            if old.record.epoch == current.record.epoch && old.record != current.record
+                || old.state() == FleetNodeState::Removed
+                    && current.state() != FleetNodeState::Removed
+            {
+                return Err(FleetCatalogError::Conflict);
+            }
+        }
+        if self.revision == previous.revision
+            && (self.root_digest != previous.root_digest
+                || self.nodes.len() != previous.nodes.len()
+                || self.nodes.iter().any(|current| {
+                    previous
+                        .node(current.node)
+                        .is_none_or(|old| old.record != current.record)
+                }))
+        {
+            return Err(FleetCatalogError::Conflict);
+        }
+        Ok(())
+    }
+}
+
 impl FleetCatalog {
     pub async fn register_node(
         &self,
@@ -451,8 +603,16 @@ impl FleetCatalog {
         if !record.state.permits_boot() {
             return Err(FleetCatalogError::Conflict);
         }
+        self.host_record(snapshot, record)
+    }
+
+    fn host_record(
+        &self,
+        snapshot: &FleetSnapshot,
+        record: NodeRecord,
+    ) -> Result<FleetHostAuthorization> {
         Ok(FleetHostAuthorization {
-            node,
+            node: NodeId::new(record.node).map_err(|_| FleetCatalogError::Corrupt("node"))?,
             disk: DiskLineage::new(record.disk).map_err(|_| FleetCatalogError::Corrupt("disk"))?,
             physical_host: IncarnationId::new(record.physical_host)
                 .map_err(|_| FleetCatalogError::Corrupt("physical host"))?,

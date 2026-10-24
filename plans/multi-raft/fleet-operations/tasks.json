@@ -323,7 +323,9 @@
         "crates/cellar/application/consensus/client_node.rs",
         "crates/cellar/tests/support/raft_enrollment_native.rs",
         "crates/cellar/application/consensus/client_bindings.rs",
-        "crates/cellar/durability/raft/host_registration.rs"
+        "crates/cellar/durability/raft/host_registration.rs",
+        "crates/cellar/durability/raft/transport_fleet.rs",
+        "crates/cellar/durability/raft/transport_fleet_tests.rs"
       ],
       "steps": [
         "Add CAS-authorized node-set revisions with bounded route and permission refresh.",
@@ -566,6 +568,25 @@
             "F06",
             "F08",
             "F10"
+          ]
+        },
+        {
+          "name": "fleet_enrollment_dynamic_trust_refresh",
+          "oracle": "An empty managed host acknowledges a newer complete rooted node cut without changing its startup observation or creating a group; shutdown joins discovery and releases metadata ownership.",
+          "invariants": [
+            "F02",
+            "F06",
+            "F07",
+            "F08"
+          ]
+        },
+        {
+          "name": "fleet_enrollment_dynamic_trust_isolation",
+          "oracle": "A held background root read cannot take the foreground history-admission turn; registration still succeeds, and shutdown joins the held read before releasing its physical metadata reservation.",
+          "invariants": [
+            "F06",
+            "F07",
+            "F08"
           ]
         }
       ],
