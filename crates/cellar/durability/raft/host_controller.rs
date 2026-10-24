@@ -150,12 +150,10 @@ pub(super) enum Completed {
 }
 
 impl Controller {
-    pub(super) fn new(options: RaftControllerOptions, local: &client::Handle) -> Self {
+    pub(super) fn new(options: RaftControllerOptions, bindings: Vec<Binding>) -> Self {
         let (stop, _) = watch::channel(false);
-        let histories = local
-            .bindings
-            .values()
-            .cloned()
+        let histories = bindings
+            .into_iter()
             .map(|binding| History {
                 binding,
                 candidate_cursor: None,

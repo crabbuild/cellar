@@ -110,8 +110,26 @@ fleet-aware reconciliation is integrated.
 cell handles. It returns actual engine identity, occupied and unattached history
 counts, configured profile and the explicitly named startup enrollment cut.
 It is a local observation, not fresh remote readiness, capacity activation or
-removal proof. Continuous trusted-node refresh/revocation, remote node inspection,
-dynamic dormant registration and complete inventory remain FO-03 work.
+removal proof. Continuous trusted-node refresh/revocation, remote node inspection
+and complete inventory remain FO-03 work.
+
+`register_managed_history` lazily registers dormant metadata using an opaque
+rooted group authorization. The owning host rechecks current host/history
+enrollment, its compiled declaration, immutable birth and existing physical slots.
+It admits one metadata preparation at a time with an independent 4 MiB control
+reservation and original deadline. Cancellation/close joins that read before
+releasing ownership; publication stays serialized with activation and shutdown.
+The operation creates no member, SQLite image or voting authority. A timed-out
+reply can race publication; retry the same authorization and inspect the result.
+
+The shared binding registry returns owned metadata under short read locks. Only
+the host publishes new entries; names are never replaced, and retained handles
+keep their existing one-way member slot. Capacity includes dormant bindings and
+unattached engine histories. Occupied or retired unregistered slots refuse
+rebinding even when other aggregate slots are free. Reopening retained active
+histories still uses the existing startup recovery registrations; dynamic
+metadata registration cannot reset their engine state. Local observations also
+report pending registration work so later readiness/removal checks cannot omit it.
 
 ### Group membership and learner activation
 

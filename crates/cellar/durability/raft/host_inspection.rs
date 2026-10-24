@@ -33,7 +33,7 @@ impl Driver {
                 .local
                 .bindings
                 .get(&(request.scope.namespace, request.scope.cell.clone()))
-                .ok_or(InspectionError::Refused)?;
+                .map_err(|_| InspectionError::Unavailable)?;
             let birth = self
                 .cells
                 .get(&request.scope)

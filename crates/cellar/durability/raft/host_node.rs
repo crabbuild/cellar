@@ -19,6 +19,7 @@ pub struct RaftHostObservation {
     pub declared_namespaces: u32,
     pub registered_histories: u32,
     pub dormant_histories: u32,
+    pub pending_history_registrations: u32,
     /// Physical engine slots not attached as running cells, including retained
     /// or retired histories. This count never claims inventory completeness.
     pub unattached_engine_histories: u32,
@@ -42,6 +43,9 @@ impl Driver {
             return;
         }
         match std::mem::replace(&mut request.kind, NodeKind::ControllerStatus) {
+            NodeKind::RegisterHistory(authorization) => {
+                self.start_history_registration(request, *authorization)
+            }
             NodeKind::Observe => {
                 let result = self.node_observation().map(|o| Response::Node(Box::new(o)));
                 reply_node(&mut request, result);
@@ -89,6 +93,7 @@ impl Driver {
                     .ok_or(CommandFailure::Overloaded)?,
             )?,
             dormant_histories: bounded(dormant)?,
+            pending_history_registrations: u32::from(self.history_registration.is_some()),
             unattached_engine_histories: bounded(unattached)?,
         })
     }

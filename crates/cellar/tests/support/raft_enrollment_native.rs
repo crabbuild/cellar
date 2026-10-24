@@ -4,6 +4,7 @@ use super::{fault, public_node};
 use anyhow::{ensure, Result};
 use cellar::application::consensus::verification::{
     Catalog, FleetCatalog, FleetCatalogError, FleetChange, FleetMutation, FleetTable,
+    GroupBootstrap, ReplicaLog,
 };
 use cellar::bucket::{Bucket, StorageBackend};
 use cellar::sdk::{
@@ -48,6 +49,88 @@ struct Fixture {
 }
 
 impl Fixture {
+    async fn history(&self, id: u8) -> Result<FleetGroupAuthorization> {
+        let namespace = Catalog::new(
+            self.store.clone(),
+            CatalogOptions {
+                prefix: "host-enrollment/".into(),
+                ..Default::default()
+            },
+        )?
+        .existing_namespace(self.declaration.namespace.clone())
+        .await?;
+        let scope = GroupScope {
+            cluster: self.declaration.namespace.cluster,
+            namespace: self.declaration.namespace.namespace,
+            cell: format!("Counter:dynamic-{id}"),
+            group: GroupId::new([id; 16])?,
+            incarnation: IncarnationId::new([3; 16])?,
+        };
+        namespace
+            .resolve_birth(BirthProposal {
+                scope: scope.clone(),
+                voters: (1..=3)
+                    .map(|id| {
+                        Ok(InitialMember {
+                            member: MemberId::new(id)?,
+                            node: NodeId::new([id as u8; 16])?,
+                        })
+                    })
+                    .collect::<Result<Vec<_>>>()?,
+                learners: vec![],
+            })
+            .await?;
+        let binding = FleetGroupBinding::new(IncarnationId::new([80; 16])?, &scope)?;
+        let snapshot = self.catalog.read(TIMEOUT).await?;
+        let commit = self
+            .catalog
+            .commit(
+                &snapshot,
+                &FleetMutation {
+                    id: [id; 16],
+                    operation: [100; 16],
+                    principal: "enrollment-test".into(),
+                    expected_revision: snapshot.revision(),
+                    changes: vec![FleetChange {
+                        table: FleetTable::Histories,
+                        key: binding.key()?,
+                        value: Some(binding.encode()?),
+                    }],
+                },
+                TIMEOUT,
+            )
+            .await?;
+        Ok(self
+            .catalog
+            .authorize_group(&commit.snapshot, &scope, TIMEOUT)
+            .await?)
+    }
+
+    async fn empty_host(&self) -> Result<(tempfile::TempDir, cellar::sdk::Node, RaftCells)> {
+        let authorization = self.enroll().await?;
+        let root = tempfile::tempdir()?;
+        let node = public_node::node_named(
+            root.path(),
+            self.definition.application.clone(),
+            &self.spec.label,
+        )
+        .await?;
+        let (config, services) = self.config(&node, authorization).await?;
+        let host = node.start_raft_cells(config, services).await?;
+        Ok((root, node, host))
+    }
+
+    async fn birth_waiting(&self) -> Result<()> {
+        self.domain
+            .run(cellar::asyncrt::timeout(TIMEOUT, async {
+                while !self.store.birth_waiting.load(Ordering::Acquire) {
+                    cellar::asyncrt::sleep(Duration::from_millis(5)).await;
+                }
+            }))
+            .await??;
+        Ok(())
+    }
+
     async fn new() -> Result<Self> {
         let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
         let store = Arc::new(fault::Store::default());
@@ -519,6 +602,313 @@ async fn fleet_enrollment_replacement_engine_refused() -> Result<()> {
         .authorize_host(&snapshot, f.spec.node, TIMEOUT)
         .await?;
     ensure!(pinned.storage_instance() == Some(original.node.storage_instance));
+    f.domain.shutdown().await;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn fleet_enrollment_dynamic_bounds() -> Result<()> {
+    let f = Fixture::new().await?;
+    let (_root, node, host) = f.empty_host().await?;
+    let mut first = None;
+    for id in 40..48 {
+        let authorization = f.history(id).await?;
+        let cell = host
+            .register_managed_history(authorization.clone(), TIMEOUT)
+            .await?;
+        ensure!(cell.scope().cell == format!("Counter:dynamic-{id}"));
+        let observation = cell.inspect().await?;
+        ensure!(observation.occupancy == ReplicaOccupancy::Standby && observation.node.groups == 0);
+        if first.is_none() {
+            first = Some((authorization, cell));
+        }
+    }
+    let (authorization, retained) = first.unwrap();
+    let retry = host
+        .register_managed_history(authorization, TIMEOUT)
+        .await?;
+    ensure!(
+        retry.scope() == retained.scope()
+            && retained.inspect().await?.occupancy == ReplicaOccupancy::Standby
+    );
+    let mut conflicting = retained.scope().clone();
+    conflicting.group = GroupId::new([89; 16])?;
+    let binding = FleetGroupBinding::new(IncarnationId::new([80; 16])?, &conflicting)?;
+    let snapshot = f.catalog.read(TIMEOUT).await?;
+    let committed = f
+        .catalog
+        .commit(
+            &snapshot,
+            &FleetMutation {
+                id: [89; 16],
+                operation: [100; 16],
+                principal: "enrollment-test".into(),
+                expected_revision: snapshot.revision(),
+                changes: vec![FleetChange {
+                    table: FleetTable::Histories,
+                    key: binding.key()?,
+                    value: Some(binding.encode()?),
+                }],
+            },
+            TIMEOUT,
+        )
+        .await?;
+    let conflicting = f
+        .catalog
+        .authorize_group(&committed.snapshot, &conflicting, TIMEOUT)
+        .await?;
+    ensure!(matches!(
+        host.register_managed_history(conflicting, TIMEOUT).await,
+        Err(CommandFailure::CommandConflict)
+    ));
+    ensure!(
+        retry.scope() == retained.scope()
+            && retained.inspect().await?.occupancy == ReplicaOccupancy::Standby
+    );
+    let extra = f.history(48).await?;
+    ensure!(matches!(
+        host.register_managed_history(extra, TIMEOUT).await,
+        Err(CommandFailure::Overloaded)
+    ));
+    let observation = host.observe_node(TIMEOUT).await?;
+    ensure!(
+        observation.registered_histories == 8
+            && observation.dormant_histories == 8
+            && observation.pending_history_registrations == 0
+            && observation.node.groups == 0
+    );
+    ensure!(f.calls.load(Ordering::Acquire) == 0);
+    node.shutdown(ShutdownMode::Handoff).await?;
+    ensure!(matches!(
+        retained.inspect().await,
+        Err(CommandFailure::Unavailable)
+    ));
+    f.domain.shutdown().await;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn fleet_enrollment_dynamic_cancelled_read() -> Result<()> {
+    let f = Fixture::new().await?;
+    let (_root, node, host) = f.empty_host().await?;
+    let authorization = f.history(40).await?;
+    f.store.birth_hang.store(true, Ordering::Release);
+    f.store
+        .birth_confirmation_pending
+        .store(true, Ordering::Release);
+    let pending = host.register_managed_history(authorization.clone(), TIMEOUT);
+    f.birth_waiting().await?;
+    ensure!(
+        host.observe_node(TIMEOUT)
+            .await?
+            .pending_history_registrations
+            == 1
+    );
+    ensure!(matches!(
+        host.register_managed_history(authorization.clone(), TIMEOUT)
+            .await,
+        Err(CommandFailure::Overloaded)
+    ));
+    drop(pending);
+    f.domain
+        .run(cellar::asyncrt::timeout(TIMEOUT, async {
+            while host
+                .observe_node(TIMEOUT)
+                .await?
+                .pending_history_registrations
+                != 0
+            {
+                cellar::asyncrt::sleep(Duration::from_millis(5)).await;
+            }
+            Ok::<_, CommandFailure>(())
+        }))
+        .await???;
+    ensure!(!f.store.birth_waiting.load(Ordering::Acquire));
+    let observation = host.observe_node(TIMEOUT).await?;
+    ensure!(observation.registered_histories == 0 && observation.node.groups == 0);
+    ensure!(host
+        .cell(f.declaration.namespace.namespace, "Counter:dynamic-40")
+        .is_err());
+    f.store.birth_hang.store(false, Ordering::Release);
+    f.store.birth_resume.notify_waiters();
+    let cell = host
+        .register_managed_history(authorization, TIMEOUT)
+        .await?;
+    ensure!(cell.inspect().await?.occupancy == ReplicaOccupancy::Standby);
+    node.shutdown(ShutdownMode::Preserve).await?;
+    f.domain.shutdown().await;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn fleet_enrollment_dynamic_stale_history() -> Result<()> {
+    let f = Fixture::new().await?;
+    let (_root, node, host) = f.empty_host().await?;
+    let authorization = f.history(40).await?;
+    let scope = GroupScope {
+        cluster: f.declaration.namespace.cluster,
+        namespace: f.declaration.namespace.namespace,
+        cell: "Counter:dynamic-40".into(),
+        group: GroupId::new([40; 16])?,
+        incarnation: IncarnationId::new([3; 16])?,
+    };
+    let snapshot = f.catalog.read(TIMEOUT).await?;
+    let binding = FleetGroupBinding::new(IncarnationId::new([80; 16])?, &scope)?;
+    f.catalog
+        .commit(
+            &snapshot,
+            &FleetMutation {
+                id: [90; 16],
+                operation: [100; 16],
+                principal: "enrollment-test".into(),
+                expected_revision: snapshot.revision(),
+                changes: vec![FleetChange {
+                    table: FleetTable::Histories,
+                    key: binding.key()?,
+                    value: None,
+                }],
+            },
+            TIMEOUT,
+        )
+        .await?;
+    ensure!(matches!(
+        host.register_managed_history(authorization, TIMEOUT).await,
+        Err(CommandFailure::CommandConflict)
+    ));
+    ensure!(host.observe_node(TIMEOUT).await?.registered_histories == 0);
+    node.shutdown(ShutdownMode::Preserve).await?;
+    f.domain.shutdown().await;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn fleet_enrollment_dynamic_close_joins_read() -> Result<()> {
+    let f = Fixture::new().await?;
+    let (_root, node, host) = f.empty_host().await?;
+    let authorization = f.history(40).await?;
+    f.store.birth_hang.store(true, Ordering::Release);
+    f.store
+        .birth_confirmation_pending
+        .store(true, Ordering::Release);
+    let pending = host.register_managed_history(authorization, TIMEOUT);
+    f.birth_waiting().await?;
+    ensure!(host.resource_usage().control.bytes >= 4 * 1024 * 1024);
+    let report = f
+        .domain
+        .run(cellar::asyncrt::timeout(TIMEOUT, host.close()))
+        .await???;
+    ensure!(report.unfinished.is_empty() && !f.store.birth_waiting.load(Ordering::Acquire));
+    // The physical read is joined; the unpolled waiter still owns its 4 KiB
+    // request reservation until the caller consumes or drops it.
+    ensure!(host.resource_usage().control.bytes == 4096);
+    ensure!(matches!(pending.await, Err(CommandFailure::Unavailable)));
+    ensure!(host.resource_usage().control.bytes == 0);
+    node.shutdown(ShutdownMode::Preserve).await?;
+    f.domain.shutdown().await;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn fleet_enrollment_dynamic_undeclared_class() -> Result<()> {
+    let f = Fixture::new().await?;
+    let (_root, node, host) = f.empty_host().await?;
+    let scope = GroupScope {
+        cluster: f.declaration.namespace.cluster,
+        namespace: f.declaration.namespace.namespace,
+        cell: "Other:unexpected".into(),
+        group: GroupId::new([42; 16])?,
+        incarnation: IncarnationId::new([3; 16])?,
+    };
+    let binding = FleetGroupBinding::new(IncarnationId::new([80; 16])?, &scope)?;
+    let snapshot = f.catalog.read(TIMEOUT).await?;
+    let committed = f
+        .catalog
+        .commit(
+            &snapshot,
+            &FleetMutation {
+                id: [90; 16],
+                operation: [100; 16],
+                principal: "enrollment-test".into(),
+                expected_revision: snapshot.revision(),
+                changes: vec![FleetChange {
+                    table: FleetTable::Histories,
+                    key: binding.key()?,
+                    value: Some(binding.encode()?),
+                }],
+            },
+            TIMEOUT,
+        )
+        .await?;
+    let authorization = f
+        .catalog
+        .authorize_group(&committed.snapshot, &scope, TIMEOUT)
+        .await?;
+    ensure!(matches!(
+        host.register_managed_history(authorization, TIMEOUT).await,
+        Err(CommandFailure::UnsupportedCapability)
+    ));
+    ensure!(
+        host.observe_node(TIMEOUT).await?.registered_histories == 0
+            && f.calls.load(Ordering::Acquire) == 0
+    );
+    node.shutdown(ShutdownMode::Preserve).await?;
+    f.domain.shutdown().await;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn fleet_enrollment_dynamic_occupied_slot() -> Result<()> {
+    let f = Fixture::new().await?;
+    let authorization = f.enroll().await?;
+    let history = f.history(40).await?;
+    let root = tempfile::tempdir()?;
+    let node =
+        public_node::node_named(root.path(), f.definition.application.clone(), &f.spec.label)
+            .await?;
+    let (mut config, services) = f.config(&node, authorization).await?;
+    let log = f
+        .domain
+        .run(ReplicaLog::open(
+            config.infrastructure.log.clone(),
+            Arc::new(cellar_ltx::DirectFileSystem),
+        ))
+        .await??;
+    let scope = GroupScope {
+        cluster: f.declaration.namespace.cluster,
+        namespace: f.declaration.namespace.namespace,
+        cell: "Counter:dynamic-40".into(),
+        group: GroupId::new([40; 16])?,
+        incarnation: IncarnationId::new([3; 16])?,
+    };
+    f.domain
+        .run(log.create_group(GroupBootstrap {
+            scope,
+            member: MemberId::new(1)?,
+            birth_digest: [9; 32],
+            voters: (1..=3).map(MemberId::new).collect::<Result<Vec<_>, _>>()?,
+            learners: vec![],
+        }))
+        .await??;
+    log.close().await?;
+    config.infrastructure.log.mode = LogOpenMode::Resume;
+    let host = node.start_raft_cells(config, services).await?;
+    let before = host.observe_node(TIMEOUT).await?;
+    ensure!(
+        before.node.groups == 1
+            && before.unattached_engine_histories == 1
+            && before.registered_histories == 0
+    );
+    ensure!(matches!(
+        host.register_managed_history(history, TIMEOUT).await,
+        Err(CommandFailure::CommandConflict)
+    ));
+    let after = host.observe_node(TIMEOUT).await?;
+    ensure!(
+        after.node.groups == 1
+            && after.unattached_engine_histories == 1
+            && after.registered_histories == 0
+    );
+    node.shutdown(ShutdownMode::Preserve).await?;
     f.domain.shutdown().await;
     Ok(())
 }

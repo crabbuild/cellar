@@ -554,9 +554,10 @@ impl Driver {
                         let binding = self
                             .local
                             .bindings
-                            .get(&(request.scope.namespace, request.scope.cell.clone()))
-                            .filter(|binding| binding.scope == request.scope)
-                            .ok_or(CommandFailure::CorruptState)?;
+                            .get(&(request.scope.namespace, request.scope.cell.clone()))?;
+                        if binding.scope != request.scope {
+                            return Err(CommandFailure::CorruptState);
+                        }
                         binding.member.attach(member)?;
                         Ok(Response::Learner(receipt))
                     });

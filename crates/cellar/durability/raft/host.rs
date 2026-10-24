@@ -68,6 +68,8 @@ pub use load::RaftInspectionScanOptions;
 mod fleet_control;
 #[path = "host_node.rs"]
 mod node_control;
+#[path = "host_registration.rs"]
+mod registration;
 use node_control::reply_node;
 pub use node_control::{RaftHostEnrollmentObservation, RaftHostObservation};
 #[path = "host_membership.rs"]
@@ -860,6 +862,14 @@ async fn initialize(
         result: Mutex::new(None),
         changed: Notify::new(),
     });
+    let controller_bindings = if options.controller.is_some() {
+        bindings.values().cloned().collect()
+    } else {
+        Vec::new()
+    };
+    let has_effects = bindings
+        .values()
+        .any(|b| b.class.alarm_limits().is_some() || b.class.outbox_definition().is_some());
     let handle = Arc::new(client::Handle {
         performance: service.log.performance(),
         requests: sender,
@@ -879,7 +889,7 @@ async fn initialize(
         controller: Mutex::new(None),
         transport: service.transport.resource_observer(),
         max_input_bytes: options.max_input_bytes,
-        bindings,
+        bindings: client::Bindings::new(bindings, options.max_groups),
         work: crate::asyncrt::services().application_work_registry(),
     });
     if let Err(error) = service.transport.install_query_gateway(handle.clone()) {
@@ -913,16 +923,12 @@ async fn initialize(
             drain: None,
             effect_scheduler: options
                 .effects
-                .filter(|_| {
-                    local.bindings.values().any(|b| {
-                        b.class.alarm_limits().is_some() || b.class.outbox_definition().is_some()
-                    })
-                })
+                .filter(|_| has_effects)
                 .map(effect_scheduler::Scheduler::new),
             controller: options
                 .controller
                 .as_ref()
-                .map(|options| controller::Controller::new(options.clone(), &local)),
+                .map(|options| controller::Controller::new(options.clone(), controller_bindings)),
             leader_load: Some(load::Scanner::new(options.inspection_scan.clone())),
             directory: node_directory,
             peers,
@@ -936,6 +942,8 @@ async fn initialize(
             cells,
             standbys,
             declared_namespaces,
+            history_registration: None,
+            directory_path: directory,
             activating: None,
             active: BTreeSet::new(),
             applying: BTreeSet::new(),
@@ -1126,6 +1134,7 @@ enum SqlPurpose {
 }
 
 enum Job {
+    HistoryRegistered(Box<registration::Completed>),
     Drained(Box<drain::Completed>),
     Effect(Box<effect_scheduler::Completed>),
     Controller(Box<controller::Completed>),
@@ -1221,6 +1230,8 @@ struct Driver {
     directory: Option<directory::Directory>,
     standbys: BTreeMap<GroupScope, standby::Dormant>,
     declared_namespaces: Vec<NamespaceRegistration>,
+    history_registration: Option<Arc<client::AttemptControl>>,
+    directory_path: PathBuf,
     activating: Option<GroupScope>,
     peers: BTreeMap<NodeId, RaftPeerNode>,
     label: String,
@@ -1719,12 +1730,17 @@ impl Driver {
 
     fn on_routed_query(&mut self, mut request: Request) {
         let scope = request.scope.clone();
-        let Some(binding) = self
+        let Ok(binding) = self
             .local
             .bindings
             .get(&(scope.namespace, scope.cell.clone()))
-            .cloned()
-            .filter(|binding| binding.scope == scope)
+            .and_then(|binding| {
+                if binding.scope == scope {
+                    Ok(binding)
+                } else {
+                    Err(CommandFailure::CommandConflict)
+                }
+            })
         else {
             reply(&mut request, Err(CommandFailure::Unavailable));
             return;
@@ -2127,7 +2143,9 @@ impl Driver {
                     .local
                     .bindings
                     .get(&(scope.namespace, scope.cell.clone()))
-                    .is_some_and(|binding| binding.class.has_queries());
+                    .map_err(|_| RuntimeError::Closed)?
+                    .class
+                    .has_queries();
                 let (role, queries) = readiness::capture(
                     cell,
                     &status,
@@ -3030,6 +3048,7 @@ impl Driver {
 
     fn on_job(&mut self, job: Job) {
         match job {
+            Job::HistoryRegistered(completed) => self.finish_history_registration(*completed),
             Job::Drained(completed) => self.finish_node_drain(*completed),
             Job::Controller(completed) => self.finish_controller(*completed),
             Job::Effect(completed) => self.finish_effect(*completed),
@@ -3319,6 +3338,9 @@ impl Driver {
 
     async fn shutdown(&mut self) -> Result<client::RaftCloseReport, CommandFailure> {
         self.closing.store(true, Ordering::Release);
+        if let Some(control) = self.history_registration.take() {
+            control.cancel();
+        }
         self.snapshot_source.take();
         if let Some(controller) = &self.controller {
             controller.stop();

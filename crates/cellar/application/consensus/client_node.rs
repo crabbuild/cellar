@@ -5,6 +5,7 @@ use super::*;
 pub(crate) enum NodeKind {
     Drain,
     Observe,
+    RegisterHistory(Box<crate::raft::fleet_catalog::FleetGroupAuthorization>),
     ControllerStatus,
     SetControllerEnabled(bool),
 }
@@ -23,6 +24,38 @@ pub(crate) struct NodeRequest {
 }
 
 impl RaftCells {
+    /// Register dormant metadata for an already enrolled history under this
+    /// host's declared class. This creates no member, image or voting authority.
+    /// A lost response can race publication; retry the same authorization.
+    pub fn register_managed_history(
+        &self,
+        authorization: crate::raft::fleet_catalog::FleetGroupAuthorization,
+        timeout: Duration,
+    ) -> Pin<Box<dyn Future<Output = Result<RaftCellHandle, CommandFailure>> + Send>> {
+        if timeout > Duration::from_secs(60) {
+            return Box::pin(async { Err(CommandFailure::UnsupportedCapability) });
+        }
+        let scope = authorization
+            .binding()
+            .scope()
+            .map_err(|_| CommandFailure::CommandConflict);
+        let response = self.node_call(NodeKind::RegisterHistory(Box::new(authorization)), timeout);
+        let host = self.clone();
+        Box::pin(async move {
+            let scope = scope?;
+            match response.await? {
+                Response::HistoryRegistered => {
+                    let cell = host.cell(scope.namespace, &scope.cell)?;
+                    if cell.binding.scope != scope {
+                        return Err(CommandFailure::CommandConflict);
+                    }
+                    Ok(cell)
+                }
+                _ => Err(CommandFailure::CorruptState),
+            }
+        })
+    }
+
     /// Point-in-time local physical inventory. Enrollment is the startup cut,
     /// explicitly not a fresh capacity-ready, quorum or removal certificate.
     pub fn observe_node(

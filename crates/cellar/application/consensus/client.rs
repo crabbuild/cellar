@@ -22,8 +22,11 @@ use tokio::sync::{mpsc, oneshot, Notify};
 mod fleet;
 pub(crate) use fleet::FleetRequest;
 
+#[path = "client_bindings.rs"]
+mod bindings;
 #[path = "client_node.rs"]
 mod node;
+pub(crate) use bindings::Bindings;
 use node::send_failure;
 pub(crate) use node::{ControlRequest, NodeKind, NodeRequest};
 
@@ -227,7 +230,7 @@ pub(crate) struct Handle {
     pub controller: Mutex<Option<(u64, super::RaftControllerResources)>>,
     pub transport: crate::raft::transport::ResourceObserver,
     pub max_input_bytes: usize,
-    pub bindings: BTreeMap<(NamespaceId, String), Binding>,
+    pub bindings: Bindings,
     pub work: Arc<crate::host_services::ApplicationWork>,
 }
 
@@ -360,12 +363,7 @@ impl RaftCells {
         if self.is_closed() || !cellar_logic::cell::valid_cell_scope(cell) {
             return Err(CommandFailure::Unavailable);
         }
-        let binding = self
-            .handle
-            .bindings
-            .get(&(namespace, cell.into()))
-            .cloned()
-            .ok_or(CommandFailure::Unavailable)?;
+        let binding = self.handle.bindings.get(&(namespace, cell.into()))?;
         Ok(RaftCellHandle {
             handle: self.handle.clone(),
             binding,
@@ -1129,6 +1127,7 @@ impl CancelFailure {
 }
 
 pub(crate) enum Response {
+    HistoryRegistered,
     Node(Box<super::RaftHostObservation>),
     Fleet(Option<Box<crate::raft::member_state::FleetMembershipStatus>>),
     Drained(super::RaftDrainReport),

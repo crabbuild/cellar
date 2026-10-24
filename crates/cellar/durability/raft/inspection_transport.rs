@@ -509,7 +509,7 @@ impl State {
         let binding = handle
             .bindings
             .get(&(scope.namespace, scope.cell.clone()))
-            .ok_or(TransportError::UnknownGroup)?;
+            .map_err(|_| TransportError::UnknownGroup)?;
         if binding.scope != scope || binding.class.schema_digest() != request.route.schema() {
             return Err(TransportError::Refused);
         }
