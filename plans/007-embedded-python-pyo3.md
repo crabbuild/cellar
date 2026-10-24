@@ -572,6 +572,18 @@ lifespan, WebSockets and streaming remain separate feature work. Preserve
 unsuccessful optimization measurements outside Git and defer candidates whose
 application-level benefit or regression risk remains unresolved.
 
+The Python lifetime CI exercise exposed a native startup-confirmation race:
+preserve shutdown or cancellation could retire an owner read while leaving its
+confirmation marker attached. Teardown now records an aborted confirmation,
+clears queued and in-flight markers, and ignores late inventory completions;
+caller cancellation keeps queued node-owned confirmation work. An aborted
+inventory does not publish a confirmed owned-cell count. Four deterministic core
+regressions reproduced the invalid transitions before the fix. All 34 ordinary
+core tests and 18 embedded lifecycle/fencing cases across both Python ABIs pass
+locally, including five repetitions of the failing lifetime exercise per ABI.
+This does not close the separate snapshot catch-up refusal or qualify a later
+release revision; full release CI remains required.
+
 The [durable churn qualification](../tools/python/baseline.md#durable-activation-churn)
 now supplies a repeatable resource/recovery gate above the resident-cell limit,
 with a short CI check and an opt-in optimized Linux workload for each threading
