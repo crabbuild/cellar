@@ -1,6 +1,9 @@
 //! Actual empty managed hosts, durable genesis, native SQLite and TLS quorum.
 //! Active node metadata is fixture input, not capacity-activation qualification.
 use super::*;
+use cellar::application::consensus::verification::{
+    FleetBirthAuthorization, FleetHistoryState, NamespaceCatalog,
+};
 
 struct Running {
     root: tempfile::TempDir,
@@ -41,7 +44,7 @@ async fn fleet(f: &Fixture) -> Result<Vec<Running>> {
     Ok(nodes)
 }
 
-async fn birth(f: &Fixture) -> Result<(BirthProposal, FleetGroupAuthorization)> {
+async fn initial_birth(f: &Fixture) -> Result<(NamespaceCatalog, BirthProposal)> {
     let namespace = Catalog::new(
         f.store.clone(),
         CatalogOptions {
@@ -71,6 +74,13 @@ async fn birth(f: &Fixture) -> Result<(BirthProposal, FleetGroupAuthorization)> 
             .collect::<Result<_>>()?,
         learners: vec![],
     };
+    Ok((namespace, proposal))
+}
+
+async fn reserved_birth(
+    f: &Fixture,
+) -> Result<(NamespaceCatalog, BirthProposal, FleetBirthAuthorization)> {
+    let (namespace, proposal) = initial_birth(f).await?;
     let root = f.catalog.read(TIMEOUT).await?;
     let reserved = f
         .catalog
@@ -82,26 +92,38 @@ async fn birth(f: &Fixture) -> Result<(BirthProposal, FleetGroupAuthorization)> 
             TIMEOUT,
         )
         .await?;
-    f.domain
-        .run(namespace.resolve_managed_birth(&reserved.authorization, TIMEOUT))
-        .await??;
+    Ok((namespace, proposal, reserved.authorization))
+}
+
+async fn confirm(
+    f: &Fixture,
+    namespace: &NamespaceCatalog,
+    proposal: &BirthProposal,
+    reserved: &FleetBirthAuthorization,
+) -> Result<FleetGroupAuthorization> {
     let root = f.catalog.read(TIMEOUT).await?;
     let confirmed = f
         .catalog
         .confirm_birth(
             &root,
             &Fixture::request(131, root.revision()),
-            &namespace,
-            &reserved.authorization,
+            namespace,
+            reserved,
             TIMEOUT,
         )
         .await?;
-    Ok((
-        proposal.clone(),
-        f.catalog
-            .authorize_group(&confirmed.snapshot, &proposal.scope, TIMEOUT)
-            .await?,
-    ))
+    Ok(f.catalog
+        .authorize_group(&confirmed.snapshot, &proposal.scope, TIMEOUT)
+        .await?)
+}
+
+async fn birth(f: &Fixture) -> Result<(BirthProposal, FleetGroupAuthorization)> {
+    let (namespace, proposal, reserved) = reserved_birth(f).await?;
+    f.domain
+        .run(namespace.resolve_managed_birth(&reserved, TIMEOUT))
+        .await??;
+    let auth = confirm(f, &namespace, &proposal, &reserved).await?;
+    Ok((proposal, auth))
 }
 
 async fn registered(
@@ -270,12 +292,177 @@ async fn fleet_genesis_dynamic_replication_and_restart() -> Result<()> {
     let retained = stop(nodes).await?;
     let nodes = restart(&f, retained, &proposal).await?;
     let cells = handles(&nodes, &proposal)?;
+    // A lost initialization reply can be retried after startup recovery,
+    // which has no dormant registration to consult.
+    activate(&cells, &auth).await?;
     for cell in &cells {
         ensure!(cell.fleet_membership_status().await?.unwrap().changed_at == LogIndex::new(1));
     }
     write_read(&f, &cells, 2, 5, 12).await?;
     stop(nodes).await?;
     f.domain.shutdown().await;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn fleet_enrollment_birth_drain_race() -> Result<()> {
+    let f = Fixture::with_managed_births(true).await?;
+    let nodes = fleet(&f).await?;
+    let (namespace, proposal, reserved) = reserved_birth(&f).await?;
+    f.store.birth_hang.store(true, Ordering::Release);
+    f.store.hold_next_birth.store(true, Ordering::Release);
+    let writer_namespace = namespace.clone();
+    let writer_auth = reserved.clone();
+    let writer = f.domain.spawn(async move {
+        writer_namespace
+            .resolve_managed_birth(&writer_auth, TIMEOUT)
+            .await
+    })?;
+    f.birth_waiting().await?;
+    // Trusted fixture transitions exclude future placements. They are not
+    // evacuation/stop receipts; the admitted reference must still settle.
+    let excluded = [
+        FleetNodeState::Draining,
+        FleetNodeState::RestartPending,
+        FleetNodeState::ResizePending,
+    ];
+    for (i, node) in nodes.iter().enumerate() {
+        f.state(node.spec.node, excluded[i], 140 + i as u8).await?;
+    }
+    let root = f.catalog.read(TIMEOUT).await?;
+    let history = f.catalog.history(&root, &proposal.scope, TIMEOUT).await?;
+    ensure!(*history.state() == FleetHistoryState::Reserved);
+    ensure!(history.initial_placement()?.voters == proposal.voters);
+    ensure!(matches!(
+        f.catalog
+            .authorize_group(&root, &proposal.scope, TIMEOUT)
+            .await,
+        Err(FleetCatalogError::Conflict)
+    ));
+    for node in &nodes {
+        ensure!(node.host.observe_node(TIMEOUT).await?.node.groups == 0);
+    }
+    f.store.birth_hang.store(false, Ordering::Release);
+    f.store.birth_resume.notify_waiters();
+    writer.await??;
+    let auth = confirm(&f, &namespace, &proposal, &reserved).await?;
+    let (_spare_root, spare_node, spare) = f.peer_host(7).await?;
+    f.state(NodeId::new([7; 16])?, FleetNodeState::Draining, 143)
+        .await?;
+    ensure!(matches!(
+        spare.register_managed_history(auth.clone(), TIMEOUT).await,
+        Err(CommandFailure::Unavailable)
+    ));
+    let spare_view = spare.observe_node(TIMEOUT).await?;
+    ensure!(spare_view.node.groups == 0 && spare_view.dormant_histories == 0);
+    spare_node.shutdown(ShutdownMode::Preserve).await?;
+    let cells = registered(&nodes, &auth).await?;
+    activate(&cells, &auth).await?;
+    write_read(&f, &cells, 1, 8, 8).await?;
+    let root = f.catalog.read(TIMEOUT).await?;
+    let history = f.catalog.history(&root, &proposal.scope, TIMEOUT).await?;
+    ensure!(*history.state() == FleetHistoryState::Live);
+    ensure!(history.initial_placement()?.voters == proposal.voters);
+    for (i, node) in nodes.iter().enumerate() {
+        ensure!(
+            f.catalog
+                .authorize_host(&root, node.spec.node, TIMEOUT)
+                .await?
+                .state()
+                == excluded[i]
+        );
+    }
+    stop(nodes).await?;
+    f.domain.shutdown().await;
+
+    // The opposite root-CAS ordering cannot publish a birth or a local voter,
+    // even though the caller prepared its request while all nodes were active.
+    let f = Fixture::with_managed_births(true).await?;
+    let nodes = fleet(&f).await?;
+    let (namespace, proposal) = initial_birth(&f).await?;
+    let old = f.catalog.read(TIMEOUT).await?;
+    f.store.fleet_cas_hang.store(true, Ordering::Release);
+    f.store.hold_next_fleet_cas.store(true, Ordering::Release);
+    let catalog = f.catalog.clone();
+    let writer_namespace = namespace.clone();
+    let writer_proposal = proposal.clone();
+    let writer = f.domain.spawn(async move {
+        catalog
+            .reserve_birth(
+                &old,
+                &Fixture::request(130, old.revision()),
+                &writer_namespace,
+                writer_proposal,
+                TIMEOUT,
+            )
+            .await
+    })?;
+    f.domain
+        .run(cellar::asyncrt::timeout(TIMEOUT, async {
+            while !f.store.fleet_cas_waiting.load(Ordering::Acquire) {
+                cellar::asyncrt::sleep(Duration::from_millis(5)).await;
+            }
+        }))
+        .await??;
+    // A distinct adapter can win CAS while the reservation's adapter is held.
+    let bucket = Bucket::from_clients(
+        f.store.clone(),
+        f.store.clone(),
+        Arc::new(NoListing),
+        StorageBackend::S3,
+        "enrollment".into(),
+        "tenant/".into(),
+    )?;
+    let other = FleetCatalog::new(
+        &f.domain,
+        bucket,
+        ClusterId::new([1; 16])?,
+        IncarnationId::new([80; 16])?,
+        "hosts/",
+    )?;
+    let concurrent = Fixture {
+        catalog: other,
+        ..f
+    };
+    concurrent
+        .state(nodes[0].spec.node, FleetNodeState::Draining, 140)
+        .await?;
+    concurrent
+        .store
+        .fleet_cas_hang
+        .store(false, Ordering::Release);
+    concurrent.store.fleet_cas_resume.notify_waiters();
+    ensure!(matches!(writer.await?, Err(FleetCatalogError::Conflict)));
+    let root = concurrent.catalog.read(TIMEOUT).await?;
+    ensure!(matches!(
+        concurrent
+            .catalog
+            .reserve_birth(
+                &root,
+                &Fixture::request(132, root.revision()),
+                &namespace,
+                proposal.clone(),
+                TIMEOUT
+            )
+            .await,
+        Err(FleetCatalogError::Conflict)
+    ));
+    ensure!(concurrent
+        .catalog
+        .page(&root, FleetTable::Histories, None, 128, TIMEOUT)
+        .await?
+        .entries
+        .is_empty());
+    ensure!(namespace
+        .birth_disposition(&proposal.scope.cell)
+        .await?
+        .is_none());
+    for node in &nodes {
+        let view = node.host.observe_node(TIMEOUT).await?;
+        ensure!(view.node.groups == 0 && view.dormant_histories == 0);
+    }
+    stop(nodes).await?;
+    concurrent.domain.shutdown().await;
     Ok(())
 }
 

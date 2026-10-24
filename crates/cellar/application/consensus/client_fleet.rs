@@ -51,6 +51,8 @@ impl RaftCellHandle {
     /// Enrollment and genesis share their first sync before attachment. The
     /// receipt is local durable state, never a live-quorum/write-ack proof.
     /// A lost reply may follow initialization; retry this same authorization.
+    /// Retrying after startup recovery observes the retained original voter
+    /// without resetting its engine or SQLite state.
     pub fn activate_managed_initial_member(
         &self,
         authorization: FleetGroupAuthorization,

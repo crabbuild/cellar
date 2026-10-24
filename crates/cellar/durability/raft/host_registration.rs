@@ -95,9 +95,7 @@ impl Driver {
                         .map(Duration::from_millis).ok_or(CommandFailure::Unavailable)
                 };
                 let current = host.refresh(remaining()?).await.map_err(catalog_failure)?;
-                if !matches!(current.state(), FleetNodeState::Registered | FleetNodeState::Ready | FleetNodeState::Active) {
-                    return Err(CommandFailure::Unavailable);
-                }
+                current.check_namespace(namespace.config()).map_err(catalog_failure)?;
                 let fresh = current.group_authorization(&scope, remaining()?).await.map_err(catalog_failure)?;
                 if fresh.binding() != authorization.binding() { return Err(CommandFailure::CommandConflict); }
                 let birth = namespace.birth(&scope.cell).await.map_err(|error| match error {
@@ -107,6 +105,18 @@ impl Driver {
                 })?.ok_or(CommandFailure::CommandConflict)?;
                 if birth.scope() != &scope || !fresh.check_birth(&namespace, &birth) {
                     return Err(CommandFailure::CommandConflict);
+                }
+                // The root admitted this original-voter reference before
+                // target exclusion. Settling it grants no new placement:
+                // reserve_birth orders new intent against that same root CAS.
+                let admitted_initial = namespace.config().managed_fleet.is_some()
+                    && birth.voters().iter().any(|member| member.node == current.node());
+                let settling = matches!(current.state(),
+                    FleetNodeState::Draining | FleetNodeState::RestartPending | FleetNodeState::ResizePending);
+                if !matches!(current.state(), FleetNodeState::Registered | FleetNodeState::Ready | FleetNodeState::Active)
+                    && !(settling && admitted_initial)
+                {
+                    return Err(CommandFailure::Unavailable);
                 }
                 Ok(Prepared { scope, namespace, birth, class })
             };

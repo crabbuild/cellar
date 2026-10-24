@@ -214,6 +214,13 @@ releasing ownership; publication stays serialized with activation and shutdown.
 The operation creates no member, SQLite image or voting authority. A timed-out
 reply can race publication; retry the same authorization and inspect the result.
 
+A confirmed fresh managed birth can finish registering its original voters after
+rooted drain, restart or resize exclusion. Its initial node reference was admitted
+before exclusion and stays inventoried throughout settlement. This exception
+does not admit a noninitial destination or a new birth: reservations still require
+active nodes at the root CAS. Local shutdown/drain admission remains closed;
+maintenance must settle prior actions before accepting the stop barrier.
+
 The shared binding registry returns owned metadata under short read locks. Only
 the host publishes new entries; names are never replaced, and retained handles
 keep their existing one-way member slot. Capacity includes dormant bindings and
@@ -238,6 +245,10 @@ publishing its group cache. `Genesis` enrollment explicitly begins at index 1;
 ordinary `Committed` enrollment still requires a later configuration entry.
 Codecs require that origin, and successors cannot retag or retrofit a bare group.
 Only the exact conditional permanent member claim permits runtime attachment.
+Activation retries also observe startup-recovered original voters through their
+actual birth, declared namespace and retained membership guard. They do not
+reinitialize the engine or SQLite image. An initializer still awaiting runtime
+attachment cannot supply a completed activation receipt.
 A missing claimed engine, changed binding or retired local configuration refuses
 admission. The genesis receipt observes local durable state; business writes
 still require their normal Raft quorum and optional archive proof.

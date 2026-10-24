@@ -46,26 +46,42 @@ impl Driver {
             {
                 return Err(CommandFailure::CommandConflict);
             }
-            let dormant = self
-                .standbys
-                .get(&request.scope)
-                .cloned()
-                .ok_or(CommandFailure::UnsupportedCapability)?;
-            if dormant.failed {
+            let dormant = self.standbys.get(&request.scope).cloned();
+            if dormant.as_ref().is_some_and(|entry| entry.failed) {
                 return Err(CommandFailure::CommandConflict);
             }
-            if dormant.namespace.config().managed_fleet.is_none()
-                || !authorization.check_birth(&dormant.namespace, &dormant.birth)
+            // Startup recovery installs active cells directly. Retrying an
+            // initializer must observe their retained guard without requiring
+            // a dormant entry or reinitializing the engine/SQL image.
+            let (namespace, birth) = if let Some(dormant) = &dormant {
+                (&dormant.namespace, &dormant.birth)
+            } else {
+                let cell = self
+                    .cells
+                    .get(&request.scope)
+                    .ok_or(CommandFailure::UnsupportedCapability)?;
+                let declared = self
+                    .declared_namespaces
+                    .iter()
+                    .find(|entry| {
+                        let config = entry.namespace.config();
+                        config.cluster == request.scope.cluster
+                            && config.namespace == request.scope.namespace
+                    })
+                    .ok_or(CommandFailure::UnsupportedCapability)?;
+                (&declared.namespace, &cell.birth)
+            };
+            if namespace.config().managed_fleet.is_none()
+                || !authorization.check_birth(namespace, birth)
             {
                 return Err(CommandFailure::CommandConflict);
             }
             managed
                 .authorization
-                .check_namespace(dormant.namespace.config())
+                .check_namespace(namespace.config())
                 .map_err(|_| CommandFailure::CommandConflict)?;
             let local = self.log.limits();
-            let member = dormant
-                .birth
+            let member = birth
                 .voters()
                 .iter()
                 .find(|member| member.node == local.node)
@@ -77,6 +93,7 @@ impl Driver {
             if self.cells.contains_key(&request.scope) {
                 return Ok((member, None));
             }
+            let dormant = dormant.ok_or(CommandFailure::UnsupportedCapability)?;
             self.admit_new_history(&request.scope)?;
             // Every required genesis endpoint must be known before durable
             // initialization; an unavailable route cannot poison a new slot.

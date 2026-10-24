@@ -386,7 +386,7 @@
         },
         {
           "name": "fleet_enrollment_birth_drain_race",
-          "oracle": "A birth racing drain is either admitted and inventoried or excluded from the node.",
+          "oracle": "A birth racing drain is either admitted and inventoried or excluded from the node. Actual empty hosts finish the admitted original voters through registration, quorum/archive writes and retained references after drain/restart/resize exclusion; the opposite root-CAS ordering creates no birth or local voter.",
           "invariants": [
             "F04",
             "F05",
@@ -727,7 +727,7 @@
         },
         {
           "name": "fleet_genesis_dynamic_replication_and_restart",
-          "oracle": "Three empty managed hosts register and initialize original voters, acknowledge an archived write and retain guard/data across restart with only self-address hints.",
+          "oracle": "Three empty managed hosts register and initialize original voters, acknowledge an archived write and retain guard/data across restart with only self-address hints. Initialization retries through startup-recovered handles return the same guard without resetting data.",
           "invariants": [
             "F01",
             "F02",
