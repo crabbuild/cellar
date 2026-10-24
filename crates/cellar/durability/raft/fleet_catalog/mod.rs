@@ -393,6 +393,7 @@ impl Inner {
     fn validate_head(&self, head: &Head) -> Result<()> {
         if head.cluster != self.cluster
             || head.incarnation != self.incarnation
+            || head.protocol_digest != crate::application::consensus::protocol::protocol_identity()
             || head.revision == 0
             || head.format != 1
             || head.history_count > HISTORY_LIMIT

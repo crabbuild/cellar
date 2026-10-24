@@ -221,6 +221,23 @@ impl Fixture {
             .await?)
     }
 
+    async fn unmanaged_namespace(&self) -> Result<NamespaceCatalog> {
+        Ok(Catalog::new(
+            self.store.clone(),
+            CatalogOptions {
+                prefix: "birth-data/".into(),
+                ..Default::default()
+            },
+        )?
+        .open_namespace(NamespaceConfig::new(
+            self.proposal.scope.cluster,
+            NamespaceId::new([9; 16])?,
+            NamespaceMode::Raft,
+            [3; 32],
+        ))
+        .await?)
+    }
+
     async fn confirm(&self, auth: &FleetBirthAuthorization) -> Result<FleetSnapshot> {
         let root = self.fleet.read(TIMEOUT).await?;
         Ok(self
@@ -256,6 +273,247 @@ impl Fixture {
         self.store.birth_hang.store(false, Ordering::Release);
         self.store.birth_resume.notify_waiters();
     }
+}
+
+#[tokio::test]
+async fn fleet_birth_reservation_group_identity() -> Result<()> {
+    let f = Fixture::new().await?;
+    f.reserved().await?;
+    let before = f.fleet.read(TIMEOUT).await?;
+    let mut alias = f.proposal.clone();
+    alias.scope.cell = "Counter:alias".into();
+    alias.scope.incarnation = IncarnationId::new([6; 16])?;
+    ensure!(
+        matches!(
+            f.fleet
+                .reserve_birth(
+                    &before,
+                    &Fixture::request(42, before.revision()),
+                    &f.namespace,
+                    alias.clone(),
+                    TIMEOUT
+                )
+                .await,
+            Err(FleetCatalogError::Conflict)
+        ),
+        "one group identity admitted under two cell names"
+    );
+    let after = f.fleet.read(TIMEOUT).await?;
+    ensure!(before.revision() == after.revision());
+    ensure!(
+        f.fleet
+            .page(&after, FleetTable::Histories, None, 128, TIMEOUT)
+            .await?
+            .entries
+            .len()
+            == 1
+    );
+    ensure!(f
+        .namespace
+        .birth_disposition(&alias.scope.cell)
+        .await?
+        .is_none());
+    // Even a separate data prefix cannot evade the fleet-wide identity index.
+    let config = f.fleet.bind_namespace(NamespaceConfig::new(
+        f.proposal.scope.cluster,
+        NamespaceId::new([8; 16])?,
+        NamespaceMode::Raft,
+        [3; 32],
+    ))?;
+    let other = Catalog::new(
+        f.store.clone(),
+        CatalogOptions {
+            prefix: "other-data/".into(),
+            ..Default::default()
+        },
+    )?
+    .open_namespace(config)
+    .await?;
+    alias.scope.namespace = other.config().namespace;
+    ensure!(matches!(
+        f.fleet
+            .reserve_birth(
+                &after,
+                &Fixture::request(43, after.revision()),
+                &other,
+                alias.clone(),
+                TIMEOUT
+            )
+            .await,
+        Err(FleetCatalogError::Conflict)
+    ));
+    ensure!(f.fleet.read(TIMEOUT).await?.revision() == after.revision());
+    f.domain.shutdown().await;
+    Ok(())
+}
+
+#[tokio::test]
+async fn fleet_birth_reservation_external_group_conflict() -> Result<()> {
+    let f = Fixture::new().await?;
+    let unmanaged = f.unmanaged_namespace().await?;
+    let mut foreign = f.proposal.clone();
+    foreign.scope.namespace = unmanaged.config().namespace;
+    foreign.scope.cell = "Counter:foreign".into();
+    foreign.scope.incarnation = IncarnationId::new([7; 16])?;
+    let birth = unmanaged.resolve_birth(foreign).await?;
+    let before = f.fleet.read(TIMEOUT).await?;
+    ensure!(matches!(f.reserved().await,
+        Err(error) if error.downcast_ref::<FleetCatalogError>().is_some_and(|e| matches!(e, FleetCatalogError::Conflict))));
+    let after = f.fleet.read(TIMEOUT).await?;
+    ensure!(before.revision() == after.revision());
+    ensure!(f
+        .fleet
+        .page(&after, FleetTable::Histories, None, 128, TIMEOUT)
+        .await?
+        .entries
+        .is_empty());
+    ensure!(f
+        .namespace
+        .birth_disposition(&f.proposal.scope.cell)
+        .await?
+        .is_none());
+    ensure!(
+        unmanaged
+            .birth(&birth.scope().cell)
+            .await?
+            .unwrap()
+            .digest()
+            == birth.digest()
+    );
+    f.domain.shutdown().await;
+    Ok(())
+}
+
+#[tokio::test]
+async fn fleet_birth_reservation_group_claim_cancellation() -> Result<()> {
+    let f = Fixture::new().await?;
+    let unmanaged = f.unmanaged_namespace().await?;
+    let before = f.fleet.read(TIMEOUT).await?;
+    f.store.fleet_cas_hang.store(true, Ordering::Release);
+    f.store.hold_next_fleet_cas.store(true, Ordering::Release);
+    let (fleet, namespace, proposal) = (f.fleet.clone(), f.namespace.clone(), f.proposal.clone());
+    let writer = f.domain.spawn(async move {
+        fleet
+            .reserve_birth(
+                &before,
+                &Fixture::request(40, before.revision()),
+                &namespace,
+                proposal,
+                TIMEOUT,
+            )
+            .await
+    })?;
+    f.domain
+        .run(cellar::asyncrt::timeout(TIMEOUT, async {
+            while !f.store.fleet_cas_waiting.load(Ordering::Acquire) {
+                tokio::task::yield_now().await;
+            }
+        }))
+        .await??;
+    // A different namespace cannot steal the ID between claim and admission.
+    let mut foreign = f.proposal.clone();
+    foreign.scope.namespace = unmanaged.config().namespace;
+    foreign.scope.cell = "Counter:foreign".into();
+    ensure!(matches!(
+        unmanaged.resolve_birth(foreign).await,
+        Err(CatalogError::Conflict("group identity already reserved"))
+    ));
+    writer.abort();
+    ensure!(writer.await.is_err());
+    ensure!(!f.store.fleet_cas_waiting.load(Ordering::Acquire));
+    f.store.fleet_cas_hang.store(false, Ordering::Release);
+    f.store.fleet_cas_resume.notify_waiters();
+    let root = f.fleet.read(TIMEOUT).await?;
+    ensure!(f
+        .fleet
+        .page(&root, FleetTable::Histories, None, 128, TIMEOUT)
+        .await?
+        .entries
+        .is_empty());
+    ensure!(matches!(
+        f.fleet
+            .authorize_group(&root, &f.proposal.scope, TIMEOUT)
+            .await,
+        Err(FleetCatalogError::Conflict)
+    ));
+    ensure!(f
+        .namespace
+        .birth_disposition(&f.proposal.scope.cell)
+        .await?
+        .is_none());
+    ensure!(f
+        .store
+        .inner
+        .get(&Path::from(format!(
+            "birth-data/groups/{}",
+            hex::encode(f.proposal.scope.group.bytes())
+        )))
+        .await
+        .is_ok());
+    let reserved = f.reserved().await?;
+    f.domain
+        .run(
+            f.namespace
+                .resolve_managed_birth(&reserved.authorization, TIMEOUT),
+        )
+        .await??;
+    let root = f.confirm(&reserved.authorization).await?;
+    f.fleet
+        .authorize_group(&root, &f.proposal.scope, TIMEOUT)
+        .await?;
+    f.domain.shutdown().await;
+    Ok(())
+}
+
+#[tokio::test]
+async fn fleet_birth_reservation_group_claim_lost_reply() -> Result<()> {
+    let f = Fixture::new().await?;
+    let before = f.fleet.read(TIMEOUT).await?;
+    f.store.fail_after.store(true, Ordering::Release);
+    f.store.fail_confirmation.store(true, Ordering::Release);
+    ensure!(f.reserved().await.is_err());
+    let root = f.fleet.read(TIMEOUT).await?;
+    ensure!(root.revision() == before.revision());
+    ensure!(f
+        .fleet
+        .page(&root, FleetTable::Histories, None, 128, TIMEOUT)
+        .await?
+        .entries
+        .is_empty());
+    ensure!(f
+        .store
+        .inner
+        .get(&Path::from(format!(
+            "birth-data/groups/{}",
+            hex::encode(f.proposal.scope.group.bytes())
+        )))
+        .await
+        .is_ok());
+    let reserved = f.reserved().await?;
+    let original_revision = reserved.commit.applied_revision;
+    f.domain
+        .run(
+            f.namespace
+                .resolve_managed_birth(&reserved.authorization, TIMEOUT),
+        )
+        .await??;
+    let root = f.confirm(&reserved.authorization).await?;
+    // Retry the original request after confirmation and adapter recreation.
+    let recovered = Fixture::catalog(&f.domain, f.bucket.clone(), "coordination/")?;
+    let current = recovered.read(TIMEOUT).await?;
+    let retried = recovered
+        .reserve_birth(
+            &current,
+            &Fixture::request(40, before.revision()),
+            &f.namespace,
+            f.proposal.clone(),
+            TIMEOUT,
+        )
+        .await?;
+    ensure!(retried.commit.applied_revision == original_revision);
+    ensure!(retried.commit.snapshot.revision() == root.revision());
+    f.domain.shutdown().await;
+    Ok(())
 }
 
 #[tokio::test]

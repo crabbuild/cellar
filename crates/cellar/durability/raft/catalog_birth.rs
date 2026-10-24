@@ -124,18 +124,7 @@ impl NamespaceCatalog {
                 .decode_birth_disposition(&proposal.scope.cell, &bytes)
                 .await;
         }
-        let reservation = wire::Reservation {
-            root_digest: self.root_digest,
-            scope: WireScope::from(&proposal.scope),
-        };
-        let reserved = wire::encode(wire::RESERVATION, &reservation, self.inner.limit)?;
-        let observed = self
-            .inner
-            .create_and_observe(&self.reservation_key(&proposal.scope), &reserved)
-            .await?;
-        if observed != reserved {
-            return Err(CatalogError::Conflict("group identity already reserved"));
-        }
+        self.reserve_group_identity(&proposal.scope).await?;
         let birth = wire::Birth {
             root_digest: self.root_digest,
             scope: WireScope::from(&proposal.scope),
@@ -156,6 +145,31 @@ impl NamespaceCatalog {
         let observed = self.inner.create_and_observe(&key, &bytes).await?;
         self.decode_birth_disposition(&proposal.scope.cell, &observed)
             .await
+    }
+
+    /// A permanent identity claim grants neither birth nor membership authority.
+    /// Fleet admission confirms this exact claim before exposing a capability,
+    /// so another namespace cannot steal the ID after root admission. A claim
+    /// left by a losing root CAS is safe to retain and retry, never to release.
+    pub(crate) async fn reserve_group_identity(
+        &self,
+        scope: &GroupScope,
+    ) -> Result<(), CatalogError> {
+        self.require_mode(NamespaceMode::Raft)?;
+        self.check_scope(scope)?;
+        let reservation = wire::Reservation {
+            root_digest: self.root_digest,
+            scope: WireScope::from(scope),
+        };
+        let reserved = wire::encode(wire::RESERVATION, &reservation, self.inner.limit)?;
+        let observed = self
+            .inner
+            .create_and_observe(&self.reservation_key(scope), &reserved)
+            .await?;
+        if observed != reserved {
+            return Err(CatalogError::Conflict("group identity already reserved"));
+        }
+        Ok(())
     }
 
     /// Canonical expected live decision, before any storage mutation. This is

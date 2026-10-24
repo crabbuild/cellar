@@ -147,7 +147,12 @@ The root's immutable history index contains every managed `GroupScope`, schema
 and birth digest, lifecycle state and last reconciled membership reference.
 It is an admission inventory, not a replacement for reading current Raft state.
 Creation first reserves the history and initial nodes in the root, then uses the
-existing conditional birth protocol. The reservation remains visible until an
+existing conditional birth protocol. Before that root CAS, the namespace's
+permanent group-ID claim may be confirmed to fence competing catalogs sharing
+the data prefix. This identity claim grants no birth or membership authority;
+retain it even when root admission loses or is cancelled. The root atomically
+indexes both the cell name and fleet-wide group ID with its history.
+The history reservation remains visible until an
 exact birth result is reconciled; a lost response cannot produce an untracked
 group. Imported fleets require a quiesced membership/birth cut and explicit
 registration of all histories before enabling managed operations. Business writes

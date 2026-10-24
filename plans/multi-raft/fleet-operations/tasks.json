@@ -324,7 +324,8 @@
         "crates/cellar/tests/native_raft_fleet_permits.rs",
         "crates/cellar/durability/raft/storage.rs",
         "crates/cellar/durability/raft/member_fleet_tests.rs",
-        "crates/cellar/application/consensus/client_fleet.rs"
+        "crates/cellar/application/consensus/client_fleet.rs",
+        "crates/cellar/tests/native_raft_fleet_catalog.rs"
       ],
       "creates": [
         "crates/cellar/tests/native_raft_fleet_enrollment.rs",
@@ -354,7 +355,8 @@
         "Expose domain-owned dynamic dormant history registration with schema and inventory checks.",
         "Enroll all births and initial placements before activation; block incomplete imports and retired-slot reuse.",
         "Fence cancelled births using conditional tombstones at the existing per-cell-name birth key; preserve the name and incarnation permanently in v1.",
-        "Support an empty managed host and node-level readiness without eager per-history registration; separate placement/leadership exclusion from evacuation."
+        "Support an empty managed host and node-level readiness without eager per-history registration; separate placement/leadership exclusion from evacuation.",
+        "Confirm permanent namespace group-identity claims before birth admission; atomically index group identity and cell name, retain harmless pre-admission claims after cancellation and refuse earlier fleet-root protocols."
       ],
       "acceptance": [
         "Inventory includes pending births and all managed namespaces.",
@@ -775,6 +777,42 @@
           "oracle": "A matching declared capability digest cannot authorize a namespace owned by another coordination key scope, even with the same fleet incarnation.",
           "invariants": [
             "F02",
+            "F05"
+          ]
+        },
+        {
+          "name": "fleet_birth_reservation_group_identity",
+          "oracle": "A group ID cannot be rooted under two names, incarnations or namespace/data prefixes; a conflict changes neither root revision nor inventory.",
+          "invariants": [
+            "F01",
+            "F04",
+            "F05"
+          ]
+        },
+        {
+          "name": "fleet_birth_reservation_external_group_conflict",
+          "oracle": "An existing unmanaged namespace identity claim refuses new managed birth admission before any fleet history or birth is published, preserving the foreign decision.",
+          "invariants": [
+            "F01",
+            "F04",
+            "F05"
+          ]
+        },
+        {
+          "name": "fleet_birth_reservation_group_claim_cancellation",
+          "oracle": "A confirmed pre-CAS identity claim fences a competing namespace; cancellation leaves no birth or group authorization, and the original request can resume without releasing or resetting the claim.",
+          "invariants": [
+            "F01",
+            "F04",
+            "F05"
+          ]
+        },
+        {
+          "name": "fleet_birth_reservation_group_claim_lost_reply",
+          "oracle": "A lost identity-claim confirmation can leave only the permanent claim; exact retry converges and the original root request reconciles after birth confirmation and adapter recreation.",
+          "invariants": [
+            "F01",
+            "F04",
             "F05"
           ]
         }

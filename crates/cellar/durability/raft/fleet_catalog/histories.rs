@@ -174,6 +174,14 @@ impl FleetHistory {
         ))
     }
 
+    fn group_key(&self) -> Result<String> {
+        let scope = self
+            .binding
+            .scope()
+            .map_err(|_| FleetCatalogError::Corrupt("history scope"))?;
+        Ok(format!("group/{}", hex::encode(scope.group.bytes())))
+    }
+
     pub(crate) fn check_birth(&self, namespace: &NamespaceCatalog, birth: &GroupBirth) -> bool {
         namespace.check_birth(birth).is_ok()
             && namespace
@@ -315,7 +323,7 @@ impl FleetCatalog {
         )?;
         self.run(
             timeout,
-            self.insert_history(snapshot, request, &history, false),
+            self.insert_history(snapshot, request, &history, namespace, false),
         )
         .await
     }
@@ -354,7 +362,7 @@ impl FleetCatalog {
         let commit = self
             .run(
                 timeout,
-                self.insert_history(snapshot, request, &history, true),
+                self.insert_history(snapshot, request, &history, namespace, true),
             )
             .await?;
         Ok(FleetBirthReservation {
@@ -489,6 +497,7 @@ impl FleetCatalog {
         snapshot: &FleetSnapshot,
         request: &FleetRequestIdentity,
         history: &FleetHistory,
+        namespace: &NamespaceCatalog,
         placement: bool,
     ) -> Result<FleetCommit> {
         let key = history
@@ -515,6 +524,11 @@ impl FleetCatalog {
                     key: history.name_key()?,
                     value: Some(key.as_bytes().to_vec()),
                 },
+                FleetChange {
+                    table: FleetTable::Policy,
+                    key: history.group_key()?,
+                    value: Some(key.as_bytes().to_vec()),
+                },
             ],
         );
         mutation.validate()?;
@@ -526,6 +540,9 @@ impl FleetCatalog {
             .await?
             .is_none()
         {
+            if current.token != snapshot.token || request.expected_revision != snapshot.revision() {
+                return Err(FleetCatalogError::Conflict);
+            }
             if snapshot.head.history_count >= HISTORY_LIMIT {
                 return Err(FleetCatalogError::Limit);
             }
@@ -539,6 +556,14 @@ impl FleetCatalog {
                     .lookup(
                         snapshot.head.tables[FleetTable::Policy.slot()],
                         &history.name_key()?,
+                    )
+                    .await?
+                    .is_some()
+                || self
+                    .inner
+                    .lookup(
+                        snapshot.head.tables[FleetTable::Policy.slot()],
+                        &history.group_key()?,
                     )
                     .await?
                     .is_some()
@@ -560,6 +585,13 @@ impl FleetCatalog {
                         return Err(FleetCatalogError::Conflict);
                     }
                 }
+                // This claim grants no birth authority. Confirming it before
+                // the root CAS closes races with other namespace catalogs that
+                // share the global group-ID key, including unmanaged imports.
+                namespace
+                    .reserve_group_identity(&scope)
+                    .await
+                    .map_err(catalog_error)?;
             }
         }
         self.commit_inner(snapshot, &mutation).await

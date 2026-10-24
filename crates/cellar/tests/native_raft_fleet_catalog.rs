@@ -204,7 +204,14 @@ async fn fleet_root_orphan_pages() -> Result<()> {
 #[tokio::test]
 async fn fleet_root_rejects_invalid_records() -> Result<()> {
     use sha2::{Digest, Sha256};
-    for invalid in ["duplicate", "format", "oversized", "missing-page"] {
+    for invalid in [
+        "duplicate",
+        "format",
+        "oversized",
+        "missing-page",
+        "missing-protocol",
+        "foreign-protocol",
+    ] {
         let f = Fixture::new().await?;
         let key = Fixture::key("head");
         let original = f
@@ -215,6 +222,7 @@ async fn fleet_root_rejects_invalid_records() -> Result<()> {
             .bytes()
             .await?;
         let payload = &original[13..original.len() - 32];
+        let value: serde_json::Value = serde_json::from_slice(payload)?;
         let payload = match invalid {
             "duplicate" => String::from_utf8(payload.to_vec())?
                 .replacen("\"format\":1", "\"format\":1,\"format\":1", 1)
@@ -226,6 +234,20 @@ async fn fleet_root_rejects_invalid_records() -> Result<()> {
                 .replacen(
                     "\"tables\":[null",
                     &format!("\"tables\":[{}", serde_json::to_string(&[9u8; 32])?),
+                    1,
+                )
+                .into_bytes(),
+            "missing-protocol" => String::from_utf8(payload.to_vec())?
+                .replacen(
+                    &format!("\"protocol_digest\":{},", value["protocol_digest"]),
+                    "",
+                    1,
+                )
+                .into_bytes(),
+            "foreign-protocol" => String::from_utf8(payload.to_vec())?
+                .replacen(
+                    &format!("\"protocol_digest\":{}", value["protocol_digest"]),
+                    &format!("\"protocol_digest\":{}", serde_json::to_string(&[9u8; 32])?),
                     1,
                 )
                 .into_bytes(),
@@ -245,6 +267,9 @@ async fn fleet_root_rejects_invalid_records() -> Result<()> {
                 .is_err());
         } else {
             ensure!(f.catalog.read(TIMEOUT).await.is_err());
+            if matches!(invalid, "missing-protocol" | "foreign-protocol") {
+                ensure!(f.catalog.initialize(TIMEOUT).await.is_err());
+            }
         }
         f.close().await;
     }

@@ -46,8 +46,14 @@ changing catalog prefixes cannot issue an untracked competing birth. The existin
 unmanaged root cannot be rewritten by opening it with this configuration.
 Managed roots refuse ordinary `resolve_birth` and `cancel_birth` calls.
 
-`reserve_birth` atomically indexes the exact history and permanent cell name
-before returning an opaque `FleetBirthAuthorization`. Initial RF3 placement
+`reserve_birth` confirms the namespace's permanent group-ID claim, then atomically
+indexes the exact history, permanent cell name and fleet-wide group ID before
+returning an opaque `FleetBirthAuthorization`. The claim also fences other
+namespace catalogs sharing the same data prefix. An existing conflicting claim
+refuses admission before adding a history. A claim left by a cancelled or losing
+root turn grants no birth or membership authority; retain it permanently and
+reconcile the original request. Never delete it to retry or reclaim its ID.
+Initial RF3 placement
 requires three active, engine-pinned nodes on distinct declared physical hosts.
 The same root CAS orders admission against node-state changes. A delayed writer
 can finish after drain begins only if its history reference was already admitted.
@@ -78,8 +84,10 @@ Ordinary `bootstrap_member` can only resume an already enrolled managed group;
 it refuses fresh or bare genesis before creating local group state or a member
 claim. Managed host startup and `activate_managed_initial_member` use the guarded path described below.
 
-This experimental protocol hard-cuts to `/managed-genesis-1`; use fresh namespaces
-and matching binaries. Namespace roots and history records have no legacy reader.
+This experimental protocol hard-cuts to `/group-reservations-1`; use fresh fleet
+roots, fresh namespaces and matching binaries. Fleet heads require the current
+protocol digest, and their permanent genesis pin binds it. Missing or earlier
+protocol state refuses initialization and reads; there is no compatibility reader.
 Numeric format markers remain 1.
 
 ## Opaque capabilities and committed consumption
