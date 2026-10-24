@@ -198,8 +198,10 @@ async def _serve(module, inbox, interval, shutdown, stats, maximum, telemetry, s
             entry = invocations.get(invocation)
             if entry and not entry[0].cancelled():
                 error = entry[0].exception()
-                if error:
+                if error is not None:
                     # Keep failed cleanup registered for the final close pass.
+                    # An exception may define a false truth value; that must
+                    # never turn failed cleanup into a successful drain.
                     raise error
             invocations.pop(invocation, None)
 

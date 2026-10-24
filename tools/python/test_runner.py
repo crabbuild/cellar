@@ -112,6 +112,8 @@ def continuous_arrivals(mode):
     async def fetch(request, context):
         nonlocal blocked
         assert request.method == "GET" and request.body == b""
+        if mode == "cleanup-failure-falsey-late":
+            await asyncio.sleep(0)
         try:
             asyncio.create_task(asyncio.sleep(0))
         except RuntimeError as error:
@@ -137,11 +139,16 @@ def continuous_arrivals(mode):
             assert storage._context is context
         return Response(b"ok")
 
+    class FalseyCleanupFailure(RuntimeError):
+        def __bool__(self):
+            return False
+
     class Bridge:
         def __init__(self, inbox):
             self.inbox = inbox
             self.closed = False
             self.finished = False
+            self.handled = False
             inbox.bridges.add(self)
 
         def active(self):
@@ -156,12 +163,14 @@ def continuous_arrivals(mode):
             else:
                 assert json.loads(payload) == dict(status=200, headers=[], body="")
                 assert body == b"ok"
+                self.handled = True
                 self.inbox.completed += 1
 
         def expire(self, finished=False):
-            if mode == "cleanup-failure" and not self.inbox.cleanup_failed:
+            if mode.startswith("cleanup-failure") and self.handled and not self.inbox.cleanup_failed:
                 self.inbox.cleanup_failed = True
-                raise RuntimeError("injected context cleanup failure")
+                error = FalseyCleanupFailure if "falsey" in mode else RuntimeError
+                raise error("injected context cleanup failure")
             if finished and not self.finished:
                 self.inbox.finished += 1
                 self.finished = True
@@ -254,7 +263,7 @@ def continuous_arrivals(mode):
     try:
         capacity = 902 if mode == "many-tasks" else 2 if mode == "rejections" else 3
         report = runner.run(SimpleNamespace(fetch=fetch), inbox, 30, .2, capacity, 16, 30)
-        if mode == "cleanup-failure":
+        if mode.startswith("cleanup-failure"):
             assert report["runtime_failed"] and report["runtime_failure_stage"] == "serve_failure", report
             assert inbox.cleanup_failed and inbox.issued == inbox.expired
             assert report["pending_tasks"] == report["pending_objects"] == 0, report
@@ -953,6 +962,12 @@ class RunnerScheduling(unittest.TestCase):
 
     def test_failed_eager_cleanup_remains_supervised(self):
         self.run_case("cleanup-failure")
+
+    def test_falsey_cleanup_failure_remains_supervised(self):
+        self.run_case("cleanup-failure-falsey")
+
+    def test_falsey_cleanup_failure_after_await_remains_supervised(self):
+        self.run_case("cleanup-failure-falsey-late")
 
     def test_inline_blocking_handler_remains_visible(self):
         self.run_case("blocking")
