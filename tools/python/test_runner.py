@@ -151,7 +151,7 @@ def continuous_arrivals(mode):
             assert _current_invocation.get() is self
             assert not self.closed
             if failed:
-                assert payload == '"Python task capacity exhausted"'
+                assert payload == '{"error":"Overloaded"}', payload
                 self.inbox.rejected += 1
             else:
                 assert json.loads(payload) == dict(status=200, headers=[], body="")

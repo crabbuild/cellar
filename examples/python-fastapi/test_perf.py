@@ -92,6 +92,21 @@ while True:
 
 
 class UpdateRecovery(unittest.TestCase):
+    def test_resident_cap_is_finite_before_launching_host(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "results"
+            for limit in ("0", "-1", "2049"):
+                result = subprocess.run([
+                    sys.executable, "-B", str(Path(__file__).with_name("offered_perf.py")),
+                    "--resident-cells", limit,
+                    "--client", "/nonexistent/client", "--client-profile", "lab",
+                    "--cellar", "/nonexistent/cellar", "--project", "example=/nonexistent/project",
+                    "--output", str(output),
+                ], capture_output=True, text=True, timeout=5)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("invalid limits", result.stderr)
+                self.assertFalse(output.exists())
+
     def test_unbounded_update_population_refuses_before_launching_host(self):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "results"

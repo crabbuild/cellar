@@ -91,7 +91,7 @@ def run_case(args, project, root, case):
                 load_average_before=list(os.getloadavg()), phases=[])
     cpus = args.cpu_placement["host"] if args.cpu_placement else None
     host, origin, pid = start_host(SimpleNamespace(cellar=args.cellar, project=project,
-                                                  rust_threads=args.rust_threads), root, host_cpus=cpus)
+                                                  rust_threads=args.rust_threads, resident_cells=args.resident_cells), root, host_cpus=cpus)
     try:
         if cpus is not None:
             case["cpu_affinity"] = affinity.verify(root / "host-affinity.json", cpus, host.child.pid)
@@ -154,6 +154,7 @@ def run_case(args, project, root, case):
         recovery = Host(args.cellar, root / "project.json", recovery_root,
                         command_prefix=affinity.prefix(cpus, recovery_root / "affinity.json"),
                         extra_env={"CELLAR_TOKIO_THREADS": str(args.rust_threads),
+                                   "CELLAR_MAX_RESIDENT_CELLS": str(args.resident_cells),
                                    "CELLAR_DURABILITY": "bucket", "CELLAR_SHUTDOWN_TOTAL_MS": "15000",
                                    "CELLAR_SHUTDOWN_REPORT_JSON": "1", "PYTHONDONTWRITEBYTECODE": "1"})
         try:
@@ -228,13 +229,15 @@ def main():
     parser.add_argument("--timeout-ms", type=int, default=2000)
     parser.add_argument("--max-lag-ms", type=int, default=5)
     parser.add_argument("--max-inflight", type=int, default=128)
+    parser.add_argument("--resident-cells", type=int, default=64,
+                        help="native resident-cell cap (1-2048); overrides CELLAR_MAX_RESIDENT_CELLS")
     parser.add_argument("--rust-threads", type=int, default=4)
     parser.add_argument("--repetitions", type=int, default=2)
     parser.add_argument("--host-cpus", help="Linux logical CPUs for the CLI and its native host, e.g. 0,1")
     parser.add_argument("--client-cpus", help="disjoint Linux logical CPUs for native arrival clients, e.g. 2,3")
     args = parser.parse_args()
     args.cpu_placement = affinity.placement(args.host_cpus, args.client_cpus)
-    require(1 <= args.repetitions <= 5 and 1 <= args.max_inflight <= 512 and 1 <= args.rust_threads <= 64
+    require(1 <= args.resident_cells <= 2048 and 1 <= args.repetitions <= 5 and 1 <= args.max_inflight <= 512 and 1 <= args.rust_threads <= 64
             and 1 <= args.timeout_ms <= 10000 and 1 <= args.max_lag_ms <= 1000, "invalid limits")
     require(len(set(args.rates)) == len(args.rates) and all(1 <= rate <= 100000 for rate in args.rates)
             and all(1 <= duration <= 120000 and all(1 <= rate * duration // 1000 <= 1000000
@@ -265,14 +268,15 @@ def main():
             "CELLAR_MAX_CELL_REQUESTS", "CELLAR_HANDLER_BUDGET_S")},
         configuration=dict(operation=args.operation, rates=args.rates, duration_ms=args.duration_ms, warmup_ms=args.warmup_ms,
                            max_inflight=args.max_inflight, max_lag_ms=args.max_lag_ms,
-                           timeout_ms=args.timeout_ms, rust_threads=args.rust_threads,
+                           timeout_ms=args.timeout_ms, rust_threads=args.rust_threads, resident_cells=args.resident_cells,
                            repetitions=args.repetitions, client_profile=args.client_profile,
                            cpu_placement=args.cpu_placement),
         limits=["Fresh private host per runtime/repetition; 32 seeded durable orders. Seed writes are sent once and read back.",
                 "Every scheduled request has an outcome. Exact HTTP 200 bodies, including EOF, are checked against expected state.",
                 "Percentiles describe successes only; inspect success fraction, failures, dispatch delay and client drops together.",
                 "Completed experiment means accounting and shutdown succeeded, not that an application SLO passed.",
-                "Native policy environment records inherited overrides; null means the CLI default applies.",
+                "Native policy environment records inherited overrides; null means the CLI default applies for those recorded fields.",
+                "The explicit resident_cells cap overrides inherited CELLAR_MAX_RESIDENT_CELLS for both original and replacement hosts.",
                 "Loopback and a private SQLite development bucket; no remote storage or fleet capacity claim.",
                 "Optional CPU affinity restricts eligible logical CPUs, not exclusive cores, quotas or memory; other work can still compete.",
                 "Warmup and measurement use separate native client processes/pools. Rates may be affected by timer granularity."])

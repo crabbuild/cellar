@@ -97,7 +97,7 @@ async def _invoke(module, objects, payload, body, bridge, context, stats, maximu
             if key not in objects:
                 if len(objects) >= maximum:
                     stats["budget_exhaustions"] += 1
-                    raise RuntimeError("Cellar Python object capacity exhausted")
+                    raise Overloaded("Cellar Python object capacity exhausted")
                 objects[key] = (getattr(module, payload["class"])(), bridge.owner_lifetime())
                 stats["objects_created"] += 1
             target = objects[key][0]
@@ -119,7 +119,7 @@ async def _invoke(module, objects, payload, body, bridge, context, stats, maximu
     except asyncio.CancelledError:
         metrics["handlers_cancelled"] += 1
         raise
-    except Overloaded:
+    except (Overloaded, _TaskCapacity):
         metrics["handlers_failed"] += 1
         # Preserve the category without reading exception text or its claimed
         # outcome. A parent can commit before a nested admission refusal.
@@ -254,7 +254,7 @@ async def _serve(module, inbox, interval, shutdown, stats, maximum, telemetry, s
                 except _TaskCapacity:
                     token = _current_invocation.set(bridge)
                     try:
-                        bridge.complete('"Python task capacity exhausted"', True)
+                        bridge.complete('{"error":"Overloaded"}', True)
                     finally:
                         context._close(finished=True)
                         _current_invocation.reset(token)
