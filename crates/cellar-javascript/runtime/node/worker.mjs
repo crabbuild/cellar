@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 // Injected by the Rust bootstrap. No application code runs before the private
 // transport and context factory have captured their dependencies.
 import { readFileSync } from 'node:fs';

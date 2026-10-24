@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Bounded control metadata and optional owned byte attachments. Application
 //! stdout is separate from this authenticated, nonblocking transport.
 use anyhow::{ensure, Result};

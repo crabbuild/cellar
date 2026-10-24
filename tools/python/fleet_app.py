@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Fleet counter counterpart to tools/perf/cells.rs; configuration comes from main."""
 import json
 import hashlib

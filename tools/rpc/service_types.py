@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Concrete generated clients and structural handler typing, checked by mypy."""
 from typing import assert_type
 

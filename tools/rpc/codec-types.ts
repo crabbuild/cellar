@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
 import { configureTextEncoding } from "@bufbuild/protobuf/wire";
 import { createCodec } from "../../packages/cellar-sdk/rpc/codec.js";

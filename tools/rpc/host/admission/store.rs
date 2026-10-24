@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Observe real metadata reads and exclude the witness from ownership claims.
 //! Data reads, follower service and the witness's own node lease remain real.
 use futures_util::{stream::BoxStream, StreamExt};

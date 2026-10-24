@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Real HTTP loss/reconciliation and refusal of corrupted churn evidence."""
 import argparse
 from contextlib import contextmanager

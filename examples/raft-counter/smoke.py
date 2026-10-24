@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Run real native/Axum reads, remote routing and retained receipts after restart.
 
 Usage: python3 examples/raft-counter/smoke.py BINARY NEW_WORK_DIRECTORY

@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Owned process group; final cleanup never relies on the monitored interpreter.
 #![allow(clippy::disallowed_methods)] // Process supervision is outside cell execution.
 use super::options::Options;

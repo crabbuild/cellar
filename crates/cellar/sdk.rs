@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Cellar's Rust application SDK.
 //!
 //! Import cell and service contracts, binding APIs, and owned primitive values

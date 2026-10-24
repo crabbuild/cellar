@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Rust application primitives shared by cellar's runtime adapters.
 //!
 //! This crate does not depend on a JavaScript engine. Runtime adapters own

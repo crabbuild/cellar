@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Cellar multi-Raft implementation plan
 
 Implement this package against the pinned source baseline or a reviewed successor.

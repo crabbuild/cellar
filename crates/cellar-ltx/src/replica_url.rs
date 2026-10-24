@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 // Modified for Cellar from Celld.
 //! replica_url.rs — parse `s3://` and `file://` replica URLs + S3 endpoint
 //! detection helpers.

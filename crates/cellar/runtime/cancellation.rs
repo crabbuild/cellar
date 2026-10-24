@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Monotonic invocation authority, separate from consumable driver wakeups.
 use anyhow::Result;
 use cellar_native::web::AbortSignal;

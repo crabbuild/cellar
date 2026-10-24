@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Real-host fault probes; production budgets always read the native clock."""
 import asyncio
 import time

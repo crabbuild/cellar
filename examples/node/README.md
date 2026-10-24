@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Node.js and TypeScript applications
 
 This example runs an actual Node.js process beside the Rust Cellar host. Rust

@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 from urllib.parse import urlsplit, parse_qsl
 from cellar import Conflict, Overloaded, Response, SDKError
 from counter_pb2 import (

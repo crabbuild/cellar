@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Native observations cannot be substituted by guest-supplied status fields.
 use anyhow::{ensure, Result};
 use cellar::sdk::{rpc, Context, Invocation};

@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Cancellation can close admission while an already-entered poll is running.
 use super::*;
 use std::sync::atomic::{AtomicUsize, Ordering};

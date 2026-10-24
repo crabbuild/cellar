@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 import { mergeHistory } from "@/lib/workflow-inspection"
 import { lazy, Suspense, useState } from "react"
 import {

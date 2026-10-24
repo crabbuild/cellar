@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Fail closed if either proof path, any pair, or receipt recovery was skipped.
 use anyhow::{ensure, Context, Result};
 use serde_json::Value;

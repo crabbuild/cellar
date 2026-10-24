@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Exercise the native graph guard against Cargo's actual feature resolution."""
 from pathlib import Path
 import subprocess

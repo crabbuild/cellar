@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Explicit cancellation must revoke native SDK authority before another poll.
 use super::*;
 

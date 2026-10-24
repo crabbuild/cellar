@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Event-local nesting, background registration and response-boundary gates.
 //!
 //! Drivers supply their own promise and gate types. No engine, executor or

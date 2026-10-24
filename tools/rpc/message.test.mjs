@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 import assert from "node:assert/strict";
 import test from "node:test";
 import { readFileSync } from "node:fs";

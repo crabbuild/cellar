@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Measure real HTTP bridge cost with a verified population of idle cells.
 
 Local-only nodes isolate interpreter scheduling from fleet/storage latency.

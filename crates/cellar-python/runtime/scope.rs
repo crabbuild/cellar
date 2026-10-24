@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Resolve caller identity through the bootstrap's original Python accessors.
 use pyo3::{prelude::*, PyTraverseError, PyVisit};
 

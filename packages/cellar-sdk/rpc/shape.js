@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 // Codec identity is a structural projection of live reflection descriptors. It
 // is not the artifact digest: runtime descriptors need not serialize identically
 // to protoc's image. The Rust host supplies the expected projection privately.

@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Lose a proven ack and destination process; replay only the stored exact receipt."""
 import argparse
 import base64

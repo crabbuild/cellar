@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 use cellar_native::clone::{Limits, Object, StructuredValue, Value, ViewKind};
 use cellar_native::json::{parse, parse_utf8, parse_with_limits, stringify, stringify_with_limits};
 

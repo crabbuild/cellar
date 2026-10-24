@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Own and join the engine threads outside the node execution domain.
 #![allow(clippy::disallowed_methods)]
 use crate::{JavaScriptApplication, Source};

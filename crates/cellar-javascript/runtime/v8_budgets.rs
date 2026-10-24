@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Private V8 callback data binds each control to one native invocation/budget.
 use super::*;
 

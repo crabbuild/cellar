@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 use anyhow::{ensure, Context as _, Result};
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use cellar::sdk::{http::Response, Context, Request};

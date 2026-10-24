@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! One non-reusing identity space for cell proxies and invocation mailboxes.
 use anyhow::Result;
 use std::sync::atomic::{AtomicU64, Ordering};

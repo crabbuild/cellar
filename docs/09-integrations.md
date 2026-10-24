@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Integrations and resource ownership
 
 Use SDK bindings for HTTP, Blob storage, streams, sockets and other external

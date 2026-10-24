@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 use cellar::sdk::{rpc, Context};
 use serde_json::{json, Value};
 use std::{sync::Mutex, time::Duration};

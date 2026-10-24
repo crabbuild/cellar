@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Real engine fences and conditional object-store registration. These adapter
 //! cases do not qualify controller RPCs or automatic membership repair.
 #![allow(clippy::disallowed_methods)]

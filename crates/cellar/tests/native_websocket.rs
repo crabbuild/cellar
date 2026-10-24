@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Native socket ownership and ordered streaming through production turns.
 use anyhow::{anyhow, Result};
 use cellar::application::websocket::{SocketEvent, WebSocket};

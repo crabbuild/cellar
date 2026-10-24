@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! A malformed submitted reply cannot establish non-execution or permanent refusal.
 use super::*;
 use serde_json::json;

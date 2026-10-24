@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Generated named methods through real Rust, V8 and Node cells, not an echo
 //! transport. Build the closed V8 bundle and Node fixtures with tools/rpc first.
 #![cfg(all(feature = "embed", feature = "node"))]

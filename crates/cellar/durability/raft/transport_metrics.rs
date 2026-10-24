@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Count successful socket I/O below TLS, including handshakes and refused
 //! traffic. Kernel-accepted bytes do not prove delivery; TCP/IP overhead and
 //! retransmissions are outside the AsyncRead/AsyncWrite boundary.

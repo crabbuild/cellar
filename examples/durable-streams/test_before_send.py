@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Reject fabricated first-send boundaries and repair-before-audit evidence."""
 
 import copy

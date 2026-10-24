@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Three actual voters and an owned alarm timer; no cell factory or Fleet wake.
 #![allow(clippy::disallowed_methods)]
 use super::public_node;

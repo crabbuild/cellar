@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Ownership boundaries for library hosts sharing an application runtime.
 // The surrounding application uses Tokio directly, including its watchdog
 // after the Cellar domain has closed and can no longer provide a timer.

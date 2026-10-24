@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Process-owned CPython initialization; no ambient imports or site hooks.
 // These filesystem checks occur before a node/execution domain exists.
 #![allow(clippy::disallowed_methods)]

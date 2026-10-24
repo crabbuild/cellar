@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Durable receiver receipts and business changes share one command transaction.
 use super::delivery::{self, RaftEffectSigningKey, RaftEffectSourceGrant};
 use crate::application::consensus::{

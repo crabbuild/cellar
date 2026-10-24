@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 // Qualification-only dependency cycles over the generated business methods.
 import type { Context, Json } from "@cellar/sdk";
 import type { CounterClient } from "./fixtures/generated/typescript/counter_cellar.js";

@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 #![doc = include_str!("README.md")]
 
 use crate::engine_api::{HttpResponse, QueueBatch, QueueDispatchResult, RequestBody, RpcData};

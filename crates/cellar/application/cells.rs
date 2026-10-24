@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Business cell identities and callable namespaces over existing host routing.
 use super::*;
 use cellar_native::cell_id;

@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 // Native, bounded text codecs; installed before evaluating application modules.
 (encode, createDecoder) => {
   const Bytes = Uint8Array, Buffer = ArrayBuffer, string = String;

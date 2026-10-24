@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Conservative local observations, separate from per-invocation proof gates.
 use super::*;
 use crate::application::consensus::{RaftQueryReadiness, RaftReplicaRole};

@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Fault-control ordering only; delayed in-memory writes are not durable proof.
 use super::faults::{Gate, Store};
 use anyhow::Result;

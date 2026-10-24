@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Reject skipped pairs, weak authority checks and optimistic proof outcomes.
 use anyhow::{ensure, Context, Result};
 use serde_json::{json, Value};

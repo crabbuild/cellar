@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Native WebSocket client
 
 Consume a bound cell upgrade and exercise a real outbound network handshake.

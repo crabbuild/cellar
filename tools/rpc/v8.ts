@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 import { Counter, handler } from "./app.js";
 import { CounterClient, CounterRegistration } from "./fixtures/generated/typescript/counter_cellar.js";
 import { AbortController } from "abort-controller";

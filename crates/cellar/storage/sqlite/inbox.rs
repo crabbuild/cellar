@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 use super::*;
 use crate::application::event_stream::{DeliveryError, ErrorCode};
 use sha2::{Digest, Sha256};

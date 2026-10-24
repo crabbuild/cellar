@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Bounded byte inventories of the actual retained proof, never a replacement.
 use anyhow::{ensure, Context, Result};
 use cellar::{bucket::Bucket, sdk::ExecutionDomain};

@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Per-operation cancellation stays outside the bounded SDK mailbox.
 use cellar::sdk::web::{AbortController, AbortSignal};
 use std::{

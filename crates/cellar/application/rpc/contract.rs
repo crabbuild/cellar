@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 use super::{Code, Failure};
 use anyhow::{ensure, Context as _, Result};
 use prost::Message;

@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Bounded native deadlines, separate from effect/mutation admission.
 use cellar::sdk::rpc::{BudgetSource, CallBudget, Code, Failure};
 use std::collections::HashMap;

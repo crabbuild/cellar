@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Strict bounded inspection body. Its physical route and payload digest are
 //! authenticated separately by the purpose-specific TLS RPC header.
 use super::inspection::*;

@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 import type { Context } from "@cellar/sdk";
 import { CounterClient as TypeScriptClient } from "./fixtures/generated/typescript/counter_cellar.js";
 import { CounterClient as JavaScriptClient } from "./fixtures/generated/javascript/counter_cellar.js";

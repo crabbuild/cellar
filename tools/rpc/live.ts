@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 // Qualification-only continuation retained across cancellation or owner loss.
 import type { Context, Json } from "@cellar/sdk";
 type LiveClient = {increment(request: {delta:bigint;operationId:string}):Promise<unknown>};

@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 import { appendFile, writeFile } from "node:fs/promises";
 import { application } from "../dist/application.js";
 import { configuredModel } from "../dist/provider.js";

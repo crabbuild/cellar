@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 564" role="img" aria-labelledby="title description">
   <title id="title">Cellar routes requests across a fleet</title>
   <desc id="description">An application reaches either Cellar node. Node A owns alice and node B owns bob, each with local SQLite state. Nodes share object storage for ownership leases and LTX data, and replicate peer logs. Recovery must finish before a replacement owner serves.</desc>

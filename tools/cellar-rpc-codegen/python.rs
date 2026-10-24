@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 use anyhow::{ensure, Context, Result};
 use cellar::sdk::rpc::Contract;
 use heck::{ToSnakeCase, ToUpperCamelCase};
@@ -150,7 +152,7 @@ pub fn generate(output: &Path, descriptor: &FileDescriptorSet, contract: &Contra
         }
         std::fs::write(path, code)?;
     }
-    Ok(())
+    super::format::generated_python(&directory)
 }
 
 fn collect(

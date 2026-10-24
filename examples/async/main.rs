@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 use crate::support;
 use cellar::sdk::{Cell, Context, HandlerFuture, Invocation, Output};
 use std::{sync::Arc, time::Duration};

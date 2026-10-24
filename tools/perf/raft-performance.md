@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # MR-14 performance runner
 
 `raft_run.py` runs a bounded reference workload against three to five native Cellar

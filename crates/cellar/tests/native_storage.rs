@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Production native turns with no engine initialization. The proof adapter
 //! records actual host gate requests; it does not emulate fleet replication.
 

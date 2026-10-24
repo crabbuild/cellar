@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Refuse cold typed RPC while acknowledged log proof lacks its original root.
 mod evidence;
 mod snapshot;

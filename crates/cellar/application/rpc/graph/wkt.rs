@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Graph guards for Prost's externally mapped proto3 well-known messages.
 use super::*;
 use prost_types::{

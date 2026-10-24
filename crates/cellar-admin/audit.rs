@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 // The management service owns its audit file and wall clock outside node execution.
 #![allow(clippy::disallowed_methods)]
 

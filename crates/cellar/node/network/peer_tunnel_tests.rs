@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Safe pooled retry requires an actual returned, unserialized request.
 use super::*;
 

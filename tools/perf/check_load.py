@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Exercise the compiled counter load client against a deterministic HTTP peer."""
 import argparse
 import collections

@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Build-time generation for Cellar's explicitly registered business services.
 // Like tools/xtask, this process owns local build files and compiler subprocesses
 // outside a node execution domain. The runtime crates retain the injected-I/O

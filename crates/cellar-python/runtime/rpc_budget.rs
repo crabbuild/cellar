@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! An opaque deadline follows one Python call through codecs and native I/O.
 use cellar::sdk::rpc::{CallBudget, Failure};
 use pyo3::prelude::*;

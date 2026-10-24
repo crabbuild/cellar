@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Shared durable Counter used by native and cross-language RPC qualification.
 use super::generated::{
     increment_response, Count, CounterHandler, GetCountRequest, GetCountResponse, IncrementRequest,

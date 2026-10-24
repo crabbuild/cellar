@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Fault-adapter contracts only; in-memory bytes never certify fleet durability.
 use super::*;
 

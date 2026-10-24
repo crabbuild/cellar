@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Bounded technician diagnostics. These exercise the less frequent SDK
 //! capabilities separately from the ordinary field-service traffic mix.
 use crate::{application::response, config::*};

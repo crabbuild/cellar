@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Bounded, independent-arrival HTTP client for the native/Python hosts.
 //! Client scheduling, overload and transport failures remain in raw evidence.
 #![allow(clippy::disallowed_methods)]

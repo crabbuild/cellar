@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 792" role="img" aria-labelledby="title desc">
 <title id="title">Resolve a lost reply with the same command ID</title>
 <desc id="desc">Proposed application receipt protocol: commit a mutation and digest-checked receipt atomically. If the proven reply is lost, retry the same ID and digest. Read the receipt and return its stored result through the output gate without applying the mutation again.</desc>

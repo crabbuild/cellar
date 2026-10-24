@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Native container cells and Rust tools
 
 Run one isolated Rust HTTP process per named business cell, then execute a

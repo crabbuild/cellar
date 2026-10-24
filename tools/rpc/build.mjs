@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 // Reuse Cellar's closed V8 bundler and the pinned TypeScript CLI. A failed
 // compile removes old outputs so a stale fixture cannot pass an integration test.
 import { bundle } from "../javascript/build.mjs";

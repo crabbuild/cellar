@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Validate durable churn receipts and resource/drain evidence before reporting."""
 import argparse
 import json

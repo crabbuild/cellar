@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Observe a guest batch's real SQLite statements in the disposable owner.
 //!
 //! PROFILE fires when a statement finishes. Unlike an update hook, it lets us

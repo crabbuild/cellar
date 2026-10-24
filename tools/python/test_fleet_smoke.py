@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """CPU-controlled fleet runs refuse missing or inconsistent resource evidence."""
 import json
 import hashlib

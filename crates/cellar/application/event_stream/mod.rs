@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Transactional outbox, durable event streams and resumable subscriptions.
 //!
 //! Resolve a typed [`Stream`] with [`Context::stream`], then use

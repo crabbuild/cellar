@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Runtime-only controls and ownership. Fleet tests separately execute the
 //! generated business calls and verify late storage/commit refusal.
 use super::*;

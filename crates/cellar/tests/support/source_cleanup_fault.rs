@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Lost replica deletion replies with a retained, independent deletion ledger.
 
 use futures_util::{stream::BoxStream, StreamExt};

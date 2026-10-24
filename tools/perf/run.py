@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Run the Rust cell/load binaries with RustFS on a local Colima Docker VM.
 
 Requires Docker, Colima, and an already built embedded Cellar performance image.

@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Embedded V8 pump. Isolate handles and promise resolvers stay on this thread;
 //! native SDK work crosses bounded channels back to its owning invocation.
 use super::*;

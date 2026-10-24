@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Opt-in Docker regression: historical source must replace cached Rust code."""
 
 import os

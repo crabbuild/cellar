@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """A typed core refusal before the target handler enters Python."""
 import asyncio
 import threading

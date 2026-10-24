@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Caller-owned installed-host processes and complete shutdown assertions.
 //! Filesystem, timing and process control are outside node execution domains.
 #![allow(clippy::disallowed_methods)]

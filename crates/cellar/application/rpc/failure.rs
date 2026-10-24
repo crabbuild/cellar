@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 use serde::{Deserialize, Serialize};
 
 /// A fixed framework failure code. Application exception text is never a code.

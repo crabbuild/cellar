@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Production process startup, retained-history resume and refusal boundaries.
 #![allow(clippy::disallowed_methods)]
 #[path = "../../../examples/raft-counter/counter.rs"]

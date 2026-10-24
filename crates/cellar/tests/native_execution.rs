@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Execution admission remains joined when executors reject or cancel work.
 #![allow(clippy::disallowed_methods)] // Real runtime shutdown and thread probes.
 

@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Guest budgets cross actual codecs, signed peers and nested providers.
 use super::*;
 use crate::application::Visit;

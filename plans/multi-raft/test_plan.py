@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Negative tests for package checks; these do not exercise a Raft runtime."""
 import copy
 import json

@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 use super::verify_dependencies;
 use serde_json::{json, Value};
 

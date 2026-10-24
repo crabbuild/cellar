@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Startup inventory is node work; caller cancellation and teardown must not
 //! leave its confirmation markers attached to retired owner reads.
 use cellar_logic::{

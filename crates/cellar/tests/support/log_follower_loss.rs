@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Acknowledged end survives batch loss; no shortened tail certifies recovery.
 use super::*;
 

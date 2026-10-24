@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Command/query consensus contracts for opt-in Raft namespaces.
 //!
 //! These values describe durable identities and physical update envelopes.

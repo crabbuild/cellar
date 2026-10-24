@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Process-boundary parsing for platform namespace inventory.
 
 use super::{Fleet, FleetFlags, Format, Output, Reachable, Reply, Subject, FLEET_HELP};

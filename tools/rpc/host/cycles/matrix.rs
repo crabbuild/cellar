@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Real same-cell reentry and split-owner cycles, using no mock transport.
 use anyhow::{ensure, Context as _, Result};
 use cellar::{bucket::Bucket, sdk::ShutdownMode};

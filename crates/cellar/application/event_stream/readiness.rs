@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Generation-local admission. Catalog/partition state remains authoritative;
 //! this latch only prevents staged bindings from admitting application work.
 

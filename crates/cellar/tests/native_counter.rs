@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! The counter recipe keeps reads out of SQLite's writer lane.
 #![allow(clippy::disallowed_methods)]
 #[allow(dead_code)]

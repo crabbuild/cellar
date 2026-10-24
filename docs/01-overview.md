@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Overview and application fit
 
 Cellar is a Rust framework for applications built from durable business cells,

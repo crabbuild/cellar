@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Real inbox acceptance and effect commit from a poll spanning owner fencing.
 
 use super::event_clock_retention::{history, pending, wall};

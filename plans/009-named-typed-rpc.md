@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # 009: Named, typed cell RPC across languages
 
 Status: **Implementation in progress; cross-language qualification remains open.**

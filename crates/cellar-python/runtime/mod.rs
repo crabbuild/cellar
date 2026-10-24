@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! The executable bootstrap owns Python and the joined Rust host thread.
 // Dependency filesystem inspection happens before any node execution domain.
 #![allow(clippy::disallowed_methods)]

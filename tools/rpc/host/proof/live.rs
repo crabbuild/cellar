@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Observe and resume only the original handler retained across a real fence.
 use super::{request, Composite, Controls, Returned};
 use anyhow::{ensure, Context, Result};

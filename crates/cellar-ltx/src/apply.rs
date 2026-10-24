@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Physical image contracts. Only the generation owner can patch a private file;
 //! a verified image is not itself a Raft commit or query-publication proof.
 

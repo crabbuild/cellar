@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Invoke pinned message/service plugins from the same descriptor artifact.
 use anyhow::{ensure, Context, Result};
 use cellar::sdk::rpc::Contract;

@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Idle replicas must not turn each peer request into a node-wide scan.
 #![allow(clippy::disallowed_methods)]
 use super::*;

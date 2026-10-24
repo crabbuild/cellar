@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Capture and maintenance use the real SQLite WAL and restorable LTX chain.
 #![allow(clippy::disallowed_methods)]
 

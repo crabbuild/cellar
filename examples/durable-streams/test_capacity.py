@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Capacity recovery evidence must retain the original commands and effects."""
 import copy
 import json

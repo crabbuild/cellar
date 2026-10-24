@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Bounded native caller controls for the real proof-wait qualification.
 use anyhow::{ensure, Context as _, Result};
 use cellar::sdk::{rpc, web, Context};

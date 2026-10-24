@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
 use pyo3::{PyTraverseError, PyVisit};

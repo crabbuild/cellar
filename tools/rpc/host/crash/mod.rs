@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Abrupt process-loss qualification, separate from graceful fleet handoff.
 mod evidence;
 mod gate;

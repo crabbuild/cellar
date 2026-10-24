@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Input, output and aggregate batch bytes at exact public boundaries.
 use super::*;
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};

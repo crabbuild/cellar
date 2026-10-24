@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Production SQLite decisions under a synthetic activation; not fleet proof.
 use super::*;
 use crate::application::{storage::Resources, Activation};

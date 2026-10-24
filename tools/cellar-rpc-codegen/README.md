@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Cellar RPC code generator
 
 Build-time generation for plan 009. The current generator emits Rust, JS/TS and Python
@@ -22,6 +24,11 @@ Protobuf profile, strips source locations, sorts descriptor files, and computes
 one digest shared by the generated clients and server registrations. The output
 directory contains `contracts.binpb`, `rpc.json`, and requested `rust/`,
 `typescript/`, `javascript/` and `python/` sources. The default language is `rust`.
+Generated source files include the Cellar copyright/Apache-2.0 notice while
+retaining producer comments. Regeneration preserves this preamble; descriptor
+and inventory artifacts remain binary/JSON without comment headers, following
+[NOTICE](../../NOTICE).
+
 JavaScript output includes `.js` and `.d.ts`; TypeScript output includes message
 types, concrete named clients, handler interfaces and explicit registrations.
 Both use the pinned Protobuf-ES plugins and the codec-neutral `@cellar/sdk/rpc`

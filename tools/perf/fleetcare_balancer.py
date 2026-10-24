@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Private HTTP ingress and evidence for the three-node capacity lab."""
 import collections
 import csv

@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Python application on the same S3 fleet host as the native counter benchmark.
 #![allow(clippy::disallowed_methods)]
 use anyhow::{ensure, Result};

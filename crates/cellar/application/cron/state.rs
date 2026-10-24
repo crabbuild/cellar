@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! The pending occurrence and alarm decision share the cell's SQLite/output gate.
 use super::*;
 use crate::application::storage::SqlValue;

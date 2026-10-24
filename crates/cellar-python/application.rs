@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 use crate::{
     operations::{self, State},
     runtime::{self, Event, InvocationBridge, InvocationState, Life, Lifetime, Runtime, Start},

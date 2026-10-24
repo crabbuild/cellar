@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Exercise the built native arrival client against controlled HTTP failures."""
 import copy
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer

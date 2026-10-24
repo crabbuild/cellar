@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Native committed business features: three-voter alarm/outbox groups and an
 //! explicit single-voter development fixture for immutable Blob closure.
 #![allow(clippy::disallowed_methods)]

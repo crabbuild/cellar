@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Check acknowledged and ambiguous operations across live process failures.
 
 Use a private image built by tools/perf/Dockerfile. This is a correctness test,

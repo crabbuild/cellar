@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Fixed label vocabularies, independent of cells, groups and physical peers.
 use super::{RaftBudgetUsage, RaftResourceUsage};
 use std::collections::BTreeMap;

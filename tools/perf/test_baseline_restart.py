@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Fencing, restart identity, pre-retry loss detection and resumed workload checks."""
 import copy
 import json

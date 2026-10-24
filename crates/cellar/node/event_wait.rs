@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! One immutable event RPC deadline, with conservative submission certainty.
 use crate::application::event_stream::{DeliveryError, ErrorCode};
 use anyhow::Result;

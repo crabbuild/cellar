@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Descriptor semantics that must agree before any language generator runs.
 use anyhow::{ensure, Context, Result};
 use prost_types::{

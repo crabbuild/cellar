@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Generated business methods must use the real SDK, host output gates and
 //! recovered SQLite state. This test is not a language-bridge qualification.
 #![allow(clippy::disallowed_methods)]

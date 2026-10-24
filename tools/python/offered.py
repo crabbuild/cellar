@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Compare native/Python HTTP echo, cell echo or reads at independent offered rates.
 
 Every scheduled arrival is retained, including client drops and HTTP failures.

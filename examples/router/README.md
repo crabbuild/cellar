@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Business identity routing
 
 Route by business identity through the authoritative cell owner.

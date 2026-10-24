@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Native source/catalog/stream turns with real persisted system cells. The
 //! fixture owns routing and uses an explicit proof adapter; fleet qualification
 //! exercises the production node driver separately.

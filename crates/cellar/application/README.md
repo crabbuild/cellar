@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Application building blocks
 
 Applications use `cellar::sdk` for cell handlers, bindings and configuration.

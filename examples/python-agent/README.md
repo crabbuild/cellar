@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Durable Python agent with PydanticAI
 
 A runnable [PydanticAI](https://ai.pydantic.dev/) agent uses Cellar cells for its

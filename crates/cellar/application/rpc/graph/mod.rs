@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Pre-serialization checks for generated native messages. Incoming bytes use
 //! the descriptor wire walker; owned Rust outputs need this separate guard
 //! before Prost's recursive encoded_len and allocating writer run.

@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Named, typed RPC implementation ledger
 
 Objective: implement [plan 009](../009-named-typed-rpc.md) end to end, with named
@@ -70,6 +72,17 @@ pairs. Preserve the full test matrix, failures and remaining work across turns.
 
 ## Current evidence
 
+- Main is integrated through `2133d124` (#115). Its copyright notices are
+  preserved, including the one Node transport comment conflict. All 974 checked
+  runtime, SDK and fixture source files remain identical to the ten-suite-tested
+  `73a62b5a` after removing only notice text. New Cellar-owned sources receive
+  matching notices. The generator applies notices reproducibly while retaining
+  producer comments; nine generator tests and generator Clippy pass, and both
+  Counter/profile sets reproduce all 24 artifacts with unchanged descriptor
+  bytes. SDK, Python sanitizer/runner, three build-identity tests, documentation
+  and workflow parsing pass after the merge. Full runtime evidence above is
+  from the unchanged implementation before the notice merge; it is not a fresh
+  package/release qualification or a resolution of the transient failures.
 - The final normal-stack serial run passes all ten suites and publishes
   `.cellar/rpc/provenance-full-matrix.json` after native and guest drains:
   16 local pairs, 16 remote/handoff pairs, 55 deadlines, 17 cancellations,

@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Poll only a fresh read while proof failure asynchronously resets admission.
 use anyhow::{ensure, Context, Result};
 use serde_json::Value;

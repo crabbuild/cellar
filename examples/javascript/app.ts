@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 import {jsonResponse, request, response, type Context, type Request, type Alarm} from "@cellar/sdk";
 import {z} from "zod";
 

@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Hold actual root responses after reading their exact bytes and tokens.
 //! An after-claim cut also holds concurrent responses so another read cannot
 //! complete recovery before the controller applies its metadata fault.

@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Independent open-loop client. Its executors, clocks and files belong to the
 //! measuring process, outside the Cellar application execution domain.
 #![allow(clippy::disallowed_methods)]

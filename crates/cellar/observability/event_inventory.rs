@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Bounded platform inventory metadata; no configuration bodies or receipt secrets.
 use crate::application::event_stream::{
     CatalogListOptions, CatalogNamespace, CatalogPage, Resource, SourceListOptions, SourcePage,

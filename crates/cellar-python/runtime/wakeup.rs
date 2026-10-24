@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Bounded, GIL-independent readiness for the interpreter's existing event loop.
 // Only notification bytes cross this socket; SDK I/O stays in the native turn.
 #![allow(clippy::disallowed_methods)]

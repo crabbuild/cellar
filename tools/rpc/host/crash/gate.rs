@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Qualification-only barriers at explicitly observed invocation boundaries.
 use anyhow::{ensure, Context as _, Result};
 use cellar::sdk::{rpc, Context, Invocation, Output};

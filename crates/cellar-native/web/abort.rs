@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Shared abort reasons and engine-independent cancellation notification.
 use super::{Error, Event, EventDispatchError, EventInit, EventTarget, Listener, ListenerOptions};
 use crate::clone::{StructuredValue, Value};

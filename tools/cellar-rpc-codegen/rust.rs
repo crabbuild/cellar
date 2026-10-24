@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 use anyhow::Result;
 use prost_build::{Service, ServiceGenerator};
 use std::{cell::RefCell, fmt::Write, path::Path, rc::Rc};

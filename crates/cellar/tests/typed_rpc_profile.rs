@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Compile generated portable-profile services using only Cellar's SDK exports.
 use cellar::sdk::{rpc, Context};
 use rpc::prost::Message;

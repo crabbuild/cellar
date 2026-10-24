@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Destination-observed producer lanes, not a census of undispatched sources.
 
 use super::{authority::Action, error::error, store, ErrorCode, Resource, Stream};

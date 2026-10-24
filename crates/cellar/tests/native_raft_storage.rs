@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Real-engine persistence, crash cuts, identity isolation and host lifetime.
 #![allow(clippy::disallowed_methods)]
 #[path = "support/raft_storage_fault.rs"]

@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Adapter budgets retain the original host clock without retaining a context.
 use super::{Code, Failure};
 use crate::{application::Context, host_io::IoContext};

@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Real HTTP, Python/PydanticAI, SQLite and pending-alarm process replacement."""
 import argparse
 from concurrent.futures import ThreadPoolExecutor

@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Fixed RPC categories survive entered handlers; outcome claims never do."""
 from pathlib import Path
 import sys

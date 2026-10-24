@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! A real cell can consume its own durable delivery without recursive schema
 //! hashes, reentrant callbacks or a second internal command-client allocator.
 #![allow(clippy::disallowed_methods)]

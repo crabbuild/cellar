@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Source SDK transactions through native application turns. The fixture
 //! checks persisted emission; fleet dispatch/proof qualification is separate.
 

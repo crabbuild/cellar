@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Cloudflare peer relay
 
 This helper carries native Cellar peer TCP connections over authenticated

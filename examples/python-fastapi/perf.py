@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Benchmark the real FastAPI order service using private local durable state.
 
 Writes are submitted once, to distinct orders. Every acknowledged mutation is

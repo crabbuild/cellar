@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Exact-resource terminal catalog evidence for platform source destruction.
 
 use super::{error::error, store, ErrorCode, Resource};

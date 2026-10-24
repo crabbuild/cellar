@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 #[path = "../generated_client.rs"]
 mod client;
 #[path = "../../../crates/cellar-axum/tests/support/mod.rs"]

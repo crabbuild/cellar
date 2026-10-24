@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 // Deterministic stand-in for private native controls. Production never uses a
 // guest-provided clock or serializes this object in business metadata.
 export function testBudget(clock = {now: 0}, cap = 5000, parent = Infinity) {

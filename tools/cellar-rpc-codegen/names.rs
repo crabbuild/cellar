@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Reject identifiers that become ambiguous after language name conversion.
 use anyhow::{ensure, Result};
 use heck::{ToLowerCamelCase, ToSnakeCase, ToUpperCamelCase};

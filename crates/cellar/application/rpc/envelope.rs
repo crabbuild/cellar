@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 use super::{Code, Failure, Limits};
 use crate::engine_api::RpcData;
 use cellar_native::clone::{self, Object, StructuredValue, Value};

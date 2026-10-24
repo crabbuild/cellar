@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 use serde::{Deserialize, Serialize};
 
 /// Machine-readable event outcome. A code alone never authorizes replay of a

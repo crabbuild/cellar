@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """A noncooperative typed handler, resumed only after its native owner fences."""
 import asyncio
 from cellar import SDKError

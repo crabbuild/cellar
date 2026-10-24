@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 use anyhow::{bail, Context as _, Result};
 use reqwest::Client;
 use std::{

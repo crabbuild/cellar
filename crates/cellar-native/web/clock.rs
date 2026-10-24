@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! A scoped host clock for synchronous owned-value construction.
 use std::{cell::Cell, marker::PhantomData, rc::Rc};
 thread_local! {static CLOCK:Cell<Option<fn()->f64>>=const{Cell::new(None)};}

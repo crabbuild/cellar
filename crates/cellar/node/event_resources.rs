@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Resource activation uses the ordinary owner route and proof gates. This
 //! module does not mutate another cell's SQLite or publish a provisional bind.
 

@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! A separately owned query connection per peer. Waiting for a read cannot
 //! occupy the control or LTX connection required to establish its barrier.
 

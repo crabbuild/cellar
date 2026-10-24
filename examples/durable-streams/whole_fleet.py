@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Audit bucket recovery after losing every fleet process and local node directory."""
 import argparse
 import hashlib

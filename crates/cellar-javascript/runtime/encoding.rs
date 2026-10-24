@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Text Encoding globals installed before application descriptors execute.
 //! Native decoder state follows a weak JS function owner and is also dropped
 //! with the isolate. No decoder contains SDK authority or crosses an await.

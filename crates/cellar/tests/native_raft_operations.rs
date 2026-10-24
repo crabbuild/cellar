@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Public Node stop observations and retained replica restart. The conditional
 //! in-memory archive fixture is not physical S3 or a deployment fence provider.
 #![allow(clippy::disallowed_methods)]

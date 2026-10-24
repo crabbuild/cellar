@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Generation-bound private management. Human permission checks belong to the
 //! management host; this listener accepts only authenticated fleet requests.
 use super::*;

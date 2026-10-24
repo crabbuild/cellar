@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Shared glossary
 
 Use these definitions when reading the guides, designing service contracts or

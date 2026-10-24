@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Ordinary RPC budgets cross a peer as durations, never domain timestamps.
 //! Expiry proves no rollback and never makes an admitted mutation retryable.
 use crate::application::rpc::{Code, Failure};

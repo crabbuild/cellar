@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Readiness, cancellation and retirement must not wait for housekeeping.
 use super::*;
 

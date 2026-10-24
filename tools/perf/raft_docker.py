@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Bounded local Engine control for one immutable, owned container identity.
 
 Avoid repeated CLI startup inside measured pause windows. Container lifecycle

@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Embedded Python applications on Cellar
 
 `cellar-python` runs Python handlers inside a native Rust Cellar host. Python

@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 use anyhow::{anyhow, Result};
 use proc_macro2::{Delimiter, Span, TokenStream, TokenTree};
 use std::collections::BTreeSet;

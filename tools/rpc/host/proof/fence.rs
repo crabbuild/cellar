@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Force a real published node-lease mismatch, then join its fenced domain.
 use anyhow::{ensure, Context, Result};
 use cellar::{

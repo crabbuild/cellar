@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Check live Protobuf codec descriptors against the native artifact shapes.
 
 No Protobuf dependency is imported until a registered RPC codec is checked.

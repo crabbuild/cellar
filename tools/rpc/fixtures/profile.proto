@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 // Portable RPC profile fixture, shared by descriptor and codec qualification.
 syntax = "proto3";
 package cellar.rpc.conformance.v1;

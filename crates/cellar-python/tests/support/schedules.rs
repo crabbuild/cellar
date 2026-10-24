@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Actual native cron alarm, Python retry decisions and persisted history.
 use super::*;
 

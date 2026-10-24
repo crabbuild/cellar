@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 use super::{contract::Contract, envelope, Code, Failure, Limits, Method};
 use crate::application::{Cell, Context, Invocation, Output};
 use crate::engine_api::RpcData;

@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Integrity and identity for the independent acknowledged-range/seal barrier.
 use super::{validate_log_leader, FollowerState};
 use sha2::{Digest, Sha256};

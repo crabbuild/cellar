@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # cellar-guest: shared SDK operations for language adapters
 
 `cellar-guest` translates SDK calls from Python and JavaScript applications into

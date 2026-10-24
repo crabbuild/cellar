@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Physical persistence waits must not amplify unrelated consensus work.
 #![allow(clippy::disallowed_methods)]
 use super::*;

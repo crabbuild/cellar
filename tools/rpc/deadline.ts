@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 // Real-host fault probes. Production call budgets never use this wall clock.
 import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
 import { configureTextEncoding } from "@bufbuild/protobuf/wire";

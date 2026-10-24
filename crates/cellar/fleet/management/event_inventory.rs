@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Bounded root observations for the console; no background fleet scan.
 use super::{FleetClient, PageRequest};
 use crate::event_inventory::InventoryRequest;

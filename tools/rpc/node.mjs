@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 // A plain JavaScript entry and generated JS client/registration. Business
 // messages cross the same wire contract as the independently generated TS API.
 import { Counter, handler } from "./app.js";

@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Platform inventory executes inside the original activation and proof gates.
 use crate::application::event_stream::{
     CatalogListOptions, CatalogNamespace, DeliveryError, ErrorCode, Resource, SourceListOptions,

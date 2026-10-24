@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Revoke authority after a native commit, while sync/output proof is withheld.
 use super::fault_gates::{Gate, Peer, Release, Store};
 use super::python_control::{call as control, observe};

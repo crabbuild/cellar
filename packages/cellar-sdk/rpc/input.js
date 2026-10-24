@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 import { refuse } from "./scalar.js";
 
 /** Resolve the finite budgets used by schema-driven input preflight. */

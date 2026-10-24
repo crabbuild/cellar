@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Static surface for the `cellar_rpc` module installed by the embedding host.
 
 The runtime source is rpc.py. Type variables keep generated service method

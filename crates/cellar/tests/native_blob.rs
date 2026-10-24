@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Native Blob calls cross real cell turns and output gates, without engine initialization.
 
 use anyhow::{anyhow, Result};

@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Explicit all-runtime qualification; never a dependency of native applications.
 #![allow(clippy::disallowed_methods, clippy::disallowed_macros)]
 use anyhow::{ensure, Context as _, Result};

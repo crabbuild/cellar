@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 import { verifyCodecs } from "./shape.js";
 
 /** Internal authority key installed by both Cellar JavaScript backends. */

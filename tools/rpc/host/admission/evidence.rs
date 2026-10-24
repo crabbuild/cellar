@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Every pair must refuse both metadata faults before provider construction.
 use anyhow::{ensure, Context, Result};
 use serde_json::Value;

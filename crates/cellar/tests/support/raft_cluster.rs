@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Embedded nodes with real TLS TCP links and optional connection-cut proxies.
 #![allow(clippy::disallowed_methods)]
 use super::public_node;

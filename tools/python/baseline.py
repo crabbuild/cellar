@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Measure equivalent real-node Rust/Python operations and bucket-only takeover.
 
 All mutations are sent once. Errors fail the run, retain raw attempt evidence,

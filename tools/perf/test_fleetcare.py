@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Fail-closed lifecycle and regression guards for the repeatable suite."""
 import copy
 import io

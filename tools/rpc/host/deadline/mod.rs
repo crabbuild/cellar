@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Native and guest deadlines over real signed peer routes and nested calls.
 use anyhow::{ensure, Context as _, Result};
 use cellar::{bucket::Bucket, sdk::ShutdownMode};

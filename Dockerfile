@@ -1,4 +1,6 @@
 # syntax=docker/dockerfile:1.7
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 
 ARG RUST_VERSION=1.98.1
 ARG CELLAR_COMMIT=unknown

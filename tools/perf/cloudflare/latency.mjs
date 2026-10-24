@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 // A transport diagnostic, not a Cellar request benchmark or a CI latency gate.
 import assert from 'node:assert/strict';
 import net from 'node:net';

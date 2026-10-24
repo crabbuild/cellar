@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Physical RPCs exercise actual Node services, including an unclaimed standby.
 use super::*;
 

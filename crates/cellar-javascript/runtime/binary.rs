@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Copy exact views at the isolate boundary. No local handles cross an await.
 use anyhow::{ensure, Context as _, Result};
 

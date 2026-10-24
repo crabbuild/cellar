@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 use crate::protocol::{NodeFile, NodeInventory, MAX_NODE_EXPANDED_BYTES, MAX_NODE_FILES};
 use anyhow::{ensure, Result};
 use sha2::{Digest, Sha256};

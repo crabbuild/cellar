@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Retain native authority while its actual handler is suspended in sync().
 use super::super::generated::{CounterClient, IncrementRequest};
 use anyhow::{ensure, Context as _, Result};

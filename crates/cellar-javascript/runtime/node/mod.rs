@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Actual Node.js process backend. Process and IPC ownership live at bootstrap,
 //! outside the native execution domain; SDK effects remain on native invocations.
 use super::*;

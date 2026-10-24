@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Reuse host memory probes outside node execution; no Python heap attribution.
 
 /// Whole-process observations. `None` means that probe is unavailable. Jemalloc

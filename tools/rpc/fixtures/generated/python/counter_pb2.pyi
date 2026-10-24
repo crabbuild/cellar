@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 import builtins as _cellar_rpc_builtins
 
 from google.protobuf import descriptor as _descriptor

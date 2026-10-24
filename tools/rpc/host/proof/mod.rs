@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Withhold real durability I/O; verify output gates and original owner fencing.
 mod evidence;
 mod fence;

@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Node-owned command producers and Raft/SQL effect dispatch. Waiters never own
 //! a submitted producer, its private image or its progress through publication.
 pub use super::host_archive::RaftArchiveOptions;

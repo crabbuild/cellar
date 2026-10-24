@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Runtime support for generated, invocation-scoped Cellar Protobuf services.
 
 The native host owns the contract catalog, wire preflight and SDK authority.

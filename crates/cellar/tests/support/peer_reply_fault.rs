@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Real peer tunnel proxy: hold signed submissions or capture complete replies
 //! before controlled delay/loss. Packets and production proof stay unchanged.
 #![allow(clippy::disallowed_methods)]

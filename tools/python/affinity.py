@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Optional Linux CPU placement for measurement children, before any threads start."""
 import json
 import os

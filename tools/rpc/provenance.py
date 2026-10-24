@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """A refused child cannot classify its already-committed parent's effects."""
 from cellar import SDKError
 from counter_cellar import CounterClient

@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! One private writable image and one outstanding command proposal per cell.
 //! These host mechanics do not replace ingress authorization or output gating.
 

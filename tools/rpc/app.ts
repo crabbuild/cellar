@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 // Shared business implementation. V8 consumes TypeScript-generated services;
 // the Node entry uses the separately generated JavaScript services.
 import { create } from "@bufbuild/protobuf";

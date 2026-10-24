@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Native probes run over the ordinary generated service and real peer route.
 use anyhow::{ensure, Context as _, Result};
 use cellar::sdk::{rpc, *};

@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Exercise real Queue/DLQ consumers and SQL bindings through the public SDK.
 //! Executor construction and socket clients belong to the caller test host.
 #![allow(clippy::disallowed_methods)]

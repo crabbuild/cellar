@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! T14: cancellation and deadlines while real durability proof is withheld.
 use super::*;
 

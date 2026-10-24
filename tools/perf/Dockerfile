@@ -1,4 +1,6 @@
 # syntax=docker/dockerfile:1
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 FROM rust:1.98.1-bookworm AS build
 ARG TARGET_CACHE_ID=cellar-embedded-perf-target
 WORKDIR /src

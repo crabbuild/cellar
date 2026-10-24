@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Owned exact-key discovery. Directory observations refresh endpoints only;
 //! existing quorum authority survives missing metadata or an object-store outage.
 use super::*;

@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 use anyhow::{ensure, Context as _, Result};
 use cellar::{bucket::Bucket, sdk::ShutdownMode};
 use serde_json::{json, Value};

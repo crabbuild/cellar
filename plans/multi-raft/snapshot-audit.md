@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Physical snapshot boundary
 
 MR-10 is complete at the native recovery boundary.

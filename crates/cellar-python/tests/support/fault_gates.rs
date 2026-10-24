@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Caller-owned faults around real authenticated log transport and bucket I/O.
 use anyhow::Result;
 use cellar::sdk::{LogStreamIo, LogTransport};

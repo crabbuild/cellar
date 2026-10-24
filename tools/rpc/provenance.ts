@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 // Post-commit failures must describe the parent call, not its refused child.
 import type { Context, Json } from "@cellar/sdk";
 import type { CounterClient } from "./fixtures/generated/typescript/counter_cellar.js";

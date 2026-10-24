@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 import * as React from "react"
 
 type Theme = "dark" | "light" | "system"

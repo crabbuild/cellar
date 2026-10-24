@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 // Build-only plugin. Use Protobuf-ES's own symbol/import resolver so nested
 // messages, well-known types, keywords and import paths match its message code.
 import { createEcmaScriptPlugin, runNodeJs } from "@bufbuild/protoplugin";

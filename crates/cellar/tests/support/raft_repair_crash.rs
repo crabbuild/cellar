@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Abruptly kill every node after a committed explicit joint transition, then
 //! resume preserved bytes through public Node startup and finish the same plan.
 use super::super::seed_fault;

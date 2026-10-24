@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Generate visitors from Prost's actual Rust declarations and field attributes.
 //! This avoids duplicating its Rust type/path/boxing/keyword conversion rules.
 use anyhow::{bail, ensure, Context, Result};

@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 // Evaluated before application imports. Only durations cross IPC; each native
 // handle retains its own clock/parent cap. Node charges the control round trip
 // conservatively so neither native submission nor decoding buys a new window.

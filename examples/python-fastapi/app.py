@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """FastAPI order service hosted by Cellar's buffered Python HTTP adapter."""
 import asyncio
 import os

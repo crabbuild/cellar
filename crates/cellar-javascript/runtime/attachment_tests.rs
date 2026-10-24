@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Runtime-only attachment qualification. These identity codecs intentionally
 //! isolate byte ownership/framing; real Protobuf/cell durability has separate tests.
 use super::*;

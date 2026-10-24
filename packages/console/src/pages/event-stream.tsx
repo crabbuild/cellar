@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 import { useState } from "react"
 import { StreamLifecycle } from "@/components/event-lifecycle"
 import { SubscriptionDetails } from "@/components/subscription-details"

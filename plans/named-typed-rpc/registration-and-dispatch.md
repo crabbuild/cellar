@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Named RPC: registration and dispatch contract
 
 This is the implementation detail for [plan 009](../009-named-typed-rpc.md).

@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Engine-selected recovery references. Inventory and object storage never
 //! choose progress, votes or membership; marker validation precedes reclamation.
 

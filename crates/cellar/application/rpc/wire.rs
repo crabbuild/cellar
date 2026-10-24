@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Bounded Protobuf wire and decoded-layout preflight. It observes duplicate
 //! occurrences before an ordinary codec can merge them into a larger graph.
 use super::contract::{Contract, Field, Limits};

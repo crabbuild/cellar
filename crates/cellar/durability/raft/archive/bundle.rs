@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Bounded immutable upload coalescing. Each cell still verifies and conditionally
 //! publishes its own head; a bundle never creates a cross-cell commit proof.
 use super::*;

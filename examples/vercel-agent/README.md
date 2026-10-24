@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Durable AI chat with Vercel AI SDK and Cellar
 
 A React/shadcn chat workspace runs a real Vercel AI SDK 7.0.152 `ToolLoopAgent`

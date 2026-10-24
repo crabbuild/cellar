@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Reference Python provider and consumer for the all-backend qualification."""
 import asyncio
 from urllib.parse import urlsplit, parse_qsl

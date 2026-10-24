@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Fixed entered-handler categories carry no evidence about committed effects.
 use cellar::sdk::rpc::{Code, Failure};
 

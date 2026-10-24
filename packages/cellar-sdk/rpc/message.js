@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 import { Scalar, scalar, mapKey, refuse, varintSize } from "./scalar.js";
 import { inputLimits } from "./input.js";
 

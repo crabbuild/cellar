@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Distinguish a request that never leaves from a lost result after submission.
 use super::*;
 use crate::application::event_stream::{Authority, Binding, DeliveryError, ErrorCode};

@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Exercise the real SQLite callback ABI without pausing the unit-test process.
 use super::*;
 use rusqlite::{params, Connection, OptionalExtension};

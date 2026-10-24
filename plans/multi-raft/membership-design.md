@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Native placement and repair implementation contract
 
 Status: MR-11 is complete at the qualified native boundary. The

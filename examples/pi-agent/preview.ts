@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 import type {Progress} from './durable.js';
 
 // A bounded, ordered, optional side channel. It carries previews, never secrets,

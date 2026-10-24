@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Qualification-only named cycles; retained frames use their original context."""
 import asyncio
 from cellar import SDKError

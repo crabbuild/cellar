@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Native delivery uses the retained asset builder, index and blob protocol.
 
 use super::*;

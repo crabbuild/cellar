@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Standalone native counter host
 
 Use the original small Rust host when learning packaging, asset routing and

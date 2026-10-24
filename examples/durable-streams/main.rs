@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Standalone bucket-backed stream example with caller-owned executors.
 // Filesystem bootstrap is a process-boundary effect before Node admission.
 #![allow(clippy::disallowed_methods)]

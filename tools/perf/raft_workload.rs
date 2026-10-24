@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Noncommutative reference workload for the MR-14 runner. All state changes,
 //! payload bytes and conditional results cross the normal receipt/LTX boundary.
 use crate::reference_workload::{apply, decode, Change, State, Transition, READ_SQL};

@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Authenticate real peer RPCs and audit the execution node, scopes and epochs.
 use anyhow::{ensure, Context as _, Result};
 use cellar::{bucket::Bucket, sdk::ShutdownMode};

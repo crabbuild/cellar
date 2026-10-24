@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Structural codec identity, separate from the exact artifact digest. Maps
 //! project their logical key/value types; synthetic optional oneof names and
 //! source locations are not part of the language-neutral message shape.

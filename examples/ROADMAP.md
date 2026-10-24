@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Complete example set for application builders and teams
 
 The runnable catalog is the foundation. Large distributed applications also

@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Validate declarations before assembling runtime routes or exporting documents.
 use anyhow::{ensure, Result};
 use serde_json::{json, Value};

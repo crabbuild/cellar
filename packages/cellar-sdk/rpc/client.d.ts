@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 import type { Context } from "../index.js";
 import type { InputLimits } from "./input.js";
 import type { createCodec } from "./codec.js";

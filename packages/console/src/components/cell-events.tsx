@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 import { useState } from "react"
 import { SourceLifecycle } from "@/components/event-lifecycle"
 import { Link, useSearchParams } from "react-router-dom"

@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Own only child process groups created for this qualification run.
 use anyhow::{ensure, Context, Result};
 use serde_json::Value;

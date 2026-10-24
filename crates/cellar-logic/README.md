@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # cellar-logic
 
 The pure decision core for Cellar. It decides how cells activate, route calls,

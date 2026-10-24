@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Named RPC codec and qualification tools
 
 Implementation of [plan 009](../../plans/009-named-typed-rpc.md) is in progress.

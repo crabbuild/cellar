@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Structured Rust RPC
 
 Call business methods through structured native cell RPC.

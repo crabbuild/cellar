@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Real authenticated management stops with a registered public Raft cell host.
 use super::{faults, log_fault, public_node, registration, wait_status};
 use anyhow::{ensure, Context as _, Result};

@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Output-proof failure may overlap a still-running alarm on the same cell.
 use cellar_logic::{
     on_event, wake::AlarmSnapshot, CasOutcome, Channel, Config, Effect, Event, Failure,

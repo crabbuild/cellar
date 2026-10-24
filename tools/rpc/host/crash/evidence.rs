@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Fail closed when aggregating independently killed owner processes.
 use anyhow::{ensure, Context, Result};
 use serde_json::Value;

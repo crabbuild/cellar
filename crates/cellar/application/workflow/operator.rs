@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Authenticated operator fetch protocol for reserved workflow cells.
 use super::{cell::*, *};
 use crate::engine_api::{HttpResponse, RequestBody};

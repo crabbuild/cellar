@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # One counter application, two HTTP hosts
 
 Both binaries register the [same handlers and builder](lib.rs). Named counters

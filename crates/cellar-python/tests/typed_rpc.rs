@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Real host calls in both directions, with one process-owned Python runtime.
 #![allow(clippy::disallowed_methods)]
 use anyhow::{ensure, Context as _, Result};

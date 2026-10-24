@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Named, Protobuf-typed cell calls over the native routing and durability path.
 //!
 //! Generated clients use [`Client`] and generated server registrations use

@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Bounded node-owned archive producers and one exclusive replay workspace.
 //! SQL workers capture immutable cuts; network/archive replay never occupies a
 //! cell's private execution connection or creates a task for each resident cell.

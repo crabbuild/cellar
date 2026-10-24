@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Real TLS peers hold admission replies to exercise the shared control lane.
 use super::*;
 use crate::raft::storage::GroupBootstrap;

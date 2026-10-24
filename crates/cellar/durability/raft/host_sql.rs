@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! A fixed node-wide blocking pool owns SQLite and image directories. Domain
 //! cancellation joins a running callback before these owners release locks.
 

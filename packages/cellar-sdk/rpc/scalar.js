@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 // Standard FieldDescriptorProto type numbers, shared by the pinned codec's
 // reflection descriptors. The SDK deliberately has no Protobuf runtime import.
 export const Scalar = Object.freeze({
