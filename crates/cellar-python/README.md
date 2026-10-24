@@ -263,7 +263,7 @@ Rust dispatch -> Python             Rust reads declared keys
                await read           Rust dispatch + snapshots
                    |                          |
 Rust reads <-------+                       Python
-     |                                       |
+     |                                        |
      +-----------> Python               ctx.initial_storage["count"]
 ```
 
@@ -303,7 +303,7 @@ handler's own writes. An intervening writer makes a checked update conflict.
 ```text
 Python coroutine                  Original native invocation
        |                                     |
- await SDK operation -- name + values ------> | validate identity / liveness
+ await SDK operation -- name + values ------>| validate identity / liveness
        |                                     | execute with original Context
        | <-------------- reply ------------- |
        v                                     |
