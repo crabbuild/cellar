@@ -103,7 +103,9 @@ response alone is not a fleet completion certificate.
 ## Format cutover and qualification
 
 Cellar-owned markers stay at 1. Membership and intent records require an explicit
-nullable `fleet` field, and the namespace protocol identity ends in `/fleet-1`.
+nullable `fleet` field. Birth records also require an explicit nullable
+`cancelled_by` field; the namespace protocol identity ends in
+`/fleet-1/enrollment-1`.
 Older namespace protocols refuse startup; there is no legacy reader or migration.
 Use a fresh experimental namespace and matching participants. Do not downgrade a
 guarded engine to an older binary or remove the guard field to regain admission.

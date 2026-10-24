@@ -18,6 +18,15 @@ pub struct Store {
     pub fail_after: AtomicBool,
     pub fail_read: AtomicBool,
     pub fail_confirmation: AtomicBool,
+    pub hold_next_birth: AtomicBool,
+    pub hold_birth_confirmation: AtomicBool,
+    pub birth_confirmation_pending: AtomicBool,
+    pub birth_hang: AtomicBool,
+    pub birth_waiting: AtomicBool,
+    pub birth_resume: tokio::sync::Notify,
+    pub fail_birth_after: AtomicBool,
+    pub fail_birth_confirmation: AtomicBool,
+    pub fail_birth_read: AtomicBool,
     pub fail_head_before: AtomicBool,
     pub fail_head_after: AtomicBool,
     pub fail_bundle_after: AtomicBool,
@@ -72,7 +81,29 @@ fn failure() -> object_store::Error {
     }
 }
 
+struct BirthWaiting<'a>(&'a AtomicBool);
+
+impl Drop for BirthWaiting<'_> {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::Release);
+    }
+}
+
 impl Store {
+    async fn wait_birth(&self) {
+        self.birth_waiting.store(true, Ordering::Release);
+        let _waiting = BirthWaiting(&self.birth_waiting);
+        loop {
+            let resumed = self.birth_resume.notified();
+            tokio::pin!(resumed);
+            resumed.as_mut().enable();
+            if !self.birth_hang.load(Ordering::Acquire) {
+                break;
+            }
+            resumed.await;
+        }
+    }
+
     // Shared with targets that do not arm the payload gate.
     #[allow(dead_code)]
     pub fn release_payload(&self) {
@@ -115,6 +146,9 @@ impl ObjectStore for Store {
             return Err(failure());
         }
         tokio::task::yield_now().await;
+        if path.filename() == Some("birth") && self.hold_next_birth.swap(false, Ordering::AcqRel) {
+            self.wait_birth().await;
+        }
         if path.as_ref().contains("/claims/")
             && self
                 .hold_nth_claim
@@ -178,6 +212,19 @@ impl ObjectStore for Store {
             return Err(failure());
         }
 
+        if path.filename() == Some("birth") {
+            if self.fail_birth_confirmation.swap(false, Ordering::AcqRel) {
+                self.fail_birth_read.store(true, Ordering::Release);
+                return Err(failure());
+            }
+            if self.fail_birth_after.swap(false, Ordering::AcqRel) {
+                return Err(failure());
+            }
+            if self.hold_birth_confirmation.swap(false, Ordering::AcqRel) {
+                self.birth_confirmation_pending
+                    .store(true, Ordering::Release);
+            }
+        }
         let head = path.filename() == Some("head");
         if head && path.as_ref().contains("/archives/") {
             self.archive_heads_waiting.fetch_add(1, Ordering::AcqRel);
@@ -216,6 +263,16 @@ impl ObjectStore for Store {
 
     async fn get_opts(&self, path: &Path, options: GetOptions) -> object_store::Result<GetResult> {
         tokio::task::yield_now().await;
+        if path.filename() == Some("birth")
+            && self
+                .birth_confirmation_pending
+                .swap(false, Ordering::AcqRel)
+        {
+            self.wait_birth().await;
+        }
+        if path.filename() == Some("birth") && self.fail_birth_read.swap(false, Ordering::AcqRel) {
+            return Err(failure());
+        }
         if matches!(path.filename(), Some("pin" | "view"))
             && self.fail_directory_reads.load(Ordering::Acquire)
         {

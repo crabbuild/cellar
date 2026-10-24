@@ -32,7 +32,7 @@ pub use crate::raft::effects::{
 pub use crate::raft::receipt_maintenance::ReceiptMaintenanceLimits;
 
 pub use crate::raft::catalog::{
-    BirthProposal, CatalogOptions, InitialMember, NamespaceConfig, VoterPolicy,
+    BirthDisposition, BirthProposal, CatalogOptions, InitialMember, NamespaceConfig, VoterPolicy,
 };
 pub use cellar_logic::raft_leadership::LeaderPolicy;
 pub use cellar_logic::raft_placement::PlacementPolicy;
@@ -92,9 +92,9 @@ pub mod verification {
         CommittedImage, DurableApply, GroupLog, GroupWrite, SnapshotChange,
     };
     pub use crate::raft::catalog::{
-        BirthProposal, BootstrapPermit, Catalog, CatalogError, CatalogOptions, GroupBirth,
-        InitialMember, NamespaceCatalog, NamespaceConfig, NodePublication, NodeRegistration,
-        NodeView, VoterPolicy,
+        BirthDisposition, BirthProposal, BootstrapPermit, Catalog, CatalogError, CatalogOptions,
+        GroupBirth, InitialMember, NamespaceCatalog, NamespaceConfig, NodePublication,
+        NodeRegistration, NodeView, VoterPolicy,
     };
     pub use crate::raft::completion::{
         AcceptedProposal, ApplyCompletion, ApplyTicket, GroupStatus, RuntimeError, RuntimeEvent,

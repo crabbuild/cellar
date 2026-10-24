@@ -282,7 +282,7 @@
     {
       "id": "FO-03",
       "title": "Enroll trusted nodes and every managed cell history",
-      "status": "TODO",
+      "status": "IN_PROGRESS",
       "depends_on": [
         "FO-02"
       ],
@@ -296,10 +296,16 @@
         "crates/cellar/durability/raft/catalog.rs",
         "crates/cellar/durability/raft/catalog_wire.rs",
         "crates/cellar/durability/raft/host_inspection.rs",
-        "crates/cellar/durability/raft/inspection_wire.rs"
+        "crates/cellar/durability/raft/inspection_wire.rs",
+        "crates/cellar/application/consensus/mod.rs",
+        "crates/cellar/application/consensus/protocol.rs",
+        "crates/cellar/tests/support/raft_catalog_fault.rs",
+        "crates/cellar/durability/raft/README.md",
+        "crates/cellar/durability/raft/fleet_catalog/README.md"
       ],
       "creates": [
-        "crates/cellar/tests/native_raft_fleet_enrollment.rs"
+        "crates/cellar/tests/native_raft_fleet_enrollment.rs",
+        "crates/cellar/durability/raft/catalog_birth.rs"
       ],
       "steps": [
         "Add CAS-authorized node-set revisions with bounded route and permission refresh.",
@@ -389,6 +395,56 @@
           "name": "fleet_enrollment_eligibility_modes",
           "oracle": "Restart and resize target exclusions are distinct from full-evacuation intent in authenticated inspection.",
           "invariants": [
+            "F05",
+            "F07"
+          ]
+        },
+        {
+          "name": "fleet_enrollment_cancelled_birth",
+          "oracle": "An immutable cancellation at the exact name key defeats a held late birth, all later incarnations and a different cancellation payload without overwriting the winner.",
+          "invariants": [
+            "F02",
+            "F03",
+            "F05",
+            "F07"
+          ]
+        },
+        {
+          "name": "fleet_enrollment_birth_wins_delayed_cancellation",
+          "oracle": "A cancellation losing the exact-name create returns the live birth and cannot revoke its members or claim deletion.",
+          "invariants": [
+            "F02",
+            "F03",
+            "F05",
+            "F07"
+          ]
+        },
+        {
+          "name": "fleet_enrollment_cancelled_birth_lost_reply",
+          "oracle": "Lost tombstone replies reconcile by exact reads; lost confirmation remains explicitly ambiguous and a fresh adapter finds the same immutable result.",
+          "invariants": [
+            "F02",
+            "F03",
+            "F05",
+            "F07"
+          ]
+        },
+        {
+          "name": "fleet_enrollment_birth_cancellation_deadline",
+          "oracle": "The original cancellation deadline drops its physical waiter and preserves uncertainty until an exact-key winner is reconciled; no detached writer or absence-based release.",
+          "invariants": [
+            "F02",
+            "F03",
+            "F05",
+            "F07"
+          ]
+        },
+        {
+          "name": "fleet_enrollment_invalid_birth_tombstone",
+          "oracle": "Malformed or non-current cancellation identities refuse birth observation/creation instead of treating a tombstone as missing.",
+          "invariants": [
+            "F02",
+            "F03",
             "F05",
             "F07"
           ]

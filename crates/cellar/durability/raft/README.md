@@ -182,6 +182,18 @@ schema, cluster, minimum durability and voter policy cannot change in place.
 Three initial voters are required unless the immutable root explicitly selects
 the single-voter development policy.
 
+`NamespaceCatalog::cancel_birth` contends with creation at that same permanent
+cell-name key. A cancelled winner stores its exact scope and operation identity;
+late `resolve_birth` and ordinary `birth` calls return `BirthCancelled` and cannot
+mint a bootstrap capability. `birth_disposition` reports the exact live or
+cancelled winner for inventory reconciliation. A birth that won first stays live:
+cancellation returns it and does not revoke its members or delete its data.
+Another incarnation cannot reuse a cancelled name. The group-ID reservation also
+remains permanent. No timeout, lost reply or missing-key observation establishes
+that cancellation committed. Retry the original request or reconcile its exact
+key before releasing the corresponding inventory reservation. The cancellation
+deadline covers its entire attempt and starts no detached writer.
+
 Initial attachment requires a permanent member claim binding member, disk
 lineage and birth digest. The adapter reads the claim first, syncs/verifies local
 genesis through the engine, then conditionally creates and reads back the claim.
@@ -1026,7 +1038,9 @@ during an active repair. Complete node-load collection is available through
 inspection; automatic balancing remains open.
 
 This extends the internal protocol to
-`cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1/nodes-1/bundles-1`; numeric format markers stay 1.
+`cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1/nodes-1/bundles-1/fleet-1/enrollment-1`;
+numeric format markers stay 1. Current birth records require an explicit nullable
+`cancelled_by` field, and managed group records require their fleet guard.
 Earlier roots/state have no compatibility reader. Use a fresh experimental
 namespace/prefix and local state. The earlier MR-10 evidence retains its exact
 historical protocol and source scope.

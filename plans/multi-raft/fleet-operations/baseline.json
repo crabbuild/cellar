@@ -203,6 +203,10 @@
       "sha256": "3241c6239bb14a3180c709e1c21b2dc8ed77fe58d8c4914b04be9e3c36756c40"
     },
     {
+      "path": "crates/cellar/tests/support/raft_catalog_fault.rs",
+      "sha256": "01e61960218ba3bf9b6a84af575de287219e88259f6bafc75cab43a5c670629b"
+    },
+    {
       "path": "tools/perf/raft_analyze.py",
       "sha256": "3aedd99bec6701ae6190e790f6304c1070f983a5c37412c1f95c64d8bc0ec99c"
     },

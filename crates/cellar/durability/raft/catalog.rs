@@ -16,6 +16,10 @@ use futures_util::TryStreamExt;
 use object_store::{path::Path, ObjectStore, PutMode, PutOptions, UpdateVersion};
 use std::{collections::BTreeSet, fmt, sync::Arc};
 
+#[path = "catalog_birth.rs"]
+mod births;
+pub use births::BirthDisposition;
+
 #[path = "node_directory.rs"]
 mod directory;
 pub use directory::{NodePublication, NodeRegistration, NodeView};
@@ -28,6 +32,7 @@ pub enum CatalogError {
     Limit,
     WrongMode,
     NotInitialMember,
+    BirthCancelled,
     LostStableState,
     Unconfirmed,
     Storage(object_store::Error),
@@ -398,115 +403,6 @@ impl NamespaceCatalog {
             }
         }
         Err(CatalogError::Unconfirmed)
-    }
-
-    /// Concurrent creators follow the winning birth, including its placement;
-    /// retry never overwrites that record or substitutes another incarnation.
-    pub async fn resolve_birth(
-        &self,
-        mut proposal: BirthProposal,
-    ) -> Result<GroupBirth, CatalogError> {
-        self.require_mode(NamespaceMode::Raft)?;
-        self.check_scope(&proposal.scope)?;
-        proposal.voters.sort_by_key(|m| m.member);
-        proposal.learners.sort_by_key(|m| m.member);
-        self.check_members(&proposal.voters, &proposal.learners)?;
-        let key = self.birth_key(&proposal.scope.cell);
-        if let Some(bytes) = self.inner.read(&key).await? {
-            return self.decode_birth(&proposal.scope.cell, &bytes).await;
-        }
-        let reservation = wire::Reservation {
-            root_digest: self.root_digest,
-            scope: WireScope::from(&proposal.scope),
-        };
-        let reserved = wire::encode(wire::RESERVATION, &reservation, self.inner.limit)?;
-        let observed = self
-            .inner
-            .create_and_observe(&self.reservation_key(&proposal.scope), &reserved)
-            .await?;
-        if observed != reserved {
-            return Err(CatalogError::Conflict("group identity already reserved"));
-        }
-        let birth = wire::Birth {
-            root_digest: self.root_digest,
-            scope: WireScope::from(&proposal.scope),
-            voters: proposal
-                .voters
-                .into_iter()
-                .map(wire::Member::encode)
-                .collect(),
-            learners: proposal
-                .learners
-                .into_iter()
-                .map(wire::Member::encode)
-                .collect(),
-            empty_digest: wire::digest(&[]),
-        };
-        let bytes = wire::encode(wire::BIRTH, &birth, self.inner.limit)?;
-        let observed = self.inner.create_and_observe(&key, &bytes).await?;
-        self.decode_birth(&proposal.scope.cell, &observed).await
-    }
-
-    pub async fn birth(&self, cell: &str) -> Result<Option<GroupBirth>, CatalogError> {
-        self.require_mode(NamespaceMode::Raft)?;
-        if cell.is_empty() || cell.len() > 1024 || cell.chars().any(char::is_control) {
-            return Err(CatalogError::Invalid("cell identity"));
-        }
-        match self.inner.read(&self.birth_key(cell)).await? {
-            Some(bytes) => Ok(Some(self.decode_birth(cell, &bytes).await?)),
-            None => Ok(None),
-        }
-    }
-
-    async fn decode_birth(&self, cell: &str, bytes: &[u8]) -> Result<GroupBirth, CatalogError> {
-        let birth: wire::Birth = wire::decode(wire::BIRTH, bytes, self.inner.limit)?;
-        let scope = birth
-            .scope
-            .clone()
-            .decode()
-            .map_err(|_| CatalogError::Corrupt("birth scope"))?;
-        self.check_scope(&scope)?;
-        if scope.cell != cell
-            || birth.root_digest != self.root_digest
-            || birth.empty_digest != wire::digest(&[])
-        {
-            return Err(CatalogError::Conflict("birth namespace/cell/empty state"));
-        }
-        let voters = birth
-            .voters
-            .iter()
-            .map(wire::Member::decode)
-            .collect::<Result<Vec<_>, _>>()?;
-        let learners = birth
-            .learners
-            .iter()
-            .map(wire::Member::decode)
-            .collect::<Result<Vec<_>, _>>()?;
-        self.check_members(&voters, &learners)?;
-        let reservation = self
-            .inner
-            .read(&self.reservation_key(&scope))
-            .await?
-            .ok_or(CatalogError::Corrupt("missing group reservation"))?;
-        let value: wire::Reservation =
-            wire::decode(wire::RESERVATION, &reservation, self.inner.limit)?;
-        if value.root_digest != self.root_digest
-            || value
-                .scope
-                .decode()
-                .map_err(|_| CatalogError::Corrupt("reservation scope"))?
-                != scope
-        {
-            return Err(CatalogError::Conflict("group reservation"));
-        }
-        Ok(GroupBirth {
-            scope,
-            voters,
-            learners,
-            digest: wire::digest(bytes),
-            root_digest: self.root_digest,
-            catalog_owner: self.inner.owner.clone(),
-        })
     }
 
     /// Use only with a parked runtime. Read the remote claim before deciding

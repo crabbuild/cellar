@@ -163,6 +163,7 @@ mod tests {
             "cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1",
             "cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1/nodes-1",
             "cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1/nodes-1/bundles-1",
+            "cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1/nodes-1/bundles-1/fleet-1",
         ] {
             root.protocol_digest = Sha256::digest(protocol.as_bytes()).into();
             let encoded = encode(ROOT, &root, 64 * 1024).unwrap();
@@ -207,6 +208,16 @@ pub(super) struct Birth {
     pub voters: Vec<Member>,
     pub learners: Vec<Member>,
     pub empty_digest: [u8; 32],
+    #[serde(deserialize_with = "required_nullable")]
+    pub cancelled_by: Option<[u8; 16]>,
+}
+
+fn required_nullable<'de, T, D>(decoder: D) -> Result<Option<T>, D::Error>
+where
+    T: Deserialize<'de>,
+    D: serde::Deserializer<'de>,
+{
+    Option::<T>::deserialize(decoder)
 }
 
 #[derive(Serialize, Deserialize)]
