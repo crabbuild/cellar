@@ -9,6 +9,19 @@ acknowledging the HTTP response. The load generator never retries a write and
 requires recovered counters to equal the number of complete acknowledged
 responses.
 
+Recovery audits also request a SHA-256 digest recomputed from the stored payload
+and compare it with the client's last acknowledged request bytes for each cell.
+The client assigns each cell to one worker, checks every returned write ordinal,
+and retains the digest only after a complete successful acknowledgement. Missing
+digests and corruption that preserves payload length fail the audit. Read and
+verify modes require an existing ledger containing both counters and digests;
+counter-only historical ledgers cannot qualify the current recovery gate.
+
+Hosts compute digests only for verification GETs, outside timed request windows.
+The client hashes each acknowledged write after its latency sample; this cost
+still affects closed-loop throughput and client CPU use. Compare fresh native
+and Python runs from the same revision rather than reusing earlier benchmarks.
+
 This is a measurement fixture, not an inventoried application deployment.
 Use the [package workflow](README.md) for production runtime and dependency
 verification. The Python fixture uses the standard library only.
@@ -54,7 +67,7 @@ routes and bounded request admission. It checks:
 - Three-node fleet takeover after killing an owner, followed by replacement.
 - Rolling handoff of every node, new writes after each takeover, and a final
   preserving stop whose last node must reload alone.
-- Every acknowledged counter, routing-cache bounds, Python ABI/GIL observations
+- Every acknowledged counter and final payload digest, routing-cache bounds, Python ABI/GIL observations
   and complete native/Python shutdown reports.
 
 Cleanup removes only the fixture's container and joins its processes. Logs,

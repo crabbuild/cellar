@@ -1,5 +1,6 @@
 """Fleet counter counterpart to tools/perf/cells.rs; configuration comes from main."""
 import json
+import hashlib
 import sys
 from cellar import Response
 
@@ -32,8 +33,14 @@ class Entity:
             await ctx.storage.apply(checks={"state": previous}, puts={"state": state})
         elif request.method != "GET":
             raise ValueError("expected GET or POST")
-        response = Response.json({"writes": state["writes"],
-                                  "payload_bytes": len(state["payload"].encode("utf-8")),
-                                  "node": NODE})
+        payload = state["payload"].encode("utf-8")
+        result = {"writes": state["writes"], "payload_bytes": len(payload), "node": NODE}
+        if request.method == "GET" and any(
+                key.lower() == "x-cellar-verify-payload" and value == "sha256"
+                for key, value in request.headers):
+            # Hash the recovered bytes, never a stored or caller-supplied digest.
+            # Only recovery audits request this extra work.
+            result["payload_sha256"] = hashlib.sha256(payload).hexdigest()
+        response = Response.json(result)
         response.headers.append(("x-cellar-owner", NODE))
         return response

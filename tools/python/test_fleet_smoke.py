@@ -1,5 +1,6 @@
 """CPU-controlled fleet runs refuse missing or inconsistent resource evidence."""
 import json
+import hashlib
 import contextlib
 import io
 from pathlib import Path
@@ -40,6 +41,7 @@ class CellPathTests(unittest.IsolatedAsyncioTestCase):
                         response = await self.application(mode).fetch(
                             Request('http://fixture/cells/a', method, b'new payload'), context)
                         outputs.append((response.status, response.body, response.headers))
+                        self.assertNotIn('payload_sha256', json.loads(response.body))
                         self.assertEqual(storage.read_json.await_count, int(mode == 'bridge'))
                         if method == 'POST':
                             storage.apply.assert_awaited_once_with(checks={'state': snapshot},
@@ -67,6 +69,21 @@ class CellPathTests(unittest.IsolatedAsyncioTestCase):
                 SimpleNamespace(storage=storage, initial_storage={}))
         storage.read_json.assert_not_awaited()
         storage.apply.assert_not_awaited()
+
+    async def test_recovery_digest_reads_stored_bytes_without_writing(self):
+        for mode in ['bridge', 'direct-initial']:
+            for payload in ['', 'same size', 'other one', 'café ☕']:
+                with self.subTest(mode=mode, payload=payload):
+                    snapshot = Snapshot(True, {'writes': 4, 'payload': payload, 'payload_sha256': 'stale'})
+                    storage = SimpleNamespace(read_json=AsyncMock(return_value=snapshot), apply=AsyncMock())
+                    context = SimpleNamespace(storage=storage, initial_storage={'state': snapshot})
+                    response = await self.application(mode).fetch(
+                        Request('http://fixture/cells/a', headers=[('X-Cellar-Verify-Payload', 'sha256')]), context)
+                    value = json.loads(response.body)
+                    self.assertEqual(value['payload_sha256'], hashlib.sha256(payload.encode()).hexdigest())
+                    self.assertEqual(value['payload_bytes'], len(payload.encode()))
+                    self.assertEqual(value['writes'], 4)
+                    storage.apply.assert_not_awaited()
 
 
 class ResourceProofTests(unittest.TestCase):

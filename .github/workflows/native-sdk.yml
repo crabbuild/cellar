@@ -239,6 +239,7 @@ jobs:
           # Fleet fixtures own concurrent runtimes and short authority leases.
           # Run independent cases serially to keep their resource envelope stable.
           cargo test --workspace --exclude cellar-python --exclude cellar-javascript --all-features --lib --tests --locked -- --test-threads=1
+          cargo test -p cellar --bin cellar-perf-cells --bin cellar-perf-load --locked -- --test-threads=1
           cargo test --workspace --exclude cellar-javascript --all-features --doc --locked
           cargo clippy --workspace --exclude cellar-javascript --all-targets --all-features --locked -- -D warnings
       - name: Test Axum feature modes and generated contract
