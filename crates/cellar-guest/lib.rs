@@ -3,6 +3,7 @@
 //! Native operation protocol shared by embedded language adapters.
 //! These functions must be polled within the original SDK invocation, never
 //! from a language runtime thread. Applications should use their typed facade.
+pub mod containers;
 pub mod failure;
 pub mod operations;
 mod storage;

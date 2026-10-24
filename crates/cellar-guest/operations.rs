@@ -8,7 +8,9 @@ use anyhow::{bail, ensure, Context as _, Result};
 use cellar::sdk::{kv, queue, Context};
 use serde_json::{json, Value};
 
+#[derive(Default)]
 pub struct State {
+    pub containers: crate::containers::Session,
     pub queue: Option<queue::Event>,
     pub scheduled: Option<cellar::sdk::cron::Scheduled>,
 }
@@ -17,6 +19,9 @@ pub struct State {
 /// Arbitrary SQL and nested fetches are conservatively mutation-class operations.
 /// Python's bounded reply adapter implements `storage.read_many` separately.
 pub fn is_read(name: &str) -> bool {
+    if let Ok(operation) = crate::containers::Operation::parse(name) {
+        return operation.is_read();
+    }
     matches!(
         name,
         "clock.now"
@@ -61,6 +66,11 @@ pub async fn execute(
     value: Value,
     options: &Limits,
 ) -> Result<Value> {
+    if name.starts_with("container.") {
+        values::check_depth(&value).context(crate::failure::Validation)?;
+        ensure!(value.is_object(), crate::failure::Validation);
+        return crate::containers::execute(context, &state.containers, name, value, options).await;
+    }
     validate(name, &value).context(crate::failure::Validation)?;
     match name {
         "clock.now" => Ok(json!(cellar::asyncrt::wall_ms())),

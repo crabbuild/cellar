@@ -274,7 +274,7 @@ export function fetch(_req: Request) {
 `jsonResponse` prepends `content-type: application/json`; avoid adding a second
 content-type unless you intentionally want duplicate headers. There is no
 browser `Response` constructor to call in the embedded profile. Cellar's bridge
-currently has no streaming-body or WebSocket-upgrade API, even when the Node
+currently has no streaming-body or server WebSocket-upgrade API, even when the Node
 application itself can use Node streams.
 
 ## Storage, transactions and reusable components
@@ -466,3 +466,23 @@ For a reusable npm component, export ordinary functions/classes plus TypeScript
 declarations, a license and an explicit supported SDK range. Test the component
 with the actual selected Cellar runtime: npm installation alone does not establish
 embedded-runtime compatibility.
+
+
+## Cell-owned containers
+
+`ctx.container` controls a root cell's declared Docker/Podman container on both
+embedded V8 and Node. It includes `running`, `start`, `monitor`, `destroy`,
+`signal`, `setInactivityTimeout`, interactive `exec`, bounded `execOutput`, and
+`port(number)` for readiness, HTTP, TCP and WebSockets. TypeScript exposes the
+`Container`, `ContainerExec`, `ContainerSocket` and `ContainerWebSocket` types.
+Byte methods use `Uint8Array`; HTTP uses the SDK's encoded `request()` builder.
+
+Container facades and resource handles belong to one invocation. Read streams
+concurrently with `wait`, issue mutations sequentially, and close/release handles
+when done. `execOutput` closes stdin and bounds stdout plus stderr together.
+Native ownership and durability gates apply to container commands, while
+container writable filesystems remain ephemeral.
+
+See the [container guide](../../docs/09-integrations.md#how-cell-owned-containers-work)
+for the declaration format, complete language examples, Docker/Podman host
+requirements, WebSocket upgrade/decline results and celld differences.

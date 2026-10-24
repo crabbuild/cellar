@@ -86,6 +86,23 @@
     return new Uint8Array(bytes);
   }
 
+  function encode(bytes) {
+    if (!(bytes instanceof Uint8Array)) {
+      const error = new ErrorClass("ValidationError");
+      error.code = "ValidationError";
+      error.outcome = "not_committed";
+      throw error;
+    }
+    let result = "";
+    for (let i = 0; i < bytes.length; i += 3) {
+      const n = (bytes[i] << 16) | ((bytes[i + 1] ?? 0) << 8) | (bytes[i + 2] ?? 0);
+      result += alphabet[n >>> 18] + alphabet[(n >>> 12) & 63] +
+        (i + 1 < bytes.length ? alphabet[(n >>> 6) & 63] : "=") +
+        (i + 2 < bytes.length ? alphabet[n & 63] : "=");
+    }
+    return result;
+  }
+
   // Both incoming requests and nested-cell responses use this decoded view.
   // text() deliberately rejects invalid UTF-8 instead of replacing bad bytes.
   function request(value) {
@@ -143,6 +160,8 @@
           "var",
           "kv.get",
           "kv.list",
+          "container.running", "container.monitor", "container.exec.read_stdout",
+          "container.exec.read_stderr", "container.exec.wait", "container.socket.read", "container.websocket.receive",
         ].includes(name);
         const error = new ErrorClass(read ? "HostError" : "Ambiguous");
         error.code = error.message;
@@ -151,12 +170,70 @@
       }
     };
 
+    const resource = (kind, resourceId) => {
+      const operation = (method, args = {}) =>
+        call(`container.${kind}.${method}`, { ...args, id: resourceId });
+      const common = {
+        release: () => call("container.release", { id: resourceId }),
+      };
+      return freeze(kind === "exec" ? {
+        ...common,
+        readStdout: async () => decode(await operation("read_stdout")),
+        readStderr: async () => decode(await operation("read_stderr")),
+        write: bytes => operation("write", { data: encode(bytes) }),
+        closeStdin: () => operation("close_stdin"),
+        wait: () => operation("wait"),
+        kill: (signal = 9) => operation("kill", { signal }),
+      } : kind === "websocket" ? {
+        ...common,
+        receive: async () => {
+          const event = await operation("receive");
+          return freeze(event.type === "binary" ? { ...event, data: decode(event.data) } : event);
+        },
+        sendText: text => operation("send_text", { text }),
+        sendBinary: bytes => operation("send_binary", { data: encode(bytes) }),
+        close: (code = 1000, reason = "") => operation("close", { code, reason }),
+      } : {
+        ...common,
+        read: async () => decode(await operation("read")),
+        write: bytes => operation("write", { data: encode(bytes) }),
+        closeWrite: () => operation("close_write"),
+        close: () => operation("close"),
+      });
+    };
+
+    const container = freeze({
+      running: () => call("container.running"),
+      start: (options = {}) => call("container.start", { options }),
+      monitor: () => call("container.monitor"),
+      destroy: () => call("container.destroy"),
+      signal: signal => call("container.signal", { signal }),
+      setInactivityTimeout: timeout_ms => call("container.set_inactivity_timeout", { timeout_ms }),
+      exec: async options => resource("exec", await call("container.exec", { options })),
+      execOutput: async (options, max_bytes = 1048576) => {
+        const output = await call("container.exec_output", { options, max_bytes });
+        return freeze({ ...output, stdout: decode(output.stdout), stderr: decode(output.stderr) });
+      },
+      port: port => freeze({
+        waitReady: (timeout_ms = 10000) => call("container.port.wait_ready", { port, timeout_ms }),
+        fetch: async value => request(await call("container.port.fetch", { port, request: value })),
+        connect: async () => resource("socket", await call("container.port.connect", { port })),
+        connectWebSocket: async (url, headers = []) => {
+          const result = await call("container.port.connect_websocket", { port, url, headers });
+          return freeze(result.upgraded
+            ? { upgraded: true, protocol: result.protocol, socket: resource("websocket", result.id) }
+            : { upgraded: false, response: request(result.response) });
+        },
+      }),
+    });
+
     // These objects contain bridge calls, never native storage handles. Binding
     // lookup and effect execution remain in the original Rust invocation.
     return freeze({
       identity: identity && freeze(identity),
       now: () => call("clock.now"),
       variable: name => call("var", { name }),
+      container,
 
       storage: freeze({
         read: key => call("storage.read", { key }),

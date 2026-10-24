@@ -50,8 +50,13 @@ pyo3-build-config = { workspace = true, optional = true }
 serde_json.workspace = true
 
 [dev-dependencies]
-async-trait.workspace = true
+http-body-util.workspace = true
+hyper.workspace = true
+hyper-util.workspace = true
 bytes.workspace = true
+url.workspace = true
+fastwebsockets.workspace = true
+async-trait.workspace = true
 object_store.workspace = true
 reqwest = { workspace = true, features = ["json"] }
 rusqlite.workspace = true

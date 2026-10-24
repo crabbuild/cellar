@@ -39,8 +39,22 @@ One native Cellar process
 | Work on scheduling, cleanup, or telemetry | [Runtime internals and diagnostics](runtime/README.md) |
 
 The native adapter exposes bounded, buffered HTTP. General ASGI lifespan,
-streaming responses, WebSockets, workflows, outbox, stream bindings, binary SQL
+streaming responses, server WebSocket upgrades, workflows, outbox, stream bindings, binary SQL
 parameters, and `wait_until` are outside its current SDK contract.
+
+## Cell-owned Docker and Podman containers
+
+Root cells with a declared container image can use `ctx.container` for lifecycle,
+exec, port readiness, buffered HTTP, TCP and event-owned WebSockets. The methods
+call the same Rust SDK as native applications, retaining ownership checks,
+durability gates, cancellation and byte limits. The host needs a configured
+Docker-compatible engine; CPython itself still runs in the native host.
+
+See the [cross-language container guide](../../docs/09-integrations.md#apis-in-each-language)
+for configuration, Python examples, interactive exec, lifetime rules and the
+comparison with celld. `ContainerExecOutput.stdout` and `.stderr` are bytes;
+`ContainerWebSocket.receive()` returns typed-by-tag dictionaries with binary
+`data` as bytes. Reacquire container facades for every invocation.
 
 ## Write a Python application
 
@@ -620,3 +634,8 @@ Use the [baseline harness](../../tools/python/baseline.md) for performance and t
 [Plan 007](../../plans/007-embedded-python-pyo3.md#implementation-milestones-and-acceptance-gates)
 tracks the remaining acceptance gates; local checks do not establish production
 fleet qualification.
+
+A Rust host can select another container or sandbox backend with
+`Source::container_provider(Arc<dyn Provider>)`; see
+[`cellar-container`](../cellar-container/README.md) for the provider contract.
+The default provider preserves the native Docker/Podman behavior.
