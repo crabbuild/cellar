@@ -1117,6 +1117,8 @@ async fn run_case(
             observer.shutdown().await;
             let evidence = json!({"format":1,"stage":"cold startup before receipt replay",
                 "startup":observations,"returned_nodes":joined,
+                "predecessor_proxy_failure":proxy.capture.failure(),
+                "successor_proxy_failure":successor_proxy.capture.failure(),
                 "before_cancel":before.unwrap_or_else(|e|json!({"error":format!("{e:#}")})),
                 "after_cancel":after.unwrap_or_else(|e|json!({"error":format!("{e:#}")}))});
             let saved = save_clock_evidence(directory, "cold-start-failure.json", &evidence);
@@ -1711,7 +1713,9 @@ async fn run_case(
             "settlement-failure.json",
             &json!({"format":1,"stage":"replacement receipt","response":acknowledgment,
                 "fetch":replay,"expiry_cut":expiry_cut,"cutoff_utc_ms":wall(),
-                "held_append_ms":retry_held.elapsed().as_millis()}),
+                "held_append_ms":retry_held.elapsed().as_millis(),
+                "predecessor_proxy_failure":proxy.capture.failure(),
+                "successor_proxy_failure":successor_proxy.capture.failure()}),
         );
         anyhow::bail!(
             "replacement receipt acknowledgment refused: {acknowledgment}; evidence={saved:?}"

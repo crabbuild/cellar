@@ -46,6 +46,7 @@ pub(super) struct Capture {
     pub blocked: Semaphore,
     pub released: Semaphore,
     pub exchanges: Mutex<Vec<Exchange>>,
+    failure: Mutex<Option<String>>,
 }
 
 impl Default for Capture {
@@ -63,11 +64,18 @@ impl Default for Capture {
             blocked: Semaphore::new(0),
             released: Semaphore::new(0),
             exchanges: Mutex::new(Vec::new()),
+            failure: Mutex::new(None),
         }
     }
 }
 
 impl Capture {
+    /// Retain the first unexpected relay failure even if its owner unwinds
+    /// before joining the proxy. Recording it never changes relay success.
+    pub fn failure(&self) -> Option<String> {
+        self.failure.lock().unwrap().clone()
+    }
+
     /// Hold exactly one original request for each method, before forwarding
     /// its unchanged signed packet. This is a submission barrier, not proof.
     pub fn hold_requests(&self, methods: &[&'static str]) {
@@ -292,7 +300,7 @@ async fn message(reader: &mut BufReader<TcpStream>, response: bool) -> Result<Op
 
 async fn relay(socket: TcpStream, target: SocketAddr, capture: Arc<Capture>) -> Result<()> {
     let result = relay_inner(socket, target, capture.clone()).await;
-    match result {
+    let result = match result {
         Err(error)
             if capture.upstream_closing.load(Ordering::Acquire)
                 && error.downcast_ref::<std::io::Error>().is_some_and(|error| {
@@ -309,14 +317,26 @@ async fn relay(socket: TcpStream, target: SocketAddr, capture: Arc<Capture>) -> 
             Ok(())
         }
         result => result,
+    };
+    if let Err(error) = &result {
+        let mut failure = capture.failure.lock().unwrap();
+        if failure.is_none() {
+            *failure = Some(format!("{error:#}").chars().take(4096).collect());
+        }
     }
+    result
 }
 
 async fn relay_inner(socket: TcpStream, target: SocketAddr, capture: Arc<Capture>) -> Result<()> {
     let mut client = BufReader::new(socket);
-    let upstream = TcpStream::connect(target).await?;
+    let upstream = TcpStream::connect(target)
+        .await
+        .context("connect proxy upstream")?;
     let mut owner = BufReader::new(upstream);
-    while let Some(request) = message(&mut client, false).await? {
+    while let Some(request) = message(&mut client, false)
+        .await
+        .context("read proxy caller request")?
+    {
         let hold = {
             let mut methods = capture.held_methods.lock().unwrap();
             request
@@ -342,8 +362,14 @@ async fn relay_inner(socket: TcpStream, target: SocketAddr, capture: Arc<Capture
                 paused.changed().await?;
             }
         }
-        request.write(owner.get_mut()).await?;
-        let Some(reply) = message(&mut owner, true).await? else {
+        request
+            .write(owner.get_mut())
+            .await
+            .context("forward proxy request upstream")?;
+        let Some(reply) = message(&mut owner, true)
+            .await
+            .context("read proxy upstream reply")?
+        else {
             break;
         };
         let method = request.header("x-cells-rpc-method");
@@ -358,7 +384,10 @@ async fn relay_inner(socket: TcpStream, target: SocketAddr, capture: Arc<Capture
                 // A host admission refusal is a valid, unsubmitted outcome.
                 // Forward it unchanged so production retry policy sees it;
                 // it cannot consume a cut armed for a proven event reply.
-                reply.write(client.get_mut()).await?;
+                reply
+                    .write(client.get_mut())
+                    .await
+                    .context("forward proxy reply to caller")?;
                 continue;
             }
             ensure!(
@@ -420,14 +449,19 @@ async fn relay_inner(socket: TcpStream, target: SocketAddr, capture: Arc<Capture
                 return Ok(());
             }
         }
-        reply.write(client.get_mut()).await?;
+        reply
+            .write(client.get_mut())
+            .await
+            .context("forward proxy reply to caller")?;
         if reply.head.starts_with(b"HTTP/1.1 101 ")
             && request.request_path() != Some("/peer/tunnel")
         {
             // Only the outer tunnel carries inspectable HTTP after upgrade.
             // Log tails carry binary frames. Keep both readers so prefetched
             // bytes and half-close propagation survive the protocol switch.
-            tokio::io::copy_bidirectional(&mut client, &mut owner).await?;
+            tokio::io::copy_bidirectional(&mut client, &mut owner)
+                .await
+                .context("relay upgraded proxy bytes")?;
             return Ok(());
         }
     }
@@ -506,6 +540,7 @@ async fn event_refusal_preserves_listener_and_armed_proven_reply_cut() -> Result
 async fn untyped_event_failure_still_fails_the_proxy() -> Result<()> {
     let upstream = TcpListener::bind("127.0.0.1:0").await?;
     let proxy = Proxy::start(upstream.local_addr()?).await?;
+    let capture = proxy.capture.clone();
     let owner = tokio::spawn(async move {
         let (socket, _) = upstream.accept().await?;
         let mut socket = BufReader::new(socket);
@@ -529,6 +564,10 @@ async fn untyped_event_failure_still_fails_the_proxy() -> Result<()> {
         .await
         .expect_err("untyped failure was treated as a host admission refusal");
     ensure!(error.to_string() == "event RPC did not produce a successful HTTP reply");
+    ensure!(
+        capture.failure().as_deref() == Some(error.to_string().as_str()),
+        "proxy failure was lost before fixture diagnostics could read it"
+    );
     ensure!(response?.is_none());
     Ok(())
 }
@@ -663,7 +702,14 @@ async fn controlled_destination_closure_preserves_framing_failures() -> Result<(
     let error = tokio::time::timeout(std::time::Duration::from_secs(5), relay)
         .await??
         .expect_err("controlled closure hid malformed framing");
-    ensure!(error.to_string() == "unframed peer response", "{error:#}");
+    ensure!(
+        error.to_string() == "read proxy upstream reply",
+        "{error:#}"
+    );
+    ensure!(
+        error.root_cause().to_string() == "unframed peer response",
+        "{error:#}"
+    );
     Ok(())
 }
 
