@@ -593,6 +593,17 @@ run. RSS retained some growth, and each primary observation spans only about
 not arbitrary application leaks, long-duration memory qualification or production
 backend/SLO acceptance. Raw evidence remains outside the repository.
 
+Node-log bundle eviction markers now follow the lifetime of retained bundles.
+A fixed live inventory previously retained 19,488 historical epoch markers
+after 20,000 epochs, including after complete bundle GC. The index now counts
+distinct cell/epoch membership per evicted bundle and removes each marker with
+its last reference. Live cutoffs remain conservative when rows arrive out of
+order; dropping a live cutoff and later recreating a lower one could hide a
+retained row. The owning-module regressions cover epoch churn, shared membership,
+complete GC, arrival ordering and persisted-row reload with corruption refusal.
+This bounds historical metadata by the live bundle inventory; retained data and
+total process memory still require workload-specific qualification.
+
 | Phase | Current assessment | Gate still open |
 | --- | --- | --- |
 | M0 | Bootstrap, invocation pump, authority and cancellation implemented; complete Linux matrix passes in both ABIs at 85cdef4 | No missing feature identified; shared reliability release gate remains |
