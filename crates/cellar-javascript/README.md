@@ -35,6 +35,9 @@ Start with the [TypeScript counter](../../examples/javascript/README.md) for an
 embedded executable, the [Node example](../../examples/node/README.md) for npm
 runtime compatibility, or the [durable Pi agent](../../examples/pi-agent/README.md)
 for checkpointed model and tool steps.
+The [Vercel AI SDK agent](../../examples/vercel-agent/README.md) demonstrates
+`ToolLoopAgent`, durable model middleware, atomic tools, six process interruption
+boundaries, and concurrent task recovery through the same Node bridge.
 
 ## Choose an execution backend
 
@@ -336,17 +339,17 @@ rebuilding and replacing the deployment.
 
 ```text
 JavaScript runtime             Original Rust invocation          Native SDK
-       |                                |                            |
-       |<-------- dispatch(event) ------|                            |
-       |                                |                            |
- await ctx.storage.read("count")        |                            |
+       |                                |                             |
+       |<-------- dispatch(event) ------|                             |
+       |                                |                             |
+ await ctx.storage.read("count")        |                             |
        |----- operation + call ID ----->|--- validate and execute --->|
-       |       Promise pending          |                            |
-       |                                |<------- native result -----|
-       |<------ bounded reply ----------|                            |
-       |       Promise resumes          |                            |
-       |-------- handler result ------->|                            |
-       |                                |-- revoke call authority    |
+       |       Promise pending          |                             |
+       |                                |<------- native result ------|
+       |<------ bounded reply ----------|                             |
+       |       Promise resumes          |                             |
+       |-------- handler result ------->|                             |
+       |                                |-- revoke call authority     |
 ```
 
 One V8 thread multiplexes promises. V8 continuation-preserved embedder data
@@ -364,9 +367,9 @@ contexts or binding handles for later calls or issue concurrent mutations with
 
 ```text
 Activation A                    Retire / restart               Activation B
-  new Counter()                       |                         new Counter()
-  object fields / caches ------------X                          fresh fields
-  ctx.storage ------------------------+-----------------------> recovered state
+  new Counter()                       |                        new Counter()
+  object fields / caches -------------X                        fresh fields
+  ctx.storage ------------------------+----------------------->recovered state
                                       |
                          prior contexts lose authority
 ```

@@ -42,6 +42,11 @@ path = "../../examples/pi-agent/main.rs"
 required-features = ["node"]
 
 [[bin]]
+name = "cellar-vercel-agent-example"
+path = "../../examples/vercel-agent/main.rs"
+required-features = ["node"]
+
+[[bin]]
 name = "cellar-javascript-perf"
 path = "../../tools/perf/javascript/host.rs"
 required-features = ["embed", "node"]

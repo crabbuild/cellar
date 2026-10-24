@@ -23,6 +23,8 @@ console-audit.sqlite*
 !/examples/node/package-lock.json
 /examples/pi-agent/dist/
 !/examples/pi-agent/package-lock.json
+/examples/vercel-agent/dist/
+!/examples/vercel-agent/package-lock.json
 
 # Keep new local multi-Raft benchmark evidence out of commits.
 /plans/multi-raft/evidence/
