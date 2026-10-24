@@ -218,6 +218,8 @@ pub mod queue_policy;
 pub mod replica_storage;
 #[path = "durability/replication/contracts.rs"]
 pub mod replication;
+#[path = "durability/replication/coverage.rs"]
+pub(crate) mod replication_coverage;
 #[path = "durability/replication/options.rs"]
 pub mod replication_options;
 #[path = "runtime/mod.rs"]

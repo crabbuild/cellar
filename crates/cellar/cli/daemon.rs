@@ -416,6 +416,7 @@ TUNING:
                                   (default: `fleet`; `bucket` always waits)
   CELLAR_LOG_PIPELINE              Fleet log rounds in flight (default: 4)
   CELLAR_LOG_HEDGE_MS              Duplicate a slow log append (default: adaptive; 0 disables)
+  CELLAR_LTX_COVERAGE_CACHE_ENTRIES  Historical coverage cache entries (default: 4096; 0 disables; maximum: 1048576)
   CELLAR_LTX_TRUNCATE_PAGES        WAL pages before a truncate checkpoint (default: 128; Queues never truncate; 0 disables)
   CELLAR_LTX_RETENTION_SECS        Grace in seconds before an owner deletes superseded epochs (default: unset, no deletion)
   RUST_LOG                        Runtime log filter (default: info)

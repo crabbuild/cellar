@@ -151,7 +151,15 @@ for publishing checked content. The deployment protocol still caps each index
 at 20,000 files and 1 GiB total content, independently of the per-file policy.
 
 `ReplicationOptions` controls upload/compaction, restoration/hydration and
-durability timeout. `LogOptions` controls pipeline, follower windows, streams,
+durability timeout. `coverage_cache_entries` bounds remembered historical
+(cell, epoch) coverage watermarks to 4,096 entries by default (maximum 1,048,576).
+The CLI uses `CELLAR_LTX_COVERAGE_CACHE_ENTRIES`; zero disables this cache.
+Eviction discards the oldest inserted watermark and reloads it from durable
+storage when needed. Repeated updates preserve the highest cached watermark
+without growing eviction metadata. Smaller budgets trade memory for store
+reads; failed reads cannot establish coverage or authorize deletion. This
+budget does not bound every other host cache or total process memory.
+`LogOptions` controls pipeline, follower windows, streams,
 hedging, eviction and publication timeout. Tune from measurements of the actual
 store and disks. Increasing concurrency can increase contention and pending
 memory; it does not establish additional authority.
