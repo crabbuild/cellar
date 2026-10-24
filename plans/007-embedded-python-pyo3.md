@@ -579,6 +579,20 @@ ABI. It preserves unknown mutation outcomes and failed runs even when recovery
 succeeds. Its private development bucket and sampled memory observations do not
 close the production-backend or sustained memory-stability gates.
 
+The optimized Linux [bounded-cache qualification](https://github.com/crabbuild/cellar/actions/runs/40072076456)
+at `1bc28e78` (diagnostic workflow revision `aadf3429`) verified both threading
+ABIs with native controls: 1,024 cells, 128 activation rounds, 64 resident cells
+and two repetitions per runtime. Independent raw-ledger verification accounts
+for 1,056,768 acknowledged writes, 8,192 recovered cell instances after owner
+kill and local-disk deletion, and eight joined replacements. Late-run native
+allocator growth was near zero after bounding historical coverage metadata;
+final allocated memory was roughly 13–15 MB, versus 33–35 MB in the earlier
+unbounded-cache run. Python allocated-block counts were also flat late in the
+run. RSS retained some growth, and each primary observation spans only about
+10–14 minutes. This closes the measured historical coverage-cache growth case,
+not arbitrary application leaks, long-duration memory qualification or production
+backend/SLO acceptance. Raw evidence remains outside the repository.
+
 | Phase | Current assessment | Gate still open |
 | --- | --- | --- |
 | M0 | Bootstrap, invocation pump, authority and cancellation implemented; complete Linux matrix passes in both ABIs at 85cdef4 | No missing feature identified; shared reliability release gate remains |
