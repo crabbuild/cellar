@@ -70,6 +70,23 @@ pairs. Preserve the full test matrix, failures and remaining work across turns.
 
 ## Current evidence
 
+- The branch now incorporates main through `3308a1ac`, including the durable
+  Vercel AI SDK agent demo. The JavaScript workflow retains both the RPC fixture
+  and agent installs/builds/tests. On the merged branch, all seven normal-stack
+  suites pass again: 16 local pairs, 16 remote/handoff pairs, 55 deadline cases,
+  17 cancellation cases, 32 failed-recovery cases, 48 process kills and 64
+  proof/fencing cases. `.cellar/rpc/guest-deadline-merged-full-matrix.json` is
+  published after native/guest drains; full-qualification flags remain false.
+  All-target qualifier/JS/shared-guest Clippy passes. Format/layout check 974
+  Rust files, docs check 735 local references, and the native graph remains
+  engine-free at 465 packages. The merged workflow parses and retains both
+  RPC fixture checks and the new agent's process-recovery step.
+- Main's agent also passes its locked build, 13 unit tests and all six
+  fixture-provider SIGKILL/cold-recovery boundaries on this branch. Its production
+  entry passes 16 concurrent tasks, cold recovery and 32 unchanged duplicate
+  results. `.cellar/rpc/guest-deadline-agent-merge.json` records seven fixture
+  scenarios. This preserves main's integration behavior; it is not live-model,
+  throughput, or typed-RPC example-packaging qualification.
 - With the expanded deadline suite, the combined normal-stack executable passes
   all seven suites and publishes `.cellar/rpc/guest-deadline-full-matrix.json`
   after native and guest drains: 16 local pairs, 16 remote/handoff pairs, 55
