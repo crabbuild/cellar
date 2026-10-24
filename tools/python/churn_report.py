@@ -48,11 +48,12 @@ def verify(document):
     workload = document["workload"]
     population, rounds = workload["population"], workload["rounds"]
     concurrency, repetitions = workload["concurrency"], workload["repetitions"]
-    require(65 <= population <= 1024 and 2 <= rounds <= 128 and 1 <= concurrency <= 16 and
+    require(65 <= population <= 1024 and 2 <= rounds <= 512 and 1 <= concurrency <= 16 and
             1 <= repetitions <= 5, "invalid workload limits")
     artifacts = {a["label"]: a for a in document["artifacts"]}
     require(len(artifacts) == len(document["artifacts"]) and
             {a["mode"] for a in artifacts.values()} == {"native", "python"}, "missing/duplicate runtime artifacts")
+    require(population * (rounds + 1) * repetitions * len(artifacts) <= 1_000_000, "excessive workload")
     expected = {(label, r) for label in artifacts for r in range(repetitions)}
     seen = set()
     for case in document["cases"]:

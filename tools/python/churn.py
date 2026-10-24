@@ -215,7 +215,7 @@ def main():
     parser.add_argument("--concurrency", type=int, default=4)
     parser.add_argument("--repetitions", type=int, default=3)
     args = parser.parse_args()
-    require(65 <= args.population <= 1024 and 2 <= args.rounds <= 128 and
+    require(65 <= args.population <= 1024 and 2 <= args.rounds <= 512 and
             1 <= args.concurrency <= 16 and 1 <= args.repetitions <= 5, "invalid finite churn limits")
     hosts = [("native", "native", args.native_host.resolve(strict=True))]
     for value in args.python_host:

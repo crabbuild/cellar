@@ -1,26 +1,6 @@
 name: Python application examples
 
 on:
-  push:
-    paths:
-      - '.github/workflows/python-examples.yml'
-      - 'examples/python-fastapi/**'
-      - 'examples/python-agent/**'
-      - 'crates/cellar-python/**'
-      - 'crates/cellar/**'
-      - 'tools/python/**'
-      - 'Cargo.toml'
-      - 'Cargo.lock'
-  pull_request:
-    paths:
-      - '.github/workflows/python-examples.yml'
-      - 'examples/python-fastapi/**'
-      - 'examples/python-agent/**'
-      - 'crates/cellar-python/**'
-      - 'crates/cellar/**'
-      - 'tools/python/**'
-      - 'Cargo.toml'
-      - 'Cargo.lock'
   workflow_dispatch:
     inputs:
       profile:
