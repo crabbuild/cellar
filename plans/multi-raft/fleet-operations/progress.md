@@ -180,6 +180,34 @@ completion. `check-list FO-03` still refuses the listing missing nine required
 cases. These local runs do not qualify remote readiness, full inventory, RustFS,
 deployed resource limits, fleet scaling, performance or the soak.
 
+## FO-03 progress: dynamic dormant histories
+
+Source `473e40ed114a5408e6adda78265327e6a11b2511` implements dynamic dormant
+registration at its local SDK boundary. A host
+prepares one bounded metadata read, rechecks current node/history enrollment and
+the immutable birth, then publishes through the serialized actor. The shared
+registry returns owned metadata under short locks and refuses name replacement.
+Physical occupancy includes unattached engine histories; an occupied slot cannot
+be reset by registration. No member or SQL image is created by this operation.
+
+The six dynamic cases cover limits/idempotency/conflicting histories, cancelled
+reads, close/join ownership, stale rooted history, undeclared classes and occupied
+engine slots. The enrollment target now has 17 passing cases. The broader cohort
+passed 166 native cases, including effects and query routing; the final focused
+run adds the close case and reruns all 17 enrollment cases after preserving
+temporary storage failure as unavailable rather than a permanent binding conflict.
+All 126 Raft library units also passed. The total acceptance inventory is now
+114, with eight required FO-03 cases still absent; this does not complete FO-03.
+
+Focused Clippy (including query/effect/controller targets), formatting/layout over
+910 Rust files, native dependency checks (454 packages, no JavaScript engine),
+documentation checks and the 10 plan validator tests passed. The partial record
+is retained at `implementation/fo03/dynamic-history-boundary.json`, alongside the
+exact log hashes and the still-refused complete FO-03 test listing. It separates
+the broader registry regression run from the final enrollment-only storage-error
+classification rerun. No deployed RustFS, capacity-ready, TPS/p99 or soak claim is
+made by this local SDK verification.
+
 ## Next implementation boundary
 
 FO-03 adds the trusted dynamic node set, empty managed host readiness, bounded
@@ -191,11 +219,13 @@ reconciliation, lifecycle, API/CLI, scaling and qualification scope.
 `node/raft_startup.rs`, `host.rs` and `host_directory.rs` now accept zero groups
 only with explicit rooted enrollment and compiled namespace/class declarations;
 node controls no longer borrow a first-cell binding. The remaining work includes
-authenticated remote node observations, live trusted-node revision/revocation,
-bounded dynamic histories and complete import/birth admission. Dynamic binding
-mutations belong to the serialized host, with bounded reader access and no lock
-guard crossing an await. A local observation, dummy business cell or successful
-TCP connect cannot substitute for the remaining enrollment/readiness proof.
+authenticated remote node observations, live trusted-node revision/revocation
+and complete import/birth admission. Dynamic binding mutations now belong to the
+serialized host, with bounded reader access and no lock guard crossing an await.
+Retained active histories still reopen through startup recovery registrations;
+the new metadata path refuses resetting their physical slots. A local observation,
+dummy business cell or successful TCP connect cannot substitute for the remaining
+enrollment/readiness proof.
 
 ## Expanded operating design
 

@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "baseline_revision": "3df4364c3d878d76b8e12ccca92c0e63daff7254",
+  "baseline_revision": "473e40ed114a5408e6adda78265327e6a11b2511",
   "invariants": {
     "F01": "Quorum authority",
     "F02": "Stable identities",
@@ -308,7 +308,11 @@
         "crates/cellar/durability/raft/host_drain.rs",
         "crates/cellar/durability/raft/transport_inspection_tests.rs",
         "crates/cellar/durability/raft/host_standby.rs",
-        "crates/cellar/tests/support/raft_metrics_native.rs"
+        "crates/cellar/tests/support/raft_metrics_native.rs",
+        "crates/cellar/durability/raft/effect_delivery.rs",
+        "crates/cellar/durability/raft/host_effects.rs",
+        "crates/cellar/durability/raft/host_leader_load.rs",
+        "crates/cellar/durability/raft/inspection_transport.rs"
       ],
       "creates": [
         "crates/cellar/tests/native_raft_fleet_enrollment.rs",
@@ -317,7 +321,9 @@
         "crates/cellar/durability/raft/host_enrollment.rs",
         "crates/cellar/durability/raft/host_node.rs",
         "crates/cellar/application/consensus/client_node.rs",
-        "crates/cellar/tests/support/raft_enrollment_native.rs"
+        "crates/cellar/tests/support/raft_enrollment_native.rs",
+        "crates/cellar/application/consensus/client_bindings.rs",
+        "crates/cellar/durability/raft/host_registration.rs"
       ],
       "steps": [
         "Add CAS-authorized node-set revisions with bounded route and permission refresh.",
@@ -514,6 +520,51 @@
           "invariants": [
             "F02",
             "F05",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_enrollment_dynamic_cancelled_read",
+          "oracle": "A held metadata read retains one bounded work reservation; a second registration is overloaded, cancellation drops the read and prevents late publication, and exact retry succeeds.",
+          "invariants": [
+            "F03",
+            "F06",
+            "F08"
+          ]
+        },
+        {
+          "name": "fleet_enrollment_dynamic_occupied_slot",
+          "oracle": "An unattached physical engine history remains charged and cannot be reset through dynamic registration despite spare aggregate slots.",
+          "invariants": [
+            "F02",
+            "F05",
+            "F06"
+          ]
+        },
+        {
+          "name": "fleet_enrollment_dynamic_stale_history",
+          "oracle": "A saved group capability whose rooted history record disappeared cannot publish dormant metadata.",
+          "invariants": [
+            "F02",
+            "F05",
+            "F07"
+          ]
+        },
+        {
+          "name": "fleet_enrollment_dynamic_undeclared_class",
+          "oracle": "A rooted group capability cannot select an undeclared compiled class or cause application execution.",
+          "invariants": [
+            "F02",
+            "F05",
+            "F07"
+          ]
+        },
+        {
+          "name": "fleet_enrollment_dynamic_close_joins_read",
+          "oracle": "Host close cancels and joins a held registration read; its physical metadata reservation releases while the unpolled waiter retains its bounded request charge until consumed.",
+          "invariants": [
+            "F06",
+            "F08",
             "F10"
           ]
         }
