@@ -326,17 +326,17 @@ rebuilding and replacing the deployment.
 
 ```text
 JavaScript runtime             Original Rust invocation          Native SDK
-       |                                |                            |
-       |<-------- dispatch(event) ------|                            |
-       |                                |                            |
- await ctx.storage.read("count")        |                            |
+       |                                |                             |
+       |<-------- dispatch(event) ------|                             |
+       |                                |                             |
+ await ctx.storage.read("count")        |                             |
        |----- operation + call ID ----->|--- validate and execute --->|
-       |       Promise pending          |                            |
-       |                                |<------- native result -----|
-       |<------ bounded reply ----------|                            |
-       |       Promise resumes          |                            |
-       |-------- handler result ------->|                            |
-       |                                |-- revoke call authority    |
+       |       Promise pending          |                             |
+       |                                |<------- native result ------|
+       |<------ bounded reply ----------|                             |
+       |       Promise resumes          |                             |
+       |-------- handler result ------->|                             |
+       |                                |-- revoke call authority     |
 ```
 
 One V8 thread multiplexes promises. V8 continuation-preserved embedder data
@@ -354,9 +354,9 @@ contexts or binding handles for later calls or issue concurrent mutations with
 
 ```text
 Activation A                    Retire / restart               Activation B
-  new Counter()                       |                         new Counter()
-  object fields / caches ------------X                          fresh fields
-  ctx.storage ------------------------+-----------------------> recovered state
+  new Counter()                       |                        new Counter()
+  object fields / caches -------------X                        fresh fields
+  ctx.storage ------------------------+----------------------->recovered state
                                       |
                          prior contexts lose authority
 ```
