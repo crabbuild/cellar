@@ -88,13 +88,16 @@ export function handler(Client: Client, createController?: () => Controller) {
   configureLiveClient(ctx => Client.bind(ctx,"RUST","alice"));
   configureDeadlineClient(Client);
   let retained: Calls | undefined;
-  const cancelling = new Map<string, {controller: Controller; context: Context; finish: () => void}>();
+  const cancelling = new Map<string, {controller: Controller; context: Context; finish: () => void;
+    settled:boolean; result:Json; followup_writes:number}>();
   return async (request: Request, ctx: Context) => {
     const [path, query = ""] = request.url.split("?");
     const params = Object.fromEntries(query.split("&").filter(Boolean).map(pair => {
       const [key, value = ""] = pair.split("=");
       return [decodeURIComponent(key), decodeURIComponent(value)];
     }));
+    const binding = params.target === "rust" ? "RUST" : params.target === "node" ? "NODE"
+      : params.target === "python" ? "PYTHON" : "V8";
     if (/\/budget-(capacity|hold|held|free|foreign)$/.test(path)) return budgetControl(path, ctx);
     if (path.endsWith("/cancel-release")) {
       const control = cancelling.get(params.name);
@@ -102,6 +105,11 @@ export function handler(Client: Client, createController?: () => Controller) {
       if (params.phase === "finish") control.finish();
       else control.controller.abort(); // A different invocation fires the signal.
       return jsonResponse({released:true});
+    }
+    if (path.endsWith("/cancel-state")) {
+      const control = cancelling.get(params.name);
+      if (!control) throw Error("No pending cancellation probe");
+      return jsonResponse({settled:control.settled, result:control.result, followup_writes:control.followup_writes});
     }
     if (path.endsWith("/cancel-attack")) {
       const control = cancelling.get(params.name);
@@ -121,39 +129,47 @@ export function handler(Client: Client, createController?: () => Controller) {
       }
       throw Error("Foreign invocation acquired original SDK authority");
     }
-    if (path.endsWith("/cancel")) {
-      if (!createController || cancelling.has(params.name)) throw Error("Invalid cancellation probe");
+    if (path.endsWith("/cancel") || path.endsWith("/proof-cancel")) {
+      const proof = path.endsWith("/proof-cancel");
+      const name = proof ? params.id : params.name;
+      const deadline = proof && params.trigger === "deadline";
+      if (!createController || cancelling.has(name)) throw Error("Invalid cancellation probe");
       const controller = createController();
       let finish!: () => void;
       const finished = new Promise<void>(resolve => { finish = resolve; });
-      cancelling.set(params.name, {controller, context:ctx, finish});
+      const control = {controller, context:ctx, finish, settled:false, result:null as Json, followup_writes:0};
+      cancelling.set(name, control);
       try {
-        const client = Client.bind(ctx, "RUST", params.name);
+        const client = Client.bind(ctx, proof ? binding : "RUST", proof ? "alice" : name);
         let result: Json;
         try {
-          await client.getCount({}, {timeoutMs:5000, signal:controller.signal});
+          const options = {timeoutMs:deadline ? 1000 : 5000, signal:controller.signal};
+          await (proof ? client.increment({delta:BigInt(params.delta), operationId:params.id}, options)
+            : client.getCount({}, options));
           throw Error("RPC ignored cancellation");
         } catch (error) {
           if (!(error instanceof Error) || !("code" in error) || !("outcome" in error) ||
-              error.code !== "Cancelled" || error.outcome !== "unknown") throw error;
-          result = {code:error.code, outcome:error.outcome};
+              error.code !== (deadline ? "DeadlineExceeded" : "Cancelled") || error.outcome !== "unknown") throw error;
+          result = {code:String(error.code), outcome:error.outcome};
         }
         // Native acknowledgement must release mutation admission before this
         // fresh RPC starts. Keep the parent live through the target's late work.
         const followup = await Client.bind(ctx, "RUST", "cancel-followup").getCount({});
+        control.result = result;
+        control.followup_writes = Number(followup.count?.value);
+        control.settled = true;
         await finished;
+        const finalFollowup = proof ? await Client.bind(ctx, "RUST", "cancel-followup").getCount({}) : followup;
         return jsonResponse({node:await ctx.variable("DOMAIN_MARKER"), result,
-          followup_writes:Number(followup.count?.value)});
+          followup_writes:Number(followup.count?.value), final_followup_writes:Number(finalFollowup.count?.value)});
       } finally {
-        cancelling.delete(params.name);
+        cancelling.delete(name);
       }
     }
     if (path.endsWith("/constructors")) return jsonResponse({constructed});
     if (path.endsWith("/probe")) return jsonResponse(liveSnapshot());
     if (path.endsWith("/probe-release")) return jsonResponse(liveControl("release"));
     if (path.endsWith("/probe-clear")) return jsonResponse(liveControl("clear"));
-    const binding = params.target === "rust" ? "RUST" : params.target === "node" ? "NODE"
-      : params.target === "python" ? "PYTHON" : "V8";
     if (path.endsWith("/deadline-control")) return deadlineControl(params.action, params.child);
     if (path.endsWith("/deadline")) return deadlineCall(ctx, binding, params.name, params.timeout);
     if (path.endsWith("/codec-budget")) {

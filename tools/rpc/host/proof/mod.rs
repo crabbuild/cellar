@@ -4,9 +4,13 @@ mod fence;
 mod live;
 mod native_live;
 mod recovery;
+mod wait;
+mod wait_evidence;
 pub use native_live::Live;
 use recovery::read;
 pub(crate) use recovery::read as recovery_read;
+pub use wait::run as waits;
+pub use wait::smoke as wait_smoke;
 
 // Reuse the owning SDK harness's real peer/object-store faults. Its lost-ack
 // variant is outside this suite; no runtime hooks or fake proof tickets exist.
@@ -52,6 +56,7 @@ impl Controls {
 
     pub fn snapshot(&self) -> Value {
         json!({"peer_members":self.peers.members.lock().unwrap().clone(),
+            "peer_held":self.peers.is_held(),"data_held":self.data.is_held(),
             "peer_completed":self.peers.completed.load(Ordering::Acquire),
             "data_entered":self.data.entered.load(Ordering::Acquire),
             "data_completed":self.data.completed.load(Ordering::Acquire)})

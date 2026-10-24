@@ -236,6 +236,7 @@ pub struct Composite {
     pub(super) crash: Arc<super::crash::Gate>,
     pub(super) durability: super::proof::Controls,
     live: Arc<super::proof::Live>,
+    cancel_calls: Arc<super::cancel_calls::Calls>,
     catalog: rpc::Catalog,
     providers: BTreeMap<String, Arc<dyn Application>>,
     callers: BTreeMap<String, Arc<dyn Application>>,
@@ -268,6 +269,7 @@ impl Composite {
             crash,
             durability: Default::default(),
             live,
+            cancel_calls: Default::default(),
             catalog,
             providers,
             callers,
@@ -401,7 +403,31 @@ impl Application for Composite {
                 "node" => "NODE",
                 _ => "RUST",
             };
-            let value = if url.path().ends_with("/preflight") {
+            let value = if url.path().ends_with("/cancel-state") {
+                self.cancel_calls
+                    .snapshot(query.get("name").context("missing pending proof call")?)?
+            } else if url.path().ends_with("/cancel-release") {
+                self.cancel_calls.release(
+                    query.get("name").context("missing pending proof call")?,
+                    query.get("phase").is_some_and(|phase| phase == "finish"),
+                )?
+            } else if url.path().ends_with("/proof-followup") {
+                let client =
+                    super::generated::CounterClient::bind(&context, "RUST", "cancel-followup")?;
+                serde_json::json!({"value":client.get_count(super::generated::GetCountRequest {}).await?.count.context("missing followup count")?.value.to_string()})
+            } else if url.path().ends_with("/proof-cancel") {
+                self.cancel_calls
+                    .increment(
+                        &context,
+                        binding,
+                        query.get("id").context("missing proof operation ID")?,
+                        query.get("delta").context("missing proof delta")?.parse()?,
+                        query
+                            .get("trigger")
+                            .is_some_and(|trigger| trigger == "deadline"),
+                    )
+                    .await?
+            } else if url.path().ends_with("/preflight") {
                 let stub = context.namespace(binding)?.get_by_name("never-construct");
                 let args = rpc::encode_envelope(
                     self.contract.digest(),

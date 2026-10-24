@@ -35,7 +35,7 @@ async def _expired(operation):
 
 async def sync(ctx, operation_id):
     global _probe, _release
-    if not operation_id.startswith("proof-fence-sync-"):
+    if not operation_id.startswith(("proof-fence-sync-", "proof-cancel-sync-")):
         return False
     node = await ctx.var("DOMAIN_MARKER")
     if node != "proof-owner":

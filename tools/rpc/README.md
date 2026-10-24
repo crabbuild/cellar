@@ -316,7 +316,8 @@ same owner, scope and epoch.
 
 Reports are published only after every native node drains and every language
 runtime joins. `--suite local` is the default; `--suite all` writes separate
-`local`, `remote`, `deadline`, `cancellation`, `recovery`, `crash` and `proof` evidence objects. `remote_matrix_verified` and
+`local`, `remote`, `deadline`, `cancellation`, `proof_wait`, `recovery`, `crash`
+and `proof` evidence objects. `remote_matrix_verified` and
 `remote_matrix_after_handoff_verified` record these measured boundaries. Full
 fleet qualification remains false: further interpreter modes, resource limits
 and the full lifecycle matrix are separate requirements. The dedicated proof suite below
@@ -415,7 +416,7 @@ entries and leave the counter unchanged. Decoder expiry follows a saved write
 and returns `DeadlineExceeded/unknown`; explicit same-ID retries recover the
 receipt. The Node control probe must expire before codec verification starts.
 These are real-clock and signed-peer tests with GIL CPython. They do not qualify
-every interpreter, forced peer retry, proof/lifecycle wait or full T17 boundary.
+every interpreter, forced peer retry, proof/lifecycle wait or full T14/T17 boundary.
 
 Native transport tests also exercise a stalled upload with no caller timer,
 malformed/zero budgets, ordinary unbudgeted calls and a real Hyper unsent retry
@@ -530,6 +531,70 @@ python3 tools/rpc/test_python_cancellation.py
 The native concurrency test also holds an unrelated input gate closed, cancels
 a queued RPC and observes the actual payload owner's drop before opening that
 gate. A returned caller error alone cannot establish admission cleanup.
+
+## Cancellation and deadlines during proof waits
+
+```sh
+cargo run --locked -p cellar-rpc-qualification --features full -- \
+  --suite proof-wait --report .cellar/rpc/proof-wait-matrix.json
+```
+
+This T14 matrix contains 128 cases:
+
+| Axis | Values |
+| --- | --- |
+| Caller and provider | Rust, GIL Python, V8/TS, Node/JS: all 16 pairs |
+| Route | Local or authenticated peer |
+| Wait | Handler returned into native output proof, or original handler awaiting sync |
+| Trigger | Explicit cancellation or the original call deadline |
+
+A five-case diagnostic provides faster feedback on caller liveness and captured
+native revocation:
+
+```sh
+cargo run --locked -p cellar-rpc-qualification --features full -- \
+  --suite proof-wait-smoke --report .cellar/rpc/proof-wait-smoke.json
+```
+
+Its report is explicitly `qualified: false`; it cannot replace the full matrix.
+
+```text
+native SQLite count + receipt committed
+                  |
+      peer and bucket proof held
+           /               \
+     handler returned     handler awaiting sync
+           \               /
+           caller signal / deadline
+                  |
+      native call settles; fresh RPC admitted
+                  |
+      original caller remains live
+      old provider SDK operations refused
+                  |
+        open proof -> explicit receipt retries
+```
+
+Both proof paths stay held while the caller joins its native operation and
+admits a fresh RPC. JS callers have one pending SDK slot. Sync cases resume the
+original provider continuation and require its retained storage and RPC clients
+to refuse late work. The caller performs another fresh RPC afterwards, proving
+its own authority survived the callee's revocation. Scope, epoch, execution node,
+local count and receipt come from native observations.
+
+Rust/JS signals and deadlines return fixed failures with `unknown` effects.
+Python task cancellation raises `CancelledError`, which makes no rollback claim;
+Python deadline failures retain `DeadlineExceeded/unknown`. Proof is opened only
+after cleanup checks. Two explicit same-ID retries must recover the saved result
+without another increment. Cancellation does not undo the already committed
+SQLite write. All native nodes and guest runtimes drain before report publication.
+T15 cycles, broader lifecycle failures, interpreter modes and resource saturation
+remain separate gates.
+
+Node watchdog failures include heartbeat age, the Rust observer's loop gap,
+non-consuming input readiness and active invocation/object counts. These bounded
+diagnostics help distinguish worker silence from delayed host observation while
+preserving the configured watchdog deadline.
 
 ## Abrupt owner process loss
 

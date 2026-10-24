@@ -41,6 +41,10 @@ impl Gate {
         self.mode.store(1, Ordering::Release);
     }
 
+    pub fn is_held(&self) -> bool {
+        self.mode.load(Ordering::Acquire) == 1
+    }
+
     pub async fn hold_and_drain(&self) {
         self.hold();
         // A held caller drops its read permit before awaiting release. Only

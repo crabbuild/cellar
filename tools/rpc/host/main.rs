@@ -10,6 +10,7 @@ use std::{path::PathBuf, sync::Arc, time::Duration};
 
 mod admission;
 mod application;
+mod cancel_calls;
 #[path = "../native_counter.rs"]
 mod counter;
 mod crash;
@@ -30,6 +31,8 @@ enum Suite {
     Remote,
     Crash,
     Proof,
+    ProofWait,
+    ProofWaitSmoke,
     Fence,
     Recruitment,
     Recovery,
@@ -60,6 +63,8 @@ fn main() -> Result<()> {
                     Some("remote") => Suite::Remote,
                     Some("crash") => Suite::Crash,
                     Some("proof") => Suite::Proof,
+                    Some("proof-wait") => Suite::ProofWait,
+                    Some("proof-wait-smoke") => Suite::ProofWaitSmoke,
                     Some("fence") => Suite::Fence,
                     Some("proof-recruitment") => Suite::Recruitment,
                     Some("recovery") => Suite::Recovery,
@@ -67,7 +72,7 @@ fn main() -> Result<()> {
                     Some("deadline") => Suite::Deadline,
                     Some("cancellation") => Suite::Cancellation,
                     Some("all") => Suite::All,
-                    _ => anyhow::bail!("--suite must be local, remote, deadline, cancellation, crash, proof, fence, proof-recruitment, recovery, recovery-probe or all"),
+                    _ => anyhow::bail!("--suite must be local, remote, deadline, cancellation, crash, proof, proof-wait, proof-wait-smoke, fence, proof-recruitment, recovery, recovery-probe or all"),
                 }
             }
             "--serve-name" => server_name = Some(arguments.next().context("missing server node name")?),
@@ -75,7 +80,7 @@ fn main() -> Result<()> {
             "--serve-bucket" => server_bucket = Some(PathBuf::from(arguments.next().context("missing server bucket path")?)),
             "--serve-ready" => server_ready = Some(PathBuf::from(arguments.next().context("missing server readiness path")?)),
             _ => anyhow::bail!(
-                "usage: cellar-rpc-qualification [--suite local|remote|deadline|cancellation|crash|proof|fence|proof-recruitment|recovery|recovery-probe|all] [--report path.json]"
+                "usage: cellar-rpc-qualification [--suite local|remote|deadline|cancellation|crash|proof|proof-wait|proof-wait-smoke|fence|proof-recruitment|recovery|recovery-probe|all] [--report path.json]"
             ),
         }
     }
@@ -145,6 +150,7 @@ fn main() -> Result<()> {
     let node_options = NodeOptions::new(root.join("tools/rpc/dist/node/node.mjs").canonicalize()?);
     let options = Options {
         turn_timeout: Duration::from_secs(2),
+        max_pending_operations: 1,
         ..Default::default()
     };
     // SAFETY: this executable owns the process main thread and CPython. All
@@ -195,6 +201,8 @@ fn main() -> Result<()> {
                                 Suite::Remote => remote::run(app).await,
                                 Suite::Crash => crash::run(app).await,
                                 Suite::Proof => proof::run(app).await,
+                                Suite::ProofWait => proof::waits(app).await,
+                                Suite::ProofWaitSmoke => proof::wait_smoke(app).await,
                                 Suite::Fence => proof::fences(app).await,
                                 Suite::Recruitment => proof::recruitment(app).await,
                                 Suite::Recovery => admission::run(app).await,
@@ -206,10 +214,11 @@ fn main() -> Result<()> {
                                     let remote = remote::run(app.clone()).await?;
                                     let deadline = deadline::run(app.clone()).await?;
                                     let cancellation = deadline::cancellation::run(app.clone()).await?;
+                                    let proof_wait = proof::waits(app.clone()).await?;
                                     let recovery = admission::run(app.clone()).await?;
                                     let crash = crash::run(app.clone()).await?;
                                     let proof = proof::run(app).await?;
-                                    Ok(serde_json::json!({"format":1,"suite":"all","local":local,"remote":remote,"deadline":deadline,"cancellation":cancellation,"recovery":recovery,"crash":crash,"proof":proof}))
+                                    Ok(serde_json::json!({"format":1,"suite":"all","local":local,"remote":remote,"deadline":deadline,"cancellation":cancellation,"proof_wait":proof_wait,"recovery":recovery,"crash":crash,"proof":proof}))
                                 }
                             }
                         })?;

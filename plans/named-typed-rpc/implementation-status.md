@@ -15,7 +15,7 @@ does not close schema, resource, packaging or performance requirements.
 
 | Priority | Remaining gap | Deliverable / completion evidence |
 | --- | --- | --- |
-| P0 — next | Cancellation, dependency cycles and failure provenance | Delivered: native local/peer deadlines, guest whole-call budgets, 55 signed-fleet deadline cases and guest cancellation controls that join native cleanup. Next: cancellation during proof/lifecycle waits, self/A-to-B-to-A cleanup, parent-write/child-refusal provenance and forged refusal metadata. See the current evidence below. |
+| P0 — next | Dependency cycles, failure provenance and remaining lifecycle boundaries | Delivered: whole-call budgets, 55 deadline cases and 128 local/peer proof-wait signal/deadline cases. Next: self/A-to-B-to-A cleanup, parent-write/child-refusal provenance, forged refusal metadata and broader lifecycle/resource failures. One unreproduced Node watchdog failure remains documented below. |
 | P0 | Resource bounds and parser correctness | Audit effective method/runtime/host/peer minima, retained binary copies and decoder allocations; reject malformed descriptors before generation; demonstrate bounded queues, reservations and memory under saturation, flood and disconnect. |
 | P1 | Language/profile coverage | Exercise the portable Protobuf profile as real business calls across all local/remote pairs; qualify supported Python interpreter modes and remaining lifecycle/regression boundaries. |
 | P1 | Reproducible application delivery | Deliver `cellar rpc generate/check`, static binding and frozen package inventories, embedded Python source identity, a published typed-RPC example and clean-machine CI. |
@@ -31,7 +31,7 @@ Counter fixture alone is not the highest-priority deliverable now.
 | Package | State | Authoritative evidence / next action |
 | --- | --- | --- |
 | RPC-01: Contracts/toolchain | In progress | Counter and portable-profile outputs reproduce byte-for-byte in all four authoring modes; generated APIs pass TS/Python static checks; full schema/conformance qualification remains |
-| RPC-02: Native typed path | In progress | Native RPC and transport tests, generated-profile/vector and restart/receipt tests pass; shared decoded-slot checks and native catalog limits precede codecs; 55 deadline cases cover guest local/remote/nested calls, receiver caps, slow codecs and Node control queues; native and guest cancellation controls work; full deadline/cancellation/provenance qualification remains |
+| RPC-02: Native typed path | In progress | Native RPC/transport, generated-profile/vector and restart tests pass; codec limits precede allocation; 55 deadline and 128 proof-wait cases cover all caller/provider pairs, signals/deadlines, local/peer routes and output/sync waits; cycles, provenance and broader lifecycle/resource qualification remain |
 | RPC-03: Binary bridges | In progress | Shared `cell.call`, Python raw bytes, owned V8 attachments and binary Node framing implemented; runtime attachment/cleanup tests pass; aggregate copy accounting and full cancellation/flood qualification remain |
 | RPC-04: JS/TS services | In progress | Generated clients/handlers, binary dispatch and live descriptor checks work in V8/Node; real startup refuses stale codecs; typed AbortSignal options and native-owned whole-call codec budgets work with bounded cleanup; full schema/resource/deadline qualification remains |
 | RPC-05: Python services | In progress | Generated async APIs, live codec checks and dispatch work with receipts/restart; stale providers/clients are refused; task cancellation reaches native/peer calls and joins cleanup; native-owned budgets cover validation, encoding, transport and decoding; packaging and free-threaded qualification remain |
@@ -50,7 +50,7 @@ Counter fixture alone is not the highest-priority deliverable now.
 | Bounded request/response codec and binary bridge accounting | Native wire checks and raw attachments implemented; exact retained-copy accounting and saturation qualification remain |
 | Input graph depth/element preflight before allocating language encoders | Rust generated visitors and iterative owned cleanup, Python graph/map checks and JS descriptor-driven type/graph/exact-size preflight tested; broader codec and decoder-allocation qualification remains |
 | Decoder layout/default-field allocation and effective limit plumbing | Shared decoded-slot estimate implemented in native wire and Rust/JS/Python encoders; default map layouts, fixed control budgets and native/guest catalog plumbing tested; exact allocation/RSS, saturation and method/runtime/host/peer minimum audit remain |
-| Invocation authority, cancellation, deadlines and nested-call provenance | Original handlers and retained clients refuse late storage/RPC after actual owner fencing for all 16 pairs; local parent deadlines and cached storage/commit refusal are tested; native peer budgets and receiver caps are tested; Python, V8/TS and Node/JS cancellation each pass four caller-to-Rust cases; broader guest/provenance qualification remains |
+| Invocation authority, cancellation, deadlines and nested-call provenance | Owner fencing and retained-client refusal cover all 16 pairs; 55 deadline cases cover guest nesting/codec costs; 128 proof-wait cases cover signal/deadline × local/peer × output/sync × all 16 pairs with fresh admission and original-authority checks; broader cycles/lifecycle/provenance qualification remains |
 | Pre-factory contract validation and trusted refusal provenance | Native/Python cold-constructor tests pass through the host catalog; custom wrappers without a forwarded catalog remain conservative; peer/admission provenance remains |
 | `cellar rpc check`, pinned Buf workflow and static binding inventory validation | Pending |
 | Registered-method spans, bounded metric labels and payload-free diagnostics | Pending |
@@ -70,6 +70,50 @@ pairs. Preserve the full test matrix, failures and remaining work across turns.
 
 ## Current evidence
 
+- The combined normal-stack executable passes all eight suites and publishes
+  `.cellar/rpc/proof-wait-full-matrix.json` only after native nodes and all guest
+  runtimes drain: 16 local pairs, 16 remote/handoff pairs, 55 deadline cases,
+  17 explicit cancellation cases, 128 proof-wait cases, 32 failed-recovery
+  cases, 48 process kills and 64 proof/fencing cases. All proof-wait rows include
+  the final fresh-call authority check. Full-qualification flags remain false;
+  T15 cycles, provenance and remaining T14/T17/resource/interpreter gates remain.
+  Final checks pass in combined, Node-only and V8-only Clippy modes. Format and
+  layout check 978 Rust files; documentation checks 735 local references; the
+  native-only dependency graph remains engine-free at 465 packages.
+- The strengthened `proof-wait` stage passes all 128 cases in the combined run:
+  two triggers (signal/deadline), two routes (local/signed peer), two phases
+  (returned handler/output proof or suspended sync), and all 16 Rust/Python/V8/Node
+  caller/provider pairs. Peer and bucket data proof remain held while the
+  source native operation settles and a fresh RPC is admitted. JS has one
+  pending operation slot. Another fresh RPC after the target's late-work audit
+  proves the original caller's authority stayed usable throughout cleanup.
+- Sync cases resume the original callee continuation and refuse retained
+  storage/read/RPC work. Native callees also retain a pre-cancellation budget:
+  its direct clock/revocation check is independent of the control request's
+  executing turn, avoiding a foreign-turn false positive. Gates open only after
+  these checks. Two explicit same-ID retries recover the atomic receipt and
+  exact i64 count with stable owner/scope/epoch; no mutation retry is automatic.
+- A separate five-case `proof-wait-smoke` diagnostic passes both native causes
+  and all guest caller forms. Its report remains `qualified: false`. The full
+  matrix validator rejects missing/duplicate combinations, optimistic outcomes,
+  missing proof paths, weak authority checks and incomplete cleanup evidence;
+  both adversarial validator tests pass. All 63 SDK, 22 Python codec/client and
+  ten Python cancellation tests pass, alongside the JS HTTP/runtime/restart and
+  full Python bridge/watchdog/typed-RPC executables. All-target Clippy passes for
+  the qualifier, both adapters and shared guest crate.
+- One first 128-case attempt stops in warmup for its 83rd case with a Node
+  watchdog timeout while the target is V8. The old message cannot distinguish
+  worker silence from delayed host observation. Bounded diagnostics now report
+  heartbeat/observer gaps, non-consuming input readiness and active counts.
+  The two-second policy is unchanged. The observed rerun passes all 128 cases;
+  process memory snapshots do not grow. No cause or fix is established by that
+  retry. The strengthened combined run also passes all eight suites, including
+  all 128 proof-wait cases, without reproducing that watchdog failure.
+- The first combined attempt catches a fixture-local `deadline` Boolean that
+  shadows Python's deadline module. Renaming it to `deadline_trigger` restores
+  the existing 55-case deadline suite. No runtime guard or assertion is relaxed.
+  Non-consuming readiness checks also wait for actual socket arrival; a local
+  write does not imply immediate nonblocking readability.
 - The branch now incorporates main through `3308a1ac`, including the durable
   Vercel AI SDK agent demo. The JavaScript workflow retains both the RPC fixture
   and agent installs/builds/tests. On the merged branch, all seven normal-stack
@@ -773,14 +817,16 @@ The implementation PR is a draft until the remaining correctness and delivery
 boundaries are qualified. Deliver the following slices in order; each slice
 must preserve the existing recovery, crash, proof and receipt evidence.
 
-1. **P0: close cancellation and provenance gaps.** Cancel during output-proof
-   and lifecycle waits, exercise self-calls and A-to-B-to-A cycles, and verify
-   bounded cleanup. Test a parent that writes before a child is refused and
+1. **P0: close dependency-cycle, lifecycle and provenance gaps.** Preserve the
+   128 proof-wait cases and exercise self-calls/A-to-B-to-A with bounded cleanup.
+   Qualify remaining lifecycle waits, forced guest peer retries and broader
+   nested-provider paths. If the unexplained Node watchdog failure recurs, use
+   its observer/heartbeat/input diagnostics to establish the actual cause before
+   changing policy. Test a parent that writes before a child is refused and
    attempts to forge refusal metadata. Trusted pre-admission refusal may establish
    `not_committed` for that call; it cannot reclassify the parent's earlier
    writes. A lost response remains unknown. Preserve the 55 deadline cases;
-   forced guest peer retries, broader nested provider paths and the remaining
-   proof/lifecycle deadline boundaries are still unqualified.
+   remaining T14/T17 boundaries and all supported interpreter modes stay open.
 2. **P0: qualify parser and resource boundaries.** Reject invalid global symbols,
    imports and options before invoking message generators. Verify effective
    method/runtime/host/peer minima, account for retained binary copies, and

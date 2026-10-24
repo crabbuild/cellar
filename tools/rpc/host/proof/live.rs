@@ -151,6 +151,12 @@ impl Watch<'_> {
                 "Python's native sender retained authority after its owner fenced"
             );
         }
+        if self.provider == "rust" {
+            ensure!(
+                snapshot["authority_revoked"] == true,
+                "native authority was not revoked independently of the control invocation"
+            );
+        }
         ensure!(
             self.app
                 .audit

@@ -69,6 +69,9 @@ async def fetch(request, ctx):
     if url.path.endswith("/cancel-release"):
         cancel_releases[query["name"]][query.get("phase", "cancel")].set()
         return Response.json({"released": True})
+    if url.path.endswith("/cancel-state"):
+        control = cancel_releases[query["name"]]
+        return Response.json({key: control[key] for key in ("settled", "result", "followup_writes")})
     if url.path.endswith("/cancel-attack"):
         original = cancel_releases[query["name"]]["context"]
         try:
@@ -77,21 +80,31 @@ async def fetch(request, ctx):
             assert str(error) == "ContextMismatch"
             return Response.json({"scope_refused": True})
         raise AssertionError("Another invocation cancelled the original call")
-    if url.path.endswith("/cancel"):
-        name = query["name"]
-        controls = cancel_releases[name] = {"cancel": asyncio.Event(), "finish": asyncio.Event(), "context": ctx}
-        counter = CounterClient.bind(ctx, "RUST", name)
-        task = asyncio.create_task(counter.get_count(GetCountRequest(), timeout_ms=5000))
+    if url.path.endswith("/cancel") or url.path.endswith("/proof-cancel"):
+        proof = url.path.endswith("/proof-cancel")
+        name = query["id"] if proof else query["name"]
+        deadline_trigger = proof and query.get("trigger") == "deadline"
+        controls = cancel_releases[name] = {"cancel": asyncio.Event(), "finish": asyncio.Event(), "context": ctx,
+                                           "settled": False, "result": None, "followup_writes": None}
+        binding = {"rust": "RUST", "python": "PYTHON", "v8": "V8", "node": "NODE"}[query["target"]] if proof else "RUST"
+        counter = CounterClient.bind(ctx, binding, "alice" if proof else name)
+        pending = counter.increment(IncrementRequest(delta=int(query["delta"]), operation_id=name), timeout_ms=1000 if deadline_trigger else 5000) if proof else counter.get_count(GetCountRequest(), timeout_ms=5000)
+        task = asyncio.create_task(pending)
         try:
             # The host sends this control only after observing the target's
             # uncommitted SQLite write. No timer guesses when to cancel.
-            await controls["cancel"].wait()
-            task.cancel()
+            if not deadline_trigger:
+                await controls["cancel"].wait()
+                task.cancel()
             try:
                 await task
                 raise AssertionError("RPC task ignored cancellation")
             except asyncio.CancelledError:
-                pass
+                assert not deadline_trigger
+                result = {"cancelled": True}
+            except SDKError as error:
+                assert deadline_trigger and error.code == "DeadlineExceeded" and error.outcome == "unknown"
+                result = {"code": error.code, "outcome": error.outcome}
             assert ctx._bridge.cancel_operation(1) is False
             # Awaiting cancellation must settle the original native operation
             # and its mutation permit before another call can be admitted.
@@ -101,12 +114,15 @@ async def fetch(request, ctx):
                 followup_writes = reply.count.value
             except SDKError as error:
                 followup_writes = {"code": error.code, "outcome": error.outcome}
+            controls.update(settled=True, result=result, followup_writes=followup_writes)
             # Keep the parent alive while the blocked target attempts late SDK
             # work, so parent retirement cannot stand in for task cancellation.
             await controls["finish"].wait()
+            final_followup = await followup.get_count(GetCountRequest()) if proof else None
             return Response.json({"node": await ctx.var("DOMAIN_MARKER"),
-                                  "result": {"cancelled": True},
-                                  "followup_writes": followup_writes})
+                                  "result": result,
+                                  "followup_writes": followup_writes,
+                                  "final_followup_writes": final_followup.count.value if final_followup is not None else followup_writes})
         finally:
             cancel_releases.pop(name, None)
     if url.path.endswith("/constructors"):

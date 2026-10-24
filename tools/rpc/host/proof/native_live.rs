@@ -9,6 +9,7 @@ struct State {
     view: Value,
     context: Option<Context>,
     client: Option<CounterClient>,
+    budget: Option<rpc::CallBudget>,
 }
 
 impl Default for State {
@@ -17,6 +18,7 @@ impl Default for State {
             view: json!({"ready":false}),
             context: None,
             client: None,
+            budget: None,
         }
     }
 }
@@ -57,7 +59,7 @@ impl Drop for Guard {
 
 impl Live {
     pub fn begin(self: &Arc<Self>, context: &Context, id: &str) -> Result<Option<Guard>> {
-        if !id.starts_with("proof-fence-sync-")
+        if !(id.starts_with("proof-fence-sync-") || id.starts_with("proof-cancel-sync-"))
             || context.var("DOMAIN_MARKER") != Some("proof-owner")
         {
             return Ok(None);
@@ -65,7 +67,17 @@ impl Live {
         let identity = context
             .identity()
             .context("live native probe requires a cell")?;
+        // A same-owner receipt retry returns before the business sync point.
+        // Do not arm another retained probe for an already completed command.
+        if context
+            .storage()?
+            .get_json(&format!("receipt:{id}"))?
+            .is_some()
+        {
+            return Ok(None);
+        }
         let client = CounterClient::bind(context, "RUST", "alice")?;
+        let budget = rpc::BudgetSource::capture(context)?.start()?;
         ensure!(
             context.storage().is_ok(),
             "original native context had no storage authority"
@@ -82,6 +94,7 @@ impl Live {
             "late_done":false,"storage_refused":false,"read_refused":false,"call_refused":false});
         state.context = Some(context.clone());
         state.client = Some(client);
+        state.budget = Some(budget);
         Ok(Some(Guard {
             live: self.clone(),
             id: id.into(),
@@ -90,7 +103,7 @@ impl Live {
     }
 
     pub fn committed(&self, context: &Context, id: &str) -> Result<()> {
-        if !id.starts_with("proof-fence-sync-")
+        if !(id.starts_with("proof-fence-sync-") || id.starts_with("proof-cancel-sync-"))
             || context.var("DOMAIN_MARKER") != Some("proof-owner")
         {
             return Ok(());
@@ -128,7 +141,7 @@ impl Live {
     }
 
     pub async fn release(&self) -> Result<Value> {
-        let (context, client) = {
+        let (context, client, budget) = {
             let state = self.0.lock().unwrap();
             ensure!(
                 state.view["cancelled"] == true,
@@ -143,8 +156,17 @@ impl Live {
                     .client
                     .clone()
                     .context("native probe client missing")?,
+                state
+                    .budget
+                    .clone()
+                    .context("native probe budget missing")?,
             )
         };
+        // This capability checks its captured cancellation flag and clock
+        // without consulting the current control invocation's SDK turn.
+        let authority_revoked = budget
+            .remaining_ms()
+            .is_err_and(|error| error.code() == rpc::Code::ContextExpired);
         let storage_refused = context
             .storage()
             .and_then(|storage| storage.put_json("late-fenced", &json!(true)))
@@ -167,6 +189,7 @@ impl Live {
         state.view["storage_refused"] = json!(storage_refused);
         state.view["read_refused"] = json!(read_refused);
         state.view["call_refused"] = json!(call_refused);
+        state.view["authority_revoked"] = json!(authority_revoked);
         state.view["late_done"] = json!(true);
         Ok(state.view.clone())
     }

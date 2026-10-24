@@ -1,4 +1,4 @@
-// Qualification-only continuation retained across an actual owner fence.
+// Qualification-only continuation retained across cancellation or owner loss.
 import type { Context, Json } from "@cellar/sdk";
 type LiveClient = {increment(request: {delta:bigint;operationId:string}):Promise<unknown>};
 let bindClient: ((context:Context) => LiveClient) | undefined;
@@ -40,7 +40,7 @@ export function liveControl(action: "release" | "clear"): Json {
 }
 
 export async function liveSync(ctx: Context, id: string): Promise<boolean> {
-  if (!id.startsWith("proof-fence-sync-")) return false;
+  if (!id.startsWith("proof-fence-sync-") && !id.startsWith("proof-cancel-sync-")) return false;
   const node = await ctx.variable("DOMAIN_MARKER");
   if (node !== "proof-owner") return false; // Explicit retries use new authority.
   if (probe || !ctx.identity) throw Error("Live probe already exists or has no cell identity");
