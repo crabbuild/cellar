@@ -7,6 +7,35 @@ use cellar::sdk::{
 
 struct Entity;
 
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+static SUSPEND: AtomicBool = AtomicBool::new(false);
+static READS: AtomicU64 = AtomicU64::new(0);
+static YIELDED: AtomicU64 = AtomicU64::new(0);
+static RESUMED: AtomicU64 = AtomicU64::new(0);
+
+async fn one_suspension() {
+    let mut yielded = false;
+    std::future::poll_fn(|cx| {
+        if yielded {
+            RESUMED.fetch_add(1, Ordering::Relaxed);
+            std::task::Poll::Ready(())
+        } else {
+            yielded = true;
+            YIELDED.fetch_add(1, Ordering::Relaxed);
+            cx.waker().wake_by_ref();
+            std::task::Poll::Pending
+        }
+    }).await
+}
+
+fn observations() -> Value {
+    json!({"fixture":"CELLAR_NATIVE_SINGLE_SUSPENSION_V1",
+        "variant":if SUSPEND.load(Ordering::Acquire) { "suspended" } else { "immediate" },
+        "reads":READS.load(Ordering::Acquire), "yielded":YIELDED.load(Ordering::Acquire),
+        "resumed":RESUMED.load(Ordering::Acquire)})
+}
+
+
 async fn echo(context: &Context, request: Request) -> Result<Output> {
     let body = request.into_body_reader(context)?.bytes(context).await?;
     Ok(Output::Http(
@@ -28,6 +57,10 @@ impl Cell for Entity {
             if Url::new(&request.url, None)?.pathname() == "/cell-echo" && request.method == "POST"
             {
                 return echo(&context, request).await;
+            }
+            if request.method == "GET" {
+                if SUSPEND.load(Ordering::Acquire) { one_suspension().await; }
+                READS.fetch_add(1, Ordering::Relaxed);
             }
             let storage = context.storage()?;
             let previous = storage.get_json("count")?;
@@ -66,6 +99,14 @@ pub(super) fn application() -> Result<Arc<dyn Application>> {
                     anyhow::bail!("expected HTTP");
                 };
                 let url = Url::new(&request.url, None)?;
+                if url.pathname() == "/continuation-observations" {
+                    return Ok(Output::Http(Response::from_json(&observations())?.into_http(&context)?));
+                }
+                if let Some(variant) = url.pathname().strip_prefix("/continuation-control/") {
+                    ensure!(variant == "immediate" || variant == "suspended", "unknown variant");
+                    SUSPEND.store(variant == "suspended", Ordering::Release);
+                    return Ok(Output::Http(Response::from_json(&observations())?.into_http(&context)?));
+                }
                 if url.pathname() == "/echo" && request.method == "POST" {
                     return echo(&context, request).await;
                 }
