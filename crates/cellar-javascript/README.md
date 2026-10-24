@@ -35,6 +35,9 @@ Start with the [TypeScript counter](../../examples/javascript/README.md) for an
 embedded executable, the [Node example](../../examples/node/README.md) for npm
 runtime compatibility, or the [durable Pi agent](../../examples/pi-agent/README.md)
 for checkpointed model and tool steps.
+The [Vercel AI SDK agent](../../examples/vercel-agent/README.md) demonstrates
+`ToolLoopAgent`, durable model middleware, atomic tools, six process interruption
+boundaries, and concurrent task recovery through the same Node bridge.
 
 ## Choose an execution backend
 
