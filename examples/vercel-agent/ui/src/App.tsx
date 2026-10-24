@@ -159,6 +159,7 @@ export default function App() {
       title: prompt.slice(0, 48),
       prompt,
       previous,
+      updatedAt: Date.now(),
     };
     setSending(true);
     setActionError(null);
@@ -173,6 +174,7 @@ export default function App() {
         status: "pending",
         prompt,
         previous,
+        updatedAt: item.updatedAt,
         attempts: 0,
         modelSteps: 0,
         toolReceipts: 0,

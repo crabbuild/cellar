@@ -9,6 +9,7 @@ const entrySchema = z
     title: z.string().min(1).max(48),
     prompt: z.string().min(1).max(8000),
     previous: id.nullable(),
+    updatedAt: z.number().int().nonnegative().safe().nullable(),
   })
   .strict();
 
@@ -25,19 +26,28 @@ export class ConversationDirectory {
       prompt TEXT NOT NULL,
       previous TEXT
     )`);
+    await ctx.storage.sql(`CREATE TABLE IF NOT EXISTS conversation_activity (
+      task TEXT PRIMARY KEY,
+      updated_at INTEGER NOT NULL
+    )`);
     if (req.method === "GET") {
-      const result = await ctx.storage.sql(`SELECT task, title, prompt, previous
+      const result = await ctx.storage
+        .sql(`SELECT turn.task, title, prompt, previous, updated_at
         FROM conversation_turns AS turn
+        LEFT JOIN conversation_activity AS activity ON activity.task = turn.task
         WHERE NOT EXISTS (SELECT 1 FROM conversation_turns AS child WHERE child.previous = turn.task)
-        ORDER BY sequence DESC LIMIT 20`);
+        ORDER BY COALESCE(updated_at, 0) DESC, turn.task ASC LIMIT 20`);
       await ctx.storage.sync();
       return jsonResponse({
-        chats: result.rows.map(([task, title, prompt, previous]) => ({
-          task,
-          title,
-          prompt,
-          previous,
-        })),
+        chats: result.rows.map(
+          ([task, title, prompt, previous, updatedAt]) => ({
+            task,
+            title,
+            prompt,
+            previous,
+            updatedAt,
+          }),
+        ),
       });
     }
 
@@ -55,7 +65,7 @@ export class ConversationDirectory {
         { error: "invalid directory entry" },
         { status: 400 },
       );
-    const { task, title, prompt, previous } = input.data;
+    const { task, title, prompt, previous, updatedAt } = input.data;
     // SQLite arbitrates concurrent registrations. A read/modify/write JSON
     // snapshot would race between acceptance and the turn's first alarm.
     await ctx.storage.sql(
@@ -79,16 +89,31 @@ export class ConversationDirectory {
         { status: 409 },
       );
     }
+    // A delayed replay may carry an earlier checkpoint. Reads and retries must
+    // never move a conversation forward in time, or overwrite newer activity.
+    if (updatedAt !== null)
+      await ctx.storage.sql(
+        `INSERT INTO conversation_activity (task, updated_at) VALUES (?, ?)
+        ON CONFLICT(task) DO UPDATE SET updated_at = MAX(updated_at, excluded.updated_at)`,
+        [task, updatedAt],
+      );
     // Keep parent references so replaying an older turn does not resurrect
     // it beside its newer child. Entry count and prompt length are bounded.
     await ctx.storage.sql(`DELETE FROM conversation_turns WHERE sequence IN
       (SELECT sequence FROM conversation_turns ORDER BY sequence DESC LIMIT -1 OFFSET 128)`);
+    await ctx.storage.sql(`DELETE FROM conversation_activity
+      WHERE task NOT IN (SELECT task FROM conversation_turns)`);
     await ctx.storage.sync();
     return jsonResponse({ saved: true });
   }
 }
 
 export async function indexConversation(ctx: Context, run: Run) {
+  // Activity is separate metadata, so turns without a recorded time can still
+  // be discovered without assigning them the time at which they were opened.
+  const saved = await ctx.storage.read("updated_at");
+  await ctx.storage.sync();
+  const updatedAt = saved.present ? saved.value : null;
   const first = run.history.find((message) => message.role === "user");
   const title = (
     first && typeof first.content === "string" ? first.content : run.prompt
@@ -101,9 +126,11 @@ export async function indexConversation(ctx: Context, run: Run) {
         title,
         prompt: run.prompt,
         previous: run.previous,
+        updatedAt,
       }),
     }),
   );
   if (reply.status !== 200)
     throw new Error("conversation history could not be saved");
+  return updatedAt;
 }

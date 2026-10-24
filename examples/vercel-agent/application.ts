@@ -136,7 +136,7 @@ export function application(
         return jsonResponse({ error: "task not found" }, { status: 404 });
 
       // Opening a saved URL also makes the turn discoverable in this workspace.
-      await indexConversation(ctx, run);
+      const updatedAt = await indexConversation(ctx, run);
 
       // Read count from the same journal snapshot so status and receipt agree.
       const order = run.models.flatMap((entry) =>
@@ -153,6 +153,7 @@ export function application(
         prompt: run.prompt,
         attempts: run.attempts,
         previous: run.previous,
+        updatedAt,
         modelSteps: run.models.length,
         toolReceipts: Object.keys(run.tools).length,
         count:
@@ -188,6 +189,8 @@ export function application(
           : undefined,
         services,
       );
+      const completed = await readRun(ctx);
+      if (completed) await indexConversation(ctx, completed);
     }
   }
 

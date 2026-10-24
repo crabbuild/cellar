@@ -93,6 +93,26 @@ test("task acceptance is idempotent and rejects prompt reuse", async () => {
   assert.equal((await accept(ctx, "Add three", provider)).status, "completed");
 });
 
+test("activity time changes with durable checkpoints, never reads or duplicate acceptance", async () => {
+  const { ctx, data } = storage();
+  const provider = fixtureModel();
+  let now = 1000;
+  ctx.now = async () => now;
+  await accept(ctx, "Add three", provider);
+  assert.equal(data.get("updated_at"), 1000);
+  now = 2000;
+  await readRun(ctx);
+  await accept(ctx, "Add three", provider);
+  assert.equal(data.get("updated_at"), 1000);
+  await execute(ctx, provider);
+  assert.equal(data.get("updated_at"), 2000);
+  now = 3000;
+  await execute(ctx, provider);
+  await readRun(ctx);
+  await accept(ctx, "Add three", provider);
+  assert.equal(data.get("updated_at"), 2000);
+});
+
 test("duplicate acceptance and status reads require a durability proof", async () => {
   const { ctx } = storage();
   const provider = fixtureModel();

@@ -1,8 +1,12 @@
 import { test, expect, type Page } from "@playwright/test";
 
 async function setup(page: Page) {
-  const requests: { id: string; prompt: string; previous: string | null }[] =
-    [];
+  const requests: {
+    id: string;
+    prompt: string;
+    previous: string | null;
+    updatedAt?: number;
+  }[] = [];
   let done = false,
     rejectNext = false;
   await page.route("**/api/**", async (route) => {
@@ -23,6 +27,7 @@ async function setup(page: Page) {
               title: item.prompt.slice(0, 48),
               prompt: item.prompt,
               previous: item.previous,
+              updatedAt: item.updatedAt ?? 1000,
             })),
         },
       });
@@ -72,6 +77,7 @@ async function setup(page: Page) {
         status: done ? "completed" : "pending",
         prompt: saved.prompt,
         previous: saved.previous,
+        updatedAt: saved.updatedAt ?? 1000,
         attempts: 1,
         modelSteps: done ? 1 : 0,
         toolReceipts: 0,
@@ -94,6 +100,68 @@ async function setup(page: Page) {
     },
   };
 }
+
+test("conversation order follows saved updates, not selection or polling", async ({
+  page,
+}, info) => {
+  const server = await setup(page);
+  server.requests.push(
+    {
+      id: "newer",
+      prompt: "Newer conversation",
+      previous: null,
+      updatedAt: 2000,
+    },
+    {
+      id: "older",
+      prompt: "Older conversation",
+      previous: null,
+      updatedAt: 1000,
+    },
+  );
+  server.complete();
+  await page.clock.install();
+  await page.goto("/");
+  const navigation = page.getByRole("navigation", { name: "Conversations" });
+  const open = async () => {
+    if (info.project.name === "mobile")
+      await page.getByRole("button", { name: "Open conversations" }).click();
+  };
+  await open();
+  await expect(navigation.getByRole("button")).toHaveText([
+    "Newer conversation",
+    "Older conversation",
+  ]);
+  await navigation.getByRole("button", { name: "Older conversation" }).click();
+  await expect(page).toHaveURL(/task=older/);
+  await expect(
+    page.getByRole("heading", { name: "Verified result" }),
+  ).toBeVisible();
+  await open();
+  await expect(navigation.getByRole("button")).toHaveText([
+    "Newer conversation",
+    "Older conversation",
+  ]);
+  await page.clock.fastForward(6000);
+  await expect(navigation.getByRole("button")).toHaveText([
+    "Newer conversation",
+    "Older conversation",
+  ]);
+  // A real saved update reorders the list even if the server array is unsorted.
+  server.requests[1].updatedAt = 3000;
+  await page.clock.fastForward(6000);
+  await expect(navigation.getByRole("button")).toHaveText([
+    "Older conversation",
+    "Newer conversation",
+  ]);
+  await page.reload();
+  await open();
+  await expect(navigation.getByRole("button")).toHaveText([
+    "Older conversation",
+    "Newer conversation",
+  ]);
+  expect(server.requests).toHaveLength(2);
+});
 
 test("server conversation history restores without browser storage or a turn URL", async ({
   page,

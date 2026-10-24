@@ -49,7 +49,13 @@ The sidebar reads `/api/conversations`, backed by a cell-owned durable
 `ConversationDirectory` in the same bucket as the turns. Browser local storage
 is only a display cache: an empty browser can discover saved conversations
 without a turn URL. Follow-ups replace their parent in the list, while keeping
-the conversation's original title. The directory returns 20 recent conversation
+the conversation's original title. Conversations sort by the timestamp saved
+atomically with their latest checkpoint; opening a chat or polling its status
+does not change that timestamp. Equal timestamps use task ID order. Turns with
+no recorded activity time sort after dated turns, also by task ID; opening an
+older saved link does not invent an update time. Activity metadata lives in the
+same durable cells and bucket as the journal and directory.
+The directory returns 20 recent conversation
 leaves and retains up to 128 turn references, with prompts bounded to 8,000
 characters each.
 

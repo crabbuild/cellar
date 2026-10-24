@@ -8,18 +8,23 @@ function cachedChats(): Chat[] {
   try {
     const saved: unknown = JSON.parse(localStorage.getItem(storageKey) ?? "[]");
     return Array.isArray(saved)
-      ? saved
-          .filter(
-            (item): item is Chat =>
-              item &&
-              typeof item === "object" &&
-              typeof item.task === "string" &&
-              /^[a-zA-Z0-9_-]{1,64}$/.test(item.task) &&
-              typeof item.title === "string" &&
-              typeof item.prompt === "string" &&
-              (item.previous === null || typeof item.previous === "string"),
-          )
-          .slice(0, 20)
+      ? latestTurns(
+          saved
+            .filter(
+              (item): item is Chat =>
+                item &&
+                typeof item === "object" &&
+                typeof item.task === "string" &&
+                /^[a-zA-Z0-9_-]{1,64}$/.test(item.task) &&
+                typeof item.title === "string" &&
+                typeof item.prompt === "string" &&
+                (item.updatedAt == null ||
+                  (Number.isSafeInteger(item.updatedAt) &&
+                    item.updatedAt >= 0)) &&
+                (item.previous === null || typeof item.previous === "string"),
+            )
+            .map((item) => ({ ...item, updatedAt: item.updatedAt ?? null })),
+        )
       : [];
   } catch {
     return [];
@@ -29,7 +34,14 @@ function cachedChats(): Chat[] {
 function latestTurns(chats: Chat[]): Chat[] {
   const unique = [...new Map(chats.map((chat) => [chat.task, chat])).values()];
   const parents = new Set(unique.map((chat) => chat.previous));
-  return unique.filter((chat) => !parents.has(chat.task)).slice(0, 20);
+  return unique
+    .filter((chat) => !parents.has(chat.task))
+    .sort(
+      (a, b) =>
+        (b.updatedAt ?? 0) - (a.updatedAt ?? 0) ||
+        (a.task < b.task ? -1 : a.task > b.task ? 1 : 0),
+    )
+    .slice(0, 20);
 }
 
 export function useConversations(
@@ -86,17 +98,19 @@ export function useConversations(
       title,
       prompt: state.prompt,
       previous: state.previous,
+      updatedAt: state.updatedAt,
     };
     setChats((current) => {
       const existing = current.find((chat) => chat.task === task);
       return existing &&
         existing.title === title &&
         existing.prompt === item.prompt &&
-        existing.previous === item.previous
+        existing.previous === item.previous &&
+        (existing.updatedAt ?? 0) >= (item.updatedAt ?? 0)
         ? current
-        : latestTurns([item, ...current]);
+        : latestTurns([...current, item]);
     });
-  }, [task, title, state?.prompt, state?.previous]);
+  }, [task, title, state?.prompt, state?.previous, state?.updatedAt]);
 
   useEffect(() => {
     try {

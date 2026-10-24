@@ -6,6 +6,7 @@ export interface Chat {
   title: string;
   prompt: string;
   previous: string | null;
+  updatedAt: number | null;
 }
 export function ChatNavigation({
   chats,

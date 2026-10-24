@@ -21,6 +21,7 @@ export interface Task {
   status: "pending" | "completed" | "failed";
   prompt: string;
   previous: string | null;
+  updatedAt: number | null;
   attempts: number;
   modelSteps: number;
   toolReceipts: number;

@@ -39,6 +39,31 @@ const entry = (task, previous = null) => ({
   previous,
   title: "Saved conversation",
   prompt: `Prompt ${task}`,
+  updatedAt: 1000,
+});
+
+test("directory sorts by checkpoint time and ignores stale replays and reads", async (t) => {
+  const h = harness();
+  t.after(() => h.db.close());
+  const newer = { ...entry("newer"), updatedAt: 2000 };
+  const older = { ...entry("older"), updatedAt: 1000 };
+  await h.call("POST", newer);
+  await h.call("POST", older);
+  assert.deepEqual(await h.list(), [newer, older]);
+  assert.deepEqual(await h.list(), [newer, older]);
+  const updated = { ...older, updatedAt: 3000 };
+  await h.call("POST", updated);
+  await h.call("POST", older);
+  await h.call("POST", { ...older, updatedAt: null });
+  assert.deepEqual(await h.list(), [updated, newer]);
+  // Equal and unknown times have a deterministic order, independent of reads.
+  await h.call("POST", { ...newer, updatedAt: 3000 });
+  await h.call("POST", { ...entry("unknown-b"), updatedAt: null });
+  await h.call("POST", { ...entry("unknown-a"), updatedAt: null });
+  assert.deepEqual(
+    (await h.list()).map((chat) => chat.task),
+    ["newer", "older", "unknown-a", "unknown-b"],
+  );
 });
 
 test("durable directory lists latest conversation turns without resurrecting replayed parents", async (t) => {

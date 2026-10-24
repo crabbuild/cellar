@@ -63,7 +63,7 @@ returned the identical completed task. A new follow-up correctly recalled
 The deterministic suite independently passed all six interruption boundaries
 against RustFS. It also completed 16 concurrent production-entry turns, erased
 the worker's local files, and recovered identical results for 32 duplicate
-submissions. The unit suite has 34 passing tests, including backend selection,
+submissions. The unit suite has 36 passing tests, including backend selection,
 refusal to fall back from incomplete S3 configuration, and inherited local-store
 override removal. Default local-store recovery remains covered.
 
@@ -82,12 +82,22 @@ Browser local storage is only a cache, and directory outages show a retry state.
 
 The desktop and mobile regression loads history without local storage, clears
 the cache again, and opens a saved conversation from the home page without a
-turn URL or resubmission. Eight UI tests passed. In the live RustFS demo, all
+turn URL or resubmission. Ten UI tests passed. In the live RustFS demo, all
 27 worker-local files across three worker directories were deleted. Two sidebar
 conversations then restored identically through the directory endpoint, before
 any task HTTP request. Opening a saved link also registers previously unindexed
 turns; the directory does not scan or reverse opaque IDs for undiscovered old
 turns.
+
+A further regression reproduced sidebar entries moving to the front when
+selected. Entries now sort by saved checkpoint time, with task ID as a stable
+tie-breaker. Activity time commits atomically beside the journal; reads and
+duplicate acceptance do not change it, and delayed indexing cannot overwrite a
+newer time. Turns without a recorded time remain discoverable in a stable
+order after dated turns. Desktop and mobile tests cover selection, polling,
+reload, and an actual timestamp change with an unsorted server response.
+Switching between both existing chats in the live demo preserved their order
+and metadata without resubmission.
 
 The example uses a bounded 128-invocation bridge budget for nested ingress,
 turn, alarm and directory calls. The deterministic RustFS run verifies that
