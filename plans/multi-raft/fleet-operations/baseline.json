@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "revision": "cc470bb268f81bbc22f1f52e78c496e62ccb64af",
+  "revision": "c40606d804037829f3e810b8da397b35ed192f77",
   "files": [
     {
       "path": ".github/workflows/native-sdk.yml",
@@ -48,11 +48,11 @@
     },
     {
       "path": "crates/cellar/application/consensus/mod.rs",
-      "sha256": "760d11384976c2488f67065f1800846d341215766203858ef3a9e4f3c5ad15b4"
+      "sha256": "e63e76baed7a411f392831547fbb8dbf722e0428e6801c2bbdca5e4a5bde8f80"
     },
     {
       "path": "crates/cellar/application/consensus/protocol.rs",
-      "sha256": "9e61f49f5cd726ad19839ae45139ccb2ed2007af8fd154fbb478120ce57cd916"
+      "sha256": "672c1904bf98dc0477ed71b82ea0d65090831a89bfcaf756b15ef76a76c06452"
     },
     {
       "path": "crates/cellar/application/consensus/resources.rs",
@@ -64,7 +64,7 @@
     },
     {
       "path": "crates/cellar/durability/raft/README.md",
-      "sha256": "16835e14798286cf5871f37bf40d2a226bbaf5c30d0574a5e499db5c7a80f2b5"
+      "sha256": "fdbed6e6d4f697be212741339b38cb2d6ce57006dd8fa70b08b285bf537f39f0"
     },
     {
       "path": "crates/cellar/durability/raft/archive/mod.rs",
@@ -76,11 +76,11 @@
     },
     {
       "path": "crates/cellar/durability/raft/catalog.rs",
-      "sha256": "e683ac4e9f2692ddd61c81a96ef1d78e737fb871bfc64c7d147b4ccfe77d75ce"
+      "sha256": "a9f0747e8d8d5eeb2d1667c116fed27e9b060390ef79d09bf7970258ab3b7c7f"
     },
     {
       "path": "crates/cellar/durability/raft/catalog_wire.rs",
-      "sha256": "bd1fa3e88732eee52a5ef41c232ed15ed9b05559c5ca0c317aacef1923c74ce4"
+      "sha256": "89e219f01c44cc02ad064973e86bdb289c37aaea752608ea4eaa5938b2853b50"
     },
     {
       "path": "crates/cellar/durability/raft/controller_action.rs",
@@ -204,7 +204,7 @@
     },
     {
       "path": "crates/cellar/tests/support/raft_catalog_fault.rs",
-      "sha256": "01e61960218ba3bf9b6a84af575de287219e88259f6bafc75cab43a5c670629b"
+      "sha256": "2a55eb7352e32229443a021ae512146cd7850333c1196229ed08dd872f659766"
     },
     {
       "path": "tools/perf/raft_analyze.py",
@@ -223,6 +223,6 @@
       "sha256": "439f816ccdd945cd7a8df44356cb2a0359733c0e538713c05f7afdd14b166a19"
     }
   ],
-  "reviewed_from_revision": "4832486df3eff29ab3b5ed61f572513e59b37828",
-  "review_note": "FO-02 reviewed successor: opaque catalog capabilities, committed fleet bindings/permit fences, guarded SDK and startup ingress, scope validation across persistence/snapshots/archives, and bounded completion/control metadata. Existing source-anchor hashes refreshed only after 7 native permit cases, 16 core units, 187 regression cases, Clippy and repository checks passed. Prior reviewed baselines remain in Git; fleet-wide qualification remains FO-03 through FO-10."
+  "reviewed_from_revision": "cc470bb268f81bbc22f1f52e78c496e62ccb64af",
+  "review_note": "FO-03 partial reviewed successor: conditional birth/cancellation selection at the immutable name key, required nullable cancellation identity, /enrollment-1 hard cutover, bounded input/deadline admission and native fault coverage. Five birth cases plus 63 existing catalog/directory/permit/host cases, focused Clippy, formatting, layout and native dependencies passed. This refresh does not complete FO-03; nine named cases and dynamic host/trust/inventory integration remain open. Prior baselines remain in Git."
 }

@@ -2,9 +2,10 @@
 
 The full fleet operations goal is active. FO-01 implements the catalog adapter
 and FO-02 implements the durable membership guard, with local native verification.
-FO-03 through FO-10 remain pending. The operator commands, automatic redistribution,
-managed maintenance and resize workflows are not yet available. The task manifest
-is authoritative for package status and retained completion records.
+FO-03 is in progress; FO-04 through FO-10 remain pending. The operator commands,
+automatic redistribution, managed maintenance and resize workflows are not yet
+available. The task manifest is authoritative for package status and retained
+completion records.
 
 ## Implemented catalog foundation
 
@@ -71,8 +72,8 @@ idempotent shortcuts. Fresh managed learners require registered standby activati
 with their capability. Legacy fresh peer/archive `Joining` startup refuses them
 before claiming a member; intact retained joined engines can resume normally.
 Large control payloads and optional fleet state are boxed, and physical snapshot
-completion reservations cover the expanded bounded ledger. The internal protocol
-ends in `/fleet-1`; older records refuse startup and require fresh experimental
+completion reservations cover the expanded bounded ledger. At that checkpoint
+the internal protocol ended in `/fleet-1`; older records refuse startup and require fresh experimental
 namespaces, with numeric format markers retained at 1.
 
 Read the [component contract](../../../crates/cellar/durability/raft/fleet_catalog/README.md)
@@ -102,6 +103,37 @@ recovery cases use controlled retained-engine reopen; existing unmanaged abrupt
 process-kill regressions also passed. Abrupt managed fleet faults, deployed RustFS,
 resource tiers, performance and soak remain unqualified FO-10 work.
 
+## FO-03 progress: conditional birth cancellation
+
+Source `c40606d804037829f3e810b8da397b35ed192f77` adds the low-level cancellation
+fence at the immutable cell-name birth key. Birth and cancellation use the same
+conditional create; a cancelled winner refuses delayed creation and name reuse.
+A live winner remains live and must use its ordinary quorum-backed lifecycle.
+The returned `BirthDisposition` exposes the exact observed winner. Lost replies
+and original-deadline expiry remain ambiguous until exact-key reconciliation,
+including expiry after a successful tombstone write. Caller membership vectors
+are bounded before synchronous sorting or storage access.
+
+The birth codec requires explicit nullable `cancelled_by`; the experimental
+namespace protocol now ends in `/fleet-1/enrollment-1`. Numeric markers stay at 1,
+and earlier namespaces have no compatibility reader. Use fresh experimental
+namespaces and matching binaries. No raw evidence was added to the tracked plans.
+
+Five birth cases pass, including held late writers, both race winners, lost
+confirmation, deadlines before/after commit, malformed identity and input bounds.
+The final regression cohort also passed 63 existing cases: directory 16, catalog
+11, membership permits 7 and host 29. The protocol cutover unit, focused Clippy,
+formatting/layout, native dependencies, documentation and 10 validator tests
+passed. Logs are retained under ignored `implementation/fo03-*.log` within the
+usual `.cellar/raft-perf/fleet-operations/` directory.
+
+`implementation/fo03/birth-boundary.json` is explicitly a partial progress record,
+not completion evidence. FO-03 remains `IN_PROGRESS`: nine required native cases
+are still absent, and `check-list FO-03` correctly refuses the incomplete listing.
+Trusted dynamic nodes, route revocation, empty-host readiness, dormant registration
+and complete inventory/birth admission are not delivered by this substep. The
+acceptance inventory now contains 103 named cases; its remaining scope is intact.
+
 ## Next implementation boundary
 
 FO-03 adds the trusted dynamic node set, empty managed host readiness, bounded
@@ -109,6 +141,14 @@ dormant registration and complete managed history/birth enrollment. It must keep
 storage pins and retired bindings immutable and separate restart/resize exclusions
 from evacuation. FO-04 through FO-10 retain their complete planning, telemetry,
 reconciliation, lifecycle, API/CLI, scaling and qualification scope.
+
+The current `node/raft_startup.rs` and `host.rs` reject zero registrations,
+`host_directory.rs` derives namespace trust only from registered cells, and
+`client.rs` routes node controls through a first-cell binding. Empty-host support
+must remove those dependencies using explicit namespace/class trust and node-level
+request identity. Dynamic binding mutations belong to the serialized host, with
+bounded reader access and no lock guard crossing an await. A dummy business cell
+or a successful TCP connect is not an enrollment/readiness proof.
 
 ## Expanded operating design
 
