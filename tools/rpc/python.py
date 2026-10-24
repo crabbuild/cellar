@@ -5,6 +5,7 @@ from cellar import Conflict, Response, SDKError
 from counter_pb2 import Count, GetCountRequest, GetCountResponse, IncrementRequest, IncrementResponse, OperationConflict, OutOfRange
 from counter_cellar import CounterClient, CounterRegistration
 import live
+import deadline
 
 constructed = 0
 retained = None
@@ -17,6 +18,8 @@ class PythonCounter:
         constructed += 1
 
     async def get_count(self, request, ctx):
+        if ctx.identity.name == "deadline-nested":
+            return await deadline.nested(ctx)
         current = await ctx.storage.read_json("count")
         return GetCountResponse(count=Count(value=int(current.value) if current.present else 0))
 
@@ -115,6 +118,12 @@ async def fetch(request, ctx):
     if url.path.endswith("/probe-clear"):
         return Response.json(live.control("clear"))
     binding = {"rust": "RUST", "python": "PYTHON", "v8": "V8", "node": "NODE"}[query.get("target", "python")]
+    if url.path.endswith("/deadline-control"):
+        return deadline.control(query["action"], query.get("child", ""))
+    if url.path.endswith("/deadline"):
+        return await deadline.call(ctx, binding, query["name"], query.get("timeout"))
+    if url.path.endswith("/codec-budget"):
+        return await deadline.codec_budget(ctx, binding, query["phase"], query["id"])
     counter = CounterClient.bind(ctx, binding, "alice")
     if url.path.endswith("/capture"):
         retained = counter

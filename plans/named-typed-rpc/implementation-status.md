@@ -15,7 +15,7 @@ does not close schema, resource, packaging or performance requirements.
 
 | Priority | Remaining gap | Deliverable / completion evidence |
 | --- | --- | --- |
-| P0 — next | Invocation deadlines, cancellation and failure provenance | Delivered: native local/peer deadlines and cancellation, Python/V8/Node whole-call codec budgets, plus guest cancellation controls that join native cleanup. Next: explicit guest remote/nested codec-deadline tests, followed by dependency cycles, parent-write/child-refusal provenance and cancellation during proof/lifecycle waits. See the current evidence below. |
+| P0 — next | Cancellation, dependency cycles and failure provenance | Delivered: native local/peer deadlines, guest whole-call budgets, 55 signed-fleet deadline cases and guest cancellation controls that join native cleanup. Next: cancellation during proof/lifecycle waits, self/A-to-B-to-A cleanup, parent-write/child-refusal provenance and forged refusal metadata. See the current evidence below. |
 | P0 | Resource bounds and parser correctness | Audit effective method/runtime/host/peer minima, retained binary copies and decoder allocations; reject malformed descriptors before generation; demonstrate bounded queues, reservations and memory under saturation, flood and disconnect. |
 | P1 | Language/profile coverage | Exercise the portable Protobuf profile as real business calls across all local/remote pairs; qualify supported Python interpreter modes and remaining lifecycle/regression boundaries. |
 | P1 | Reproducible application delivery | Deliver `cellar rpc generate/check`, static binding and frozen package inventories, embedded Python source identity, a published typed-RPC example and clean-machine CI. |
@@ -31,7 +31,7 @@ Counter fixture alone is not the highest-priority deliverable now.
 | Package | State | Authoritative evidence / next action |
 | --- | --- | --- |
 | RPC-01: Contracts/toolchain | In progress | Counter and portable-profile outputs reproduce byte-for-byte in all four authoring modes; generated APIs pass TS/Python static checks; full schema/conformance qualification remains |
-| RPC-02: Native typed path | In progress | Native RPC and transport tests, seven generated-profile/vector tests and a real-node restart/receipt test pass; shared decoded-slot checks, fixed control budgets and native catalog limits precede codecs; local/peer parent budgets are inherited and native expiry is tested; native invocation cancellation and Python/V8/Node caller controls are implemented and tested; whole-call guest budgets work locally; explicit guest remote/nested deadlines and full call provenance remain |
+| RPC-02: Native typed path | In progress | Native RPC and transport tests, generated-profile/vector and restart/receipt tests pass; shared decoded-slot checks and native catalog limits precede codecs; 55 deadline cases cover guest local/remote/nested calls, receiver caps, slow codecs and Node control queues; native and guest cancellation controls work; full deadline/cancellation/provenance qualification remains |
 | RPC-03: Binary bridges | In progress | Shared `cell.call`, Python raw bytes, owned V8 attachments and binary Node framing implemented; runtime attachment/cleanup tests pass; aggregate copy accounting and full cancellation/flood qualification remain |
 | RPC-04: JS/TS services | In progress | Generated clients/handlers, binary dispatch and live descriptor checks work in V8/Node; real startup refuses stale codecs; typed AbortSignal options and native-owned whole-call codec budgets work with bounded cleanup; full schema/resource/deadline qualification remains |
 | RPC-05: Python services | In progress | Generated async APIs, live codec checks and dispatch work with receipts/restart; stale providers/clients are refused; task cancellation reaches native/peer calls and joins cleanup; native-owned budgets cover validation, encoding, transport and decoding; packaging and free-threaded qualification remain |
@@ -70,6 +70,36 @@ pairs. Preserve the full test matrix, failures and remaining work across turns.
 
 ## Current evidence
 
+- With the expanded deadline suite, the combined normal-stack executable passes
+  all seven suites and publishes `.cellar/rpc/guest-deadline-full-matrix.json`
+  after native and guest drains: 16 local pairs, 16 remote/handoff pairs, 55
+  deadline cases, 17 cancellation cases, 32 failed-recovery cases, 48 process
+  kills and 64 proof/fencing cases. All 63 SDK tests, 22 Python codec/client
+  tests, strict JS/TS API/build checks, real Node HTTP/native-addon/restart and
+  typed-RPC tests, and full qualifier all-target Clippy pass. Format/layout
+  check 973 Rust files; docs check 734 local references; the native dependency
+  graph remains engine-free with 465 packages. Full-qualification flags remain
+  false. This evidence precedes integration of main's new Vercel agent example.
+- The expanded signed two-node deadline suite passes 55 cases: three original
+  native cases, 12 Python/V8/Node local/remote/receiver-cap/nested cases, 36 remote
+  codec failures across all four providers and four real Node control-queue
+  failures. `.cellar/rpc/guest-deadline-matrix.json` is published only after both
+  native fleets and guest runtimes drain. Full-qualification flags remain false.
+- Nested guest providers spend 120 ms in verification before requesting a
+  60-second child timeout. Child entry records its actual native budget: the
+  first run observes 255–277 ms remaining under a 400 ms parent. Assertions
+  require at least 80 ms consumed, plus fixed deadline outcomes, late native
+  binding/storage/write/commit refusal, expired guest storage/cached-client/new
+  client refusal, zero late writes and usable fresh admission. Actual owner,
+  scope and epoch stay unchanged; caller cancellation alone cannot explain the
+  measured child cap. Remote decode expiry preserves one saved increment and
+  explicit receipt retries; pre-submission expiry admits zero increment handlers.
+- The first expanded-fixture attempt fails because warmup also consumes the
+  bounded 16-entry followup audit. Warmup now only establishes ownership; the
+  fresh-admission check remains required for every deliberately timed call.
+  The audit bound and all deadline assertions are unchanged. The fixture retains
+  ingress URL/error context for unexpected failures. This is a fixture correction,
+  not evidence of a runtime defect or a relaxed qualification gate.
 - With V8/Node codec budgets, the combined normal-stack `--suite all` passes
   all seven suites and publishes `.cellar/rpc/js-budget-full-matrix.json` only
   after native nodes and guest runtimes drain: 16 local pairs, 16 remote/handoff
@@ -107,7 +137,7 @@ pairs. Preserve the full test matrix, failures and remaining work across turns.
   control capacity pass with one pending SDK slot. The 30 JS library tests,
   Node HTTP restart/native-addon tests, strict API/build checks, and all-target
   Clippy in combined, V8-only and Node-only modes pass. These codec probes are
-  local evidence; explicit guest remote/nested deadline cases remain next.
+  local evidence; the signed two-node slice above adds guest remote/nested cases.
 - The budget branch now incorporates main through `f0414a3d`, including Python
   lifecycle hardening, bounded replication metadata and the console move.
   Conflict resolution preserves explicit RPC dispatch alongside main's direct
@@ -726,35 +756,29 @@ The implementation PR is a draft until the remaining correctness and delivery
 boundaries are qualified. Deliver the following slices in order; each slice
 must preserve the existing recovery, crash, proof and receipt evidence.
 
-1. **P0: qualify guest deadlines over remote and nested routes.** Python, V8 and
-   Node now use opaque native-owned whole-call budgets and pass local slow-codec
-   and real incoming parent-cap tests. Extend the signed two-domain deadline
-   fixture with guest callers, slow codecs and nested children requesting longer
-   timeouts. Observe the real owner and original invocation; prove no queue,
-   peer retry or child call resets/extends the deadline, late SDK work is refused,
-   receipts reconcile ambiguous writes and cleanup admits a fresh call. Include
-   Node control queue/acknowledgement delay and retain conservative outcomes.
-2. **P0: close cancellation and provenance gaps.** Cancel during output-proof
+1. **P0: close cancellation and provenance gaps.** Cancel during output-proof
    and lifecycle waits, exercise self-calls and A-to-B-to-A cycles, and verify
    bounded cleanup. Test a parent that writes before a child is refused and
    attempts to forge refusal metadata. Trusted pre-admission refusal may establish
    `not_committed` for that call; it cannot reclassify the parent's earlier
-   writes. A lost response remains unknown.
-3. **P0: qualify parser and resource boundaries.** Reject invalid global symbols,
+   writes. A lost response remains unknown. Preserve the 55 deadline cases;
+   forced guest peer retries, broader nested provider paths and the remaining
+   proof/lifecycle deadline boundaries are still unqualified.
+2. **P0: qualify parser and resource boundaries.** Reject invalid global symbols,
    imports and options before invoking message generators. Verify effective
    method/runtime/host/peer minima, account for retained binary copies, and
    measure decoder allocations and RSS under saturation, flood and disconnect.
    Completion requires bounded queues and reservations that return to baseline
    after cleanup, while retaining graph, slot and control-budget guards.
-4. **P1: qualify the portable profile and supported runtimes.** Run real business
+3. **P1: qualify the portable profile and supported runtimes.** Run real business
    calls across every local/remote backend pair, including free-threaded Python
    where supported, and close the remaining lifecycle/regression requirements.
    Codec vectors alone do not qualify a caller/provider pair.
-5. **P1: make application delivery reproducible.** Ship `cellar rpc generate/check`,
+4. **P1: make application delivery reproducible.** Ship `cellar rpc generate/check`,
    static binding checks, frozen package inventories, complete embedded Python
    source identity, a published example and clean-machine CI. Require generation
    drift and stale package/codec identities to fail before serving traffic.
-6. **P2: add visibility, then publish performance evidence.** Add registered-method
+5. **P2: add visibility, then publish performance evidence.** Add registered-method
    spans and payload-free diagnostics with bounded labels. Measure typed versus
    untyped/native/guest latency, throughput and durable TPS, including saturation
    memory, cleanup and recovery. Record commands, environment and raw evidence

@@ -1,10 +1,10 @@
 // Real-host fault probes. Production call budgets never use this wall clock.
 import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
 import { configureTextEncoding } from "@bufbuild/protobuf/wire";
-import { jsonResponse, type Context } from "@cellar/sdk";
+import { jsonResponse, type Context, type Json } from "@cellar/sdk";
 import { createCodec, createMethod, RpcClient, type RpcMethod, type InputLimits } from "@cellar/sdk/rpc";
-import { CounterRegistration } from "./fixtures/generated/typescript/counter_cellar.js";
-import { IncrementRequestSchema, IncrementResponseSchema } from "./fixtures/generated/typescript/counter_pb.js";
+import { CounterRegistration, type CounterClient } from "./fixtures/generated/typescript/counter_cellar.js";
+import { GetCountResponseSchema, IncrementRequestSchema, IncrementResponseSchema } from "./fixtures/generated/typescript/counter_pb.js";
 
 interface Budget { remaining(): number; limit(ms: number): void; release(): void }
 interface Transport {
@@ -20,33 +20,116 @@ const registered = CounterRegistration.methods["example.counter.v1.Counter/Incre
 const now = Date.now;
 function pause(ms: number) { const until = now() + ms; while (now() < until) {} }
 
-export async function codecBudget(ctx: Context, binding: string, phase: string, id: string) {
-  if (!["verify", "encode", "decode"].includes(phase)) throw Error("Unknown codec probe");
+export async function codecBudget(ctx: Context, binding: string, phase: string, id: string, remote = false) {
+  if (!["verify", "encode", "decode", "control"].includes(phase)) throw Error("Unknown codec probe");
+  const preflightDelay = remote ? 120 : 40;
+  const decodeTimeout = remote ? 400 : 100;
   const real = transport(ctx);
   const wrapper = Object.create(ctx) as Context;
   let entered = 0;
   Object.defineProperty(wrapper, key, {value:{...real, verify(method: RpcMethod) {
-    if (phase === "verify") { entered++; pause(40); }
+    if (phase === "control") throw Error("Expired control reached codec verification");
+    if (phase === "verify") { entered++; pause(preflightDelay); }
     return real.verify(method);
   }}});
   const method = createMethod({method:registered.method, digest:registered.digest, handler:"increment",
     inputSchema:IncrementRequestSchema, outputSchema:IncrementResponseSchema}, {
     encodeMessage(schema, value, limits) {
-      if (phase === "encode") { entered++; pause(40); }
+      if (phase === "verify" || phase === "control") throw Error("Expired verification reached encoding");
+      if (phase === "encode") { entered++; pause(preflightDelay); }
       return codec.encodeMessage(schema, value, limits);
     },
     decodeMessage(schema, value, limits) {
-      if (phase === "decode") { entered++; pause(120); }
+      if (phase === "decode") { entered++; pause(remote ? 600 : 120); }
       return codec.decodeMessage(schema, value, limits);
     },
   });
   try {
-    await new RpcClient(wrapper, binding, "codec-budget-" + phase).call(method, {delta:1n, operationId:id}, {timeoutMs:phase === "decode" ? 100 : 20});
+    // Node sends budget_start before this getter blocks its event loop. The
+    // real acknowledgement remains queued until the getter returns.
+    const options = phase === "control" ? {get timeoutMs() { entered++; pause(preflightDelay); return 20; }}
+      : {timeoutMs:phase === "decode" ? decodeTimeout : 20};
+    await new RpcClient(wrapper, binding, "codec-budget-" + phase).call(method, {delta:1n, operationId:id}, options);
   } catch (error) {
     if (!(error instanceof Error) || !("code" in error) || !("outcome" in error) || entered !== 1) throw error;
     return {code:String(error.code), outcome:String(error.outcome), codec_entered:phase};
   }
   throw Error("Slow codec escaped its original budget");
+}
+
+type ClientFactory = {bind(ctx: Context, binding: string, name: string): Pick<CounterClient, "getCount" | "increment">};
+let clients: ClientFactory;
+let nested: {armed:boolean; child:string; observation:Record<string, Json>} = {armed:false, child:"", observation:{}};
+
+export function configureDeadlineClient(factory: ClientFactory) { clients = factory; }
+
+export function deadlineControl(action: string, child: string) {
+  if (action === "arm") {
+    if (nested.armed) throw Error("Nested deadline probe already armed");
+    nested = {armed:true, child, observation:{late_done:false}};
+  } else if (action === "disarm") {
+    if (!nested.observation.late_done) throw Error("Nested deadline probe has not settled");
+    nested.armed = false;
+  } else if (action !== "status") throw Error("Unknown deadline control");
+  return jsonResponse({...nested.observation});
+}
+
+async function expired(operation: () => unknown) {
+  try { await operation(); }
+  catch (error) {
+    return error instanceof Error && "code" in error && error.code === "ContextExpired"
+      && "outcome" in error && error.outcome === "not_committed";
+  }
+  return false;
+}
+
+/** Invoked as a real typed provider, under the original incoming parent cap. */
+export async function nestedDeadline(ctx: Context) {
+  if (!nested.armed) {
+    const late = await ctx.storage.read("deadline-parent-late");
+    return create(GetCountResponseSchema, {count:{value:late.present ? 1n : 0n}});
+  }
+  const current = nested.observation;
+  const budget = await transport(ctx).budget();
+  try { current.remaining_ms = budget.remaining(); }
+  finally { budget.release(); }
+  const real = transport(ctx), wrapper = Object.create(ctx) as Context;
+  Object.defineProperty(wrapper, key, {value:{...real, verify(method: RpcMethod) {
+    current.verify_entered = true;
+    pause(120);
+    return real.verify(method);
+  }}});
+  const client = clients.bind(wrapper, "RUST", nested.child);
+  // Cache a client with the original facade too: both retained authority and
+  // fresh admission must be refused after the parent invocation expires.
+  const cached = clients.bind(ctx, "RUST", "guest-followup");
+  try {
+    return await client.getCount({}, {timeoutMs:60000});
+  } catch (error) {
+    current.storage_refused = await expired(() => ctx.storage.apply({puts:{"deadline-parent-late":true}}));
+    current.cached_call_refused = await expired(() => cached.getCount({}));
+    current.new_call_refused = await expired(() => clients.bind(ctx, "RUST", "guest-followup").getCount({}));
+    current.late_done = true;
+    throw error;
+  }
+}
+
+export async function deadlineCall(ctx: Context, binding: string, name: string, timeout?: string) {
+  const node = await ctx.variable("DOMAIN_MARKER");
+  const client = clients.bind(ctx, binding, name);
+  let result: Json;
+  try {
+    const reply = await client.getCount({}, {timeoutMs:timeout === undefined ? undefined : Number(timeout)});
+    result = {writes:Number(reply.count!.value)};
+  } catch (error) {
+    if (!(error instanceof Error) || !("code" in error) || !("outcome" in error)) throw error;
+    result = {code:String(error.code), outcome:String(error.outcome)};
+  }
+  // Plain reads seed ownership. Only a deliberately timed call audits release
+  // of its mutation permit; warmup must not consume that bounded probe's log.
+  const followup = timeout === undefined ? undefined
+    : await clients.bind(ctx, "RUST", "guest-followup").getCount({});
+  return jsonResponse({node, result, followup_writes:followup ? Number(followup.count!.value) : null});
 }
 
 export async function parentBudget(ctx: Context): Promise<bigint> {

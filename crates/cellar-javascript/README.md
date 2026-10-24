@@ -424,8 +424,10 @@ native future and reservations until it settles. Signal subscriptions are also
 removed on invocation retirement. Node captures its
 [protected abort-listener API](https://nodejs.org/docs/latest-v24.x/api/events.html#eventsaddabortlistenersignal-listener)
 before importing the application. Cancellation never promises rollback, and
-synced writes remain committed. Broader remote/nested deadline, proof-wait and
-cancellation qualification remain in the [RPC ledger](../../plans/named-typed-rpc/implementation-status.md).
+synced writes remain committed. The signed two-node fixture now tests guest
+remote/nested deadlines, receiver caps, slow codecs and Node control queueing.
+Broader proof/lifecycle waits, dependency cycles and cancellation qualification
+remain in the [RPC ledger](../../plans/named-typed-rpc/implementation-status.md).
 
 ## Limits, errors, and shutdown
 

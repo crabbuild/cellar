@@ -88,8 +88,8 @@ trip and one native-clock tick conservatively; no absolute timestamp crosses
 clock domains. Control capacity is separate from SDK mutation/operation slots,
 and release/retirement reclaim it. Nine SDK/control regression tests cover
 pre-codec expiry, remaining-time subtraction, decode ambiguity, options captured
-before the Node wait, foreign scope and cleanup. Explicit guest remote/nested
-codec-deadline qualification remains open.
+before the Node wait, foreign scope and cleanup. The signed two-node deadline
+suite below adds explicit guest remote/nested and codec-expiry evidence.
 
 ## Codec and generated API checks
 
@@ -206,7 +206,8 @@ submits no business call; decode expiry stays unknown and an explicit same-ID
 retry recovers the saved receipt. It also checks a real incoming parent cap,
 cross-invocation budget refusal and the captured clock from a native thread
 without an installed execution domain. The V8/Node budget evidence is described
-above; explicit guest remote/nested codec-deadline qualification remains open.
+above; the signed two-node deadline suite below also exercises Python callers
+and nested providers alongside V8 and Node.
 
 ## Portable Protobuf profile
 
@@ -358,8 +359,20 @@ uses a fixed host status/header and returns `DeadlineExceeded/unknown`; it
 does not prove rollback or authorize replay. Existing event-stream RPC retains
 its separate long-poll policy.
 
-The native-only deadline fixture uses real signed tunnels between two nodes
-whose execution domains start at different times. It verifies three cases:
+The deadline fixture uses real signed tunnels between nodes whose execution
+domains start at different times. Its report contains 55 cases:
+
+| Group | Cases | Boundary |
+| --- | --- | --- |
+| Native callers | 3 | Direct, nested and receiver-capped deadlines |
+| Python, V8/TS and Node/JS callers | 12 | Local, remote, receiver-capped and nested guest-provider calls |
+| Remote guest codecs | 36 | Three guest callers × four providers × verification/encoding/decoding |
+| Node control acknowledgements | 4 | An options getter blocks the event loop while the private control reply is queued |
+
+The [native guest audit](host/deadline/guests.rs) drives
+[JS/TS fault controls](deadline.ts) and [Python fault controls](deadline.py).
+
+The three native cases retain these checks:
 
 | Case | Caller budget | Deliberate overrun | Required evidence |
 | --- | --- | --- | --- |
@@ -370,7 +383,39 @@ whose execution domains start at different times. It verifies three cases:
 Each case checks the actual owner node, scope and epoch. A fresh call then
 confirms no late write persisted, the expired transaction rolled back and
 storage is still usable. The fixture drains both nodes even on audit failure.
-Its report does not qualify explicit cancellation or the complete guest/lifecycle matrix.
+The guest caller cases use the same blocked native targets and late-operation
+checks. Nested cases enter a real guest provider, spend 120 ms in codec
+verification, then request a 60-second child timeout:
+
+```text
+source: guest client, 400 ms
+          |
+      signed peer
+          v
+owner: guest provider, incoming cap <= 400 ms
+          |
+      verify for 120 ms
+          |
+      child requests 60,000 ms
+          v
+owner: native child records its actual remaining budget
+          |
+      block for 800 ms -> late write and commit refused
+```
+
+Native observations at child entry must show at least 80 ms consumed relative
+to the parent's captured native budget. This proves budget inheritance even if
+caller cancellation would otherwise mask a reset child timer. Retained and new
+guest RPC clients and storage writes are refused after parent expiry. Fresh
+invocations confirm no late write persisted and admission is usable. The
+observer checks the original owner, scope and epoch throughout.
+
+Remote codec expiry before submission must produce zero increment-handler
+entries and leave the counter unchanged. Decoder expiry follows a saved write
+and returns `DeadlineExceeded/unknown`; explicit same-ID retries recover the
+receipt. The Node control probe must expire before codec verification starts.
+These are real-clock and signed-peer tests with GIL CPython. They do not qualify
+every interpreter, forced peer retry, proof/lifecycle wait or full T17 boundary.
 
 Native transport tests also exercise a stalled upload with no caller timer,
 malformed/zero budgets, ordinary unbudgeted calls and a real Hyper unsent retry

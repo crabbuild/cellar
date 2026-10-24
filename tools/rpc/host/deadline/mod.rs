@@ -1,4 +1,4 @@
-//! Deadline qualification is native-only; it does not claim guest cancellation.
+//! Native and guest deadlines over real signed peer routes and nested calls.
 use anyhow::{ensure, Context as _, Result};
 use cellar::{bucket::Bucket, sdk::ShutdownMode};
 use serde_json::{json, Value};
@@ -11,6 +11,7 @@ use std::{
 use super::{application::Composite, fleet};
 mod application;
 pub mod cancellation;
+mod guests;
 use application::{App, Probe};
 
 const OWNER: &str = "rpc-deadline-owner";
@@ -38,6 +39,24 @@ async fn read(
 }
 
 pub async fn run(inner: Arc<Composite>) -> Result<Value> {
+    let native = native(inner.clone()).await?;
+    let guests = guests::run(inner).await?;
+    let count = |value: &Value, key| {
+        value[key]
+            .as_u64()
+            .context("deadline evidence has no case count")
+    };
+    let cases = count(&native, "case_count")?
+        + count(&guests, "case_count")?
+        + count(&guests, "codec_case_count")?;
+    Ok(
+        json!({"format":1,"suite":"deadline","backends":["rust","python","v8","node"],
+        "case_count":cases,
+        "native":native,"guests":guests,"remote_fleet_qualified":false}),
+    )
+}
+
+async fn native(inner: Arc<Composite>) -> Result<Value> {
     let directory = tempfile::tempdir()?;
     let bucket = Bucket::open_dev(&directory.path().join("fleet.sqlite"))?;
     let client = reqwest::Client::builder()

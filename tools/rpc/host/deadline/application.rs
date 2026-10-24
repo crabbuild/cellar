@@ -21,6 +21,7 @@ pub struct Entry {
     pub node: String,
     pub scope: String,
     pub epoch: u64,
+    pub remaining_ms: u64,
 }
 
 #[derive(Clone, Debug)]
@@ -71,6 +72,9 @@ impl Probe {
                 .into(),
             scope: identity.scope.clone(),
             epoch: identity.epoch,
+            remaining_ms: rpc::BudgetSource::capture(context)?
+                .start()?
+                .remaining_ms()?,
         });
         Ok(())
     }
@@ -195,7 +199,14 @@ impl Application for App {
     fn invoke(self: Arc<Self>, context: Context, event: Invocation) -> HandlerFuture<Output> {
         if matches!(&event, Invocation::Fetch(request) if reqwest::Url::parse(&request.url).is_ok_and(|url| ["/python/", "/v8/", "/node/"].iter().any(|prefix| url.path().starts_with(prefix))))
         {
-            return self.inner.clone().invoke(context, event);
+            let future = self.inner.clone().invoke(context, event);
+            return Box::pin(async move {
+                let result = future.await;
+                if let Err(error) = &result {
+                    eprintln!("deadline guest ingress failed: {error:#}");
+                }
+                result
+            });
         }
         Box::pin(async move {
             let Invocation::Fetch(request) = event else {

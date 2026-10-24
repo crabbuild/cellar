@@ -9,7 +9,7 @@ import {
 } from "./fixtures/generated/typescript/counter_pb.js";
 import { configureLiveClient, liveControl, liveSnapshot, liveSync } from "./live.js";
 import type { RpcAbortSignal } from "@cellar/sdk/rpc";
-import { budgetControl, codecBudget, parentBudget } from "./deadline.js";
+import { budgetControl, codecBudget, parentBudget, configureDeadlineClient, deadlineCall, deadlineControl, nestedDeadline } from "./deadline.js";
 
 let constructed = 0;
 const maximum = (1n << 63n) - 1n;
@@ -35,6 +35,7 @@ export class Counter implements CounterHandler {
 
   async getCount(_request: GetCountRequest, ctx: Context): Promise<GetCountResponse> {
     if (ctx.identity?.name === "codec-parent") return create(GetCountResponseSchema, {count:{value:await parentBudget(ctx)}});
+    if (ctx.identity?.name === "deadline-nested") return nestedDeadline(ctx);
     const current = await ctx.storage.read("count");
     return create(GetCountResponseSchema, {count:{value:current.present ? integer(current.value) : 0n}});
   }
@@ -85,6 +86,7 @@ type Controller = {signal: RpcAbortSignal; abort(): void};
 /** HTTP is only the test ingress; entity behavior uses generated named methods. */
 export function handler(Client: Client, createController?: () => Controller) {
   configureLiveClient(ctx => Client.bind(ctx,"RUST","alice"));
+  configureDeadlineClient(Client);
   let retained: Calls | undefined;
   const cancelling = new Map<string, {controller: Controller; context: Context; finish: () => void}>();
   return async (request: Request, ctx: Context) => {
@@ -152,8 +154,10 @@ export function handler(Client: Client, createController?: () => Controller) {
     if (path.endsWith("/probe-clear")) return jsonResponse(liveControl("clear"));
     const binding = params.target === "rust" ? "RUST" : params.target === "node" ? "NODE"
       : params.target === "python" ? "PYTHON" : "V8";
+    if (path.endsWith("/deadline-control")) return deadlineControl(params.action, params.child);
+    if (path.endsWith("/deadline")) return deadlineCall(ctx, binding, params.name, params.timeout);
     if (path.endsWith("/codec-budget")) {
-      const result = await codecBudget(ctx, binding, params.phase, params.id);
+      const result = await codecBudget(ctx, binding, params.phase, params.id, params.remote === "true");
       const probe = Client.bind(ctx, binding, "codec-budget-" + params.phase);
       const current = await probe.getCount({});
       let replay: string | null = null;
