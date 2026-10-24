@@ -1,0 +1,1389 @@
+{
+  "format": 1,
+  "baseline_revision": "e0035689dd1eaf059fca250f2eaf05b3280899bc",
+  "invariants": {
+    "F01": "Quorum authority",
+    "F02": "Stable identities",
+    "F03": "CAS ambiguity",
+    "F04": "Durable permit fencing",
+    "F05": "Complete inventory",
+    "F06": "Bounded resources",
+    "F07": "Conservative observations",
+    "F08": "Owned cancellation",
+    "F09": "Failure domains",
+    "F10": "Proof before success",
+    "F11": "Fresh load and hysteresis",
+    "F12": "Independent qualification"
+  },
+  "tasks": [
+    {
+      "id": "FO-01",
+      "title": "Persist bounded fleet intent with conditional writes",
+      "status": "IN_PROGRESS",
+      "depends_on": [],
+      "modifies": [
+        "crates/cellar/storage/object/bucket.rs",
+        "crates/cellar/durability/raft/mod.rs",
+        "crates/cellar/lib.rs",
+        "crates/cellar/application/consensus/mod.rs"
+      ],
+      "creates": [
+        "crates/cellar/tests/native_raft_fleet_catalog.rs",
+        "crates/cellar/durability/raft/fleet_catalog/mod.rs",
+        "crates/cellar/durability/raft/fleet_catalog/index.rs",
+        "crates/cellar/durability/raft/fleet_catalog/records.rs"
+      ],
+      "steps": [
+        "Implement root and immutable paged policy/node/history/operation codecs with strict bounds.",
+        "Implement exact-request idempotency, CAS conflict and ambiguous-response reconciliation using existing storage clients.",
+        "Retain terminal operation identity; add no object-store call to business acknowledgement.",
+        "Implement Finalizing, digest-addressed candidate receipts and terminal operation-index CAS; orphan receipts grant no completion."
+      ],
+      "acceptance": [
+        "No unconditional root updates or listing-based trust.",
+        "Concurrent catalog recovery is deterministic and bounded; exact RustFS semantics remain a FO-10 deployment gate."
+      ],
+      "stop_conditions": [
+        "Stop on any violated safety invariant; preserve failed and ambiguous outcomes.",
+        "Reject unbounded work, incomplete inventory claims and performance results without matched workload evidence."
+      ],
+      "test_target": "native_raft_fleet_catalog",
+      "test_cases": [
+        {
+          "name": "fleet_root_concurrent_cas",
+          "oracle": "Exactly one competing update using a shared token succeeds; no duplicate capacity reservation.",
+          "invariants": [
+            "F03",
+            "F06"
+          ]
+        },
+        {
+          "name": "fleet_root_lost_response",
+          "oracle": "A lost successful response resolves to the same operation without another admission.",
+          "invariants": [
+            "F03",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_root_orphan_pages",
+          "oracle": "Pages written before a failed root CAS authorize no action and cannot enter trusted inventory.",
+          "invariants": [
+            "F05",
+            "F07"
+          ]
+        },
+        {
+          "name": "fleet_root_rejects_invalid_records",
+          "oracle": "Oversized, duplicate-field, missing-page and malformed root inputs refuse admission.",
+          "invariants": [
+            "F06",
+            "F07"
+          ]
+        },
+        {
+          "name": "fleet_root_terminal_retry",
+          "oracle": "An operation retried after completion returns the retained exact receipt; payload changes conflict.",
+          "invariants": [
+            "F03",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_root_unreferenced_receipt",
+          "oracle": "A receipt PUT before terminal root CAS cannot report completion or authorize removal.",
+          "invariants": [
+            "F03",
+            "F05",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_root_finalization_replan",
+          "oracle": "Invalidated proof produces a different candidate digest under the same operation; only one rooted terminal receipt is authoritative.",
+          "invariants": [
+            "F03",
+            "F04",
+            "F10"
+          ]
+        }
+      ],
+      "verification": [
+        [
+          "cargo",
+          "test",
+          "-p",
+          "cellar",
+          "--test",
+          "native_raft_fleet_catalog",
+          "--locked",
+          "--",
+          "--list"
+        ],
+        [
+          "cargo",
+          "test",
+          "-p",
+          "cellar",
+          "--test",
+          "native_raft_fleet_catalog",
+          "--locked",
+          "--",
+          "--test-threads=1"
+        ]
+      ],
+      "evidence": []
+    },
+    {
+      "id": "FO-02",
+      "title": "Bind every membership mutation to durable fleet permits",
+      "status": "TODO",
+      "depends_on": [
+        "FO-01"
+      ],
+      "modifies": [
+        "crates/cellar/durability/raft/fleet_catalog/mod.rs",
+        "crates/cellar/durability/raft/member_state.rs",
+        "crates/cellar/durability/raft/host_membership.rs",
+        "crates/cellar/durability/raft/membership.rs",
+        "crates/cellar/durability/raft/host.rs",
+        "crates/cellar/durability/raft/snapshot.rs",
+        "crates/cellar/durability/raft/archive/mod.rs",
+        "crates/cellar/durability/raft/catalog_wire.rs",
+        "crates/cellar/application/consensus/protocol.rs"
+      ],
+      "creates": [
+        "crates/cellar/tests/native_raft_fleet_permits.rs"
+      ],
+      "steps": [
+        "Persist per-group permit sequence and payload with repair state, snapshots and archive membership metadata.",
+        "Guard managed begin, advance, activation and manual membership paths; reject mixed unguarded participants.",
+        "Commit cancellation fences before releasing unused permits; retain blocked reservations without quorum."
+      ],
+      "acceptance": [
+        "Zero late membership actions after a terminal cancellation fence.",
+        "All existing group membership and snapshot regressions pass."
+      ],
+      "stop_conditions": [
+        "Stop on any violated safety invariant; preserve failed and ambiguous outcomes.",
+        "Reject unbounded work, incomplete inventory claims and performance results without matched workload evidence."
+      ],
+      "test_target": "native_raft_fleet_permits",
+      "test_cases": [
+        {
+          "name": "fleet_permit_delayed_after_cancel",
+          "oracle": "A delayed start is refused after the cancellation fence commits and its reservation releases.",
+          "invariants": [
+            "F01",
+            "F04",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_permit_crash_recovery",
+          "oracle": "Process restart at reservation, plan-commit and receipt boundaries resumes one exact permit.",
+          "invariants": [
+            "F02",
+            "F03",
+            "F04",
+            "F08"
+          ]
+        },
+        {
+          "name": "fleet_permit_joint_cancel",
+          "oracle": "Cancellation during joint consensus finishes the committed transition without local rollback.",
+          "invariants": [
+            "F01",
+            "F04",
+            "F08"
+          ]
+        },
+        {
+          "name": "fleet_permit_snapshot_roundtrip",
+          "oracle": "Snapshot and archive restore preserve consumed sequence and active permit; old payloads cannot replay.",
+          "invariants": [
+            "F02",
+            "F04"
+          ]
+        },
+        {
+          "name": "fleet_permit_quorumless_fence",
+          "oracle": "A minority with S3 access cannot cancel durably, free capacity or authorize a new learner.",
+          "invariants": [
+            "F01",
+            "F04",
+            "F07"
+          ]
+        },
+        {
+          "name": "fleet_permit_no_manual_bypass",
+          "oracle": "Every managed membership ingress refuses missing or mismatched permits.",
+          "invariants": [
+            "F01",
+            "F05"
+          ]
+        }
+      ],
+      "verification": [
+        [
+          "cargo",
+          "test",
+          "-p",
+          "cellar",
+          "--test",
+          "native_raft_fleet_permits",
+          "--locked",
+          "--",
+          "--list"
+        ],
+        [
+          "cargo",
+          "test",
+          "-p",
+          "cellar",
+          "--test",
+          "native_raft_fleet_permits",
+          "--locked",
+          "--",
+          "--test-threads=1"
+        ]
+      ],
+      "evidence": []
+    },
+    {
+      "id": "FO-03",
+      "title": "Enroll trusted nodes and every managed cell history",
+      "status": "TODO",
+      "depends_on": [
+        "FO-02"
+      ],
+      "modifies": [
+        "crates/cellar/durability/raft/fleet_catalog/mod.rs",
+        "crates/cellar/durability/raft/node_directory.rs",
+        "crates/cellar/durability/raft/host_directory.rs",
+        "crates/cellar/durability/raft/host.rs",
+        "crates/cellar/durability/raft/inspection.rs",
+        "crates/cellar/application/consensus/client.rs",
+        "crates/cellar/durability/raft/catalog.rs",
+        "crates/cellar/durability/raft/catalog_wire.rs",
+        "crates/cellar/durability/raft/host_inspection.rs",
+        "crates/cellar/durability/raft/inspection_wire.rs"
+      ],
+      "creates": [
+        "crates/cellar/tests/native_raft_fleet_enrollment.rs"
+      ],
+      "steps": [
+        "Add CAS-authorized node-set revisions with bounded route and permission refresh.",
+        "Expose domain-owned dynamic dormant history registration with schema and inventory checks.",
+        "Enroll all births and initial placements before activation; block incomplete imports and retired-slot reuse.",
+        "Fence cancelled births using conditional tombstones at the existing per-cell-name birth key; preserve the name and incarnation permanently in v1.",
+        "Support an empty managed host and node-level readiness without eager per-history registration; separate placement/leadership exclusion from evacuation."
+      ],
+      "acceptance": [
+        "Inventory includes pending births and all managed namespaces.",
+        "Dynamic trust preserves storage pins and current identity checks."
+      ],
+      "stop_conditions": [
+        "Stop on any violated safety invariant; preserve failed and ambiguous outcomes.",
+        "Reject unbounded work, incomplete inventory claims and performance results without matched workload evidence."
+      ],
+      "test_target": "native_raft_fleet_enrollment",
+      "test_cases": [
+        {
+          "name": "fleet_enrollment_unknown_node",
+          "oracle": "Bucket objects and unsolicited traffic cannot enroll or activate an untrusted node.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F07"
+          ]
+        },
+        {
+          "name": "fleet_enrollment_route_revocation",
+          "oracle": "New node-set/process revisions revoke obsolete routes and join their physical tasks.",
+          "invariants": [
+            "F02",
+            "F06",
+            "F08"
+          ]
+        },
+        {
+          "name": "fleet_enrollment_birth_drain_race",
+          "oracle": "A birth racing drain is either admitted and inventoried or excluded from the node.",
+          "invariants": [
+            "F04",
+            "F05",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_enrollment_retired_binding",
+          "oracle": "An evacuated local binding cannot attach under a fresh member ID; fresh engine registration succeeds.",
+          "invariants": [
+            "F02"
+          ]
+        },
+        {
+          "name": "fleet_enrollment_incomplete_import",
+          "oracle": "Missing history enrollment blocks removal certification even when reachable-node scans look empty.",
+          "invariants": [
+            "F05",
+            "F07"
+          ]
+        },
+        {
+          "name": "fleet_enrollment_dynamic_bounds",
+          "oracle": "Dynamic registration and initialization obey metadata, group and body budgets under cancellation.",
+          "invariants": [
+            "F06",
+            "F08"
+          ]
+        },
+        {
+          "name": "fleet_enrollment_empty_host",
+          "oracle": "A node with zero groups can prove bounded readiness and install namespace/class trust without a dummy business cell.",
+          "invariants": [
+            "F02",
+            "F05",
+            "F06"
+          ]
+        },
+        {
+          "name": "fleet_enrollment_physical_host",
+          "oracle": "Two node processes on one declared physical host cannot satisfy a host-distinct replication policy.",
+          "invariants": [
+            "F02",
+            "F09"
+          ]
+        },
+        {
+          "name": "fleet_enrollment_eligibility_modes",
+          "oracle": "Restart and resize target exclusions are distinct from full-evacuation intent in authenticated inspection.",
+          "invariants": [
+            "F05",
+            "F07"
+          ]
+        }
+      ],
+      "verification": [
+        [
+          "cargo",
+          "test",
+          "-p",
+          "cellar",
+          "--test",
+          "native_raft_fleet_enrollment",
+          "--locked",
+          "--",
+          "--list"
+        ],
+        [
+          "cargo",
+          "test",
+          "-p",
+          "cellar",
+          "--test",
+          "native_raft_fleet_enrollment",
+          "--locked",
+          "--",
+          "--test-threads=1"
+        ]
+      ],
+      "evidence": []
+    },
+    {
+      "id": "FO-04",
+      "title": "Plan healthy replica redistribution with reservations",
+      "status": "TODO",
+      "depends_on": [
+        "FO-03"
+      ],
+      "modifies": [
+        "crates/cellar-logic/lib.rs",
+        "crates/cellar-logic/raft_placement.rs",
+        "crates/cellar/durability/raft/fleet_catalog/mod.rs"
+      ],
+      "creates": [
+        "crates/cellar-logic/raft_fleet.rs",
+        "crates/cellar-logic/raft_fleet_tests.rs",
+        "crates/cellar/tests/native_raft_fleet_placement.rs"
+      ],
+      "steps": [
+        "Implement dependency-free FleetView, FleetPolicy, projected-capacity scoring and typed refusal reasons.",
+        "Use deterministic tie breaks, cooldown/deadband and failure-domain checks.",
+        "Atomically reserve target capacity and per-node movement slots; revalidate host capacity before initialization.",
+        "Implement complete bounded assignment and final-fleet single-failure simulation; distinguish search exhaustion from infeasibility.",
+        "Use source-target gap and lexicographic pressure improvement for performance-triggered moves; explicit topology requests reduce feasible live-assignment distance while retained physical state remains charged."
+      ],
+      "acceptance": [
+        "Projected destination utilization includes every unresolved permit.",
+        "Placement-only simulations do not count as live throughput qualification."
+      ],
+      "stop_conditions": [
+        "Stop on any violated safety invariant; preserve failed and ambiguous outcomes.",
+        "Reject unbounded work, incomplete inventory claims and performance results without matched workload evidence."
+      ],
+      "test_target": "native_raft_fleet_placement",
+      "test_cases": [
+        {
+          "name": "fleet_placement_five_to_six",
+          "oracle": "Equal feasible groups redistribute within deadband without co-located voters or oscillation.",
+          "invariants": [
+            "F06",
+            "F09",
+            "F11"
+          ]
+        },
+        {
+          "name": "fleet_placement_concurrent_targets",
+          "oracle": "Two planners cannot reserve the same last capacity slot on one target.",
+          "invariants": [
+            "F03",
+            "F06"
+          ]
+        },
+        {
+          "name": "fleet_placement_failure_domains",
+          "oracle": "Domain-shortage, temporary seed space and draining targets refuse unsafe movement.",
+          "invariants": [
+            "F06",
+            "F09"
+          ]
+        },
+        {
+          "name": "fleet_placement_unknown_load",
+          "oracle": "Incomplete or stale observations cannot count as zero utilization.",
+          "invariants": [
+            "F07",
+            "F11"
+          ]
+        },
+        {
+          "name": "fleet_placement_cooldown",
+          "oracle": "Repeated identical pressure does not reverse a completed movement inside its cooldown.",
+          "invariants": [
+            "F11"
+          ]
+        },
+        {
+          "name": "fleet_placement_tied_peak_progress",
+          "oracle": "A new node receives replicas at low load despite tied source peaks and small per-cell pressure improvements.",
+          "invariants": [
+            "F09",
+            "F11"
+          ]
+        },
+        {
+          "name": "fleet_placement_retained_usage",
+          "oracle": "Moving a replica never credits retained source bytes or occupied engine slots as physically freed.",
+          "invariants": [
+            "F06",
+            "F11"
+          ]
+        },
+        {
+          "name": "fleet_placement_search_exhaustion",
+          "oracle": "An exhausted bounded assignment search refuses partial scale-in and reports search exhaustion separately from proven capacity shortage.",
+          "invariants": [
+            "F05",
+            "F06",
+            "F09"
+          ]
+        },
+        {
+          "name": "fleet_placement_zone_spare",
+          "oracle": "One-node-loss feasibility rejects a missing eligible third zone even when aggregate slot/byte capacity fits.",
+          "invariants": [
+            "F06",
+            "F09"
+          ]
+        }
+      ],
+      "verification": [
+        [
+          "cargo",
+          "test",
+          "-p",
+          "cellar",
+          "--test",
+          "native_raft_fleet_placement",
+          "--locked",
+          "--",
+          "--list"
+        ],
+        [
+          "cargo",
+          "test",
+          "-p",
+          "cellar",
+          "--test",
+          "native_raft_fleet_placement",
+          "--locked",
+          "--",
+          "--test-threads=1"
+        ]
+      ],
+      "evidence": []
+    },
+    {
+      "id": "FO-05",
+      "title": "Balance leadership using fresh workload observations",
+      "status": "TODO",
+      "depends_on": [
+        "FO-04"
+      ],
+      "modifies": [
+        "crates/cellar/durability/raft/inspection.rs",
+        "crates/cellar/durability/raft/host_inspection.rs",
+        "crates/cellar/durability/raft/performance.rs",
+        "crates/cellar-logic/raft_leadership.rs",
+        "crates/cellar/durability/raft/placement.rs",
+        "crates/cellar/application/consensus/resources.rs"
+      ],
+      "creates": [
+        "crates/cellar/tests/native_raft_fleet_load.rs"
+      ],
+      "steps": [
+        "Capture bounded per-node/per-cell workload windows with receiver-local ages and declared units.",
+        "Choose existing caught-up voters before copying replicas when it relieves measured pressure.",
+        "Preserve term/revision/matched/published checks and bound transfer attempts; add optional-work congestion gates.",
+        "Model incremental leader versus follower cost, explicit idle samples and pause/resume hysteresis."
+      ],
+      "acceptance": [
+        "Normal business traffic performs no new CAS write per command.",
+        "Keep load balancing optional until the FO-10 skew-gain gate passes."
+      ],
+      "stop_conditions": [
+        "Stop on any violated safety invariant; preserve failed and ambiguous outcomes.",
+        "Reject unbounded work, incomplete inventory claims and performance results without matched workload evidence."
+      ],
+      "test_target": "native_raft_fleet_load",
+      "test_cases": [
+        {
+          "name": "fleet_load_hot_leader",
+          "oracle": "A skewed workload proposes a move that reduces predicted peak load while accounting for follower cost.",
+          "invariants": [
+            "F11"
+          ]
+        },
+        {
+          "name": "fleet_load_lagging_target",
+          "oracle": "Lagging or unpublished voters cannot receive a balancing transfer.",
+          "invariants": [
+            "F01",
+            "F11"
+          ]
+        },
+        {
+          "name": "fleet_load_partial_sample",
+          "oracle": "Partial scans and expired sample windows stop optional moves.",
+          "invariants": [
+            "F07",
+            "F11"
+          ]
+        },
+        {
+          "name": "fleet_load_attempt_budget",
+          "oracle": "Failed transfers consume the interval; repeated failures cannot create a transfer storm.",
+          "invariants": [
+            "F06",
+            "F11"
+          ]
+        },
+        {
+          "name": "fleet_load_telemetry_bounds",
+          "oracle": "Metrics collection stays bounded at all registered histories and joins during shutdown.",
+          "invariants": [
+            "F06",
+            "F08"
+          ]
+        },
+        {
+          "name": "fleet_load_follower_cost",
+          "oracle": "Leader-only transfer does not claim to remove shared/follower apply cost; predicted pressure reflects incremental role costs.",
+          "invariants": [
+            "F11",
+            "F12"
+          ]
+        },
+        {
+          "name": "fleet_load_hysteresis_recovery",
+          "oracle": "Optional movement pauses under pressure and resumes only after the specified healthy windows; absent traffic is not fabricated zero latency.",
+          "invariants": [
+            "F06",
+            "F07",
+            "F11"
+          ]
+        }
+      ],
+      "verification": [
+        [
+          "cargo",
+          "test",
+          "-p",
+          "cellar",
+          "--test",
+          "native_raft_fleet_load",
+          "--locked",
+          "--",
+          "--list"
+        ],
+        [
+          "cargo",
+          "test",
+          "-p",
+          "cellar",
+          "--test",
+          "native_raft_fleet_load",
+          "--locked",
+          "--",
+          "--test-threads=1"
+        ]
+      ],
+      "evidence": []
+    },
+    {
+      "id": "FO-06",
+      "title": "Reconcile repair and balancing with bounded owned work",
+      "status": "TODO",
+      "depends_on": [
+        "FO-05"
+      ],
+      "modifies": [
+        "crates/cellar/durability/raft/host_controller.rs",
+        "crates/cellar/durability/raft/controller_probe.rs",
+        "crates/cellar/durability/raft/controller_action.rs",
+        "crates/cellar/durability/raft/placement.rs",
+        "crates/cellar/durability/raft/fleet_catalog/mod.rs"
+      ],
+      "creates": [
+        "crates/cellar/tests/native_raft_fleet_reconciliation.rs"
+      ],
+      "steps": [
+        "Reconcile existing permits before admitting new ones; keep health failure classification conservative.",
+        "Prioritize joint completion and redundancy repair, then evacuation and optional balance.",
+        "Enforce physical seed throttles, per-node slots, retry deadlines and telemetry-based pause of optional work.",
+        "Bound metadata polling/CAS attempts separately from observations and implement non-preemptible physical move-budget priority."
+      ],
+      "acceptance": [
+        "One initialization per destination and bounded outgoing copy per source.",
+        "Completed repairs are based on committed membership, not successful RPC admission."
+      ],
+      "stop_conditions": [
+        "Stop on any violated safety invariant; preserve failed and ambiguous outcomes.",
+        "Reject unbounded work, incomplete inventory claims and performance results without matched workload evidence."
+      ],
+      "test_target": "native_raft_fleet_reconciliation",
+      "test_cases": [
+        {
+          "name": "fleet_reconcile_no_traffic_repair",
+          "oracle": "A failed member is replaced with three verified voters without application requests.",
+          "invariants": [
+            "F01",
+            "F09"
+          ]
+        },
+        {
+          "name": "fleet_reconcile_restart_storm",
+          "oracle": "Repeated controller loss and duplicate execution attempts converge without leaking permits or tasks.",
+          "invariants": [
+            "F03",
+            "F04",
+            "F06",
+            "F08"
+          ]
+        },
+        {
+          "name": "fleet_reconcile_s3_outage",
+          "oracle": "Store outage blocks new permits, preserves admitted intent and never weakens write proof.",
+          "invariants": [
+            "F01",
+            "F07",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_reconcile_two_node_minority",
+          "oracle": "Groups lacking quorum remain blocked while independent majority groups progress.",
+          "invariants": [
+            "F01",
+            "F07"
+          ]
+        },
+        {
+          "name": "fleet_reconcile_pressure",
+          "oracle": "Optional moves pause under p99/archive pressure while bounded required repair and consensus progress continue.",
+          "invariants": [
+            "F06",
+            "F11"
+          ]
+        },
+        {
+          "name": "fleet_reconcile_required_slot",
+          "oracle": "Required repair is queued or an unpromoted optional learner safely aborts; committed work never loses its physical budget to preemption.",
+          "invariants": [
+            "F01",
+            "F06",
+            "F08"
+          ]
+        },
+        {
+          "name": "fleet_reconcile_metadata_bounds",
+          "oracle": "Status and seed chunks do not create per-chunk root writes; one in-flight CAS per process and conflict backoff stay bounded.",
+          "invariants": [
+            "F03",
+            "F06"
+          ]
+        }
+      ],
+      "verification": [
+        [
+          "cargo",
+          "test",
+          "-p",
+          "cellar",
+          "--test",
+          "native_raft_fleet_reconciliation",
+          "--locked",
+          "--",
+          "--list"
+        ],
+        [
+          "cargo",
+          "test",
+          "-p",
+          "cellar",
+          "--test",
+          "native_raft_fleet_reconciliation",
+          "--locked",
+          "--",
+          "--test-threads=1"
+        ]
+      ],
+      "evidence": []
+    },
+    {
+      "id": "FO-07",
+      "title": "Prove restart readiness and complete node evacuation",
+      "status": "TODO",
+      "depends_on": [
+        "FO-06"
+      ],
+      "modifies": [
+        "crates/cellar/durability/raft/fleet_catalog/mod.rs",
+        "crates/cellar/durability/raft/host_drain.rs",
+        "crates/cellar/durability/raft/operations.rs",
+        "crates/cellar/durability/raft/host.rs",
+        "crates/cellar/durability/raft/storage.rs",
+        "crates/cellar/durability/raft/records.rs",
+        "crates/cellar/node/embedded.rs",
+        "crates/cellar/node/lifecycle.rs"
+      ],
+      "creates": [
+        "crates/cellar/durability/raft/fleet_operation.rs",
+        "crates/cellar/tests/native_raft_fleet_maintenance.rs"
+      ],
+      "steps": [
+        "Implement separate restart and evacuation lifecycle transitions with durable operator intent.",
+        "Build complete index/configuration/permit proof and CAS-bind the removal certificate.",
+        "Retain identity tombstones, enforce fresh-registration return after evacuation, and reconcile cancellation with partial effects.",
+        "Persist a distinct node lifecycle epoch/stop guard in the engine owner; bind stop/cancel to process and exact request.",
+        "Add a reversible managed admission barrier separate from permanent Node shutdown; serialize rolling maintenance, restart, resize and evacuation through one disruption slot."
+      ],
+      "acceptance": [
+        "Successful process shutdown alone never certifies evacuation.",
+        "A quorumless or unknown group blocks final removal explicitly."
+      ],
+      "stop_conditions": [
+        "Stop on any violated safety invariant; preserve failed and ambiguous outcomes.",
+        "Reject unbounded work, incomplete inventory claims and performance results without matched workload evidence."
+      ],
+      "test_target": "native_raft_fleet_maintenance",
+      "test_cases": [
+        {
+          "name": "fleet_maintenance_restart_intact",
+          "oracle": "One admitted maintenance operation hands off leadership and resumes the same intact storage identity.",
+          "invariants": [
+            "F02",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_maintenance_second_failure",
+          "oracle": "A second failure ends repair delay without granting quorum to minority groups.",
+          "invariants": [
+            "F01",
+            "F07"
+          ]
+        },
+        {
+          "name": "fleet_evacuation_concurrent_birth",
+          "oracle": "Final certification cannot miss a concurrently reserved history or target placement.",
+          "invariants": [
+            "F04",
+            "F05"
+          ]
+        },
+        {
+          "name": "fleet_evacuation_active_joint",
+          "oracle": "No certificate is issued while the target remains incoming/outgoing voter, learner or reserved destination.",
+          "invariants": [
+            "F01",
+            "F05",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_evacuation_stale_certificate",
+          "oracle": "A changed relevant inventory or operation revision invalidates removal authorization.",
+          "invariants": [
+            "F04",
+            "F05",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_evacuation_return_old_disk",
+          "oracle": "A removed node returning with old storage cannot resurrect voters or routes.",
+          "invariants": [
+            "F02",
+            "F04"
+          ]
+        },
+        {
+          "name": "fleet_evacuation_cancel_partial",
+          "oracle": "Cancellation records already committed moves and resolves outstanding actions before completion.",
+          "invariants": [
+            "F03",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_maintenance_stop_cancel_race",
+          "oracle": "Durable node lifecycle acceptance and cancellation fencing settle one result without releasing an unresolved disruption slot.",
+          "invariants": [
+            "F02",
+            "F03",
+            "F04",
+            "F08"
+          ]
+        },
+        {
+          "name": "fleet_maintenance_stale_process_stop",
+          "oracle": "A delayed stop request for an old process generation cannot shut down the restarted process.",
+          "invariants": [
+            "F02",
+            "F04",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_maintenance_shared_disruption",
+          "oracle": "Concurrent restart, resize and evacuation cannot admit two independent planned offline nodes.",
+          "invariants": [
+            "F05",
+            "F06",
+            "F09"
+          ]
+        },
+        {
+          "name": "fleet_maintenance_restart_not_evacuation",
+          "oracle": "Maintenance exclusion preserves voters until the bounded grace or explicit escalation instead of triggering immediate draining repair.",
+          "invariants": [
+            "F01",
+            "F07",
+            "F09"
+          ]
+        },
+        {
+          "name": "fleet_maintenance_rolling_sequence",
+          "oracle": "The next node cannot stop before the prior node has a verified rejoin/resume receipt and restored redundancy.",
+          "invariants": [
+            "F05",
+            "F09",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_maintenance_permanent_gate",
+          "oracle": "Cancellation can lift only the reversible pre-stop gate; admitted permanent shutdown requires real rejoin.",
+          "invariants": [
+            "F04",
+            "F08"
+          ]
+        }
+      ],
+      "verification": [
+        [
+          "cargo",
+          "test",
+          "-p",
+          "cellar",
+          "--test",
+          "native_raft_fleet_maintenance",
+          "--locked",
+          "--",
+          "--list"
+        ],
+        [
+          "cargo",
+          "test",
+          "-p",
+          "cellar",
+          "--test",
+          "native_raft_fleet_maintenance",
+          "--locked",
+          "--",
+          "--test-threads=1"
+        ]
+      ],
+      "evidence": []
+    },
+    {
+      "id": "FO-08",
+      "title": "Expose auditable fleet operations through SDK admin and CLI",
+      "status": "TODO",
+      "depends_on": [
+        "FO-07"
+      ],
+      "modifies": [
+        "crates/cellar/fleet/management/mod.rs",
+        "crates/cellar/cli/main.rs",
+        "crates/cellar/lib.rs",
+        "crates/cellar-admin/api.rs",
+        "crates/cellar-admin/auth.rs",
+        "crates/cellar-admin/audit.rs"
+      ],
+      "creates": [
+        "crates/cellar/fleet/management/raft_fleet.rs",
+        "crates/cellar/cli/raft_fleet_cli.rs",
+        "crates/cellar/tests/native_raft_fleet_operator.rs"
+      ],
+      "steps": [
+        "Implement proposed operator-workflows.md commands and SDK/API phase/error contracts.",
+        "Enforce operation-specific permissions, canonical request identity, expected revisions and audit.",
+        "Provide dry-run, paginated status, wait and cancel without hidden infrastructure termination.",
+        "Expose activate, resize, guarded child stop, rolling maintenance and explicit capacity-only versus balanced completion through the same audit/permission model."
+      ],
+      "acceptance": [
+        "Future command examples become runnable and tested.",
+        "Management errors retain ambiguity and operator audit identity."
+      ],
+      "stop_conditions": [
+        "Stop on any violated safety invariant; preserve failed and ambiguous outcomes.",
+        "Reject unbounded work, incomplete inventory claims and performance results without matched workload evidence."
+      ],
+      "test_target": "native_raft_fleet_operator",
+      "test_cases": [
+        {
+          "name": "fleet_operator_authorization",
+          "oracle": "Read, node registration, maintenance and removal permissions cannot substitute for one another.",
+          "invariants": [
+            "F02",
+            "F05"
+          ]
+        },
+        {
+          "name": "fleet_operator_idempotent_retry",
+          "oracle": "Same ID and payload yields the original operation; changed payload conflicts.",
+          "invariants": [
+            "F03"
+          ]
+        },
+        {
+          "name": "fleet_operator_dry_run_stale",
+          "oracle": "Preview mutates no state and stale expected revisions cannot admit its old plan.",
+          "invariants": [
+            "F03",
+            "F04"
+          ]
+        },
+        {
+          "name": "fleet_operator_wait_timeout",
+          "oracle": "Wait timeout leaves durable work running and reports no completed removal.",
+          "invariants": [
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_operator_cli_contract",
+          "oracle": "Public command parsing, JSON phase fields and typed error exit codes match the runbook.",
+          "invariants": [
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_operator_no_delete_side_effect",
+          "oracle": "Removal revokes membership trust without deleting local volumes, archives or cloud infrastructure.",
+          "invariants": [
+            "F02",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_operator_capacity_completion",
+          "oracle": "Capacity-only completion is distinct from balanced convergence and cannot silently satisfy the other objective.",
+          "invariants": [
+            "F03",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_operator_resize_stop_contract",
+          "oracle": "Resize and child maintenance-stop requests preserve permissions, operation identity, process/profile guards and typed outcomes.",
+          "invariants": [
+            "F02",
+            "F03",
+            "F04"
+          ]
+        }
+      ],
+      "verification": [
+        [
+          "cargo",
+          "test",
+          "-p",
+          "cellar",
+          "--test",
+          "native_raft_fleet_operator",
+          "--locked",
+          "--",
+          "--list"
+        ],
+        [
+          "cargo",
+          "test",
+          "-p",
+          "cellar",
+          "--test",
+          "native_raft_fleet_operator",
+          "--locked",
+          "--",
+          "--test-threads=1"
+        ]
+      ],
+      "evidence": []
+    },
+    {
+      "id": "FO-09",
+      "title": "Account for cell lifecycle and safe desired capacity",
+      "status": "TODO",
+      "depends_on": [
+        "FO-08"
+      ],
+      "modifies": [
+        "crates/cellar/durability/raft/fleet_catalog/mod.rs",
+        "crates/cellar/durability/raft/fleet_operation.rs",
+        "crates/cellar-logic/raft_fleet.rs",
+        "crates/cellar/fleet/management/raft_fleet.rs",
+        "crates/cellar/durability/raft/member_state.rs",
+        "crates/cellar/durability/raft/host.rs",
+        "crates/cellar/durability/raft/snapshot.rs",
+        "crates/cellar/durability/raft/archive/mod.rs",
+        "crates/cellar/durability/raft/inspection.rs",
+        "crates/cellar/durability/raft/host_inspection.rs",
+        "crates/cellar/application/consensus/resources.rs"
+      ],
+      "creates": [
+        "crates/cellar/tests/native_raft_fleet_capacity.rs"
+      ],
+      "steps": [
+        "Calculate scale-in feasibility for node failure headroom and temporary fourth replicas.",
+        "Integrate birth cancellation tombstones and committed retirement with history-index reservations.",
+        "Select and evacuate one node at a time; report infrastructure shortage and never delete idle cells.",
+        "Implement committed terminal retirement: all three voters apply the marker and a verified archive covers it before live placement inventory is released; retain physical-byte reservations until reclamation.",
+        "Implement target resource profiles, physical-fit receipts and controlled intact-engine resize; block unsupported disk shrink or retained-state overflow.",
+        "Pin the final keep-set, exclude all departing targets and revalidate the complete plan after births or demand growth."
+      ],
+      "acceptance": [
+        "Target capacity is a request, not a provisioning or data-deletion action.",
+        "Inventory membership does not disappear before committed retirement is reconciled."
+      ],
+      "stop_conditions": [
+        "Stop on any violated safety invariant; preserve failed and ambiguous outcomes.",
+        "Reject unbounded work, incomplete inventory claims and performance results without matched workload evidence."
+      ],
+      "test_target": "native_raft_fleet_capacity",
+      "test_cases": [
+        {
+          "name": "fleet_capacity_five_to_four",
+          "oracle": "A feasible 500-cell plan evacuates sequentially and preserves RF3 and projected capacity.",
+          "invariants": [
+            "F05",
+            "F06",
+            "F09"
+          ]
+        },
+        {
+          "name": "fleet_capacity_minimum_nodes",
+          "oracle": "Default requires four active nodes; explicit RF3 minimum permits three with no-spare report and refuses two.",
+          "invariants": [
+            "F01",
+            "F09"
+          ]
+        },
+        {
+          "name": "fleet_capacity_idle_not_deleted",
+          "oracle": "Reduced command traffic never retires a durable cell or releases its storage reservation.",
+          "invariants": [
+            "F02",
+            "F05"
+          ]
+        },
+        {
+          "name": "fleet_capacity_birth_cancel_fence",
+          "oracle": "Conditional birth tombstone blocks a delayed create after cancellation without hiding an accepted birth.",
+          "invariants": [
+            "F03",
+            "F04",
+            "F05"
+          ]
+        },
+        {
+          "name": "fleet_capacity_retirement_race",
+          "oracle": "Committed cell retirement and concurrent evacuation retain complete inventory and archive obligations.",
+          "invariants": [
+            "F02",
+            "F05",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_capacity_outstanding_reservations",
+          "oracle": "Scale-in headroom includes in-flight moves and staging storage rather than only observed steady load.",
+          "invariants": [
+            "F06",
+            "F09"
+          ]
+        },
+        {
+          "name": "fleet_capacity_final_keep_set",
+          "oracle": "Multiple departing nodes receive no new target placements while evacuation proceeds one node at a time.",
+          "invariants": [
+            "F05",
+            "F06",
+            "F09"
+          ]
+        },
+        {
+          "name": "fleet_capacity_profile_before_observation",
+          "oracle": "A larger desired resource descriptor grants no capacity until the exact runtime profile is observed and accepted.",
+          "invariants": [
+            "F06",
+            "F07",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_capacity_vertical_reduction_retained",
+          "oracle": "A smaller profile is refused when retained histories, image obligations or fixed pools do not fit despite low live-group counts.",
+          "invariants": [
+            "F02",
+            "F06",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_capacity_resize_failed_boot",
+          "oracle": "Failed or mismatched resized boot stays excluded, preserves identity/data and can reconcile the prior known profile.",
+          "invariants": [
+            "F02",
+            "F03",
+            "F08"
+          ]
+        },
+        {
+          "name": "fleet_capacity_birth_growth_replan",
+          "oracle": "New births/workload growth invalidate an obsolete keep-set plan without silently reducing RF3, domains or recovery headroom.",
+          "invariants": [
+            "F05",
+            "F06",
+            "F09"
+          ]
+        }
+      ],
+      "verification": [
+        [
+          "cargo",
+          "test",
+          "-p",
+          "cellar",
+          "--test",
+          "native_raft_fleet_capacity",
+          "--locked",
+          "--",
+          "--list"
+        ],
+        [
+          "cargo",
+          "test",
+          "-p",
+          "cellar",
+          "--test",
+          "native_raft_fleet_capacity",
+          "--locked",
+          "--",
+          "--test-threads=1"
+        ]
+      ],
+      "evidence": []
+    },
+    {
+      "id": "FO-10",
+      "title": "Qualify five-node fleet operations under traffic and faults",
+      "status": "TODO",
+      "depends_on": [
+        "FO-09"
+      ],
+      "modifies": [
+        "tools/perf/raft_topology.py",
+        "tools/perf/raft_run.py",
+        "tools/perf/raft_docker.py",
+        "tools/perf/raft_analyze.py"
+      ],
+      "creates": [
+        "tools/perf/raft_fleet_operations.py",
+        "crates/cellar/tests/native_raft_fleet_qualification.rs"
+      ],
+      "steps": [
+        "Extend existing native harness to five nodes/500 RF3 groups, sixth-node addition and four-node evacuation.",
+        "Implement fault schedule and exact ledger/replica/archive/configuration verification with resource samples.",
+        "Run paired performance tests, physical RustFS CAS probes and a 24-hour soak; publish the bounded supported envelope.",
+        "Qualify vertical resize as a separate resource tier and add low-load redistribution, stale-stop and terminal-receipt fault scenarios."
+      ],
+      "acceptance": [
+        "Every gate in qualification.md passes with retained logs and hashes; failed/inconclusive cohorts remain visible.",
+        "No production-zone or unexecuted density claim is inferred from Colima results."
+      ],
+      "stop_conditions": [
+        "Stop on any violated safety invariant; preserve failed and ambiguous outcomes.",
+        "Reject unbounded work, incomplete inventory claims and performance results without matched workload evidence."
+      ],
+      "test_target": "native_raft_fleet_qualification",
+      "test_cases": [
+        {
+          "name": "fleet_qualification_single_failure",
+          "oracle": "Every majority-capable group resumes and restores RF3 under the declared counter recovery budgets.",
+          "invariants": [
+            "F01",
+            "F09",
+            "F10",
+            "F12"
+          ]
+        },
+        {
+          "name": "fleet_qualification_pair_failures",
+          "oracle": "Every small-fixture two-node pair refuses minority progress; majority groups preserve their histories.",
+          "invariants": [
+            "F01",
+            "F07",
+            "F12"
+          ]
+        },
+        {
+          "name": "fleet_qualification_scale_cycle",
+          "oracle": "Five-to-six-to-four placement and exact final replica/archive verification succeed under writes.",
+          "invariants": [
+            "F05",
+            "F09",
+            "F10",
+            "F12"
+          ]
+        },
+        {
+          "name": "fleet_qualification_cas_backend",
+          "oracle": "The exact RustFS deployment passes concurrent create/update, visibility and ambiguous-response probes.",
+          "invariants": [
+            "F03",
+            "F07",
+            "F12"
+          ]
+        },
+        {
+          "name": "fleet_qualification_resource_bounds",
+          "oracle": "Actual container memory/CPU/swap and owned queues remain within declared limits during repair.",
+          "invariants": [
+            "F06",
+            "F08",
+            "F12"
+          ]
+        },
+        {
+          "name": "fleet_qualification_history_ambiguity",
+          "oracle": "Reconcile failed-response command IDs against receipts without counting ambiguous execution as data loss or ignoring duplicates.",
+          "invariants": [
+            "F01",
+            "F10",
+            "F12"
+          ]
+        },
+        {
+          "name": "fleet_qualification_vertical_resize",
+          "oracle": "Growth and safe return to the old CPU/memory profile preserve exact history; impossible shrink refuses without data deletion.",
+          "invariants": [
+            "F02",
+            "F06",
+            "F10",
+            "F12"
+          ]
+        },
+        {
+          "name": "fleet_qualification_low_load_distribution",
+          "oracle": "Five-to-six low-load movement reaches its declared objective without overload or per-move large-improvement assumptions.",
+          "invariants": [
+            "F09",
+            "F11",
+            "F12"
+          ]
+        },
+        {
+          "name": "fleet_qualification_lifecycle_races",
+          "oracle": "Under writes, stale stops, rolling maintenance and finalization crashes preserve one disruption slot and valid terminal receipts.",
+          "invariants": [
+            "F03",
+            "F04",
+            "F05",
+            "F08",
+            "F10",
+            "F12"
+          ]
+        }
+      ],
+      "verification": [
+        [
+          "cargo",
+          "test",
+          "-p",
+          "cellar",
+          "--test",
+          "native_raft_fleet_qualification",
+          "--locked",
+          "--",
+          "--list"
+        ],
+        [
+          "cargo",
+          "test",
+          "-p",
+          "cellar",
+          "--test",
+          "native_raft_fleet_qualification",
+          "--locked",
+          "--",
+          "--test-threads=1"
+        ],
+        [
+          "python3",
+          "tools/perf/raft_fleet_operations.py",
+          "--suite",
+          "qualification",
+          "--profile",
+          "five-node-500"
+        ]
+      ],
+      "evidence": []
+    }
+  ]
+}
