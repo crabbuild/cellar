@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Native Web values cross routed cell turns without initializing an engine.
 #[path = "support/html.rs"]
 mod fixture;

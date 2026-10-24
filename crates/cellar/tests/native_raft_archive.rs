@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Archive storage/restore qualification through real engines and physical LTX.
 //! Direct durable-marker fixtures qualify archive storage; the Native fixture
 //! separately exercises actual Node/SDK acknowledgement and outage boundaries.

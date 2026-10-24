@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """The harness must reject a successful process exit without a drain proof."""
 
 import json

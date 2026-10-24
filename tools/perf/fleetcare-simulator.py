@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Private technician API, WebSocket echo and deliberately untrusted TLS peer."""
 import base64
 import hashlib

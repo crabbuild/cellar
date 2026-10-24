@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Outbox implementation status
 
 Updated 2026-10-17. The core

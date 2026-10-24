@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Reply-task admission may close during an already-entered alarm turn.
 use super::*;
 use std::sync::atomic::{AtomicUsize, Ordering};

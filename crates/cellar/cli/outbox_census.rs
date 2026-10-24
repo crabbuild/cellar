@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Bounded bucket-directory census, with authoritative source-owner observations.
 
 use super::{Fleet, FleetFlags, Format, Output, Reachable, Reply, Subject, FLEET_HELP};

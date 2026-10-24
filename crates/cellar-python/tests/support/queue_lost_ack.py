@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """A producer's unknown outcome must not replay a live recovered queue lease."""
 from cellar import Response, SDKError
 

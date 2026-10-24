@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Compiled, synchronous Raft operations with no ordinary mutable cell factory.
 
 use super::{CommandId, CommittedVersion, Durability, GroupScope};

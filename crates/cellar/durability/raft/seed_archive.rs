@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Exact-reference S3 download. Only an authenticated fresh grant can reach
 //! physical initialization; the referenced bytes supply no authority by themselves.
 

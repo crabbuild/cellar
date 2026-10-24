@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Independent Python consumer matrix against the native durable queue broker.
 use super::*;
 

@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Atomic physical process refresh, separate from committed group revisions.
 use super::*;
 use crate::raft::catalog::NodeView;

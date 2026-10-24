@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # SQL and KV workspaces
 
 Status: DONE. Started against `35fc539` on 2026-10-14.

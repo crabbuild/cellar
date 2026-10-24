@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Rust SQL bindings and the runtime-supplied database cell. Bindings retain
 //! database identity across events and take the executing context per call.
 //! Owner lookup, admission and durability remain host responsibilities.

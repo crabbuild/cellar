@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Local inspection uses real SDK producers and dormant physical storage.
 use super::*;
 use cellar::sdk::{consensus::*, ShutdownMode};

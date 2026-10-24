@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Competing native snapshot repairs while an independent cell serves traffic.
 #![allow(clippy::disallowed_methods)]
 use super::{native_cluster as cluster, public_node};

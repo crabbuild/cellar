@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! One domain-owned consensus worker multiplexes all groups and async log work.
 
 use super::budget::{Budget, Permit};

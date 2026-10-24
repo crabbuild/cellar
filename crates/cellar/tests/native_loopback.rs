@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Loaded loopback capabilities keep their loader lifetime and host authority.
 #[path = "support/html.rs"]
 mod fixture;

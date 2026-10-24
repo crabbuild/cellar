@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Corrupt metadata cannot hide acknowledged rows or reset a persisted seal.
 use super::*;
 

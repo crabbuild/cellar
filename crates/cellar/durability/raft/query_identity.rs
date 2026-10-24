@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Query origins identify a node process, not a voting or learner member.
 //! The complete target history remains authenticated in each request/reply.
 

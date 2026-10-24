@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Committed business-feature adapters. Immutable values carry their actual
 //! bounded bytes in the command transaction and in the archive dependency set.
 //! Alarm callbacks use private replicated commands and an owned host scheduler.

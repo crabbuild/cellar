@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Bounded, read-only selection of expired receipt prefixes for a command's
 //! existing private transaction. Scheduling cursors carry no mutation authority.
 use super::execution::{storage, ExecutionError};

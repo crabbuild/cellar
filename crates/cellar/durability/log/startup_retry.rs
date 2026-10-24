@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Wake failed startup recovery when an actual witness lease returns.
 use crate::ownership_store::BucketOwnership;
 use cellar_logic::NodeLeaseRecord;

@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Actual embedded nodes, authenticated peer seeding and joint consensus.
 #![allow(clippy::disallowed_methods)]
 use super::{cluster, public_node};

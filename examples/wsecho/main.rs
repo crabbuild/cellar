@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 use crate::support;
 use anyhow::{bail, Result};
 use cellar::sdk::{

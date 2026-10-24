@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Inspection authenticates physical processes on both sides; a dormant
 //! destination has no voting or learner member identity to put on this route.
 use super::transport::TransportError;

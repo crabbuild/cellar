@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Exercise a native Rust writer against a snapshot held by Python in the same
 //! cell. Each writer retains its own real SDK invocation and execution domain.
 use anyhow::{ensure, Result};

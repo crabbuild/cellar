@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Real-node adapter contract, on the process main thread (one interpreter).
 #![allow(clippy::disallowed_methods)]
 use anyhow::{ensure, Context as _, Result};

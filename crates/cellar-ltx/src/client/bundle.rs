@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 // Modified for Cellar from Celld.
 //! A [`ReplicaClient`] overlay that makes bundle-resident L0 segments
 //! visible beside a real per-cell client.

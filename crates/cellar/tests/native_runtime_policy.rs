@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Production worker and cell limits in independently configured library hosts.
 #![allow(clippy::disallowed_methods)]
 #[path = "support/html.rs"]

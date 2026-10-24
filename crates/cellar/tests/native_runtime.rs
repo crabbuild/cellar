@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 use anyhow::{anyhow, Result};
 use cellar::application::{
     Cell, Context, HandlerFuture, Invocation, Output, Registry, Request, Storage,

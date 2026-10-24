@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Incident and recovery record template
 
 Preserve observations before changing authority or deleting state. Keep secrets

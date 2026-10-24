@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Phase-boundary cgroup v2/process observations; never a whole-device estimate."""
 import json
 import math

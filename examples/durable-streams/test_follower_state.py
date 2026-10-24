@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """The archive reader rejects corrupt, foreign and unsupported state records."""
 import copy
 import hashlib

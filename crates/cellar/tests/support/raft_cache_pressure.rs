@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Aggregate log pressure must compact before individual entry-count triggers.
 use super::*;
 use cellar::sdk::{consensus::*, NodeRaftConfig, NodeRaftListeners, ShutdownMode};

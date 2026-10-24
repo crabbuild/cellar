@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Bounded, nonblocking length-prefixed JSON transport; application stdout is separate.
 use anyhow::{ensure, Result};
 use serde_json::Value;

@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Every child runs public Node startup with a real shared log and SQLite image.
 use super::*;
 use cellar::sdk::consensus::*;

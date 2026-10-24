@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Capture a live ordinary invocation, then probe its capabilities from a Raft
 //! query on the same execution domain. Retirement is not the refusal oracle.
 use super::public_node;

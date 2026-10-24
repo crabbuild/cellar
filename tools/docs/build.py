@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Generate Cellar's offline documentation catalog and interactive SVG diagrams."""
 import html
 import json
@@ -324,9 +326,9 @@ def build():
     (DOCS / 'diagrams').mkdir(parents=True, exist_ok=True)
     diagrams = {**static_diagrams(), **illustrations()}
     for slug, svg in diagrams.items():
-        (DOCS / 'diagrams' / f'{slug}.svg').write_text(svg + '\n')
+        (DOCS / 'diagrams' / f'{slug}.svg').write_text('<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->\n\n' + svg + '\n')
     for flow in FLOWS:
-        (DOCS / 'diagrams' / f'{flow["id"]}-flow.svg').write_text(flow_svg(flow) + '\n')
+        (DOCS / 'diagrams' / f'{flow["id"]}-flow.svg').write_text('<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->\n\n' + flow_svg(flow) + '\n')
     data = catalog()
     (DOCS / 'catalog.json').write_text(json.dumps(data, indent=2, ensure_ascii=False) + '\n')
     template = (ROOT / 'tools/docs/explorer.html').read_text()

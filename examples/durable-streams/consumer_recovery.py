@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Recover a proven unacknowledged consumer effect after losing its local disk."""
 import argparse
 import hashlib

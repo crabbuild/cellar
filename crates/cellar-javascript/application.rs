@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Translate native application calls into bounded engine messages, then execute
 //! each requested SDK operation inside the original native invocation.
 use crate::runtime::{Event, Life, Runtime, Start};

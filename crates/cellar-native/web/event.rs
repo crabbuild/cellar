@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! At-target events and listener identity, retaining cellar's dispatch rules.
 use super::{AbortReason, AbortSignal, DomException, Error};
 use std::{

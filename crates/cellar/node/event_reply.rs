@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Peer RPC results remain cancellable and bounded after their proven head.
 use super::{event_failure, remote_rpc_failure};
 use crate::application::event_stream::{DeliveryError, ErrorCode, MAX_RPC_REPLY_BYTES};

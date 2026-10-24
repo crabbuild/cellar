@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Framework source administration. Runs inside the original owning cell turn.
 
 use crate::application::event_stream::{DeliveryError, ErrorCode};

@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Hold real bucket publication after local ack commit, then force owner closure.
 //! No synthetic gate or success adapter supplies durability to this fixture.
 

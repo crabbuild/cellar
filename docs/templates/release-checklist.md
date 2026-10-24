@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Release qualification record template
 
 Record the candidate and link actual evidence. Mark every applicable gate

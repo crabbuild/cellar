@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 import {createHash} from 'node:crypto';
 import {setTimeout} from 'node:timers/promises';
 import {readFile} from 'node:fs/promises';

@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # TypeScript cells in a Rust executable
 
 The application imports Zod from npm and implements a persistent counter with

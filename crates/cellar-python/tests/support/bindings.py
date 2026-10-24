@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Binding-specific authority and retry checks over real native backends."""
 _base_fetch = fetch
 binding_handles = None

@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 630" role="img" aria-labelledby="title desc">
 <title id="title">Follow a management request</title>
 <desc id="desc">The browser authenticates to Console. Console checks fleet permissions, records management operation intent and routes resource work to its authenticated owner. Only the owner opens cell state.</desc>

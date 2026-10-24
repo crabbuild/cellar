@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 import { useState, type ReactNode } from "react"
 import { useMutation } from "@tanstack/react-query"
 import { Button } from "@/components/ui/button"

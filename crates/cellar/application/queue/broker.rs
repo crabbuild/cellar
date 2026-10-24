@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 use super::*;
 use crate::application::storage::{SqlRow, SqlValue};
 use crate::application::{decode_rpc, Cell, Invocation, Storage};

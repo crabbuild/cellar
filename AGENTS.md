@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # AGENTS.md
 
 Contributor guidance for Cellar. Read any more specific `AGENTS.md` before

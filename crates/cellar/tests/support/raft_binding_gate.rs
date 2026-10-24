@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Actual Fleet Workflow and mutable Queue/container/socket factories are
 //! refused even if a custom Application also returns a valid Raft definition.
 use super::{faults, public_node};

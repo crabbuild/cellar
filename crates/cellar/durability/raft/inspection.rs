@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Read-only inspection values. None of these observations grants membership,
 //! fresh-quorum seeding, read visibility or an acknowledgement proof.
 use super::member_state::{GroupMembership, RepairStatus};

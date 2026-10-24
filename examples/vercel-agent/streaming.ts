@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 import type { Decision, Model } from "./provider.js";
 
 // Read the provider's real stream while withholding the complete decision from

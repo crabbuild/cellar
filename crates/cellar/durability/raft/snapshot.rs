@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Bounded physical snapshots. Sealed bytes supply no membership or leadership
 //! authority; the runtime's exact ticket and durable engine install do that.
 

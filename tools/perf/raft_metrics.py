@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Validate raw owner observations and derive bounded, source-stable deltas.
 
 These are API/socket byte counts and operation histograms, not device I/O,

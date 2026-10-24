@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Exercise real A -> B -> A calls, then revoke all suspended native turns.
 use super::python_control::{call as control, observe};
 use super::*;

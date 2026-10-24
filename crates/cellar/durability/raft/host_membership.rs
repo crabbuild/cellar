@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Explicit native learner admission and routing from durable configuration.
 //! A receipt is not a seed grant; seed authorization needs a fresh read barrier.
 

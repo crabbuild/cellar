@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Cellar multi-Raft qualification plan
 
 The release criterion is preservation of acknowledged state and advertised read

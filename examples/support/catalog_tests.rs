@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Validate tutorial configurations against the real native manifest contract.
 
 // Fixture reads belong to test tooling, outside the node execution boundary.

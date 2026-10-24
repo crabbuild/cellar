@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # 007: Embedded CPython applications through PyO3
 
 Status: core feature implementation delivered across M0–M5; release qualification

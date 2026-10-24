@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Cluster-wide storage pins and advisory process endpoints. Neither record
 //! grants group membership, seeding, a vote or a fresh-quorum proof.
 use super::*;

@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """SDK values and HTTP metadata preserve JSON representation and rejection rules."""
 from http import HTTPStatus
 from concurrent.futures import ThreadPoolExecutor

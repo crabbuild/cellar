@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Axum handlers and application-owned HTTP servers backed by Cellar's runtime.
 //!
 //! [`AxumApplication`] and [`AxumCell`] execute handlers inside existing SDK

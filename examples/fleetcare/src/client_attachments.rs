@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Streaming object traffic and a separately acknowledged cell reference.
 use super::*;
 use sha2::{Digest, Sha256};

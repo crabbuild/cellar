@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 import { Plus, ExternalLink, Server } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {

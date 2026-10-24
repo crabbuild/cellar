@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Force a real lease mismatch while Python holds a live cell context, recover
 //! acknowledged state in a new domain, and resume the noncooperative old task.
 use super::*;

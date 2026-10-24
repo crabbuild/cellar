@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 670" role="img" aria-labelledby="title desc">
 <title id="title">Two hosts, one cell runtime</title>
 <desc id="desc">Cellar may serve public HTTP itself or receive requests from an application-owned Axum server through CellarService and an IngressHandle. Both retain Cellar ownership, recovery and output gates.</desc>

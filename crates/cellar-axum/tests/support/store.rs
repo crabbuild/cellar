@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Fault injection affects replication writes, while real ownership CAS continues.
 use async_trait::async_trait;
 use futures_util::stream::BoxStream;

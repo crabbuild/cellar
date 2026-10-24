@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Offline CLI boundary. Builds declarations without a node or listener.
 // File export is process-owned CLI I/O, outside any node execution domain.
 #![allow(clippy::disallowed_methods)]

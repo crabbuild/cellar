@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 use super::*;
 
 /// Entry point for the Cellar CLI. Compiled application executables host nodes;

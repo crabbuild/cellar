@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 #![doc = include_str!("README.md")]
 #![warn(clippy::disallowed_methods, clippy::disallowed_types)]
 

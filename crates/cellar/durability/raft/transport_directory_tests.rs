@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Physical refresh never advances configuration or escapes owner budgets.
 use super::*;
 use crate::raft::catalog::{Catalog, CatalogOptions, NamespaceCatalog, NamespaceConfig, NodeView};

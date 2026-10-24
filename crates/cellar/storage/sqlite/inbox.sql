@@ -1,3 +1,5 @@
+-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 
 CREATE TABLE IF NOT EXISTS __sys_inbox (
     processing_scope TEXT NOT NULL,

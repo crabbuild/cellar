@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Verify actual GNU loader precedence with the same arguments used by builds.
 use super::*;
 use std::process::Command;

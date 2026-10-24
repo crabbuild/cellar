@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 use axum::{body::Body, extract::Request, response::Response};
 use cellar::sdk::IngressHandle;
 use std::{

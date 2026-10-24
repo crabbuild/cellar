@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Build a compiled Python example with a verified, offline-restorable environment."""
 import argparse
 import os

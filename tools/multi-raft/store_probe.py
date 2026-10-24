@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Exercise actual S3 conditional object operations against the private RustFS.
 
 The object-store probe is independent of Cellar restore/acknowledgement proofs.

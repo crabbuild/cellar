@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Request-owned read constraints. A fresh ReadIndex result is correlated to
 //! one invocation; a cached commit watermark can never replace that barrier.
 

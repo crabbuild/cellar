@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 <img src="public/cellar-icon.png" alt="Cellar logo" width="56" height="56" />
 
 # Cellar fleet console

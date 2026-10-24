@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Historical coverage is a cache, not a process-lifetime epoch inventory.
 use super::*;
 

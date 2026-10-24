@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 import { Link, useParams, useSearchParams } from "react-router-dom"
 import { useMutation } from "@tanstack/react-query"
 import { ArrowLeft, Radio } from "lucide-react"

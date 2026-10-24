@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Owned SQLite values retain integers, non-finite reals and binary data.
 
 #[derive(Debug, Clone, PartialEq)]

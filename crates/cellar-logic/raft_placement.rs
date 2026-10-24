@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Bounded placement decisions. These values never grant membership authority;
 //! the host must submit revision-bound learner/joint-consensus transitions.
 

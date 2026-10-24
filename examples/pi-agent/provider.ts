@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 import {createModels, type Api, type Model, type AssistantMessage} from '@earendil-works/pi-ai';
 import {openaiProvider} from '@earendil-works/pi-ai/providers/openai';
 import {AssistantMessageEventStream} from '@earendil-works/pi-ai/utils/event-stream';

@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Owned process-pause experiments and independent slow-follower evidence checks.
 
 The target also leads other groups. Only third-voter cells are used to witness

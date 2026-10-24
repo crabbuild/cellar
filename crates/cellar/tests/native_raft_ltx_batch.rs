@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Bounded physical replay batches retain every intermediate image proof.
 #![allow(clippy::disallowed_methods)]
 #[path = "support/raft_ltx_fault.rs"]

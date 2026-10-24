@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Route canonical order URLs to their cell before entering Python.
 //! FastAPI still processes the original HTTP request inside that cell.
 use anyhow::Result;

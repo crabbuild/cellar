@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Production native turns without Engine::init. Host adapters supply routing
 //! and accept proof tickets; the local bucket exercises real blob persistence.
 

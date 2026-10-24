@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Actual node-wide pin admission across two SQL workers and joined shutdown.
 use super::{faults, public_node, two_registrations, wait_status};
 use anyhow::{ensure, Context as _, Result};

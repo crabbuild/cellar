@@ -1,3 +1,5 @@
+Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 Cellar
 
 Cellar is licensed under the Apache License 2.0; see LICENSE.
@@ -12,8 +14,12 @@ Cellar includes source inherited or adapted from celld:
 
 This attribution applies to the inherited and adapted celld portions, not to
 all Cellar additions. Those files retain their upstream notices and identify
-local modifications. Original Cellar files use the repository license without
-individual copyright or license headers.
+local modifications. Cellar-owned source, documentation and configuration files
+carry a short Cellar copyright and Apache-2.0 notice where the format supports
+comments. On adapted files, that notice covers Cellar contributions; upstream
+notices and license terms still apply to the inherited portions. Binary assets,
+JSON, lockfiles and recorded evidence are covered by the repository license
+unless separately attributed. Third-party sources retain their own notices.
 
 Code adapted from Tokio is under the MIT License; see the header of
 crates/cellar/execution/select.rs. The vendored replication and LZ4 source retains

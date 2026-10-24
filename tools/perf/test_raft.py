@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """The independent verifier must reject plausible but inconsistent run evidence."""
 import copy
 import json

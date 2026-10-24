@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Publish and restore a private FastAPI package, then test its installed host.
 //! All filesystem/process work belongs to this disposable caller, not a node.
 #![allow(clippy::disallowed_methods)]

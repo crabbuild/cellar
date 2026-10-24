@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Maintain the documentation library
 
 Edit the Markdown guides, keep their source links accurate and run the

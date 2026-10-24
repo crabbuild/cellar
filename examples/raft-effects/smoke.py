@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Run the finite native delivery drill twice against the same retained disks."""
 
 import argparse

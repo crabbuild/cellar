@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Blob request options, object metadata and HTTP header normalization.
 use anyhow::{ensure, Result};
 use serde::{Deserialize, Serialize};

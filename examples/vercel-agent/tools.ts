@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 import { createHash } from "node:crypto";
 import { tool } from "ai";
 import { z } from "zod";

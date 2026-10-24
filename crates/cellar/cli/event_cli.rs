@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Bounded fleet state collection from independently routed cold or warm owners.
 #![allow(clippy::disallowed_methods)]
 use crate::cli_options::{FleetFlags, FLEET_HELP};

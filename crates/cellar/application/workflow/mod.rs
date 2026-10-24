@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Native Workflow bindings and the retained instance journal/RPC protocol.
 //!
 //! Handlers receive a [`Step`] for named durable work. Rust reserves `do`, so

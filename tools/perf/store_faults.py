@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Shared, owned RustFS pauses and acknowledgement-window evidence.
 
 A process freeze is a bounded backend outage, not packet loss or an S3 service

@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Derived, bounded-memory inventory of verified committed batches.
 //!
 //! Small inventories stay in memory. Larger ones use sorted runs in anonymous

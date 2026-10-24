@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Bounded operator SQL. Runs only through an activation-bound Storage handle.
 use super::*;
 use rusqlite::hooks::{AuthAction, AuthContext, Authorization};

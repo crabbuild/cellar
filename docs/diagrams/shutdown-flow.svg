@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 900" role="group" aria-labelledby="title desc">
 <title id="title">Graceful shutdown</title><desc id="desc">Interactive conceptual flow. Tab to a node or control and press Enter or Space; arrows change the step. A static image shows the same labeled path.</desc>
 <defs>

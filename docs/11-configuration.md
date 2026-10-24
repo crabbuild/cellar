@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Configuration and policy reference
 
 Set resource limits and runtime policies before starting a node. Embedded

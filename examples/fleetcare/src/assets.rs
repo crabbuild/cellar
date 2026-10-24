@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Publish immutable technician documentation, then use the normal SDK asset
 //! resolver and generation binding. Publication is application bootstrap work.
 use anyhow::{Context, Result};

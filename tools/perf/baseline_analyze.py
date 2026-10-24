@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Verify a Fleet/bucket reference run from its raw ledger and owner-route reads."""
 import argparse
 import math

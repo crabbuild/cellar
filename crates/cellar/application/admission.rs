@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Application adapter admission failures, independent of node/cell capacity.
 
 /// An application adapter cannot admit another invocation within its budget.

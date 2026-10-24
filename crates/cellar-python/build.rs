@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Capture a selected CPython layout at build time; native-only builds need none.
 // Build-tool processes and output files are outside node execution domains.
 #![allow(clippy::disallowed_methods)]

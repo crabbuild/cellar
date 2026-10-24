@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # JavaScript and TypeScript bridge throughput
 
 This opt-in benchmark runs the **same typechecked TypeScript application** on

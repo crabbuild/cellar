@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Async, invocation-scoped Cellar SDK. Installed by the native embedding host."""
 from __future__ import annotations
 import asyncio

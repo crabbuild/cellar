@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Asset resources retain explicit configuration and their serving host.
 #![allow(clippy::disallowed_methods)] // Real filesystem and runtime probes.
 

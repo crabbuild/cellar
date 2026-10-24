@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Check the actual cold-store read boundary, before metadata allocation.
 use super::super::{AppendReq, FollowerStore, SealReq, TailReq};
 use super::*;

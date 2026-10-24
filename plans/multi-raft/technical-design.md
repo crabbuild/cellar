@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Cellar multi-Raft technical design
 
 Status: proposed implementation contract. Baseline and source hashes are in

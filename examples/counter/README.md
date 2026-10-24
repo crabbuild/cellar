@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Durable counter
 
 Model durable business entities and verify their state survives a restart.

@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 // Modified for Cellar from Celld.
 #![warn(clippy::disallowed_methods, clippy::disallowed_types)]
 

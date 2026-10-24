@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Exercise the packaged Python application through the real Cellar dev host."""
 import argparse
 from concurrent.futures import ThreadPoolExecutor

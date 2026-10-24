@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """The process-fault oracle must reject lost acknowledged work before replay."""
 
 import copy

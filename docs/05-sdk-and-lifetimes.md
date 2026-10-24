@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # SDK contracts, concurrency and lifetimes
 
 Use `cellar::sdk` to define handlers and access runtime services. `Registry`

@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 // The fatal-error gate of a Python Worker bundle.
 //
 // After a fatal interpreter error, Python futures can no longer settle, so

@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # JavaScript and TypeScript applications on Cellar
 
 `cellar-javascript` lets you write business logic and cell handlers in JavaScript

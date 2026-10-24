@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Real CAS/readback under two distinct lease-renewal response losses.
 use super::*;
 use anyhow::Result;

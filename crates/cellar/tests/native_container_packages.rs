@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Delivery integrity uses a deterministic engine CLI; no real engine is needed.
 use anyhow::Result;
 use cellar::{

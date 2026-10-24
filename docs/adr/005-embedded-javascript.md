@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # ADR 005: Embed compiled JavaScript above the native SDK
 
 Status: implemented adapter; production qualification remains open.

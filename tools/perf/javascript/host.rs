@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Standalone HTTP benchmark host; configuration is resolved at this CLI boundary.
 use anyhow::{Context as _, Result};
 use cellar::sdk::Host;

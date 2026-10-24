@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 use anyhow::anyhow;
 use axum::Router;
 use cellar::sdk::{Cell, Context, HandlerFuture, Invocation, Output};

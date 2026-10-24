@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Internal-development event storage. Existing layouts require a version-1 marker.
 
 use crate::application::event_stream::{DeliveryError, ErrorCode};

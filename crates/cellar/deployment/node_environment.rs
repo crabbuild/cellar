@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Data-only identities for Node runtime resources. The native host links no engine.
 use super::python_environment::{normal_absolute, valid_digest};
 use anyhow::{ensure, Result};

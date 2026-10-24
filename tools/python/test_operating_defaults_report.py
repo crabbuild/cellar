@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Exercise report refusal against a real complete default-workload evidence file."""
 import argparse
 from copy import deepcopy

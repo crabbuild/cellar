@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Qualify actual Python defaults under mixed load, admission pressure and takeover.
 
 Uses only private compiled loopback hosts. Every mutation is attempted once;

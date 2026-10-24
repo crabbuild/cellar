@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 // Closed-loop local HTTP capacity probe. Uses no credentials or live fleet data.
 import {spawn, execFileSync} from 'node:child_process';
 import {createHash, randomUUID} from 'node:crypto';

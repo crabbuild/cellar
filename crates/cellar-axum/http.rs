@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! HTTP conversion with owned body producers and native response metadata.
 
 use anyhow::{anyhow, Context as _, Result};

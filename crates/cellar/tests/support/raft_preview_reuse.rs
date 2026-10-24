@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Exercise preview promotion through the real node SQL owner and output gate.
 use super::*;
 #[allow(dead_code)]

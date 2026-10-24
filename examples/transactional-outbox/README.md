@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Atomic order and outbox
 
 This queue-backed recipe manages its own publication loop. The newer

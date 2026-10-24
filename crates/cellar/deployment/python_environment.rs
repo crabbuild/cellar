@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Data-only identities for immutable embedded-Python deployment resources.
 //! No interpreter or Python API is linked into the deployment protocol.
 use super::python_prerequisites::PythonPrerequisites;

@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 // Management-server static assets are outside every node execution domain.
 #![allow(clippy::disallowed_methods)]
 

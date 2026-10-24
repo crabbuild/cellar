@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Disposable native/Python measurement hosts; the caller owns all resources.
 #![allow(clippy::disallowed_methods)]
 use anyhow::{ensure, Context as _, Result};

@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Routing, RPC and command contracts
 
 Call cells through a declared namespace so Cellar can route each request to

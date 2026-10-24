@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Cellar-owned WebSocket upgrades for Axum handlers.
 use crate::CellContext;
 use anyhow::Result;

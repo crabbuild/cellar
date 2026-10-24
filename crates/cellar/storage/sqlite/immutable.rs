@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! A distinct opener for a verified immutable image; no framework schema writes.
 
 use cellar_ltx::generation::{GenerationPin, ImmutableDatabase, ReadServices};

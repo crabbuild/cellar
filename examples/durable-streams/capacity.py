@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Bounded offline-source capacity and slow-consumer recovery qualification."""
 import argparse
 import hashlib

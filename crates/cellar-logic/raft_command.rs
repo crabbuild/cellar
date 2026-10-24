@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Serial command ownership for a Raft cell, independent of Fleet leases.
 //!
 //! The host retains this state and its private executor after a caller goes

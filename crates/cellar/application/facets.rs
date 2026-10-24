@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Activation-owned child cells using the ordinary host turn and stream gates.
 //! Pass the current event context to every operation, including operations on
 //! handles retained by a constructor. Startup callbacks run once, on first use.

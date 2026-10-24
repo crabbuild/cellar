@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """A destination proof cannot be repaired by retry or recovered from local data."""
 import copy
 import unittest

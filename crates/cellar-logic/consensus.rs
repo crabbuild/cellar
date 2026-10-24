@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Pure contracts between the Raft adapter and the cell authority/output gates.
 //!
 //! Log persistence, elections, image verification and archive verification are

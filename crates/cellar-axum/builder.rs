@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Immutable application declarations shared by native and Axum hosts.
 
 use crate::{AxumApplication, CellContext};

@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Receipt verification must expose lost acknowledgements before any replay."""
 
 import hashlib

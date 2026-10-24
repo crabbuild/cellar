@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Storage-only execution for retained sources whose application class is gone.
 
 use crate::application::{

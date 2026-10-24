@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! All Cellar-owned SQLite tables, indexes and triggers use this namespace.
 
 pub const PREFIX: &str = "__sys_";

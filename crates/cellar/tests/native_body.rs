@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Owned upload readers, typed bodies, proofs and cleanup without engine startup.
 #[path = "support/html.rs"]
 mod fixture;

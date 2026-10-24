@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Embed an application-owned node
 
 Use `sdk::Node` when your application owns the process, executors, listeners

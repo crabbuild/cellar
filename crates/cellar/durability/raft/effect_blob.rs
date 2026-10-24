@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 use super::super::{apply::PublishedImage, archive::ArchiveDependency, archive::ArchiveLimits};
 use anyhow::{ensure, Context as _, Result};
 use rusqlite::{params, Connection, OptionalExtension};

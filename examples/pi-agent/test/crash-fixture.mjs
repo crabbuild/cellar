@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 // Only the process qualification loads this entry; production app.ts has no fault controls.
 import {appendFile, writeFile} from 'node:fs/promises';
 import {application} from '../dist/application.js';

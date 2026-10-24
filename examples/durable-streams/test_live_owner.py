@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Live-owner recovery cannot be repaired by replay or hidden stale commits."""
 import copy
 import json

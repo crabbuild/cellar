@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Native SQL runs in production turns without initializing the JS engine.
 //! Host channel adapters stand in for fleet routing and durability proofs.
 

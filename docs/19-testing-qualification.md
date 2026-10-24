@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Testing and deployment qualification
 
 Test application invariants and lifecycle behavior, then qualify the exact

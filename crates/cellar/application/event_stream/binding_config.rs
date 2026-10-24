@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Deployment selectors are resolved once; delivery bindings always carry UUIDs.
 
 use super::{Binding, Resource};

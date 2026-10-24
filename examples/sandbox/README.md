@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Bounded native tool execution
 
 Execute a fixed Rust tool in a cell-owned container and interpret its completion.

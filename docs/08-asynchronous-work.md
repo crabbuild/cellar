@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Alarms, queues, workflows and scheduled work
 
 Choose background execution by what must survive a failure: a cell deadline,

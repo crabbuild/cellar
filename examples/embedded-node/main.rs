@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! A standalone embedding application: caller-owned runtimes, clients and stop policy.
 
 use anyhow::{ensure, Result};

@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 // Stage a target-specific, relocatable directory with the real Node runtime,
 // native Cellar host, emitted modules, and installed npm dependencies.
 import {cp, mkdir, mkdtemp, readFile, writeFile, rename, rm, readdir, lstat, chmod} from 'node:fs/promises';

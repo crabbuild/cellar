@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Outbox, streams and subscriptions
 
 Use a transactional outbox when a cell mutation must create a recoverable event

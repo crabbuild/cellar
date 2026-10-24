@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 import { Link } from "react-router-dom"
 import { useMutation } from "@tanstack/react-query"
 import { Boxes } from "lucide-react"

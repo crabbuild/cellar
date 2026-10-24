@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Bounded diagnostics for explicitly tagged, read-only fault probes.
 //! These observations never establish a quorum, successful read or durability.
 use anyhow::{ensure, Result};

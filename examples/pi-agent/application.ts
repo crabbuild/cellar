@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 import {jsonResponse, request, response, type Application, type Context, type Request} from '@cellar/sdk';
 import {accept, execute, readRun, type Hook, type Progress} from './durable.js';
 import type {Provider} from './provider.js';

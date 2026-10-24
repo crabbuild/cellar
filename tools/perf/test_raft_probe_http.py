@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Client phase attribution must preserve HTTP results, failures and ownership."""
 from contextlib import contextmanager
 import http.client

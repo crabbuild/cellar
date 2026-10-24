@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Embedded fleet validation
 
 For MR-14 reference transitions, durable operation ledgers, explicit open-loop

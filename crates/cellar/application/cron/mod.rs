@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! The native reserved cron cell. Schedule and retry policy remain in
 //! cellar_logic::cron; storage, wake discovery and ownership remain the host's.
 

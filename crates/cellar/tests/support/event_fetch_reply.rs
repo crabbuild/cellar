@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! A lost proven fetch reply retains its lease across owner handoff. Replaying
 //! the fetch recovers authority, while inbox identity governs local effects.
 

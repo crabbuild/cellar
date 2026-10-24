@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Architecture and ownership boundaries
 
 Cellar separates decisions from effects. A serial actor passes state and events

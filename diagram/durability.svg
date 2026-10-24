@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 375" role="img" aria-labelledby="title description">
   <title id="title">A successful write waits for durability proof</title>
   <desc id="description">A cell handler commits SQLite changes captured as LTX. Cellar requires ownership and durability proof from peer logs or bucket upload before releasing success. Missing proof refuses success, while a lost response can leave the outcome ambiguous.</desc>

@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Litestream-compatible LTX compaction-level definitions.
 
 use crate::error::{Error, Result};
