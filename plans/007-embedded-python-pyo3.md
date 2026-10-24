@@ -235,13 +235,16 @@ The initial implementation pins PyO3 and uses owned mailboxes rather than
 inside their original invocation and avoids a hidden executor with different
 execution-domain authority.
 
-All Python handler tasks share the interpreter and loop. Async I/O can overlap;
-Python bytecode is constrained by the GIL. A synchronous computation inside an
-async handler can block the Python loop while Rust routing/storage maintenance
-continues. Offloading trusted blocking library calls to bounded, supervised
-threads may be added, but it provides neither safe thread termination nor a
-promise of parallel Python bytecode execution. Scale CPU-bound workloads across
-node processes initially.
+All Python handler tasks share the interpreter and managed loop. Async I/O can
+overlap, but a synchronous computation inside an async handler blocks that loop
+on both threading ABIs while Rust routing/storage maintenance continues.
+Conventional CPython also constrains Python bytecode with the GIL. Free-threaded
+CPython permits worker threads to compute in parallel; selecting that ABI does
+not make handlers on one asyncio loop execute in parallel. Worker threads cannot
+borrow SDK authority from the loop. Applications must bound and join their
+threads, and cancelling `asyncio.to_thread` does not terminate its function.
+Scale CPU-bound handler workloads across node processes; qualify any application
+worker pool separately for cancellation, resource bounds and shutdown.
 
 ## Context authority and cross-thread dispatch
 
