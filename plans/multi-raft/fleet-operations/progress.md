@@ -539,6 +539,61 @@ ingress, move-participant revision acknowledgements, actual retired-binding
 lifecycle, complete imports and rooted physical-host policy. The complete FO-03
 listing still correctly refuses qualification. FO-04 through FO-10 remain pending.
 
+## FO-03 progress: authoritative namespace births and freeze
+
+Source `2bb08a0f783e051cb6ad1510bbeb2979030db5ad` indexes canonical birth intents before publication in every
+new-protocol Raft namespace. Birth decoding requires its indexed intent and
+permanent identity claim; validly framed bucket objects alone cannot mint a
+`GroupBirth`. Namespace and fleet adapters reuse bounded immutable radix pages
+while retaining their own storage, errors and CAS roots. Logical record bounds
+remain separate from the fixed 64-KiB index-page limit; paging returns at most
+sixteen intents and no path uses bucket listing for authority.
+
+`freeze_births` orders against admission through the namespace root CAS. If
+admission won, pending/live/cancelled names remain enumerable from that exact
+frozen root and admitted writers may settle. If freeze won, a delayed admission
+cannot publish a new birth. Exact pending proposals can be conditionally
+cancelled to fence late writers. Lost replies retain the same operation;
+missing heads, pins, pages or intents refuse authority and cannot silently
+recreate an empty inventory. The genesis metadata is prepared before namespace
+publication. The protocol now ends in `/birth-inventory-1`; use fresh experimental
+fleet/namespace roots and matching binaries, with markers remaining 1.
+
+Seven new native cases cover both race orderings, delayed cancellation, lost
+freeze confirmation/reopen, missing metadata and occupied-root refusal,
+140-entry bounded scans under 1-KiB logical record limits, foreign cursors and
+untracked forged decisions. The existing three-node/two-cell SDK case now
+freezes new births before all its writes, queries and leader failover, which
+continue successfully. This qualifies birth quiescence, not membership quiescence.
+
+The final run passed **335 native cases across 13 targets**, including all
+**52 enrollment cases**, **136 Raft unit tests and four startup tests**. Clippy
+with warnings denied, formatting/layout over 930 Rust files, native dependency
+checks (454 packages, no JavaScript engine), plan validation, all 10 validator
+tests and documentation checks passed on the final source. No Rust bytes changed
+after that qualification. Three existing native fixtures became reviewed source
+anchors, bringing the inventory to **146 required cases and 70 anchors**.
+
+Failed compilation, format/lint and native cohorts remain retained. The native
+failures identified archive fixtures selecting the new inventory head by its
+filename and a directory fixture counting namespace pins as node-storage pins.
+The selectors now identify their owning key spaces and assert the separate pin
+counts; all corruption, immutability and no-voting-authority assertions remain.
+The initial missing-anchor validation was fixed by recording the reviewed input;
+the validator was not weakened. The partial record is ignored
+`implementation/fo03/import-inventory-boundary.json` under
+`.cellar/raft-perf/fleet-operations/`, with adjacent `fo03-import-inventory-*.log`
+files and exact source/log/executable hashes. Cache paths do not archive binaries.
+No raw evidence is tracked and no new TPS/p99 or deployed capacity claim is made.
+
+**Complete import is not delivered.** Next, integrate membership fencing, exact
+fleet history/namespace coverage, ownership handoff and controlled cancellation;
+a frozen birth cut grants no removal certificate. FO-03 remains `IN_PROGRESS`
+with the same five mandatory cases missing: unknown ingress, movement revision
+acknowledgements, retired bindings, complete import and rooted domain policy.
+Its full listing correctly refuses qualification. FO-04 through FO-10 remain
+pending and automatic fleet management stays default-off.
+
 ## Prioritized remaining delivery
 
 The next changes should close FO-03's remaining trust, complete-inventory and
@@ -549,7 +604,7 @@ safe admission ahead of automation; the manifest dependencies remain unchanged.
 
 | Priority | Boundary | Required result before advancing |
 | --- | --- | --- |
-| P0, first | FO-03 complete inventory and member lifecycle | Finish the explicit complete/quiesced import cut and actual retired-binding lifecycle refusal. Group identity is now fenced before admission and indexed atomically with its history/name. Original voters now settle after rooted drain/restart/resize exclusion, and initialization retries through startup-recovered handles retain data. The actual SDK birth/drain race is covered; this does not certify evacuation. Close `fleet_enrollment_incomplete_import` and `fleet_enrollment_retired_binding`. |
+| P0, first | FO-03 complete inventory and member lifecycle | Use the new frozen birth inventory to finish membership quiescence, exact fleet coverage, ownership handoff and controlled import cancellation. Then close actual retired-binding lifecycle refusal. Group identity and birth admission are now inventoried, but a frozen cut grants no removal certificate. Original voters now settle after rooted drain/restart/resize exclusion, and initialization retries through startup-recovered handles retain data. The actual SDK birth/drain race is covered; this does not certify evacuation. Close `fleet_enrollment_incomplete_import` and `fleet_enrollment_retired_binding`. |
 | P0, next | FO-03 remaining trust and placement checks | Close `fleet_enrollment_unknown_node`, `fleet_enrollment_route_revocation` and `fleet_enrollment_physical_host`: cover unsolicited ingress, move-participant acknowledgement enforcement and strict physical-host policy for movement. Initial birth-domain admission and cell-free observations are implemented locally; neither activates capacity. Pass the complete FO-03 listing and behavior tests before advancing. |
 | P1 | FO-04 placement, FO-05 fresh load, then FO-06 reconciliation | Validate final assignments and every staged move against retained/temporary costs, failure domains and one-node-loss restoration. Reconciliation must survive cancellation, restart and lost replies, with fresh terminal quorum proof before releasing reservations. Verify foreground overhead before enabling optional balancing. |
 | P2 | FO-07 maintenance, FO-08 operator surfaces, then FO-09 scaling | Deliver the durable stop fence and one-disruption slot, complete evacuation/removal proof, authenticated idempotent API/CLI workflows and observed-limit checks for resource changes. Proposed commands are not available until these packages pass. |
