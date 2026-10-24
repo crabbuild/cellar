@@ -21,6 +21,9 @@ use std::{
 
 const TIMEOUT: Duration = Duration::from_secs(5);
 
+#[path = "raft_initial_native.rs"]
+mod initial_tests;
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn fleet_enrollment_node_probe_retained_age() -> Result<()> {
     let f = Fixture::new().await?;
@@ -433,11 +436,19 @@ struct Fixture {
 }
 
 impl Fixture {
-    async fn peer_host(&self, id: u8) -> Result<(tempfile::TempDir, cellar::sdk::Node, RaftCells)> {
+    fn peer_spec(&self, id: u8) -> Result<FleetNodeSpec> {
         let mut spec = self.spec.clone();
         spec.node = NodeId::new([id; 16])?;
         spec.disk = DiskLineage::new([id + 10; 16])?;
         spec.label = format!("fleet-peer-{id}");
+        if self.declaration.namespace.managed_fleet.is_some() {
+            spec.physical_host = IncarnationId::new([id + 90; 16])?;
+        }
+        Ok(spec)
+    }
+
+    async fn peer_host(&self, id: u8) -> Result<(tempfile::TempDir, cellar::sdk::Node, RaftCells)> {
+        let spec = self.peer_spec(id)?;
         let snapshot = self.catalog.read(TIMEOUT).await?;
         let commit = self
             .catalog
@@ -665,6 +676,10 @@ impl Fixture {
     }
 
     async fn new() -> Result<Self> {
+        Self::with_managed_births(false).await
+    }
+
+    async fn with_managed_births(managed: bool) -> Result<Self> {
         let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
         let store = Arc::new(fault::Store::default());
         let bucket = Bucket::from_clients(
@@ -687,7 +702,7 @@ impl Fixture {
         gate.release();
         let calls = Arc::new(AtomicUsize::new(0));
         let definition = public_node::counter(calls.clone(), gate)?;
-        let declaration = RaftNamespaceRegistration {
+        let mut declaration = RaftNamespaceRegistration {
             namespace: NamespaceConfig::new(
                 ClusterId::new([1; 16])?,
                 NamespaceId::new([2; 16])?,
@@ -696,6 +711,9 @@ impl Fixture {
             ),
             class: "Counter".into(),
         };
+        if managed {
+            declaration.namespace = catalog.bind_namespace(declaration.namespace)?;
+        }
         Catalog::new(
             store.clone(),
             CatalogOptions {

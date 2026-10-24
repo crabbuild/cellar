@@ -164,12 +164,13 @@ impl Driver {
                 Ok(_) => return Err(CommandFailure::CommandConflict),
                 Err(_) => return Err(CommandFailure::Unavailable),
             }
-            if prepared
-                .birth
-                .voters()
-                .iter()
-                .chain(prepared.birth.learners())
-                .any(|m| m.node == self.log.limits().node)
+            if prepared.namespace.config().managed_fleet.is_none()
+                && prepared
+                    .birth
+                    .voters()
+                    .iter()
+                    .chain(prepared.birth.learners())
+                    .any(|m| m.node == self.log.limits().node)
             {
                 return Err(CommandFailure::CommandConflict);
             }

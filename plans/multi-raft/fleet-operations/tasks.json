@@ -321,7 +321,10 @@
         "crates/cellar/durability/raft/fleet_catalog/records.rs",
         "crates/cellar/durability/raft/fleet_catalog/permits.rs",
         "crates/cellar/durability/raft/member_fleet.rs",
-        "crates/cellar/tests/native_raft_fleet_permits.rs"
+        "crates/cellar/tests/native_raft_fleet_permits.rs",
+        "crates/cellar/durability/raft/storage.rs",
+        "crates/cellar/durability/raft/member_fleet_tests.rs",
+        "crates/cellar/application/consensus/client_fleet.rs"
       ],
       "creates": [
         "crates/cellar/tests/native_raft_fleet_enrollment.rs",
@@ -341,7 +344,10 @@
         "crates/cellar/durability/raft/node_inspection_auth_tests.rs",
         "crates/cellar/durability/raft/node_inspection_wire_tests.rs",
         "crates/cellar/durability/raft/fleet_catalog/histories.rs",
-        "crates/cellar/tests/support/raft_birth_admission.rs"
+        "crates/cellar/tests/support/raft_birth_admission.rs",
+        "crates/cellar/durability/raft/host_initial.rs",
+        "crates/cellar/durability/raft/storage_genesis_tests.rs",
+        "crates/cellar/tests/support/raft_initial_native.rs"
       ],
       "steps": [
         "Add CAS-authorized node-set revisions with bounded route and permission refresh.",
@@ -716,6 +722,59 @@
           "invariants": [
             "F01",
             "F04",
+            "F05"
+          ]
+        },
+        {
+          "name": "fleet_genesis_dynamic_replication_and_restart",
+          "oracle": "Three empty managed hosts register and initialize original voters, acknowledge an archived write and retain guard/data across restart with only self-address hints.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F05"
+          ]
+        },
+        {
+          "name": "fleet_genesis_startup_bootstrap",
+          "oracle": "Confirmed fresh births initialize their original voters during managed startup with enrollment present before attachment.",
+          "invariants": [
+            "F01",
+            "F04",
+            "F05"
+          ]
+        },
+        {
+          "name": "fleet_genesis_waiter_cancel_and_retry",
+          "oracle": "While the permanent claim is held, synced genesis is parked and counted once; dropping the caller does not orphan the submitted initializer, and same-capability retry returns the existing guard.",
+          "invariants": [
+            "F02",
+            "F06",
+            "F08"
+          ]
+        },
+        {
+          "name": "fleet_genesis_shutdown_during_claim",
+          "oracle": "Host close cancels the held claim and joins the initializer while retaining the caller permit; retained guarded state resumes without a new identity.",
+          "invariants": [
+            "F02",
+            "F06",
+            "F08"
+          ]
+        },
+        {
+          "name": "fleet_genesis_stale_history_refused",
+          "oracle": "A saved birth capability cannot initialize a voter after its rooted history is withdrawn; no local group is created.",
+          "invariants": [
+            "F04",
+            "F05",
+            "F07"
+          ]
+        },
+        {
+          "name": "fleet_genesis_foreign_namespace_owner_refused",
+          "oracle": "A matching declared capability digest cannot authorize a namespace owned by another coordination key scope, even with the same fleet incarnation.",
+          "invariants": [
+            "F02",
             "F05"
           ]
         }

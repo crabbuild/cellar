@@ -1,5 +1,64 @@
 use super::*;
 
+#[test]
+fn fleet_genesis_origin_is_explicit_and_cannot_be_retrofitted() {
+    let (_, conf, scope, binding) = fixture();
+    let genesis = GroupMembership::managed_initial(&conf, binding.clone()).unwrap();
+    genesis.validate(&conf, 1).unwrap();
+    genesis.validate_scope(&scope).unwrap();
+    assert_eq!(genesis.fleet_status().unwrap().changed_at, LogIndex::new(1));
+    assert!(genesis.succeeds(&GroupMembership::initial(&conf)).is_err());
+    let mut wire = serde_json::to_value(&genesis).unwrap();
+    wire["fleet"].as_object_mut().unwrap().remove("origin");
+    assert!(serde_json::from_value::<GroupMembership>(wire).is_err());
+    let mut committed = genesis.clone();
+    committed.fleet.as_mut().unwrap().origin = EnrollmentOrigin::Committed;
+    assert!(committed.validate(&conf, 1).is_err());
+    committed.revision = 2;
+    committed.fleet.as_mut().unwrap().enrolled_at = 2;
+    committed.validate(&conf, 2).unwrap();
+    assert!(committed.succeeds(&genesis).is_err());
+    let mut single = conf.clone();
+    single.voters = vec![1];
+    assert!(GroupMembership::managed_initial(&single, binding).is_err());
+}
+
+#[test]
+fn fleet_genesis_fences_first_permit_before_any_business_write() {
+    let (_, conf, scope, binding) = fixture();
+    let genesis = GroupMembership::managed_initial(&conf, binding.clone()).unwrap();
+    let (unused, mut plan) = permit(binding.clone());
+    plan.expected_revision = LogIndex::new(1);
+    let permit = FleetMembershipPermit::new(
+        binding,
+        1,
+        ProposalId::new([7; 16]).unwrap(),
+        ProposalId::new([8; 16]).unwrap(),
+        &plan,
+    )
+    .unwrap();
+    assert!(genesis
+        .bind_repair_start(&mut ConfChangeV2::default(), &conf, &plan)
+        .is_err());
+    let mut change = ConfChangeV2::default();
+    genesis
+        .bind_fleet_fence(&mut change, &conf, &permit)
+        .unwrap();
+    let fenced = genesis
+        .applied(&change, &conf, &conf, LogIndex::new(2))
+        .unwrap();
+    let restored: GroupMembership =
+        serde_json::from_slice(&serde_json::to_vec(&fenced).unwrap()).unwrap();
+    restored.validate(&conf, 2).unwrap();
+    restored.validate_scope(&scope).unwrap();
+    restored.succeeds(&genesis).unwrap();
+    assert_eq!(restored.fleet_status().unwrap().consumed_sequence, 1);
+    assert!(restored
+        .bind_managed_repair_start(&mut ConfChangeV2::default(), &conf, &plan, &permit)
+        .is_err());
+    assert_ne!(unused.expected_revision(), permit.expected_revision());
+}
+
 fn fixture() -> (GroupMembership, ConfState, GroupScope, FleetGroupBinding) {
     let scope = GroupScope {
         cluster: ClusterId::new([1; 16]).unwrap(),

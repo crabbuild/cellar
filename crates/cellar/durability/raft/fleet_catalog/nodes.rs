@@ -153,6 +153,19 @@ impl fmt::Debug for FleetHostAuthorization {
 }
 
 impl FleetHostAuthorization {
+    pub(crate) fn check_namespace(
+        &self,
+        config: &crate::raft::catalog::NamespaceConfig,
+    ) -> Result<()> {
+        if config.cluster != self.cluster()
+            || config.managed_fleet.is_some()
+                && self.catalog.bind_namespace(config.clone())? != *config
+        {
+            return Err(FleetCatalogError::Conflict);
+        }
+        Ok(())
+    }
+
     /// The one owned discovery worker has its own bounded read turn. Sharing
     /// the mutation adapter's turn would let a periodic read reject foreground
     /// history admission while waiting on storage. Its caller retains the

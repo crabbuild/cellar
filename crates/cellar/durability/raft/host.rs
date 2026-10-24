@@ -66,6 +66,8 @@ pub(crate) use load::GroupResourceObserver;
 pub use load::RaftInspectionScanOptions;
 #[path = "host_fleet.rs"]
 mod fleet_control;
+#[path = "host_initial.rs"]
+mod initial;
 #[path = "host_node.rs"]
 mod node_control;
 #[path = "host_registration.rs"]
@@ -433,13 +435,13 @@ async fn initialize(
     let mut archive_owner = None;
     let mut node_directory = None;
     let peer_count = peers.len();
-    let peers: BTreeMap<_, _> = peers.into_iter().map(|peer| (peer.node, peer)).collect();
+    let mut peers: BTreeMap<_, _> = peers.into_iter().map(|peer| (peer.node, peer)).collect();
     let initialized = async {
         anyhow::ensure!(
             peer_count == peers.len() && peer_count <= service.transport.peer_limit(),
             "invalid peer discovery count"
         );
-        enrollment::prepare(
+        let authorizations = enrollment::prepare(
             &mut options,
             &service,
             &registrations,
@@ -461,7 +463,7 @@ async fn initialize(
             &registrations,
             &declared_namespaces,
             options.managed.as_mut().map(|m| &mut m.authorization),
-            &peers,
+            &mut peers,
             &service,
             &label,
         )
@@ -662,7 +664,16 @@ async fn initialize(
             );
             let permit = match placement {
                 RaftCellPlacement::Replica => {
-                    namespace.bootstrap_member(&birth, &service.log).await?
+                    if namespace.config().managed_fleet.is_some() {
+                        let authorization = authorizations.get(&scope).ok_or_else(|| {
+                            anyhow::anyhow!("managed initial host authorization required")
+                        })?;
+                        namespace
+                            .bootstrap_managed_member(&birth, &service.log, authorization)
+                            .await?
+                    } else {
+                        namespace.bootstrap_member(&birth, &service.log).await?
+                    }
                 }
                 RaftCellPlacement::Joining {
                     member,
@@ -1855,7 +1866,7 @@ impl Driver {
         }
         if matches!(
             &request.kind,
-            Kind::ActivateLearner(_) | Kind::ActivateManaged { .. }
+            Kind::ActivateLearner(_) | Kind::ActivateManaged { .. } | Kind::ActivateInitial(_)
         ) {
             match std::mem::replace(&mut request.kind, Kind::Status) {
                 Kind::ActivateLearner(activation) => {
@@ -1865,6 +1876,9 @@ impl Driver {
                     activation,
                     authorization,
                 } => self.activate_learner(request, activation, Some(*authorization)),
+                Kind::ActivateInitial(authorization) => {
+                    self.activate_initial(request, *authorization)
+                }
                 _ => reply(&mut request, Err(CommandFailure::CorruptState)),
             }
             return;
@@ -1975,6 +1989,7 @@ impl Driver {
             | Kind::AddLearner { .. }
             | Kind::ActivateLearner(_)
             | Kind::ActivateManaged { .. }
+            | Kind::ActivateInitial(_)
             | Kind::Fleet(_)
             | Kind::Seed { .. }
             | Kind::BeginRepair { .. }

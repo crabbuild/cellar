@@ -79,7 +79,7 @@ pub(super) async fn prepare(
     cells: &[Registration],
     declared: &[NamespaceRegistration],
     mut enrollment: Option<&mut super::super::fleet_catalog::FleetHostAuthorization>,
-    peers: &BTreeMap<NodeId, RaftPeerNode>,
+    peers: &mut BTreeMap<NodeId, RaftPeerNode>,
     service: &crate::daemon::NodeRaftService,
     label: &str,
 ) -> anyhow::Result<Option<Directory>> {
@@ -97,7 +97,8 @@ pub(super) async fn prepare(
     let local = service.log.limits();
     let own = peers
         .get(&local.node)
-        .ok_or_else(|| anyhow::anyhow!("node directory requires an explicit self endpoint"))?;
+        .ok_or_else(|| anyhow::anyhow!("node directory requires an explicit self endpoint"))?
+        .clone();
     anyhow::ensure!(
         own.node == local.node
             && own.disk == local.disk
@@ -143,6 +144,10 @@ pub(super) async fn prepare(
                 .trust_snapshot(remaining(&domain, deadline)?)
                 .await?;
             service.transport.install_fleet_trust(trust.clone())?;
+            anyhow::ensure!(
+                trust.nodes().len() <= service.transport.peer_limit(),
+                "fleet exceeds transport peer bound"
+            );
             rooted = Some(trust);
         }
         let publication = registration
@@ -150,7 +155,30 @@ pub(super) async fn prepare(
             .await?;
         let view = publication.publish(remaining(&domain, deadline)?).await?;
         own_revision = own_revision.max(view.revision());
-        service.transport.accept_node_view(view, own)?;
+        service.transport.accept_node_view(view, &own)?;
+        // Cold managed members have only a self hint. Resolve exact rooted
+        // process views before constructing their current membership routes;
+        // periodic discovery then refreshes restarts without static addresses.
+        if let Some(trust) = &rooted {
+            for node in trust
+                .nodes()
+                .iter()
+                .filter(|node| node.node() != local.node)
+            {
+                let result = registration
+                    .observe_fleet_node(node, remaining(&domain, deadline)?)
+                    .await;
+                match result {
+                    Ok(Some(view)) => {
+                        let peer = view.peer().clone();
+                        service.transport.accept_node_view(view, &peer)?;
+                        peers.insert(peer.node, peer);
+                    }
+                    Ok(None) => (),
+                    Err(error) => tracing::debug!(%error, "startup node view unavailable"),
+                }
+            }
+        }
         registrations.push(registration);
     }
     Ok(Some(Directory {

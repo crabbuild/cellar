@@ -176,6 +176,11 @@ impl FleetHistory {
 
     pub(crate) fn check_birth(&self, namespace: &NamespaceCatalog, birth: &GroupBirth) -> bool {
         namespace.check_birth(birth).is_ok()
+            && namespace
+                .config()
+                .managed_fleet
+                .as_ref()
+                .is_none_or(|owner| owner.fleet == self.binding.fleet())
             && self.binding.matches_scope(birth.scope())
             && self.namespace_root == namespace.root_digest()
             && self.schema_digest == namespace.config().schema_digest

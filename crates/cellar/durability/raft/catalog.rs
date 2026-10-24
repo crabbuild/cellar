@@ -424,6 +424,38 @@ impl NamespaceCatalog {
         birth: &GroupBirth,
         log: &ReplicaLog,
     ) -> Result<BootstrapPermit, CatalogError> {
+        self.bootstrap_initial(birth, log, None).await
+    }
+
+    pub(crate) async fn bootstrap_managed_member(
+        &self,
+        birth: &GroupBirth,
+        log: &ReplicaLog,
+        authorization: &super::fleet_catalog::FleetGroupAuthorization,
+    ) -> Result<BootstrapPermit, CatalogError> {
+        if !self
+            .config
+            .managed_fleet
+            .as_ref()
+            .is_some_and(|owner| owner.fleet == authorization.binding().fleet())
+            || !authorization.check_birth(self, birth)
+            || birth.voters.len() != 3
+            || !birth.learners.is_empty()
+        {
+            return Err(CatalogError::Conflict(
+                "managed initial birth authorization",
+            ));
+        }
+        self.bootstrap_initial(birth, log, Some(authorization.binding()))
+            .await
+    }
+
+    async fn bootstrap_initial(
+        &self,
+        birth: &GroupBirth,
+        log: &ReplicaLog,
+        authorization: Option<&super::member_state::FleetGroupBinding>,
+    ) -> Result<BootstrapPermit, CatalogError> {
         self.require_mode(NamespaceMode::Raft)?;
         self.check_birth(birth)?;
         let selected = birth
@@ -467,22 +499,24 @@ impl NamespaceCatalog {
                 }
                 None => false,
             };
-            if !enrolled {
+            if !enrolled && (local.is_some() || authorization.is_none()) {
                 return Err(CatalogError::ManagedAdmissionRequired);
             }
         }
         // This call either durably creates genesis or verifies the existing
         // mapping's exact member, birth digest and initial ConfState.
-        let local = log
-            .create_group(GroupBootstrap {
-                scope: birth.scope.clone(),
-                member: selected.member,
-                birth_digest: birth.digest,
-                voters: birth.voters.iter().map(|m| m.member).collect(),
-                learners: birth.learners.iter().map(|m| m.member).collect(),
-            })
-            .await
-            .map_err(CatalogError::Log)?;
+        let bootstrap = GroupBootstrap {
+            scope: birth.scope.clone(),
+            member: selected.member,
+            birth_digest: birth.digest,
+            voters: birth.voters.iter().map(|m| m.member).collect(),
+            learners: birth.learners.iter().map(|m| m.member).collect(),
+        };
+        let local = match authorization {
+            Some(binding) => log.create_managed_group(bootstrap, binding.clone()).await,
+            None => log.create_group(bootstrap).await,
+        }
+        .map_err(CatalogError::Log)?;
         let payload = wire::Claim {
             root_digest: self.root_digest,
             scope: WireScope::from(&birth.scope),

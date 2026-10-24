@@ -225,10 +225,8 @@ impl Driver {
         profile.draining |= self.local.admission.is_draining();
         let groups = self
             .log
-            .group_count()
-            .map_err(|_| CommandFailure::Unavailable)?
-            .checked_add(usize::from(self.activating.is_some()))
-            .ok_or(CommandFailure::Overloaded)?;
+            .group_count_with_pending(self.activating.as_ref())
+            .map_err(|_| CommandFailure::Unavailable)?;
         let groups = u32::try_from(groups).map_err(|_| CommandFailure::Overloaded)?;
         let reserved_bytes = profile
             .bytes_per_group

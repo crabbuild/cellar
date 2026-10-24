@@ -21,7 +21,10 @@ describes identity, response bounds, cancellation and remaining management work.
 Fresh managed namespace roots require rooted birth reservations before creation;
 their histories retain exact birth/schema identity and pending node references.
 Import completeness and removal proof remain separate delivery work.
-The experimental namespace protocol now ends in `/birth-admission-1`; use fresh
+Managed initial voters persist their enrollment with genesis before a permanent
+member claim and runtime attachment. Empty hosts can initialize them dynamically,
+and cold managed members resolve rooted peer views with only a self hint.
+The experimental namespace protocol now ends in `/managed-genesis-1`; use fresh
 namespaces and matching binaries, with numeric markers retained at 1.
 
 `RaftClass::immutable_blobs(RaftBlobLimits)` enables bounded immutable values and

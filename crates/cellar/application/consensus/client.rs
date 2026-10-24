@@ -758,6 +758,14 @@ impl RaftCellHandle {
                 return Err(CommandFailure::Unavailable);
             }
             match &kind {
+                Kind::ActivateInitial(authorization) => {
+                    if !authorization.matches_scope(&self.binding.scope) {
+                        return Err(CommandFailure::CommandConflict);
+                    }
+                    if timeout > Duration::from_secs(60) {
+                        return Err(CommandFailure::UnsupportedCapability);
+                    }
+                }
                 Kind::ActivateLearner(activation) | Kind::ActivateManaged { activation, .. } => {
                     if let Kind::ActivateManaged { authorization, .. } = &kind {
                         if !authorization.matches_scope(&self.binding.scope)
@@ -1011,6 +1019,7 @@ pub(crate) struct Work {
 }
 
 pub(crate) enum Kind {
+    ActivateInitial(Box<crate::raft::fleet_catalog::FleetGroupAuthorization>),
     Fleet(Box<FleetRequest>),
     FleetStatus,
     ActivateManaged {
@@ -1080,6 +1089,7 @@ impl Kind {
             | Self::TransferLeadership(_)
             | Self::ActivateLearner(_)
             | Self::ActivateManaged { .. }
+            | Self::ActivateInitial(_)
             | Self::Fleet(_)
             | Self::FleetStatus
             | Self::RepairStatus => 0,
@@ -1102,6 +1112,7 @@ impl Kind {
             | Self::TransferLeadership(_)
             | Self::ActivateLearner(_)
             | Self::ActivateManaged { .. }
+            | Self::ActivateInitial(_)
             | Self::Fleet(_)
             | Self::FleetStatus
             | Self::RepairStatus => CancelFailure::Status,

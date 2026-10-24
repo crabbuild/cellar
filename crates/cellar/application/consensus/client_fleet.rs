@@ -47,6 +47,24 @@ impl FleetRequest {
 }
 
 impl RaftCellHandle {
+    /// Initialize an exact reserved initial voter inside this existing host.
+    /// Enrollment and genesis share their first sync before attachment. The
+    /// receipt is local durable state, never a live-quorum/write-ack proof.
+    /// A lost reply may follow initialization; retry this same authorization.
+    pub fn activate_managed_initial_member(
+        &self,
+        authorization: FleetGroupAuthorization,
+        timeout: Duration,
+    ) -> impl Future<Output = Result<FleetMembershipStatus, CommandFailure>> + Send + 'static {
+        let call = self.call(Kind::ActivateInitial(Box::new(authorization)), timeout);
+        async move {
+            match call.await? {
+                Response::Fleet(Some(status)) => Ok(*status),
+                _ => Err(CommandFailure::CorruptState),
+            }
+        }
+    }
+
     /// Observe synced permit consumption. This is not a fresh quorum proof.
     pub fn fleet_membership_status(
         &self,

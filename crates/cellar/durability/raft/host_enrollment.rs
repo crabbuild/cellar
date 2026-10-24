@@ -71,7 +71,7 @@ impl RaftManagedHostOptions {
         anyhow::ensure!(
             self.namespaces
                 .iter()
-                .all(|e| e.namespace.cluster == self.authorization.cluster())
+                .all(|e| self.authorization.check_namespace(&e.namespace).is_ok())
                 && Self::capability_digest(&self.namespaces)?
                     == self.authorization.capability_digest(),
             "managed host declarations disagree with rooted authorization"
@@ -92,10 +92,10 @@ pub(super) async fn prepare(
     namespaces: &[NamespaceRegistration],
     peers: &BTreeMap<NodeId, RaftPeerNode>,
     label: &str,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<BTreeMap<GroupScope, crate::raft::fleet_catalog::FleetGroupAuthorization>> {
     let Some(managed) = &mut options.managed else {
         anyhow::ensure!(namespaces.is_empty(), "undeclared managed namespaces");
-        return Ok(());
+        return Ok(BTreeMap::new());
     };
     managed.authorization = managed
         .authorization
@@ -128,6 +128,7 @@ pub(super) async fn prepare(
             && auth.instance_matches(service.log.storage_instance()?),
         "managed host physical identity mismatch"
     );
+    let mut authorizations = BTreeMap::new();
     for cell in cells {
         let scope = cell.birth.scope();
         let authorization = auth
@@ -146,14 +147,17 @@ pub(super) async fn prepare(
                 "managed host requires committed group enrollment"
             ),
             Err(super::super::storage::LogError::NotFound) => anyhow::ensure!(
-                matches!(
-                    cell.placement,
-                    RaftCellPlacement::Standby | RaftCellPlacement::QueryRouter { .. }
-                ),
+                cell.placement == RaftCellPlacement::Replica
+                    && cell.namespace.config().managed_fleet.is_some()
+                    || matches!(
+                        cell.placement,
+                        RaftCellPlacement::Standby | RaftCellPlacement::QueryRouter { .. }
+                    ),
                 "managed host cannot bootstrap an unguarded member"
             ),
             Err(error) => return Err(error.into()),
         }
+        authorizations.insert(scope.clone(), authorization);
     }
-    Ok(())
+    Ok(authorizations)
 }

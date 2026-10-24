@@ -262,10 +262,17 @@ pub struct FleetMembershipStatus {
 #[serde(deny_unknown_fields)]
 pub(super) struct FleetState {
     binding: FleetGroupBinding,
+    origin: EnrollmentOrigin,
     enrolled_at: u64,
     sequence: u64,
     #[serde(deserialize_with = "required_nullable")]
     last: Option<Consumed>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+enum EnrollmentOrigin {
+    Genesis,
+    Committed,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -322,6 +329,33 @@ fn bind_same_configuration(change: &mut ConfChangeV2, conf: &ConfState) -> Resul
 }
 
 impl GroupMembership {
+    /// The catalog-selected initial configuration and its guard share the
+    /// first engine sync. Existing bare histories can never take this path.
+    pub(crate) fn managed_initial(
+        conf: &ConfState,
+        binding: FleetGroupBinding,
+    ) -> Result<Self, LogError> {
+        binding.validate()?;
+        if conf.voters.len() != 3
+            || !conf.learners.is_empty()
+            || !conf.voters_outgoing.is_empty()
+            || !conf.learners_next.is_empty()
+            || conf.auto_leave
+        {
+            return Err(invalid());
+        }
+        let mut initial = Self::initial(conf);
+        initial.fleet = Some(Box::new(FleetState {
+            binding,
+            origin: EnrollmentOrigin::Genesis,
+            enrolled_at: 1,
+            sequence: 0,
+            last: None,
+        }));
+        initial.validate(conf, 1)?;
+        Ok(initial)
+    }
+
     pub fn fleet_status(&self) -> Option<FleetMembershipStatus> {
         self.fleet.as_ref().map(|state| FleetMembershipStatus {
             binding: state.binding.clone(),
@@ -534,6 +568,7 @@ impl GroupMembership {
         if let FleetIntent::Enroll { binding } = action {
             self.fleet = Some(Box::new(FleetState {
                 binding: binding.clone(),
+                origin: EnrollmentOrigin::Committed,
                 enrolled_at: index,
                 sequence: 0,
                 last: None,
@@ -569,8 +604,10 @@ impl GroupMembership {
             return Ok(());
         };
         state.binding.validate()?;
-        if state.enrolled_at <= 1
-            || state.enrolled_at > self.revision
+        if match state.origin {
+            EnrollmentOrigin::Genesis => state.enrolled_at != 1,
+            EnrollmentOrigin::Committed => state.enrolled_at <= 1,
+        } || state.enrolled_at > self.revision
             || state.sequence >= u64::MAX - 2
         {
             return Err(invalid());
@@ -623,6 +660,7 @@ impl GroupMembership {
             (Some(next), None) if next.enrolled_at <= old.revision => Err(invalid()),
             (Some(next), Some(prior)) => {
                 if next.binding != prior.binding
+                    || next.origin != prior.origin
                     || next.enrolled_at != prior.enrolled_at
                     || next.sequence < prior.sequence
                 {

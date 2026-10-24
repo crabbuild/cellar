@@ -76,9 +76,9 @@ remain pending. Group enrollment, managed-host startup and dormant registration
 also compare the recorded birth digest and schema with their actual birth.
 Ordinary `bootstrap_member` can only resume an already enrolled managed group;
 it refuses fresh or bare genesis before creating local group state or a member
-claim. Guarded initial-member initialization remains an integration prerequisite.
+claim. Managed host startup and `activate_managed_initial_member` use the guarded path described below.
 
-This experimental protocol hard-cuts to `/birth-admission-1`; use fresh namespaces
+This experimental protocol hard-cuts to `/managed-genesis-1`; use fresh namespaces
 and matching binaries. Namespace roots and history records have no legacy reader.
 Numeric format markers remain 1.
 
@@ -145,9 +145,9 @@ registration and does not collect identity history.
 `RaftManagedHostOptions` declares a bounded namespace/class list whose canonical
 digest must match enrollment. Classes resolve against the compiled application
 and existing namespace/schema/version metadata. This lets a managed host boot
-with zero registered groups. Existing participating histories must already have
-their rooted/committed group enrollment; this startup path cannot bootstrap an
-unguarded voter. The legacy group controller stays disabled on these hosts until
+with zero registered groups. Imported participating histories must already have
+their rooted/committed group enrollment. Fresh managed roots use guarded genesis;
+this startup path cannot bootstrap an unguarded voter. The legacy group controller stays disabled on these hosts until
 fleet-aware reconciliation is integrated.
 
 `RaftCells::observe_node` uses bounded node control admission independently of
@@ -222,6 +222,39 @@ rebinding even when other aggregate slots are free. Reopening retained active
 histories still uses the existing startup recovery registrations; dynamic
 metadata registration cannot reset their engine state. Local observations also
 report pending registration work so later readiness/removal checks cannot omit it.
+
+### Guarded initial voters
+
+A confirmed birth in a fresh managed namespace can initialize its original RF3
+voters through startup `Replica` registrations or, on running empty hosts,
+`register_managed_history` followed by `activate_managed_initial_member`.
+Registering metadata grants no voting authority. Imported unmanaged namespace
+roots cannot use the fresh-genesis path.
+
+The host refreshes its rooted identity and exact history, checks the namespace's
+coordination owner and actual birth/schema, and refuses unknown initial endpoints.
+The engine stores genesis and fleet enrollment in one synced batch before
+publishing its group cache. `Genesis` enrollment explicitly begins at index 1;
+ordinary `Committed` enrollment still requires a later configuration entry.
+Codecs require that origin, and successors cannot retag or retrofit a bare group.
+Only the exact conditional permanent member claim permits runtime attachment.
+A missing claimed engine, changed binding or retired local configuration refuses
+admission. The genesis receipt observes local durable state; business writes
+still require their normal Raft quorum and optional archive proof.
+
+Dynamic initialization uses the existing owned SQL/attachment pipeline, one
+initializer per host, the original deadline and a 4 MiB metadata reservation.
+Cancellation after submission can leave a successfully initialized member; retry
+the same capability. Shutdown cancels metadata waits and joins physical owners.
+Existing initialized members return their actual guard without another genesis.
+Inspection counts an admitted slot once as it becomes a durable engine group,
+using one catalog lock across that handoff.
+
+Cold startup reads bounded exact process-view keys from the rooted node set
+before constructing membership routes. A self-address hint is sufficient when
+the other required rooted views are available; periodic discovery refreshes later
+boots. Missing metadata never invents an endpoint or voter. This does not complete
+capacity activation, import completeness, movement acknowledgements or removal.
 
 ### Group membership and learner activation
 

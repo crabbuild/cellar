@@ -16,20 +16,34 @@ pub(super) struct Dormant {
 pub(super) enum Completed {
     Seeded {
         request: Box<Request>,
-        member: MemberId,
+        member: StartedMember,
         result: anyhow::Result<BootstrapPermit>,
     },
     Initialized {
         request: Box<Request>,
-        member: MemberId,
+        member: StartedMember,
         permit: BootstrapPermit,
         result: Box<Result<sql::Output, ExecutionError>>,
     },
     Attached {
         request: Box<Request>,
-        member: MemberId,
+        member: StartedMember,
         result: Result<(), CatalogError>,
     },
+}
+
+#[derive(Clone, Copy)]
+pub(super) enum StartedMember {
+    Learner(MemberId),
+    Initial(MemberId),
+}
+
+impl StartedMember {
+    fn id(self) -> MemberId {
+        match self {
+            Self::Learner(id) | Self::Initial(id) => id,
+        }
+    }
 }
 
 struct Initializer {
@@ -349,32 +363,7 @@ impl Driver {
         }
         // Placement is a hint. Recheck this node's current admission before a
         // new history consumes storage; exact existing members still resume.
-        let admission = match self.log.group(&scope) {
-            Ok(_) => Ok(()),
-            Err(super::super::storage::LogError::NotFound) => self
-                .options
-                .node_profile
-                .as_ref()
-                .map_or(Ok(()), |profile| {
-                    let groups = self
-                        .log
-                        .group_count()
-                        .map_err(|_| CommandFailure::Unavailable)?;
-                    let next = u64::try_from(groups)
-                        .ok()
-                        .and_then(|groups| groups.checked_add(1))
-                        .and_then(|groups| groups.checked_mul(profile.bytes_per_group));
-                    if profile.draining
-                        || groups >= profile.group_capacity as usize
-                        || !next.is_some_and(|bytes| bytes <= profile.byte_capacity)
-                    {
-                        Err(CommandFailure::Overloaded)
-                    } else {
-                        Ok(())
-                    }
-                }),
-            Err(_) => Err(CommandFailure::Unavailable),
-        };
+        let admission = self.admit_new_history(&scope);
         if let Err(error) = admission {
             reply(&mut request, Err(error));
             return;
@@ -410,7 +399,7 @@ impl Driver {
         self.jobs.push(Box::pin(async move {
             Job::Standby(Box::new(Completed::Seeded {
                 request: Box::new(request),
-                member: activation.member,
+                member: StartedMember::Learner(activation.member),
                 result: initializer.prepare().await,
             }))
         }));
@@ -424,12 +413,17 @@ impl Driver {
                 result,
             } => {
                 let permit = match result {
-                    Ok(permit) if permit.replica().member == member => permit,
+                    Ok(permit) if permit.replica().member == member.id() => permit,
                     Ok(_) => {
                         self.fail_standby(request, CommandFailure::CorruptState, true);
                         return;
                     }
                     Err(error) => {
+                        if matches!(member, StartedMember::Initial(_)) {
+                            let (failure, fatal) = super::initial::failure(&error);
+                            self.fail_standby(request, failure, fatal);
+                            return;
+                        }
                         let fatal = matches!(
                             error.downcast_ref::<CatalogError>(),
                             Some(
@@ -548,19 +542,25 @@ impl Driver {
                     self.fail_standby(request, CommandFailure::Unavailable, true);
                     return;
                 }
-                let ready = self
-                    .standby_receipt(&request.scope, member)
-                    .and_then(|receipt| {
-                        let binding = self
-                            .local
-                            .bindings
-                            .get(&(request.scope.namespace, request.scope.cell.clone()))?;
-                        if binding.scope != request.scope {
-                            return Err(CommandFailure::CorruptState);
-                        }
-                        binding.member.attach(member)?;
-                        Ok(Response::Learner(receipt))
-                    });
+                let ready = match member {
+                    StartedMember::Learner(member) => self
+                        .standby_receipt(&request.scope, member)
+                        .map(Response::Learner),
+                    StartedMember::Initial(member) => self
+                        .initial_receipt(&request.scope, member)
+                        .map(|status| Response::Fleet(Some(Box::new(status)))),
+                }
+                .and_then(|response| {
+                    let binding = self
+                        .local
+                        .bindings
+                        .get(&(request.scope.namespace, request.scope.cell.clone()))?;
+                    if binding.scope != request.scope {
+                        return Err(CommandFailure::CorruptState);
+                    }
+                    binding.member.attach(member.id())?;
+                    Ok(response)
+                });
                 self.activating = None;
                 let result = if request.control.cancelled() {
                     Err(CommandFailure::Unavailable)
