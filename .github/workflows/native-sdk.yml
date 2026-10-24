@@ -437,6 +437,21 @@ jobs:
               if runtime is not None and (runtime['free_threaded'] != expected_free or runtime['gil_enabled'] == expected_free):
                   raise SystemExit('Loaded Python ABI/GIL state differs from selected matrix runtime')
           PY
+      - name: Verify resource sampling evidence before retention
+        if: ${{ !cancelled() && steps.build_hosts.outcome == 'success' }}
+        run: |
+          python - "$RUNNER_TEMP/python-load/churn-resource-observations.jsonl" <<'PY'
+          import json, sys
+          from pathlib import Path
+          samples = [json.loads(line) for line in Path(sys.argv[1]).read_text().splitlines()]
+          if len(samples) < 2 or not any(row['hosts'] for row in samples):
+              raise SystemExit('Resource sampler did not observe running hosts')
+          if any(right['monotonic_ns'] <= left['monotonic_ns'] for left, right in zip(samples, samples[1:])):
+              raise SystemExit('Resource sampler timestamps are not ordered')
+          if not all(row['system']['stat'] and row['system']['pressure/cpu'] and row['system']['pressure/io'] for row in samples):
+              raise SystemExit('Missing Linux CPU/IO pressure evidence')
+          print(f"Verified {len(samples)} resource observations with live host samples")
+          PY
       - name: Measure independent arrivals and retain refusals
         if: ${{ !cancelled() && steps.build_hosts.outcome == 'success' }}
         run: |
@@ -498,6 +513,7 @@ jobs:
           name: python-load-${{ matrix.python }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             ${{ runner.temp }}/python-load/**/*.json
+            ${{ runner.temp }}/python-load/**/*.jsonl
             ${{ runner.temp }}/python-load/**/*.log
             ${{ runner.temp }}/python-load/**/*.md
           if-no-files-found: ignore
