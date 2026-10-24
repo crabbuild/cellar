@@ -112,6 +112,10 @@ materialized resources, a feasible staged path, per-history target eligibility,
 exact failed-pair classification, fewer-cell retained-footprint accounting and
 separate absence/health proof lifetimes. The manifest assigns these acceptance
 cases to FO-04, FO-07, FO-09 and FO-10. Adding their names is not test execution.
+The [lifecycle execution contract](lifecycle-execution.md) further specifies
+bounded effect resumption, activation/trust acknowledgements, prospective shrink
+ceilings and the three profile/platform values. Implement these within the same
+owning packages; generic catalog success is not typed lifecycle authorization.
 
 ## Review sequence inside each package
 

@@ -32,11 +32,14 @@ Read these documents in order:
    correlated failures, reduced cell counts and removal-proof closure.
 4. [Maintenance and rebalancing](maintenance-and-rebalancing.md): guarded stop,
    rolling restart, operation conflicts, movement algorithms and foreground budgets.
-5. [Implementation plan](implementation-plan.md): deliverable work packages,
+5. [Lifecycle execution contract](lifecycle-execution.md): exact authority,
+   resumable effects, activation acknowledgements, shrink ceilings, profile
+   sequencing and user-visible completion proofs.
+6. [Implementation plan](implementation-plan.md): deliverable work packages,
    dependencies, code ownership and acceptance gates.
-6. [Operator workflows](operator-workflows.md): future CLI contract and safe
+7. [Operator workflows](operator-workflows.md): future CLI contract and safe
    add, restart, evacuate, return and remove procedures.
-7. [Qualification](qualification.md): failure matrix, performance gates and
+8. [Qualification](qualification.md): failure matrix, performance gates and
    completion evidence.
 
 Run from the repository root:

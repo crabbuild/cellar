@@ -132,7 +132,53 @@ not completion evidence. FO-03 remains `IN_PROGRESS`: nine required native cases
 are still absent, and `check-list FO-03` correctly refuses the incomplete listing.
 Trusted dynamic nodes, route revocation, empty-host readiness, dormant registration
 and complete inventory/birth admission are not delivered by this substep. The
-acceptance inventory now contains 103 named cases; its remaining scope is intact.
+acceptance inventory contained 103 named cases at that checkpoint; its remaining
+scope is intact.
+
+## FO-03 progress: rooted empty hosts
+
+Source `3df4364c3d878d76b8e12ccca92c0e63daff7254` adds typed bounded node registration and opaque
+host authorization, explicit compiled namespace/class declarations, permanent
+fleet engine-instance pins and node controls independent of a first cell. The
+declaration digest includes the current protocol, schema, durability and class.
+Startup rechecks rooted enrollment and mandatory namespace storage identity before
+publishing the endpoint. Intact engines retain their pin; changing the catalog
+prefix cannot authorize a replacement engine under the old node/disk identity.
+
+An enrolled host can start with zero business groups. Local `observe_node` reports
+actual engine occupancy, unattached/retained histories, declared capabilities and
+the explicitly identified startup enrollment cut. Registration remains ineligible
+for placement. The observation is not remote capacity readiness, a fresh quorum
+or removal proof. Existing participating histories must already be enrolled, and
+the legacy automatic controller is disabled on these hosts.
+
+Six additional native cases cover local empty-host startup/control bounds/owned
+handoff, stale authorization, registration retries after lost replies, capability
+mismatch, intact empty-engine restart and replacement-engine refusal. They extend
+the acceptance inventory to 109 without replacing the nine still-required dynamic
+enrollment/readiness cases. The source inventory now has 59 reviewed anchors.
+FO-03 remains `IN_PROGRESS` and FO-04 through FO-10 retain their complete scope.
+
+The final native cohort passed 124 cases: enrollment 11 (five birth plus six host
+cases), catalog 11, permits 7, directory 16, host 29, membership 27 and operations
+23. The membership process helper remains ignored in direct listings and runs
+through its passing process-kill parent. Another 34 library cases passed: startup
+2 and transport 32. Focused Clippy with warnings denied, format/layout checks over
+908 Rust files, native dependencies (454 packages, no JavaScript engine), plan
+validation, all 10 validator tests and documentation checks passed.
+
+The cohort exposed a pre-existing metrics test expecting the former 23-operation,
+20-counter vocabulary, while the reviewed baseline already exported 26 and 34.
+Source `06651034` restores exact 26/34 and 634-series assertions and explicitly
+checks archive instruments. The one-versus-32-group cardinality/response-bound
+test passes; no telemetry behavior or assertion strength was reduced. The initial
+noncanonical temporary-directory fixture failure and stale-assertion cohort logs
+remain retained alongside the successful logs.
+
+`implementation/fo03/host-enrollment-boundary.json` is a partial record, not task
+completion. `check-list FO-03` still refuses the listing missing nine required
+cases. These local runs do not qualify remote readiness, full inventory, RustFS,
+deployed resource limits, fleet scaling, performance or the soak.
 
 ## Next implementation boundary
 
@@ -142,15 +188,39 @@ storage pins and retired bindings immutable and separate restart/resize exclusio
 from evacuation. FO-04 through FO-10 retain their complete planning, telemetry,
 reconciliation, lifecycle, API/CLI, scaling and qualification scope.
 
-The current `node/raft_startup.rs` and `host.rs` reject zero registrations,
-`host_directory.rs` derives namespace trust only from registered cells, and
-`client.rs` routes node controls through a first-cell binding. Empty-host support
-must remove those dependencies using explicit namespace/class trust and node-level
-request identity. Dynamic binding mutations belong to the serialized host, with
-bounded reader access and no lock guard crossing an await. A dummy business cell
-or a successful TCP connect is not an enrollment/readiness proof.
+`node/raft_startup.rs`, `host.rs` and `host_directory.rs` now accept zero groups
+only with explicit rooted enrollment and compiled namespace/class declarations;
+node controls no longer borrow a first-cell binding. The remaining work includes
+authenticated remote node observations, live trusted-node revision/revocation,
+bounded dynamic histories and complete import/birth admission. Dynamic binding
+mutations belong to the serialized host, with bounded reader access and no lock
+guard crossing an await. A local observation, dummy business cell or successful
+TCP connect cannot substitute for the remaining enrollment/readiness proof.
 
 ## Expanded operating design
+
+The [lifecycle execution contract](lifecycle-execution.md) adds the authority and
+linearization point of each effect, crash/lost-response resumption, bounded
+catalog batches, empty-host activation acknowledgements and the separate desired,
+effective-placement and observed-platform resource profiles. It specifies the
+prospective shrink ceiling and the post-stop fit check before reducing platform
+limits. Future departing nodes are excluded through the pinned target set while
+only the current evacuation owns disruption work. Optional balancing retains
+predictions and fresh outcome observations rather than assuming movement helps.
+
+The planning examples now include exact symmetric placement tables. Five-to-six
+moves 250 copies and produces 25 cells on each six-node triple; five-to-four
+moves E's 300 copies and produces 125 cells on each remaining triple. A separate
+arithmetic check parsed the documented tables, verified all resulting per-node
+counts and six-node failed-pair classifications, and found feasible balanced
+leader assignments through a bounded flow calculation. These are design checks,
+not execution of the real seed/membership protocols or measured TPS gains.
+
+The expanded contracts are assigned to the existing pending acceptance cases.
+That design update retained 103 cases, with no package status advanced. Plan validation,
+all 10 validator tests, local documentation links and diff whitespace checks pass
+for this documentation update. Deployed capacity, lifecycle, performance and soak
+qualification remain pending.
 
 The [planning details](planning-details.md) specify exact resource accounting,
 staged feasibility, worked five-to-six/five-to-four changes, failed-pair
@@ -160,8 +230,10 @@ service-stage lower bounds for convergence. The operator workflow defines the
 required preview fields and distinguishes a clean non-admission conflict from
 an unknown submission outcome.
 
-Eleven future runtime cases were added across FO-04, FO-07, FO-09 and FO-10,
-bringing the acceptance inventory to 97. No additional package is marked done.
+The earlier planning expansion added eleven future runtime cases across FO-04,
+FO-07, FO-09 and FO-10, bringing the inventory to 97 at that checkpoint; subsequent
+guard and birth work brought it to 103 before the six host-enrollment cases.
+That expansion marked no additional package done.
 The design also corrects the earlier 25% load statement: serving copies grow
 from 300 to 375 after RF3 restoration on four survivors; that is not a prediction
 of immediate follower work or throughput.

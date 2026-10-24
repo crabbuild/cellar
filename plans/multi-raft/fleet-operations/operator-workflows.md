@@ -13,6 +13,9 @@ permissions. Detailed phase/rollback rules are in [capacity and scaling](capacit
 and [maintenance and rebalancing](maintenance-and-rebalancing.md).
 Use the [worked planning examples](planning-details.md) to interpret the copy,
 retained-state and failure-headroom numbers in a preview.
+The [lifecycle execution contract](lifecycle-execution.md) defines effect
+authority, crash recovery, profile sequencing and the evidence behind each
+readiness, completion or removal result.
 
 `--operation-id` is caller-generated and retained across retries. Every mutation
 also requires `--expected-revision`; a 409-style revision conflict requires a

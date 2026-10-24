@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "baseline_revision": "c40606d804037829f3e810b8da397b35ed192f77",
+  "baseline_revision": "3df4364c3d878d76b8e12ccca92c0e63daff7254",
   "invariants": {
     "F01": "Quorum authority",
     "F02": "Stable identities",
@@ -301,11 +301,23 @@
         "crates/cellar/application/consensus/protocol.rs",
         "crates/cellar/tests/support/raft_catalog_fault.rs",
         "crates/cellar/durability/raft/README.md",
-        "crates/cellar/durability/raft/fleet_catalog/README.md"
+        "crates/cellar/durability/raft/fleet_catalog/README.md",
+        "crates/cellar/node/raft_startup.rs",
+        "crates/cellar/durability/raft/host_startup_tests.rs",
+        "crates/cellar/durability/raft/host_controller.rs",
+        "crates/cellar/durability/raft/host_drain.rs",
+        "crates/cellar/durability/raft/transport_inspection_tests.rs",
+        "crates/cellar/durability/raft/host_standby.rs",
+        "crates/cellar/tests/support/raft_metrics_native.rs"
       ],
       "creates": [
         "crates/cellar/tests/native_raft_fleet_enrollment.rs",
-        "crates/cellar/durability/raft/catalog_birth.rs"
+        "crates/cellar/durability/raft/catalog_birth.rs",
+        "crates/cellar/durability/raft/fleet_catalog/nodes.rs",
+        "crates/cellar/durability/raft/host_enrollment.rs",
+        "crates/cellar/durability/raft/host_node.rs",
+        "crates/cellar/application/consensus/client_node.rs",
+        "crates/cellar/tests/support/raft_enrollment_native.rs"
       ],
       "steps": [
         "Add CAS-authorized node-set revisions with bounded route and permission refresh.",
@@ -335,7 +347,7 @@
         },
         {
           "name": "fleet_enrollment_route_revocation",
-          "oracle": "New node-set/process revisions revoke obsolete routes and join their physical tasks.",
+          "oracle": "New node-set/process revisions revoke obsolete routes and join their physical tasks; a move waits for its required participants to acknowledge the trusted revision.",
           "invariants": [
             "F02",
             "F06",
@@ -448,6 +460,62 @@
             "F05",
             "F07"
           ]
+        },
+        {
+          "name": "fleet_enrollment_empty_host_local_controls",
+          "oracle": "An enrolled zero-cell host reports actual empty physical inventory, pins storage despite a lost successful CAS reply, bounds unpolled controls and completes owned handoff shutdown without a dummy cell; local observation is not remote capacity readiness.",
+          "invariants": [
+            "F02",
+            "F03",
+            "F06",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_enrollment_stale_host_authorization",
+          "oracle": "Saved host authorization is refused with a typed catalog conflict after the rooted registration disappears; unrelated startup failures cannot satisfy the test.",
+          "invariants": [
+            "F02",
+            "F05",
+            "F07"
+          ]
+        },
+        {
+          "name": "fleet_enrollment_node_registration_retry",
+          "oracle": "Exact registration retries reconcile after later roots and lost replies; changed payload and duplicate durable disk are refused.",
+          "invariants": [
+            "F02",
+            "F03",
+            "F07"
+          ]
+        },
+        {
+          "name": "fleet_enrollment_host_capability_mismatch",
+          "oracle": "A compiled declaration digest mismatch refuses startup for that explicit reason before cell work.",
+          "invariants": [
+            "F02",
+            "F05",
+            "F07"
+          ]
+        },
+        {
+          "name": "fleet_enrollment_empty_engine_resume",
+          "oracle": "An empty retained engine resumes with a new process, identical storage instance and unchanged rooted pin without creating group history.",
+          "invariants": [
+            "F02",
+            "F06",
+            "F08"
+          ]
+        },
+        {
+          "name": "fleet_enrollment_replacement_engine_refused",
+          "oracle": "A fresh engine claiming the old node/disk is refused by the fleet pin even through a separately initialized namespace catalog prefix.",
+          "invariants": [
+            "F02",
+            "F05",
+            "F10"
+          ]
         }
       ],
       "verification": [
@@ -513,7 +581,7 @@
       "test_cases": [
         {
           "name": "fleet_placement_five_to_six",
-          "oracle": "Equal feasible groups redistribute within deadband without co-located voters or oscillation.",
+          "oracle": "Equal feasible groups redistribute within deadband without co-located voters or oscillation; the symmetric reference assignment is feasible with 25 cells per six-node triple, 250 replacements and 250 copies per node, without requiring every valid planner to choose that exact assignment.",
           "invariants": [
             "F06",
             "F09",
@@ -657,7 +725,8 @@
         "Capture bounded per-node/per-cell workload windows with receiver-local ages and declared units.",
         "Choose existing caught-up voters before copying replicas when it relieves measured pressure.",
         "Preserve term/revision/matched/published checks and bound transfer attempts; add optional-work congestion gates.",
-        "Model incremental leader versus follower cost, explicit idle samples and pause/resume hysteresis."
+        "Model incremental leader versus follower cost, explicit idle samples and pause/resume hysteresis.",
+        "Record optional-action predictions and fresh post-settlement observations; suppress unsupported repeat candidates rather than crediting seed-time effects or rejected traffic as gains."
       ],
       "acceptance": [
         "Normal business traffic performs no new CAS write per command.",
@@ -710,7 +779,7 @@
         },
         {
           "name": "fleet_load_follower_cost",
-          "oracle": "Leader-only transfer does not claim to remove shared/follower apply cost; predicted pressure reflects incremental role costs.",
+          "oracle": "Leader-only transfer does not claim to remove shared/follower apply cost; predictions use incremental role costs and fresh post-settlement observations suppress unsupported repeat candidates.",
           "invariants": [
             "F11",
             "F12"
@@ -1232,7 +1301,8 @@
         "Implement committed terminal retirement: all three voters apply the marker and a verified archive covers it before live placement inventory is released; retain physical-byte reservations until reclamation.",
         "Implement target resource profiles, physical-fit receipts and controlled intact-engine resize; block unsupported disk shrink or retained-state overflow.",
         "Pin the final keep-set, exclude all departing targets and revalidate the complete plan after births or demand growth.",
-        "Preview reduced cell counts against retained physical state and verified heterogeneous profiles; reject unstageable scale-in."
+        "Preview reduced cell counts against retained physical state and verified heterogeneous profiles; reject unstageable scale-in.",
+        "Track desired, effective placement and observed platform profiles separately; fence new growth under the prospective shrink ceiling before stop and recheck persistent fit before lowering external limits."
       ],
       "acceptance": [
         "Target capacity is a request, not a provisioning or data-deletion action.",
@@ -1246,7 +1316,7 @@
       "test_cases": [
         {
           "name": "fleet_capacity_five_to_four",
-          "oracle": "A feasible 500-cell plan evacuates sequentially and preserves RF3 and projected capacity.",
+          "oracle": "A feasible 500-cell plan evacuates sequentially and preserves RF3 and projected capacity; the fresh symmetric reference assignment moves E's 300 copies into four 125-cell triples with 375 copies per survivor while retaining E's old histories.",
           "invariants": [
             "F05",
             "F06",
@@ -1315,7 +1385,7 @@
         },
         {
           "name": "fleet_capacity_vertical_reduction_retained",
-          "oracle": "A smaller profile is refused when retained histories, image obligations or fixed pools do not fit despite low live-group counts.",
+          "oracle": "A smaller profile is refused when retained histories, image obligations or fixed pools do not fit despite low live-group counts; stale admissions cannot bypass its prospective ceiling and persistent fit is rechecked after owned stop before external reduction.",
           "invariants": [
             "F02",
             "F06",

@@ -212,6 +212,43 @@ plus 250 on F. Further staging/log/retention overhead is separate. An operator
 request to redistribute replicas can succeed without lowering old-node disk
 occupancy. It cannot claim throughput improvement without a matched measurement.
 
+### Exact equal-cell redistribution schedule
+
+The following assignment is a concrete reference fixture, not a universal
+production placement. Start with 50 cells on each A–E voter triple, enforce node
+separation, and assume all proposed targets have unused history bindings and
+sufficient staging/retention capacity. In each row, deterministically select 25
+of that triple's 50 scopes and replace the indicated voter with F. The other 25
+keep their original triple. Actual admission still executes bounded permits,
+not a 25-group simultaneous transition.
+
+| Original triple | Copies replaced | Departing voter | New triple |
+| --- | --- | --- | --- |
+| A B C | 25 | C | A B F |
+| A B D | 25 | B | A D F |
+| A B E | 25 | A | B E F |
+| A C D | 25 | A | C D F |
+| A C E | 25 | E | A C F |
+| A D E | 25 | D | A E F |
+| B C D | 25 | D | B C F |
+| B C E | 25 | B | C E F |
+| B D E | 25 | E | B D F |
+| C D E | 25 | C | D E F |
+
+This produces exactly 25 cells on each of the 20 six-node voter triples:
+250 serving copies per node, 250 replacements total and 50 serving copies
+relinquished by each original node. Spread leadership separately to four nodes
+with 83 leaders and two with 84, subject to caught-up eligible voters. No cell
+changes history and no replica-factor reduction is involved.
+
+The exact symmetric fixture reduces the number of groups containing any given
+node pair from 150 to 100. Any failed pair then initially leaves 100 cells with
+three surviving voters, 300 with two and 100 with one. This spreads exposure;
+the 100 minority groups still cannot progress through ordinary RF3 recovery.
+Strict host/zone policies can forbid this table, and unequal cells require a
+weighted assignment. Neither the count change nor pair spreading proves a TPS
+or p99 improvement.
+
 ## Worked scale-in: five to four nodes
 
 Assume the same equal fixture and choose E to leave. Pin A–D as the keep-set.
@@ -236,6 +273,37 @@ The failed-node scenario on this four-node final fleet needs 500 copies on each
 of three survivors. A nominal 500-slot limit has no extra room for retained
 histories or slot reserves and can therefore fail admission. The count equality
 is not a promise that this reduction fits the 1-vCPU/3-GiB resource envelope.
+
+### Exact equal-cell evacuation schedule
+
+For the original five-node fixture, the six triples containing E each have 50
+cells. Split each row into two deterministic 25-cell subsets and replace E as
+shown. The four triples already wholly on A–D keep their original 50 cells.
+This is a separate five-to-four example, not the reverse of the six-node table.
+
+| Original triple | First 25-cell target | Other 25-cell target |
+| --- | --- | --- |
+| A B E | C, producing A B C | D, producing A B D |
+| A C E | B, producing A B C | D, producing A C D |
+| A D E | B, producing A B D | C, producing A C D |
+| B C E | A, producing A B C | D, producing B C D |
+| B D E | A, producing A B D | C, producing B C D |
+| C D E | A, producing A C D | B, producing B C D |
+
+Each remaining triple receives 75 cells and ends with 125. Each survivor receives
+75 new copies and ends with 375; E relinquishes 300. All 300 target histories
+were absent from their destinations in this fresh fixture, which avoids exact
+history rebinding. Each group still needs ordinary seed, catch-up and committed
+membership transitions. E retains its old 300 histories until separately
+authorized retention/reclamation permits otherwise.
+In this fresh fixture the final physical footprint can therefore include 1,500
+serving copies plus E's 300 retained histories, before log/image staging overhead.
+
+Leadership can finish at 125 per survivor, but image sizes, load and policy may
+justify unequal leader counts. Losing one of these four nodes then requires
+500 serving copies per remaining node for RF3 restoration. The complete planner
+must still charge growth, retained state and recovery reserve; the table does
+not grant a 500-slot node enough additional headroom by arithmetic alone.
 
 For several departures, pin the final keep-set first and exclude all departing
 nodes from new placement. Evacuate only one at a time. An earlier admitted permit

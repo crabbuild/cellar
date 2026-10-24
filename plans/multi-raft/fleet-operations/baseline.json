@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "revision": "c40606d804037829f3e810b8da397b35ed192f77",
+  "revision": "3df4364c3d878d76b8e12ccca92c0e63daff7254",
   "files": [
     {
       "path": ".github/workflows/native-sdk.yml",
@@ -44,11 +44,11 @@
     },
     {
       "path": "crates/cellar/application/consensus/client.rs",
-      "sha256": "e725bf8ff3143475495f82a8160625125752b063aec1e11441c9fbd210f3561f"
+      "sha256": "33302d24080aec543f5379940916d9697aee55ffc825ae35cd6cf360949a2028"
     },
     {
       "path": "crates/cellar/application/consensus/mod.rs",
-      "sha256": "e63e76baed7a411f392831547fbb8dbf722e0428e6801c2bbdca5e4a5bde8f80"
+      "sha256": "84a5bf11d13032352d247d22f98e9a38120dbcbf8569f9de5534dcaf95aac4a8"
     },
     {
       "path": "crates/cellar/application/consensus/protocol.rs",
@@ -92,23 +92,23 @@
     },
     {
       "path": "crates/cellar/durability/raft/host.rs",
-      "sha256": "b1d5f0dd783f8907e811fe048333ff3a28a0310713d9e5a8b9ad6c220a9d0d34"
+      "sha256": "e58623bb792bcda9dcd18ff4aadc19bda2df5f44359ed66a9340b693bf086fe2"
     },
     {
       "path": "crates/cellar/durability/raft/host_controller.rs",
-      "sha256": "4be77484093125ad826061d0676c8cbb5df851b68b77e178574ee0a55a9ea888"
+      "sha256": "fd9a7f064e6a709a19027105e0a8dd9a2a3e7bc15b52b50d995bfe27459c1342"
     },
     {
       "path": "crates/cellar/durability/raft/host_directory.rs",
-      "sha256": "582b533be86ca270180bd4b01c96c379280d6b3a8fc7d75b1af698ec8a66cff2"
+      "sha256": "5767f4a09376173428c93b6a7b11818ee79500167d76eee872f9365637705dbc"
     },
     {
       "path": "crates/cellar/durability/raft/host_drain.rs",
-      "sha256": "cc8d1547296e632bdf42c6dc26f08d9228c7f9dccd94143e8adab2efd41f817a"
+      "sha256": "0ea9a9b4d871f43782e99d2370650802b2d7fe99a41c93458ba3526d0ccfe0eb"
     },
     {
       "path": "crates/cellar/durability/raft/host_inspection.rs",
-      "sha256": "1f0a284d35c094832f4a9d64919f49f2d7e2a165d1de234ed717a01f6b22c581"
+      "sha256": "1b37459076ccae85af773567bdd4c6f25e3d2aebb188b799c1b31cb96bd17442"
     },
     {
       "path": "crates/cellar/durability/raft/host_membership.rs",
@@ -116,7 +116,11 @@
     },
     {
       "path": "crates/cellar/durability/raft/host_standby.rs",
-      "sha256": "3a8c1dd844c19ca12c3e74618d241aecd7c9bc4d684f3f6ba4c4837d13fb76f5"
+      "sha256": "ab7bb2f8dc799e1a904de6599fcbc19e667442a1ad98409435c2b8eba7ba62c3"
+    },
+    {
+      "path": "crates/cellar/durability/raft/host_startup_tests.rs",
+      "sha256": "4fbaab906733e899f0cc128f1325e945eef30dba4edd4322da2dfe54d4d0a533"
     },
     {
       "path": "crates/cellar/durability/raft/inspection.rs",
@@ -183,6 +187,10 @@
       "sha256": "ac03e16bd55592763fc097bb1ff75684a67b5dd706b2d31f6a20cb8e1842426b"
     },
     {
+      "path": "crates/cellar/durability/raft/transport_inspection_tests.rs",
+      "sha256": "8cabae27cf7237fd37fbccc74c84ef1e912e596e7db174c8ea12c5e83e35c77a"
+    },
+    {
       "path": "crates/cellar/fleet/management/mod.rs",
       "sha256": "3235685251ffd15628b36fde011da4181a708ac065912bd9eaf520a510b2f816"
     },
@@ -199,12 +207,20 @@
       "sha256": "f777bc97117474eb821c4d1e4a76caf25d3fdb578011d92f72d6de574b92e349"
     },
     {
+      "path": "crates/cellar/node/raft_startup.rs",
+      "sha256": "c0b1ee839c150e58e0e2b1c15a0d34f92c4aa3f00f798f329739cee061aecf60"
+    },
+    {
       "path": "crates/cellar/storage/object/bucket.rs",
       "sha256": "3241c6239bb14a3180c709e1c21b2dc8ed77fe58d8c4914b04be9e3c36756c40"
     },
     {
       "path": "crates/cellar/tests/support/raft_catalog_fault.rs",
       "sha256": "2a55eb7352e32229443a021ae512146cd7850333c1196229ed08dd872f659766"
+    },
+    {
+      "path": "crates/cellar/tests/support/raft_metrics_native.rs",
+      "sha256": "881b1495c75d1cba9bdcbae850f64d9ddb5f752527b4ef124124660e43b8336a"
     },
     {
       "path": "tools/perf/raft_analyze.py",

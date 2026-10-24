@@ -4,6 +4,9 @@ Status: implementation contract for the proposed managed fleet capability.
 Read with [capacity and scaling](capacity-and-scaling.md) and the authority rules
 in the [technical design](design.md). These protocols extend the existing repair
 and leadership primitives; they do not describe behavior already enabled today.
+The [lifecycle execution contract](lifecycle-execution.md) adds crash/retry
+ownership, shrink admission fencing, prediction-versus-observation rules and
+the exact evidence behind each operator-visible result.
 
 ## Select the correct maintenance mode
 

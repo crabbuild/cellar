@@ -6,6 +6,9 @@ document defines the observable steps and failure handling for adding nodes,
 changing node size, withdrawing capacity and changing the fleet size.
 The [planning details](planning-details.md) specify the resource ledger, legal
 intermediate states, worked capacity changes and fewer-cell sizing bounds.
+The [lifecycle execution contract](lifecycle-execution.md) fixes the authority
+and retry boundary for each effect, route/readiness acknowledgements, bounded
+operation persistence and the order of profile/platform changes.
 
 ## Distinguish four capacity changes
 
