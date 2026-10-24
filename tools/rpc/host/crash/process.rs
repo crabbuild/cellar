@@ -33,7 +33,9 @@ impl Owner {
             .stderr(log)
             .kill_on_drop(true);
         command.as_std_mut().process_group(0);
-        let child = command.spawn()?;
+        let child = command
+            .spawn()
+            .context("spawn isolated crash-owner process")?;
         let group = child.id().context("crash owner has no PID")?.try_into()?;
         let mut owner = Self {
             child,
@@ -80,8 +82,14 @@ impl Owner {
     }
 
     pub async fn kill(&mut self) -> Result<()> {
-        self.child.start_kill()?;
-        let status = self.child.wait().await?;
+        self.child
+            .start_kill()
+            .context("signal owned crash process")?;
+        let status = self
+            .child
+            .wait()
+            .await
+            .context("join owned crash process")?;
         ensure!(
             status.signal() == Some(libc::SIGKILL),
             "owner did not terminate with SIGKILL: {status}"
@@ -104,7 +112,7 @@ impl Owner {
                     }
                     let error = std::io::Error::last_os_error();
                     if error.raw_os_error() != Some(libc::ESRCH) {
-                        return Err(error.into());
+                        return Err(error).context("observe owned crash process group after kill");
                     }
                 }
                 if !alive {

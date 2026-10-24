@@ -45,11 +45,31 @@ def stale_fixture(name, mutate):
     return contract, message
 
 
+class Budget:
+    """Deterministic stand-in for the opaque native budget, never guest time."""
+    def __init__(self, context, started=None, deadline=None):
+        self.context = context
+        self.started = context.elapsed if started is None else started
+        self.deadline = min(self.started + context.host_timeout, context.parent_deadline) if deadline is None else deadline
+
+    def limit(self, timeout):
+        return Budget(self.context, self.started, min(self.deadline, self.started + timeout))
+
+    def remaining_ms(self):
+        remaining = self.deadline - self.context.elapsed
+        if remaining <= 0:
+            raise RuntimeError("DeadlineExceeded")
+        return remaining
+
+
 class Context:
     def __init__(self, reply=b""):
         self.reply = reply
         self.calls = []
         self.active = True
+        self.elapsed = 0
+        self.host_timeout = 5000
+        self.parent_deadline = float("inf")
         contract = json.loads((ROOT / "tools/rpc/fixtures/generated/rpc.json").read_text())
         self.codecs = CodecCatalog({contract["digest"]: contract})
 
@@ -63,6 +83,9 @@ class Context:
 
     def _verify_rpc(self, method):
         return self.codecs.verify(method)
+
+    def _rpc_budget(self):
+        return Budget(self)
 
 
 class PythonRpc(unittest.TestCase):
@@ -137,6 +160,7 @@ class PythonRpc(unittest.TestCase):
         method = replace(self.increment, input=message(self.increment.input.DESCRIPTOR.full_name))
         class Bridge:
             def active(self): return True
+            def rpc_budget(self): return Budget(Context())
             def submit(self, *args): raise AssertionError("Must not submit")
         async def run():
             bridge = Bridge()
@@ -302,6 +326,88 @@ class PythonRpc(unittest.TestCase):
             with self.assertRaises(SDKError) as caught:
                 await client.get_count(GetCountRequest())
             self.assertEqual((caught.exception.code, caught.exception.outcome), ("InvalidResponse", "unknown"))
+            self.assertEqual(len(context.calls), 1)
+        asyncio.run(run())
+
+    def test_codec_budget_starts_before_verification_and_inherits_caps(self):
+        async def run(timeout, host, parent):
+            context = Context()
+            context.host_timeout, context.parent_deadline = host, parent
+            verify = context._verify_rpc
+            def slow_verify(method):
+                context.elapsed += 11
+                return verify(method)
+            context._verify_rpc = slow_verify
+            with patch.object(rpc, "encode_message", side_effect=AssertionError("Expired call reached encoder")):
+                with self.assertRaises(SDKError) as caught:
+                    await CounterClient.bind(context, "COUNTERS", "alice").get_count(GetCountRequest(), timeout_ms=timeout)
+            self.assertEqual((caught.exception.code, caught.exception.outcome), ("DeadlineExceeded", "not_committed"))
+            self.assertEqual(context.calls, [])
+        for timeout, host, parent in [(10, 5000, 5000), (None, 10, 5000), (60000, 5000, 10)]:
+            with self.subTest(timeout=timeout, host=host, parent=parent):
+                asyncio.run(run(timeout, host, parent))
+
+    def test_encoder_time_is_subtracted_without_a_fresh_native_window(self):
+        async def run():
+            context = Context()
+            encode = rpc.encode_message
+            def slow_encode(message, method):
+                context.elapsed += 7
+                return encode(message, method)
+            with patch.object(rpc, "encode_message", slow_encode):
+                await CounterClient.bind(context, "COUNTERS", "alice").get_count(GetCountRequest(), timeout_ms=10)
+            self.assertEqual(context.calls[0][1]["timeout_ms"], 3)
+            self.assertIsInstance(context.calls[0][1]["_rpc_budget"], Budget)
+        asyncio.run(run())
+
+    def test_zero_budget_refuses_before_any_codec(self):
+        async def run():
+            context = Context()
+            context._verify_rpc = lambda _: self.fail("Expired call reached codec verification")
+            with patch.object(rpc, "encode_message", side_effect=AssertionError("Must not encode")):
+                with self.assertRaises(SDKError) as caught:
+                    await CounterClient.bind(context, "COUNTERS", "alice").get_count(GetCountRequest(), timeout_ms=0)
+            self.assertEqual((caught.exception.code, caught.exception.outcome), ("DeadlineExceeded", "not_committed"))
+            self.assertEqual(context.calls, [])
+        asyncio.run(run())
+
+    def test_late_reply_delivery_refuses_before_decoding_with_unknown_effects(self):
+        async def run():
+            context = Context()
+            call = context._call
+            async def late_delivery(*args, **kwargs):
+                context.elapsed += 10
+                return await call(*args, **kwargs)
+            context._call = late_delivery
+            with patch.object(GetCountResponse, "FromString", side_effect=AssertionError("Must not decode late reply")):
+                with self.assertRaises(SDKError) as caught:
+                    await CounterClient.bind(context, "COUNTERS", "alice").get_count(GetCountRequest(), timeout_ms=10)
+            self.assertEqual((caught.exception.code, caught.exception.outcome), ("DeadlineExceeded", "unknown"))
+            self.assertEqual(len(context.calls), 1)
+        asyncio.run(run())
+
+    def test_expired_encoding_never_submits_and_reply_decode_keeps_unknown(self):
+        async def run():
+            context = Context()
+            encode = rpc.encode_message
+            def expired_encode(message, method):
+                context.elapsed += 10
+                return encode(message, method)
+            with patch.object(rpc, "encode_message", expired_encode):
+                with self.assertRaises(SDKError) as caught:
+                    await CounterClient.bind(context, "COUNTERS", "alice").get_count(GetCountRequest(), timeout_ms=10)
+            self.assertEqual((caught.exception.code, caught.exception.outcome), ("DeadlineExceeded", "not_committed"))
+            self.assertEqual(context.calls, [])
+
+            context = Context()
+            decode = GetCountResponse.FromString
+            def slow_decode(body):
+                context.elapsed += 10
+                return decode(body)
+            with patch.object(GetCountResponse, "FromString", slow_decode):
+                with self.assertRaises(SDKError) as caught:
+                    await CounterClient.bind(context, "COUNTERS", "alice").get_count(GetCountRequest(), timeout_ms=10)
+            self.assertEqual((caught.exception.code, caught.exception.outcome), ("DeadlineExceeded", "unknown"))
             self.assertEqual(len(context.calls), 1)
         asyncio.run(run())
 

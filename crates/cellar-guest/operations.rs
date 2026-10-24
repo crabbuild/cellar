@@ -28,6 +28,18 @@ pub async fn call_bytes_with_signal(
     request: Vec<u8>,
     signal: Option<cellar::sdk::web::AbortSignal>,
 ) -> Result<Vec<u8>> {
+    call_bytes_in_budget(context, contract, value, request, signal, None).await
+}
+
+/// Preserve a trusted deadline minted before guest-side validation and encoding.
+pub async fn call_bytes_in_budget(
+    context: &Context,
+    contract: Arc<cellar::sdk::rpc::Contract>,
+    value: Value,
+    request: Vec<u8>,
+    signal: Option<cellar::sdk::web::AbortSignal>,
+    budget: Option<cellar::sdk::rpc::CallBudget>,
+) -> Result<Vec<u8>> {
     let timeout = (|| {
         validate("cell.call", &value)?;
         ensure!(
@@ -44,13 +56,13 @@ pub async fn call_bytes_with_signal(
         field(&value, "name")?,
         contract,
     )?;
-    Ok(client
-        .call_bytes(
-            field(&value, "method")?,
-            request,
-            cellar::sdk::rpc::CallOptions { timeout, signal },
-        )
-        .await?)
+    let method = field(&value, "method")?;
+    let options = cellar::sdk::rpc::CallOptions { timeout, signal };
+    let call = match budget {
+        Some(budget) => client.call_bytes_in_budget(method, request, options, budget),
+        None => client.call_bytes(method, request, options),
+    };
+    Ok(call.await?)
 }
 
 pub struct State {

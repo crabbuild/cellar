@@ -385,7 +385,19 @@ class Context:
         except Exception:
             raise ValidationError("ContractMismatch", "ContractMismatch", "not_committed") from None
 
-    async def _call(self, operation: str, *, _body: bytes | None = None, **payload: Any) -> Any:
+    def _rpc_budget(self):
+        self._check()
+        try:
+            return self._bridge.rpc_budget()
+        except RuntimeError as error:
+            code = str(error)
+            if code == "ContextMismatch":
+                raise ContextMismatch() from None
+            if code not in ("ContextExpired", "DeadlineExceeded", "Unavailable"):
+                code = "Unavailable"
+            raise SDKError(code, code, "not_committed") from None
+
+    async def _call(self, operation: str, *, _body: bytes | None = None, _rpc_budget=None, **payload: Any) -> Any:
         self._check()
         self._sequence += 1
         sequence = self._sequence
@@ -394,7 +406,9 @@ class Context:
         try:
             encoded = _encode(payload)
             try:
-                if _body is None:
+                if _rpc_budget is not None:
+                    self._bridge.submit(sequence, operation, encoded, _body, rpc_budget=_rpc_budget)
+                elif _body is None:
                     self._bridge.submit(sequence, operation, encoded)
                 else:
                     self._bridge.submit(sequence, operation, encoded, _body)
@@ -403,6 +417,8 @@ class Context:
             except ValueError as error:
                 raise ValidationError() from error
             except RuntimeError as error:
+                if str(error) == "ContextMismatch":
+                    raise ContextMismatch() from None
                 raise SDKError("Cellar operation was not submitted", "NotSubmitted") from error
             if operation != "cell.call":
                 return await future

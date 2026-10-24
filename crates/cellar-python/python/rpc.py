@@ -141,20 +141,41 @@ class RpcClient:
 
     async def _invoke(self, method, request, *, timeout_ms=None):
         self._context._check()
+        budget = self._context._rpc_budget()
         if not isinstance(request, method.input):
             raise ValidationError("Incorrect RPC request type", "InvalidArgument", "not_committed")
         if timeout_ms is not None and (type(timeout_ms) is not int or not 0 <= timeout_ms <= 0xffffffff):
             raise ValidationError("Invalid RPC timeout", "InvalidArgument", "not_committed")
+        if timeout_ms is not None:
+            budget = budget.limit(timeout_ms)
+        _remaining(budget)
         limits = self._context._verify_rpc(method)
         method = replace(method, max_message_bytes=limits["max_message_bytes"],
                          max_depth=limits["max_depth"], max_elements=limits["max_elements"],
                          max_decoded_slots=limits["max_decoded_slots"])
+        _remaining(budget)
         body = encode_message(request, method)
+        remaining = _remaining(budget)
         _, reply = await self._context._call(
-            "cell.call", _body=body, binding=self._binding, name=self._name,
-            method=method.name, contract_digest=method.digest, timeout_ms=timeout_ms,
+            "cell.call", _body=body, _rpc_budget=budget, binding=self._binding, name=self._name,
+            method=method.name, contract_digest=method.digest, timeout_ms=min(remaining, 0xffffffff),
         )
+        _remaining(budget, "unknown")
         try:
-            return method.output.FromString(reply)
+            response = method.output.FromString(reply)
         except Exception:
+            _remaining(budget, "unknown")
             raise SDKError("InvalidResponse", "InvalidResponse", "unknown") from None
+        _remaining(budget, "unknown")
+        return response
+
+
+def _remaining(budget, outcome="not_committed"):
+    """The native owner supplies time; never use a monkeypatchable guest clock."""
+    try:
+        return budget.remaining_ms()
+    except RuntimeError as error:
+        code = str(error)
+        if code not in ("ContextExpired", "DeadlineExceeded", "Unavailable"):
+            code = "Unavailable"
+        raise SDKError(code, code, outcome) from None

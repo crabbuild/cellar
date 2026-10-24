@@ -126,6 +126,23 @@ impl Client {
         Box::pin(async move { call.await.map(|(bytes, _)| bytes) })
     }
 
+    /// Submit guest-encoded bytes under a budget minted before its codecs ran.
+    /// The opaque budget must belong to this client's original invocation.
+    pub fn call_bytes_in_budget(
+        &self,
+        method: &str,
+        request: Vec<u8>,
+        options: CallOptions,
+        budget: super::CallBudget,
+    ) -> HandlerFuture<Vec<u8>> {
+        let deadline = budget.deadline_for(&self.context).and_then(|deadline| {
+            self.deadline(&options, crate::asyncrt::mono_ms())
+                .map(|current| deadline.min(current))
+        });
+        let call = self.start(method, Ok(request), options, deadline);
+        Box::pin(async move { call.await.map(|(bytes, _)| bytes) })
+    }
+
     fn deadline(&self, options: &CallOptions, started: u64) -> Result<u64, Failure> {
         let host_ms = self
             .context

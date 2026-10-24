@@ -424,9 +424,36 @@ invocation retirement also releases the waiter. A still-pending target can
 continue running application code, but its revoked SDK authority refuses late
 writes and commits. A completed call may already have committed, and earlier
 synced writes survive.
-Cancellation never authorizes an automatic retry. Guest encoding timeouts and
-full lifecycle qualification remain tracked in the
+Cancellation never authorizes an automatic retry. Full lifecycle qualification
+remains tracked in the
 [RPC ledger](../../plans/named-typed-rpc/implementation-status.md).
+
+### Bound a typed call, including its codecs
+
+`timeout_ms` applies from the start of the generated async call, including codec
+verification, request encoding, routing, output proof and response decoding:
+
+```text
+native budget = min(host policy, parent RPC deadline, requested timeout)
+      |
+      +--> verify --> encode --> native call --> decode --> result
+      |                         same deadline
+      +------------- expiration checkpoints ----------------+
+```
+
+The host supplies an opaque budget using the original execution-domain clock.
+The guest cannot replace it with a timestamp, extend it with a nested timeout,
+or reuse it in another invocation. Omitting `timeout_ms` uses the host/parent
+cap; zero refuses before encoding. Checkpoints run around synchronous codecs.
+
+| Expiration point | Outcome |
+| --- | --- |
+| Before native submission, including validation/encoding | `DeadlineExceeded / not_committed` |
+| After submission, including response decoding | `DeadlineExceeded / unknown` |
+
+Invocation retirement can produce `ContextExpired` at either checkpoint.
+A timeout during decoding may follow a committed write. Use the business
+operation ID to recover its receipt with an explicit retry.
 
 ### Alarms, queues, and cron can repeat
 

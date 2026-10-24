@@ -381,6 +381,7 @@ impl PythonApplication {
                 operations: AtomicUsize::new(0),
                 mutation: Arc::new(AtomicBool::new(false)),
                 rpc_calls: Arc::default(),
+                rpc_budget_source: cellar::sdk::rpc::BudgetSource::capture(&context)?,
                 max_operations: self.runtime.options.max_operations,
                 max_bytes: self.runtime.options.max_value_bytes,
                 raw_rpc: kind == "rpc",
@@ -418,6 +419,7 @@ impl PythonApplication {
                     payload,
                     body,
                     rpc,
+                    rpc_budget,
                     mutation,
                     reservation,
                     mut observation,
@@ -442,6 +444,7 @@ impl PythonApplication {
                                     payload,
                                     body,
                                     _rpc.as_ref().map(|call| call.signal()),
+                                    rpc_budget,
                                 )
                                 .await
                             }

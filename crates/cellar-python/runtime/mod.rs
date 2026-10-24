@@ -20,6 +20,7 @@ use std::{
 use tokio::sync::{mpsc as async_mpsc, watch, Semaphore};
 
 mod bridge;
+mod rpc_budget;
 mod rpc_calls;
 pub(crate) use rpc_calls::RpcCalls;
 mod budget;

@@ -170,6 +170,17 @@ supported Python 3.14 environment. It tests all four local Rust/Python pairs,
 exact 64-bit values, atomic receipts, node restart and conservative failure
 outcomes. It does not establish free-threaded or remote-fleet qualification.
 
+The Python client mints a native-owned budget before validation/encoding and
+passes that same opaque deadline with its bytes. Twenty-two Python unit tests
+cover codec/client behavior, including requested, default-host and parent caps.
+
+The real-host test injects slow verification, encoding and decoding against both
+Rust and Python providers across two node starts. Verification/encoding expiry
+submits no business call; decode expiry stays unknown and an explicit same-ID
+retry recovers the saved receipt. It also checks a real incoming parent cap,
+cross-invocation budget refusal and the captured clock from a native thread
+without an installed execution domain. V8/Node guest codec budgets remain open.
+
 ## Portable Protobuf profile
 
 The [profile fixture](fixtures/profile.proto) covers all scalar wire types,

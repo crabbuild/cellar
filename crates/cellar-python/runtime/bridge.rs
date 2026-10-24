@@ -40,6 +40,7 @@ pub(crate) enum Event {
         payload: String,
         body: Option<Vec<u8>>,
         rpc: Option<super::rpc_calls::PendingCall>,
+        rpc_budget: Option<cellar::sdk::rpc::CallBudget>,
         mutation: Option<Mutation>,
         reservation: super::Reservation,
         observation: super::telemetry::Operation,
@@ -83,6 +84,7 @@ pub(crate) struct InvocationBridge {
     pub operations: AtomicUsize,
     pub mutation: Arc<AtomicBool>,
     pub rpc_calls: Arc<super::RpcCalls>,
+    pub rpc_budget_source: cellar::sdk::rpc::BudgetSource,
     pub max_operations: usize,
     pub max_bytes: usize,
     pub raw_rpc: bool,
@@ -154,7 +156,20 @@ impl InvocationBridge {
             .map_err(|_| pyo3::exceptions::PyRuntimeError::new_err("RPC cancellation failed"))
     }
 
-    #[pyo3(signature = (id, name, payload, body=None))]
+    fn rpc_budget(&self, py: Python<'_>) -> PyResult<super::rpc_budget::RpcBudget> {
+        if !self.active() {
+            return Err(pyo3::exceptions::PyRuntimeError::new_err("ContextExpired"));
+        }
+        self.ensure_scope(py)?;
+        Ok(super::rpc_budget::RpcBudget {
+            budget: self
+                .rpc_budget_source
+                .start()
+                .map_err(super::rpc_budget::failure)?,
+        })
+    }
+
+    #[pyo3(signature = (id, name, payload, body=None, rpc_budget=None))]
     fn submit(
         &self,
         py: Python<'_>,
@@ -162,6 +177,7 @@ impl InvocationBridge {
         name: &str,
         payload: &str,
         body: Option<&Bound<'_, PyBytes>>,
+        rpc_budget: Option<PyRef<'_, super::rpc_budget::RpcBudget>>,
     ) -> PyResult<()> {
         if !self.active() {
             return Err(pyo3::exceptions::PyRuntimeError::new_err("ContextExpired"));
@@ -171,6 +187,11 @@ impl InvocationBridge {
             return Err(pyo3::exceptions::PyValueError::new_err(
                 "Python SDK operation name must be 1..64 bytes",
             ));
+        }
+        if rpc_budget.as_ref().is_some_and(|budget| {
+            name != "cell.call" || !self.rpc_budget_source.owns(&budget.budget)
+        }) {
+            return Err(pyo3::exceptions::PyRuntimeError::new_err("ContextMismatch"));
         }
         let body = body.map(|body| body.as_bytes());
         if body.is_some() != matches!(name, "cell.fetch" | "cell.call") {
@@ -234,6 +255,7 @@ impl InvocationBridge {
             payload: payload.to_owned(),
             body: body.map(<[u8]>::to_vec),
             rpc,
+            rpc_budget: rpc_budget.map(|budget| budget.budget.clone()),
             mutation,
             reservation,
             observation: self.budget.metrics.admit(self.clock_origin),

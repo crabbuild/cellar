@@ -1,6 +1,6 @@
 //! Real host calls in both directions, with one process-owned Python runtime.
 #![allow(clippy::disallowed_methods)]
-use anyhow::{ensure, Result};
+use anyhow::{ensure, Context as _, Result};
 use cellar::sdk::{rpc, *};
 use cellar_python::{EventKind, Options, PythonApplication, PythonRuntime, Source};
 use std::{path::PathBuf, sync::Arc};
@@ -73,7 +73,57 @@ impl Application for Mixed {
             } else {
                 "COUNTERS"
             };
-            let value = if url.path() == "/native-preflight" {
+            let value = if url.path() == "/rust/budget" {
+                let source = rpc::BudgetSource::capture(&context)?;
+                let budget = std::thread::spawn(move || source.start())
+                    .join()
+                    .map_err(|_| anyhow::anyhow!("captured budget clock panicked"))??;
+                ensure!(
+                    budget.remaining_ms()? <= 5_000,
+                    "budget exceeded host policy"
+                );
+                let budget = budget.limit(20).limit(u32::MAX);
+                std::thread::sleep(std::time::Duration::from_millis(40));
+                let failure = budget.remaining_ms().unwrap_err();
+                ensure!(failure.code() == rpc::Code::DeadlineExceeded);
+                let target = rpc::Client::bind(
+                    &context,
+                    "RUST",
+                    "budget-unconstructed",
+                    self.contract.clone(),
+                )?;
+                let failure = target
+                    .call_bytes_in_budget(
+                        "example.counter.v1.Counter/GetCount",
+                        vec![],
+                        rpc::CallOptions::default(),
+                        budget,
+                    )
+                    .await
+                    .unwrap_err();
+                ensure!(
+                    failure.code() == rpc::Code::DeadlineExceeded
+                        && failure.outcome() == rpc::EffectOutcome::NotCommitted
+                );
+                serde_json::json!({"expired":true, "captured_clock":true})
+            } else if url.path() == "/rust/budget-parent" {
+                let child = generated::CounterClient::bind(&context, "COUNTERS", "codec-parent")?;
+                let reply = child
+                    .get_count_with_options(
+                        generated::GetCountRequest {},
+                        rpc::CallOptions {
+                            timeout: Some(std::time::Duration::from_millis(1000)),
+                            ..Default::default()
+                        },
+                    )
+                    .await?;
+                let remaining = reply.count.context("budget parent did not reply")?.value;
+                ensure!(
+                    remaining > 0 && remaining <= 1000,
+                    "guest extended its native parent"
+                );
+                serde_json::json!({"parent_capped": true})
+            } else if url.path() == "/native-preflight" {
                 let stub = context.namespace(binding)?.get_by_name("never-construct");
                 let args = rpc::encode_envelope(
                     self.contract.digest(),
@@ -195,6 +245,21 @@ fn main() -> Result<()> {
                 if round == 0 { assert_eq!(bad["code"], "InvalidResponse"); assert_eq!(bad["outcome"], "unknown"); }
                 else { assert_eq!(bad["value"], (large * 2 + 1).to_string()); }
                 assert_eq!(request(&client, &base, "/rust/read").await?["value"], (large * 2 + 1).to_string());
+                assert_eq!(request(&client, &base, "/rust/budget").await?["captured_clock"], true);
+                assert_eq!(request(&client, &base, "/rust/budget-parent").await?["parent_capped"], true);
+                request(&client, &base, "/python/budget-capture").await?;
+                let foreign = request(&client, &base, "/python/budget-foreign").await?;
+                assert_eq!(foreign["code"], "ContextMismatch");
+                assert_eq!(foreign["outcome"], "not_committed");
+                for target in ["rust", "python"] {
+                    for phase in ["verify", "encode", "decode"] {
+                        let result = request(&client, &base, &format!("/python/codec-budget?target={target}&phase={phase}")).await?;
+                        assert_eq!(result["code"], "DeadlineExceeded", "{target}/{phase}");
+                        assert_eq!(result["outcome"], if phase == "decode" { "unknown" } else { "not_committed" });
+                        assert_eq!(result["codec_entered"], phase);
+                        assert_eq!(result["count"], if phase == "decode" { "1" } else { "0" });
+                    }
+                }
                 let NodeOutcome::Stopped(shutdown) = node.shutdown(ShutdownMode::Preserve).await? else { anyhow::bail!("node failed"); };
                 ensure!(shutdown.ingress_drained && shutdown.application_work_drained && shutdown.cells_drained && !shutdown.drain_timed_out);
             }

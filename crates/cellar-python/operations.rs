@@ -11,6 +11,7 @@ pub(crate) async fn call(
     value: serde_json::Value,
     body: Option<Vec<u8>>,
     signal: Option<cellar::sdk::web::AbortSignal>,
+    budget: Option<cellar::sdk::rpc::CallBudget>,
 ) -> anyhow::Result<Output> {
     use anyhow::Context as _;
     let digest = value
@@ -25,9 +26,10 @@ pub(crate) async fn call(
     let body = body
         .context("RPC call requires a byte attachment")
         .context(crate::failure::Validation)?;
-    let bytes =
-        cellar_guest::operations::call_bytes_with_signal(context, contract, value, body, signal)
-            .await?;
+    let bytes = cellar_guest::operations::call_bytes_in_budget(
+        context, contract, value, body, signal, budget,
+    )
+    .await?;
     Ok(Output::Value(serde_json::Value::Null, Some(bytes)))
 }
 

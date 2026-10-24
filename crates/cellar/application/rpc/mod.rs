@@ -3,6 +3,7 @@
 //! Generated clients use [`Client`] and generated server registrations use
 //! [`Router`]. Every call retains the originating invocation's authority;
 //! neither a service descriptor nor a method name grants a new capability.
+mod budget;
 mod catalog;
 mod client;
 mod contract;
@@ -14,6 +15,7 @@ mod schema;
 mod shape;
 mod wire;
 
+pub use budget::{BudgetSource, CallBudget};
 pub use catalog::Catalog;
 pub use client::{CallOptions, Client};
 pub use contract::{Contract, Limits, Method};
