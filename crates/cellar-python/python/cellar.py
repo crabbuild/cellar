@@ -46,12 +46,24 @@ def _check_value(item, depth=0):
     kind = type(item)
     if kind is str or kind is bool or item is None or kind is float:
         return
+    if kind is int:
+        if not -(2**63) <= item < 2**64:
+            raise ValueError("Cellar integers must fit signed or unsigned 64 bits")
+        return
+    if kind is dict:
+        for key in item:
+            if type(key) is not str and not isinstance(key, str):
+                raise TypeError("Cellar object keys must be strings")
+        for child in item.values():
+            _check_value(child, depth + 1)
+        return
+    if kind is list or kind is tuple:
+        for child in item:
+            _check_value(child, depth + 1)
+        return
+    # Preserve the generic path for subclasses and integer-like containers.
     if isinstance(item, int) and not -(2**63) <= item < 2**64:
         raise ValueError("Cellar integers must fit signed or unsigned 64 bits")
-    # A container can advertise an integer __class__. Only exact scalars may
-    # skip the original container checks; subclasses retain their validation.
-    if kind is int:
-        return
     if isinstance(item, dict):
         if any(not isinstance(key, str) for key in item):
             raise TypeError("Cellar object keys must be strings")

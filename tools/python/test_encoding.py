@@ -15,6 +15,24 @@ from cellar import Response, ValidationError, _encode, _encode_response
 
 
 class EncodingTests(unittest.TestCase):
+    def test_container_shapes_preserve_depth_and_cycle_rejection(self):
+        for wrap in (lambda value: {"key": value}, lambda value: [value], lambda value: (value,)):
+            value = None
+            for _ in range(64):
+                value = wrap(value)
+            self.assertEqual(_encode(value), json.dumps(value, separators=(",", ":")))
+            with self.assertRaises(ValidationError):
+                _encode(wrap(value))
+
+        sequence = []
+        sequence.append(sequence)
+        mapping = {}
+        mapping["cycle"] = mapping
+        for value in (sequence, mapping, {"nested": (sequence,)}):
+            with self.assertRaises(ValidationError) as caught:
+                _encode(value)
+            self.assertEqual(caught.exception.outcome, "not_committed")
+
     def test_scalar_leaves_obey_the_exact_nesting_limit(self):
         for scalar in (None, True, False, 0, -2**63, 2**64 - 1, 1.25, "text"):
             value = scalar
