@@ -1,405 +1,474 @@
-# Embedded Python
+# Embedded Python applications on Cellar
 
-The [FastAPI order example](../../examples/python-fastapi/README.md) demonstrates
-an example-only buffered ASGI HTTP transport, durable cells and verified package
-deployment. General ASGI lifespan, WebSocket and streaming support remain outside
-the adapter's current SDK contract.
+`cellar-python` runs Python handlers inside a native Rust Cellar host. Python
+owns business logic; Rust owns routing, cell storage, transactions, and durability.
+The adapter implements the native `Application` and `Cell` contracts through
+PyO3 and **CPython 3.14 or free-threaded CPython 3.14t**.
 
-The [PydanticAI agent](../../examples/python-agent/README.md) demonstrates
-durable model/tool steps, saved conversations and pending-alarm restart recovery.
+Enable the optional `embed` feature. The default features do not build or link
+Python. Embedded mode uses one interpreter and one asyncio loop on the process
+main thread; it needs no Python subprocess or container.
 
-`cellar-python` implements Cellar's native `Application` and `Cell` contracts using
-PyO3 and **CPython 3.14 or free-threaded CPython 3.14t**. Enable the optional `embed` feature. A compiled
-Rust executable includes the Python source and starts one interpreter and one
-asyncio loop on the process main thread. No container or Python subprocess is
-required. The default feature set does not build or link Python.
+```text
+One native Cellar process
++-------------------------------------------------------------------+
+| Process main thread                 Joined Rust host thread       |
+|                                                                   |
+| CPython + asyncio                   Native Host / Node            |
+|        |                                     |                    |
+| Python handlers <--- invocation --- Original SDK context          |
+|        |                                     |                    |
+| await ctx.storage.apply(...) -- SDK call ---> cellar-guest        |
+|        ^                                     |                    |
+|        +----------- result ----------------- Rust storage / I/O   |
++-------------------------------------------------------------------+
+              Python values cross the bridge; SDK handles do not.
+```
 
-The [baseline harness](../../tools/python/baseline.md) compares equivalent native
-and Python handlers through real HTTP, checked durable updates and owner-loss
-recovery, retaining latency, throughput, memory and bridge-copy evidence.
+## Choose a starting point
 
-See the [runnable Python example](../../examples/python/README.md) for installation,
-packaging, requests, infrastructure bindings and a smoke test.
+| Goal | Guide |
+| --- | --- |
+| Run a counter with Pydantic, NumPy, alarms, and bindings | [Runnable Python example](../../examples/python/README.md) |
+| Serve a framework application | [FastAPI order service](../../examples/python-fastapi/README.md), using an example-only buffered ASGI transport |
+| Persist model/tool steps and resume after restart | [PydanticAI agent](../../examples/python-agent/README.md) |
+| Deliver a verified runtime and dependencies | [Environment build/install workflow](../../tools/python/README.md) |
+| Measure latency, throughput, memory, and recovery | [Baseline harness](../../tools/python/baseline.md) |
+| Work on scheduling, cleanup, or telemetry | [Runtime internals and diagnostics](runtime/README.md) |
+
+The native adapter exposes bounded, buffered HTTP. General ASGI lifespan,
+streaming responses, WebSockets, workflows, outbox, stream bindings, binary SQL
+parameters, and `wait_until` are outside its current SDK contract.
+
+## Write a Python application
+
+Use `async def` for handlers and synchronous, zero-argument cell constructors.
+Define application handlers and named cell classes at module scope. Rust looks
+up each registered class by its module attribute name, such as `Counter`.
+
+| Handler | Python signature | Rust registration |
+| --- | --- | --- |
+| Application HTTP | `async def fetch(request, ctx)` | `Source::events([EventKind::Fetch])` |
+| Cell HTTP | `async def fetch(self, request, ctx)` | `Source::cell("Counter")` |
+| Cell alarm | `async def alarm(self, scheduled_ms, ctx)` | Include `EventKind::Alarm` in `Source::cell_events` |
+| Queue delivery | `async def queue(batch, ctx)` | Include `EventKind::Queue` in `Source::events` |
+| Scheduled work | `async def scheduled(event, ctx)` | Include `EventKind::Scheduled` in `Source::events` |
+
+Startup validates handlers and constructors before admitting work. Deployment
+validation also rejects undeclared classes, queue consumers without a queue
+handler, and cron schedules without a scheduled handler.
+
+### A small durable counter
+
+This complete `app.py` routes every request to the cell named `alice`. `GET`
+reads its count; `POST` adds one. Configure the `COUNTERS` namespace binding to
+point to the `Counter` class.
+
+```python
+from cellar import Conflict, Request, Response
+
+
+class Counter:
+    async def fetch(self, request, ctx):
+        if request.method not in ("GET", "POST"):
+            return Response.json({"error": "Use GET or POST"}, status=405)
+
+        storage = ctx.storage
+        snapshot = await storage.read_json("count")
+        count = snapshot.value if snapshot.present else 0
+        if type(count) is not int or not 0 <= count <= (1 << 63) - 1:
+            raise ValueError("Invalid stored counter")
+
+        if request.method == "POST":
+            if count == (1 << 63) - 1:
+                return Response.json({"error": "Counter limit reached"}, status=409)
+            try:
+                await storage.apply(
+                    checks={"count": snapshot},
+                    puts={"count": count + 1},
+                )
+            except Conflict:
+                return Response.json({"error": "Counter changed; read again"}, status=409)
+
+            await storage.sync()
+            count += 1
+
+        return Response.json({"count": count})
+
+
+async def fetch(request, ctx):
+    counter = ctx.namespace("COUNTERS").get_by_name("alice")
+    return await counter.fetch(Request("http://counter/", method=request.method))
+```
+
+The application handles a proven conflict but does not retry unknown outcomes.
+The [full example](../../examples/python/README.md) adds input validation,
+idempotency receipts, multiple cell names, and alarm deduplication.
+
+```text
+read_json("count") --> Snapshot(present=True, value=7)
+                                  |
+                       Python computes next value
+                                  |
+                    apply(checks=7, puts=8)
+                                  |
+                       One Rust transaction
+                         /              \
+                    still 7?          changed?
+                       |                 |
+                   write 8          Conflict: no batch writes
+                       |
+                  await sync()
+                       |
+                  return count=8
+```
+
+A read/compute/write sequence is not automatically atomic. Pass snapshots into
+`apply(checks=...)` to detect intervening writes. `apply` can combine JSON changes
+and an alarm change in one transaction; separate SQL calls remain separate
+operations. SQLite transaction callbacks never execute Python.
 
 ## Bootstrap and execution
 
-Call `unsafe { PythonRuntime::run(options, source, |application, stop| { ... }) }`
-once on the process main thread, outside Tokio. The safety contract requires
-exclusive CPython initialization: start it before any other Python API user or
-initializer. Already initialized interpreters and off-main startup are refused. The supervisor closure runs on a joined Rust thread. Register its
-`Arc<PythonApplication>` in a native `Host` or `Node`. The host **must** observe
-`stop.cancelled()`, stop admission, drain and join before returning. For the CLI
-host, use `Host::run_until_observed(stop.clone().cancelled(), move |outcome| stop.record_node(outcome))`. `Host::run()` owns process exit and
-would skip Python cleanup. `PythonRuntime` returns a `Report` only after the host
-thread and cooperative Python tasks have joined; incomplete cleanup returns an
-error containing an `Incomplete` report. The report preserves native node outcomes, pending Python tasks/objects/threads, object cleanup counts and bridge byte reservations; record every owned node through `Stop::record_node`. Interpreter reinitialization is refused.
+Call `PythonRuntime::run` **once, on the process main thread, outside Tokio**.
+Its unsafe contract requires exclusive CPython initialization before any other
+Python API user or initializer. Already-initialized interpreters and off-main
+startup are refused. Reinitialization, subinterpreters, and multiple Python
+application generations in one process are unsupported.
 
-Handlers are `async def fetch(request, ctx)`, `alarm(scheduled_ms, ctx)`,
-`queue(batch, ctx)` and `scheduled(event, ctx)`. Export stateless handlers at module
-scope; declare their event kinds through `Source::events`. Register cell classes through `Source::cell_events` (`Source::cell` declares fetch only). Startup validates async handlers and zero-argument constructors before admitting work. Cell constructors take no
-arguments; use `ctx.identity` during invocations. Each native activation receives
-its own Python object. `ctx.identity` is an immutable `CellIdentity` with `name`, `class_name`, `scope` and `epoch`. Its fields are transient; persist business state through
-`ctx.storage`. Retired objects are released by the bridge pump. Use `include_str!`
-as in the example to compile Python source into the executable. The SDK facade is
-embedded by the adapter. Native artifact digests cover those embedded bytes. A build-bound provisioned inventory additionally verifies runtime and package contents before Python code runs; see the [environment workflow](../../tools/python/README.md). Changes
-require rebuilding the executable and restarting the process; Python code
-generation hot reload is not implemented.
+```text
+main thread                         joined host thread
+     |
+validate options, source, inventory
+initialize CPython once
+load SDK + app; validate handlers
+     |
+     +----------------------------> start Host / Node
+run managed asyncio loop                 |
+     |                              serve native invocations
+     |                                   |
+     +---- stop signal -----------------> stop admission + drain + join
+     |                                   |
+     |<---------------------------- record every native node outcome
+cancel/join managed Python work
+close async generators + executor
+     |
+return Report or error with Incomplete report
+```
 
-Python receives owned values and a revocable message sender, never a Rust SDK
-context or SQLite handle. Each SDK request executes inside the original Rust
-invocation future, under its original execution domain, generation and activation
-checks. Cellar's existing write output gates and durability proofs remain in force.
-SDK operations start in receive order. Known reads can progress during a pending native call; only one mutation may be outstanding per invocation. Arbitrary SQL, sync and nested fetches conservatively count as mutations. A second submission fails before dispatch. Returning, cancellation and activation retirement invalidate retained contexts;
-late operations fail with `ContextExpired`. Queued operations abandoned by a
-returning handler are discarded; always await SDK operations. Do not retain
-contexts or binding handles between invocations. Live handles used by another invocation or asyncio
-loop are refused at both the Python API and native sender. The invocation scope
-is an additional caller check; native SDK authority still comes from the original
-Rust context. The native sender captures the original caller-identity accessors
-at bootstrap and checks their current values on every operation. Rebinding a
-Python module attribute cannot replace those checks; Python application code is
-still trusted code, not a security sandbox.
+### Rust entry point
 
-`ctx.storage` creates a lightweight handle on access. A handle keeps
-its originating context alive, but the context does not cache the handle, so
-ordinary request cleanup does not depend on collecting a storage/context cycle.
-Bind `storage = ctx.storage` locally when reusing it within one invocation.
-The resident-object registry retains only an owner-lifetime token alongside each
-cell. It releases completed invocation senders, caller scopes and event-loop
-references even while the cell stays resident; application-retained contexts
-still live until the application releases them. Owner retirement revokes the
-token and wakes the pump to release the cell.
+The following is an executable template: place `app.py` beside it and enable
+`cellar-python`'s `embed` feature. It expects a fleet deployment named
+`python-counter`, version `v1`, with the `Counter` class and `COUNTERS` binding.
+For a complete configured project, use [examples/python/main.rs](../../examples/python/main.rs).
 
-SDK errors do not automatically retry mutations:
-a failed response may follow a committed write. `SDKError.code` distinguishes
-`ValidationError`, `Overloaded`, `OwnershipLost`, `Ambiguous`, `HostError`,
-`ContextExpired`, `ContextMismatch`, `NotSubmitted` and `Conflict`. Validation,
-caller scope, expiration, pre-dispatch admission and conflict refusals have
-`outcome="not_committed"` for that operation. A native capacity verdict returned
-by a submitted call is `Overloaded/unknown`: it may be propagated by a callee
-after that callee committed its own writes. A submitted mutation with no proven refusal is `Ambiguous`
-with `outcome="unknown"`; ownership loss also leaves its outcome unknown.
-Generic submitted reads retain `HostError`. Native typed routing verdicts are
-preserved where available; the adapter never infers rollback by parsing backend
-error text. Backend messages are replaced with fixed codes before returning to
-Python. Import `ValidationError`, `Overloaded`, `Ambiguous` and `OwnershipLost`
-to catch those errors by class. Cancellation remains `asyncio.CancelledError`.
-A handler that cancels itself immediately wakes its native driver, even when
-application code retains the expired context. Cancellation does not roll back
-an acknowledged write. Retired activation objects are released while the loop
-is idle, as well as during later requests.
+```rust,ignore
+use anyhow::{ensure, Result};
+use cellar::sdk::Host;
+use cellar_python::{EventKind, Options, PythonRuntime, Source};
 
-A failed durability proof can reset the cell's native activation. A read arriving
-during that cleanup can be refused before recovery finishes, even after the
-storage and peer transports are available again. A caller can repeat a known
-read-only observation within its original deadline. Submitted business mutations
-still require receipt-based reconciliation; a reset does not establish rollback.
+fn main() -> Result<()> {
+    let source = Source::new(include_str!("app.py"), "app.py")
+        .events([EventKind::Fetch])
+        .cell("Counter");
+
+    // SAFETY: main exclusively initializes CPython before any Python API use
+    // or concurrent initialization. Host/logging workers start in the closure.
+    let report = unsafe {
+        PythonRuntime::run(Options::default(), source, |application, stop| {
+            let monitor = stop.clone();
+            Host::fleet()
+                .register("python-counter", "v1", move || Ok(application.clone()))?
+                .run_until_observed(stop.cancelled(), move |outcome| {
+                    monitor.record_node(outcome)
+                })
+        })
+    }?;
+    ensure!(report.complete(), "Python host did not drain completely");
+    Ok(())
+}
+```
+
+| Bootstrap requirement | Why it matters |
+| --- | --- |
+| Observe `stop.cancelled()` | Runtime failure must stop host admission and trigger native drain. |
+| Use `Host::run_until_observed` | `Host::run()` owns process exit and can skip Python teardown. |
+| Call `Stop::record_node` for every owned node | The final report must retain each real native drain outcome. |
+| Join host and cooperative Python work | Process exit alone is not proof of a clean drain. |
+| Inspect `Incomplete` on failure | A cleanup error can carry the combined native/Python report. |
+
+The executable embeds both application source and the SDK facade. Source or
+runtime changes require a rebuild and process replacement; there is no Python
+code-generation hot reload. For a verified package, the host must also register
+its compiled inventory identity, as the full example does.
 
 ## Python API
 
-Import `Request`, `Response`, `Conflict`, `SDKError`, `Snapshot` and `MISSING` from
-`cellar`. `Request.body` and `Response.body` are bytes; `await request.json()` and
-`Response.json(value)` handle JSON. HTTP is buffered, with bounded bodies.
+Import `Request`, `Response`, `Snapshot`, `MISSING`, and SDK error classes from
+`cellar`. Request and response bodies are bytes. `await request.json()` and
+`await request.text()` decode buffered input; `Response.json(value)` builds a
+JSON response.
+
+### Storage and cell calls
 
 | API | Behavior |
 | --- | --- |
-| `await ctx.storage.read_json(key)` | Presence-aware snapshot; JSON null differs from missing |
-| `await ctx.storage.read_json_many(keys)` | One host call returning a snapshot per distinct key, including missing keys |
-| `ctx.initial_storage` | Declared snapshots captured before this cell event starts; empty when none are configured |
-| `await ctx.storage.get_json(key, default=None)` | Read a JSON value |
-| `await ctx.storage.apply(checks={key: snapshot}, puts={...}, deletes=[...])` | One atomic checked batch; `Conflict` applies no mutations |
-| `await ctx.storage.put_json(key, value)` / `delete(key)` | Unconditional batch mutation |
-| `await ctx.storage.sql(sql, params=())` | Cell-local SQL, returning columns, rows and write count |
-| `await ctx.storage.sync()` | Existing Cellar storage durability barrier |
-| `await ctx.storage.set_alarm(ms)` / `get_alarm()` / `delete_alarm()` | Durable cell alarm; `apply` can combine alarm and JSON mutations |
-| `await ctx.namespace(binding).get_by_name(name).fetch(request)` | Host-routed cell fetch |
-| `await ctx.kv(binding).get(key)` / `put(key, value)` / `delete(key)` / `list(...)` | JSON KV; put accepts TTL and metadata, list accepts prefix, limit and cursor |
-| `await ctx.sql(binding).query(sql, params=())` | Shared SQL binding; returns the native result envelope |
-| `await ctx.queue(binding).send(body, delay_seconds=None)` | JSON queue producer |
-| `await message.ack()` / `retry(delay_seconds=None)` | Explicit queue settlement |
-| `await batch.ack_all()` / `retry_all(delay_seconds=None)` | Batch settlement through the existing Rust dispatcher |
-| `await event.no_retry()` | Suppress retries for a scheduled invocation |
-| `await ctx.var(name)` / `now_ms()` | Declared variable and execution-domain wall clock |
+| `await ctx.storage.read_json(key)` | Return a presence-aware `Snapshot`. |
+| `await ctx.storage.get_json(key, default=None)` | Return the stored value or the supplied missing-key default. |
+| `await ctx.storage.read_json_many(keys)` | Read bounded snapshots in one host call. |
+| `ctx.initial_storage` | Access snapshots declared for capture before this cell event. |
+| `await ctx.storage.apply(checks=..., puts=..., deletes=...)` | Apply one checked atomic batch; also accepts alarm changes. |
+| `await ctx.storage.put_json(key, value)` / `delete(key)` | Apply an unconditional mutation. |
+| `await ctx.storage.sql(sql, params=())` | Run cell-local SQL; return columns, rows, and write count. |
+| `await ctx.storage.sync()` | Await the native storage durability barrier. |
+| `await ctx.storage.set_alarm(ms)` / `get_alarm()` / `delete_alarm()` | Manage the durable cell alarm. |
+| `await ctx.namespace(binding).get_by_name(name).fetch(request)` | Route a buffered request through the native host. |
 
-Only registered bindings are accessible. Queue delivery and cron retain their
-existing at-least-once semantics. Use idempotency keys for business effects.
-Queue acknowledgements are settlement decisions inside the current delivery;
-the broker persists them when dispatch returns. An acknowledgement followed by
-a handler exception is retained; a timeout that drops dispatch can redeliver.
-An unknown storage outcome can preserve a queue lease across owner recovery,
-even when the consumer has not started. Redelivery waits for that stored lease
-to expire. Its lifetime covers native admission, handler and settlement budgets;
-recovery does not extend it. Include this interval when setting recovery SLOs,
-and reconcile unknown producer outcomes with business idempotency keys.
-The first conflicting message/batch ack or retry decision wins. Cron retries
-retain the original occurrence timestamp across timeout, activation recreation
-and owner recovery. The native scheduling cell checkpoints completed expressions
-and resumes unfinished work; interrupted history remains unfinished. A new
-deployment/schedule configuration replaces previous pending work. `no_retry()` declines retry when that
-scheduled handler fails. Settlement controls cannot be reused in another live
-invocation or after their original invocation expires.
-Queue text bodies become strings; bytes become `{"$bytes":"BASE64"}`; structured
-bodies must be JSON-representable. JSON integers must fit signed or unsigned
-64 bits; NaN, infinity, non-string object keys and nesting over 64 are rejected.
-Binary SQL parameters, SDK streaming, WebSockets, ASGI, workflows, outbox, stream
-bindings and `wait_until` are not exposed by this adapter.
+`MISSING` is `Snapshot(False)`. It differs from `Snapshot(True, None)`, which
+represents a stored JSON null. Bind `storage = ctx.storage` when reusing a handle
+within one invocation: each property access creates a lightweight handle.
 
-Transactions never call back into Python while holding SQLite state. A Python
-read/compute/write sequence is not automatically atomic: pass its snapshots to
-`apply` to detect changes, and explicitly choose how to handle `Conflict`. Only
-`apply` combines mutations in a single transaction; multiple SQL calls are
-separate operations.
+### Infrastructure and event controls
 
-For handlers that always need the same keys, register
-`Source::cell_initial_reads("Counter", EventKind::Fetch, ["count"])` alongside
-the cell's event registration. The original native invocation reads those keys
-before dispatching to Python, avoiding a separate SDK request and reply. A handler
-can use `snapshot = ctx.initial_storage["count"]` and pass that snapshot to
-`await ctx.storage.apply(checks={"count": snapshot}, puts={"count": next_value})`.
+| API | Behavior |
+| --- | --- |
+| `await ctx.kv(binding).get(key)` / `put(key, value)` / `delete(key)` / `list(...)` | JSON KV; put supports TTL/metadata, list supports prefix/limit/cursor. |
+| `await ctx.sql(binding).query(sql, params=())` | Query a shared SQL binding and receive its native result envelope. |
+| `await ctx.queue(binding).send(body, delay_seconds=None)` | Send a JSON queue message. |
+| `await message.ack()` / `retry(delay_seconds=None)` | Settle a message in the current delivery. |
+| `await batch.ack_all()` / `retry_all(delay_seconds=None)` | Settle the current batch. |
+| `await event.no_retry()` | Decline retry if the current scheduled handler fails. |
+| `await ctx.var(name)` / `ctx.now_ms()` | Read a declared variable or execution-domain wall-clock time. |
 
-The map's keys cannot be changed, and its snapshots contain owned data. They
-describe state at capture, not a reservation or a live cache. They do not refresh
-after an await or the handler's own writes; use normal storage reads when fresh
-state is needed. An intervening writer causes a checked write to conflict.
-Retaining a snapshot grants no authority to use an expired or foreign context.
-Missing keys and JSON null remain distinct.
+Bindings must be declared in the native deployment. Queue text bodies become
+strings; byte bodies use `{"$bytes": "BASE64"}`; structured bodies must be
+JSON-representable. JSON integers must fit signed or unsigned 64 bits. NaN,
+infinity, non-string object keys, and nesting deeper than 64 are rejected.
 
-Capture happens before handler logic, including validation and authentication.
-A failed read, excessive nesting, or excessive combined invocation size refuses
-dispatch before the Python handler runs. The declared key count is bounded by
-`max_batch_operations`; metadata, captured state and the encoded-equivalent body
-share `max_value_bytes`. Capture streams one decoded row at a time rather than
-collecting every stored value before enforcing the encoded limit. These byte
-limits are not whole-process memory limits.
+## Read snapshots with fewer bridge calls
 
-For a verified package, include the matching declaration in the descriptor's
-`handlers.initial_reads`, for example
-`{"Counter":{"fetch":["count"]}}`. The inventory binds that declaration along
-with the source and existing handler registrations; a mismatch refuses startup.
+Choose reads based on when the handler needs the data:
+
+| Method | When data is read | Best fit |
+| --- | --- | --- |
+| `read_json(key)` | At the awaited SDK call. | Conditional or fresh reads. |
+| `read_json_many(keys)` | In one synchronous native operation. | Several keys needed at the same point in a handler. |
+| `ctx.initial_storage` | Before Python handler dispatch. | Small fields needed by every invocation of a registered cell event. |
+
+```text
+Normal read                         Declared initial read
+Rust dispatch -> Python             Rust reads declared keys
+                   |                          |
+               await read           Rust dispatch + snapshots
+                   |                          |
+Rust reads <-------+                       Python
+     |                                       |
+     +-----------> Python               ctx.initial_storage["count"]
+```
+
+Register initial reads alongside the cell and event declarations:
+
+```rust,ignore
+let source = Source::new(include_str!("app.py"), "app.py")
+    .cell("Counter")
+    .cell_initial_reads("Counter", EventKind::Fetch, ["count"]);
+```
+
+Then a cell handler can use the captured snapshot:
+
+```python
+async def increment_from_capture(ctx):
+    snapshot = ctx.initial_storage["count"]
+    value = snapshot.value if snapshot.present else 0
+    await ctx.storage.apply(checks={"count": snapshot}, puts={"count": value + 1})
+    await ctx.storage.sync()
+```
+
+This helper assumes the application maintains an integer counter within its
+chosen range. Captured data is owned; map keys are immutable. Snapshots are
+neither reservations nor live caches: they do not refresh after an await or the
+handler's own writes. An intervening writer makes a checked update conflict.
+
+| Boundary | Contract |
+| --- | --- |
+| Capture timing | Runs before handler validation, authentication, or receipt lookup. A capture failure refuses dispatch before Python runs. |
+| Capture limits | Declared key count is bounded by `max_batch_operations`; captured values, metadata, and body share `max_value_bytes`. |
+| Batched reads | All supplied keys, including duplicates, count toward the batch limit; output has one snapshot per distinct key. |
+| Bounded collection | Both paths process one decoded value at a time. Oversized read replies return no partial result. |
+| Verified packages | Include matching `handlers.initial_reads`, such as `{"Counter":{"fetch":["count"]}}`, in the descriptor. Startup refuses mismatches. |
+
+## Invocation authority and cell lifetime
+
+```text
+Python coroutine                  Original native invocation
+       |                                     |
+ await SDK operation -- name + values ------> | validate identity / liveness
+       |                                     | execute with original Context
+       | <-------------- reply ------------- |
+       v                                     |
+ resume coroutine                            |
+       |                                     |
+ return / cancel --------------------------> revoke authority
+       |
+ saved ctx or binding handle -- later call -> refused
+```
+
+SDK futures stay inside their original Rust invocation, under its execution
+domain, generation, activation, and output-proof checks. Python never receives
+a Rust context or SQLite handle.
+
+- SDK operations start in receive order. Known reads may overlap a pending call;
+  only one mutation may be outstanding per invocation.
+- Arbitrary SQL, sync, and nested fetches count as mutations. Await effects
+  sequentially rather than submitting concurrent writes.
+- Handles cannot be reused by another invocation or asyncio loop. The native
+  sender captures caller-identity accessors at bootstrap and rechecks them;
+  rebinding a Python attribute does not replace those checks.
+- Returning, cancellation, or activation retirement revokes authority. Queued
+  operations abandoned by a returning handler are discarded.
+- Background tasks have no durable execution guarantee. They lose SDK authority
+  when their invocation ends, even if application code retains the context.
+
+```text
+Activation A                  retirement / restart              Activation B
+new Counter()                         |                        new Counter()
+self fields / caches -----------------X                         fresh fields
+ctx.storage --------------------------+-----------------------> durable state
+old ctx.identity / handles -----------X                         new invocation
+```
+
+`ctx.identity` is an immutable `CellIdentity` with `name`, `class_name`, `scope`,
+and `epoch`. Identity fields and object fields belong to the activation; persist
+business state in storage. Idle retirement also wakes the loop to release the
+object. Removing an object from the registry does not collect aliases retained
+by application code.
+
+## Errors, cancellation, and durable retries
+
+Inspect both `SDKError.code` and `SDKError.outcome`. Fixed codes replace backend
+exception text before returning to Python; the adapter does not automatically
+retry submitted mutations.
+
+| Failure | Outcome | Caller action |
+| --- | --- | --- |
+| `ValidationError`, `ContextMismatch`, `ContextExpired`, `NotSubmitted`, or a pre-dispatch admission refusal | `not_committed` for the refused operation | Correct the request/context or reconsider admission. |
+| `Conflict` | `not_committed` for this batch | Read fresh state before recomputing. |
+| `Overloaded` from a submitted native call | `unknown` | A callee may have committed before a nested refusal; reconcile. |
+| `OwnershipLost` or `Ambiguous` | `unknown` | Do not infer rollback or blindly replay the mutation. |
+| `HostError` for an otherwise unclassified known read | `unknown` | No usable result; retry only according to the read's deadline/policy. |
+| `asyncio.CancelledError` | Cancellation, not a commit verdict | Propagate cancellation; previously acknowledged writes remain committed. |
+
+Import `ValidationError`, `Overloaded`, `Ambiguous`, `OwnershipLost`, or
+`Conflict` to catch those specific SDK exceptions. A failed durability proof can
+reset the activation; reads during cleanup may be refused until recovery ends.
+Repeating a known read within its original deadline does not justify repeating
+an uncertain business mutation.
+
+```text
+Business effect commits --> reply is lost / too large / cancelled
+                                      |
+                                      v
+                              outcome is unknown
+                                      |
+                                      v
+                     look up a durable receipt / reconcile
+                     before deciding whether to retry
+```
+
+### Alarms, queues, and cron can repeat
+
+| Mechanism | Durable identity and settlement rules |
+| --- | --- |
+| Alarm | Persist a business occurrence ID with `alarm_at_ms` in one batch. Commit its receipt with the effect. Retry backoff can change `scheduled_ms`; use the stored occurrence ID to deduplicate. |
+| Queue | Use business idempotency keys. Ack/retry decisions are persisted when dispatch returns; an ack survives a later handler exception, but a timeout dropping dispatch can redeliver. |
+| Conflicting queue decisions | The first conflicting message/batch ack or retry decision wins. Settlement handles remain invocation-scoped. |
+| Queue owner recovery | An unknown storage outcome may preserve a lease even before the consumer starts. Redelivery waits for its expiry; recovery does not extend it. Budget for admission, handler, and settlement time in recovery SLOs. |
+| Cron | Retries retain the original occurrence timestamp across timeout and recovery. Completed expressions are checkpointed; unfinished work resumes. New deployment/schedule configuration replaces prior pending work. |
 
 ## Resource and deployment contract
 
-`Options` bounds concurrent invocations, request/response bytes, bridge value
-bytes, aggregate native bridge bytes, operations per invocation, operations per atomic batch, live asyncio tasks and resident Python objects. Admission
-fails immediately when full. Top-level handlers and nested Python cell calls
-share `max_invocations`; a suspended caller continues to occupy a slot. Size
-admission for the application's fan-out instead of assuming every slot can
-serve an independent HTTP request. Capacity refusal uses the native SDK's
-`ApplicationOverloaded` contract: public HTTP returns 503 and SDK calls raise
-`Overloaded`, with an `unknown` mutation outcome. A caller may already have
-committed before a nested call was refused. The adapter does not retry it,
-and ownership/output-proof failures still take precedence. Closed runtime
-admission is a lifecycle failure, distinct from capacity exhaustion.
-Peer placement candidates that refuse cell capacity may be retried only within
-the original fetch routing budget. Exhaustion returns a typed overload instead
-of cycling indefinitely between peers. Native cell-capacity refusals retain
-`Overloaded/unknown` across the Python bridge, including forwarded failures;
-they do not establish that a parent invocation made no writes.
-`max_pending_operations` bounds each invocation's
-operation/completion mailbox (32 entries by default); zero and unsupported
-capacities are refused before bootstrap. The result mailbox holds at most twice
-`max_invocations` replies. Refused sends release their byte reservations.
-HTTP invocation bodies cross into Python as immutable bytes beside the JSON
-metadata. The value and aggregate bridge budgets still charge the complete
-base64-equivalent envelope, preserving admission limits without allocating that
-encoded body. The interpreter copies the body while its native reservation is
-held; queued, refused and cancelled invocations release that reservation normally.
-HTTP completions likewise pass an immutable byte body beside their metadata.
-Native byte and mailbox capacity are reserved before copying it into Rust; the
-reservation remains owned through response validation. Completion metadata and
-the body share the same base64-equivalent envelope limit as encoded delivery.
-Nested cell fetches also carry immutable request and reply bytes separately from
-their metadata, with the same encoded-envelope and aggregate reservation limits.
-Mutable buffers are copied into immutable bytes before submission. An oversized
-request is refused before native dispatch; an oversized reply can follow a
-committed write and returns `Ambiguous/unknown` without replaying the operation.
-Ordinary HTTP metadata uses a shallow encoder with owned header snapshots and
-identical JSON escaping and key order. Unusual metadata and subclasses retain
-the general SDK encoder; native HTTP validation and byte limits still apply.
-`max_value_bytes` limits the serialized UTF-8 JSON envelope of an entire atomic
-batch, rather than each row separately. `max_batch_operations` counts checks,
-puts, deletes and an optional alarm decision together. Rejected oversized
-batches apply no partial writes or alarm changes.
+### Capacity and byte budgets
 
-`read_json_many` counts all supplied keys, including duplicates, against
-`max_batch_operations`. It reads synchronously in the original native invocation
-and returns a dictionary of snapshots usable in `apply(checks=...)`. Missing keys
-remain distinct from JSON null. The complete reply must fit `max_value_bytes`;
-collection stops at that limit and an error returns no partial result. The host
-retains at most one decoded stored value beside the bounded encoded reply.
-Like a single read, this is not a reservation against later writers: use checked
-`apply` to reject stale snapshots. No Python HTTP handler or middleware is bypassed.
+Defaults are defined by [Options](runtime/mod.rs). Admission fails immediately
+when full; the adapter does not build an unbounded queue.
 
-SDK results also enforce a depth of 64 on the returned value (before its transport
-envelope) and `max_value_bytes` on the complete encoded success envelope. The
-serializer stops at that byte limit. An unrepresentable native result returns a
-fixed `HostError` for known reads or `Ambiguous` for possible mutations, with
-`outcome="unknown"`; the invocation remains usable and the adapter never retries.
-Native execution can already have committed a write, so a rejected result is
-not a validation refusal or rollback. Native-operation success metrics describe
-execution, independently of whether its result can cross the bridge. The value
-budget must be at least 128 bytes to carry fixed failure envelopes.
+| Option | Default | What it bounds |
+| --- | --- | --- |
+| `max_invocations` | 128 | Top-level and nested Python calls together; waiting callers retain slots. |
+| `max_pending_operations` | 32 | Each invocation's native operation/completion mailbox. |
+| `max_operations` | 1,024 | Total SDK operations per invocation. |
+| `max_batch_operations` | 128 | Checks, puts, deletes, and an optional alarm decision; also supplied read-batch keys. |
+| `max_tasks` / `max_objects` | 1,024 / 4,096 | Managed asyncio tasks / resident Python objects. |
+| `max_body_bytes` | 1 MiB | Buffered HTTP body. |
+| `max_value_bytes` | 2 MiB | Entire encoded invocation, batch, SDK result, or response envelope; minimum 128 bytes. |
+| `max_bridge_bytes` | 32 MiB | Aggregate retained native bridge charges. |
+| `shutdown_timeout` | 5 seconds | Cooperative Python cleanup budget; not a hard Python interrupt. |
+| `poll_interval` | 250 ms | Maximum housekeeping wait; ordinary work wakes the loop immediately. |
+| `telemetry_interval` | 250 ms | Interpreter observation interval. |
 
-`max_value_bytes` also bounds the complete encoded response envelope, including
-JSON escaping and base64, separately from body/header limits. A response refused
-by its mailbox or aggregate byte budget fails that invocation and revokes its
-sender; even refusal of the fixed failure envelope leaves the runtime available
-for later work. Previously committed writes are not rolled back.
-Exceptions raised by managed tasks while shutdown cancels them also make the
-combined report incomplete, even when no tasks remain. The fixed failure stage
-is `task_cleanup`; arbitrary exception text and traceback paths are omitted.
+A nested call needs another invocation slot while its parent waits. Size capacity
+for fan-out. Full application admission uses native `ApplicationOverloaded`
+(HTTP 503); submitted SDK calls preserve `Overloaded/unknown`. Closed-runtime
+admission is a lifecycle failure. Native peer-capacity retries stay within the
+original routing budget; ownership and output-proof failures take precedence.
 
-For alarms, persist a business occurrence ID in the same `apply` batch as
-`alarm_at_ms`. Native retry backoff can change the handler's `scheduled_ms`;
-use the persisted identity for the receipt, and commit that receipt with the
-business effect. The example uses a checked durable sequence and retains its
-current intent so a retry with a different delivery deadline still deduplicates.
-The interpreter's asyncio loop wakes on native invocation admission, host
-replies, invocation cancellation, activation retirement and host completion.
-A nonblocking Unix socket pair carries coalesced readiness bytes; it carries no
-request data or SDK authority. Producers never acquire the GIL, call Python or
-wait for the interpreter. SDK operations still execute in their original native
-invocation. Notification failures fail the runtime instead of claiming a clean
-shutdown, and the loop removes its reader before the runtime closes the sockets.
-Managed invocation cleanup records completion only after revoking authority and
-cancelling pending SDK futures. A native return can then skip its redundant
-cancellation notification. Expiration alone never suppresses that notification:
-a still-running task must wake promptly even if its bridge was already expired.
-Native cancellation and proxy destruction publish coalesced lifecycle flags.
-The loop scans waiting invocations after invalidation and resident objects after
-owner retirement. Ordinary replies do not scan unrelated waiting invocations;
-a completion queue releases finished tasks and contexts. Consuming the flags
-before scanning preserves concurrent invalidations for another pass. Failed
-cleanup remains registered for shutdown. Each SDK operation and reply still
-checks its invocation authority independently of these cleanup optimizations.
+```text
+HTTP value crossing the bridge
++----------------------+--------------------------+
+| JSON metadata        | separate immutable bytes |
+| body field is ""     | actual HTTP body         |
++----------------------+--------------------------+
+                |
+                v
+ charged size = encoded metadata + base64-equivalent body length
+ copied bytes = actual owned metadata/body copies
+```
 
-The pump admits at most 64 starts before yielding to the event loop. Continuous
-arrivals, including requests rejected at task capacity, cannot indefinitely
-postpone timers and task cancellation. A deferred continuation services queued
-starts without waiting for another native notification.
-Managed invocations start eagerly until their first await; handlers that finish
-inline avoid an extra task-dispatch turn and completion callback. They still use
-the bounded task factory and invocation context. Individual handlers remain
-cooperative and can block the interpreter.
+Requests, completions, and nested fetches use this byte path. It avoids allocating
+a base64 body while preserving the same encoded-envelope limit. Mutable buffers
+are copied to immutable bytes. Reservations cover copying and validation and
+are released on refusal, cancellation, or completion.
 
-`poll_interval` now bounds housekeeping waits (250 ms by default), rather than
-delaying ordinary requests. The telemetry deadline may shorten that wait. A
-longer housekeeping interval delays observation of background thread/unraisable
-failures and notification-channel faults; it does not delay normal admission,
-replies or native retirement. Throughput and capacity still need qualification
-against the application's workload and fleet. The bridge report distinguishes queued/peak native bridge charges, reservation totals and explicit UTF-8/body copy bytes; it excludes Python heap, JSON/base64 intermediate allocations and native transport copies.
-The managed task factory enforces `max_tasks` even for callbacks with an empty
-context. Each admission scans the live asyncio task registry once, including
-tasks constructed outside the factory. A refused invocation closes its unstarted
-coroutine and context before the pump continues; it never starts the handler.
-Shutdown can create up to two explicit supervisor tasks to join existing
-work; the reported peak includes them. These are cooperative resource limits,
-not isolation from trusted code that constructs raw `asyncio.Task` objects or
-replaces the task factory. Raw application threads and external native pools
-remain application-owned.
-
-`Options::interpreter` supplies the Python home, executable, standard-library
-roots and SOABI. Its default is captured from the selected build-time CPython;
-library code never searches for an interpreter at node startup. Initialization
-uses CPython's [isolated configuration](https://docs.python.org/3.14/c-api/init_config.html):
-no ambient Python paths, user site, `.pth`/customize hooks, argv parsing, automatic
-signal handlers or bytecode writes. Import roots must be absolute and are canonicalized before initialization.
-
-Managed startup failures expose bounded stage messages. Filesystem paths,
-expected/actual ABI or distribution values, CPython initialization diagnostics
-and nested inventory errors are not retained in the public error chain. Handler,
-import and registration failures also omit Python exception values and traceback
-paths without calling arbitrary exception formatting. Combined `Incomplete`
-reports retain typed native outcomes and the Rust supervisor's own error source.
-The host controls logging of that source. Application/library output and OS
-loader diagnostics before `main` runs remain process output; embedding is not
-an output sandbox.
-
-CPython 3.14.8 can print configured paths directly from C before Python's error
-hooks exist. The main-thread bootstrap therefore briefly redirects process
-stderr to a discard sink around C initialization, flushes C output, and restores
-the original descriptor and its flags before application imports or host startup.
-A closed stderr stays closed. Start host/logging workers afterward: unrelated
-threads' stderr writes during this interval are discarded too, and callers must
-not concurrently replace or close that descriptor. Restoration failure refuses
-startup. Later Python and native logging uses the original destination.
-
-Bootstrap imports `signal` before asyncio and removes CPython's implicitly
-installed default INT handler. Disabling initialization signal handlers alone
-does not prevent that later import from installing it. Existing native host
-handlers are preserved, so the Rust host retains sole INT/TERM shutdown ownership.
-
-`Options::environment` is an explicit `Environment` value (empty by default).
-It sets Python's initial `os.environ`/`os.environb` view without removing or
-changing the Rust host's process configuration. Supply application values at
-the executable's CLI boundary. Python interpreter override keys are rejected;
-configure those through `Interpreter`. Debug output redacts environment names
-and values. This is not native-process isolation: native libraries and raw
-process APIs still have ordinary process capabilities, and user writes to
-`os.environ` retain their normal process effects.
-
-`Options::module_paths` explicitly adds installed dependency directories.
-`Source::require_distribution(name, version)` refuses startup on a missing or
-mismatched installed distribution. No request installs packages. Build and deploy
-a pinned Python runtime and dependency environment on every node. Native projects can carry a `python_environment` declaration that stages, publishes and restores the hash-verified runtime/stdlib/package archive with the executable. The installer requires an explicit `--python-root` matching its immutable prefix and never overwrites different existing contents. Bound package roots become the default import paths; startup needs no Python path flags. The process registers its inventory identity, and generation admission rejects a different declaration before running factories. Follow the [environment build/install workflow](../../tools/python/README.md).
-
-Verified inventories also declare the resolved native dependency graph and OS
-cohort. External library files retain exact hashes; macOS system-cache providers
-retain the qualified OS build and cache UUID. Installation and initialization
-refuse missing or different prerequisites. Actual loaded providers are checked
-before initialization and again after imports, before the Rust supervisor starts.
-OS libraries are provisioned with the qualified host, outside the environment
-archive. OS/library updates require recapture and rebuilding. No compiler,
-dependency inspection tool or package installer runs during node startup.
-
-This is trusted native execution: Python libraries can access the host OS and
-external services, and native extension crashes affect the entire Cellar process.
-Use async libraries for cooperative I/O. CPU-bound Python, a GIL-holding native
-extension or cancellation-suppressing code can stall the interpreter; Rust's
-handler deadline revokes SDK authority but cannot forcibly stop that Python code.
-Use the shipped Unix [`cellar supervise` process watchdog](../../tools/python/README.md#process-supervision)
-for bounded startup, liveness, hard termination and restart. Its health endpoint
-must execute through Python. A process exit or supervisor record alone is not a
-drain proof; inspect the combined native/Python report. Direct library side effects bypass
-Cellar's durability and idempotency mechanisms. Background tasks have no durable
-execution guarantee and lose SDK authority when their invocation ends. Cooperative
-tasks are cancelled at shutdown; the asyncio default thread executor is joined
-with a deadline. `Report` rejects remaining tasks or Python threads. Applications
-must join threads and private executors created by their libraries; cancelling
-`asyncio.to_thread` alone does not stop its underlying function. Multiple Python
-application generations and subinterpreters are not supported.
-
-The [design](../../plans/007-embedded-python-pyo3.md) records the broader production
-qualification work beyond this implementation.
+An oversized request is refused before native dispatch. An oversized reply may
+follow a committed effect and retain an unknown outcome. Encoding failures and
+completion-capacity refusals fail the invocation without rolling back writes;
+even a refused failure envelope does not by itself stop later runtime work.
+See [byte accounting and failure boundaries](runtime/README.md#byte-accounting-and-failure-boundaries)
+for mailbox and serialization details.
 
 ### Build-time interpreter selection
 
-Set `PYO3_PYTHON` to the selected interpreter when building the `embed` feature.
-The build rejects a different Python minor, a non-CPython ABI, mismatched
-threading ABI/layout, and
-non-shared libpython. It records home, executable, standard-library roots and
-SOABI using that interpreter's isolated `-I -S -B` startup. Native-only builds skip
-the probe entirely. This layout is not the complete verified deployment inventory
-required by [plan 007](../../plans/007-embedded-python-pyo3.md).
+Select CPython through `PYO3_PYTHON` when building the `embed` feature. Use a
+shared libpython, development headers, and matching runtime/stdlib/native wheels.
+Follow the [runnable setup](../../examples/python/README.md#install-and-run) for
+the complete local environment.
 
-Select `python3.14t` through `PYO3_PYTHON` for a free-threaded build. The shared
-library, standard library, import roots and native wheels must all match that ABI;
-a compiled host cannot switch between `314` and `314t` at runtime. The asyncio
-loop still owns handler dispatch and SDK handles. `asyncio.to_thread` and ordinary
-Python threads can run computation in parallel; SDK use stays on its original
-invocation loop, including when Python inherits contextvars into new threads.
+```sh
+# From the repository root, with a checkout-specific CARGO_TARGET_DIR:
+export PYO3_PYTHON="$(command -v python3.14)"
+cargo build --locked -p cellar-python --features embed --bin cellar-python-example
+```
 
-Cellar does not force the GIL back on or force incompatible extensions to run
-without it. CPython may enable the GIL when an extension does not declare
-free-threaded support. The example's `/health` exposes `free_threaded` (build ABI)
-and `gil_enabled` (current runtime state); its free-threaded smoke requires the
-GIL to remain disabled after real native-library work. See [CPython's free-threading
-contract](https://docs.python.org/3.14/howto/free-threading-python.html).
+| Build choice | Requirement |
+| --- | --- |
+| CPython 3.14 | Build and serve with the selected ABI and library layout. |
+| Free-threaded 3.14t | Select `python3.14t`; libpython, stdlib, import roots, and wheels must match `cp314t`. The host cannot switch ABI at runtime. |
+| Cross-build | Supply `CELLAR_PYTHON_BUILD_LAYOUT` and the target's matching libpython/PyO3 configuration; target paths must exist at runtime. |
+| Native-only build | Skips Python probing and linking. |
 
-For a cross-build, provide `CELLAR_PYTHON_BUILD_LAYOUT` with a target-layout JSON
-file instead of executing a host interpreter for paths. For free-threaded targets,
-set `gil_disabled` to `true` and use the matching `cpython-314t-...` SOABI; both
-must agree with the target PyO3 build configuration:
+The build records interpreter home, executable, stdlib roots, and SOABI through
+isolated `-I -S -B` startup. It rejects a different minor version, non-CPython ABI,
+mismatched threading layout, or non-shared libpython. This layout capture alone
+is not a verified deployment inventory.
+
+Free-threaded Python still dispatches handlers and SDK calls on the managed
+asyncio loop. Worker threads may compute in parallel, but cannot borrow SDK
+authority, even with inherited contextvars. An incompatible extension can cause
+CPython to enable the GIL. The example health endpoint distinguishes build ABI
+(`free_threaded`) from actual runtime state (`gil_enabled`).
+
+A cross-build layout has this shape:
 
 ```json
 {
@@ -416,91 +485,126 @@ must agree with the target PyO3 build configuration:
 }
 ```
 
-The target's matching libpython/PyO3 cross-build configuration is still required.
-Paths must exist on the running target and the actual ABI is checked before app
-imports. Main-thread ownership checks currently support Linux and macOS. Platform
-qualification and verified deployment closure work remain tracked in the
-[implementation plan](../../plans/007-embedded-python-pyo3.md#implementation-milestones-and-acceptance-gates).
+For 3.14t, set `gil_disabled: true` and use the matching `cpython-314t-...` SOABI.
+Main-thread ownership checks currently support Linux and macOS.
 
-Public Python APIs include type annotations. `loop.shutdown_asyncgens()` and the managed executor are closed while the loop remains alive. Background exceptions trigger a sanitized runtime failure; exception repr and traceback data are not logged by the runner. The report covers runtime-owned work and explicitly recorded native nodes; it does not certify arbitrary raw Python/native threads or the process-wide heap.
+### Package an immutable Python environment
 
-Application-import, cell-registration and cold-descriptor failures expose fixed
-stage messages. Python exceptions are discarded at that boundary, without
-formatting their values or retaining traceback/path details in the error chain.
-Other interpreter failures use a fixed message; native Rust host failures retain
-their typed combined report. Application code still controls its own explicit
-logging and process side effects.
+```text
+Pinned CPython + stdlib + installed packages + native prerequisites
+                              |
+               capture source / descriptor / ABI / hashes
+                              |
+                    inventory + environment archive
+                              |
+              cellar build binds inventory into executable
+                              |
+                     deploy -> install and verify
+                              |
+          exact immutable Python prefix + new Rust executable
+                              |
+      verify loaded providers -> import app -> admit native host
+```
 
-`PythonApplication::bridge_report()` returns independently sampled atomic counters for a host-owned metrics exporter. Conservation checks apply after quiescence, not during concurrent updates. The example emits the combined report when `CELLAR_SHUTDOWN_REPORT_JSON=1`; its smoke asserts native drain phases and zero remaining managed work/reservations.
+| Configuration | Purpose |
+| --- | --- |
+| `Options::interpreter` | Explicit home, executable, stdlib roots, and SOABI; defaults come from the selected build-time interpreter. |
+| `Options::module_paths` | Absolute, canonicalized dependency roots; bound package roots become defaults in verified builds. |
+| `Source::require_distribution(name, version)` | Refuse startup if an installed distribution is missing or mismatched. |
+| `Options::environment` | Explicit initial Python `os.environ`/`os.environb` view; empty by default. Interpreter override keys are rejected. |
+| `python_environment` project field | Bind and publish the verified runtime/package archive with the executable. |
+| `cellar install --python-root ...` | Restore at the exact immutable prefix; different existing contents are never overwritten. |
+| Host runtime inventory identity | Reject generations whose declaration differs before running application factories. |
 
-`Report::interpreter` records managed-loop wall time and that thread's CPU time
-separately from Rust turn accounting. Thread CPU includes Python and native code
-running on the interpreter thread; it excludes executor threads and native
-library pools. Handler timing includes host awaits and can overlap across
-concurrent handlers, so its sum is not process elapsed time. The report also
-records whole-process peak RSS and initial/final CPython allocated-block counts.
-These are measurements, not per-cell limits or Python-only memory attribution.
-`loop_delay` measures ready-queue checkpoint delay and housekeeping timer
-lateness, including blocking Python, GIL contention and OS scheduling; it cannot
-isolate one cause. Checkpoints cover inline pump/handler work and follow resumed
-handlers so a long housekeeping interval does not hide short blocking handlers. Time spent awaiting
-host I/O is not counted as event-loop delay.
-The exact bounded histogram layout is available through
-`LatencyReport::upper_bounds_ns()`: inclusive bounds of 1 µs, 10 µs, 100 µs,
-1 ms, 10 ms, 100 ms, 1 s and 10 s, followed by an unbounded bucket. Counts are
-noncumulative; totals saturate rather than overflow.
+Startup uses isolated CPython configuration: ambient Python paths, user site,
+`.pth`/customize hooks, argv parsing, automatic initialization signal handlers,
+and bytecode writes are disabled. Rust retains INT/TERM shutdown ownership.
+No compiler, package installer, or dependency inspection tool runs at node startup.
 
-`bridge.operations` follows every admitted SDK operation from mailbox reservation
-through native execution and managed-loop reply dequeue. It reports queued,
-running and pending-reply work, success/failure, delivered replies and separate
-queued/running/undelivered abandonment. Queue wait, native SDK duration, completion
-to reply dequeue and admission to reply dequeue have bounded histograms. Native
-SDK duration includes parsing, validation and host await time; it is not Rust CPU
-time. Reply timing includes encoding and loop scheduling, and excludes subsequent
-Python future consumption. Dropped native futures retain their duration and
-terminal accounting without calling Python. `Report::complete()` requires zero
-pending work and matching admitted/terminal and started/completed counts; this
-does not infer rollback of abandoned mutations.
+The inventory also binds native dependencies and the qualified OS cohort.
+External library hashes and macOS system-cache identities are checked; loaded
+providers are verified before initialization and again after imports. OS libraries
+remain provisioned by the qualified host. OS/library changes require recapture
+and rebuilding. Follow the [environment workflow](../../tools/python/README.md)
+for exact capture, deployment, and prerequisite checks.
 
-`reserved_bytes_total` counts successful payload reservations, including later
-abandonment. `input_copied_bytes` and `output_copied_bytes` count explicit owned
-UTF-8 and raw HTTP body copies across the adapter boundary. HTTP body
-charges conservatively include their base64-equivalent length, while copy counters
-record the raw body length actually copied across the boundary. Admission checks precede Rust-owned
-input copies; SDK operation names are bounded to 64 bytes. These counters exclude
-codec temporaries, Python UTF-8 caches and native transport/library copies. They
-are distinct from allocation bytes.
+Python's explicit environment view does not alter the Rust host's initial
+configuration. It is not process isolation: Python writes to `os.environ` and
+native libraries retain ordinary process effects. Debug formatting redacts
+configured environment names and values.
 
-`PythonApplication::interpreter_snapshot()` reads the latest owned interpreter
-observation without acquiring the GIL or waiting for a lock. `None` means no
-initial observation or a busy publisher. Check `generation` and `age_ns`: a blocked
-interpreter cannot refresh its snapshot. `Options::telemetry_interval` defaults
-to 250 ms. Samples include interpreter CPU/wall/allocated blocks, handler and loop
-timing, active tasks/invocations, resident registry objects and pending retirements.
-Retirement observations publish before destructors run, including during closed
-SDK admission. Removing an object from the registry does not certify collection
-of aliases retained by application code.
+## Shutdown, supervision, and diagnostics
 
-`Options::trace_allocations` optionally starts one-frame CPython allocation
-tracing before application imports. It defaults to false. Traced current/peak
-bytes and tracer bookkeeping bytes are `None` when disabled or unavailable.
-Tracing adds CPU/memory overhead and measures registered allocation domains;
-it does not account for every native extension's private allocator. The bootstrap
-stops its owned tracer on normal return, host failure, import failure and cold
-validation failure. It does not stop application-owned tracing when disabled.
+```text
+Cooperative Python                    Blocked Python / native extension
+        |                                          |
+stop signal -> native drain              deadline revokes SDK authority
+        |                                          |
+cancel tasks, join executor               Python may still be running
+        |                                          |
+combined native/Python Report            external process watchdog
+        |                                terminates / restarts process
+check complete(), not just exit status
+```
 
-`Report::memory` samples process RSS and available jemalloc/libc heap counters
-before interpreter initialization and after joined cleanup. Probes run outside
-node execution and interpreter ticks. Unavailable probes are `None`. Growth
-includes the host, interpreter, imports and caches. CPython remains initialized;
-libc/jemalloc counters exclude private allocators and are not Python heap limits.
-Use the [baseline harness](../../tools/python/baseline.md) to measure native/Python
-performance. Remaining qualification gates are listed in the
-[implementation plan](../../plans/007-embedded-python-pyo3.md#implementation-milestones-and-acceptance-gates).
+Use async libraries for cooperative I/O. CPU-bound Python, a GIL-holding extension,
+or code suppressing cancellation can stall the interpreter. Rust's deadline
+revokes SDK authority but cannot forcibly stop that code. The shipped Unix
+[`cellar supervise` watchdog](../../tools/python/README.md#process-supervision)
+provides bounded startup, liveness, hard termination, and restart; its health
+endpoint must execute through Python.
 
-Unraisable exceptions (including destructor failures) and unhandled Python thread
-exceptions produce failure counts and an incomplete runtime report. Default
-exception printing is replaced before application imports, so arbitrary exception
-text and object representations do not reach the process logs through those hooks.
+Applications must join their own threads and private executors. Cancelling
+`asyncio.to_thread` does not stop its underlying function. Direct library side
+effects bypass Cellar durability/idempotency, and native extension crashes can
+terminate the whole process. This is trusted native execution.
 
-Python deployment validation rejects queue consumers or cron schedules whose root event handlers were not declared, and classes absent from the source descriptor, before generation activation. Cell constructors must be synchronous; construction failures do not fabricate successful object creation/retirement counts.
+| Observation | How to interpret it |
+| --- | --- |
+| `Report::complete()` | Requires managed work, reservations, operation accounting, object retirement, failures, and all recorded native outcomes to be settled/complete. |
+| `Incomplete.report` | Retains the combined report when cleanup or host execution fails. |
+| `PythonApplication::bridge_report()` | Independently sampled atomic counters; conservation checks apply after quiescence. |
+| `PythonApplication::interpreter_snapshot()` | GIL-free, non-waiting observation; check `generation` and `age_ns`. `None` can mean no sample or a busy publisher. |
+| `Report::interpreter` | Interpreter-thread CPU, handler/loop timing, allocated blocks, and process peak RSS; not per-cell cost attribution. |
+| `Report::memory` | Before/after process and allocator samples; unavailable values are `None`. CPython remains initialized. |
+| `Options::trace_allocations` | Optional CPython tracing, off by default; adds overhead and excludes some native allocators. |
+
+The example emits the combined report with `CELLAR_SHUTDOWN_REPORT_JSON=1`.
+Task-cleanup exceptions, unraisable exceptions, and unhandled Python-thread
+exceptions make the report incomplete even if no tasks remain. Managed diagnostics
+use fixed failure stages instead of exception values and traceback paths.
+Application logging and pre-main OS loader output remain process output.
+
+See [runtime internals and diagnostics](runtime/README.md) for exact timing scopes,
+copy accounting, startup stderr handling, and cleanup invariants. A report covers
+runtime-owned work and explicitly recorded nodes; it does not certify arbitrary
+native threads or the process-wide heap.
+
+## Validate changes and find the code
+
+Use the repository Rust toolchain, selected CPython, and a checkout-specific
+`CARGO_TARGET_DIR` from [AGENTS.md](../../AGENTS.md). After preparing the example's
+dependencies, the focused checks are:
+
+```sh
+cargo test --locked -p cellar-python --features embed -- --test-threads=1
+"$PYO3_PYTHON" tools/python/test_runner.py
+python3 tools/docs/check.py
+```
+
+| Source | Responsibility |
+| --- | --- |
+| [application.rs](application.rs) | Source declarations, native application/cell proxies, original-invocation execution. |
+| [python/cellar.py](python/cellar.py) | Typed Python facade, contexts, values, storage, bindings, errors. |
+| [python/runner.py](python/runner.py) | Managed asyncio loop, handlers, tasks, object retirement, shutdown. |
+| [runtime/mod.rs](runtime/mod.rs) | Bootstrap, options, joined host supervision, report types. |
+| [runtime/bridge.rs](runtime/bridge.rs) | Native sender, invocation checks, operation admission. |
+| [read_batch.rs](read_batch.rs) | Bounded multi-key replies and pre-dispatch snapshot capture. |
+| [cellar-guest](../cellar-guest/README.md) | Shared native operations, HTTP limits, checked batches, failure provenance. |
+| [runtime guide](runtime/README.md) | Internal scheduling, initialization, accounting, and observability map. |
+
+Use the [baseline harness](../../tools/python/baseline.md) for performance and the
+[fleet fixture](../../tools/python/fleet.md) for deployment/recovery qualification.
+[Plan 007](../../plans/007-embedded-python-pyo3.md#implementation-milestones-and-acceptance-gates)
+tracks the remaining acceptance gates; local checks do not establish production
+fleet qualification.
