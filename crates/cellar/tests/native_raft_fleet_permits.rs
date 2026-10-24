@@ -9,7 +9,8 @@ mod public_node;
 
 use anyhow::{ensure, Context as _, Result};
 use cellar::application::consensus::verification::{
-    FleetCatalog, FleetCatalogError, FleetChange, FleetMutation, FleetTable,
+    Catalog, CatalogOptions, FleetCatalog, FleetCatalogError, FleetChange, FleetMutation,
+    FleetTable,
 };
 use cellar::bucket::{Bucket, StorageBackend};
 use cellar::sdk::{consensus::*, ExecutionDomain};
@@ -130,7 +131,33 @@ impl Fixture {
             binding,
             _entered: entered,
         };
-        f.change(10, FleetTable::Histories, Some(f.binding.encode()?))
+        let namespace = Catalog::new(
+            f.cluster.store.clone(),
+            CatalogOptions {
+                prefix: "partition/test".into(),
+                ..Default::default()
+            },
+        )?
+        .existing_namespace(f.registration.namespace.clone())
+        .await?;
+        let birth = namespace
+            .birth(&scope.cell)
+            .await?
+            .context("selected birth")?;
+        let snapshot = f.catalog.read(TIMEOUT).await?;
+        f.catalog
+            .enroll_history(
+                &snapshot,
+                &FleetRequestIdentity {
+                    id: [10; 16],
+                    operation: [99; 16],
+                    principal: "permit-test".into(),
+                    expected_revision: snapshot.revision(),
+                },
+                &namespace,
+                &birth,
+                TIMEOUT,
+            )
             .await?;
         // Establish a real SQL image before metadata-only enrollment changes.
         f.write(1, 5, true).await?;

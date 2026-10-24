@@ -8,6 +8,10 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 #[derive(Debug, Default)]
 pub struct Store {
+    pub hold_next_fleet_cas: AtomicBool,
+    pub fleet_cas_hang: AtomicBool,
+    pub fleet_cas_waiting: AtomicBool,
+    pub fleet_cas_resume: tokio::sync::Notify,
     pub hold_next_fleet_read: AtomicBool,
     pub hold_fleet_reads: AtomicBool,
     pub fleet_read_hang: AtomicBool,
@@ -199,6 +203,22 @@ impl ObjectStore for Store {
         }
         if path.filename() == Some("head") && self.fail_head_before.swap(false, Ordering::AcqRel) {
             return Err(failure());
+        }
+        if path.as_ref().ends_with("/fleet/head")
+            && matches!(options.mode, PutMode::Update(_))
+            && self.hold_next_fleet_cas.swap(false, Ordering::AcqRel)
+        {
+            self.fleet_cas_waiting.store(true, Ordering::Release);
+            let _waiting = BirthWaiting(&self.fleet_cas_waiting);
+            loop {
+                let resumed = self.fleet_cas_resume.notified();
+                tokio::pin!(resumed);
+                resumed.as_mut().enable();
+                if !self.fleet_cas_hang.load(Ordering::Acquire) {
+                    break;
+                }
+                resumed.await;
+            }
         }
         let result = self.inner.put_opts(path, payload, options).await?;
         if path.as_ref().contains("/archives/bundles/")

@@ -1,5 +1,7 @@
 //! Low-level immutable birth selection gates for the managed enrollment work.
 //! The complete dynamic host/trust inventory remains part of FO-03 delivery.
+#[path = "support/raft_birth_admission.rs"]
+mod births;
 #[path = "support/raft_catalog_fault.rs"]
 mod fault;
 #[path = "support/raft_enrollment_native.rs"]

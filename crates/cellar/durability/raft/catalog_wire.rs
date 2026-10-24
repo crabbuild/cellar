@@ -113,6 +113,15 @@ pub(super) struct Root {
     pub storage_prefix: String,
     pub minimum_s3: bool,
     pub single_voter_development: bool,
+    #[serde(deserialize_with = "required_nullable")]
+    pub managed_fleet: Option<ManagedOwner>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct ManagedOwner {
+    fleet: [u8; 16],
+    catalog: [u8; 32],
 }
 
 impl Root {
@@ -126,12 +135,24 @@ impl Root {
             storage_prefix: prefix,
             minimum_s3: config.minimum_durability == cellar_logic::consensus::Durability::S3,
             single_voter_development: config.voters == VoterPolicy::SingleVoterDevelopment,
+            managed_fleet: config.managed_fleet.as_ref().map(|owner| ManagedOwner {
+                fleet: owner.fleet,
+                catalog: owner.catalog,
+            }),
         }
     }
 
     pub fn validate(&self) -> Result<(), CatalogError> {
         ClusterId::new(self.cluster).map_err(|_| CatalogError::Corrupt("root cluster"))?;
         NamespaceId::new(self.namespace).map_err(|_| CatalogError::Corrupt("root namespace"))?;
+        if let Some(owner) = &self.managed_fleet {
+            cellar_logic::consensus::IncarnationId::new(owner.fleet)
+                .map_err(|_| CatalogError::Corrupt("root fleet"))?;
+            if owner.catalog == [0; 32] || self.mode != Mode::Raft || self.single_voter_development
+            {
+                return Err(CatalogError::Corrupt("managed namespace policy"));
+            }
+        }
         if self.schema_digest == [0; 32]
             || self.protocol_digest != crate::application::consensus::protocol::protocol_identity()
         {
@@ -165,6 +186,7 @@ mod tests {
             "cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1/nodes-1/bundles-1",
             "cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1/nodes-1/bundles-1/fleet-1",
             "cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1/nodes-1/bundles-1/fleet-1/enrollment-1",
+            "cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1/nodes-1/bundles-1/fleet-1/enrollment-1/node-probes-1",
         ] {
             root.protocol_digest = Sha256::digest(protocol.as_bytes()).into();
             let encoded = encode(ROOT, &root, 64 * 1024).unwrap();

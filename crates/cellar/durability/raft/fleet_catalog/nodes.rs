@@ -63,23 +63,23 @@ pub struct FleetRequestIdentity {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct NodeRecord {
+pub(super) struct NodeRecord {
     fleet: [u8; 16],
     cluster: [u8; 16],
-    node: [u8; 16],
+    pub(super) node: [u8; 16],
     disk: [u8; 16],
-    physical_host: [u8; 16],
+    pub(super) physical_host: [u8; 16],
     label: String,
     server_name: String,
     capability_digest: [u8; 32],
     registration: [u8; 16],
     registration_operation: [u8; 16],
-    state: FleetNodeState,
+    pub(super) state: FleetNodeState,
     epoch: u64,
     #[serde(deserialize_with = "required_nullable")]
     operation: Option<[u8; 16]>,
     #[serde(deserialize_with = "required_nullable")]
-    storage_instance: Option<[u8; 16]>,
+    pub(super) storage_instance: Option<[u8; 16]>,
 }
 
 fn required_nullable<'de, T: Deserialize<'de>, D: serde::Deserializer<'de>>(
@@ -569,7 +569,7 @@ impl FleetCatalog {
         self.run(timeout, self.host_from(snapshot, node)).await
     }
 
-    async fn node_records(&self, snapshot: &FleetSnapshot) -> Result<Vec<NodeRecord>> {
+    pub(super) async fn node_records(&self, snapshot: &FleetSnapshot) -> Result<Vec<NodeRecord>> {
         let page = self
             .inner
             .scan(

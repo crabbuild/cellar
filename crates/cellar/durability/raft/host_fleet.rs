@@ -92,7 +92,9 @@ impl Driver {
                     authorization,
                     expected,
                 } => {
-                    if !authorization.matches_scope(&request.scope) {
+                    if !authorization.matches_scope(&request.scope)
+                        || !authorization.matches_birth(&cell.birth, cell.schema_digest)
+                    {
                         return Err(CommandFailure::CommandConflict);
                     }
                     let binding = authorization.binding();

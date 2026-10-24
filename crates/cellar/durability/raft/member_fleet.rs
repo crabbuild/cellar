@@ -70,12 +70,6 @@ impl FleetGroupBinding {
         encode_record(45, self)
     }
 
-    pub(crate) fn decode(bytes: &[u8]) -> Result<Self, LogError> {
-        let binding: Self = decode_record(45, bytes)?;
-        binding.validate()?;
-        Ok(binding)
-    }
-
     fn validate(&self) -> Result<(), LogError> {
         IncarnationId::new(self.fleet).map_err(|_| invalid())?;
         ClusterId::new(self.cluster).map_err(|_| invalid())?;

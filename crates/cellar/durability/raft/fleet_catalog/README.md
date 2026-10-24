@@ -38,6 +38,50 @@ CAS contract. Strong exact-key consistency and actual conditional-write behavior
 must be verified on the deployed backend. Prefixes and fleet incarnation are
 explicit constructor inputs; missing/corrupt state is never an empty inventory.
 
+## History and birth admission
+
+`bind_namespace` prepares a fresh namespace configuration with an immutable
+birth owner. The owner binds the fleet incarnation and exact scoped catalog key;
+changing catalog prefixes cannot issue an untracked competing birth. The existing
+unmanaged root cannot be rewritten by opening it with this configuration.
+Managed roots refuse ordinary `resolve_birth` and `cancel_birth` calls.
+
+`reserve_birth` atomically indexes the exact history and permanent cell name
+before returning an opaque `FleetBirthAuthorization`. Initial RF3 placement
+requires three active, engine-pinned nodes on distinct declared physical hosts.
+The same root CAS orders admission against node-state changes. A delayed writer
+can finish after drain begins only if its history reference was already admitted.
+Capacity feasibility, readiness acknowledgement and legal node-state transitions
+still require their own controller boundaries; the reservation is not that proof.
+
+History records retain schema, namespace-root and expected live-birth digests,
+initial member/node references, admission identity and `Reserved`, `Live` or
+`Cancelled` state. The root maintains the history count through every catalog
+mutation, bounded to 10,000 entries without a per-birth full inventory scan.
+Each record is at most 4 KiB. The initial references describe genesis, never
+current membership or absence from a node.
+
+`resolve_managed_birth` writes only the reserved decision and checks its exact
+winner. `cancel_managed_birth` competes at that same immutable name key.
+`confirm_birth` observes the exact winner and commits its disposition in the
+fleet root. Missing replies, expired deadlines and missing birth keys preserve
+the reservation; retry the original request identity/payload and reconcile it.
+Cancelled histories and their names remain retained. Neither a pending nor a
+cancelled history can mint group or membership authorization.
+
+`enroll_history` registers one already observed immutable birth for import. It
+does not assert that an import is complete, quiesce legacy creators, convert an
+unmanaged namespace or authorize maintenance/removal. Those lifecycle checks
+remain pending. Group enrollment, managed-host startup and dormant registration
+also compare the recorded birth digest and schema with their actual birth.
+Ordinary `bootstrap_member` can only resume an already enrolled managed group;
+it refuses fresh or bare genesis before creating local group state or a member
+claim. Guarded initial-member initialization remains an integration prerequisite.
+
+This experimental protocol hard-cuts to `/birth-admission-1`; use fresh namespaces
+and matching binaries. Namespace roots and history records have no legacy reader.
+Numeric format markers remain 1.
+
 ## Opaque capabilities and committed consumption
 
 `FleetGroupBinding` describes fleet incarnation and exact cell history.

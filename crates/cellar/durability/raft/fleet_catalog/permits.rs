@@ -7,9 +7,28 @@ use cellar_logic::consensus::GroupScope;
 #[derive(Clone, Debug)]
 pub struct FleetGroupAuthorization {
     binding: FleetGroupBinding,
+    history: Box<super::histories::FleetHistory>,
 }
 
 impl FleetGroupAuthorization {
+    pub(crate) fn check_birth(
+        &self,
+        namespace: &crate::raft::catalog::NamespaceCatalog,
+        birth: &crate::raft::catalog::GroupBirth,
+    ) -> bool {
+        self.history.check_birth(namespace, birth)
+    }
+
+    pub(crate) fn matches_birth(
+        &self,
+        birth: &crate::raft::catalog::GroupBirth,
+        schema: [u8; 32],
+    ) -> bool {
+        self.matches_scope(birth.scope())
+            && self.history.birth_digest() == birth.digest()
+            && self.history.schema_digest() == schema
+    }
+
     pub(crate) fn binding(&self) -> &FleetGroupBinding {
         &self.binding
     }
@@ -54,12 +73,18 @@ impl FleetCatalog {
                 .lookup(snapshot.head.tables[FleetTable::Histories.slot()], &key)
                 .await?
                 .ok_or(FleetCatalogError::Conflict)?;
-            let actual = FleetGroupBinding::decode(&bytes)
-                .map_err(|_| FleetCatalogError::Corrupt("group binding"))?;
+            let history = super::histories::FleetHistory::decode(&bytes)?;
+            let actual = history.binding().clone();
             if actual != expected {
                 return Err(FleetCatalogError::Conflict);
             }
-            Ok(FleetGroupAuthorization { binding: actual })
+            if *history.state() != FleetHistoryState::Live {
+                return Err(FleetCatalogError::Conflict);
+            }
+            Ok(FleetGroupAuthorization {
+                binding: actual,
+                history: Box::new(history),
+            })
         })
         .await
     }
@@ -83,10 +108,8 @@ impl FleetCatalog {
                 .lookup(snapshot.head.tables[FleetTable::Histories.slot()], &key)
                 .await?
                 .ok_or(FleetCatalogError::Conflict)?;
-            if FleetGroupBinding::decode(&group)
-                .map_err(|_| FleetCatalogError::Corrupt("group binding"))?
-                != expected
-            {
+            let history = super::histories::FleetHistory::decode(&group)?;
+            if history.binding() != &expected || *history.state() != FleetHistoryState::Live {
                 return Err(FleetCatalogError::Conflict);
             }
             let bytes = self
@@ -104,7 +127,7 @@ impl FleetCatalog {
         .await
     }
 
-    fn binding(&self, scope: &GroupScope) -> Result<FleetGroupBinding> {
+    pub(super) fn binding(&self, scope: &GroupScope) -> Result<FleetGroupBinding> {
         if scope.cluster.bytes() != self.inner.cluster {
             return Err(FleetCatalogError::Conflict);
         }

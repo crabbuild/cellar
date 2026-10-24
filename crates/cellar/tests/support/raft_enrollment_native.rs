@@ -3,7 +3,7 @@
 use super::{fault, public_node};
 use anyhow::{ensure, Result};
 use cellar::application::consensus::verification::{
-    Catalog, FleetCatalog, FleetCatalogError, FleetChange, FleetMutation, FleetTable,
+    Catalog, FleetCatalog, FleetCatalogError, FleetChange, FleetHistory, FleetMutation, FleetTable,
     GroupBootstrap, ReplicaLog,
 };
 use cellar::bucket::{Bucket, StorageBackend};
@@ -571,7 +571,7 @@ impl Fixture {
             group: GroupId::new([id; 16])?,
             incarnation: IncarnationId::new([3; 16])?,
         };
-        namespace
+        let birth = namespace
             .resolve_birth(BirthProposal {
                 scope: scope.clone(),
                 voters: (1..=3)
@@ -585,23 +585,14 @@ impl Fixture {
                 learners: vec![],
             })
             .await?;
-        let binding = FleetGroupBinding::new(IncarnationId::new([80; 16])?, &scope)?;
         let snapshot = self.catalog.read(TIMEOUT).await?;
         let commit = self
             .catalog
-            .commit(
+            .enroll_history(
                 &snapshot,
-                &FleetMutation {
-                    id: [id; 16],
-                    operation: [100; 16],
-                    principal: "enrollment-test".into(),
-                    expected_revision: snapshot.revision(),
-                    changes: vec![FleetChange {
-                        table: FleetTable::Histories,
-                        key: binding.key()?,
-                        value: Some(binding.encode()?),
-                    }],
-                },
+                &Self::request(id, snapshot.revision()),
+                &namespace,
+                &birth,
                 TIMEOUT,
             )
             .await?;
@@ -609,6 +600,43 @@ impl Fixture {
             .catalog
             .authorize_group(&commit.snapshot, &scope, TIMEOUT)
             .await?)
+    }
+
+    // A malicious/inconsistent rooted import can describe a birth in another
+    // namespace root. Dynamic registration must still reject it at its owning
+    // class/name/birth boundary rather than clobber an existing binding.
+    async fn inconsistent_history(&self, scope: &GroupScope, id: u8) -> Result<Vec<u8>> {
+        let namespace = Catalog::new(
+            self.store.clone(),
+            CatalogOptions {
+                prefix: format!("inconsistent-{id}/"),
+                ..Default::default()
+            },
+        )?
+        .open_namespace(self.declaration.namespace.clone())
+        .await?;
+        let birth = namespace
+            .resolve_birth(BirthProposal {
+                scope: scope.clone(),
+                voters: (1..=3)
+                    .map(|n| {
+                        Ok(InitialMember {
+                            member: MemberId::new(n)?,
+                            node: NodeId::new([n as u8; 16])?,
+                        })
+                    })
+                    .collect::<Result<Vec<_>>>()?,
+                learners: vec![],
+            })
+            .await?;
+        Ok(FleetHistory::observed(
+            IncarnationId::new([80; 16])?,
+            &namespace,
+            &birth,
+            ProposalId::new([id; 16])?,
+            ProposalId::new([100; 16])?,
+        )?
+        .encode()?)
     }
 
     async fn empty_host(&self) -> Result<(tempfile::TempDir, cellar::sdk::Node, RaftCells)> {
@@ -1161,7 +1189,7 @@ async fn fleet_enrollment_dynamic_bounds() -> Result<()> {
                 changes: vec![FleetChange {
                     table: FleetTable::Histories,
                     key: binding.key()?,
-                    value: Some(binding.encode()?),
+                    value: Some(f.inconsistent_history(&conflicting, 89).await?),
                 }],
             },
             TIMEOUT,
@@ -1249,6 +1277,62 @@ async fn fleet_enrollment_dynamic_cancelled_read() -> Result<()> {
         .register_managed_history(authorization, TIMEOUT)
         .await?;
     ensure!(cell.inspect().await?.occupancy == ReplicaOccupancy::Standby);
+    node.shutdown(ShutdownMode::Preserve).await?;
+    f.domain.shutdown().await;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn fleet_enrollment_dynamic_birth_digest() -> Result<()> {
+    let f = Fixture::new().await?;
+    let (_root, node, host) = f.empty_host().await?;
+    let authorization = f.history(40).await?;
+    let scope = GroupScope {
+        cluster: f.declaration.namespace.cluster,
+        namespace: f.declaration.namespace.namespace,
+        cell: "Counter:dynamic-40".into(),
+        group: GroupId::new([40; 16])?,
+        incarnation: IncarnationId::new([3; 16])?,
+    };
+    let binding = FleetGroupBinding::new(IncarnationId::new([80; 16])?, &scope)?;
+    let root = f.catalog.read(TIMEOUT).await?;
+    let bytes = f
+        .catalog
+        .get(&root, FleetTable::Histories, &binding.key()?, TIMEOUT)
+        .await?
+        .unwrap();
+    let value: serde_json::Value = serde_json::from_slice(&bytes[13..bytes.len() - 32])?;
+    let payload = std::str::from_utf8(&bytes[13..bytes.len() - 32])?.replace(
+        &format!("\"birth_digest\":{}", value["birth_digest"]),
+        &format!("\"birth_digest\":{}", serde_json::json!(vec![91; 32])),
+    );
+    use sha2::{Digest, Sha256};
+    let mut updated = bytes[..9].to_vec();
+    updated.extend_from_slice(&(payload.len() as u32).to_be_bytes());
+    updated.extend_from_slice(payload.as_bytes());
+    updated.extend_from_slice(&Sha256::digest(&updated));
+    f.catalog
+        .commit(
+            &root,
+            &FleetMutation {
+                id: [90; 16],
+                operation: [100; 16],
+                principal: "enrollment-test".into(),
+                expected_revision: root.revision(),
+                changes: vec![FleetChange {
+                    table: FleetTable::Histories,
+                    key: binding.key()?,
+                    value: Some(updated),
+                }],
+            },
+            TIMEOUT,
+        )
+        .await?;
+    ensure!(matches!(
+        host.register_managed_history(authorization, TIMEOUT).await,
+        Err(CommandFailure::CommandConflict)
+    ));
+    ensure!(host.observe_node(TIMEOUT).await?.registered_histories == 0);
     node.shutdown(ShutdownMode::Preserve).await?;
     f.domain.shutdown().await;
     Ok(())
@@ -1347,7 +1431,7 @@ async fn fleet_enrollment_dynamic_undeclared_class() -> Result<()> {
                 changes: vec![FleetChange {
                     table: FleetTable::Histories,
                     key: binding.key()?,
-                    value: Some(binding.encode()?),
+                    value: Some(f.inconsistent_history(&scope, 90).await?),
                 }],
             },
             TIMEOUT,

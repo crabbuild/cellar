@@ -32,7 +32,8 @@ pub use crate::raft::effects::{
 pub use crate::raft::receipt_maintenance::ReceiptMaintenanceLimits;
 
 pub use crate::raft::catalog::{
-    BirthDisposition, BirthProposal, CatalogOptions, InitialMember, NamespaceConfig, VoterPolicy,
+    BirthDisposition, BirthProposal, CatalogOptions, InitialMember, ManagedBirthOwner,
+    NamespaceConfig, VoterPolicy,
 };
 pub use cellar_logic::raft_leadership::LeaderPolicy;
 pub use cellar_logic::raft_placement::PlacementPolicy;
@@ -110,7 +111,8 @@ pub mod verification {
         PrivateExecutor, PrivateOptions, RegisteredQueryOutput, StageOutcome, StoredReceipt,
     };
     pub use crate::raft::fleet_catalog::{
-        FleetCatalog, FleetCatalogError, FleetChange, FleetCommit, FleetCursor, FleetEntry,
+        FleetBirthAuthorization, FleetBirthReservation, FleetCatalog, FleetCatalogError,
+        FleetChange, FleetCommit, FleetCursor, FleetEntry, FleetHistory, FleetHistoryState,
         FleetMutation, FleetPage, FleetSnapshot, FleetTable,
     };
     pub use crate::raft::inspection::{

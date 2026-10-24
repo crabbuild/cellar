@@ -1,11 +1,15 @@
 //! Bounded CAS coordination. These records never grant Raft membership or votes.
 //! A retained mutation journal resolves ambiguous writes after later revisions.
 
+mod histories;
 mod index;
 mod nodes;
 mod permits;
 mod records;
 
+pub use histories::{
+    FleetBirthAuthorization, FleetBirthReservation, FleetHistory, FleetHistoryState,
+};
 pub use nodes::{
     FleetHostAuthorization, FleetNodeEligibility, FleetNodeSpec, FleetNodeState,
     FleetRequestIdentity,
@@ -31,6 +35,7 @@ const PAGE_KIND: u8 = 41;
 const REQUEST_KIND: u8 = 42;
 const PIN_KIND: u8 = 43;
 const COMMIT_KIND: u8 = 44;
+const HISTORY_LIMIT: u64 = 10_000;
 
 #[derive(Debug)]
 pub enum FleetCatalogError {
@@ -299,6 +304,27 @@ impl FleetCatalog {
             .ok_or(FleetCatalogError::Limit)?;
         for change in &mutation.changes {
             let slot = change.table.slot();
+            if change.table == FleetTable::Histories {
+                let existed = self
+                    .inner
+                    .lookup(next.tables[slot], &change.key)
+                    .await?
+                    .is_some();
+                next.history_count = match (existed, change.value.is_some()) {
+                    (false, true) => next
+                        .history_count
+                        .checked_add(1)
+                        .ok_or(FleetCatalogError::Limit)?,
+                    (true, false) => next
+                        .history_count
+                        .checked_sub(1)
+                        .ok_or(FleetCatalogError::Corrupt("history count"))?,
+                    _ => next.history_count,
+                };
+                if next.history_count > HISTORY_LIMIT {
+                    return Err(FleetCatalogError::Limit);
+                }
+            }
             next.tables[slot] = self
                 .inner
                 .update(next.tables[slot], &change.key, change.value.clone(), 0)
@@ -369,6 +395,8 @@ impl Inner {
             || head.incarnation != self.incarnation
             || head.revision == 0
             || head.format != 1
+            || head.history_count > HISTORY_LIMIT
+            || head.tables[FleetTable::Histories.slot()].is_none() && head.history_count != 0
         {
             return Err(FleetCatalogError::Corrupt("fleet identity/revision"));
         }

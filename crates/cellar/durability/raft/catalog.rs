@@ -33,6 +33,7 @@ pub enum CatalogError {
     WrongMode,
     NotInitialMember,
     BirthCancelled,
+    ManagedAdmissionRequired,
     LostStableState,
     Unconfirmed,
     Storage(object_store::Error),
@@ -74,6 +75,12 @@ pub enum VoterPolicy {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ManagedBirthOwner {
+    pub(crate) fleet: [u8; 16],
+    pub(crate) catalog: [u8; 32],
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NamespaceConfig {
     pub cluster: ClusterId,
     pub namespace: NamespaceId,
@@ -81,6 +88,9 @@ pub struct NamespaceConfig {
     pub schema_digest: [u8; 32],
     pub minimum_durability: Durability,
     pub voters: VoterPolicy,
+    /// Immutable birth-admission owner. Managed namespaces refuse the ordinary
+    /// creation API; each birth needs an inventoried fleet reservation.
+    pub managed_fleet: Option<ManagedBirthOwner>,
 }
 
 impl NamespaceConfig {
@@ -97,6 +107,7 @@ impl NamespaceConfig {
             schema_digest,
             minimum_durability: Durability::Quorum,
             voters: VoterPolicy::ThreeVoters,
+            managed_fleet: None,
         }
     }
 }
@@ -441,6 +452,25 @@ impl NamespaceCatalog {
         if remote.is_some() && local.is_none() {
             return Err(CatalogError::LostStableState);
         }
+        if let Some(owner) = &self.config.managed_fleet {
+            let enrolled = match &local {
+                Some(group) => {
+                    group.birth_digest == birth.digest
+                        && group
+                            .membership()
+                            .map_err(CatalogError::Log)?
+                            .fleet_status()
+                            .is_some_and(|status| {
+                                status.binding.fleet() == owner.fleet
+                                    && status.binding.matches_scope(&birth.scope)
+                            })
+                }
+                None => false,
+            };
+            if !enrolled {
+                return Err(CatalogError::ManagedAdmissionRequired);
+            }
+        }
         // This call either durably creates genesis or verifies the existing
         // mapping's exact member, birth digest and initial ConfState.
         let local = log
@@ -597,7 +627,7 @@ impl NamespaceCatalog {
         }))
     }
 
-    fn check_birth(&self, birth: &GroupBirth) -> Result<(), CatalogError> {
+    pub(crate) fn check_birth(&self, birth: &GroupBirth) -> Result<(), CatalogError> {
         self.check_scope(&birth.scope)?;
         if birth.root_digest != self.root_digest
             || !Arc::ptr_eq(&birth.catalog_owner, &self.inner.owner)
@@ -605,6 +635,10 @@ impl NamespaceCatalog {
             return Err(CatalogError::Conflict("birth catalog binding"));
         }
         Ok(())
+    }
+
+    pub(crate) fn root_digest(&self) -> [u8; 32] {
+        self.root_digest
     }
 
     fn check_scope(&self, scope: &GroupScope) -> Result<(), CatalogError> {

@@ -29,6 +29,9 @@ impl NamespaceCatalog {
     /// retry never overwrites that record or substitutes another incarnation.
     /// A permanent cancelled-name tombstone refuses late creation.
     pub async fn resolve_birth(&self, proposal: BirthProposal) -> Result<GroupBirth, CatalogError> {
+        if self.config.managed_fleet.is_some() {
+            return Err(CatalogError::ManagedAdmissionRequired);
+        }
         self.select_birth(proposal, None).await?.live()
     }
 
@@ -41,6 +44,52 @@ impl NamespaceCatalog {
     /// The caller must reconcile its identity rather than claim this request
     /// cancelled a different incarnation. The name remains reserved permanently.
     pub async fn cancel_birth(
+        &self,
+        proposal: BirthProposal,
+        operation: ProposalId,
+        timeout: Duration,
+    ) -> Result<BirthDisposition, CatalogError> {
+        if self.config.managed_fleet.is_some() {
+            return Err(CatalogError::ManagedAdmissionRequired);
+        }
+        self.cancel_selected_birth(proposal, operation, timeout)
+            .await
+    }
+
+    /// A reservation remains inventoried even if drain wins a later revision.
+    /// Cancellation contends on the same birth key and never erases a live birth.
+    pub async fn cancel_managed_birth(
+        &self,
+        authorization: &super::super::fleet_catalog::FleetBirthAuthorization,
+        operation: ProposalId,
+        timeout: Duration,
+    ) -> Result<BirthDisposition, CatalogError> {
+        authorization.check_namespace(self)?;
+        self.cancel_selected_birth(authorization.proposal(), operation, timeout)
+            .await
+    }
+
+    pub async fn resolve_managed_birth(
+        &self,
+        authorization: &super::super::fleet_catalog::FleetBirthAuthorization,
+        timeout: Duration,
+    ) -> Result<GroupBirth, CatalogError> {
+        authorization.check_namespace(self)?;
+        if timeout.is_zero() || timeout > Duration::from_secs(60) {
+            return Err(CatalogError::Invalid("managed birth timeout"));
+        }
+        let birth =
+            crate::asyncrt::timeout(timeout, self.select_birth(authorization.proposal(), None))
+                .await
+                .map_err(|_| CatalogError::Unconfirmed)??
+                .live()?;
+        if !authorization.check_birth(self, &birth) {
+            return Err(CatalogError::Conflict("reserved birth winner"));
+        }
+        Ok(birth)
+    }
+
+    async fn cancel_selected_birth(
         &self,
         proposal: BirthProposal,
         operation: ProposalId,
@@ -107,6 +156,42 @@ impl NamespaceCatalog {
         let observed = self.inner.create_and_observe(&key, &bytes).await?;
         self.decode_birth_disposition(&proposal.scope.cell, &observed)
             .await
+    }
+
+    /// Canonical expected live decision, before any storage mutation. This is
+    /// also used to bind the rooted reservation to its exact delayed writer.
+    pub(crate) fn prepare_birth(
+        &self,
+        mut proposal: BirthProposal,
+    ) -> Result<(BirthProposal, [u8; 32]), CatalogError> {
+        self.require_mode(NamespaceMode::Raft)?;
+        self.check_scope(&proposal.scope)?;
+        if proposal.voters.len() > 32 || proposal.learners.len() > 32 {
+            return Err(CatalogError::Invalid("initial member count"));
+        }
+        proposal.voters.sort_by_key(|m| m.member);
+        proposal.learners.sort_by_key(|m| m.member);
+        self.check_members(&proposal.voters, &proposal.learners)?;
+        let birth = wire::Birth {
+            root_digest: self.root_digest,
+            scope: WireScope::from(&proposal.scope),
+            voters: proposal
+                .voters
+                .iter()
+                .copied()
+                .map(wire::Member::encode)
+                .collect(),
+            learners: proposal
+                .learners
+                .iter()
+                .copied()
+                .map(wire::Member::encode)
+                .collect(),
+            empty_digest: wire::digest(&[]),
+            cancelled_by: None,
+        };
+        let digest = wire::digest(&wire::encode(wire::BIRTH, &birth, self.inner.limit)?);
+        Ok((proposal, digest))
     }
 
     pub async fn birth(&self, cell: &str) -> Result<Option<GroupBirth>, CatalogError> {

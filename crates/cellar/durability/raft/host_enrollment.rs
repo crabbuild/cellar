@@ -49,6 +49,14 @@ impl RaftManagedHostOptions {
             hasher.update(entry.namespace.cluster.bytes());
             hasher.update(entry.namespace.namespace.bytes());
             hasher.update(entry.namespace.schema_digest);
+            match &entry.namespace.managed_fleet {
+                Some(owner) => {
+                    hasher.update([1]);
+                    hasher.update(owner.fleet);
+                    hasher.update(owner.catalog);
+                }
+                None => hasher.update([0]),
+            }
             hasher.update([match entry.namespace.minimum_durability {
                 Durability::Quorum => 1,
                 Durability::S3 => 2,
@@ -125,6 +133,10 @@ pub(super) async fn prepare(
         let authorization = auth
             .group_authorization(scope, std::time::Duration::from_secs(5))
             .await?;
+        anyhow::ensure!(
+            authorization.check_birth(&cell.namespace, &cell.birth),
+            "managed history birth/schema mismatch"
+        );
         match service.log.group(scope) {
             Ok(group) => anyhow::ensure!(
                 group

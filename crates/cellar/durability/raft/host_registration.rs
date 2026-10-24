@@ -105,7 +105,9 @@ impl Driver {
                     CatalogError::Corrupt(_) => CommandFailure::CorruptState,
                     _ => CommandFailure::Unavailable,
                 })?.ok_or(CommandFailure::CommandConflict)?;
-                if birth.scope() != &scope { return Err(CommandFailure::CommandConflict); }
+                if birth.scope() != &scope || !fresh.check_birth(&namespace, &birth) {
+                    return Err(CommandFailure::CommandConflict);
+                }
                 Ok(Prepared { scope, namespace, birth, class })
             };
             let prepared = crate::asyncrt::select_biased! { "registration cancellation precedes metadata publication";

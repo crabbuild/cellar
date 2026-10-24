@@ -18,7 +18,10 @@ trust revision without constructing a cell. Current enrollment state/epoch is
 separate from startup enrollment, and metadata grants no membership, capacity
 activation or removal proof. The [fleet catalog contract](fleet_catalog/README.md)
 describes identity, response bounds, cancellation and remaining management work.
-The experimental namespace protocol now ends in `/node-probes-1`; use fresh
+Fresh managed namespace roots require rooted birth reservations before creation;
+their histories retain exact birth/schema identity and pending node references.
+Import completeness and removal proof remain separate delivery work.
+The experimental namespace protocol now ends in `/birth-admission-1`; use fresh
 namespaces and matching binaries, with numeric markers retained at 1.
 
 `RaftClass::immutable_blobs(RaftBlobLimits)` enables bounded immutable values and

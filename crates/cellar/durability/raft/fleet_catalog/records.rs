@@ -84,6 +84,7 @@ pub(super) struct Head {
     pub revision: u64,
     pub tables: [Option<[u8; 32]>; 5],
     pub journal: Option<[u8; 32]>,
+    pub history_count: u64,
 }
 
 impl Head {
@@ -95,6 +96,7 @@ impl Head {
             revision: 1,
             tables: [None; 5],
             journal: None,
+            history_count: 0,
         }
     }
 }

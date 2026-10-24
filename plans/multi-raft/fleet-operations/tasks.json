@@ -317,7 +317,11 @@
         "crates/cellar/durability/raft/transport_directory.rs",
         "crates/cellar/durability/raft/transport_directory_tests.rs",
         "crates/cellar/durability/raft/inspection_identity.rs",
-        "crates/cellar/durability/raft/mod.rs"
+        "crates/cellar/durability/raft/mod.rs",
+        "crates/cellar/durability/raft/fleet_catalog/records.rs",
+        "crates/cellar/durability/raft/fleet_catalog/permits.rs",
+        "crates/cellar/durability/raft/member_fleet.rs",
+        "crates/cellar/tests/native_raft_fleet_permits.rs"
       ],
       "creates": [
         "crates/cellar/tests/native_raft_fleet_enrollment.rs",
@@ -335,7 +339,9 @@
         "crates/cellar/durability/raft/node_inspection_transport.rs",
         "crates/cellar/durability/raft/node_inspection_wire.rs",
         "crates/cellar/durability/raft/node_inspection_auth_tests.rs",
-        "crates/cellar/durability/raft/node_inspection_wire_tests.rs"
+        "crates/cellar/durability/raft/node_inspection_wire_tests.rs",
+        "crates/cellar/durability/raft/fleet_catalog/histories.rs",
+        "crates/cellar/tests/support/raft_birth_admission.rs"
       ],
       "steps": [
         "Add CAS-authorized node-set revisions with bounded route and permission refresh.",
@@ -624,6 +630,93 @@
           "invariants": [
             "F06",
             "F07"
+          ]
+        },
+        {
+          "name": "fleet_birth_reservation_managed_gate",
+          "oracle": "Managed immutable roots refuse ordinary creation/cancellation and another catalog key scope; only a confirmed exact birth can mint enrollment authority.",
+          "invariants": [
+            "F02",
+            "F04",
+            "F05"
+          ]
+        },
+        {
+          "name": "fleet_birth_reservation_drain_race",
+          "oracle": "An admitted delayed birth remains inventoried after drain; a held admission CAS loses to a concurrent drain and cannot mint authority. This adapter case does not certify full evacuation.",
+          "invariants": [
+            "F03",
+            "F05",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_birth_reservation_lost_reply",
+          "oracle": "A fresh adapter reconciles a lost admission response after a later drain revision; changing its admitted payload is refused.",
+          "invariants": [
+            "F03",
+            "F04",
+            "F05"
+          ]
+        },
+        {
+          "name": "fleet_birth_reservation_cancelled_writer",
+          "oracle": "Cancellation defeats a held admitted birth; its history/name remain retained and cannot authorize membership or name reuse.",
+          "invariants": [
+            "F02",
+            "F04",
+            "F05"
+          ]
+        },
+        {
+          "name": "fleet_birth_reservation_domains",
+          "oracle": "Initial RF3 birth admission rejects repeated declared physical hosts before creating a birth. This does not qualify later movement placement.",
+          "invariants": [
+            "F02",
+            "F09"
+          ]
+        },
+        {
+          "name": "fleet_birth_reservation_admission_bounds",
+          "oracle": "Invalid request bounds/deadlines, unknown nodes and ineligible registered nodes cannot admit an initial placement.",
+          "invariants": [
+            "F06",
+            "F07"
+          ]
+        },
+        {
+          "name": "fleet_birth_reservation_timeout_retains_intent",
+          "oracle": "An expired physical birth attempt leaves its rooted reservation intact and retry resolves that same history.",
+          "invariants": [
+            "F03",
+            "F05",
+            "F08"
+          ]
+        },
+        {
+          "name": "fleet_enrollment_dynamic_birth_digest",
+          "oracle": "A changed rooted birth digest under the same history binding cannot register dormant metadata against the actual immutable birth.",
+          "invariants": [
+            "F02",
+            "F05"
+          ]
+        },
+        {
+          "name": "fleet_birth_reservation_corrupt_confirmation",
+          "oracle": "Corrupt immutable birth bytes remain a typed corruption error; no confirmation or reservation release occurs.",
+          "invariants": [
+            "F03",
+            "F05",
+            "F07"
+          ]
+        },
+        {
+          "name": "fleet_birth_reservation_unguarded_genesis",
+          "oracle": "Ordinary bootstrap refuses fresh and bare managed genesis without creating a member claim or attaching a voter.",
+          "invariants": [
+            "F01",
+            "F04",
+            "F05"
           ]
         }
       ],
