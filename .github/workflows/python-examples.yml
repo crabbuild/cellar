@@ -83,6 +83,12 @@ jobs:
           export PYO3_PYTHON="$(UV_PYTHON_INSTALL_DIR="$RUNNER_TEMP/fastapi/environment/runtime" uv python find --managed-python '${{ matrix.runtime }}')"
           PYTHONPATH="$RUNNER_TEMP/fastapi/environment/site" \
             "$PYO3_PYTHON" -B examples/python-fastapi/test_app.py
+      - name: Check native and Python routing failure boundaries
+        run: |
+          python -B examples/python-fastapi/test_ingress.py \
+            --cellar "$CARGO_TARGET_DIR/debug/cellar" \
+            --project "$RUNNER_TEMP/fastapi/environment/project.json" \
+            --output "$RUNNER_TEMP/fastapi/ingress-failure" ${{ matrix.smoke_flags }}
       - name: Restore and exercise the deployed application
         run: |
           cargo run -p cellar --example python-fastapi-deployment --locked -- \

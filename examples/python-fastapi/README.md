@@ -134,6 +134,20 @@ PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$CELLAR_FASTAPI_ROOT/env-v1/site" \
 
 Use `3.14.5t` in the interpreter lookup for a free-threaded package.
 
+The compiled routing regression uses a fresh private project with its order
+binding deliberately removed. It checks equivalent sanitized failures for
+native routes and the Python gateway, operation counts proving no replay, and
+complete shutdown. It leaves the original project and deployment unchanged:
+
+```sh
+python3 -B examples/python-fastapi/test_ingress.py \
+  --cellar "$CARGO_TARGET_DIR/debug/cellar" \
+  --project "$CELLAR_FASTAPI_ROOT/env-v1/project.json" \
+  --output "$CELLAR_FASTAPI_ROOT/ingress-failure"
+```
+
+Add `--expect-free-threaded` for a `3.14.5t` project.
+
 ## Publish and install on fleet nodes
 
 Configure the normal bucket credentials/endpoint, then publish:
