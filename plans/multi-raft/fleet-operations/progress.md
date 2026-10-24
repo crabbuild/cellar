@@ -632,27 +632,96 @@ FO-03 remains `IN_PROGRESS`: 52 enrollment cases and five companion observation
 cases pass, while its five mandatory complete-import/trust/lifecycle cases are
 still missing. The combined listing correctly fails `check-list FO-03`.
 A saved group observation supplies no lease, complete fleet inventory, archive
-coverage or removal certificate. Complete-import traversal, remote/controller
-integration, ownership handoff/cancellation and typed lifecycle gating remain
-required. FO-04 through FO-10 stay pending; fleet management remains default-off.
+coverage or removal certificate. At that checkpoint, complete-import traversal,
+remote/controller integration, ownership handoff/cancellation and typed lifecycle
+gating remained required. The namespace-import substep below supplies the
+per-namespace handoff. FO-04 through FO-10 stay pending; fleet management remains
+default-off.
 These results do not qualify RustFS deployment, enforced Colima limits, fleet
 scaling, TPS/p99 or the soak, and claim no performance improvement.
 
+## FO-03 progress: rooted namespace import
+
+Source `900a677fb6481a259d1e24073d9dc1aacf785507` implements the per-namespace import
+runtime over an exact frozen birth cut. Rooted Preparing, Inventory, Coverage, Handoff and Complete
+phases settle every canonical intent, retain cancelled names and require each
+live group's opaque safe-ReadIndex observation. Coverage verifies the actual
+namespace storage pin, permanent member/disk claims and catalog-scoped committed
+guard. Handoff rereads the complete retained witness set; missing metadata refuses
+adoption. Bounded turns use no object listing or business SQL image.
+
+Stop/resume retains the same cut, claims and physical references. A late namespace
+claim cannot advance a stopped root. Original stored candidates reconcile lost
+replies across adapter recreation, including a namespace adoption whose terminal
+fleet-root reply is lost. Once Handoff is admitted, cancellation refuses. Only
+Complete plus the exact adoption marker admits later managed births.
+
+New births carry their managed owner in the canonical birth record. Three actual
+managed hosts can import an empty immutable-unmanaged namespace, admit a later
+birth, initialize its guard in the first engine sync, serve native SQL writes and
+recover intact after physical restart. Old imported births retain their original
+identity and replay their committed enrollment. Catalog-scoped group bindings
+prevent another catalog prefix with the same fleet ID from reusing cached guards
+or membership permits.
+
+The experimental protocol now ends in `/namespace-import-1`. New required birth
+owner, history-origin and catalog-binding fields hard-cut earlier records; use
+fresh experimental coordination/data prefixes, namespaces and matching binaries.
+`FleetGroupBinding::new` requires the catalog fingerprint; use
+`FleetCatalog::group_binding` to obtain the descriptor. Descriptors grant no
+authority. Numeric markers stay at 1, without a migration or compatibility reader.
+
+All **349 native cases across 13 targets**, **136 Raft library units** and
+**four startup-confirmation cases** passed on macOS arm64/Rust 1.98.1. Enrollment
+has 53 passing cases and permits/import has 20, including nine new import/genesis
+cases. Five direct-list process helpers run through passing parent cases. Clippy
+with warnings denied, format/layout over 938 Rust files, native dependency checks
+(454 reachable packages, no JavaScript engine), documentation, plan validation
+and all 10 validator tests passed. The manifest retains 160 required cases and
+71 reviewed source anchors; this substep advances no task status.
+
+Initial import tests exposed a full-page continuation being mistaken for proof
+of another entry and an oversized composed management future overflowing the
+ordinary test stack. Two-entry lookahead retains exact count checks; boxing work
+at domain adapters keeps ordinary stacks sufficient. A larger-stack diagnostic
+is retained separately and is not qualification. No stack override or debug
+instrumentation remains in source. Initial Clippy rejected an unnecessary unit
+expression; its equivalent arm was corrected before the final snapshot.
+
+An initial full native cohort had two readiness failures in existing enrollment
+cases. Both passed in isolation and in the full rerun without source or timeout
+changes. Their root cause remains unestablished; retain the failed cohort and
+track readiness timing stability during broader qualification. Assertions were
+not weakened and no qualified Rust bytes changed after the final snapshot.
+
+The **partial** record `implementation/fo03/namespace-import-boundary.json` under
+ignored `.cellar/raft-perf/fleet-operations/` retains source/log/executable hashes,
+initial failures and the full rerun. Mutable build-cache paths do not archive
+binary bytes. No raw evidence is tracked under `plans/multi-raft/evidence/`.
+
+FO-03 remains **IN_PROGRESS**. The combined enrollment/permit listing still
+correctly refuses five missing mandatory cases: `fleet_enrollment_unknown_node`,
+`fleet_enrollment_route_revocation`, `fleet_enrollment_retired_binding`,
+`fleet_enrollment_incomplete_import` and `fleet_enrollment_physical_host`.
+Per-namespace Complete is not fleet-wide compiled-namespace coverage, capacity
+activation, current quorum health, archive coverage or a node-removal receipt.
+Remote/controller integration and lifecycle gates remain required. FO-04 through
+FO-10 stay pending; automatic fleet management remains default-off. These local
+checks make no RustFS/Colima/resource-limit, TPS/p99 or soak qualification claim.
+
 ## Prioritized remaining delivery
 
-The next changes should close FO-03's remaining trust, complete-inventory and
-birth/lifecycle admission boundaries. Revision- and process-bound node observations
-are available; admission still requires current root policy and complete history
-coverage. The following order keeps
-safe admission ahead of automation; the manifest dependencies remain unchanged.
+Per-namespace import and ownership handoff are implemented. Next, close the
+fleet-wide completeness and lifecycle gates before admitting automatic placement
+or maintenance. The manifest dependencies remain unchanged.
 
 | Priority | Boundary | Required result before advancing |
 | --- | --- | --- |
-| P0, first | FO-03 complete inventory and member lifecycle | Use the frozen birth inventory and new quorum group observations to finish membership quiescence, exact fleet coverage, ownership handoff and controlled import cancellation. Then close actual retired-binding lifecycle refusal. Group identity and birth admission are now inventoried, but a frozen cut grants no removal certificate. Original voters now settle after rooted drain/restart/resize exclusion, and initialization retries through startup-recovered handles retain data. The actual SDK birth/drain race is covered; this does not certify evacuation. Close `fleet_enrollment_incomplete_import` and `fleet_enrollment_retired_binding`. |
-| P0, next | FO-03 remaining trust and placement checks | Close `fleet_enrollment_unknown_node`, `fleet_enrollment_route_revocation` and `fleet_enrollment_physical_host`: cover unsolicited ingress, move-participant acknowledgement enforcement and strict physical-host policy for movement. Initial birth-domain admission and cell-free observations are implemented locally; neither activates capacity. Pass the complete FO-03 listing and behavior tests before advancing. |
-| P1 | FO-04 placement, FO-05 fresh load, then FO-06 reconciliation | Validate final assignments and every staged move against retained/temporary costs, failure domains and one-node-loss restoration. Reconciliation must survive cancellation, restart and lost replies, with fresh terminal quorum proof before releasing reservations. Verify foreground overhead before enabling optional balancing. |
-| P2 | FO-07 maintenance, FO-08 operator surfaces, then FO-09 scaling | Deliver the durable stop fence and one-disruption slot, complete evacuation/removal proof, authenticated idempotent API/CLI workflows and observed-limit checks for resource changes. Proposed commands are not available until these packages pass. |
-| Release gate | FO-10 deployed qualification | Qualify RustFS conditional writes and real five/six/four-node workflows, faults and the 24-hour soak. At 1 vCPU/3 GiB per node, maximize successful TPS with p99 below 200 ms preferred and 500 ms hard ceiling. Measure enabled-idle controller cost and use matched comparisons for optional performance changes. |
+| P0, first | FO-03 fleet-wide completeness and retired bindings | Root the compiled namespace set; gate capacity activation and maintenance on complete coverage of every namespace and history, including offline/pending/cancelled references. Integrate actual retired-binding refusal. Per-namespace import is implemented but does not prove node absence. Close `fleet_enrollment_incomplete_import`, `fleet_enrollment_retired_binding`. |
+| P0, next | FO-03 trust and failure-domain policy | Refuse unsolicited node ingress, require installed trust-revision acknowledgements from actual move participants, and enforce explicit rooted node-versus-physical-host placement policy. Pass all five missing cases and the full FO-03 behavior suite. Close `fleet_enrollment_unknown_node`, `fleet_enrollment_route_revocation`, `fleet_enrollment_physical_host`. |
+| P1 | FO-04 placement, FO-05 load, FO-06 reconciliation | Implement bounded staged feasibility for retained/temporary costs and one-node-loss headroom, fresh load observations and a domain-owned reconciler. Restart/cancellation/lost replies must converge; release reservations only with fresh terminal quorum proof and physical-work joins. |
+| P2 | FO-07 maintenance, FO-08 operator API/CLI, FO-09 scaling | Deliver exact-operation/epoch/process stop fencing, one disruption slot, complete evacuation/removal receipts, authenticated idempotent workflows and observed resource-limit checks. Cover add/remove, rolling restart, horizontal and vertical resizing, and fewer-cell shrink. |
+| Release gate | FO-10 deployed qualification and performance | Qualify actual five/six/four-node RustFS/Colima operations and faults with enforced 1-vCPU/3-GiB limits and a 24-hour soak. Measure successful TPS, p50/p95/p99, archive catch-up and controller idle/movement overhead. Prefer p99 below 200 ms; 500 ms is the hard ceiling. Keep optional performance changes only with matched evidence of higher throughput or lower latency. |
 
 The local implementation has no measured TPS or latency improvement claim. Keep
 fleet management default-off until its release gates pass. Optional throughput
