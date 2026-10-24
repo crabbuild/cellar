@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 use super::*;
 use crate::native_worker::{InputGate, Ready};
 use futures_util::future::FutureExt;

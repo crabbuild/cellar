@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Caller-local cell delivery chains. Failure hands an unfinished predecessor
 //! to the successor; cancellation of a wait cannot remove that predecessor.
 use std::{

@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Real TLS transport and three child processes. No SQLite/S3 qualification.
 #![allow(clippy::disallowed_methods)]
 #[path = "support/raft_network.rs"]

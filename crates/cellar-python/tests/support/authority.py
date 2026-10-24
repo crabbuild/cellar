@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Submit a real SDK mutation while its native invocation driver is paused."""
 import asyncio
 import threading

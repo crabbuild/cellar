@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Test application: atomic operation receipts distinguish ambiguous commits.
 //! Idempotency is application policy, not a framework delivery guarantee.
 

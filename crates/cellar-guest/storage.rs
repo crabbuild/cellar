@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 use anyhow::{ensure, Context as _, Result};
 use cellar::sdk::Context;
 use serde::Deserialize;

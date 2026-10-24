@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Scheduled occurrence controls and bounded execution-history queries.
 use anyhow::{ensure, Result};
 use serde::{Deserialize, Serialize};

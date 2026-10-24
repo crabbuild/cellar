@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Keep a private three-node FleetCare lab and its Cellar console running in Colima."""
 
 import argparse

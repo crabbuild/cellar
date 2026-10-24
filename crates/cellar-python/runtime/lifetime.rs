@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Invocation authority and completion notification have different lifetimes.
 use super::Runtime;
 use std::sync::{

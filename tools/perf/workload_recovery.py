@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Post-measurement recovery of quarantined commands using their original IDs.
 
 The original ledger is immutable. Two successful requests must return the same

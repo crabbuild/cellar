@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Disposable capture still produces a complete, independently restorable cut.
 #![allow(clippy::disallowed_methods)]
 

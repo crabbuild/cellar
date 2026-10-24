@@ -1,3 +1,6 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
+#![recursion_limit = "256"]
 //! Optional V8 and Node.js adapters for native Cellar applications.
 //!
 //! Enable `embed` for a bundled JavaScript application in V8, or `node` for an

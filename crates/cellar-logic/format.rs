@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Internal-development bucket layout admission; no legacy format negotiation.
 
 use crate::CapacityPeer;

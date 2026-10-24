@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! SQL wire contracts and value shaping used by the Rust SDK and host.
 
 /// One SQL request. The modes are explicit because their contracts differ:

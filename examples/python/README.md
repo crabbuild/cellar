@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Python in Cellar
 
 This is a runnable embedded CPython example: Python handles HTTP requests and

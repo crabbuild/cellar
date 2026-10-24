@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Cellar Raft application contract
 
 This is the SDK contract delivered across MR-06 through MR-12. Restricted

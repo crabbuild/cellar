@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Deployment shared by the bounded counter and fault-recovery fixtures.
 
 use cellar::engine_api::{Compat, WorkerConfigOptions};

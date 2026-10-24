@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Fault claims require owned physical injection, exact witnesses and recovery."""
 import json
 from pathlib import Path

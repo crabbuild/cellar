@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { mkdir, open } from "node:fs/promises";

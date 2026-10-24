@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Immutable image ownership, durable file publication and bounded reclamation.
 //! The host retains every durable marker/archive reference before retiring an
 //! image. Physical sealing/pinning never grants Raft authority or query readiness.

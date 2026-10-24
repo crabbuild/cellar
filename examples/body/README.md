@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Bytes and streaming
 
 Compare bounded buffering with an owned, backpressured binary stream.

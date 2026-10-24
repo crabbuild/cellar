@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Committed archive and output boundary
 
 MR-09 is complete with [source-pinned evidence](evidence/MR-09.json). Its node-owned dispatcher now

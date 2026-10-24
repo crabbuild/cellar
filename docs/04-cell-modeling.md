@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Model cells and application boundaries
 
 Choose cell boundaries around business rules that need atomic updates. Use

@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Transactional outbox and durable event delivery
 
 Status: Proposed technical design. No primitive described here is implemented

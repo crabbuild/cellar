@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Independent source recovery cannot be repaired by replay or lose one lane."""
 import copy
 import json

@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Three-container native multi-Raft/RustFS setup and verified write measurements.
 
 Resources are retained for inspection. Use the printed Docker context and project

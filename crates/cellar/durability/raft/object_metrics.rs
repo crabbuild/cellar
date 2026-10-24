@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Observe object API calls without changing preconditions, errors or payloads.
 //! GET owns its timer until stream EOF, error or drop. SDK-internal retries and
 //! HTTP overhead are outside this boundary; a lost PUT reply is not confirmation.

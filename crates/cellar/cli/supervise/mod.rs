@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! External startup/liveness watchdog for process-owned runtimes.
 #![allow(clippy::disallowed_methods)] // This CLI owns processes, probes and real timers.
 mod child;

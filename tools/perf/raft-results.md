@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Native multi-Raft performance investigation
 
 This checkout contains the fix and a reproducible three-node Colima fixture.

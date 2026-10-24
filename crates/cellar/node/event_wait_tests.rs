@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 use super::*;
 use futures_util::FutureExt as _;
 use std::sync::{atomic::AtomicUsize, Arc};

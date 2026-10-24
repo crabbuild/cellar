@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Opt-in measuring source: many commands share one outbox and lane.
 use super::*;
 

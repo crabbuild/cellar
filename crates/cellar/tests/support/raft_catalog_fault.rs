@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Conditional writes are real InMemory operations; faults lose responses only.
 use futures_util::{stream::BoxStream, StreamExt, TryStreamExt};
 use object_store::{

@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Retained Raft history cannot downgrade into a mutable Fleet factory.
 use super::{public_node, registration, wait_status};
 use anyhow::{ensure, Context as _, Result};

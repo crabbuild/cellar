@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Internal durable deadlines. Clearing a reason retains its generation so a
 //! delayed completion cannot consume a replacement installation.
 

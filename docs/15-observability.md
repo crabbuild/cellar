@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Observability and service objectives
 
 Monitor business results alongside runtime health, durability and shutdown

@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Capture bounded registered-history metadata through reserved control work.
 use super::*;
 use crate::raft::inspection::{

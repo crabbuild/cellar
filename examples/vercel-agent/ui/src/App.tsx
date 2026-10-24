@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 import { ChatNavigation, type Chat } from "./chat-navigation";
 import { SavedWork } from "./saved-work";
 import { Markdown, Transcript, textOf } from "./transcript";

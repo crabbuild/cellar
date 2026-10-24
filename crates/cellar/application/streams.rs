@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Rust byte pipes connected to cellar's HTTP ownership and event driver.
 use super::{
     http::{Headers, Response},

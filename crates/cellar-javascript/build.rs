@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Embed only explicitly selected immutable Node inventory metadata.
 // Build scripts run outside the Cellar execution domain.
 #![allow(clippy::disallowed_methods)]

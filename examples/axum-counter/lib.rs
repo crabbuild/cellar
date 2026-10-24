@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! The same application declaration is compiled into both host binaries.
 use anyhow::Result;
 use axum::{routing::get, Json, Router};

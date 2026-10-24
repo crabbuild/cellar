@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Explicit dispatch snapshots; live reads and mutation authority stay separate."""
 import asyncio
 from cellar import Conflict, Response

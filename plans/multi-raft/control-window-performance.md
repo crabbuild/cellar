@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Multi-Raft control-window performance
 
 The selected change increases the per-peer control window from eight to sixteen

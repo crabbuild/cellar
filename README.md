@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 <img src="packages/console/public/cellar-icon.png" alt="Cellar logo" width="72" height="72" />
 
 # Cellar

@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Qualify durable activation churn, settled resources and bucket-only recovery.
 
 Each mutation is sent once. Failed runs retain uncertain attempts and still

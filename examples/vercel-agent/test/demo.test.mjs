@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createDemoServer } from "../script/server.mjs";

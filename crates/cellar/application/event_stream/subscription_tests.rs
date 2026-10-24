@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Untrusted fetch responses cannot mint processing authority for another batch.
 use super::super::{Envelope, Resource, SubscriptionIdentity};
 use super::*;

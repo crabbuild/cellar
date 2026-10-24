@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Build/install filesystem resources outside node execution domains.
 #![allow(clippy::disallowed_methods)]
 mod archive;

@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Hold real native activation destruction while a read reaches its reset queue.
 use super::*;
 use std::sync::{atomic::AtomicBool, Condvar, Mutex};

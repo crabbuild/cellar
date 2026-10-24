@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Observations choose ordinary guarded operations. They never install state,
 //! manufacture a member or bypass the runtime's configuration/progress checks.
 use super::*;

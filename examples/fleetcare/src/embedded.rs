@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! The measuring application owns its process, executors, clients and signals.
 //! No CLI host or environment-resolving framework constructors are used here.
 

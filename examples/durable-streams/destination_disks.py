@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Cold follower custody for destination proof recovery, without replay repair."""
 import json
 import hashlib

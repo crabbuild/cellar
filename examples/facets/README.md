@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Loaded child facets
 
 Give a root cell a durable child component under the same owner.

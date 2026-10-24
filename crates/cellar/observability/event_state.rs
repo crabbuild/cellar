@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Fixed-cardinality owner samples and checked fleet aggregation.
 use anyhow::{ensure, Result};
 use serde::{Deserialize, Serialize};

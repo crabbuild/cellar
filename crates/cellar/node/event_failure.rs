@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Event RPC failures retain execution certainty without authorizing replay.
 use crate::application::event_stream::{DeliveryError, ErrorCode};
 use crate::cell_dispatch::RoutedRequestError;

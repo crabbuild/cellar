@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Sources and evidence provenance
 
 Use this source map to check implementation claims and interpret retained

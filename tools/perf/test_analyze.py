@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """A refused load or incomplete recovery cannot appear as a passing report."""
 
 import json

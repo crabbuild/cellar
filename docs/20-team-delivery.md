@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Team delivery for distributed applications
 
 Assign an owner to each durable boundary, publish its API contract and qualify

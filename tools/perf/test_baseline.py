@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Native-baseline contract, history and ambiguity refusal regressions."""
 import copy
 import json

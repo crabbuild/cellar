@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Measurement evidence must fail closed on reset, loss or impossible samples."""
 import copy
 import unittest

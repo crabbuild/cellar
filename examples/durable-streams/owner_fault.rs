@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Opt-in private process fixture. Refuse actual node store operations and
 //! hold a source callback inside its poll; never provide durability credit.
 #![allow(clippy::disallowed_methods)]

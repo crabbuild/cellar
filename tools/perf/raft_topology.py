@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Bounded local placement and evidence checks for three-voter groups."""
 
 

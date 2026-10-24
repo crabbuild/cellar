@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Summarize a run directory and optionally plot using matplotlib.
 
 Usage: python3 tools/perf/analyze.py RUN_DIRECTORY OUTPUT_PREFIX [--plot]

@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 import { Layers3, MessageSquare, Plus, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 

@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Marker-1 local metadata, atomically stored with its Raft log changes.
 
 use super::cache::{CachedGroup, CommittedImage, DurableApply};

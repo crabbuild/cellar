@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Host-minted service routes and outbound authority for native applications.
 use super::*;
 use crate::host_channels::{begin_call_cancellation, SvcCallReq, SvcRpcReq};

@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Three local nodes, two Raft cells, native HTTP and Axum over the same SDK.
 //! Usage: cellar-raft-counter DATA_DIR CA.der CERT.der KEY.der TOKEN_FILE
 #![allow(clippy::disallowed_methods)]

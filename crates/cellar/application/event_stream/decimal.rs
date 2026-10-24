@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Structured RPC numbers use binary64. Protocol integers travel as canonical
 //! decimal strings so persistent sequence identity retains its full i64 range.
 

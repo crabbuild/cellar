@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 import {createHash} from 'node:crypto';
 import {Agent, type AgentMessage, type StreamFn} from '@earendil-works/pi-agent-core';
 import type {AssistantMessage} from '@earendil-works/pi-ai';

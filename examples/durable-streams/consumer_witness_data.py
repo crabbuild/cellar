@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Damage and return retained follower files only after witness processes join."""
 import hashlib
 import json

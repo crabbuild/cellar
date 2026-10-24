@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! A credit-based state subscription: at most one compact update is pending
 //! per connection. ACK catches up to the current durable version after a slow
 //! client or reconnect; clients use the HTTP history cursor for every change.

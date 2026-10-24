@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Pure protocol cases are independent of transport success or storage
 //! implementation, and describe the decisions persisted by stream cells.
 

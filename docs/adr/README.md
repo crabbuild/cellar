@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Architecture decision records
 
 These records document constraints observed in the reviewed framework baseline.

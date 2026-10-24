@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Restricted synchronous transactions for the private Raft command image.
 
 use anyhow::{ensure, Context as _, Result};

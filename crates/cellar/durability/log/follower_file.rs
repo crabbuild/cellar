@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Bounded reads of retained follower files through one pinned handle.
 use anyhow::Context as _;
 use std::path::Path;

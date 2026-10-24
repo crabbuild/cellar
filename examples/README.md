@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Native Rust application examples
 
 Start with a focused recipe, then combine the building blocks into business

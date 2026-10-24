@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Boundaries of the example's buffered ASGI transport, using real FastAPI."""
 import asyncio
 import copy

@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Event values and execution-domain abort timers for Rust applications.
 use super::{Context, HandlerFuture, Request};
 use anyhow::Result;

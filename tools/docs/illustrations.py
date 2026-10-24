@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Generate static SVG explanations shared by the guides and crate READMEs.
 
 Keep these conceptual views separate from interactive execution flows. Text and

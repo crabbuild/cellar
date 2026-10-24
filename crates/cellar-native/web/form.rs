@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Ordered live form entries and the retained byte-oriented MIME protocol.
 use super::{Blob, Error, File, SearchParams};
 use regex::Regex;

@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Signed platform state samples enter the ordinary owning-cell RPC path.
 use super::*;
 

@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # MR-07 host integration audit
 
 This audit covers the registered command/query path delivered by MR-07. It does

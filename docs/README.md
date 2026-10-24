@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Cellar documentation
 
 Start with the counter, learn the cell model, then use the task guides to build
@@ -25,6 +27,9 @@ The [Node.js example](../examples/node/README.md) adds Node built-ins, native np
 addons, React server rendering and a verified runtime directory.
 The [durable Pi agent](../examples/pi-agent/README.md) runs a TypeScript agent
 loop with checkpointed model decisions, atomic tool receipts and alarm recovery.
+
+[Streaming and WebSockets](27-streaming-and-websockets.md) covers Rust, Python,
+JavaScript and TypeScript producers, upgrades, forwarding and lifecycle rules.
 
 ## Choose a reading path
 

@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Validated Raft startup shared by embedded nodes and the process runner.
 use crate::application::consensus::{RaftCells, RaftCellsConfig, RaftCellsServices};
 use crate::asyncrt::DomainToken;

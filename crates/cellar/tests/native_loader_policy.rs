@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Caller-owned loader budgets on real compiled applications and worker pools.
 #![allow(clippy::disallowed_methods)]
 #[path = "support/html.rs"]

@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Closed-loop HTTP read/write measurements, with per-cell acknowledgement accounting.
 
 // The load generator runs outside Cellar's execution boundary. Its clock and

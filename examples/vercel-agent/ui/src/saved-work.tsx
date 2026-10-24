@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 import { cn } from "cn";
 import { Check, RotateCcw, ShieldCheck, Wrench } from "lucide-react";
 import { Button } from "@/components/ui/button";

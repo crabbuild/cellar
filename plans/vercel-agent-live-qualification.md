@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Vercel AI SDK / GPT-6 Luna live qualification
 
 Validated 2026-10-24 with Node 24.13.1, the Node-only `cellar-javascript` host,

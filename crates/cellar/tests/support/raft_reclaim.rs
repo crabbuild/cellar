@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Shared image publication/deletion barriers, capacity and crash boundaries.
 use super::*;
 use cellar_ltx::generation::GenerationPin;

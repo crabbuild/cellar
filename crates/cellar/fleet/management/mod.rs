@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Management observations and owner-routed operations shared by HTTP hosts.
 //!
 //! This client observes fleet metadata; it never acquires cell authority or

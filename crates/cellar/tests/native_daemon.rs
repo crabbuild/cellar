@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Process-level native ingress, routing, bucket restore and reload coverage.
 
 // Process orchestration runs outside the cell execution boundary and uses

@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Native routing for the same Python fleet cell and original invocation scope.
 use anyhow::{ensure, Result};
 use cellar::sdk::{

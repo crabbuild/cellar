@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Node-wide leadership observations, collected in bounded owned batches.
 //! A count is published only after every attached history was sampled.
 use super::*;

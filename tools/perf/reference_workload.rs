@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Shared noncommutative SQL workload for Raft, Fleet and bucket measurements.
 use anyhow::{ensure, Result};
 use cellar::sdk::consensus::CommandTransaction;

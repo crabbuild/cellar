@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Faults run through the production filesystem adapter and real local files.
 #![allow(clippy::disallowed_methods)]
 

@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 import { lazy, memo, Suspense } from "react";
 import { cn } from "cn";
 import {

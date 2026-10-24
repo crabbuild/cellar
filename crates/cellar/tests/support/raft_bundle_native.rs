@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Two real SDK histories share an immutable object, never a head or proof.
 #![allow(clippy::disallowed_methods)]
 use super::{bundle_faults as faults, bundle_images as images, public_node};

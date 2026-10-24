@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # CLI reference and operator boundaries
 
 Use the `cellar` command-line interface (CLI) to develop and package applications

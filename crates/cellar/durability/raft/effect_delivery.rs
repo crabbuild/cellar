@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Authenticated, immutable delivery envelopes. Transport success alone cannot
 //! settle an intent: the destination signs its transaction result and releases
 //! it through the ordinary command durability gate.

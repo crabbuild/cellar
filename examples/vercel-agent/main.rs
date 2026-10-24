@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 use anyhow::{Context as _, Result};
 use cellar::sdk::Host;
 use cellar_javascript::{EventKind, NodeOptions, NodeRuntime, Options, Source};

@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 use super::*;
 
 fn status(cache: &super::super::super::cache::CachedGroup, member: u64) -> GroupStatus {

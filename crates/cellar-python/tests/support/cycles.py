@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Live same-cell reentry and nested-call cancellation/fencing barriers."""
 import asyncio
 import json

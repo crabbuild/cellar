@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Enumerate core decisions across delayed replies and stale cleanup.
 //! These tests do not simulate SQLite commits or object-store durability.
 use cellar_logic::event_stream::{self, Acknowledgment, Failure, Lease, Receipt};

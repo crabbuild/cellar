@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Native loaders and loaded facets through the production runtime, without V8.
 use anyhow::{anyhow, Result};
 use cellar::application::facets::{Class, CompletionError, Startup};

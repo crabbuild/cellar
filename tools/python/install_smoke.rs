@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Disposable real-package recovery drill. The provisioning tree must be private
 //! scratch data; no running host may share it. All filesystem/process work is
 //! owned by this qualification executable, outside node execution domains.

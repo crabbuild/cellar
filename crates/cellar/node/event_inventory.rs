@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Fleet-authenticated metadata inventory uses the ordinary owner RPC route.
 use super::*;
 

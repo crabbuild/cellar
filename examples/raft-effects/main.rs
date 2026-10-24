@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! A finite three-node producer/receiver recovery drill, with retained disks.
 #![allow(clippy::disallowed_methods)]
 mod effects;

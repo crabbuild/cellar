@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Node-owned TLS connections multiplex groups. Independent control, data and
 //! query listeners/workers/budgets preserve progress while queries await LTX.
 

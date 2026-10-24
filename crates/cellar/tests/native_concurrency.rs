@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Host input gates through production native turns, without engine startup.
 
 use anyhow::{anyhow, Result};

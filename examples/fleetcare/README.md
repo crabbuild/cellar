@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # FleetCare
 
 A native field-service application and repeatable performance suite for Cellar.

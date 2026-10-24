@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Node-owned stop observations. These are not deployment-fencing certificates
 //! or permission to delete active replica disks, even with complete S3 coverage.
 use crate::application::consensus::{

@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Client acceptance must independently enforce the bounded replay contract.
 use super::super::{Envelope, Resource};
 use super::*;

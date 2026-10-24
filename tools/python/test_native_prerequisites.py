@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Real native loader capture/refusal tests; uses only the platform C toolchain."""
 import json
 import os

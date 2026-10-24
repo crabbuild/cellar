@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! The executable bootstrap owns Python and the joined Rust host thread.
 // Dependency filesystem inspection happens before any node execution domain.
 #![allow(clippy::disallowed_methods)]
@@ -54,6 +56,7 @@ pub struct Options {
     pub environment: Environment,
     pub module_paths: Vec<std::path::PathBuf>,
     pub max_invocations: usize,
+    /// Buffered body, individual stream chunk and WebSocket frame byte limit.
     pub max_body_bytes: usize,
     /// Encoded invocation/result limit; at least 128 bytes for fixed failures.
     /// Raw HTTP bodies count at their base64-equivalent encoded length.
@@ -62,6 +65,7 @@ pub struct Options {
     pub max_operations: usize,
     /// Capacity of each invocation's native operation/completion mailbox.
     pub max_pending_operations: usize,
+    /// Storage batch operations or live transport capabilities per invocation.
     pub max_batch_operations: usize,
     pub max_tasks: usize,
     pub max_objects: usize,

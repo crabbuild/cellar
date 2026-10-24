@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 use crate::protocol::PythonPlatform;
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 use anyhow::ensure;

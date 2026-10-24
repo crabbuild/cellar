@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Node-local admission for bundle materialization. A reservation follows
 //! entered I/O and the derived spool, rather than the caller's future alone.
 use super::recovery_rows::{BufferPool, Rows};

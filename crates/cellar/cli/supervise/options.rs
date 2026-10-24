@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Finite operator policy, parsed before starting an owned process.
 use anyhow::{bail, ensure, Context as _, Result};
 use std::{path::PathBuf, time::Duration};

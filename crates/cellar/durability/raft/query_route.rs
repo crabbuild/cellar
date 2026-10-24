@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Bounded read attempts. Every destination receives the original contract,
 //! input and consistency; attempts consume one shared invocation deadline.
 

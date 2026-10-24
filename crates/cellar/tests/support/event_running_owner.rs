@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Retained storage and commit are attempted from a poll spanning takeover.
 
 use super::*;

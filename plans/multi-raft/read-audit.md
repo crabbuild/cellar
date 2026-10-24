@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # MR-08 read-contract audit
 
 Status: DONE at the MR-08 read-contract boundary. The [final evidence](evidence/MR-08.json)

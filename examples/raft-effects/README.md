@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Committed producer/receiver recovery
 
 This finite development example runs three physical Node instances on one

@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Outbox, event stream and subscription console
 
 Status: console parity update against `origin/main` at `63d14f8` (PR #63).

@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Malformed handler output must not become a diagnostic data channel."""
 from cellar import Ambiguous, Request, Response, SDKError
 

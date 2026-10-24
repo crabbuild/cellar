@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Committed business features
 
 Status: MR-12 is DONE at the [recorded native boundary](evidence/MR-12.json),

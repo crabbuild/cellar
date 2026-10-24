@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # TiKV comparison and Cellar performance investigation
 
 Status: PR #98's conflicts are resolved through main `1455fb0`. The benchmark

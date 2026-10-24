@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Host-owned stop receipts. These observations never grant cell authority.
 use crate::bucket::Bucket;
 use crate::management::{StopMode, StopProof, StopReceipt};

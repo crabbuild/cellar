@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Assets and the retained Cache API cross native turns without initializing V8.
 
 #[path = "support/assets.rs"]

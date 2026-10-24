@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! One Rust HTTP process per business cell, controlled by the Rust SDK.
 
 use anyhow::{bail, Result};

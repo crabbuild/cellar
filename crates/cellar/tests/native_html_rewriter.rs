@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! HTML callbacks and response chunks retain the original native cell turn.
 #[path = "support/html.rs"]
 mod fixture;

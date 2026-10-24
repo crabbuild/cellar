@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Public contracts for Raft identity, framing and output admission.
 #[path = "support/raft_model.rs"]
 mod model;

@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Production native contexts and SQLite handlers, without fleet proof or
 //! background maintenance that could hide a mutation's lost time observation.
 

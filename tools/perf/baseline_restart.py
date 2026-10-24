@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Exact-container restart after proven native lease fencing.
 
 This is a separate recovery drill. Missing old-process counters remain unknown;

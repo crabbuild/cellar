@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Disposable private SQLite/WAL capture state. Never a query/recovery authority.
 
 use super::apply::{image_position, PublishedImage};

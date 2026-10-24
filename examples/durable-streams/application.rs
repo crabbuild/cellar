@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Business state and stream obligations share one source transaction.
 
 use anyhow::Result;

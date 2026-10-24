@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Node.js and TypeScript applications
 
 This example runs an actual Node.js process beside the Rust Cellar host. Rust
@@ -167,8 +169,9 @@ contracts. Cancelled JavaScript may continue its own work, but cannot use a revo
 Cellar context. Use process/container limits for trusted application deployment.
 
 Node streams and WebSockets can be used by npm code for its own I/O. The Cellar
-bridge itself still uses bounded buffered HTTP values; it does not expose Cellar
-streaming, WebSocket upgrades, workflows, RPC or JS-authored Raft commands. React
+bridge also exposes host-owned streaming HTTP/SSE and WebSocket upgrades; see
+[the streaming guide](../../docs/27-streaming-and-websockets.md). Workflows, RPC
+and JS-authored Raft commands remain outside the bridge contract. React
 server rendering is supported by the example; browser DOM execution and arbitrary
 framework deployment adapters are separate integrations. Compatibility tests
 qualify the listed packages and paths, not every npm package or Node platform.

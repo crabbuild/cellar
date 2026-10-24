@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Prove prerequisite refusal before Python source or its Rust host can run.
 
 Builds a private bootstrap-only fixture from the repository lock. Use a private

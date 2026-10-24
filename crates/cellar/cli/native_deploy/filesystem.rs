@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Atomic runtime directory publication outside execution domains.
 use anyhow::Result;
 use std::path::Path;

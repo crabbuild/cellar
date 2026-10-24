@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Native and embedded-Python measurements
 
 `baseline.py` drives compiled hosts through real loopback HTTP. The Rust host is

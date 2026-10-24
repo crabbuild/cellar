@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Cell-owned containers. Handles may be retained by a cell; every operation
 //! requires its current executing context. Mutations wait for durability.
 

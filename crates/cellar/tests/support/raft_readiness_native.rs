@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Actual voter/learner observations and disconnected query policies.
 use super::{counter, get, leader, scope, Fixture};
 use anyhow::{ensure, Context as _, Result};

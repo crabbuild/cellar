@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Capacity planning and scaling
 
 Size a fleet from measured traffic, active cells, state growth and recovery

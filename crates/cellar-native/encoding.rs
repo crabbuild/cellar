@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! WHATWG text encoding with caller-owned incremental state.
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]

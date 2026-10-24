@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Node Raft effects
 
 This component owns the log engine and the raft-rs adapter. Business activation,

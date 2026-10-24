@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 800" role="img" aria-labelledby="title description">
   <title id="title">Inside a Cellar node</title>
   <desc id="description">A native Rust application uses the Cellar SDK. The runtime manages cell activations, routing and output gates. A serial actor owns the pure cellar-logic decision core. Host adapters execute effects and return completion events. Storage captures SQLite writes as LTX; fleet services manage ownership, recovery and durability using peer logs and shared object storage. The node execution domain owns tasks, injected services and shutdown. Arrows show component relationships, not a request sequence.</desc>

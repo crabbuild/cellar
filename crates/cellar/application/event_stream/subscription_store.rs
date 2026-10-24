@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Stream-owned subscription state. Every progress transition is a local
 //! SQLite transaction; authorization and output proof remain host boundaries.
 

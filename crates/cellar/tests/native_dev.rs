@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Run the Cargo development workflow against an external application project.
 #![allow(clippy::disallowed_methods)]
 #![cfg(unix)]

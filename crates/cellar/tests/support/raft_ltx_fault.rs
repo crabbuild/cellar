@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Faults and trace points on actual image-file operations.
 #![allow(clippy::disallowed_methods)]
 

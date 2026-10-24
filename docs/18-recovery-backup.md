@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Recovery, backup and disaster drills
 
 Cellar recovers prior owners' replicated logs before allowing takeover. Your

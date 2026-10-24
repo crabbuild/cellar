@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Native timeout and process/disk loss must retain the business occurrence.
 use super::*;
 use std::{

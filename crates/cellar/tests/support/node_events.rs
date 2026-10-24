@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Actual node routing and proof gates, including staged adoption and inbox
 //! redelivery. No synthetic successful-gate adapter is installed here.
 

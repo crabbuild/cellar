@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 name: JavaScript and Node SDK
 on:
   pull_request:
@@ -46,6 +48,8 @@ jobs:
           npm run --prefix examples/vercel-agent/ui build
           npm test --prefix examples/vercel-agent
           npm run --prefix examples/vercel-agent format:check
+          node --test packages/cellar-sdk/test/streaming.test.mjs
+          node tools/javascript/node_modules/typescript/bin/tsc --noEmit --strict --target es2022 --module nodenext packages/cellar-sdk/test/types.ts
           npm test --prefix tools/javascript
           npm run --prefix examples/javascript build
       - name: Chat UI desktop and mobile behavior

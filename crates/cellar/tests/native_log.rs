@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Caller-owned log transports, real follower proofs, and crash recovery.
 #![allow(clippy::disallowed_methods)]
 #[path = "support/log_recovery.rs"]

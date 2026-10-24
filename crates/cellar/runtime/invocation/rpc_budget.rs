@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Long polling has a declared wait in addition to the host transport budget.
 use crate::engine_api::RpcData;
 

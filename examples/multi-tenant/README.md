@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Tenant isolation and idempotent accounts
 
 Authenticate before routing, isolate tenant state and deduplicate account operations.

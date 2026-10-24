@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! A passive observer cannot retain a transport owner or its engine.
 use super::*;
 use crate::application::consensus::{

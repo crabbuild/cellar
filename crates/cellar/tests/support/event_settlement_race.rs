@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Hold original signed settlement requests before owner submission, then change
 //! the durable subscription. No synthetic authorization or proof is supplied.
 

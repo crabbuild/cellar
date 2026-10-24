@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Bounded marker-1 frames and authenticated acknowledgements. An accepted frame
 //! is never an append response, commit proof or snapshot-install proof.
 

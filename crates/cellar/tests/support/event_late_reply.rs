@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Delayed event replies cross ownership and source-control transitions.
 //! Audit the original obligation before allowing a newer dispatch to settle it.
 

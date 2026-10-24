@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Actual saturation at configured application and bridge boundaries.
 use super::*;
 

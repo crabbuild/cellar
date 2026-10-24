@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """MR-14 isolated local qualification runner; unavailable fault modes fail closed."""
 import argparse
 import collections

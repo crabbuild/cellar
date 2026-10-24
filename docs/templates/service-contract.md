@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Service and cell contract template
 
 Use one contract per owned API boundary. Consumers should be able to implement

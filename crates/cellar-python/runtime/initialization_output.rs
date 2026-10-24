@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Suppress CPython's raw C diagnostics during exclusive process bootstrap.
 // This precedes any node/execution domain or framework-owned host thread.
 #![allow(clippy::disallowed_methods)]

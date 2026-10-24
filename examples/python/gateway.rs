@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Explicit native ingress for Python cells; ordinary HTTP stays in Python.
 use anyhow::{ensure, Result};
 use cellar::sdk::{

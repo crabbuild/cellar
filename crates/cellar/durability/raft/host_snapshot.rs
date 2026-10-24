@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Native checkpoint, transfer and publication ownership. The SQL owner seals
 //! images; only matching runtime install events permit their publication.
 

@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! A control reply releases a window slot without waiting for later replies.
 use super::*;
 use std::collections::VecDeque;

@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Immutable admission and copied-value budgets for one compiled Cellar host.
 
 /// Configure through `domain.services().configure_loader(...)` before building

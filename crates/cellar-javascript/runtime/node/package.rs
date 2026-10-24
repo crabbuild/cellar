@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 use super::NodeOptions;
 use anyhow::{ensure, Result};
 use sha2::{Digest, Sha256};

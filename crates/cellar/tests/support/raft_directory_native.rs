@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Shared advertised endpoints; process refresh never bypasses a fault proxy.
 use super::{public_node, store};
 use anyhow::{ensure, Context as _, Result};

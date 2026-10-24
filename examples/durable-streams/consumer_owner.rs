@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Private process fixture for a consumer callback that spans ownership fencing.
 
 use super::*;

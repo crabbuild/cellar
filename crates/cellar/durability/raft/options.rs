@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Explicit bounds and disk ownership for one node-wide durable log.
 
 use super::storage::LogError;

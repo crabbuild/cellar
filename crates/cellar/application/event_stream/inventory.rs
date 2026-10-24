@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Bounded subscription inventory under the stream's current administration grant.
 
 use super::{authority::Action, error::error, store, ErrorCode, Stream, SubscriptionStatus};

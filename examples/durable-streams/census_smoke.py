@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Real CLI census discovers accepted, undispatched and empty source cells."""
 import argparse
 import hashlib

@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Process-lifetime, bounded SQLite VFS slots over injected immutable readers.
 //! A descriptor is never freed under SQLite's global vfs_find callers. Slots
 //! release their generation/services after both the owner and all files close.

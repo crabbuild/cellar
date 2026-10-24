@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Bounded execution observations in the scheduling cell's own output gate.
 use super::*;
 use crate::application::storage::SqlValue;

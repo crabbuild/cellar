@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Own and join the engine threads outside the node execution domain.
 #![allow(clippy::disallowed_methods)]
 use crate::{JavaScriptApplication, Source};
@@ -27,9 +29,9 @@ pub struct Options {
     pub max_operations: usize,
     /// Maximum encoded value size for an invocation, operation, reply, or result.
     pub max_value_bytes: usize,
-    /// Maximum buffered HTTP body size at the guest SDK boundary.
+    /// Buffered body, individual stream chunk and WebSocket frame byte limit.
     pub max_body_bytes: usize,
-    /// Maximum operations accepted by one guest storage batch.
+    /// Maximum storage batch operations or live transport capabilities per invocation.
     pub max_batch_operations: usize,
     /// Shared budget for retained bridge payloads; also bounds Node transport queues.
     pub max_bridge_bytes: usize,

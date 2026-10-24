@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Field-service application performance design
 
 Prepared 2026-10-12 against Cellar

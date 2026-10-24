@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Command ownership through cancellation, failover and delayed proof delivery.
 use cellar_logic::consensus::*;
 use cellar_logic::raft_command::{Cancellation, CommandState, LeadershipObservation};
