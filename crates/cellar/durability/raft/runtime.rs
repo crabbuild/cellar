@@ -63,8 +63,9 @@ type Reply = oneshot::Sender<Result<Response, RuntimeError>>;
 const COMPLETION_SLOTS: usize = 8;
 
 // Snapshot references now carry a bounded committed member ledger in addition
-// to their image/ticket metadata. Reserve every physical completion slot for it.
-const SNAPSHOT_COMPLETION_BYTES: usize = 16 * 1024;
+// to their image/ticket metadata, including an optional fleet permit ledger.
+// Reserve every physical completion slot for the complete bounded ledger.
+const SNAPSHOT_COMPLETION_BYTES: usize = 32 * 1024;
 const COMPLETION_BYTES: usize = COMPLETION_SLOTS * SNAPSHOT_COMPLETION_BYTES;
 const HINT_SLOTS: usize = 256;
 const HINT_BYTES: usize = HINT_SLOTS * 4096;

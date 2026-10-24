@@ -139,7 +139,7 @@
     {
       "id": "FO-02",
       "title": "Bind every membership mutation to durable fleet permits",
-      "status": "TODO",
+      "status": "IN_PROGRESS",
       "depends_on": [
         "FO-01"
       ],
@@ -152,10 +152,26 @@
         "crates/cellar/durability/raft/snapshot.rs",
         "crates/cellar/durability/raft/archive/mod.rs",
         "crates/cellar/durability/raft/catalog_wire.rs",
-        "crates/cellar/application/consensus/protocol.rs"
+        "crates/cellar/application/consensus/protocol.rs",
+        "crates/cellar/application/consensus/client.rs",
+        "crates/cellar/application/consensus/mod.rs",
+        "crates/cellar/durability/raft/cache.rs",
+        "crates/cellar/durability/raft/host_standby.rs",
+        "crates/cellar/durability/raft/inspection.rs",
+        "crates/cellar/durability/raft/manifest.rs",
+        "crates/cellar/durability/raft/replica.rs",
+        "crates/cellar/durability/raft/runtime.rs",
+        "crates/cellar/durability/raft/snapshot_seed.rs",
+        "crates/cellar/durability/raft/storage.rs"
       ],
       "creates": [
-        "crates/cellar/tests/native_raft_fleet_permits.rs"
+        "crates/cellar/tests/native_raft_fleet_permits.rs",
+        "crates/cellar/application/consensus/client_fleet.rs",
+        "crates/cellar/durability/raft/fleet_catalog/permits.rs",
+        "crates/cellar/durability/raft/host_fleet.rs",
+        "crates/cellar/durability/raft/member_fleet.rs",
+        "crates/cellar/durability/raft/member_fleet_tests.rs",
+        "crates/cellar/durability/raft/fleet_catalog/README.md"
       ],
       "steps": [
         "Persist per-group permit sequence and payload with repair state, snapshots and archive membership metadata.",
@@ -223,6 +239,15 @@
           "invariants": [
             "F01",
             "F05"
+          ]
+        },
+        {
+          "name": "fleet_permit_legacy_startup_cannot_seed_managed_history",
+          "oracle": "Fresh legacy Joining and JoiningFromS3 startup refuse a managed history before claiming its member; retained joined engines still resume.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F04"
           ]
         }
       ],
@@ -415,7 +440,8 @@
         "Use deterministic tie breaks, cooldown/deadband and failure-domain checks.",
         "Atomically reserve target capacity and per-node movement slots; revalidate host capacity before initialization.",
         "Implement complete bounded assignment and final-fleet single-failure simulation; distinguish search exhaustion from infeasibility.",
-        "Use source-target gap and lexicographic pressure improvement for performance-triggered moves; explicit topology requests reduce feasible live-assignment distance while retained physical state remains charged."
+        "Use source-target gap and lexicographic pressure improvement for performance-triggered moves; explicit topology requests reduce feasible live-assignment distance while retained physical state remains charged.",
+        "Produce a complete final assignment and a legal bounded move DAG; reconcile materialization without double-crediting physical resources."
       ],
       "acceptance": [
         "Projected destination utilization includes every unresolved permit.",
@@ -498,6 +524,30 @@
           "invariants": [
             "F06",
             "F09"
+          ]
+        },
+        {
+          "name": "fleet_placement_staged_path",
+          "oracle": "A final assignment that fits but has no legal first move is refused; temporary learners and retained source state are charged at every prefix.",
+          "invariants": [
+            "F06",
+            "F09"
+          ]
+        },
+        {
+          "name": "fleet_placement_materialization_ledger",
+          "oracle": "Attributed physical samples and reservation releases cannot double-credit materialized resources; stale process samples retain conservative charges.",
+          "invariants": [
+            "F06",
+            "F07"
+          ]
+        },
+        {
+          "name": "fleet_placement_retired_destination",
+          "oracle": "A target with spare aggregate capacity but a retired binding for the exact history is ineligible; fresh member IDs do not reset it.",
+          "invariants": [
+            "F02",
+            "F06"
           ]
         }
       ],
@@ -790,7 +840,8 @@
         "Build complete index/configuration/permit proof and CAS-bind the removal certificate.",
         "Retain identity tombstones, enforce fresh-registration return after evacuation, and reconcile cancellation with partial effects.",
         "Persist a distinct node lifecycle epoch/stop guard in the engine owner; bind stop/cancel to process and exact request.",
-        "Add a reversible managed admission barrier separate from permanent Node shutdown; serialize rolling maintenance, restart, resize and evacuation through one disruption slot."
+        "Add a reversible managed admission barrier separate from permanent Node shutdown; serialize rolling maintenance, restart, resize and evacuation through one disruption slot.",
+        "Separate monotonic absence closure from expiring health proofs; reconcile lost stop replies before releasing disruption ownership."
       ],
       "acceptance": [
         "Successful process shutdown alone never certifies evacuation.",
@@ -913,6 +964,31 @@
           "invariants": [
             "F04",
             "F08"
+          ]
+        },
+        {
+          "name": "fleet_evacuation_exclusion_closure",
+          "oracle": "Exclusion plus settlement or committed fencing of every earlier action preserves absence during finalization; a delayed capability cannot reintroduce the node.",
+          "invariants": [
+            "F04",
+            "F05",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_maintenance_lost_stop_reply",
+          "oracle": "An accepted stop with a lost reply retains its disruption slot and exact request until physical outcome or durable fencing is reconciled.",
+          "invariants": [
+            "F03",
+            "F08"
+          ]
+        },
+        {
+          "name": "fleet_evacuation_health_expires",
+          "oracle": "An old absence proof cannot substitute for fresh survivor readiness; an intervening failure blocks completion without demanding a moving business-write cut.",
+          "invariants": [
+            "F07",
+            "F10"
           ]
         }
       ],
@@ -1097,7 +1173,8 @@
         "Select and evacuate one node at a time; report infrastructure shortage and never delete idle cells.",
         "Implement committed terminal retirement: all three voters apply the marker and a verified archive covers it before live placement inventory is released; retain physical-byte reservations until reclamation.",
         "Implement target resource profiles, physical-fit receipts and controlled intact-engine resize; block unsupported disk shrink or retained-state overflow.",
-        "Pin the final keep-set, exclude all departing targets and revalidate the complete plan after births or demand growth."
+        "Pin the final keep-set, exclude all departing targets and revalidate the complete plan after births or demand growth.",
+        "Preview reduced cell counts against retained physical state and verified heterogeneous profiles; reject unstageable scale-in."
       ],
       "acceptance": [
         "Target capacity is a request, not a provisioning or data-deletion action.",
@@ -1204,6 +1281,30 @@
             "F06",
             "F09"
           ]
+        },
+        {
+          "name": "fleet_capacity_retired_cell_footprint",
+          "oracle": "Authorized retirement reduces serving obligations only after its terminal proof; retained slots and bytes still constrain subsequent scale-in or resize.",
+          "invariants": [
+            "F05",
+            "F06"
+          ]
+        },
+        {
+          "name": "fleet_capacity_heterogeneous_profile",
+          "oracle": "Heterogeneous placement uses verified bounds and measured role costs; a doubled desired CPU or memory declaration cannot double effective capacity.",
+          "invariants": [
+            "F06",
+            "F11"
+          ]
+        },
+        {
+          "name": "fleet_capacity_unstageable_scale_in",
+          "oracle": "Scale-in does not start from a feasible final count when every legal move prefix exceeds physical staging or per-history occupancy bounds.",
+          "invariants": [
+            "F06",
+            "F09"
+          ]
         }
       ],
       "verification": [
@@ -1253,7 +1354,8 @@
         "Extend existing native harness to five nodes/500 RF3 groups, sixth-node addition and four-node evacuation.",
         "Implement fault schedule and exact ledger/replica/archive/configuration verification with resource samples.",
         "Run paired performance tests, physical RustFS CAS probes and a 24-hour soak; publish the bounded supported envelope.",
-        "Qualify vertical resize as a separate resource tier and add low-load redistribution, stale-stop and terminal-receipt fault scenarios."
+        "Qualify vertical resize as a separate resource tier and add low-load redistribution, stale-stop and terminal-receipt fault scenarios.",
+        "Validate exact failed-pair inventory and retirement-to-scale-in histories; report limiting-stage rates against convergence targets."
       ],
       "acceptance": [
         "Every gate in qualification.md passes with retained logs and hashes; failed/inconclusive cohorts remain visible.",
@@ -1349,6 +1451,24 @@
             "F05",
             "F08",
             "F10",
+            "F12"
+          ]
+        },
+        {
+          "name": "fleet_qualification_pair_inventory",
+          "oracle": "The equal five-node 500-cell fixture covers all ten voter triples; every failed pair classifies 50 unaffected, 300 quorum-capable and 150 minority groups before repair.",
+          "invariants": [
+            "F01",
+            "F09",
+            "F12"
+          ]
+        },
+        {
+          "name": "fleet_qualification_retirement_scale_in",
+          "oracle": "Under writes, retirement then reduced-capacity planning preserves the terminal history and retained-resource ledger; an unsafe smaller tier refuses without data deletion.",
+          "invariants": [
+            "F05",
+            "F06",
             "F12"
           ]
         }

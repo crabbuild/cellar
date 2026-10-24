@@ -37,6 +37,7 @@ pub use crate::raft::catalog::{
 pub use cellar_logic::raft_leadership::LeaderPolicy;
 pub use cellar_logic::raft_placement::PlacementPolicy;
 
+pub use crate::raft::fleet_catalog::{FleetGroupAuthorization, FleetPermitAuthorization};
 pub use crate::raft::host::{
     RaftArchiveOptions, RaftCellPlacement, RaftCellRegistration, RaftCellsConfig,
     RaftCellsServices, RaftControllerOptions, RaftControllerStatus, RaftHostOptions,
@@ -47,6 +48,7 @@ pub use crate::raft::inspection::{
     ReplicaOccupancy,
 };
 pub use crate::raft::member_state::{
+    FleetGroupBinding, FleetMembershipPermit, FleetMembershipStatus, FleetPermitPhase,
     JoiningMember, RepairPhase, RepairPlan, RepairStatus, RepairStep,
 };
 pub use crate::raft::operations::{

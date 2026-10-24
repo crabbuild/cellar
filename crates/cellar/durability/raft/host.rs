@@ -58,6 +58,8 @@ mod load;
 mod readiness;
 pub(crate) use load::GroupResourceObserver;
 pub use load::RaftInspectionScanOptions;
+#[path = "host_fleet.rs"]
+mod fleet_control;
 #[path = "host_membership.rs"]
 mod membership;
 pub use directory::RaftNodeDirectoryOptions;
@@ -254,6 +256,8 @@ pub enum RaftCellPlacement {
     Standby,
     /// Resume a stable joined member or seed a new committed learner from the
     /// specified trusted peer. A claimed member with lost state is refused.
+    /// Fresh managed learners require authorized activation on a `Standby`;
+    /// this placement can still resume their intact retained engines.
     Joining {
         member: MemberId,
         source: MemberId,
@@ -261,6 +265,7 @@ pub enum RaftCellPlacement {
     },
     /// Seed a fresh learner from an exact S3 manifest selected by a live peer
     /// read barrier. Existing stable joined state resumes without reseeding.
+    /// Fresh managed learners use authorized `Standby` activation instead.
     JoiningFromS3 {
         member: MemberId,
         source: MemberId,
@@ -696,6 +701,15 @@ async fn initialize(
                             let Value::Seeded(seed) = output.value else {
                                 anyhow::bail!("SQL seed response")
                             };
+                            // Managed fresh learners use registered standby activation
+                            // with an opaque catalog authorization. Retained joined
+                            // state above resumes without creating a new membership.
+                            standby::check_seed_guard(
+                                seed.membership(),
+                                seed.local(),
+                                None,
+                                false,
+                            )?;
                             service.log.create_seeded(*seed).await?;
                             namespace
                                 .resume_joined(&birth, &service.log, member)
@@ -1786,11 +1800,19 @@ impl Driver {
         if request.control.cancelled() {
             return;
         }
-        if matches!(&request.kind, Kind::ActivateLearner(_)) {
-            if let Kind::ActivateLearner(activation) =
-                std::mem::replace(&mut request.kind, Kind::Status)
-            {
-                self.activate_learner(request, activation);
+        if matches!(
+            &request.kind,
+            Kind::ActivateLearner(_) | Kind::ActivateManaged { .. }
+        ) {
+            match std::mem::replace(&mut request.kind, Kind::Status) {
+                Kind::ActivateLearner(activation) => {
+                    self.activate_learner(request, activation, None)
+                }
+                Kind::ActivateManaged {
+                    activation,
+                    authorization,
+                } => self.activate_learner(request, activation, Some(*authorization)),
+                _ => reply(&mut request, Err(CommandFailure::CorruptState)),
             }
             return;
         }
@@ -1812,15 +1834,16 @@ impl Driver {
         }
         if matches!(
             &request.kind,
-            Kind::BeginRepair { .. } | Kind::AdvanceRepair { .. }
+            Kind::BeginRepair { .. } | Kind::AdvanceRepair { .. } | Kind::Fleet(_)
         ) {
             match std::mem::replace(&mut request.kind, Kind::Status) {
-                Kind::BeginRepair { plan } => self.begin_repair(request, plan),
+                Kind::BeginRepair { plan } => self.begin_repair(request, plan, None),
                 Kind::AdvanceRepair {
                     id,
                     step,
                     expected_revision,
-                } => self.advance_repair(request, id, step, expected_revision),
+                } => self.advance_repair(request, id, step, expected_revision, None),
+                Kind::Fleet(action) => self.fleet_configuration(request, *action),
                 _ => reply(&mut request, Err(CommandFailure::CorruptState)),
             }
             return;
@@ -1901,6 +1924,8 @@ impl Driver {
             | Kind::InspectPeer(_)
             | Kind::AddLearner { .. }
             | Kind::ActivateLearner(_)
+            | Kind::ActivateManaged { .. }
+            | Kind::Fleet(_)
             | Kind::Seed { .. }
             | Kind::BeginRepair { .. }
             | Kind::AdvanceRepair { .. } => {
@@ -1918,6 +1943,14 @@ impl Driver {
                             .map_err(|_| CommandFailure::CorruptState)
                     })
                     .map(Response::Repair);
+                reply(&mut request, result);
+            }
+            Kind::FleetStatus => {
+                let result = cell
+                    .group
+                    .membership()
+                    .map(|membership| Response::Fleet(membership.fleet_status().map(Box::new)))
+                    .map_err(|_| CommandFailure::CorruptState);
                 reply(&mut request, result);
             }
             Kind::Query {

@@ -176,6 +176,9 @@ impl InspectionSnapshot {
                 membership
                     .validate(configuration, sample.applied.index.get())
                     .map_err(|_| CommandFailure::CorruptState)?;
+                membership
+                    .validate_scope(&view.scope)
+                    .map_err(|_| CommandFailure::CorruptState)?;
                 if *member != sample.member
                     || view.node.groups == 0
                     || sample.term.get() == 0

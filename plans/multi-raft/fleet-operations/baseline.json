@@ -71,6 +71,10 @@
       "sha256": "b3e7e59823751a9f393fce2c10db7fc308be5dddbb7a40fb1f1c5d5fd2ca45b9"
     },
     {
+      "path": "crates/cellar/durability/raft/cache.rs",
+      "sha256": "b0d5b7ae2334784d0da0c63bd250ac5e16d50900d17a10554c8426f5b9204e74"
+    },
+    {
       "path": "crates/cellar/durability/raft/catalog.rs",
       "sha256": "e683ac4e9f2692ddd61c81a96ef1d78e737fb871bfc64c7d147b4ccfe77d75ce"
     },
@@ -111,12 +115,20 @@
       "sha256": "d939cac5a28437b965cfb1d419b2314d7b206c4c62f8ec2f8aa68338af6adb0e"
     },
     {
+      "path": "crates/cellar/durability/raft/host_standby.rs",
+      "sha256": "7861d6fb85e764246793e29f593fd4ab3a1cc6a7eb7b4a72d3b6b40d2f11b86a"
+    },
+    {
       "path": "crates/cellar/durability/raft/inspection.rs",
       "sha256": "bfb5a59d858d23459b5371464aef9c1bf14f4813bd5fc45b7487c239279932ce"
     },
     {
       "path": "crates/cellar/durability/raft/inspection_wire.rs",
       "sha256": "08b94cf31607156d31a7541674316a1912e9a8f032daf7cdf7c0791a7d9b5464"
+    },
+    {
+      "path": "crates/cellar/durability/raft/manifest.rs",
+      "sha256": "bf842bf2c59f5470cc6896119c4c95fa67d0b6d50fe93cb7e7c1c5a5a298f057"
     },
     {
       "path": "crates/cellar/durability/raft/member_state.rs",
@@ -151,8 +163,20 @@
       "sha256": "d50eb545b4ee3dccd86675ce40bcf058f949a4377960d941b5b26da8f41327c0"
     },
     {
+      "path": "crates/cellar/durability/raft/replica.rs",
+      "sha256": "ceb81a7036f088b61260d90274b2101f75c1a332fa64a0b7e64920cd882eabca"
+    },
+    {
+      "path": "crates/cellar/durability/raft/runtime.rs",
+      "sha256": "2ab3de4a7f0922ea6be3ec24e852c4813cb9a071b8405e15e5e99de5115fbb95"
+    },
+    {
       "path": "crates/cellar/durability/raft/snapshot.rs",
       "sha256": "7cd5ff9fca069fe2c6e5f27baf6964dd35598840c071dec043cb864eb57d2a43"
+    },
+    {
+      "path": "crates/cellar/durability/raft/snapshot_seed.rs",
+      "sha256": "0b317829659fca5d737afba6a0c684da61afcc2aec9c22daa09d38201c72b82a"
     },
     {
       "path": "crates/cellar/durability/raft/storage.rs",

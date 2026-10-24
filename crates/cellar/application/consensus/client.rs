@@ -18,6 +18,10 @@ use std::sync::{
 use std::time::Duration;
 use tokio::sync::{mpsc, oneshot, Notify};
 
+#[path = "client_fleet.rs"]
+mod fleet;
+pub(crate) use fleet::FleetRequest;
+
 /// A compare-and-set admission request for a preconfigured fresh learner.
 #[derive(Clone, Debug)]
 pub struct LearnerOptions {
@@ -770,7 +774,18 @@ impl RaftCellHandle {
             }
             match &kind {
                 Kind::NodeDrain => {}
-                Kind::ActivateLearner(activation) => {
+                Kind::ActivateLearner(activation) | Kind::ActivateManaged { activation, .. } => {
+                    if let Kind::ActivateManaged { authorization, .. } = &kind {
+                        if !authorization.matches_scope(&self.binding.scope)
+                            || authorization
+                                .permit()
+                                .replacement()
+                                .map(|member| member.member)
+                                != Ok(activation.member)
+                        {
+                            return Err(CommandFailure::CommandConflict);
+                        }
+                    }
                     if activation.member == activation.source || timeout > Duration::from_secs(300)
                     {
                         return Err(CommandFailure::UnsupportedCapability);
@@ -878,7 +893,7 @@ impl RaftCellHandle {
                         return Err(CommandFailure::UnsupportedCapability);
                     }
                 }
-                Kind::Status | Kind::RepairStatus | Kind::ReplicationStatus => {
+                Kind::Status | Kind::RepairStatus | Kind::ReplicationStatus | Kind::FleetStatus => {
                     if self.binding.member().is_none() {
                         return Err(CommandFailure::UnsupportedCapability);
                     }
@@ -895,6 +910,14 @@ impl RaftCellHandle {
                     if self.binding.member().is_none()
                         || plan.expected_revision.get() == 0
                         || plan.policy_revision == 0
+                    {
+                        return Err(CommandFailure::UnsupportedCapability);
+                    }
+                }
+                Kind::Fleet(action) => {
+                    if self.binding.member().is_none()
+                        || timeout > Duration::from_secs(60)
+                        || !action.matches_scope(&self.binding.scope)
                     {
                         return Err(CommandFailure::UnsupportedCapability);
                     }
@@ -997,6 +1020,12 @@ pub(crate) struct Work {
 }
 
 pub(crate) enum Kind {
+    Fleet(Box<FleetRequest>),
+    FleetStatus,
+    ActivateManaged {
+        authorization: Box<crate::raft::fleet_catalog::FleetPermitAuthorization>,
+        activation: LearnerActivation,
+    },
     NodeDrain,
     ControllerStatus,
     SetControllerEnabled(bool),
@@ -1065,6 +1094,9 @@ impl Kind {
             | Self::ReplicationStatus
             | Self::TransferLeadership(_)
             | Self::ActivateLearner(_)
+            | Self::ActivateManaged { .. }
+            | Self::Fleet(_)
+            | Self::FleetStatus
             | Self::RepairStatus => 0,
         }
     }
@@ -1087,6 +1119,9 @@ impl Kind {
             | Self::ReplicationStatus
             | Self::TransferLeadership(_)
             | Self::ActivateLearner(_)
+            | Self::ActivateManaged { .. }
+            | Self::Fleet(_)
+            | Self::FleetStatus
             | Self::RepairStatus => CancelFailure::Status,
         }
     }
@@ -1110,6 +1145,7 @@ impl CancelFailure {
 }
 
 pub(crate) enum Response {
+    Fleet(Option<Box<crate::raft::member_state::FleetMembershipStatus>>),
     Drained(super::RaftDrainReport),
     Controller(super::RaftControllerStatus),
     PeerInspection(

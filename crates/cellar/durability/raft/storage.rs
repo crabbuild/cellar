@@ -764,6 +764,7 @@ impl Worker {
         }
         let scope = mapping.scope.clone().decode().map_err(records::corrupt)?;
         scope.validate().map_err(records::corrupt)?;
+        cache.membership.validate_scope(&scope)?;
         Ok(GroupLog {
             key: mapping.key,
             birth_digest: mapping.birth_digest,
