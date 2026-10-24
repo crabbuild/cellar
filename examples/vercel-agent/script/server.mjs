@@ -53,6 +53,7 @@ export function createDemoServer({
   model,
   provider,
   directory,
+  storage,
 }) {
   const tickets = ticketStore(
     directory ? join(directory, "tickets.sqlite") : ":memory:",
@@ -161,7 +162,7 @@ export function createDemoServer({
         return json(res, 202, { accepted: true });
       }
       if (path === "/api/config" && req.method === "GET")
-        return json(res, 200, { provider, model });
+        return json(res, 200, { provider, model, storage });
       if (path === "/api/restart" && req.method === "POST") {
         if (req.headers.origin !== origin)
           return json(res, 403, { error: "Origin required" });

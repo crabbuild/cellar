@@ -5,6 +5,7 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { setTimeout as delay } from "node:timers/promises";
 import { createDemoServer } from "./server.mjs";
+import { storeEnvironment } from "./store.mjs";
 
 const host = process.env.CELLAR_AI_HOST;
 if (!host)
@@ -23,6 +24,7 @@ if (provider === "openai" && !process.env.OPENAI_API_KEY)
 const directory = resolve(
   process.env.CELLAR_AI_DEMO_DATA ?? ".cellar/vercel-chat",
 );
+const storage = storeEnvironment(directory);
 await mkdir(directory, { recursive: true });
 // Prevent two demo launchers from competing for this bucket or port.
 const lock = await open(resolve(directory, "demo.lock"), "wx").catch(() => {
@@ -44,6 +46,13 @@ const demo = createDemoServer({
   provider,
   model,
   directory,
+  storage: {
+    backend: storage.CELLAR_AI_STORE === "s3" ? "s3" : "local",
+    bucket: storage.CELLAR_BUCKET,
+    ...(storage.CELLAR_AI_STORE === "s3"
+      ? { endpoint: storage.S3_ENDPOINT }
+      : {}),
+  },
   restart: async (reset) => {
     if (restarting) throw new Error("Restart already in progress");
     restarting = true;
@@ -71,7 +80,7 @@ async function start() {
     ["--listen", "127.0.0.1:0", "--internal-listen", "127.0.0.1:0"],
     {
       env: {
-        ...process.env,
+        ...storage,
         CELLAR_AI_PROVIDER: provider,
         CELLAR_AI_MODEL: model,
         CELLAR_NODE_ENTRY: fileURLToPath(
@@ -79,10 +88,7 @@ async function start() {
         ),
         CELLAR_NODE_EXECUTABLE: process.execPath,
         CELLAR_NODE: `ai-demo-${generation}`,
-        CELLAR_BUCKET: "cellar-dev",
-        CELLAR_INTERNAL_DEV_STORE: resolve(directory, "bucket.sqlite"),
         CELLAR_TEST_DATA_DIR: resolve(directory, generation),
-        CELLAR_DURABILITY: "bucket",
         CELLAR_TOKIO_THREADS: "2",
         CELLAR_PLACEMENT_WEIGHT: "1",
         CELLAR_WAKER_TICK_MS: "250",

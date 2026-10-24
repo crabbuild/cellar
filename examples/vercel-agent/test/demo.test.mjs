@@ -9,6 +9,11 @@ async function setup(t) {
     token: () => observerToken,
     provider: "openai",
     model: "test-model",
+    storage: {
+      backend: "s3",
+      bucket: "test-bucket",
+      endpoint: "http://127.0.0.1:19000",
+    },
     restart: async (reset) => {
       observerToken = "new-token";
       reset();
@@ -117,6 +122,15 @@ test("local observer authentication, origin protection and worker restart fencin
     /script-src 'self'/,
   );
   assert.ok(!(await html.text()).includes("private-test-token"));
+  assert.deepEqual(await (await fetch(origin + "/api/config")).json(), {
+    provider: "openai",
+    model: "test-model",
+    storage: {
+      backend: "s3",
+      bucket: "test-bucket",
+      endpoint: "http://127.0.0.1:19000",
+    },
+  });
 });
 
 test("launcher releases its directory lock after a spawn failure", async () => {

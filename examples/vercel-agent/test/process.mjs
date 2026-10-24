@@ -1,10 +1,19 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { mkdtemp, readFile, rm, access, writeFile } from "node:fs/promises";
+import {
+  mkdtemp,
+  readFile,
+  rm,
+  access,
+  writeFile,
+  mkdir,
+  readdir,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { setTimeout as delay } from "node:timers/promises";
+import { recoveryStore } from "./recovery-store.mjs";
 
 const program = process.env.CELLAR_AI_HOST;
 assert.ok(
@@ -30,6 +39,7 @@ const productionEntry = fileURLToPath(
 );
 const root = await mkdtemp(join(tmpdir(), "cellar-ai-"));
 const children = new Set();
+const stores = new Map();
 
 async function until(check, description, timeout = 60_000) {
   const deadline = Date.now() + timeout;
@@ -42,6 +52,15 @@ async function until(check, description, timeout = 60_000) {
 }
 
 async function start(boundary, generation) {
+  if (!stores.has(boundary)) {
+    const directory = join(root, boundary);
+    await mkdir(directory);
+    stores.set(boundary, await recoveryStore(directory, boundary));
+  }
+  const store = stores.get(boundary);
+  const data = join(root, `${boundary}-${generation}-data`);
+  await mkdir(data);
+  assert.deepEqual(await readdir(data), [], "replacement must start empty");
   let stdout = "",
     stderr = "";
   const child = spawn(
@@ -49,15 +68,12 @@ async function start(boundary, generation) {
     ["--listen", "127.0.0.1:0", "--internal-listen", "127.0.0.1:0"],
     {
       env: {
-        ...process.env,
+        ...store.env,
         CELLAR_NODE_ENTRY: boundary === "concurrent" ? productionEntry : entry,
         CELLAR_NODE_EXECUTABLE: process.execPath,
         CELLAR_AI_PROVIDER: live ? "openai" : "fixture",
         CELLAR_NODE: `ai-${boundary}-${generation}`,
-        CELLAR_TEST_DATA_DIR: join(root, `${boundary}-${generation}-data`),
-        CELLAR_BUCKET: "cellar-dev",
-        CELLAR_INTERNAL_DEV_STORE: join(root, `${boundary}-bucket.sqlite`),
-        CELLAR_DURABILITY: "bucket",
+        CELLAR_TEST_DATA_DIR: data,
         CELLAR_TOKIO_THREADS: "2",
         CELLAR_PLACEMENT_WEIGHT: "1",
         CELLAR_WAKER_TICK_MS: "250",
@@ -104,7 +120,14 @@ async function start(boundary, generation) {
       return false;
     }
   }, "host readiness");
-  return { ...addresses, child, exited, logs: () => `${stdout}\n${stderr}` };
+  return {
+    ...addresses,
+    child,
+    exited,
+    data,
+    store,
+    logs: () => `${stdout}\n${stderr}`,
+  };
 }
 
 async function stop(node) {
@@ -156,10 +179,19 @@ try {
         return false;
       }
     }, `checkpoint ${boundary}`);
+    const beforeRestart = await first.store.inspect();
     first.child.kill("SIGKILL");
     await first.exited;
     await submission;
     children.delete(first.child);
+
+    // Physically remove every worker-owned file before starting the replacement.
+    assert.ok(
+      (await readdir(first.data)).length > 0,
+      "old worker must have local files to erase",
+    );
+    await rm(first.data, { recursive: true });
+    await assert.rejects(access(first.data), { code: "ENOENT" });
 
     // A different node and empty local directory must recover from the bucket.
     const second = await start(boundary, 2);
@@ -231,8 +263,28 @@ try {
     assert.equal(conflict.status, 409);
     assert.equal((await (await fetch(recoveredUrl)).json()).count, 3);
     assert.equal((await fetch(`${second.ingress}/agents/other`)).status, 404);
+    const afterRestart = await second.store.inspect();
+    if (afterRestart.backend === "s3") {
+      const previous = beforeRestart.ownership[0];
+      const current = afterRestart.ownership.find(
+        (item) => item.key === previous.key,
+      );
+      assert.ok(
+        current.epoch > previous.epoch,
+        "cold recovery must acquire a new epoch",
+      );
+      assert.notEqual(current.node, previous.node);
+    }
     await stop(second);
-    evidence.push({ boundary, providerCalls: calls.length, result });
+    evidence.push({
+      boundary,
+      providerCalls: calls.length,
+      localStateDeleted: true,
+      replacementStartedEmpty: true,
+      beforeRestart,
+      afterRestart,
+      result,
+    });
     console.log(
       `PASS ${boundary}: SIGKILL, cold bucket recovery, one tool effect, ${expectedCalls} provider calls, idempotent retry`,
     );
@@ -280,6 +332,12 @@ try {
     first.child.kill("SIGKILL");
     await first.exited;
     children.delete(first.child);
+    assert.ok(
+      (await readdir(first.data)).length > 0,
+      "old worker must have local files to erase",
+    );
+    await rm(first.data, { recursive: true });
+    await assert.rejects(access(first.data), { code: "ENOENT" });
     const second = await start("concurrent", 2);
     await Promise.all(
       Array.from({ length: 32 }, async (_, index) => {
@@ -302,6 +360,8 @@ try {
       tasks: 16,
       duplicates: 32,
       elapsedMs,
+      localStateDeleted: true,
+      store: await second.store.inspect(),
     });
     console.log(
       `PASS production entry: 16 concurrent tasks in ${elapsedMs} ms, cold recovery, 32 unchanged duplicate results`,

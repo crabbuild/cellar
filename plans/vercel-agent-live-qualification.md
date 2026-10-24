@@ -7,6 +7,9 @@ loaded from a local environment file and were not printed, copied into task
 state, or committed. Tests used synthetic prompts and private temporary
 SQLite development buckets.
 
+The later [RustFS qualification](vercel-agent-rustfs-qualification.md) exercises
+the real S3 backend with physical deletion of worker-local state.
+
 ## Results
 
 | Scenario | Observed result |
