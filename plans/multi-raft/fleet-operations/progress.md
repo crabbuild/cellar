@@ -594,6 +594,50 @@ acknowledgements, retired bindings, complete import and rooted domain policy.
 Its full listing correctly refuses qualification. FO-04 through FO-10 remain
 pending and automatic fleet management stays default-off.
 
+## FO-03 progress: quorum membership observation
+
+Source `3fcffcf38bc7dc0899445bd35bb6fd5960d9f0bf` adds
+`RaftCellHandle::observe_fleet_membership`. Each invocation uses a new safe
+ReadIndex and waits for coherent durable apply and the local route revision. The
+opaque result binds the actual birth/schema and physical node/disk/process,
+retains both joint voter sets and learner roles, and exposes the committed fleet
+sequence, joined bindings and repair phase. It needs no SQL image or application
+query. An additional bounded 64-KiB/item administrative reservation survives
+through SDK reply delivery; cancellation, deadlines and shutdown release it.
+Business write acknowledgement adds no catalog or observation call.
+
+All **340 native cases across 13 targets**, **136 Raft library units** and **four
+startup-confirmation cases** passed on the existing local macOS arm64 setup.
+The permit target now has 12 passing cases, including five new cases covering
+empty images, missing enrollment and foreign births, cached-state refusal during
+partition and successor recovery, seeding/joint/terminal roles, and bounded
+cancellation/pressure/shutdown. Its existing joint-recovery case also refuses new
+observations with only the new majority, including after physical reopen, then
+observes terminal membership once both majorities recover. Five process helpers
+remain ignored in direct listings and run through their passing parent cases.
+
+Clippy with warnings denied, formatting/layout over 932 Rust files, dependency
+checks (454 reachable packages and no JavaScript engine), documentation, plan
+validation and all 10 validator tests passed. The inventory now has 151 required
+cases and 71 reviewed source anchors. Initial test logs retain the incorrect
+fixture process generation and skipped command sequence; both were corrected
+without weakened assertions. Final qualified Rust hashes are unchanged.
+
+`implementation/fo03/quorum-observation-boundary.json` is a retained **partial**
+record under ignored `.cellar/raft-perf/fleet-operations/`. It records exact source,
+log and executable hashes; mutable build paths do not archive binary bytes.
+No raw evidence is tracked under `plans/multi-raft/evidence/`.
+
+FO-03 remains `IN_PROGRESS`: 52 enrollment cases and five companion observation
+cases pass, while its five mandatory complete-import/trust/lifecycle cases are
+still missing. The combined listing correctly fails `check-list FO-03`.
+A saved group observation supplies no lease, complete fleet inventory, archive
+coverage or removal certificate. Complete-import traversal, remote/controller
+integration, ownership handoff/cancellation and typed lifecycle gating remain
+required. FO-04 through FO-10 stay pending; fleet management remains default-off.
+These results do not qualify RustFS deployment, enforced Colima limits, fleet
+scaling, TPS/p99 or the soak, and claim no performance improvement.
+
 ## Prioritized remaining delivery
 
 The next changes should close FO-03's remaining trust, complete-inventory and
@@ -604,7 +648,7 @@ safe admission ahead of automation; the manifest dependencies remain unchanged.
 
 | Priority | Boundary | Required result before advancing |
 | --- | --- | --- |
-| P0, first | FO-03 complete inventory and member lifecycle | Use the new frozen birth inventory to finish membership quiescence, exact fleet coverage, ownership handoff and controlled import cancellation. Then close actual retired-binding lifecycle refusal. Group identity and birth admission are now inventoried, but a frozen cut grants no removal certificate. Original voters now settle after rooted drain/restart/resize exclusion, and initialization retries through startup-recovered handles retain data. The actual SDK birth/drain race is covered; this does not certify evacuation. Close `fleet_enrollment_incomplete_import` and `fleet_enrollment_retired_binding`. |
+| P0, first | FO-03 complete inventory and member lifecycle | Use the frozen birth inventory and new quorum group observations to finish membership quiescence, exact fleet coverage, ownership handoff and controlled import cancellation. Then close actual retired-binding lifecycle refusal. Group identity and birth admission are now inventoried, but a frozen cut grants no removal certificate. Original voters now settle after rooted drain/restart/resize exclusion, and initialization retries through startup-recovered handles retain data. The actual SDK birth/drain race is covered; this does not certify evacuation. Close `fleet_enrollment_incomplete_import` and `fleet_enrollment_retired_binding`. |
 | P0, next | FO-03 remaining trust and placement checks | Close `fleet_enrollment_unknown_node`, `fleet_enrollment_route_revocation` and `fleet_enrollment_physical_host`: cover unsolicited ingress, move-participant acknowledgement enforcement and strict physical-host policy for movement. Initial birth-domain admission and cell-free observations are implemented locally; neither activates capacity. Pass the complete FO-03 listing and behavior tests before advancing. |
 | P1 | FO-04 placement, FO-05 fresh load, then FO-06 reconciliation | Validate final assignments and every staged move against retained/temporary costs, failure domains and one-node-loss restoration. Reconciliation must survive cancellation, restart and lost replies, with fresh terminal quorum proof before releasing reservations. Verify foreground overhead before enabling optional balancing. |
 | P2 | FO-07 maintenance, FO-08 operator surfaces, then FO-09 scaling | Deliver the durable stop fence and one-disruption slot, complete evacuation/removal proof, authenticated idempotent API/CLI workflows and observed-limit checks for resource changes. Proposed commands are not available until these packages pass. |

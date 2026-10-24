@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "revision": "2bb08a0f783e051cb6ad1510bbeb2979030db5ad",
+  "revision": "3fcffcf38bc7dc0899445bd35bb6fd5960d9f0bf",
   "files": [
     {
       "path": ".github/workflows/native-sdk.yml",
@@ -44,11 +44,11 @@
     },
     {
       "path": "crates/cellar/application/consensus/client.rs",
-      "sha256": "d7032b695ac4ee961f156a5df5e6d6f417161741533ecf0be47a484a6ac60ef1"
+      "sha256": "741843990d412933e623f3f5940d4a9f1ed988ba0ebd956498902e3b43fe9524"
     },
     {
       "path": "crates/cellar/application/consensus/mod.rs",
-      "sha256": "442ef5b7a787f7a2d0c28112d5d1eba558e6de398bdd4f69c42573cceb537fe7"
+      "sha256": "f73b1bca0b89dc09b3b987f20c4335299720426afd8b7bfc7f927341a81bb382"
     },
     {
       "path": "crates/cellar/application/consensus/protocol.rs",
@@ -96,7 +96,7 @@
     },
     {
       "path": "crates/cellar/durability/raft/host.rs",
-      "sha256": "0d9ecd6d6804d3a093817597b2a3cf33fa0e252b34ce9f4452143ac03c34a421"
+      "sha256": "98a5d78aabb7e85a8aa7bcb0bcd603ea3dfcf222d7fb15d27d4b373d652e1686"
     },
     {
       "path": "crates/cellar/durability/raft/host_controller.rs",
@@ -184,7 +184,7 @@
     },
     {
       "path": "crates/cellar/durability/raft/query.rs",
-      "sha256": "f715b985f9a099830fa2115d2a84820c05668a61103447be0adcb9e4a8cb9012"
+      "sha256": "d22ecd6773dc3b22b785eb8209bede76557ed04a842169fa4d6eb5f722beadb7"
     },
     {
       "path": "crates/cellar/durability/raft/records.rs",
@@ -288,5 +288,5 @@
     }
   ],
   "reviewed_from_revision": "cc470bb268f81bbc22f1f52e78c496e62ccb64af",
-  "review_note": "FO-03 partial reviewed successor: conditional birth/cancellation selection at the immutable name key, required nullable cancellation identity, /enrollment-1 hard cutover, bounded input/deadline admission and native fault coverage. Five birth cases plus 63 existing catalog/directory/permit/host cases, focused Clippy, formatting, layout and native dependencies passed. This refresh does not complete FO-03; nine named cases and dynamic host/trust/inventory integration remain open. Prior baselines remain in Git."
+  "review_note": "FO-03 partial reviewed successor: fresh safe-ReadIndex fleet membership observations without SQL images, coherent configuration/guard and exact birth/process identity, bounded reply retention and joined cancellation. All 340 native cases, 136 Raft units, four startup checks and source checks passed locally. Five mandatory FO-03 cases remain absent; complete import, ownership handoff, lifecycle gating and deployed qualification remain unfinished."
 }
