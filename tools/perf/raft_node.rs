@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Isolated one-process-per-container native multi-Raft measurement node.
 #![allow(clippy::disallowed_methods)]
 #[path = "../../examples/raft-counter/counter.rs"]

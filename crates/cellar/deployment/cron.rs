@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Revisioned schedule overrides are scoped to an immutable deployment prefix.
 //! Publication of a different prefix restores that deployment's declarations.
 use crate::bucket::Bucket;

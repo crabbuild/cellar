@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! A refused append's only stream change is its clock. Require real output
 //! proof, remove the old owner's disk, and audit recovery before receipt reuse.
 

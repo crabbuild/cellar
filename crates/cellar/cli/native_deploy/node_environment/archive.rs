@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Checked content-addressed archive reader. Never invokes tar unpack.
 use super::super::filesystem::{rename_new, sync_directories};
 use super::files::verify_inventory_files;

@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Persisted framework work shares discovery with application alarms, while
 //! retaining an independent identity and deadline for each obligation.
 

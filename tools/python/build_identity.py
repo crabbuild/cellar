@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Verify the embedded Python sources in each frozen benchmark executable."""
 import hashlib
 from pathlib import Path

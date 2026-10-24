@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 use cellar::{
     engine_api::{Compat, RuntimeOptions, WorkerConfigOptions},
     fleet::LoadedDeployment,

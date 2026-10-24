@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """The private fault refuses only the selected seal; it never supplies proof."""
 import http.server
 import http.client

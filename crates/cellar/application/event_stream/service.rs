@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Ephemeral execution reservations belong to the serving host. Losing these
 //! reservations never loses work: SQLite deadlines remain authoritative.
 

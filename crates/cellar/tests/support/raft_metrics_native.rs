@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Actual generation-bound HTTP sampling across real initialized Raft groups.
 use super::{faults, public_node, registration, wait_status};
 use anyhow::{ensure, Context as _, Result};

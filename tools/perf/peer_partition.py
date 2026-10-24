@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Peer-only fault injection in one private container's network namespace."""
 
 import concurrent.futures

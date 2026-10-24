@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """A failing shutdown must not abandon remaining owned processes/stores."""
 from contextlib import redirect_stderr
 import io

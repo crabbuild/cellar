@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Business idempotency and authority under native cron timeout/owner loss."""
 import asyncio
 from cellar import Response, SDKError

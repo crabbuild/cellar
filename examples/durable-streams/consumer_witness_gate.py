@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Private loopback fault: refuse seal of one real retained consumer session."""
 import hashlib
 import json

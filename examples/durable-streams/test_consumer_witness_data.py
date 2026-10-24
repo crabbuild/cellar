@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Actual batch damage, custody, refusal and seal-preserving return boundaries."""
 import copy
 import hashlib

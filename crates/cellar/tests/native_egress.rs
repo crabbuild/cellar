@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Native service/HTTP capabilities through production runtime dispatch.
 use anyhow::{anyhow, Context as _, Result};
 use cellar::application::http::{Headers, MethodError, OutboundRequest, Redirect, Response};

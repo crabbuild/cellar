@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Bounded source diagnostics through the activation-bound storage capability.
 
 use super::{SqlRow, SqlValue, Storage};

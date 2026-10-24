@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Multi-group consensus scheduling and real-engine process-crash boundaries.
 //! The scheduler fixture's application markers are stubs. The repair-load
 //! fixture and container runner exercise actual native SQLite/LTX publication.

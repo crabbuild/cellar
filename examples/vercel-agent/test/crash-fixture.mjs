@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 // Fault controls belong to this test entry, never the production app.ts module.
 import { appendFile, writeFile } from "node:fs/promises";
 import { application } from "../dist/application.js";

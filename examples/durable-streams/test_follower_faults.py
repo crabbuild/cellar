@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Follower proof cannot be replaced by bucket success, source replay or local state."""
 import copy
 import json

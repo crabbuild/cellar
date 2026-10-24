@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Platform state sampling is read-only and executes under the original owner gates.
 use crate::application::event_stream::{DeliveryError, ErrorCode};
 use crate::application::{Context, Invocation, OutboxOptions, Output};

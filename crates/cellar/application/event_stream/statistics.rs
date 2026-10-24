@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Owner-routed stream observations without scans of retained event payloads.
 
 use super::{authority::Action, error::error, store, ErrorCode, Resource, Retention, Stream};

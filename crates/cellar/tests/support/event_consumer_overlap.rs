@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Expired and current workers share one durable inbox. The paused callback
 //! retains only a real SDK delivery, not fabricated records or proof.
 

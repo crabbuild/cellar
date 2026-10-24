@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Local SQLite operation costs; excludes routing, replication and output proofs.
 #![allow(clippy::disallowed_methods)]
 

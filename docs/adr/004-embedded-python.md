@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # ADR 004: Embed trusted Python above the native SDK
 
 Status: accepted implementation decision; production qualification remains open.

@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Platform catalog inspection is separate from an individual resource grant.
 
 use super::{error::error, store, ErrorCode};

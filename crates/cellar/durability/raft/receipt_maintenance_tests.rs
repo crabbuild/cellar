@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Storage invariants for bounded automatic selection, including rollback and
 //! retained latest acknowledgements. Uses real SQLite transactions.
 #![allow(clippy::disallowed_methods)]

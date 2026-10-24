@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 #![allow(dead_code, clippy::disallowed_methods)]
 #[path = "../../../cellar/tests/support/html.rs"]
 mod fixture;

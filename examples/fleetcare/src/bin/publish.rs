@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Publish the same FleetCare bindings used by the local performance host.
 //!
 //! This one-shot process owns package files and bootstrap I/O, outside cells.

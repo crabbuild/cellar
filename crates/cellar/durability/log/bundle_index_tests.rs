@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Historical row-cache hints must not outgrow the retained bundle inventory.
 use super::*;
 

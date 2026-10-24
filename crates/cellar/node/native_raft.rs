@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Compiled-application Raft startup at the process boundary.
 use crate::application::consensus::{
     RaftCells, RaftCellsConfig, RaftCellsServices, RaftTls, VersionKeys,

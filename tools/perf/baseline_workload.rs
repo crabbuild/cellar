@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Fleet/bucket adapter for the same SQL workload. The application receipt is
 //! committed with the business mutation; the native host owns the output gate.
 use crate::reference_workload::{apply, Change, Sql, State, READ_SQL};

@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Replay every entry proof while sealing bounded batches of private images.
 use super::{apply_limits, result_state, ArchiveError, ArchiveRecoverySet};
 use crate::application::consensus::CellUpdate;

@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # 008: JavaScript and TypeScript above the native Cellar SDK
 
 Status: V8 and Node backends implemented, with native Node fleet packaging; broader production gates remain open.

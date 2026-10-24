@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Repository Rust quality tools
 
 From the repository root or a member crate directory:

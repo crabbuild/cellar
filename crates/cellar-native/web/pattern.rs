@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! URL patterns with the retained parser and Rust ECMAScript regex execution.
 use super::Error;
 pub use quirks::UrlPatternInit;

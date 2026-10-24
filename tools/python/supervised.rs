@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Run the shipped process watchdog against an actually installed Python host.
 #![allow(clippy::disallowed_methods)]
 use super::{installed_host::InstalledHost, rolling, Process};

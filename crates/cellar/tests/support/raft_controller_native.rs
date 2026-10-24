@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Six actual nodes. All sources use identical advertised physical endpoints;
 //! data cuts leave direct control/inspection connections live.
 #![allow(clippy::disallowed_methods)]

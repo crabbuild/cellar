@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Durable engine identity and node-root revision fences, independently of
 //! group votes/configurations. These observations grant no discovery authority.
 use super::*;

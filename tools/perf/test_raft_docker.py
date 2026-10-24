@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Local fault control binds ownership before mutation and never retries POST."""
 import http.server
 import json

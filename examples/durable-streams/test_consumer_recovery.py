@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Follower proof cannot be replaced by bucket repair, replay or an empty inbox."""
 import base64
 import copy

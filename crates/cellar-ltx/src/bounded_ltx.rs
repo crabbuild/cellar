@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Strict, allocation-bounded physical LTX verification for consensus inputs.
 
 use crate::ltx::{

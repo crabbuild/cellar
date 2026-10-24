@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Qualified OS/native providers. All I/O is bootstrap/tool work before a node
 //! execution domain exists; no interpreter, package installer or tool is run.
 #![allow(clippy::disallowed_methods)]

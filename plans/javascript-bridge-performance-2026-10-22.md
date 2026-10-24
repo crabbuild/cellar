@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # JS/TS bridge performance — 2026-10-22
 
 ## Result

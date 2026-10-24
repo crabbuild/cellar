@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 // Modified for Cellar from Celld.
 //! The bundle envelope: a container of verbatim L0 LTX files, never a
 //! format.

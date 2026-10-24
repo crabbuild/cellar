@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Recover an acknowledged pending outbox from followers after leader data loss."""
 import argparse
 import copy

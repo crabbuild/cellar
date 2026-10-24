@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """A saved ack-loss qualification cannot substitute another batch or repair state."""
 import base64
 import copy

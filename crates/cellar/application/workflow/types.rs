@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Workflow values, duration parsing, binding configuration and definitions.
 use super::{error, property};
 use anyhow::{ensure, Result};

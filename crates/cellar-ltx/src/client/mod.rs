@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! client — the `ReplicaClient` trait.
 //!
 //! Ported from litestream@v0.5.11 `replica_client.go`. The trait is the storage

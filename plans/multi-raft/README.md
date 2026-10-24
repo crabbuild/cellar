@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Cellar multi-Raft delivery package
 
 Status: MR-01 through MR-12 are complete at their recorded native boundaries.

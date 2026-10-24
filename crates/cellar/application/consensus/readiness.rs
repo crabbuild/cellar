@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Local readiness observations; these never grant query or command authority.
 
 /// Role in the sampled committed configuration. During a joint change an

@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Plan 001: Group framework files by component
 
 > **Executor instructions:** Read this plan fully, then implement the three

@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """A copied candidate must never masquerade as the reference Python build."""
 from pathlib import Path
 import tempfile

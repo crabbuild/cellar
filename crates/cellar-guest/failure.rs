@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Classify only proven refusals. Unknown submitted mutations stay ambiguous.
 use anyhow::Error;
 use cellar::cell_dispatch::RoutedRequestError;

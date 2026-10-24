@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Public HTTP admission for application-owned transports.
 //!
 //! Callers transfer bodies, not execution authority. Dispatch is polled by the

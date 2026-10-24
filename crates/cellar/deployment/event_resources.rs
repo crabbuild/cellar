@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Validated deployment declarations. These describe desired resources; they
 //! are not catalog activation receipts or application-supplied RPC authority.
 

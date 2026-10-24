@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Repository tooling owns process and filesystem operations outside node execution.
 #![allow(clippy::disallowed_methods, clippy::disallowed_macros)]
 

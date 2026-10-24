@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Durable report workflow
 
 Checkpoint a multi-step job and publish a repeatable external effect.

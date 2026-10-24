@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Replicated outbox lanes. A committed attempt precedes every send, and an
 //! authenticated receiver receipt precedes conditional replicated settlement.
 use super::delivery::{

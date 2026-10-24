@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Queue consumer bindings and broker settings captured by a deployment.
 use serde::Deserialize;
 use std::collections::HashMap;

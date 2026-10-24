@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 650" role="img" aria-labelledby="title desc">
 <title id="title">Atomicity stops at the cell database</title>
 <desc id="desc">Business state, a command receipt and an outbox obligation commit or roll back in one cell-local transaction. A separate SQL binding and an external API are different transaction boundaries.</desc>

@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! A streaming port of `superfly/ltx` v0.5.2 `Compactor`.
 //!
 //! The compactor keeps one decompressed page per input. It does not build a

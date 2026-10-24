@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Plan 002: Run one cell application through Cellar or Axum with OpenAPI
 
 > **Executor instructions**: Read this whole plan and the applicable `AGENTS.md`

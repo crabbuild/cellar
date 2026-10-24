@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Exact mailbox boundaries retain and release every owned reservation.
 use super::{channel, Budget, Event};
 use tokio::sync::mpsc::error::TrySendError;

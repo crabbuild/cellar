@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Shutdown must finish an admitted ensemble publication before sealing it.
 use super::*;
 use futures_util::FutureExt;

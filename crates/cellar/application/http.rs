@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Owned native response bodies over the existing HTTP transport.
 
 use super::Context;

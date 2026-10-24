@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 // Modified for Cellar from Celld.
 //! paged_vfs.rs — a SQLite VFS that faults main-db pages in from the bucket.
 //!

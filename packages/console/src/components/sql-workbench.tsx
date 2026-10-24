@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 import { useMemo, useRef, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { History, ListTree, Play, Plus, X } from "lucide-react"

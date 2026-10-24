@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Native byte pipes cross real runtime turns and existing routing/proof gates.
 #[path = "support/html.rs"]
 mod fixture;

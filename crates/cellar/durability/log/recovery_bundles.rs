@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Stage and verify dead-session bundle windows without retaining their bodies.
 //! The caller preserves flush-order windows and uploads only after every bundle
 //! in that window verifies, including the final window's preferred follower rows.

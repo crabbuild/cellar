@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 use anyhow::Result;
 use cellar::sdk::Host;
 use fleetcare::config::{AppConfig, SCRIPT, VERSION};

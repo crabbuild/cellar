@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Controller attempts call the same local APIs as explicit administration.
 //! Cancellation ends observation, not a claim that an admitted change aborted.
 use super::*;

@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Immutable provisioned filesystem closure, bound into the compiled host.
 //! Verification is bootstrap I/O, before Python initialization or node admission.
 #![allow(clippy::disallowed_methods)]

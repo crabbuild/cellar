@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 use super::{set, Context, CreateOptions, Definition, Retention, StructuredValue, Workflow};
 use anyhow::{anyhow, ensure, Result};
 use serde::{Deserialize, Serialize};

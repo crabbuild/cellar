@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Real fleet and bucket proof faults through Python's original native turns.
 use super::fault_gates::{Gate, Peer, Release, Store};
 use super::*;

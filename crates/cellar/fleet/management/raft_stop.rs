@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Bounded stop observations, without per-group identities or deletion authority.
 use crate::application::consensus::RaftNodeShutdownReport;
 use anyhow::{ensure, Result};

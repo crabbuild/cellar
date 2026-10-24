@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Immutable derived tail snapshots, transferred and verified in bounded chunks.
 //! A transfer is never a witness until its original identity, full digest,
 //! counts and sequence coverage verify. Scratch does not supply authority.

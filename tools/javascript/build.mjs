@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 // Build-time tooling only. Serving requires neither Node nor node_modules.
 import {build} from "esbuild";
 import {spawnSync} from "node:child_process";

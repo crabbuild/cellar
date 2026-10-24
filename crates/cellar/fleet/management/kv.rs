@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Typed console edits; preconditions are evaluated by the namespace owner.
 use super::*;
 pub use crate::application::kv::{EditExpiration, RevisionCondition};

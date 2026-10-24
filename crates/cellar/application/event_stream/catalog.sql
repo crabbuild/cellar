@@ -1,3 +1,5 @@
+-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 CREATE TABLE IF NOT EXISTS __sys_event_catalog (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,

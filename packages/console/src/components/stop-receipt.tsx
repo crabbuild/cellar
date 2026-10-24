@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 import { useQuery } from "@tanstack/react-query"
 import { CheckCircle2, Clock3 } from "lucide-react"
 import { Button } from "@/components/ui/button"

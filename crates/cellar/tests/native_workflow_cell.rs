@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Production native Workflow turns and persisted journals. No engine initialization.
 
 use anyhow::{anyhow, Context as _, Result};

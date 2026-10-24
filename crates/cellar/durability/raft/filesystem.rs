@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Every engine file and directory operation uses the supplied node filesystem.
 
 use super::performance::{Counter, Operation, Registry};

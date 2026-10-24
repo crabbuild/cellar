@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Purpose-specific physical-node inspection. The operation belongs to the
 //! transport task registry; dropping a caller cancels its read-only RPC.
 use super::snapshots::{read_bulk_head, Wire};

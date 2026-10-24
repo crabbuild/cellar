@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Bounded receipt maintenance
 
 Status: implementation in progress. The production CLI component is tracked

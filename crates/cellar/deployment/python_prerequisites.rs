@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Data-only contract for the native libraries outside a Python bundle.
 use super::python_environment::{
     normal_absolute, valid_digest, PythonFile, MAX_PYTHON_EXPANDED_BYTES,

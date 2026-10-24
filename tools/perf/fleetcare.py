@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Build and run the FleetCare application on an isolated Colima/RustFS fleet."""
 import argparse
 import concurrent.futures

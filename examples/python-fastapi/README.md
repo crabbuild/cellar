@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # FastAPI orders with a packaged Python runtime
 
 This runnable order-draft API embeds FastAPI in a native Cellar host. FastAPI

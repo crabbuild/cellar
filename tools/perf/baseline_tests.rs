@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Exercise the actual HTTP -> native cell -> LTX -> output gate -> restore
 //! path. The local object store exercises conditional object APIs; it is not S3.
 #![allow(clippy::disallowed_methods)]

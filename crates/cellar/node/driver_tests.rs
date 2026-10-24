@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 use super::*;
 use crate::application::{Application, Cell, Context, HandlerFuture, Invocation, Output, Registry};
 use crate::asyncrt::{ExecutionDomain, TaskHandle};

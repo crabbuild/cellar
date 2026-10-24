@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Validate KV requests using the caller's captured resource budget and clock.
 use super::error;
 use crate::application::limits::KvLimits;

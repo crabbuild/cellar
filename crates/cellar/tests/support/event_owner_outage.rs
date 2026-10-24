@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Node-specific storage outage with independent pre-replay event audits.
 //! This is an injected local-store fault, not physical network isolation.
 

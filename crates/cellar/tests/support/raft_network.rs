@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Real TLS/engine/RawNode fixtures. Application images below are opaque test
 //! bytes, not SQLite/LTX apply qualification. Faults affect emitted peer traffic.
 #![allow(clippy::disallowed_methods)]

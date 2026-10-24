@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Committed cell archives. This module supplies recovery bytes, never votes,
 //! membership authorization, leader eligibility or an SDK output permit.
 

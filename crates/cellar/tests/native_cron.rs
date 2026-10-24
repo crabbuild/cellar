@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Native cron turns, routed effects and real wake entries. Clock fixtures
 //! are installed only while the cell is retired. No JS engine initialization.
 

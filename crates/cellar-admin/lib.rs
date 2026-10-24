@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Browser management service. Authentication and fleet configuration are
 //! explicit inputs; application execution remains in the existing nodes.
 

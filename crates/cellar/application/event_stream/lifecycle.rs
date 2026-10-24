@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Owner-routed subscription administration and durable operation receipts.
 
 use super::{authority::Action, error::error, Cursor, ErrorCode, Stream, Subscription};

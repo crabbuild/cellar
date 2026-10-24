@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Async native content handlers over the shared interactive lol_html host.
 
 use super::{http::Response, Context, HandlerFuture};

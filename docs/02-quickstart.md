@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Run and package your first application
 
 Run the counter, verify persistence across a restart, then build a native

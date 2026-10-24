@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Explicit Python environment view, independent of Rust's process environment.
 use anyhow::{ensure, Result};
 use pyo3::{prelude::*, types::PyDict};

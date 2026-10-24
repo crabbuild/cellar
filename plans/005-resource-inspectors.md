@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Queue, workflow and schedule inspectors
 
 Status: DONE. Based on `4de09b1` (PR #30) on 2026-10-14.

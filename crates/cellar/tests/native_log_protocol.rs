@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Hard-cutover log wire, lease retirement, and caller-owned HTTP pools.
 #![allow(clippy::disallowed_methods)]
 use anyhow::{ensure, Result};

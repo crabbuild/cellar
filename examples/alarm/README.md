@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Durable alarms
 
 Schedule durable cell work and commit an occurrence effect with its deduplication

@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Bounded operator commands mapped to the existing stream owner protocol.
 
 use crate::application::event_stream::{

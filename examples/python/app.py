@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Durable Python counter. Cellar owns storage, routing and recovery."""
 import hashlib
 import asyncio

@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Local multi-Raft qualification
 
 The requested execution environment is a separate Colima profile, RustFS and

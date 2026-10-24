@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Immutable binary values. UTF-16 strings are encoded with TextEncoder's
 //! replacement rules; borrowed binary parts are copied during construction.
 use super::Error;

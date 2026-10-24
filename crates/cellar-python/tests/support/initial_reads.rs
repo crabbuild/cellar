@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Capture on a real native cell turn, with competing writes and bucket recovery.
 use super::*;
 

@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! A retaining restart must work after its last log witness has stopped.
 use super::*;
 

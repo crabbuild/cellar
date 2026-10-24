@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Real core residency refusal, retaining its typed cause through Python.
 use super::python_control::{call as control, observe};
 use super::*;

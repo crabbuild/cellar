@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Check compiled allocator defaults before runtime tuning can mask them.
 #![allow(clippy::disallowed_methods)] // Fresh process and threads are the test boundary.
 

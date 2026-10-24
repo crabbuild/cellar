@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Real native daemon, RFC6455 peer and source compatibility oracle.
 #![allow(clippy::disallowed_methods)]
 use anyhow::Result;

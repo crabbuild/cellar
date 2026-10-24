@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 use cellar_native::cell_id::{perform, Namespace};
 
 const KEY: &str = "cells:v1:4:demo:Account";

@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Lose a proven fetch reply across destination SIGKILL; audit before exact replay."""
 import argparse
 import base64

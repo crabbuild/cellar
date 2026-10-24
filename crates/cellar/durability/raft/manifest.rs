@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Canonical, bounded marker-1 recovery descriptions. Object names include
 //! their content digest; the mutable head selects a complete immutable set.
 

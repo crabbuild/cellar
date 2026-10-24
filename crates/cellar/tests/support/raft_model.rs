@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Deterministic boundary fixture using the production pure decision contracts.
 //! This fixture does not simulate elections or substitute for real Raft tests.
 

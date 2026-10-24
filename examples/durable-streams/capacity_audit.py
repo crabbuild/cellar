@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Independent saved-ledger oracle for the bounded single-source capacity case."""
 import json
 from pathlib import Path

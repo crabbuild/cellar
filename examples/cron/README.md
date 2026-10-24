@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Scheduled occurrences
 
 Perform periodic work from real scheduler invocations.

@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! A boot sweep must preserve another generation's acknowledged bundle.
 //! Hold the real no-log root read; neither the store nor transport supplies proof.
 

@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Native Rust cookbook. See examples/README.md for commands and guarantees.
 
 use anyhow::Result;

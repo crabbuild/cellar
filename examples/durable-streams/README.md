@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Transactional outbox, durable stream and consumer inbox
 
 Confirm an order and retain its delivery obligation in one business transaction.

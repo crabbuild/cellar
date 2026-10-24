@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Bounded, credential-free timing of the existing urllib HTTP probe path."""
 import http.client
 import contextvars

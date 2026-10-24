@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # LTX version 3 byte layout
 
 Use this reference when reading or changing Cellar's LTX codec. It describes

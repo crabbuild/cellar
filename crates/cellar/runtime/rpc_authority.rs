@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Host-minted RPC provenance. Event packets retain their existing wire shape.
 
 use crate::application::event_stream;

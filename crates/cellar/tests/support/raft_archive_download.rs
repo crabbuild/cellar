@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Real immutable recovery sets exercise bounded overlap and cancellation.
 use super::*;
 use std::time::Duration;

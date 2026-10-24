@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Fixed-size observations of Raft work and I/O APIs, never durability proofs.
 use serde::{Serialize, Serializer};
 

@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Operating a Cellar application
 
 Start nodes, remove them gracefully and triage failures through your supervisor

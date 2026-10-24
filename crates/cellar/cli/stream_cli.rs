@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 // Bounded operator files are process-boundary inputs, not node storage effects.
 #![allow(clippy::disallowed_methods)]
 

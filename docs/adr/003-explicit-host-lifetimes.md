@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # ADR 003: Keep host policy explicit and return lifecycle evidence
 
 Status: observed baseline. Source: `c24feb2`. Recorded: 2026-10-12.

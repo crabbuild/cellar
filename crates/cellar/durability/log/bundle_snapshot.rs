@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Verify a retained CLB1 envelope into the bounded recovery spool.
 //! No row escapes until the complete envelope and unique identities verify.
 use super::recovery_rows::{Rows, SortedRows};

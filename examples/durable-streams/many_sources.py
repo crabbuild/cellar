@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Independent cold-source recovery under bounded residency and required retention."""
 import argparse
 import concurrent.futures

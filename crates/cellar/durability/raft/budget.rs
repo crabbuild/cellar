@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Byte and item admission retained through queued work and event delivery.
 
 use std::sync::atomic::{AtomicUsize, Ordering};

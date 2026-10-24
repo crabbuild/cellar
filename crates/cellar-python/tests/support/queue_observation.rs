@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Failure-only observations of this test's synthetic queue databases.
 use rusqlite::{types::ValueRef, Connection, OpenFlags};
 use serde_json::{json, Map, Value};

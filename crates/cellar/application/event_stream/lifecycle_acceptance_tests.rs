@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Administrative metadata must independently match its operation and scope.
 use super::super::Resource;
 use super::*;

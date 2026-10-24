@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Store-outage evidence, lifecycle cleanup and shared runner regressions."""
 import copy
 import json

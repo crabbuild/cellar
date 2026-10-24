@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 import { useRef, useState } from "react"
 import { Download } from "lucide-react"
 import { Button } from "@/components/ui/button"

@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Owned structured values and a compatibility reader for persisted clones.
 //!
 //! Object references retain cycles and shared identity; UTF-16 retains lone

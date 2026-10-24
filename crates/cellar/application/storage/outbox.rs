@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Transaction-scoped event emission into the owning cell's durable outbox.
 
 use super::*;

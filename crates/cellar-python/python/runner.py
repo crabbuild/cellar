@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """One interpreter and asyncio loop; no Cellar operations run on this thread."""
 import asyncio
 from collections import deque

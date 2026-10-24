@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Fixed-size observations of actual local admission reservations.
 
 /// These counters are sampled independently, rather than one atomic snapshot.

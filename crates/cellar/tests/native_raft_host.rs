@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Host integration starts with immutable catalog and initial-member admission.
 #![allow(clippy::disallowed_methods)]
 #[path = "support/raft_cache_pressure.rs"]

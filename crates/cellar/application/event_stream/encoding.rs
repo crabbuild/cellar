@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Bound framework allocations while serializing, before any durable mutation.
 
 use super::error::{error, ErrorCode};

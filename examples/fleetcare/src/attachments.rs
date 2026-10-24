@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Object transfer and the authoritative order reference are separate commits.
 //! A repeated upload verifies the existing object's checksum before replaying
 //! the same cell command; an interrupted transfer leaves no committed reference.

@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Validate default-limit evidence before rendering workload measurements."""
 from __future__ import annotations
 

@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Trusted node registration and process views
 
 Status: MR-11 implementation contract. The [local storage foundation](evidence/MR-11-node-storage-progress.json)

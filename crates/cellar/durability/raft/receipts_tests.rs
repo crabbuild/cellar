@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Private receipt storage contracts exercised with real SQLite rows.
 #![allow(clippy::disallowed_methods)]
 use super::*;

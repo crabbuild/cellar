@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Registered standby initialization stays in the existing node's serialized
 //! host, engine and SQL pool. Waiter lifetime never owns a submitted initializer.
 use super::*;

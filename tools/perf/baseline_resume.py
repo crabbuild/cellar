@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Audit the acknowledged prefix before replay, then verify new post-restart writes."""
 import hashlib
 from pathlib import Path

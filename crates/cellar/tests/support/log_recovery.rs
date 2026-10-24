@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Missing proof blocks recovery; a cold, retained witness can later repair it.
 
 use super::*;

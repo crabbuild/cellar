@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Saved fetch evidence must retain the live lease and audit before replay."""
 import base64
 import copy

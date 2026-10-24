@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Derived disk gather for recovery and live-cell folding.
 //!
 //! Payloads are spooled immediately. Variable-length key metadata is sorted in

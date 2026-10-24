@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Verify separate-process WebSockets, standalone embedding and optional Rust containers."""
 import argparse
 import json

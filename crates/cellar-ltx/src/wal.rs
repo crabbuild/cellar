@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! wal.rs — SQLite WAL header/frame parsing + cumulative SQLite checksums.
 //!
 //! Ported from litestream@v0.5.11 wal_reader.go:14-295 (read path) and the

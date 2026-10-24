@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Authenticated source administration enters the existing RPC owner route.
 
 use super::*;

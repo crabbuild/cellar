@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Native reference with the same checked update and HTTP contract as Python.
 use super::*;
 use cellar::sdk::{

@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Retained history refuses new work; temporary reservations defer callbacks.
 use super::{Driver, Phase};
 use crate::raft::{

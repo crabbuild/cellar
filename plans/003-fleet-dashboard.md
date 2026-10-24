@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Fleet dashboard: product and implementation scope
 
 Status: IMPLEMENTED — v1 behavior and local qualification are recorded below.

@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Native multi-Raft on Colima and RustFS
 
 This fixture records failed attempts and requires complete replica/archive

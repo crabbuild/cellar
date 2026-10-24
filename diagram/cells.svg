@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 385" role="img" aria-labelledby="title description">
   <title id="title">Named cells keep separate SQLite state</title>
   <desc id="description">The COUNTERS namespace routes alice and bob to different Counter cells. Each cell has its own SQLite state. Names retain their identities within a namespace when ownership moves.</desc>

@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Untimed invariant and SDK-capability gates for the measuring client.
 use super::*;
 

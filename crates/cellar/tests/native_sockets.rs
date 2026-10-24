@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Socket APIs run through real native cells; proof verdicts are explicit adapters.
 #[path = "support/html.rs"]
 mod fixture;

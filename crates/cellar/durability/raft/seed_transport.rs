@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Purpose-separated native seed authorization and transfer. Membership values
 //! are data; only a fresh authenticated response can form a local seed grant.
 

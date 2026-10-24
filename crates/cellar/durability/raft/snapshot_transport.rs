@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Member-only snapshot pulls on dedicated data connections. A lease pins one
 //! exact immutable cut; no transfer response grants install or voting authority.
 

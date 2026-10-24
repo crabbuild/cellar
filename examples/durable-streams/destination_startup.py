@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Observe a real failed recovery pass before returning its retained witnesses."""
 import hashlib
 import json
