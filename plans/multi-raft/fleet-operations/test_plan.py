@@ -32,6 +32,7 @@ class PlanTests(unittest.TestCase):
 
     def test_done_without_evidence_is_rejected(self):
         self.manifest["tasks"][0]["status"] = "DONE"
+        self.manifest["tasks"][0]["evidence"] = []
         with self.assertRaisesRegex(plan.PlanError, "retained evidence"):
             plan.validate(self.manifest, self.baseline)
 

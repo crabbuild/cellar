@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "revision": "e0035689dd1eaf059fca250f2eaf05b3280899bc",
+  "revision": "4832486df3eff29ab3b5ed61f572513e59b37828",
   "files": [
     {
       "path": ".github/workflows/native-sdk.yml",
@@ -48,7 +48,7 @@
     },
     {
       "path": "crates/cellar/application/consensus/mod.rs",
-      "sha256": "f91760793d99ebf1785eb0e36e0d2dc45015650d72db83681fb95c875f715241"
+      "sha256": "6580abe58bde5ed1f0a6f3e8f92cfae9501e41ba055f6b82efe915350982b702"
     },
     {
       "path": "crates/cellar/application/consensus/protocol.rs",
@@ -128,7 +128,7 @@
     },
     {
       "path": "crates/cellar/durability/raft/mod.rs",
-      "sha256": "3f12c63cd9b0f21d05a8d93e5f2265740a348da1768385399bcdf57387aa3b5a"
+      "sha256": "76138befc4b0d399c90e1ecd2bc862747368f0c1d1284d63ecd58b53ec11d878"
     },
     {
       "path": "crates/cellar/durability/raft/node_directory.rs",
@@ -194,5 +194,7 @@
       "path": "tools/perf/raft_topology.py",
       "sha256": "439f816ccdd945cd7a8df44356cb2a0359733c0e538713c05f7afdd14b166a19"
     }
-  ]
+  ],
+  "reviewed_from_revision": "e0035689dd1eaf059fca250f2eaf05b3280899bc",
+  "review_note": "FO-01 reviewed successor: add catalog component and verification exports; existing source-anchor hashes refreshed after passing native adapter/directory regressions, Clippy and repository checks. Prior baseline retained in Git."
 }

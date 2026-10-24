@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "baseline_revision": "e0035689dd1eaf059fca250f2eaf05b3280899bc",
+  "baseline_revision": "4832486df3eff29ab3b5ed61f572513e59b37828",
   "invariants": {
     "F01": "Quorum authority",
     "F02": "Stable identities",
@@ -19,7 +19,7 @@
     {
       "id": "FO-01",
       "title": "Persist bounded fleet intent with conditional writes",
-      "status": "IN_PROGRESS",
+      "status": "DONE",
       "depends_on": [],
       "modifies": [
         "crates/cellar/storage/object/bucket.rs",
@@ -132,7 +132,9 @@
           "--test-threads=1"
         ]
       ],
-      "evidence": []
+      "evidence": [
+        ".cellar/raft-perf/fleet-operations/implementation/fo01/completion.json"
+      ]
     },
     {
       "id": "FO-02",
