@@ -99,7 +99,7 @@ jobs:
             --project "$RUNNER_TEMP/fastapi/environment/project.json" \
             --output "$RUNNER_TEMP/fastapi/perf-smoke" \
             --concurrency 1 8 --repetitions 1 --read-seconds .5 --writes 32
-      - name: Check independent-arrival reads and failure accounting
+      - name: Check independent-arrival reads, updates and recovery
         run: |
           python -B examples/python-fastapi/test_perf.py
           cargo build -p cellar-python --example python-offered-load --no-default-features --locked
@@ -114,24 +114,44 @@ jobs:
           print(','.join(map(str, cpus[split:])))
           PY
           mapfile -t pools < "$RUNNER_TEMP/fastapi/cpu-pools.txt"
-          python -B examples/python-fastapi/offered_perf.py \
-            --client "$CARGO_TARGET_DIR/debug/examples/python-offered-load" --client-profile dev \
-            --cellar "$CARGO_TARGET_DIR/debug/cellar" \
-            --project "python=$RUNNER_TEMP/fastapi/environment/project.json" \
-            --output "$RUNNER_TEMP/fastapi/offered-smoke" \
-            --host-cpus "${pools[0]}" --client-cpus "${pools[1]}" \
-            --rates 100 --duration-ms 500 --warmup-ms 100 --repetitions 1
-          python - "$RUNNER_TEMP/fastapi/offered-smoke/results.json" <<'PY'
+          for operation in read update; do
+            python -B examples/python-fastapi/offered_perf.py \
+              --operation "$operation" \
+              --client "$CARGO_TARGET_DIR/debug/examples/python-offered-load" --client-profile dev \
+              --cellar "$CARGO_TARGET_DIR/debug/cellar" \
+              --project "python=$RUNNER_TEMP/fastapi/environment/project.json" \
+              --output "$RUNNER_TEMP/fastapi/offered-$operation-smoke" \
+              --host-cpus "${pools[0]}" --client-cpus "${pools[1]}" \
+              --rates 100 --duration-ms 500 --warmup-ms 100 --repetitions 1
+          done
+          python - "$RUNNER_TEMP/fastapi" <<'PYTEST'
           import json, sys
-          with open(sys.argv[1]) as stream:
-              report = json.load(stream)
-          for case in report["cases"]:
-              for phase in case["phases"]:
-                  for name in ("warmup", "measurement"):
-                      outcomes = phase[name]["outcomes"]
-                      if not outcomes.get("success") or set(outcomes) - {"success", "client_late", "client_capacity"}:
-                          raise RuntimeError(f"FastAPI read smoke failed: {outcomes}")
-          PY
+          from pathlib import Path
+          for operation in ("read", "update"):
+              report = json.loads((Path(sys.argv[1]) / f"offered-{operation}-smoke/results.json").read_text())
+              if report["status"] != "complete":
+                  raise RuntimeError("incomplete offered-load smoke")
+              for case in report["cases"]:
+                  for phase in case["phases"]:
+                      for name in ("warmup", "measurement"):
+                          outcomes = phase[name]["outcomes"]
+                          if not outcomes.get("success") or set(outcomes) - {"success", "client_late", "client_capacity"}:
+                              raise RuntimeError(f"FastAPI {operation} smoke failed: {outcomes}")
+                  if operation == "update" and not sum(row["acknowledged"] for row in case["recovery"]):
+                      raise RuntimeError("no acknowledged updates verified after restart")
+          PYTEST
+      - name: Retain offered-load accounting and recovery evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: fastapi-offered-${{ matrix.runtime }}-${{ github.run_id }}
+          retention-days: 7
+          if-no-files-found: ignore
+          path: |
+            ${{ runner.temp }}/fastapi/offered-*-smoke/**/*.json
+            ${{ runner.temp }}/fastapi/offered-*-smoke/**/*.log
+            ${{ runner.temp }}/fastapi/offered-*-smoke/report.md
+            !${{ runner.temp }}/fastapi/offered-*-smoke/**/project.json
 
   agent:
     name: Durable PydanticAI agent (${{ matrix.runtime }})
