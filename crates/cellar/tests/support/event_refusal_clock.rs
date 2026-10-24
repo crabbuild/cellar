@@ -676,6 +676,7 @@ async fn run_case(
             &json!({"format":1,"stage":"initial consumer fetch","response":original,
                 "elapsed_ms":initial_fetch_started.elapsed().as_millis(),
                 "cutoff_utc_ms":wall(),"proxy_failure":proxy.capture.failure(),
+                "proxy_caller_disconnects":proxy.capture.caller_disconnects(),
                 "source_closed":source.is_closed(),
                 "destination_closed":destination.is_closed()}),
         );
