@@ -3,6 +3,7 @@
 use anyhow::{ensure, Result};
 use cellar_python::{EventKind, Incomplete, Options, PythonRuntime, Source};
 use serde_json::json;
+use std::sync::Arc;
 use std::time::Duration;
 
 #[path = "../perf/deployment.rs"]
@@ -10,6 +11,9 @@ mod deployment;
 #[path = "../perf/embedded.rs"]
 #[allow(dead_code)]
 mod embedded;
+
+#[path = "fleet_gateway.rs"]
+mod gateway;
 
 #[global_allocator]
 static ALLOC: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
@@ -23,6 +27,12 @@ fn emit(report: &cellar_python::Report) -> Result<()> {
 
 fn main() -> Result<()> {
     let node = std::env::var("CELLAR_PERF_NODE")?;
+    let path_mode = embedded::setting("CELLAR_PERF_PYTHON_PATH", String::from("bridge"))?;
+    ensure!(
+        matches!(path_mode.as_str(), "bridge" | "direct-initial"),
+        "Python fleet path must be bridge or direct-initial"
+    );
+    let direct = path_mode == "direct-initial";
     let requests = embedded::setting("CELLAR_PERF_MAX_REQUESTS", 512usize)?;
     ensure!(
         (1..=2048).contains(&requests),
@@ -42,29 +52,37 @@ fn main() -> Result<()> {
     // JSON string/integer literals are also valid Python literals. Configuration
     // is captured at this executable boundary, never inside Cellar's library.
     let source = format!(
-        "NODE = {}\nLIMITS = {}\n{}",
+        "NODE = {}\nLIMITS = {}\nPATH_MODE = {}\n{}",
         serde_json::to_string(&node)?,
         limits,
+        serde_json::to_string(&path_mode)?,
         include_str!("fleet_app.py")
     );
+    let source = Source::new(source, "fleet_app.py")
+        .events([EventKind::Fetch])
+        .cell("Entity");
+    let source = if direct {
+        source.cell_initial_reads("Entity", EventKind::Fetch, ["state"])
+    } else {
+        source
+    };
     // SAFETY: main owns CPython initialization before creating any host workers
     // or foreign Python callers. PythonRuntime joins the owned supervisor.
     let result = unsafe {
-        PythonRuntime::run(
-            options,
-            Source::new(source, "fleet_app.py")
-                .events([EventKind::Fetch])
-                .cell("Entity"),
-            |application, monitor| {
-                let cancellation = monitor.clone();
-                embedded::run_observed(
-                    deployment::graph(),
-                    move |_| Ok(application.clone()),
-                    cancellation.cancelled(),
-                    move |outcome| monitor.record_node(outcome),
-                )
-            },
-        )
+        PythonRuntime::run(options, source, move |application, monitor| {
+            let cancellation = monitor.clone();
+            let application: Arc<dyn cellar::sdk::Application> = if direct {
+                Arc::new(gateway::EntityGateway::new(application))
+            } else {
+                application
+            };
+            embedded::run_observed(
+                deployment::graph(),
+                move |_| Ok(application.clone()),
+                cancellation.cancelled(),
+                move |outcome| monitor.record_node(outcome),
+            )
+        })
     };
     match result {
         Ok(report) => {

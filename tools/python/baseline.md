@@ -86,6 +86,22 @@ Python reports
 its actual ABI/GIL state before/after work and recovery; a free-threaded run must
 remain GIL-off.
 
+## Initial snapshots and handoff measurements
+
+The `python-initial` and `python-initial-resident` host modes register an initial
+`count` snapshot. The `python-direct-initial` and
+`python-direct-initial-resident` modes also route `/cells/NAME` through native
+ingress before invoking the Python cell. Build the embedded host as above, then
+start it with `python-baseline MODE DIRECTORY primary` using a new private
+directory. Use the listener address in its readiness file.
+
+Python bridge observations include bounded `dispatch_handoff` and
+`completion_handoff` latency histograms. Dispatch measures native enqueue until
+Python delivery; completion measures Python enqueue until the original native
+invocation receives the reply. These include scheduling delays across the bridge,
+but do not replace end-to-end HTTP latency or durability measurements. Compare
+counter deltas after draining work, and retain raw evidence outside the repository.
+
 ## Independent offered rates
 
 `offered.py` uses a separate native Rust HTTP client to schedule echo requests

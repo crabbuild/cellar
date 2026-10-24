@@ -3,6 +3,7 @@
 use anyhow::{bail, Result};
 use cellar::sdk::http::{Response, Url};
 use cellar::sdk::{Application, Cell, Context, HandlerFuture, Invocation, Output, Registry};
+use sha2::{Digest, Sha256};
 use std::sync::Arc;
 
 mod deployment;
@@ -22,6 +23,10 @@ impl Cell for Entity {
                 bail!("performance cells accept HTTP requests");
             };
             let storage = context.storage()?;
+            let verify_payload = request.method == "GET"
+                && request.headers.iter().any(|(key, value)| {
+                    key.eq_ignore_ascii_case("x-cellar-verify-payload") && value == "sha256"
+                });
             let state = match request.method.as_str() {
                 "POST" => {
                     let body = request.into_body_reader(&context)?.bytes(&context).await?;
@@ -45,12 +50,18 @@ impl Cell for Entity {
                     .unwrap_or(serde_json::json!({"writes": 0, "payload": ""})),
                 _ => bail!("expected GET or POST"),
             };
-            let mut response = Response::from_json(&serde_json::json!({
+            let payload = state["payload"].as_str().unwrap_or("");
+            let mut result = serde_json::json!({
                 "writes": state["writes"],
-                "payload_bytes": state["payload"].as_str().unwrap_or("").len(),
+                "payload_bytes": payload.len(),
                 "node": self.node.as_ref(),
-            }))?
-            .into_http(&context)?;
+            });
+            if verify_payload {
+                // Recompute from the actual stored payload only for recovery audits.
+                result["payload_sha256"] =
+                    format!("{:x}", Sha256::digest(payload.as_bytes())).into();
+            }
+            let mut response = Response::from_json(&result)?.into_http(&context)?;
             response
                 .headers
                 .push(("x-cellar-owner".into(), self.node.to_string()));
@@ -85,3 +96,7 @@ fn application(node: Arc<str>) -> Result<Arc<dyn Application>> {
 fn main() -> Result<()> {
     embedded::run(deployment::graph(), application)
 }
+
+#[cfg(test)]
+#[path = "cells_tests.rs"]
+mod tests;

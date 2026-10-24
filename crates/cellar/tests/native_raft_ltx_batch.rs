@@ -11,6 +11,7 @@ use anyhow::Result;
 use cellar_ltx::apply::ApplyError;
 use cellar_ltx::generation::{GenerationError, GenerationLimits, GenerationStore};
 use cellar_ltx::DirectFileSystem;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 fn history(checksums: bool) -> Result<(Vec<fixture::Cut>, Vec<u8>)> {
@@ -59,17 +60,35 @@ fn batch_replay_checks_intermediate_digests_before_later_overwrites() -> Result<
 
         let updates: Vec<_> = cuts.iter().map(fixture::Cut::update).collect();
         faults.events.lock().unwrap().clear();
+        let creates_before = faults.image_creates.load(Ordering::Acquire);
+        let observed_store = store.clone();
+        let expected_state = cuts.last().unwrap().result;
+        let barrier_observed = Arc::new(AtomicBool::new(false));
+        let observed = barrier_observed.clone();
+        *faults.before_directory_sync.lock().unwrap() = Some(Box::new(move || {
+            assert!(
+                matches!(
+                    observed_store.adopt(fixture::id(1), expected_state),
+                    Err(GenerationError::Busy)
+                ),
+                "a verified batch must remain inaccessible before directory sync"
+            );
+            observed.store(true, Ordering::Release);
+        }));
         let pin = store.prepare_chain(fixture::id(1), None, &updates)?;
         assert_eq!(fixture::read(&pin)?, expected);
-        let events = faults.events.lock().unwrap();
+        assert!(barrier_observed.load(Ordering::Acquire));
+        // The exclusive final name is not publication authority. Both sync
+        // barriers must complete before the batch returns its only image pin.
         assert_eq!(
-            events
-                .iter()
-                .filter(|&&event| event == "image-sync")
-                .count(),
+            *faults.events.lock().unwrap(),
+            ["image-sync", "directory-sync"]
+        );
+        assert_eq!(
+            faults.image_creates.load(Ordering::Acquire) - creates_before,
             1
         );
-        assert_eq!(events.iter().filter(|&&event| event == "rename").count(), 1);
+        assert_eq!(faults.image_renames.load(Ordering::Acquire), 0);
     }
     Ok(())
 }

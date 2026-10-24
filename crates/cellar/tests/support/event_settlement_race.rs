@@ -30,8 +30,14 @@ pub(super) async fn lease_call(context: Context, url: &str) -> Result<Output> {
     };
     let value = match result {
         Ok(value) => value,
-        Err(error) => json!({"error":error.downcast_ref::<DeliveryError>()
-            .context("settlement refusal was untyped")?.code.as_str()}),
+        Err(error) => {
+            eprintln!(
+                "settlement call kind={:?} refused: {error:#}",
+                fields.get("kind")
+            );
+            json!({"error":error.downcast_ref::<DeliveryError>()
+                .context("settlement refusal was untyped")?.code.as_str()})
+        }
     };
     Ok(super::super::response(serde_json::to_string(&value)?))
 }

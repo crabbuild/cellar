@@ -2,7 +2,7 @@
 use super::*;
 use std::collections::VecDeque;
 
-const WINDOW: usize = 8;
+const WINDOW: usize = 16;
 
 pub(super) struct Pending {
     request: SendRequest,

@@ -242,6 +242,7 @@ jobs:
           # Fleet fixtures own concurrent runtimes and short authority leases.
           # Run independent cases serially to keep their resource envelope stable.
           cargo test --workspace --exclude cellar-python --exclude cellar-javascript --all-features --lib --tests --locked -- --test-threads=1
+          cargo test -p cellar --bin cellar-perf-cells --bin cellar-perf-load --locked -- --test-threads=1
           cargo test --workspace --exclude cellar-javascript --all-features --doc --locked
           cargo clippy --workspace --exclude cellar-javascript --all-targets --all-features --locked -- -D warnings
       - name: Test Axum feature modes and generated contract
@@ -604,6 +605,7 @@ jobs:
             /tmp/cellar-native-replay-${{ github.run_id }}-${{ github.run_attempt }}/**/cold-start-failure.json
             /tmp/cellar-native-replay-${{ github.run_id }}-${{ github.run_attempt }}/**/cold-adopt-failure.json
             /tmp/cellar-native-replay-${{ github.run_id }}-${{ github.run_attempt }}/**/initial-settlement-failure.json
+            /tmp/cellar-native-replay-${{ github.run_id }}-${{ github.run_attempt }}/**/initial-fetch-failure.json
             /tmp/cellar-native-replay-${{ github.run_id }}-${{ github.run_attempt }}/**/settlement-failure.json
             /tmp/cellar-native-replay-${{ github.run_id }}-${{ github.run_attempt }}/**/delayed-cold-read.json
             /tmp/cellar-native-replay-${{ github.run_id }}-${{ github.run_attempt }}/**/accepted-prefix.json

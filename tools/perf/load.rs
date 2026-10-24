@@ -8,6 +8,7 @@ use anyhow::{bail, Context, Result};
 use rand::{RngCore, SeedableRng};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::Arc;
@@ -16,6 +17,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 #[derive(Default, Serialize, Deserialize)]
 struct Accounting {
     writes: Vec<u64>,
+    payload_sha256: Vec<String>,
 }
 
 #[derive(Default)]
@@ -23,6 +25,7 @@ struct Samples {
     latency_us: Vec<u64>,
     errors: BTreeMap<String, u64>,
     writes: Vec<u64>,
+    payload_sha256: Vec<Option<String>>,
     owners: BTreeMap<String, u64>,
 }
 
@@ -30,6 +33,7 @@ struct Samples {
 struct Reply {
     writes: u64,
     payload_bytes: usize,
+    payload_sha256: Option<String>,
     node: String,
 }
 
@@ -112,26 +116,40 @@ async fn main() -> Result<()> {
     );
     let accounting_path = Path::new(&args[7]);
     let reading = args[1] == "read";
+    let verifying = args[1] == "verify";
     anyhow::ensure!(
-        !reading || accounting_path.is_file(),
-        "read measurement requires an existing acknowledged-write ledger"
+        !(reading || verifying) || accounting_path.is_file(),
+        "read and verify require an existing acknowledged-write ledger"
     );
     let mut accounting: Accounting = if accounting_path.exists() {
         serde_json::from_slice(&std::fs::read(accounting_path)?)?
     } else {
         Accounting {
             writes: vec![0; cells],
+            payload_sha256: vec![format!("{:x}", Sha256::digest([])); cells],
         }
     };
     anyhow::ensure!(accounting.writes.len() == cells, "cell count changed");
+    anyhow::ensure!(
+        accounting.payload_sha256.len() == cells
+            && accounting
+                .payload_sha256
+                .iter()
+                .all(|digest| digest.len() == 64
+                    && digest
+                        .bytes()
+                        .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))),
+        "acknowledged-write ledger lacks valid payload digests"
+    );
     let client = Client::builder()
         .timeout(Duration::from_secs(60))
         .pool_max_idle_per_host(concurrency)
         .build()?;
-    if args[1] == "verify" {
+    if verifying {
         let started = Instant::now();
         let mut owners = BTreeMap::<String, usize>::new();
         let mut failures = Vec::new();
+        let mut observations = Vec::with_capacity(cells);
         let mut read_retries = BTreeMap::<String, u64>::new();
         let mut read_failure_samples = Vec::new();
         let mut max_cell_read_ms = 0.0_f64;
@@ -141,6 +159,7 @@ async fn main() -> Result<()> {
                 let result = async {
                     let response = client
                         .get(format!("{}/cells/{cell:04}", urls[cell % urls.len()]))
+                        .header("x-cellar-verify-payload", "sha256")
                         .send()
                         .await?;
                     if let Err(error) = response.error_for_status_ref() {
@@ -181,13 +200,22 @@ async fn main() -> Result<()> {
             };
             max_cell_read_ms = max_cell_read_ms.max(read_started.elapsed().as_secs_f64() * 1000.0);
             *owners.entry(reply.node).or_default() += 1;
-            if reply.writes != *expected || (*expected > 0 && reply.payload_bytes != payload_bytes)
+            let expected_bytes = if *expected == 0 { 0 } else { payload_bytes };
+            let observation = serde_json::json!({"cell": cell, "expected": expected,
+                "actual": reply.writes, "payload_bytes": reply.payload_bytes,
+                "expected_payload_bytes": expected_bytes,
+                "expected_payload_sha256": accounting.payload_sha256[cell],
+                "actual_payload_sha256": reply.payload_sha256});
+            if reply.writes != *expected
+                || reply.payload_bytes != expected_bytes
+                || reply.payload_sha256.as_deref() != Some(accounting.payload_sha256[cell].as_str())
             {
-                failures.push(serde_json::json!({"cell": cell, "expected": expected, "actual": reply.writes, "payload_bytes": reply.payload_bytes}));
+                failures.push(observation.clone());
             }
+            observations.push(observation);
         }
         report(
-            serde_json::json!({"operation": "verify", "cells": cells, "expected_writes": accounting.writes.iter().sum::<u64>(), "owners": owners, "elapsed_s": started.elapsed().as_secs_f64(), "read_retries": read_retries, "read_failure_samples": read_failure_samples, "max_cell_read_ms": max_cell_read_ms, "mismatches": failures}),
+            serde_json::json!({"operation": "verify", "state_verification": "counter+payload-sha256", "cells": cells, "expected_writes": accounting.writes.iter().sum::<u64>(), "owners": owners, "elapsed_s": started.elapsed().as_secs_f64(), "read_retries": read_retries, "read_failure_samples": read_failure_samples, "max_cell_read_ms": max_cell_read_ms, "observations": observations, "mismatches": failures}),
         )?;
         anyhow::ensure!(failures.is_empty(), "durable state mismatch");
         return Ok(());
@@ -212,6 +240,7 @@ async fn main() -> Result<()> {
             let assigned: Vec<_> = (worker..cells).step_by(concurrency).collect();
             let mut samples = Samples {
                 writes: vec![0; cells],
+                payload_sha256: vec![None; cells],
                 ..Samples::default()
             };
             let mut iteration = 0;
@@ -255,8 +284,11 @@ async fn main() -> Result<()> {
                         "payload length mismatch"
                     );
                     anyhow::ensure!(
-                        !reading || reply.writes == expected_writes[cell],
-                        "read counter differs from acknowledged-write ledger"
+                        Some(reply.writes)
+                            == expected_writes[cell]
+                                .checked_add(samples.writes[cell])
+                                .and_then(|count| count.checked_add(u64::from(!reading))),
+                        "reply counter differs from acknowledged-write ledger"
                     );
                     Ok::<_, anyhow::Error>(reply)
                 }
@@ -267,6 +299,11 @@ async fn main() -> Result<()> {
                         samples.latency_us.push(elapsed);
                         if !reading {
                             samples.writes[cell] += 1;
+                            // Each worker exclusively owns its assigned cells. Retain
+                            // the last acknowledged request, never a failed/ambiguous
+                            // attempt or a digest supplied by the server.
+                            samples.payload_sha256[cell] =
+                                Some(format!("{:x}", Sha256::digest(&payload)));
                         }
                         *samples.owners.entry(reply.node).or_default() += 1;
                     }
@@ -285,6 +322,11 @@ async fn main() -> Result<()> {
         for (cell, writes) in result.writes.iter().enumerate() {
             accounting.writes[cell] += writes;
         }
+        for (cell, digest) in result.payload_sha256.into_iter().enumerate() {
+            if let Some(digest) = digest {
+                accounting.payload_sha256[cell] = digest;
+            }
+        }
         for (error, count) in result.errors {
             *samples.errors.entry(error).or_default() += count;
         }
@@ -301,6 +343,7 @@ async fn main() -> Result<()> {
     let successful = samples.latency_us.len();
     let mut measurement = serde_json::json!({
         "operation": if reading { "read" } else { "write" }, "cells": cells,
+        "recovery_verification": "counter+payload-sha256",
         "concurrency": concurrency, "payload_bytes": payload_bytes,
         "requested_seconds": seconds, "elapsed_s": elapsed,
         "started_unix_ms": started_unix_ms, "finished_unix_ms": finished_unix_ms,

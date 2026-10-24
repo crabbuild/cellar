@@ -364,6 +364,7 @@ impl PythonApplication {
             "Python invocation exceeds value budget"
         );
         self.runtime.start(Start {
+            queued_at: cellar::asyncrt::instant(),
             id: invocation,
             reservation: self.runtime.budget.reserve(charge)?,
             payload,
@@ -482,12 +483,17 @@ impl PythonApplication {
                     }
                 }
                 Event::Complete {
+                    queued_at,
                     payload,
                     body,
                     failed,
                     reservation,
                 } => {
                     let _reservation = reservation;
+                    self.runtime
+                        .budget
+                        .completion_handoff
+                        .observe(queued_at.elapsed());
                     if let Some(prepared) = rpc_prepared.take() {
                         let result = if failed {
                             let code = match payload.as_str() {

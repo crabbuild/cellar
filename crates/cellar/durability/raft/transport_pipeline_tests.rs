@@ -3,7 +3,7 @@ use super::*;
 use crate::raft::storage::GroupBootstrap;
 use std::time::Duration;
 
-const WINDOW: usize = 8;
+const WINDOW: usize = 16;
 
 async fn setup() -> anyhow::Result<(Fixture, TcpListener, Vec<GroupScope>)> {
     setup_with_options(TransportOptions::default()).await
@@ -176,7 +176,10 @@ async fn control_window_sends_independent_groups_before_first_ack() -> anyhow::R
                 ready.send(()).unwrap();
                 wait_queued.await?;
                 let queue = timing(&fixture, "transport_control_queue");
-                assert_eq!((queue.started, queue.failed, queue.abandoned), (10, 0, 0));
+                assert_eq!(
+                    (queue.started, queue.failed, queue.abandoned),
+                    (WINDOW as u64 + 2, 0, 0)
+                );
                 assert!((1..=WINDOW as u64).contains(&queue.succeeded));
                 let exchange = timing(&fixture, "transport_control_exchange");
                 assert!((1..=WINDOW as u64).contains(&exchange.started));
@@ -228,7 +231,7 @@ async fn control_window_sends_independent_groups_before_first_ack() -> anyhow::R
                         queue.failed,
                         queue.abandoned
                     ),
-                    (10, 10, 0, 0)
+                    (WINDOW as u64 + 2, WINDOW as u64 + 2, 0, 0)
                 );
                 let exchange = timing(&fixture, "transport_control_exchange");
                 assert_eq!(
@@ -238,7 +241,7 @@ async fn control_window_sends_independent_groups_before_first_ack() -> anyhow::R
                         exchange.failed,
                         exchange.abandoned
                     ),
-                    (10, 10, 0, 0)
+                    (WINDOW as u64 + 2, WINDOW as u64 + 2, 0, 0)
                 );
                 assert_eq!(timing(&fixture, "transport_control_admit").started, 0);
                 assert_eq!(timing(&fixture, "transport_data_queue").started, 0);
@@ -426,7 +429,7 @@ async fn failed_window(failure: Failure) -> anyhow::Result<()> {
                 }
                 resume.send(()).unwrap();
                 if matches!(failure, Failure::Shutdown) {
-                    let queued = (10..13)
+                    let queued = ((WINDOW + 2) as u8..(WINDOW + 5) as u8)
                         .map(|id| submit(&fixture, &scopes[0], id))
                         .collect::<anyhow::Result<Vec<_>>>()?;
                     drop(queued);
@@ -446,7 +449,7 @@ async fn failed_window(failure: Failure) -> anyhow::Result<()> {
                             queue.failed,
                             queue.abandoned
                         ),
-                        (12, 9, 0, 3)
+                        (WINDOW as u64 + 4, WINDOW as u64 + 1, 0, 3)
                     );
                     let exchange = timing(&fixture, "transport_control_exchange");
                     assert_eq!(
@@ -456,7 +459,7 @@ async fn failed_window(failure: Failure) -> anyhow::Result<()> {
                             exchange.failed,
                             exchange.abandoned
                         ),
-                        (9, 1, 8, 0)
+                        (WINDOW as u64 + 1, 1, WINDOW as u64, 0)
                     );
                     completed.send(()).unwrap();
                     return Ok::<_, anyhow::Error>(());
@@ -496,7 +499,7 @@ async fn failed_window(failure: Failure) -> anyhow::Result<()> {
                         queue.failed,
                         queue.abandoned
                     ),
-                    (9, 9, 0, 0)
+                    (WINDOW as u64 + 1, WINDOW as u64 + 1, 0, 0)
                 );
                 let exchange = timing(&fixture, "transport_control_exchange");
                 assert_eq!(
@@ -507,9 +510,9 @@ async fn failed_window(failure: Failure) -> anyhow::Result<()> {
                         exchange.abandoned
                     ),
                     if matches!(failure, Failure::LostReply) {
-                        (9, 2, 7, 0)
+                        (WINDOW as u64 + 1, 2, WINDOW as u64 - 1, 0)
                     } else {
-                        (9, 1, 8, 0)
+                        (WINDOW as u64 + 1, 1, WINDOW as u64, 0)
                     }
                 );
                 for (scope, expected) in scopes.iter().zip(&initial_commit) {

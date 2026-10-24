@@ -149,6 +149,14 @@ jobs:
                       or runtime['gil_enabled'] is not (not free)):
                   raise SystemExit('Embedded host runtime differs from the selected image ABI')
           PY
+      - name: Qualify native ingress and initial snapshots through fleet recovery
+        run: |
+          python3 tools/python/fleet_smoke.py \
+            --host "$RUNNER_TEMP/fleet-bin/python-fleet" \
+            --load "$RUNNER_TEMP/fleet-bin/cellar-perf-load" --runtime python \
+            --python-path direct-initial \
+            --rustfs-image "$RUSTFS_IMAGE" \
+            --output "$RUNNER_TEMP/python-fleet-evidence/python-direct-initial"
       - name: Compare durable reads and writes with disjoint CPU pools
         if: inputs.measure
         run: |
@@ -159,15 +167,18 @@ jobs:
           if len(cpus) < 4:
               raise SystemExit('CPU-separated S3 comparison requires four available CPUs')
           root = Path(os.environ['RUNNER_TEMP'])
-          # Alternate order within this ABI runner; all four runs use the same
+          # Reverse order within this ABI runner; all six runs use the same
           # exact executables and limits and must finish their recovery checks.
-          for index, runtime in enumerate(('native', 'python', 'python', 'native'), 1):
+          cases = [('native', 'bridge'), ('python', 'bridge'), ('python', 'direct-initial'),
+                   ('python', 'direct-initial'), ('python', 'bridge'), ('native', 'bridge')]
+          for index, (runtime, path_mode) in enumerate(cases, 1):
               binary = 'python-fleet' if runtime == 'python' else 'cellar-perf-cells'
               subprocess.run(['python3', 'tools/python/fleet_smoke.py',
                   '--host', str(root / 'fleet-bin' / binary), '--runtime', runtime,
+                  '--python-path', path_mode,
                   '--load', str(root / 'fleet-bin/cellar-perf-load'),
                   '--rustfs-image', os.environ['RUSTFS_IMAGE'],
-                  '--output', str(root / 'python-fleet-evidence' / f'measured-{index}-{runtime}'),
+                  '--output', str(root / 'python-fleet-evidence' / f'measured-{index}-{runtime}-{path_mode}'),
                   '--host-cpus', ','.join(map(str, cpus[1:3])), '--client-cpus', str(cpus[0]),
                   '--store-cpus', str(cpus[3]), '--max-resident', '32', '--max-requests', '64',
                   '--cells', '32', '--seconds', '5', '--repeats', '3', '--concurrency', '1', '8', '32',

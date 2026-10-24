@@ -661,6 +661,7 @@ async fn run_case(
         anyhow::bail!("settle original obligation before clock-only cut: original five-second deadline elapsed; last_source={initial_pending}; evidence={saved:?}");
     }
     initial_settlement.context("settle original obligation before clock-only cut")??;
+    let initial_fetch_started = Instant::now();
     let original = fetch(
         &client,
         &source,
@@ -668,10 +669,21 @@ async fn run_case(
         "projection",
     )
     .await?;
-    ensure!(
-        original["processed"] == 1,
-        "initial consumer fetch did not expose one proven record: {original}"
-    );
+    if original["processed"] != 1 {
+        let saved = save_clock_evidence(
+            directory,
+            "initial-fetch-failure.json",
+            &json!({"format":1,"stage":"initial consumer fetch","response":original,
+                "elapsed_ms":initial_fetch_started.elapsed().as_millis(),
+                "cutoff_utc_ms":wall(),"proxy_failure":proxy.capture.failure(),
+                "proxy_caller_disconnects":proxy.capture.caller_disconnects(),
+                "source_closed":source.is_closed(),
+                "destination_closed":destination.is_closed()}),
+        );
+        anyhow::bail!(
+            "initial consumer fetch did not expose one proven record: {original}; evidence={saved:?}"
+        );
+    }
     let receipt = Receipt::decode(
         original["batch"]["receipt"]
             .as_str()
@@ -1117,6 +1129,8 @@ async fn run_case(
             observer.shutdown().await;
             let evidence = json!({"format":1,"stage":"cold startup before receipt replay",
                 "startup":observations,"returned_nodes":joined,
+                "predecessor_proxy_failure":proxy.capture.failure(),
+                "successor_proxy_failure":successor_proxy.capture.failure(),
                 "before_cancel":before.unwrap_or_else(|e|json!({"error":format!("{e:#}")})),
                 "after_cancel":after.unwrap_or_else(|e|json!({"error":format!("{e:#}")}))});
             let saved = save_clock_evidence(directory, "cold-start-failure.json", &evidence);
@@ -1711,7 +1725,9 @@ async fn run_case(
             "settlement-failure.json",
             &json!({"format":1,"stage":"replacement receipt","response":acknowledgment,
                 "fetch":replay,"expiry_cut":expiry_cut,"cutoff_utc_ms":wall(),
-                "held_append_ms":retry_held.elapsed().as_millis()}),
+                "held_append_ms":retry_held.elapsed().as_millis(),
+                "predecessor_proxy_failure":proxy.capture.failure(),
+                "successor_proxy_failure":successor_proxy.capture.failure()}),
         );
         anyhow::bail!(
             "replacement receipt acknowledgment refused: {acknowledgment}; evidence={saved:?}"

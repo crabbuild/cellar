@@ -22,6 +22,7 @@ from perf import (CREATE, Connection, batch, executable_path, process_sample,
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools/python"))
 from baseline import digest
 from offered import summarize
+import affinity
 
 
 def health(origin, inventory):
@@ -60,12 +61,16 @@ def seed(origin):
 
 
 def measure(args, origin, targets, manifest, rate, duration, output):
-    command = [str(args.client), origin, str(rate), str(duration), str(args.max_inflight),
+    cpus = args.cpu_placement["client"] if args.cpu_placement else None
+    evidence = output.with_suffix(".affinity.json")
+    command = [*affinity.prefix(cpus, evidence), str(args.client), origin, str(rate), str(duration), str(args.max_inflight),
                "0", str(args.timeout_ms), str(args.max_lag_ms), str(output), str(manifest)]
     result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                             timeout=(duration + args.timeout_ms) / 1000 + 30)
     output.with_suffix(".log").write_bytes(result.stdout)
     require(result.returncode == 0, f"arrival client failed ({result.returncode}); see {output}")
+    if cpus is not None:
+        affinity.verify(evidence, cpus)
     raw = json.loads(output.read_text())
     require(raw["debug_assertions"] == (args.client_profile == "dev"), "client profile mismatch")
     require(raw["workload"] == dict(url=origin.rstrip("/") + "/", rate=rate, duration_ms=duration,
@@ -81,9 +86,13 @@ def run_case(args, project, root, case):
     case.update(profile=config["profile"], inventory_sha256=digest(inventory_path),
                 soabi=inventory["soabi"], source_sha256=inventory["source"]["sha256"],
                 load_average_before=list(os.getloadavg()), phases=[])
+    cpus = args.cpu_placement["host"] if args.cpu_placement else None
     host, origin, pid = start_host(SimpleNamespace(cellar=args.cellar, project=project,
-                                                  rust_threads=args.rust_threads), root)
+                                                  rust_threads=args.rust_threads), root, host_cpus=cpus)
     try:
+        if cpus is not None:
+            case["cpu_affinity"] = affinity.verify(root / "host-affinity.json", cpus, host.child.pid)
+            case["native_threads_at_start"] = affinity.verify_threads(pid, cpus)
         case.update(origin=origin, executable_sha256=digest(executable_path(pid)),
                     python_runtime=health(origin, inventory))
         targets = seed(origin)
@@ -96,10 +105,14 @@ def run_case(args, project, root, case):
             phase["warmup"] = measure(args, origin, targets, manifest, rate, args.warmup_ms,
                                       root / f"warmup-{rate}.json")
             phase["before"] = process_sample(pid)
+            if cpus is not None:
+                phase["affinity_before"] = affinity.verify_threads(pid, cpus)
             phase["raw"] = f"{root.name}/measured-{rate}.json"
             phase["measurement"] = measure(args, origin, targets, manifest, rate, args.duration_ms,
                                            args.output / phase["raw"])
             phase["after"] = process_sample(pid)
+            if cpus is not None:
+                phase["affinity_after"] = affinity.verify_threads(pid, cpus)
             require(health(origin, inventory) == case["python_runtime"], "runtime changed under load")
             save(args.output / "results.json", args.report)
             print(f"{root.name} offered={rate}: {phase['measurement']['outcomes']}", flush=True)
@@ -118,7 +131,10 @@ def run_case(args, project, root, case):
 
 
 def render(report):
-    lines = ["# FastAPI independent-arrival reads", "", f"Experiment: {report['status']}", "",
+    placement = report["configuration"]["cpu_placement"]
+    placement_text = (f"Host CPUs: {placement['host']}; client CPUs: {placement['client']}."
+                      if placement else "Host and client share the caller's CPU placement.")
+    lines = ["# FastAPI independent-arrival reads", "", f"Experiment: {report['status']}", "", placement_text, "",
              "| Runtime / repetition | Offered/s | Success % | Completed/s in window | Request p99 ms | Scheduled p99 ms | Outcomes |",
              "| --- | ---: | ---: | ---: | ---: | ---: | --- |"]
     for case in report["cases"]:
@@ -154,7 +170,10 @@ def main():
     parser.add_argument("--max-inflight", type=int, default=128)
     parser.add_argument("--rust-threads", type=int, default=4)
     parser.add_argument("--repetitions", type=int, default=2)
+    parser.add_argument("--host-cpus", help="Linux logical CPUs for the CLI and its native host, e.g. 0,1")
+    parser.add_argument("--client-cpus", help="disjoint Linux logical CPUs for native arrival clients, e.g. 2,3")
     args = parser.parse_args()
+    args.cpu_placement = affinity.placement(args.host_cpus, args.client_cpus)
     require(1 <= args.repetitions <= 5 and 1 <= args.max_inflight <= 512 and 1 <= args.rust_threads <= 64
             and 1 <= args.timeout_ms <= 10000 and 1 <= args.max_lag_ms <= 1000, "invalid limits")
     require(len(set(args.rates)) == len(args.rates) and all(1 <= rate <= 100000 for rate in args.rates)
@@ -176,7 +195,7 @@ def main():
         harness_sha256=digest(Path(__file__)), client_sha256=digest(args.client), cellar_sha256=digest(args.cellar),
         measurement_sources={str(path): digest(path) for path in
             (Path(__file__).with_name("perf.py"), Path("tools/python/offered.py"),
-             Path("tools/python/offered_load.rs"))},
+             Path("tools/python/offered_load.rs"), Path("tools/python/affinity.py"), Path("examples/smoke.py"))},
         platform=platform.platform(), cpu_count=os.cpu_count(),
         native_policy_environment={name: os.environ.get(name) for name in (
             "CELLAR_MAX_REQUESTS", "CELLAR_ADMISSION_WAIT_MS", "CELLAR_MAX_STATELESS_ISOLATES",
@@ -184,13 +203,15 @@ def main():
         configuration=dict(rates=args.rates, duration_ms=args.duration_ms, warmup_ms=args.warmup_ms,
                            max_inflight=args.max_inflight, max_lag_ms=args.max_lag_ms,
                            timeout_ms=args.timeout_ms, rust_threads=args.rust_threads,
-                           repetitions=args.repetitions, client_profile=args.client_profile),
+                           repetitions=args.repetitions, client_profile=args.client_profile,
+                           cpu_placement=args.cpu_placement),
         limits=["Fresh private host per runtime/repetition; 32 seeded durable orders. Seed writes are sent once and read back.",
                 "Every scheduled read has an outcome. Exact HTTP 200 bodies, including EOF, are checked against seeded receipts.",
                 "Percentiles describe successes only; inspect success fraction, failures, dispatch delay and client drops together.",
                 "Completed experiment means accounting and shutdown succeeded, not that an application SLO passed.",
                 "Native policy environment records inherited overrides; null means the CLI default applies.",
-                "Loopback with shared client/server CPU and a SQLite development bucket; no remote storage or fleet capacity claim.",
+                "Loopback and a private SQLite development bucket; no remote storage or fleet capacity claim.",
+                "Optional CPU affinity restricts eligible logical CPUs, not exclusive cores, quotas or memory; other work can still compete.",
                 "Warmup and measurement use separate native client processes/pools. Rates may be affected by timer granularity."])
     try:
         for repetition in range(args.repetitions):

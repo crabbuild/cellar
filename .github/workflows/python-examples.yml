@@ -22,12 +22,18 @@ on:
       - 'Cargo.toml'
       - 'Cargo.lock'
   workflow_dispatch:
+    inputs:
+      profile:
+        description: Cargo profile for both prerequisite capture and packaged hosts
+        type: choice
+        default: dev
+        options: [dev, lab, release]
 
 permissions:
   contents: read
 
 concurrency:
-  group: cellar-python-examples-${{ github.ref }}
+  group: cellar-python-examples-${{ github.ref }}-${{ inputs.profile || 'dev' }}
   cancel-in-progress: true
 
 env:
@@ -67,14 +73,22 @@ jobs:
           python -m pip install uv==0.11.19
       - name: Package the application and its Python dependencies
         run: |
+          python -B tools/python/test_package_example.py
           mkdir -p "$RUNNER_TEMP/fastapi"
           python examples/python-fastapi/package.py --runtime '${{ matrix.runtime }}' \
+            --profile '${{ inputs.profile || 'dev' }}' \
             --prefix "$RUNNER_TEMP/fastapi/environment" --output "$RUNNER_TEMP/fastapi/package"
       - name: Test buffered ASGI boundaries
         run: |
           export PYO3_PYTHON="$(UV_PYTHON_INSTALL_DIR="$RUNNER_TEMP/fastapi/environment/runtime" uv python find --managed-python '${{ matrix.runtime }}')"
           PYTHONPATH="$RUNNER_TEMP/fastapi/environment/site" \
             "$PYO3_PYTHON" -B examples/python-fastapi/test_app.py
+      - name: Check native and Python routing failure boundaries
+        run: |
+          python -B examples/python-fastapi/test_ingress.py \
+            --cellar "$CARGO_TARGET_DIR/debug/cellar" \
+            --project "$RUNNER_TEMP/fastapi/environment/project.json" \
+            --output "$RUNNER_TEMP/fastapi/ingress-failure" ${{ matrix.smoke_flags }}
       - name: Restore and exercise the deployed application
         run: |
           cargo run -p cellar --example python-fastapi-deployment --locked -- \
@@ -87,13 +101,25 @@ jobs:
             --concurrency 1 8 --repetitions 1 --read-seconds .5 --writes 32
       - name: Check independent-arrival reads and failure accounting
         run: |
+          python -B examples/python-fastapi/test_perf.py
           cargo build -p cellar-python --example python-offered-load --no-default-features --locked
           python -B tools/python/test_offered.py "$CARGO_TARGET_DIR/debug/examples/python-offered-load"
+          python - <<'PY' > "$RUNNER_TEMP/fastapi/cpu-pools.txt"
+          import os
+          cpus = sorted(os.sched_getaffinity(0))
+          if len(cpus) < 2:
+              raise SystemExit('FastAPI affinity qualification requires at least two available CPUs')
+          split = len(cpus) // 2
+          print(','.join(map(str, cpus[:split])))
+          print(','.join(map(str, cpus[split:])))
+          PY
+          mapfile -t pools < "$RUNNER_TEMP/fastapi/cpu-pools.txt"
           python -B examples/python-fastapi/offered_perf.py \
             --client "$CARGO_TARGET_DIR/debug/examples/python-offered-load" --client-profile dev \
             --cellar "$CARGO_TARGET_DIR/debug/cellar" \
             --project "python=$RUNNER_TEMP/fastapi/environment/project.json" \
             --output "$RUNNER_TEMP/fastapi/offered-smoke" \
+            --host-cpus "${pools[0]}" --client-cpus "${pools[1]}" \
             --rates 100 --duration-ms 500 --warmup-ms 100 --repetitions 1
           python - "$RUNNER_TEMP/fastapi/offered-smoke/results.json" <<'PY'
           import json, sys
@@ -139,6 +165,7 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/agent"
           python examples/python-agent/package.py --runtime '${{ matrix.runtime }}' \
+            --profile '${{ inputs.profile || 'dev' }}' \
             --prefix "$RUNNER_TEMP/agent/environment" --output "$RUNNER_TEMP/agent/package"
       - name: Test durable agent boundaries and real host restart
         run: |

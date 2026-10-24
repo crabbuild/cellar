@@ -128,7 +128,12 @@ async def health():
 async def forward(ctx, order_id, method, payload=None):
     request = CellRequest("https://orders/" + order_id, method,
                           b"" if payload is None else CellResponse.json(payload).body)
-    result = await ctx.namespace("ORDERS").get_by_name(order_id).fetch(request)
+    if ctx.identity is None:
+        result = await ctx.namespace("ORDERS").get_by_name(order_id).fetch(request)
+    else:
+        if ctx.identity.class_name != "Order" or ctx.identity.name != order_id:
+            raise RuntimeError("Order route does not match its cell")
+        result = await Order.handle(request, ctx)
     response = Response(result.body, status_code=result.status)
     response.raw_headers = [(k.encode("ascii"), v.encode("latin-1")) for k, v in result.headers]
     return response
@@ -161,7 +166,15 @@ def render(order, status=200):
 
 class Order:
     async def fetch(self, request, ctx):
-        current = await ctx.storage.read_json("order")
+        if request.path.startswith("/orders/"):
+            return await buffered_http(app, request, ctx)
+        return await self.handle(request, ctx)
+
+    @staticmethod
+    async def handle(request, ctx):
+        # The compiled host captures this invocation's state before Python
+        # dispatch. Checked writes still detect any intervening writer.
+        current = ctx.initial_storage["order"]
         if request.method == "GET":
             return render(current.value) if current.present else CellResponse.json({"detail": "Order not found"}, 404)
         if request.method == "POST":

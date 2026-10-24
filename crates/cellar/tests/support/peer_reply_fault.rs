@@ -4,7 +4,7 @@
 
 use anyhow::{ensure, Context, Result};
 use std::net::SocketAddr;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
@@ -46,6 +46,8 @@ pub(super) struct Capture {
     pub blocked: Semaphore,
     pub released: Semaphore,
     pub exchanges: Mutex<Vec<Exchange>>,
+    failure: Mutex<Option<String>>,
+    caller_disconnects: AtomicUsize,
 }
 
 impl Default for Capture {
@@ -63,11 +65,23 @@ impl Default for Capture {
             blocked: Semaphore::new(0),
             released: Semaphore::new(0),
             exchanges: Mutex::new(Vec::new()),
+            failure: Mutex::new(None),
+            caller_disconnects: AtomicUsize::new(0),
         }
     }
 }
 
 impl Capture {
+    /// Retain the first unexpected relay failure even if its owner unwinds
+    /// before joining the proxy. Recording it never changes relay success.
+    pub fn failure(&self) -> Option<String> {
+        self.failure.lock().unwrap().clone()
+    }
+
+    pub fn caller_disconnects(&self) -> usize {
+        self.caller_disconnects.load(Ordering::Acquire)
+    }
+
     /// Hold exactly one original request for each method, before forwarding
     /// its unchanged signed packet. This is a submission barrier, not proof.
     pub fn hold_requests(&self, methods: &[&'static str]) {
@@ -292,7 +306,7 @@ async fn message(reader: &mut BufReader<TcpStream>, response: bool) -> Result<Op
 
 async fn relay(socket: TcpStream, target: SocketAddr, capture: Arc<Capture>) -> Result<()> {
     let result = relay_inner(socket, target, capture.clone()).await;
-    match result {
+    let result = match result {
         Err(error)
             if capture.upstream_closing.load(Ordering::Acquire)
                 && error.downcast_ref::<std::io::Error>().is_some_and(|error| {
@@ -309,14 +323,54 @@ async fn relay(socket: TcpStream, target: SocketAddr, capture: Arc<Capture>) -> 
             Ok(())
         }
         result => result,
+    };
+    if let Err(error) = &result {
+        let mut failure = capture.failure.lock().unwrap();
+        if failure.is_none() {
+            *failure = Some(format!("{error:#}").chars().take(4096).collect());
+        }
+    }
+    result
+}
+
+/// A caller can cancel after submission. Close only its relay, preserving the
+/// listener for other peers. This records transport loss, never delivery or a
+/// durability acknowledgement; the request and captured reply are not replayed.
+async fn reply_to_caller(
+    reply: &Message,
+    caller: &mut TcpStream,
+    capture: &Capture,
+) -> Result<bool> {
+    match reply.write(caller).await {
+        Ok(()) => Ok(true),
+        Err(error)
+            if error.downcast_ref::<std::io::Error>().is_some_and(|error| {
+                matches!(
+                    error.kind(),
+                    std::io::ErrorKind::BrokenPipe
+                        | std::io::ErrorKind::ConnectionReset
+                        | std::io::ErrorKind::ConnectionAborted
+                        | std::io::ErrorKind::NotConnected
+                )
+            }) =>
+        {
+            capture.caller_disconnects.fetch_add(1, Ordering::Release);
+            Ok(false)
+        }
+        Err(error) => Err(error).context("forward proxy reply to caller"),
     }
 }
 
 async fn relay_inner(socket: TcpStream, target: SocketAddr, capture: Arc<Capture>) -> Result<()> {
     let mut client = BufReader::new(socket);
-    let upstream = TcpStream::connect(target).await?;
+    let upstream = TcpStream::connect(target)
+        .await
+        .context("connect proxy upstream")?;
     let mut owner = BufReader::new(upstream);
-    while let Some(request) = message(&mut client, false).await? {
+    while let Some(request) = message(&mut client, false)
+        .await
+        .context("read proxy caller request")?
+    {
         let hold = {
             let mut methods = capture.held_methods.lock().unwrap();
             request
@@ -342,8 +396,14 @@ async fn relay_inner(socket: TcpStream, target: SocketAddr, capture: Arc<Capture
                 paused.changed().await?;
             }
         }
-        request.write(owner.get_mut()).await?;
-        let Some(reply) = message(&mut owner, true).await? else {
+        request
+            .write(owner.get_mut())
+            .await
+            .context("forward proxy request upstream")?;
+        let Some(reply) = message(&mut owner, true)
+            .await
+            .context("read proxy upstream reply")?
+        else {
             break;
         };
         let method = request.header("x-cells-rpc-method");
@@ -358,7 +418,9 @@ async fn relay_inner(socket: TcpStream, target: SocketAddr, capture: Arc<Capture
                 // A host admission refusal is a valid, unsubmitted outcome.
                 // Forward it unchanged so production retry policy sees it;
                 // it cannot consume a cut armed for a proven event reply.
-                reply.write(client.get_mut()).await?;
+                if !reply_to_caller(&reply, client.get_mut(), &capture).await? {
+                    return Ok(());
+                }
                 continue;
             }
             ensure!(
@@ -420,16 +482,78 @@ async fn relay_inner(socket: TcpStream, target: SocketAddr, capture: Arc<Capture
                 return Ok(());
             }
         }
-        reply.write(client.get_mut()).await?;
+        if !reply_to_caller(&reply, client.get_mut(), &capture).await? {
+            return Ok(());
+        }
         if reply.head.starts_with(b"HTTP/1.1 101 ")
             && request.request_path() != Some("/peer/tunnel")
         {
             // Only the outer tunnel carries inspectable HTTP after upgrade.
             // Log tails carry binary frames. Keep both readers so prefetched
             // bytes and half-close propagation survive the protocol switch.
-            tokio::io::copy_bidirectional(&mut client, &mut owner).await?;
+            tokio::io::copy_bidirectional(&mut client, &mut owner)
+                .await
+                .context("relay upgraded proxy bytes")?;
             return Ok(());
         }
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn caller_cancellation_preserves_listener_and_next_reply_cut() -> Result<()> {
+    for refused in [false, true] {
+        let upstream = TcpListener::bind("127.0.0.1:0").await?;
+        let proxy = Proxy::start(upstream.local_addr()?).await?;
+        proxy.capture.arm("__streamAppend");
+        let outcome = tokio::time::timeout(std::time::Duration::from_secs(3), async {
+            let mut caller = TcpStream::connect(proxy.address).await?;
+            caller.write_all(b"POST /rpc HTTP/1.1\r\nx-cells-rpc-method: __streamNext\r\nContent-Length: 2\r\n\r\n[]").await?;
+            let (owner, _) = upstream.accept().await?;
+            let mut owner = BufReader::new(owner);
+            ensure!(message(&mut owner, false).await?.is_some());
+            // Reset after the complete request reached its destination, before
+            // its reply. No upstream shutdown or synthetic I/O error is used.
+            caller.set_zero_linger()?;
+            drop(caller);
+            let response = if refused {
+                b"HTTP/1.1 503 Service Unavailable\r\nx-cellar-event-error: Unavailable\r\nContent-Length: 2\r\n\r\n{}".as_slice()
+            } else {
+                b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\n{}".as_slice()
+            };
+            owner.get_mut().write_all(response).await?;
+            while proxy.capture.caller_disconnects.load(Ordering::Acquire) == 0
+                && !proxy.task.as_ref().unwrap().is_finished()
+            {
+                tokio::task::yield_now().await;
+            }
+            ensure!(proxy.capture.failure().is_none(), "caller cancellation killed listener: {:?}", proxy.capture.failure());
+            ensure!(proxy.capture.caller_disconnects.load(Ordering::Acquire) == 1);
+            ensure!(!proxy.task.as_ref().unwrap().is_finished());
+            drop(owner);
+
+            let mut next = TcpStream::connect(proxy.address).await?;
+            next.write_all(b"POST /rpc HTTP/1.1\r\nx-cells-rpc-method: __streamAppend\r\nContent-Length: 2\r\n\r\n[]").await?;
+            let (owner, _) = upstream.accept().await?;
+            let mut owner = BufReader::new(owner);
+            ensure!(message(&mut owner, false).await?.is_some());
+            owner.get_mut().write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\n{}").await?;
+            proxy.capture.entered.acquire().await?.forget();
+            {
+                let exchanges = proxy.capture.exchanges.lock().unwrap();
+                ensure!(exchanges.len() == if refused { 1 } else { 2 });
+                let reply = exchanges.last().unwrap();
+                ensure!(reply.method == "__streamAppend" && reply.dropped && reply.response == b"{}");
+            }
+            proxy.capture.release.add_permits(1);
+            let mut bytes = Vec::new();
+            next.read_to_end(&mut bytes).await?;
+            ensure!(bytes.is_empty(), "cancellation consumed the next reply cut");
+            Ok::<_, anyhow::Error>(())
+        }).await.context("caller cancellation regression stalled").and_then(|result| result);
+        let joined = proxy.stop().await;
+        outcome.with_context(|| format!("proxy_join={joined:?}"))?;
+        joined?;
     }
     Ok(())
 }
@@ -506,6 +630,7 @@ async fn event_refusal_preserves_listener_and_armed_proven_reply_cut() -> Result
 async fn untyped_event_failure_still_fails_the_proxy() -> Result<()> {
     let upstream = TcpListener::bind("127.0.0.1:0").await?;
     let proxy = Proxy::start(upstream.local_addr()?).await?;
+    let capture = proxy.capture.clone();
     let owner = tokio::spawn(async move {
         let (socket, _) = upstream.accept().await?;
         let mut socket = BufReader::new(socket);
@@ -529,6 +654,10 @@ async fn untyped_event_failure_still_fails_the_proxy() -> Result<()> {
         .await
         .expect_err("untyped failure was treated as a host admission refusal");
     ensure!(error.to_string() == "event RPC did not produce a successful HTTP reply");
+    ensure!(
+        capture.failure().as_deref() == Some(error.to_string().as_str()),
+        "proxy failure was lost before fixture diagnostics could read it"
+    );
     ensure!(response?.is_none());
     Ok(())
 }
@@ -663,7 +792,14 @@ async fn controlled_destination_closure_preserves_framing_failures() -> Result<(
     let error = tokio::time::timeout(std::time::Duration::from_secs(5), relay)
         .await??
         .expect_err("controlled closure hid malformed framing");
-    ensure!(error.to_string() == "unframed peer response", "{error:#}");
+    ensure!(
+        error.to_string() == "read proxy upstream reply",
+        "{error:#}"
+    );
+    ensure!(
+        error.root_cause().to_string() == "unframed peer response",
+        "{error:#}"
+    );
     Ok(())
 }
 

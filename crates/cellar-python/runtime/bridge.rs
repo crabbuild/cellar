@@ -45,6 +45,7 @@ pub(crate) enum Event {
         observation: super::telemetry::Operation,
     },
     Complete {
+        queued_at: std::time::Instant,
         payload: String,
         body: Option<Vec<u8>>,
         failed: bool,
@@ -63,6 +64,7 @@ impl Drop for Mutation {
 }
 
 pub(crate) struct Start {
+    pub queued_at: std::time::Instant,
     pub id: u64,
     pub payload: String,
     pub body: Vec<u8>,
@@ -278,6 +280,7 @@ impl InvocationBridge {
         self.budget
             .copied_input(payload.len() + body.as_ref().map_or(0, Vec::len));
         permit.send(Event::Complete {
+            queued_at: self.clock_origin + self.clock_origin.elapsed(),
             reservation,
             payload,
             body,
