@@ -397,7 +397,7 @@ test("outbox retry pins the inspected revision and can reconcile an unknown resu
   ).toBeVisible()
   await expect(page.getByRole("button", { name: "Retry lane" })).toBeVisible()
   await page.screenshot({
-    path: "../.cellar/event-console-outbox.png",
+    path: "../../.cellar/event-console-outbox.png",
     fullPage: true,
   })
   await page.getByRole("button", { name: "Retry lane" }).click()
@@ -493,7 +493,7 @@ test("subscription reset validates exact offsets and pins generation", async ({
     page.getByRole("combobox", { name: "Manage projection" })
   ).toBeVisible()
   await page.screenshot({
-    path: "../.cellar/event-console-subscriptions.png",
+    path: "../../.cellar/event-console-subscriptions.png",
     fullPage: true,
   })
   await page.getByRole("combobox", { name: "Manage projection" }).click()
@@ -570,7 +570,7 @@ test("outbox pages stay bounded and mobile layouts do not overflow", async ({
   ).toBeTruthy()
   await expect(page.getByRole("button", { name: "Retry lane" })).toBeVisible()
   await page.screenshot({
-    path: "../.cellar/event-console-mobile.png",
+    path: "../../.cellar/event-console-mobile.png",
     fullPage: true,
   })
   const overflow = await page.evaluate(
@@ -594,7 +594,7 @@ test("stream workspace remains usable in dark mode on narrow screens", async ({
     await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)
   ).toBeFalsy()
   await page.screenshot({
-    path: "../.cellar/event-console-dark-mobile.png",
+    path: "../../.cellar/event-console-dark-mobile.png",
     fullPage: true,
   })
 })

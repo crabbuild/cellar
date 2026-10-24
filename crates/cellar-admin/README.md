@@ -1,4 +1,4 @@
-<img src="../../dashboard/public/cellar-icon.png" alt="Cellar logo" width="56" height="56" />
+<img src="../../packages/console/public/cellar-icon.png" alt="Cellar logo" width="56" height="56" />
 
 # cellar-admin
 
@@ -23,7 +23,7 @@ receipts after an ambiguous response; mutations are never automatically replayed
 
 ## Run the dashboard
 
-Build browser assets in `dashboard/` with `npm ci && npm run build`. Copy
+Build browser assets in `packages/console/` with `npm ci && npm run build`. Copy
 `console.example.json` to a private location and configure the fleet bucket,
 optional endpoint and region. Paths resolve relative to that configuration.
 Set `assets` to the dashboard's built `dist` directory. `local_store` may replace
@@ -41,7 +41,7 @@ cargo run -p cellar-admin --bin cellar-dashboard --locked -- \
 ```
 
 Open the configured address and enter the token. For frontend development, run
-`npm run dev` in `dashboard/`; Vite proxies `/api` to `127.0.0.1:4174`. Add the
+`npm run dev` in `packages/console/`; Vite proxies `/api` to `127.0.0.1:4174`. Add the
 browser's exact origin to `origins`. No cross-origin API access is enabled.
 For remote access, terminate TLS at your authenticated deployment boundary and
 configure the external origin. The private Cellar peer listener stays private.

@@ -1,4 +1,4 @@
-<img src="dashboard/public/cellar-icon.png" alt="Cellar logo" width="72" height="72" />
+<img src="packages/console/public/cellar-icon.png" alt="Cellar logo" width="72" height="72" />
 
 # Cellar
 

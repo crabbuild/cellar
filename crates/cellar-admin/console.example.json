@@ -1,6 +1,6 @@
 {
   "listen": "127.0.0.1:4174",
-  "assets": "../../dashboard/dist",
+  "assets": "../../packages/console/dist",
   "audit": "console-audit.sqlite",
   "origins": ["http://127.0.0.1:4174", "http://127.0.0.1:5173"],
   "fleets": [
