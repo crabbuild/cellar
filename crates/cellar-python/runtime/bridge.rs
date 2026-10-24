@@ -9,6 +9,16 @@ use tokio::sync::{mpsc, watch};
 
 pub(crate) type Life = Arc<AtomicBool>;
 
+pub(super) fn body_charge(metadata: usize, body: usize, raw: bool) -> anyhow::Result<usize> {
+    if raw {
+        metadata
+            .checked_add(body)
+            .ok_or_else(|| anyhow::anyhow!("RPC bridge size overflow"))
+    } else {
+        crate::values::envelope_size(metadata, body)
+    }
+}
+
 /// Resident Python objects observe retirement without retaining an invocation's
 /// mailbox, caller scope or event loop. This token grants no SDK authority.
 #[pyclass(frozen)]
@@ -29,6 +39,7 @@ pub(crate) enum Event {
         name: String,
         payload: String,
         body: Option<Vec<u8>>,
+        rpc: Option<super::rpc_calls::PendingCall>,
         mutation: Option<Mutation>,
         reservation: super::Reservation,
         observation: super::telemetry::Operation,
@@ -69,8 +80,10 @@ pub(crate) struct InvocationBridge {
     pub owner: Life,
     pub operations: AtomicUsize,
     pub mutation: Arc<AtomicBool>,
+    pub rpc_calls: Arc<super::RpcCalls>,
     pub max_operations: usize,
     pub max_bytes: usize,
+    pub raw_rpc: bool,
     pub budget: Arc<super::Budget>,
     pub event_loop: Option<Py<PyAny>>,
     pub scope: Option<super::scope::CallerScope>,
@@ -127,6 +140,18 @@ impl InvocationBridge {
         }
     }
 
+    /// Cancel only an admitted RPC owned by this original caller scope. This
+    /// control consumes neither mutation admission nor a mailbox/byte permit.
+    fn cancel_operation(&self, py: Python<'_>, id: u64) -> PyResult<bool> {
+        if !self.active() {
+            return Err(pyo3::exceptions::PyRuntimeError::new_err("ContextExpired"));
+        }
+        self.ensure_scope(py)?;
+        self.rpc_calls
+            .cancel(id)
+            .map_err(|_| pyo3::exceptions::PyRuntimeError::new_err("RPC cancellation failed"))
+    }
+
     #[pyo3(signature = (id, name, payload, body=None))]
     fn submit(
         &self,
@@ -146,15 +171,17 @@ impl InvocationBridge {
             ));
         }
         let body = body.map(|body| body.as_bytes());
-        if body.is_some() != (name == "cell.fetch") {
+        if body.is_some() != matches!(name, "cell.fetch" | "cell.call") {
             return Err(pyo3::exceptions::PyValueError::new_err(
-                "Only cell.fetch requires a byte body",
+                "Cell HTTP and RPC calls require a byte body",
             ));
         }
-        let charge = crate::values::envelope_size(payload.len(), body.map_or(0, <[u8]>::len))
-            .map_err(|_| {
-                pyo3::exceptions::PyValueError::new_err("Python operation size overflow")
-            })?;
+        let charge = body_charge(
+            payload.len(),
+            body.map_or(0, <[u8]>::len),
+            name == "cell.call",
+        )
+        .map_err(|_| pyo3::exceptions::PyValueError::new_err("Python operation size overflow"))?;
         if charge > self.max_bytes {
             return Err(pyo3::exceptions::PyValueError::new_err(
                 "Python SDK value budget exceeded",
@@ -192,11 +219,19 @@ impl InvocationBridge {
                 pyo3::exceptions::PyRuntimeError::new_err("Python SDK operation queue is closed")
             }
         })?;
+        let rpc = if name == "cell.call" {
+            Some(self.rpc_calls.register(id).map_err(|_| {
+                pyo3::exceptions::PyValueError::new_err("Duplicate RPC operation ID")
+            })?)
+        } else {
+            None
+        };
         permit.send(Event::Operation {
             id,
             name: name.to_owned(),
             payload: payload.to_owned(),
             body: body.map(<[u8]>::to_vec),
+            rpc,
             mutation,
             reservation,
             observation: self.budget.metrics.admit(self.clock_origin),
@@ -219,7 +254,7 @@ impl InvocationBridge {
         }
         self.ensure_scope(py)?;
         let body = body.map(|body| body.as_bytes());
-        let charge = crate::values::envelope_size(payload.len(), body.map_or(0, <[u8]>::len))
+        let charge = body_charge(payload.len(), body.map_or(0, <[u8]>::len), self.raw_rpc)
             .map_err(|_| {
                 pyo3::exceptions::PyValueError::new_err("Python response size overflow")
             })?;

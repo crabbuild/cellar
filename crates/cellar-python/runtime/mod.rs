@@ -20,6 +20,8 @@ use std::{
 use tokio::sync::{mpsc as async_mpsc, watch, Semaphore};
 
 mod bridge;
+mod rpc_calls;
+pub(crate) use rpc_calls::RpcCalls;
 mod budget;
 mod identity;
 mod lifetime;
@@ -46,6 +48,8 @@ pub use memory::{MemoryReport, MemorySample};
 static INITIALIZED: AtomicBool = AtomicBool::new(false);
 const FACADE: &str = include_str!("../python/cellar.py");
 const RUNNER: &str = include_str!("../python/runner.py");
+const RPC: &str = include_str!("../python/rpc.py");
+const RPC_SHAPES: &str = include_str!("../python/cellar_rpc_shapes.py");
 
 /// Finite bridge and body budgets, captured before starting the node.
 #[derive(Clone, Debug)]
@@ -300,9 +304,10 @@ impl Runtime {
         operation: u64,
         output: (String, Option<Vec<u8>>),
         observation: telemetry::Operation,
+        raw: bool,
     ) -> Result<()> {
         let (value, body) = output;
-        let charge = crate::values::envelope_size(value.len(), body.as_ref().map_or(0, Vec::len))?;
+        let charge = bridge::body_charge(value.len(), body.as_ref().map_or(0, Vec::len), raw)?;
         self.replies
             .try_send(Reply {
                 invocation,
@@ -522,6 +527,7 @@ impl PythonRuntime {
         options.validate()?;
         source.validate()?;
         source.validate_initial_reads(options.max_batch_operations)?;
+        source.rpc.validate_bridge(options.max_value_bytes)?;
         initialization::ensure_main_thread()?;
         inventory::verify(&options, &source)
             .map_err(|_| anyhow::anyhow!("Python runtime inventory verification failed"))?;
@@ -591,6 +597,16 @@ impl PythonRuntime {
             let modules = py.import("sys")?.getattr("modules")?;
             let facade = PyModule::from_code(py, &CString::new(FACADE)?, c"cellar.py", c"cellar")?;
             modules.set_item("cellar", &facade)?;
+            let rpc =
+                PyModule::from_code(py, &CString::new(RPC)?, c"cellar_rpc.py", c"cellar_rpc")?;
+            modules.set_item("cellar_rpc", &rpc)?;
+            let shapes = PyModule::from_code(
+                py,
+                &CString::new(RPC_SHAPES)?,
+                c"cellar_rpc_shapes.py",
+                c"cellar_rpc_shapes",
+            )?;
+            modules.set_item("cellar_rpc_shapes", &shapes)?;
             let scope = scope::CallerScope::capture(py, &facade)?;
             let runner = PyModule::from_code(
                 py,

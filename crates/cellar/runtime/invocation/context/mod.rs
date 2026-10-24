@@ -312,6 +312,10 @@ impl RequestVfs {
 /// registry registration attributes continuations without retaining the event.
 pub struct IoContext {
     host_services: Arc<crate::host_services::HostServices>,
+    /// One deadline for this invocation, shared by Context clones and cached
+    /// SDK handles. Installed once before entering application code.
+    pub(crate) rpc_deadline_ms: OnceLock<u64>,
+    pub(crate) rpc_cancellation: OnceLock<Arc<crate::runtime::InvocationCancellation>>,
     pub(crate) native_activation: Option<Arc<crate::application::Activation>>,
     pub(crate) source_generation: u64,
     pub(crate) framework_source: AtomicBool,
@@ -612,6 +616,8 @@ impl IoContext {
     pub(crate) fn with_options(limits: Option<ResourceLimits>, tail_reporting: bool) -> Arc<Self> {
         Arc::new(Self {
             host_services: asyncrt::services(),
+            rpc_deadline_ms: OnceLock::new(),
+            rpc_cancellation: OnceLock::new(),
             registration: None,
             engine: OnceLock::new(),
             cleanup: OnceLock::from(ContextCleanup {
@@ -656,6 +662,22 @@ impl IoContext {
 
     pub(crate) fn host_services(&self) -> &Arc<crate::host_services::HostServices> {
         &self.host_services
+    }
+
+    pub(crate) fn check_rpc_authority(&self) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            self.rpc_cancellation
+                .get()
+                .is_none_or(|scope| !scope.is_revoked()),
+            "native RPC context has been cancelled"
+        );
+        anyhow::ensure!(
+            self.rpc_deadline_ms
+                .get()
+                .is_none_or(|deadline| crate::asyncrt::mono_ms() < *deadline),
+            "native RPC context deadline elapsed"
+        );
+        Ok(())
     }
 
     /// Take an op that another event's turn enqueued for this event.

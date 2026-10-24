@@ -1,0 +1,4 @@
+# Codec and static qualification only; the native host injects the SDK modules.
+protobuf==7.34.2
+mypy==2.4.0
+types-protobuf==7.34.1.20260816

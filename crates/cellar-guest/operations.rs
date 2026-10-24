@@ -5,6 +5,53 @@ use crate::{
 use anyhow::{bail, ensure, Context as _, Result};
 use cellar::sdk::{kv, queue, Context};
 use serde_json::{json, Value};
+use std::{sync::Arc, time::Duration};
+
+/// Invoke a registered Protobuf contract through the original native context.
+/// The runtime selects `contract` from its immutable startup inventory, never
+/// from a descriptor supplied by application call metadata.
+pub async fn call_bytes(
+    context: &Context,
+    contract: Arc<cellar::sdk::rpc::Contract>,
+    value: Value,
+    request: Vec<u8>,
+) -> Result<Vec<u8>> {
+    call_bytes_with_signal(context, contract, value, request, None).await
+}
+
+/// The adapter supplies a host-owned signal for this admitted operation.
+/// Cancellation preserves native failure provenance and never promises rollback.
+pub async fn call_bytes_with_signal(
+    context: &Context,
+    contract: Arc<cellar::sdk::rpc::Contract>,
+    value: Value,
+    request: Vec<u8>,
+    signal: Option<cellar::sdk::web::AbortSignal>,
+) -> Result<Vec<u8>> {
+    let timeout = (|| {
+        validate("cell.call", &value)?;
+        ensure!(
+            field(&value, "contract_digest")? == contract.digest(),
+            "RPC contract metadata mismatch"
+        );
+        Ok(optional::<u32>(&value, "timeout_ms")?
+            .map(|millis| Duration::from_millis(u64::from(millis))))
+    })()
+    .context(crate::failure::Validation)?;
+    let client = cellar::sdk::rpc::Client::bind(
+        context,
+        field(&value, "binding")?,
+        field(&value, "name")?,
+        contract,
+    )?;
+    Ok(client
+        .call_bytes(
+            field(&value, "method")?,
+            request,
+            cellar::sdk::rpc::CallOptions { timeout, signal },
+        )
+        .await?)
+}
 
 pub struct State {
     pub queue: Option<queue::Event>,
@@ -219,6 +266,7 @@ fn validate(name: &str, value: &Value) -> Result<()> {
         "var" => &["name"],
         "storage.sql" => &["sql"],
         "cell.fetch" => &["binding", "name"],
+        "cell.call" => &["binding", "name", "method", "contract_digest"],
         "kv.get" | "kv.put" | "kv.delete" => &["binding", "key"],
         "kv.list" => &["binding", "prefix"],
         "sql.query" => &["binding", "sql"],
@@ -231,6 +279,22 @@ fn validate(name: &str, value: &Value) -> Result<()> {
         field(value, name)?;
     }
     match name {
+        "cell.call" => {
+            ensure!(!field(value, "binding")?.is_empty(), "empty RPC binding");
+            ensure!(
+                field(value, "method")?.len() <= 256,
+                "RPC method exceeds limit"
+            );
+            ensure!(
+                field(value, "contract_digest")?.len() == 64,
+                "invalid RPC contract digest"
+            );
+            ensure!(
+                serde_json::to_vec(value)?.len() <= 16 * 1024,
+                "RPC control metadata exceeds limit"
+            );
+            optional::<u32>(value, "timeout_ms")?;
+        }
         "storage.sql" | "sql.query" => {
             ensure!(value["params"].is_array(), "SQL params must be an array");
         }

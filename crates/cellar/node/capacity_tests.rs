@@ -2,7 +2,7 @@
 use super::*;
 use std::time::Duration;
 
-fn app(name: &str) -> anyhow::Result<(AppHandle, mpsc::UnboundedReceiver<Message>)> {
+pub(super) fn app(name: &str) -> anyhow::Result<(AppHandle, mpsc::UnboundedReceiver<Message>)> {
     let (tx, messages) = mpsc::unbounded_channel();
     let (websockets, _) = mpsc::unbounded_channel();
     Ok((

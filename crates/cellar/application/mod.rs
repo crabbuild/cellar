@@ -26,6 +26,7 @@ pub mod limits;
 pub mod loader;
 pub(crate) mod outbox;
 pub mod queue;
+pub mod rpc;
 pub mod service;
 pub mod sockets;
 pub mod sql;
@@ -150,6 +151,12 @@ pub trait Application: Send + Sync + 'static {
 
     fn supports_cell(&self, class: &str) -> bool;
 
+    /// Startup-owned typed method inventory. The host validates registered RPC
+    /// input before constructing a business cell. This hook must perform no I/O.
+    fn rpc_catalog(&self) -> Option<&rpc::Catalog> {
+        None
+    }
+
     fn create_cell(&self, context: Context, identity: &CellIdentity) -> Result<Arc<dyn Cell>>;
 
     /// Resolve a restricted Raft definition without invoking a mutable cell
@@ -205,6 +212,7 @@ type WorkflowHandler = Arc<
 
 /// A compiled Rust application's handlers, Fleet factories and Raft definitions.
 pub struct Registry {
+    rpc: rpc::Catalog,
     handler: Handler,
     entrypoints: HashMap<String, Handler>,
     cells: HashMap<String, Factory>,
@@ -217,6 +225,7 @@ impl Registry {
         handler: impl Fn(Context, Invocation) -> HandlerFuture<Output> + Send + Sync + 'static,
     ) -> Self {
         Self {
+            rpc: rpc::Catalog::new(),
             handler: Arc::new(handler),
             entrypoints: HashMap::new(),
             cells: HashMap::new(),
@@ -275,6 +284,25 @@ impl Registry {
         Ok(self)
     }
 
+    /// Declare a typed service independently of its cell factory. Declaration
+    /// lets the host reject requests before any application construction runs.
+    pub fn rpc_service(
+        mut self,
+        class: &str,
+        service: &str,
+        contract: Arc<rpc::Contract>,
+    ) -> Result<Self> {
+        self.rpc.register(class, service, contract)?;
+        Ok(self)
+    }
+
+    /// Declare a consumer-only contract, including its application codec limits.
+    /// Generated native clients resolve this startup inventory before encoding.
+    pub fn rpc_contract(mut self, contract: Arc<rpc::Contract>) -> Result<Self> {
+        self.rpc.add_contract(contract)?;
+        Ok(self)
+    }
+
     /// Register synchronous SQL commands and read-only queries. Raft classes
     /// cannot also have an ordinary `Cell` factory under the same class name.
     pub fn raft_class(mut self, class: consensus::RaftClass) -> Result<Self> {
@@ -313,10 +341,20 @@ impl Registry {
 }
 
 impl Application for Registry {
+    fn rpc_catalog(&self) -> Option<&rpc::Catalog> {
+        Some(&self.rpc)
+    }
+
     fn validate_configuration(
         &self,
         options: &crate::engine_api::WorkerConfigOptions,
     ) -> Result<()> {
+        for class in self.rpc.classes() {
+            anyhow::ensure!(
+                self.cells.contains_key(class),
+                "RPC service requires an ordinary cell factory"
+            );
+        }
         for class in options
             .do_classes
             .iter()
@@ -443,6 +481,7 @@ pub(crate) struct Activation {
 
 #[derive(Clone)]
 pub struct Context {
+    pub(crate) rpc_catalog: Option<Arc<rpc::Catalog>>,
     pub(crate) event_authority: Option<event_stream::Authority>,
     pub(crate) name_authority: Option<event_stream::name_resolution::NameAuthority>,
     pub(crate) catalog_authority: Option<crate::runtime::rpc_authority::CatalogAuthority>,
@@ -553,6 +592,7 @@ impl Context {
             self.io.host_services().accepts_work(),
             "native context execution domain is closed"
         );
+        self.io.check_rpc_authority()?;
         anyhow::ensure!(
             !self
                 .state
@@ -644,7 +684,15 @@ impl Context {
         method: String,
         args: RpcData,
     ) -> HandlerFuture<RpcData> {
-        crate::native_worker::rpc_cell(self, scope, name, method, args)
+        crate::native_worker::rpc_cell(
+            self,
+            scope,
+            name,
+            method,
+            args,
+            self.io.rpc_deadline_ms.get().copied(),
+            None,
+        )
     }
 
     /// Move an incoming body into an owned, backpressured stream. Dropping the

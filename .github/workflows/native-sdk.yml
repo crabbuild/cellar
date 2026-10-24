@@ -108,6 +108,8 @@ jobs:
         run: cargo check-layout
       - name: Verify native-only dependency graphs have no JavaScript engine
         run: python3 tools/check_native_dependencies.py
+      - name: Test native dependency guard against Cargo feature resolution
+        run: python3 tools/test_native_dependencies.py
       - name: Verify documentation integrity
         run: python3 tools/docs/check.py
       - name: Test performance workload and evidence guards
@@ -123,6 +125,7 @@ jobs:
           python3 tools/python/test_affinity.py
           python3 tools/python/test_build_identity.py
           python3 tools/python/test_fleet_smoke.py
+          python3 tools/rpc/test_python_cancellation.py
       - name: Test Cloudflare benchmark peer relay
         run: |
           npm ci --ignore-scripts --prefix tools/perf/cloudflare

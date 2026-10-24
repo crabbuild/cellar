@@ -1,9 +1,15 @@
 //! Translate native application calls into bounded engine messages, then execute
 //! each requested SDK operation inside the original native invocation.
+#[cfg(test)]
+#[path = "application_tests.rs"]
+mod tests;
+
 use crate::runtime::{Event, Life, Runtime, Start};
 use anyhow::{ensure, Result};
 use cellar::sdk::{
-    queue, Application, Cell, CellIdentity, Context, HandlerFuture, Invocation, Output,
+    queue,
+    rpc::{Catalog, Contract, Prepared},
+    Application, Cell, CellIdentity, Context, HandlerFuture, Invocation, Output,
 };
 use cellar_guest::{
     operations::{self, State},
@@ -51,6 +57,7 @@ pub struct Source {
     pub(crate) classes: Vec<String>,
     pub(crate) events: Vec<EventKind>,
     pub(crate) cell_events: std::collections::BTreeMap<String, Vec<EventKind>>,
+    pub(crate) rpc: Catalog,
 }
 
 impl Source {
@@ -69,6 +76,7 @@ impl Source {
             classes: Vec::new(),
             events: Vec::new(),
             cell_events: Default::default(),
+            rpc: Catalog::new(),
         }
     }
 
@@ -77,6 +85,23 @@ impl Source {
     pub fn cell(mut self, name: impl Into<String>) -> Self {
         self = self.cell_events(name, [EventKind::Fetch]);
         self
+    }
+
+    /// Declare a service without requiring an HTTP handler. The native catalog
+    /// validates requests before the lazy JavaScript business constructor runs.
+    pub fn cell_rpc(mut self, class: &str, service: &str, contract: Arc<Contract>) -> Result<Self> {
+        self.rpc.register(class, service, contract)?;
+        if !self.classes.iter().any(|name| name == class) {
+            self.classes.push(class.into());
+            self.cell_events.insert(class.into(), Vec::new());
+        }
+        Ok(self)
+    }
+
+    /// Include a consumer contract without declaring a provider class.
+    pub fn rpc_contract(mut self, contract: Arc<Contract>) -> Result<Self> {
+        self.rpc.add_contract(contract)?;
+        Ok(self)
     }
 
     /// Set application-level handlers, such as ingress fetches or queue batches.
@@ -94,19 +119,37 @@ impl Source {
         events: impl IntoIterator<Item = EventKind>,
     ) -> Self {
         let name = name.into();
-        self.classes.push(name.clone());
+        let rpc_only = self.rpc.classes().any(|class| class == name)
+            && self.cell_events.get(&name).is_some_and(Vec::is_empty);
+        if !rpc_only {
+            self.classes.push(name.clone());
+        }
         self.cell_events.insert(name, events.into_iter().collect());
         self
     }
 
     pub(crate) fn descriptor(&self) -> Value {
-        json!({
+        let mut descriptor = json!({
             "events": self.events,
             "cells": self.cell_events
-        })
+        });
+        let contracts = self.rpc.codec_inventory();
+        if contracts
+            .as_object()
+            .is_some_and(|entries| !entries.is_empty())
+        {
+            descriptor["rpc_contracts"] = contracts;
+        }
+        if self.rpc.classes().next().is_some() {
+            descriptor["rpc"] = self.rpc.inventory();
+        }
+        descriptor
     }
 
     fn supports(&self, class: Option<&str>, kind: &str) -> bool {
+        if kind == "rpc" {
+            return class.is_some_and(|class| self.rpc.classes().any(|name| name == class));
+        }
         let events = match class {
             Some(class) => self.cell_events.get(class),
             None => Some(&self.events),
@@ -180,6 +223,8 @@ impl JavaScriptApplication {
             .try_acquire_owned()
             .map_err(|_| anyhow::anyhow!("JavaScript invocation capacity exhausted"))?;
 
+        let mut body = None;
+        let mut rpc_prepared = None;
         let (kind, payload) = if let Some(batch) = &state.queue {
             (
                 "queue",
@@ -197,6 +242,31 @@ impl JavaScriptApplication {
             )
         } else {
             match event {
+                Invocation::CellRpc { method, args } => {
+                    let identity = context
+                        .identity()
+                        .ok_or_else(|| anyhow::anyhow!("cell RPC requires a cell identity"))?;
+                    if let Some(refusal) =
+                        self.source
+                            .rpc
+                            .refusal_after_factory(&identity.class, &method, &args)?
+                    {
+                        return Ok(Output::Rpc(refusal));
+                    }
+                    let contract = self
+                        .source
+                        .rpc
+                        .provider(&identity.class, &method)
+                        .ok_or_else(|| anyhow::anyhow!("undeclared JavaScript RPC method"))?;
+                    let (digest, bytes) = cellar::sdk::rpc::decode_envelope(
+                        &args,
+                        contract.limits().max_message_bytes,
+                    )?;
+                    let mut prepared = Prepared::new(contract, &method, digest, bytes)?;
+                    body = Some(prepared.take_request());
+                    rpc_prepared = Some(prepared);
+                    ("rpc", json!({"method":method}))
+                }
                 Invocation::Fetch(request) => (
                     "fetch",
                     values::request(&context, request, self.runtime.options.max_body_bytes).await?,
@@ -247,14 +317,16 @@ impl JavaScriptApplication {
             "class": class,
             "identity": identity
         }))?;
+        let charge = crate::runtime::value_size(&payload, body.as_deref())?;
         ensure!(
-            payload.len() <= self.runtime.options.max_value_bytes,
+            charge <= self.runtime.options.max_value_bytes,
             "JavaScript invocation exceeds value budget"
         );
         self.runtime.start(Start {
             id: invocation,
-            _bytes: self.runtime.reserve(payload.len())?,
+            _bytes: self.runtime.reserve(charge)?,
             payload,
+            body,
             sender,
             active: active.clone(),
             owner,
@@ -270,7 +342,7 @@ impl JavaScriptApplication {
                 _ = stopped.changed() => anyhow::bail!("JavaScript runtime stopped"),
                 result = pending.next(), if !pending.is_empty() => {
                     let (id, encoded) = result.expect("nonempty native operation set");
-                    self.runtime.reply(invocation, id, encoded?)?;
+                    self.runtime.reply_parts(invocation, id, encoded?)?;
                     continue;
                 },
                 event = receive.recv() => event,
@@ -285,6 +357,8 @@ impl JavaScriptApplication {
                     id,
                     name,
                     payload,
+                    body,
+                    signal,
                     _bytes,
                 } => {
                     if !active.load(Ordering::Acquire) {
@@ -296,27 +370,54 @@ impl JavaScriptApplication {
                         // The reservation is retained by the native future even
                         // if the awaiting JavaScript task has already been cancelled.
                         let _bytes = _bytes;
-                        let result = match serde_json::from_str(&payload) {
+                        let result = match serde_json::from_str::<Value>(&payload) {
                             Ok(payload) => {
-                                operations::execute(
-                                    context,
-                                    state,
-                                    &name,
-                                    payload,
-                                    &cellar_guest::Limits {
-                                        max_body_bytes: self.runtime.options.max_body_bytes,
-                                        max_batch_operations: self
-                                            .runtime
-                                            .options
-                                            .max_batch_operations,
-                                    },
-                                )
+                                async {
+                                    if name == "cell.call" {
+                                        use anyhow::Context as _;
+                                        let digest = payload
+                                            .get("contract_digest")
+                                            .and_then(Value::as_str)
+                                            .context("missing RPC contract digest")
+                                            .context(cellar_guest::failure::Validation)?;
+                                        let contract = self
+                                            .source
+                                            .rpc
+                                            .contract(digest)
+                                            .context("unregistered RPC contract")
+                                            .context(cellar_guest::failure::Validation)?;
+                                        let body = body
+                                            .context("RPC call requires a byte attachment")
+                                            .context(cellar_guest::failure::Validation)?;
+                                        let bytes = operations::call_bytes_with_signal(
+                                            context, contract, payload, body, signal,
+                                        )
+                                        .await?;
+                                        return Ok((Value::Null, Some(bytes)));
+                                    }
+                                    ensure!(body.is_none(), cellar_guest::failure::Validation);
+                                    operations::execute(
+                                        context,
+                                        state,
+                                        &name,
+                                        payload,
+                                        &cellar_guest::Limits {
+                                            max_body_bytes: self.runtime.options.max_body_bytes,
+                                            max_batch_operations: self
+                                                .runtime
+                                                .options
+                                                .max_batch_operations,
+                                        },
+                                    )
+                                    .await
+                                    .map(|value| (value, None))
+                                }
                                 .await
                             }
                             Err(error) => Err(anyhow::Error::from(error)
                                 .context(cellar_guest::failure::Validation)),
                         };
-                        let encoded = cellar_guest::failure::result(
+                        let encoded = cellar_guest::failure::result_parts(
                             &name,
                             result,
                             self.runtime.options.max_value_bytes,
@@ -332,17 +433,32 @@ impl JavaScriptApplication {
                     .await
                     {
                         std::task::Poll::Ready((id, encoded)) => {
-                            self.runtime.reply(invocation, id, encoded?)?
+                            self.runtime.reply_parts(invocation, id, encoded?)?
                         }
                         std::task::Poll::Pending => pending.push(operation),
                     }
                 }
                 Event::Complete {
                     payload,
+                    body,
                     failed,
                     _bytes,
                 } => {
                     let _bytes = _bytes;
+                    if let Some(prepared) = rpc_prepared.take() {
+                        let result = if failed {
+                            Err(cellar::sdk::rpc::Failure::new(
+                                cellar::sdk::rpc::Code::Internal,
+                            ))
+                        } else {
+                            body.ok_or_else(|| {
+                                cellar::sdk::rpc::Failure::new(
+                                    cellar::sdk::rpc::Code::InvalidResponse,
+                                )
+                            })
+                        };
+                        return Ok(Output::Rpc(prepared.finish(result)?));
+                    }
                     ensure!(!failed, "JavaScript handler failed");
                     let value: Value = serde_json::from_str(&payload).map_err(|_| {
                         anyhow::anyhow!("JavaScript handler completion decoding failed")
@@ -374,6 +490,10 @@ impl Drop for Lifetime {
 }
 
 impl Application for JavaScriptApplication {
+    fn rpc_catalog(&self) -> Option<&Catalog> {
+        Some(&self.source.rpc)
+    }
+
     fn validate_configuration(
         &self,
         options: &cellar::engine_api::WorkerConfigOptions,

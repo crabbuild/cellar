@@ -53,6 +53,9 @@ def install_error_hooks():
 def validate(module, descriptor):
     """Cold validation only; constructors/handlers are never run here."""
     descriptor = json.loads(descriptor)
+    from cellar_rpc_shapes import CodecCatalog
+    codecs = CodecCatalog(descriptor.get("rpc_contracts", {}))
+    module.__cellar_rpc_codecs__ = codecs
     def handlers(target, events, arguments):
         for event in events:
             handler = getattr(target, event, None)
@@ -69,6 +72,41 @@ def validate(module, descriptor):
             if inspect.iscoroutinefunction(constructor) or inspect.isasyncgenfunction(constructor):
                 raise TypeError("Cellar constructors must be synchronous")
         handlers(cell, events, 3)
+    declared = descriptor.get("rpc", {})
+    registrations = getattr(module, "__cellar_rpc__", {})
+    if set(registrations) != set(declared):
+        raise TypeError("Python RPC classes differ from native registrations")
+    dispatch = {}
+    if declared:
+        from dataclasses import replace
+        from types import MappingProxyType
+        from cellar_rpc import RpcRegistration
+        for name, methods in declared.items():
+            registration = registrations[name]
+            if not isinstance(registration, RpcRegistration) or set(registration.methods) != set(methods):
+                raise TypeError("Python RPC methods differ from native registrations")
+            cell = getattr(module, name)
+            table = {}
+            for wire, native in methods.items():
+                rule = registration.methods[wire]
+                if (rule.digest != native["digest"] or rule.name != wire
+                        or rule.input.DESCRIPTOR.full_name != native["input"]
+                        or rule.output.DESCRIPTOR.full_name != native["output"]):
+                    raise TypeError("Python RPC contract differs from native registration")
+                codecs.verify(rule)
+                # A generated name selects one statically inspected function;
+                # wire input never becomes an arbitrary attribute lookup.
+                handler = inspect.getattr_static(cell, rule.handler)
+                if not inspect.iscoroutinefunction(handler):
+                    raise TypeError("Python RPC handlers must be async instance methods")
+                inspect.signature(handler).bind(None, None, None)
+                limits = native["limits"]
+                rule = replace(rule, max_message_bytes=limits["max_message_bytes"],
+                               max_depth=limits["max_depth"], max_elements=limits["max_elements"],
+                               max_decoded_slots=limits["max_decoded_slots"])
+                table[wire] = (handler, rule)
+            dispatch[name] = MappingProxyType(table)
+        module.__cellar_rpc_dispatch__ = MappingProxyType(dispatch)
 
 
 def _complete_failure(bridge, payload):
@@ -91,6 +129,10 @@ async def _invoke(module, objects, payload, body, bridge, context, stats, maximu
         if not bridge.active():
             metrics["handlers_cancelled"] += 1
             return
+        kind, value = payload["kind"], payload["event"]
+        rpc_entry = None
+        if kind == "rpc":
+            rpc_entry = module.__cellar_rpc_dispatch__[payload["class"]][value["method"]]
         target = module
         if payload["object"] is not None:
             key = payload["object"]
@@ -101,16 +143,33 @@ async def _invoke(module, objects, payload, body, bridge, context, stats, maximu
                 objects[key] = (getattr(module, payload["class"])(), bridge.owner_lifetime())
                 stats["objects_created"] += 1
             target = objects[key][0]
-        kind, value = payload["kind"], payload["event"]
-        handler = getattr(target, kind)
-        argument = {"fetch": lambda: Request._from_wire(value, body),
-                    "queue": lambda: Batch(context, value),
-                    "scheduled": lambda: Scheduled(context, value),
-                    "alarm": lambda: value["scheduled_ms"]}[kind]()
-        result = handler(argument, context)
+        if rpc_entry is not None:
+            function, rule = rpc_entry
+            argument = rule.input.FromString(body)
+            result = function(target, argument, context)
+        else:
+            handler = getattr(target, kind)
+            argument = {"fetch": lambda: Request._from_wire(value, body),
+                        "queue": lambda: Batch(context, value),
+                        "scheduled": lambda: Scheduled(context, value),
+                        "alarm": lambda: value["scheduled_ms"]}[kind]()
+            result = handler(argument, context)
         if not inspect.isawaitable(result):
             raise TypeError("Cellar handlers must return an awaitable")
         result = await result
+        if rpc_entry is not None:
+            from cellar_rpc import encode_message
+            try:
+                if not isinstance(result, rule.output):
+                    raise TypeError("RPC response type differs from registration")
+                output_body = encode_message(result, rule)
+            except Exception:
+                metrics["handlers_failed"] += 1
+                _complete_failure(bridge, '{"error":"InvalidResponse"}')
+                return
+            bridge.complete("null", False, output_body)
+            metrics["handlers_completed"] += 1
+            return
         if kind == "fetch" and not isinstance(result, Response):
             raise TypeError("fetch must return cellar.Response")
         value, output_body = result._completion() if kind == "fetch" else (None, None)
@@ -245,6 +304,7 @@ async def _serve(module, inbox, interval, shutdown, stats, maximum, telemetry, s
                 del start
                 payload = json.loads(payload)
                 context = Context(bridge, payload["identity"], payload.get("initial_storage"))
+                context._rpc_codecs = getattr(module, "__cellar_rpc_codecs__", None)
                 try:
                     # The managed factory checks all live tasks, including
                     # application-created ones, immediately before construction.

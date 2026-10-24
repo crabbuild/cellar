@@ -71,6 +71,8 @@ pub enum CellJob {
         order: Option<CallOrder>,
     },
     Rpc {
+        cancellation: Option<Arc<crate::runtime::InvocationCancellation>>,
+        deadline_ms: Option<u64>,
         authority: Option<crate::runtime::RpcAuthority>,
         request_id: Option<RequestId>,
         scope: String,

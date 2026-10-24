@@ -1,0 +1,23 @@
+[
+  {
+    "name": "present-wrapper-zero",
+    "max_decoded_slots": 22,
+    "max_depth": 1,
+    "max_elements": 1,
+    "bytes": [10, 0]
+  },
+  {
+    "name": "wrapper-map",
+    "max_decoded_slots": 28,
+    "max_depth": 2,
+    "max_elements": 4,
+    "bytes": [42, 6, 8, 1, 18, 2, 8, 1]
+  },
+  {
+    "name": "struct-number",
+    "max_decoded_slots": 36,
+    "max_depth": 3,
+    "max_elements": 5,
+    "bytes": [50, 16, 10, 14, 10, 1, 120, 18, 9, 17, 0, 0, 0, 0, 0, 0, 28, 64]
+  }
+]

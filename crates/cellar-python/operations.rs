@@ -5,6 +5,32 @@ pub(crate) enum Output {
     ReadBatch(crate::read_batch::Reply),
 }
 
+pub(crate) async fn call(
+    context: &cellar::sdk::Context,
+    catalog: &cellar::sdk::rpc::Catalog,
+    value: serde_json::Value,
+    body: Option<Vec<u8>>,
+    signal: Option<cellar::sdk::web::AbortSignal>,
+) -> anyhow::Result<Output> {
+    use anyhow::Context as _;
+    let digest = value
+        .get("contract_digest")
+        .and_then(serde_json::Value::as_str)
+        .context("missing RPC contract digest")
+        .context(crate::failure::Validation)?;
+    let contract = catalog
+        .contract(digest)
+        .context("unregistered RPC contract")
+        .context(crate::failure::Validation)?;
+    let body = body
+        .context("RPC call requires a byte attachment")
+        .context(crate::failure::Validation)?;
+    let bytes =
+        cellar_guest::operations::call_bytes_with_signal(context, contract, value, body, signal)
+            .await?;
+    Ok(Output::Value(serde_json::Value::Null, Some(bytes)))
+}
+
 pub(crate) async fn execute(
     context: &cellar::sdk::Context,
     state: &State,

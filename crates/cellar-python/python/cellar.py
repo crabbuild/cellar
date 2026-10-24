@@ -357,6 +357,7 @@ class Context:
         self._loop = asyncio.get_running_loop()
         self._pending = {}
         self._sequence = 0
+        self._rpc_codecs = None
         self.identity: CellIdentity | None = CellIdentity(identity["name"], identity["class"], identity["scope"], identity["epoch"]) if identity else None
         self.initial_storage: Mapping[str, Snapshot] = (MappingProxyType({
             key: Snapshot(row["present"], row["value"]) for key, row in initial_storage.items()
@@ -368,13 +369,24 @@ class Context:
         # the handle: that cycle otherwise delays every request's reclamation.
         return Storage(self)
 
-    async def _call(self, operation: str, *, _body: bytes | None = None, **payload: Any) -> Any:
+    def _check(self):
         if asyncio.get_running_loop() is not self._loop:
             raise SDKError("Cellar SDK calls must use the invocation's asyncio loop", "NotSubmitted")
         if not self._bridge.active():
             raise SDKError("ContextExpired", "ContextExpired")
         if _current_invocation.get() is not self._bridge:
             raise ContextMismatch()
+
+    def _verify_rpc(self, method):
+        try:
+            if self._rpc_codecs is None:
+                raise TypeError("No native RPC contract catalog")
+            return self._rpc_codecs.verify(method)
+        except Exception:
+            raise ValidationError("ContractMismatch", "ContractMismatch", "not_committed") from None
+
+    async def _call(self, operation: str, *, _body: bytes | None = None, **payload: Any) -> Any:
+        self._check()
         self._sequence += 1
         sequence = self._sequence
         future = asyncio.get_running_loop().create_future()
@@ -392,7 +404,38 @@ class Context:
                 raise ValidationError() from error
             except RuntimeError as error:
                 raise SDKError("Cellar operation was not submitted", "NotSubmitted") from error
-            return await future
+            if operation != "cell.call":
+                return await future
+            # A task's cancellation must reach the original native call. Keep
+            # its reply future alive until native cleanup releases admission;
+            # cancelling a local Future alone would leave the mutation running.
+            try:
+                await asyncio.wait((future,))
+                return future.result()
+            except asyncio.CancelledError as cancelled:
+                if not self._bridge.active():
+                    future.cancel()
+                    raise
+                try:
+                    self._bridge.cancel_operation(sequence)
+                except RuntimeError:
+                    # Native retirement can race the active check. It already
+                    # owns revocation and no longer promises another reply.
+                    future.cancel()
+                    raise cancelled from None
+                while not future.done():
+                    try:
+                        await asyncio.wait((future,))
+                    except asyncio.CancelledError:
+                        # Repeated Task.cancel() must not abandon owned native
+                        # cleanup. Whole-invocation retirement is authoritative.
+                        if not self._bridge.active():
+                            future.cancel()
+                if not future.cancelled():
+                    # Retrieve even an already-ready failure. The Python task
+                    # still reports cancellation, which makes no rollback claim.
+                    future.exception()
+                raise
         finally:
             self._pending.pop(sequence, None)
 

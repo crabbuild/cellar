@@ -110,9 +110,13 @@ impl Drop for Process {
 struct InvocationState {
     start: Start,
     operations: usize,
-    // Operation ID -> whether its unresolved outcome is a mutation.
-    pending: HashMap<u64, bool>,
+    pending: HashMap<u64, PendingOperation>,
     mutation: bool,
+}
+
+struct PendingOperation {
+    mutation: bool,
+    cancellation: Option<cellar::sdk::web::AbortController>,
 }
 
 fn number(value: &Value, field: &str) -> Result<u64> {
@@ -312,16 +316,19 @@ fn run(
             .take(runtime.options.max_invocations * runtime.options.max_pending_operations)
         {
             if let Some(state) = invocations.get_mut(&reply.invocation) {
-                if let Some(mutation) = state.pending.remove(&reply.id) {
-                    if mutation {
+                if let Some(operation) = state.pending.remove(&reply.id) {
+                    if operation.mutation {
                         state.mutation = false;
                     }
-                    transport.send(json!({
-                        "type": "reply",
-                        "invocation": reply.invocation,
-                        "id": reply.id,
-                        "payload": reply.payload
-                    }))?;
+                    transport.send_parts(
+                        json!({
+                            "type": "reply",
+                            "invocation": reply.invocation,
+                            "id": reply.id,
+                            "payload": reply.payload
+                        }),
+                        reply.body.as_deref(),
+                    )?;
                 }
             }
         }
@@ -338,6 +345,7 @@ fn run(
                     {
                         let _ = start.sender.try_send(Event::Complete {
                             payload: "null".into(),
+                            body: None,
                             failed: true,
                             _bytes: runtime.reserve(4)?,
                         });
@@ -349,11 +357,14 @@ fn run(
                     invocations.len() < runtime.options.max_invocations,
                     "Node invocation capacity exhausted"
                 );
-                transport.send(json!({
-                    "type": "start",
-                    "id": start.id,
-                    "payload": start.payload
-                }))?;
+                transport.send_parts(
+                    json!({
+                        "type": "start",
+                        "id": start.id,
+                        "payload": start.payload
+                    }),
+                    start.body.as_deref(),
+                )?;
                 invocations.insert(
                     start.id,
                     InvocationState {
@@ -369,9 +380,17 @@ fn run(
         transport.flush()?;
         // Bound each receive pass so a busy peer cannot starve shutdown or replies.
         for _ in 0..256 {
-            let Some(message) = transport.receive()? else {
+            let Some(frame) = transport.receive()? else {
                 break;
             };
+            let message = frame.metadata;
+            let mut body = frame.body;
+            ensure!(
+                body.is_none()
+                    || (initialized
+                        && matches!(message["type"].as_str(), Some("operation" | "complete"))),
+                "unexpected Node byte attachment"
+            );
             if !authenticated {
                 ensure!(
                     message["type"] == "hello" && message["secret"] == secret,
@@ -388,6 +407,22 @@ fn run(
                     let _ = ready.send(Ok(()));
                 }
                 "heartbeat" => heartbeat = Instant::now(),
+                "cancel_operation" if initialized => {
+                    let invocation = number(&message, "invocation")?;
+                    let id = number(&message, "id")?;
+                    if let Some(state) = invocations.get(&invocation).filter(|state| {
+                        state.start.active.load(Ordering::Acquire)
+                            && state.start.owner.load(Ordering::Acquire)
+                    }) {
+                        if let Some(controller) = state
+                            .pending
+                            .get(&id)
+                            .and_then(|operation| operation.cancellation.as_ref())
+                        {
+                            controller.abort(None)?;
+                        }
+                    }
+                }
                 "operation" if initialized => {
                     let invocation = number(&message, "invocation")?;
                     let id = number(&message, "id")?;
@@ -395,6 +430,7 @@ fn run(
                     last_operation = id;
                     let name = string(&message, "name")?;
                     let payload = string(&message, "payload")?;
+                    let size = value_size(payload, body.as_deref())?;
                     let Some(state) = invocations.get_mut(&invocation) else {
                         reject(&mut transport, invocation, id, "ContextExpired")?;
                         continue;
@@ -406,7 +442,9 @@ fn run(
                         || !state.start.owner.load(Ordering::Acquire)
                     {
                         Some("ContextExpired")
-                    } else if name.len() > 64 || payload.len() > runtime.options.max_value_bytes {
+                    } else if (name == "cell.call") != body.is_some() {
+                        Some("ValidationError")
+                    } else if name.len() > 64 || size > runtime.options.max_value_bytes {
                         Some("ValueLimit")
                     } else if state.operations >= runtime.options.max_operations
                         || state.pending.len() >= runtime.options.max_pending_operations
@@ -421,10 +459,12 @@ fn run(
                         reject(&mut transport, invocation, id, code)?;
                         continue;
                     }
-                    let Ok(bytes) = runtime.reserve(payload.len()) else {
+                    let Ok(bytes) = runtime.reserve(size) else {
                         reject(&mut transport, invocation, id, "BridgeLimit")?;
                         continue;
                     };
+                    let cancellation =
+                        (name == "cell.call").then(cellar::sdk::web::AbortController::new);
                     if state
                         .start
                         .sender
@@ -432,6 +472,8 @@ fn run(
                             id,
                             name: name.into(),
                             payload: payload.into(),
+                            body,
+                            signal: cancellation.as_ref().map(|controller| controller.signal()),
                             _bytes: bytes,
                         })
                         .is_err()
@@ -440,7 +482,13 @@ fn run(
                         continue;
                     }
                     state.operations += 1;
-                    state.pending.insert(id, mutation);
+                    state.pending.insert(
+                        id,
+                        PendingOperation {
+                            mutation,
+                            cancellation,
+                        },
+                    );
                     state.mutation |= mutation;
                 }
                 "complete" if initialized => {
@@ -457,10 +505,15 @@ fn run(
                         } else {
                             string(&message, "payload")?
                         };
+                        if failed {
+                            body = None;
+                        }
+                        let bytes = runtime.reserve(value_size(payload, body.as_deref())?)?;
                         let _ = state.start.sender.try_send(Event::Complete {
                             payload: payload.into(),
+                            body,
                             failed,
-                            _bytes: runtime.reserve(payload.len())?,
+                            _bytes: bytes,
                         });
                     }
                 }

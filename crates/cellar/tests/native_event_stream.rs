@@ -554,6 +554,9 @@ async fn observe_deadline(
 async fn replay(runtime: &RuntimeManager, captured: &Captured) -> Result<Value> {
     let (send, _receive) = tokio::sync::oneshot::channel();
     let mut request = RpcCallReq {
+        parent_cancellation: None,
+        signal: None,
+        deadline_ms: None,
         authority: captured.authority.clone(),
         request_id: Some(cellar::engine_api::next_request_id()),
         cancel: None,

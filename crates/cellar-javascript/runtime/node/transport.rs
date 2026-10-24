@@ -1,4 +1,5 @@
-//! Bounded, nonblocking length-prefixed JSON transport; application stdout is separate.
+//! Bounded control metadata and optional owned byte attachments. Application
+//! stdout is separate from this authenticated, nonblocking transport.
 use anyhow::{ensure, Result};
 use serde_json::Value;
 use std::{
@@ -7,15 +8,23 @@ use std::{
     net::TcpStream,
 };
 
+const HEADER_BYTES: usize = 8;
+
+pub(super) struct Frame {
+    pub metadata: Value,
+    pub body: Option<Vec<u8>>,
+}
+
 pub(super) struct Transport {
     socket: TcpStream,
     input: Vec<u8>,
     output: VecDeque<Vec<u8>>,
     // Bytes already written from the first queued frame.
     offset: usize,
-    // Unsent bytes across all frames, including their four-byte headers.
+    // Retained bytes across frames, including the already-written prefix of
+    // the front allocation. Partial writes do not free its backing storage.
     queued: usize,
-    // Per-frame JSON limit and aggregate outbound byte budget, respectively.
+    // Per-frame metadata+body limit and aggregate outbound byte budget.
     maximum: usize,
     budget: usize,
 }
@@ -36,16 +45,35 @@ impl Transport {
     }
 
     pub fn send(&mut self, value: Value) -> Result<()> {
+        self.send_parts(value, None)
+    }
+
+    pub fn send_parts(&mut self, mut value: Value, body: Option<&[u8]>) -> Result<()> {
+        let object = value
+            .as_object_mut()
+            .ok_or_else(|| anyhow::anyhow!("Node control must be an object"))?;
+        object.insert("has_body".into(), Value::Bool(body.is_some()));
         let bytes = serde_json::to_vec(&value)?;
-        ensure!(bytes.len() <= self.maximum, "Node frame exceeds limit");
-        // The network-order header counts JSON bytes, excluding the header itself.
-        let length = u32::try_from(bytes.len())?;
+        let body = body.unwrap_or_default();
+        let payload = bytes
+            .len()
+            .checked_add(body.len())
+            .ok_or_else(|| anyhow::anyhow!("Node frame size overflow"))?;
+        ensure!(payload <= self.maximum, "Node frame exceeds limit");
+        let frame_bytes = payload
+            .checked_add(HEADER_BYTES)
+            .ok_or_else(|| anyhow::anyhow!("Node frame size overflow"))?;
         ensure!(
-            self.queued + bytes.len() + 4 <= self.budget,
+            frame_bytes <= self.budget.saturating_sub(self.queued),
             "Node transport capacity exhausted"
         );
-        let mut frame = length.to_be_bytes().to_vec();
+        let metadata_length = u32::try_from(bytes.len())?;
+        let body_length = u32::try_from(body.len())?;
+        let mut frame = Vec::with_capacity(frame_bytes);
+        frame.extend_from_slice(&metadata_length.to_be_bytes());
+        frame.extend_from_slice(&body_length.to_be_bytes());
         frame.extend(bytes);
+        frame.extend_from_slice(body);
         self.queued += frame.len();
         self.output.push_back(frame);
         Ok(())
@@ -57,12 +85,12 @@ impl Transport {
                 Ok(0) => anyhow::bail!("Node transport closed"),
                 Ok(n) => {
                     self.offset += n;
-                    self.queued -= n;
                 }
                 Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => break,
                 Err(error) => return Err(error.into()),
             }
             if self.offset == frame.len() {
+                self.queued -= frame.len();
                 self.output.pop_front();
                 self.offset = 0;
             }
@@ -70,22 +98,44 @@ impl Transport {
         Ok(())
     }
 
-    pub fn receive(&mut self) -> Result<Option<Value>> {
+    pub fn receive(&mut self) -> Result<Option<Frame>> {
         // At most one bounded frame is buffered; never accumulate a peer's flood.
         loop {
-            let target = if self.input.len() < 4 {
-                4
+            let target = if self.input.len() < HEADER_BYTES {
+                HEADER_BYTES
             } else {
-                let n = u32::from_be_bytes(self.input[..4].try_into()?) as usize;
-                ensure!(n <= self.maximum, "Node frame exceeds limit");
-                n + 4
+                let metadata = u32::from_be_bytes(self.input[..4].try_into()?) as usize;
+                let body = u32::from_be_bytes(self.input[4..HEADER_BYTES].try_into()?) as usize;
+                let payload = metadata
+                    .checked_add(body)
+                    .ok_or_else(|| anyhow::anyhow!("Node frame size overflow"))?;
+                ensure!(
+                    metadata > 0 && payload <= self.maximum,
+                    "Node frame exceeds limit"
+                );
+                payload
+                    .checked_add(HEADER_BYTES)
+                    .ok_or_else(|| anyhow::anyhow!("Node frame size overflow"))?
             };
-            if target > 4 && self.input.len() == target {
-                let value = serde_json::from_slice(&self.input[4..])?;
+            if target > HEADER_BYTES && self.input.len() == target {
+                let metadata = u32::from_be_bytes(self.input[..4].try_into()?) as usize;
+                let end = HEADER_BYTES + metadata;
+                let value: Value = serde_json::from_slice(&self.input[HEADER_BYTES..end])?;
+                let present = value
+                    .get("has_body")
+                    .and_then(Value::as_bool)
+                    .ok_or_else(|| anyhow::anyhow!("Node frame requires attachment presence"))?;
+                ensure!(
+                    present || end == target,
+                    "Node frame has an undeclared attachment"
+                );
+                let body = present.then(|| self.input[end..].to_vec());
                 self.input.clear();
-                return Ok(Some(value));
+                return Ok(Some(Frame {
+                    metadata: value,
+                    body,
+                }));
             }
-            ensure!(target != 4 || self.input.len() < 4, "Node empty frame");
             let mut chunk = [0; 8192];
             let capacity = chunk.len().min(target - self.input.len());
             match self.socket.read(&mut chunk[..capacity]) {
@@ -99,45 +149,5 @@ impl Transport {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::net::TcpListener;
-
-    #[test]
-    fn fragmented_frames_and_announced_limits() -> Result<()> {
-        let listener = TcpListener::bind(("127.0.0.1", 0))?;
-        let mut peer = TcpStream::connect(listener.local_addr()?)?;
-        let mut transport = Transport::new(listener.accept()?.0, 128, 256)?;
-        let data = serde_json::to_vec(&serde_json::json!({"type":"heartbeat"}))?;
-        let header = (data.len() as u32).to_be_bytes();
-        peer.write_all(&header[..2])?;
-        assert!(transport.receive()?.is_none());
-        peer.write_all(&header[2..])?;
-        peer.write_all(&data[..3])?;
-        assert!(transport.receive()?.is_none());
-        peer.write_all(&data[3..])?;
-        let until = std::time::Instant::now() + std::time::Duration::from_secs(2);
-        loop {
-            if let Some(value) = transport.receive()? {
-                assert_eq!(value["type"], "heartbeat");
-                break;
-            }
-            assert!(std::time::Instant::now() < until);
-            std::thread::yield_now();
-        }
-        peer.write_all(&129_u32.to_be_bytes())?;
-        loop {
-            match transport.receive() {
-                Err(_) => break,
-                Ok(None) => {}
-                Ok(Some(_)) => panic!(),
-            }
-            assert!(std::time::Instant::now() < until);
-            std::thread::yield_now();
-        }
-        assert!(transport
-            .send(serde_json::json!({"huge":"x".repeat(129)}))
-            .is_err());
-        Ok(())
-    }
-}
+#[path = "transport_tests.rs"]
+mod tests;

@@ -1,0 +1,136 @@
+"""Reference Python provider and consumer for the all-backend qualification."""
+import asyncio
+from urllib.parse import urlsplit, parse_qsl
+from cellar import Conflict, Response, SDKError
+from counter_pb2 import Count, GetCountRequest, GetCountResponse, IncrementRequest, IncrementResponse, OperationConflict, OutOfRange
+from counter_cellar import CounterClient, CounterRegistration
+import live
+
+constructed = 0
+retained = None
+cancel_releases = {}
+
+
+class PythonCounter:
+    def __init__(self):
+        global constructed
+        constructed += 1
+
+    async def get_count(self, request, ctx):
+        current = await ctx.storage.read_json("count")
+        return GetCountResponse(count=Count(value=int(current.value) if current.present else 0))
+
+    async def increment(self, request, ctx):
+        if not request.HasField("delta") or request.delta <= 0:
+            return IncrementResponse(out_of_range=OutOfRange(reason="positive delta is required"))
+        if not request.operation_id or len(request.operation_id.encode("utf-8")) > 128:
+            return IncrementResponse(out_of_range=OutOfRange(reason="operation ID is required"))
+        key = "receipt:" + request.operation_id
+        for _ in range(16):
+            current = await ctx.storage.read_json("count")
+            saved = await ctx.storage.read_json(key)
+            if saved.present:
+                if saved.value["delta"] != str(request.delta):
+                    return IncrementResponse(operation_conflict=OperationConflict())
+                return IncrementResponse(count=Count(value=int(saved.value["value"])))
+            value = (int(current.value) if current.present else 0) + request.delta
+            if value > 2**63 - 1:
+                return IncrementResponse(out_of_range=OutOfRange(reason="counter overflow"))
+            try:
+                await ctx.storage.apply(checks={"count": current, key: saved}, puts={
+                    "count": str(value), key: {"delta": str(request.delta), "value": str(value)},
+                })
+            except Conflict:
+                continue
+            # Exercise host output proof independently of an explicit sync await.
+            await live.sync(ctx, request.operation_id)
+            if not request.operation_id.startswith("proof-no-sync-"):
+                await ctx.storage.sync()
+            if request.operation_id == "invalid-reply":
+                # Intentionally wrong after commit. Retry must use its receipt.
+                return GetCountResponse(count=Count(value=value))
+            return IncrementResponse(count=Count(value=value))
+        raise RuntimeError("Counter conflict budget exhausted")
+
+    async def private_helper(self, request, ctx):
+        raise AssertionError("Unregistered helper was invoked")
+
+
+__cellar_rpc__ = {"PythonCounter": CounterRegistration}
+
+
+async def fetch(request, ctx):
+    global retained
+    url = urlsplit(request.url)
+    query = dict(parse_qsl(url.query))
+    if url.path.endswith("/cancel-release"):
+        cancel_releases[query["name"]][query.get("phase", "cancel")].set()
+        return Response.json({"released": True})
+    if url.path.endswith("/cancel-attack"):
+        original = cancel_releases[query["name"]]["context"]
+        try:
+            original._bridge.cancel_operation(original._sequence)
+        except RuntimeError as error:
+            assert str(error) == "ContextMismatch"
+            return Response.json({"scope_refused": True})
+        raise AssertionError("Another invocation cancelled the original call")
+    if url.path.endswith("/cancel"):
+        name = query["name"]
+        controls = cancel_releases[name] = {"cancel": asyncio.Event(), "finish": asyncio.Event(), "context": ctx}
+        counter = CounterClient.bind(ctx, "RUST", name)
+        task = asyncio.create_task(counter.get_count(GetCountRequest(), timeout_ms=5000))
+        try:
+            # The host sends this control only after observing the target's
+            # uncommitted SQLite write. No timer guesses when to cancel.
+            await controls["cancel"].wait()
+            task.cancel()
+            try:
+                await task
+                raise AssertionError("RPC task ignored cancellation")
+            except asyncio.CancelledError:
+                pass
+            assert ctx._bridge.cancel_operation(1) is False
+            # Awaiting cancellation must settle the original native operation
+            # and its mutation permit before another call can be admitted.
+            followup = CounterClient.bind(ctx, "RUST", "cancel-followup")
+            try:
+                reply = await followup.get_count(GetCountRequest())
+                followup_writes = reply.count.value
+            except SDKError as error:
+                followup_writes = {"code": error.code, "outcome": error.outcome}
+            # Keep the parent alive while the blocked target attempts late SDK
+            # work, so parent retirement cannot stand in for task cancellation.
+            await controls["finish"].wait()
+            return Response.json({"node": await ctx.var("DOMAIN_MARKER"),
+                                  "result": {"cancelled": True},
+                                  "followup_writes": followup_writes})
+        finally:
+            cancel_releases.pop(name, None)
+    if url.path.endswith("/constructors"):
+        return Response.json({"constructed": constructed})
+    if url.path.endswith("/probe"):
+        return Response.json(live.snapshot())
+    if url.path.endswith("/probe-release"):
+        return Response.json(live.control("release"))
+    if url.path.endswith("/probe-clear"):
+        return Response.json(live.control("clear"))
+    binding = {"rust": "RUST", "python": "PYTHON", "v8": "V8", "node": "NODE"}[query.get("target", "python")]
+    counter = CounterClient.bind(ctx, binding, "alice")
+    if url.path.endswith("/capture"):
+        retained = counter
+        return Response.json({"captured": True})
+    try:
+        if url.path.endswith("/expired"):
+            await retained.get_count(GetCountRequest())
+            raise AssertionError("Expired client remained usable")
+        if url.path.endswith("/read"):
+            reply = await counter.get_count(GetCountRequest())
+            return Response.json({"value": str(reply.count.value)})
+        reply = await counter.increment(IncrementRequest(
+            delta=int(query["delta"]) if "delta" in query else None,
+            operation_id=query.get("id", ""),
+        ))
+        case = reply.WhichOneof("result")
+        return Response.json({"value": str(reply.count.value)} if case == "count" else {"error": case})
+    except SDKError as error:
+        return Response.json({"code": error.code, "outcome": error.outcome})
