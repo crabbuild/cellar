@@ -14,6 +14,9 @@ mod log_bundle_fault;
 
 #[path = "support/log_startup_gc.rs"]
 mod log_startup_gc;
+
+#[path = "support/log_shutdown_publication.rs"]
+mod log_shutdown_publication;
 use anyhow::{ensure, Context as _, Result};
 use bytes::Bytes;
 use cellar::bucket::Bucket;
@@ -54,6 +57,15 @@ async fn lease_writer(
     ownership: Arc<BucketOwnership>,
     addr: &str,
 ) -> Result<mpsc::UnboundedSender<()>> {
+    lease_writer_with_gate(domain, ownership, addr, None).await
+}
+
+async fn lease_writer_with_gate(
+    domain: &ExecutionDomain,
+    ownership: Arc<BucketOwnership>,
+    addr: &str,
+    mut gate: Option<Arc<log_shutdown_publication::PublicationGate>>,
+) -> Result<mpsc::UnboundedSender<()>> {
     let lineage = domain.run(ownership.prepare_lineage()).await??.to_owned();
     let generation = ownership.process_generation().unwrap().to_owned();
     let (send, mut receive) = mpsc::unbounded_channel();
@@ -88,6 +100,14 @@ async fn lease_writer(
                     .await;
                     if matches!(wake, futures_util::future::Either::Left((None, _))) {
                         return Ok::<_, anyhow::Error>(());
+                    }
+                    if gate
+                        .as_ref()
+                        .is_some_and(|gate| gate.requested.load(Ordering::SeqCst))
+                    {
+                        let gate = gate.take().unwrap();
+                        gate.entered.add_permits(1);
+                        gate.release.acquire().await?.forget();
                     }
                     record.expires_ms = cellar::ownership_store::now_ms() + TTL;
                     let LeaseCasOutcome::Applied { etag: applied } = ownership
@@ -207,6 +227,18 @@ async fn pair_with_proof(
     append_hold: Option<Arc<log_startup_gc::AppendHold>>,
     recruit: bool,
 ) -> Result<Pair> {
+    pair_with_publication_gate(shared, directory, id, policy, append_hold, recruit, None).await
+}
+
+async fn pair_with_publication_gate(
+    shared: &Path,
+    directory: &Path,
+    id: &str,
+    policy: LogOptions,
+    append_hold: Option<Arc<log_startup_gc::AppendHold>>,
+    recruit: bool,
+    gate: Option<Arc<log_shutdown_publication::PublicationGate>>,
+) -> Result<Pair> {
     let domain = Arc::new(ExecutionDomain::new(tokio::runtime::Handle::current()));
     let follower_domain = Arc::new(ExecutionDomain::new(tokio::runtime::Handle::current()));
     let follower_cleanup = follower_domain.clone();
@@ -243,7 +275,13 @@ async fn pair_with_proof(
             )
             .with_lease_ttl_ms(TTL),
         );
-        let publish = lease_writer(&domain, ownership.clone(), &format!("{leader}:1234")).await?;
+        let publish = lease_writer_with_gate(
+            &domain,
+            ownership.clone(),
+            &format!("{leader}:1234"),
+            gate.clone(),
+        )
+        .await?;
         let follower_lease = lease_writer(
             &follower_domain,
             follower_ownership,
@@ -320,6 +358,11 @@ async fn pair_with_proof(
                     Arc::new(OwnLog {
                         ownership,
                         nudge: Box::new(move || {
+                            if let Some(gate) = &gate {
+                                if gate.armed.swap(false, Ordering::SeqCst) {
+                                    gate.requested.store(true, Ordering::SeqCst);
+                                }
+                            }
                             let _ = publish.send(());
                         }),
                         write_lock: tokio::sync::Mutex::new(()),
