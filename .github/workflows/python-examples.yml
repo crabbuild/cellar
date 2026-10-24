@@ -95,13 +95,25 @@ jobs:
             --concurrency 1 8 --repetitions 1 --read-seconds .5 --writes 32
       - name: Check independent-arrival reads and failure accounting
         run: |
+          python -B examples/python-fastapi/test_perf.py
           cargo build -p cellar-python --example python-offered-load --no-default-features --locked
           python -B tools/python/test_offered.py "$CARGO_TARGET_DIR/debug/examples/python-offered-load"
+          python - <<'PY' > "$RUNNER_TEMP/fastapi/cpu-pools.txt"
+          import os
+          cpus = sorted(os.sched_getaffinity(0))
+          if len(cpus) < 2:
+              raise SystemExit('FastAPI affinity qualification requires at least two available CPUs')
+          split = len(cpus) // 2
+          print(','.join(map(str, cpus[:split])))
+          print(','.join(map(str, cpus[split:])))
+          PY
+          mapfile -t pools < "$RUNNER_TEMP/fastapi/cpu-pools.txt"
           python -B examples/python-fastapi/offered_perf.py \
             --client "$CARGO_TARGET_DIR/debug/examples/python-offered-load" --client-profile dev \
             --cellar "$CARGO_TARGET_DIR/debug/cellar" \
             --project "python=$RUNNER_TEMP/fastapi/environment/project.json" \
             --output "$RUNNER_TEMP/fastapi/offered-smoke" \
+            --host-cpus "${pools[0]}" --client-cpus "${pools[1]}" \
             --rates 100 --duration-ms 500 --warmup-ms 100 --repetitions 1
           python - "$RUNNER_TEMP/fastapi/offered-smoke/results.json" <<'PY'
           import json, sys

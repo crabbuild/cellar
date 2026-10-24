@@ -234,6 +234,15 @@ measurement rotates these 32 read paths, validating exact response bytes and
 EOF. Host executable, inventory, source and client identities are retained;
 runtime/GIL checks and complete combined shutdown are required.
 
+On Linux, add `--host-cpus 0,1 --client-cpus 2,3` to assign disjoint logical
+CPU pools, choosing CPUs available in `os.sched_getaffinity(0)`. Both options
+must be supplied together. The harness applies the host mask before the CLI
+starts, verifies that its native child and threads inherit it, and checks
+native threads before and after each measured phase. Client launch masks and
+host observations are retained with the raw results. Affinity restricts
+eligible CPUs; it does not reserve exclusive cores or isolate shared memory
+and storage. Omitting both options keeps the caller's placement on any platform.
+
 Read `report.md` together with the raw JSON. Every planned arrival is retained,
 including client lateness/capacity drops, timeouts, HTTP failures and corrupt
 responses. Request latency starts at dispatch; scheduled latency also includes
