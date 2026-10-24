@@ -451,6 +451,7 @@ cap; zero refuses before encoding. Checkpoints run around synchronous codecs.
 | Before native submission, including validation/encoding | `DeadlineExceeded / not_committed` |
 | After submission, including response decoding | `DeadlineExceeded / unknown` |
 
+Native admission failures retain their own proven effect outcome.
 Invocation retirement can produce `ContextExpired` at either checkpoint.
 A timeout during decoding may follow a committed write. Use the business
 operation ID to recover its receipt with an explicit retry.

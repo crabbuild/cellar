@@ -70,6 +70,18 @@ pairs. Preserve the full test matrix, failures and remaining work across turns.
 
 ## Current evidence
 
+- The budget branch now incorporates main through `f0414a3d`, including Python
+  lifecycle hardening, bounded replication metadata and the console move.
+  Conflict resolution preserves explicit RPC dispatch alongside main's direct
+  non-RPC event dispatch. Post-merge checks pass 24 Python runner tests, 34 pure
+  core tests, 29 Python library tests, the full bridge/watchdog executable and
+  the real Rust/Python budget/restart test. Adapter/qualifier all-target Clippy,
+  strict Python API checks, format/layout, dependency and docs checks pass.
+  The combined normal-stack executable also passes all seven suites and
+  publishes `.cellar/rpc/python-budget-merged-full-matrix.json` after cleanup:
+  16 local pairs, 16 remote/handoff pairs, three deadline cases, 17 cancellation
+  cases, 32 failed-recovery cases, 48 process kills and 64 proof/fencing cases.
+  Full-qualification flags remain false; V8/Node codec budgets are still next.
 - With Python codec budgets, the combined normal-stack `--suite all` retry
   passes all seven objects: 16 local pairs, 16 remote/handoff pairs, three
   deadline cases, 17 cancellation cases, 32 failed-recovery cases, 48 process
