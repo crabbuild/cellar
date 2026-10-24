@@ -541,7 +541,7 @@ jobs:
 
           fixtures = {
               "consumer-replay": (["node_events::event_refusal_clock::live_foreign_recovery_resumes_after_replaced_claimed_metadata_returns"], 100),
-              "clock-replay": (["node_events::event_refusal_clock::cold_follower_audit_survives_one_read_deadline_without_receipt_replay"], 50),
+              "clock-replay": (["node_events::event_refusal_clock::refused_clock_cold_followers_recover_before_any_receipt_replay"], 50),
               "reliability-replay": ([
                   "lease_renewal::a_late_committed_renewal_keeps_time_for_actual_readback",
                   "management_crons_report_pending_until_embedded_host_adopts",
