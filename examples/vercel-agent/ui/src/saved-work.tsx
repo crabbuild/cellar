@@ -1,11 +1,11 @@
-import { cn } from 'cn';
-import { Check, RotateCcw, ShieldCheck, Wrench } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { Separator } from '@/components/ui/separator';
-import { Spinner } from '@/components/ui/spinner';
-import { names } from './transcript';
-import type { Task, Progress } from './use-task';
+import { cn } from "cn";
+import { Check, RotateCcw, ShieldCheck, Wrench } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Separator } from "@/components/ui/separator";
+import { Spinner } from "@/components/ui/spinner";
+import { names } from "./transcript";
+import type { Task, Progress } from "./use-task";
 
 export function SavedWork({
   task,
@@ -20,7 +20,7 @@ export function SavedWork({
   restarting: boolean;
   restart: () => Promise<void>;
 }) {
-  const active = Boolean(task && (!state || state.status === 'pending'));
+  const active = Boolean(task && (!state || state.status === "pending"));
   const recovered = (state?.attempts ?? 0) > 1;
   return (
     <div className="ledger-content">
@@ -35,25 +35,25 @@ export function SavedWork({
         aria-live="polite"
         aria-atomic="true"
       >
-        <span className={cn('status-orbit', active && 'working')} />
+        <span className={cn("status-orbit", active && "working")} />
         <div>
           <strong>
             {!task
-              ? 'Ready when you are'
-              : state?.status === 'completed'
-                ? 'All work saved'
-                : state?.status === 'failed'
-                  ? 'Saved for inspection'
+              ? "Ready when you are"
+              : state?.status === "completed"
+                ? "All work saved"
+                : state?.status === "failed"
+                  ? "Saved for inspection"
                   : recovered
-                    ? 'Resuming saved work'
-                    : 'Saving as work happens'}
+                    ? "Resuming saved work"
+                    : "Saving as work happens"}
           </strong>
           <p>
             {!task
-              ? 'Start a conversation to begin.'
-              : state?.status === 'completed'
-                ? 'Safe to close this tab.'
-                : 'You can return to this link.'}
+              ? "Start a conversation to begin."
+              : state?.status === "completed"
+                ? "Safe to close this tab."
+                : "You can return to this link."}
           </p>
         </div>
       </div>
@@ -61,15 +61,15 @@ export function SavedWork({
       <dl className="run-facts">
         <div>
           <dt>Attempts</dt>
-          <dd>{state?.attempts ?? '—'}</dd>
+          <dd>{state?.attempts ?? "—"}</dd>
         </div>
         <div>
           <dt>Model checkpoints</dt>
-          <dd>{state?.modelSteps ?? '—'}</dd>
+          <dd>{state?.modelSteps ?? "—"}</dd>
         </div>
         <div>
           <dt>Saved tool results</dt>
-          <dd>{state?.toolReceipts ?? '—'}</dd>
+          <dd>{state?.toolReceipts ?? "—"}</dd>
         </div>
         <div>
           <dt>Output tokens</dt>
@@ -77,7 +77,7 @@ export function SavedWork({
             {state?.usage.reduce(
               (sum, usage) => sum + (usage.outputTokens.total ?? 0),
               0,
-            ) ?? '—'}
+            ) ?? "—"}
           </dd>
         </div>
       </dl>
@@ -132,7 +132,7 @@ export function SavedWork({
           ) : (
             <RotateCcw data-icon="inline-start" />
           )}
-          {restarting ? 'Recovering…' : 'Restart worker'}
+          {restarting ? "Recovering…" : "Restart worker"}
         </Button>
       </div>
       {task ? (

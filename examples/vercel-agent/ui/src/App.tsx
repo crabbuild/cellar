@@ -1,7 +1,7 @@
-import { ChatNavigation, type Chat } from './chat-navigation';
-import { SavedWork } from './saved-work';
-import { Markdown, Transcript, textOf } from './transcript';
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { ChatNavigation, type Chat } from "./chat-navigation";
+import { SavedWork } from "./saved-work";
+import { Markdown, Transcript, textOf } from "./transcript";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import {
   ArrowDown,
   ArrowUp,
@@ -17,10 +17,10 @@ import {
   ShieldCheck,
   Ticket,
   WifiOff,
-} from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
 import {
   Empty,
   EmptyHeader,
@@ -28,13 +28,13 @@ import {
   EmptyTitle,
   EmptyDescription,
   EmptyContent,
-} from '@/components/ui/empty';
-import { Field, FieldGroup, FieldLabel } from '@/components/ui/field';
+} from "@/components/ui/empty";
+import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import {
   InputGroup,
   InputGroupAddon,
   InputGroupTextarea,
-} from '@/components/ui/input-group';
+} from "@/components/ui/input-group";
 import {
   Sheet,
   SheetContent,
@@ -42,51 +42,51 @@ import {
   SheetTitle,
   SheetDescription,
   SheetTrigger,
-} from '@/components/ui/sheet';
+} from "@/components/ui/sheet";
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
-} from '@/components/ui/tooltip';
-import { Spinner } from '@/components/ui/spinner';
-import { api, useTask, type Task } from './use-task';
+} from "@/components/ui/tooltip";
+import { Spinner } from "@/components/ui/spinner";
+import { api, useTask, type Task } from "./use-task";
 
-const storageKey = 'cellar.chats.v1';
+const storageKey = "cellar.chats.v1";
 const suggestions = [
   {
     icon: Calculator,
-    title: 'Work through the numbers',
+    title: "Work through the numbers",
     prompt:
-      'Calculate 24 × 7, then add 13 to the counter once. Explain the two results.',
+      "Calculate 24 × 7, then add 13 to the counter once. Explain the two results.",
   },
   {
     icon: FileText,
-    title: 'Research and save a note',
+    title: "Research and save a note",
     prompt:
-      'Look up how Cellar durability works, then save a note titled Recovery with the key points. Summarize what you saved.',
+      "Look up how Cellar durability works, then save a note titled Recovery with the key points. Summarize what you saved.",
   },
   {
     icon: Ticket,
-    title: 'Put a plan into action',
+    title: "Put a plan into action",
     prompt:
-      'Create a normal-priority ticket titled Verify recovery. Then explain how its idempotency key prevents duplicate tickets.',
+      "Create a normal-priority ticket titled Verify recovery. Then explain how its idempotency key prevents duplicate tickets.",
   },
 ];
 
 function readChats(): Chat[] {
   try {
-    const saved: unknown = JSON.parse(localStorage.getItem(storageKey) ?? '[]');
+    const saved: unknown = JSON.parse(localStorage.getItem(storageKey) ?? "[]");
     return Array.isArray(saved)
       ? saved
           .filter(
             (item): item is Chat =>
               item &&
-              typeof item === 'object' &&
+              typeof item === "object" &&
               /^[a-zA-Z0-9_-]{1,64}$/.test(item.task) &&
-              typeof item.title === 'string' &&
-              typeof item.prompt === 'string' &&
-              (item.previous === null || typeof item.previous === 'string'),
+              typeof item.title === "string" &&
+              typeof item.prompt === "string" &&
+              (item.previous === null || typeof item.previous === "string"),
           )
           .slice(0, 20)
       : [];
@@ -97,12 +97,12 @@ function readChats(): Chat[] {
 export default function App() {
   const [chats, setChats] = useState(readChats);
   const [task, setTask] = useState<string | null>(() => {
-    const id = new URL(location.href).searchParams.get('task');
+    const id = new URL(location.href).searchParams.get("task");
     return id && /^[a-zA-Z0-9_-]{1,64}$/.test(id) ? id : null;
   });
   const [seed, setSeed] = useState<Task | null>(null);
-  const [draft, setDraft] = useState('');
-  const [config, setConfig] = useState({ provider: '', model: 'Connecting…' });
+  const [draft, setDraft] = useState("");
+  const [config, setConfig] = useState({ provider: "", model: "Connecting…" });
   const [sending, setSending] = useState(false);
   const [restarting, setRestarting] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -113,27 +113,27 @@ export default function App() {
   const viewport = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLTextAreaElement>(null);
   const { state, progress, connected, error } = useTask(task, seed, revision);
-  const active = Boolean(task && (!state || state.status === 'pending'));
+  const active = Boolean(task && (!state || state.status === "pending"));
   const pending = chats.find((chat) => chat.task === task);
   const preview =
     active &&
-    progress?.type !== 'recovering' &&
+    progress?.type !== "recovering" &&
     (progress?.attempt ?? 0) >= (state?.attempts ?? 0)
-      ? (progress?.text ?? '')
-      : '';
+      ? (progress?.text ?? "")
+      : "";
   const recovered = (state?.attempts ?? 0) > 1;
   const title =
     pending?.title ??
     (task
-      ? (state?.prompt.slice(0, 48) ?? 'Restoring conversation')
-      : 'New conversation');
+      ? (state?.prompt.slice(0, 48) ?? "Restoring conversation")
+      : "New conversation");
 
   useEffect(() => {
-    api<typeof config>('/api/config')
+    api<typeof config>("/api/config")
       .then(setConfig)
       .catch(() =>
         setActionError(
-          'Cannot reach the chat service. Check that it is running, then reload.',
+          "Cannot reach the chat service. Check that it is running, then reload.",
         ),
       );
   }, []);
@@ -146,15 +146,15 @@ export default function App() {
   }, [chats]);
   useEffect(() => {
     const url = new URL(location.href);
-    if (task) url.searchParams.set('task', task);
-    else url.searchParams.delete('task');
-    history.replaceState(null, '', url);
+    if (task) url.searchParams.set("task", task);
+    else url.searchParams.delete("task");
+    history.replaceState(null, "", url);
   }, [task]);
   useEffect(() => {
     if (task && atBottom && viewport.current)
       viewport.current.scrollTo({
         top: viewport.current.scrollHeight,
-        behavior: 'instant',
+        behavior: "instant",
       });
   }, [task, state?.messages, preview, atBottom]);
 
@@ -162,7 +162,7 @@ export default function App() {
     setSeed(null);
     setTask(id);
     setActionError(null);
-    setDraft('');
+    setDraft("");
     setAtBottom(true);
     setMenuOpen(false);
   }
@@ -173,7 +173,7 @@ export default function App() {
     const id = retry?.task ?? crypto.randomUUID();
     const previous = retry
       ? retry.previous
-      : state?.status === 'completed'
+      : state?.status === "completed"
         ? task
         : null;
     const item = retry ?? {
@@ -192,7 +192,7 @@ export default function App() {
         ),
       );
       setSeed({
-        status: 'pending',
+        status: "pending",
         prompt,
         previous,
         attempts: 0,
@@ -200,26 +200,26 @@ export default function App() {
         toolReceipts: 0,
         count: 0,
         messages: [
-          ...(state?.status === 'completed' ? state.messages : []),
-          { role: 'user', content: prompt },
+          ...(state?.status === "completed" ? state.messages : []),
+          { role: "user", content: prompt },
         ],
         receipts: [],
         usage: [],
       });
       setTask(id);
-      setDraft('');
+      setDraft("");
       setAtBottom(true);
     }
     try {
       await api(`/api/tasks/${id}`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        method: "POST",
+        headers: { "content-type": "application/json" },
         body: JSON.stringify({ prompt, previous }),
       });
       if (retry) setRevision((value) => value + 1);
     } catch (failure) {
       setActionError(
-        `${failure instanceof Error ? failure.message : 'Connection interrupted'}. Retry this turn with the same ID.`,
+        `${failure instanceof Error ? failure.message : "Connection interrupted"}. Retry this turn with the same ID.`,
       );
     } finally {
       setSending(false);
@@ -231,11 +231,11 @@ export default function App() {
     setRestarting(true);
     setActionError(null);
     try {
-      await api('/api/restart', { method: 'POST' });
+      await api("/api/restart", { method: "POST" });
       setRevision((value) => value + 1);
     } catch {
       setActionError(
-        'Worker restart failed. Saved work is retained. Try again.',
+        "Worker restart failed. Saved work is retained. Try again.",
       );
     } finally {
       setRestarting(false);
@@ -245,18 +245,18 @@ export default function App() {
     try {
       await navigator.clipboard.writeText(
         (state?.messages ?? [])
-          .filter((message) => message.role !== 'tool')
+          .filter((message) => message.role !== "tool")
           .map(
             (message) =>
-              `${message.role === 'user' ? 'You' : 'Cellar'}\n${textOf(message)}`,
+              `${message.role === "user" ? "You" : "Cellar"}\n${textOf(message)}`,
           )
-          .join('\n\n'),
+          .join("\n\n"),
       );
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
       setActionError(
-        'Copy is unavailable in this browser. Select the text to copy it.',
+        "Copy is unavailable in this browser. Select the text to copy it.",
       );
     }
   }
@@ -310,7 +310,7 @@ export default function App() {
               <span>{title}</span>
             </div>
             <Badge variant="outline" className="model-badge">
-              {config.provider === 'fixture' ? 'Fixture · ' : ''}
+              {config.provider === "fixture" ? "Fixture · " : ""}
               {config.model}
             </Badge>
             <Sheet>
@@ -406,10 +406,10 @@ export default function App() {
                       Cellar
                       <Badge variant="outline">
                         {preview
-                          ? 'Live draft'
+                          ? "Live draft"
                           : recovered
-                            ? 'Resuming'
-                            : 'Working'}
+                            ? "Resuming"
+                            : "Working"}
                       </Badge>
                     </div>
                     {preview ? (
@@ -417,11 +417,11 @@ export default function App() {
                     ) : (
                       <p className="thinking">
                         <Spinner />
-                        {restarting || progress?.type === 'recovering'
-                          ? 'Recovering the worker. Your saved work is safe.'
-                          : progress?.type === 'tool'
-                            ? 'Tool result saved. Preparing the next step…'
-                            : 'Working on your request…'}
+                        {restarting || progress?.type === "recovering"
+                          ? "Recovering the worker. Your saved work is safe."
+                          : progress?.type === "tool"
+                            ? "Tool result saved. Preparing the next step…"
+                            : "Working on your request…"}
                       </p>
                     )}
                     {!connected && !restarting ? (
@@ -432,13 +432,13 @@ export default function App() {
                     ) : null}
                   </article>
                 ) : null}
-                {state?.status === 'completed' ? (
+                {state?.status === "completed" ? (
                   <div className="answer-actions">
                     <span>
                       <CheckCheck aria-hidden="true" />
                       {recovered
                         ? `Recovered and saved · ${state.attempts} attempts`
-                        : 'Answer and tool results saved'}
+                        : "Answer and tool results saved"}
                     </span>
                     <Tooltip>
                       <TooltipTrigger asChild>
@@ -452,12 +452,12 @@ export default function App() {
                         </Button>
                       </TooltipTrigger>
                       <TooltipContent>
-                        {copied ? 'Copied' : 'Copy conversation'}
+                        {copied ? "Copied" : "Copy conversation"}
                       </TooltipContent>
                     </Tooltip>
                   </div>
                 ) : null}
-                {state?.status === 'failed' ? (
+                {state?.status === "failed" ? (
                   <Alert variant="destructive">
                     <AlertTitle>This turn needs attention</AlertTitle>
                     <AlertDescription>
@@ -470,7 +470,7 @@ export default function App() {
                   <Alert>
                     <WifiOff />
                     <AlertTitle>
-                      {actionError ? 'Action interrupted' : 'Reconnecting'}
+                      {actionError ? "Action interrupted" : "Reconnecting"}
                     </AlertTitle>
                     <AlertDescription>
                       {actionError ?? error}
@@ -514,15 +514,15 @@ export default function App() {
                         onChange={(event) => setDraft(event.target.value)}
                         placeholder={
                           active
-                            ? 'You can draft your next message while Cellar works…'
-                            : 'Ask Cellar to help with something…'
+                            ? "You can draft your next message while Cellar works…"
+                            : "Ask Cellar to help with something…"
                         }
                         maxLength={8000}
                         rows={2}
                         aria-invalid={draft.length > 8000}
                         onKeyDown={(event) => {
                           if (
-                            event.key === 'Enter' &&
+                            event.key === "Enter" &&
                             !event.shiftKey &&
                             !event.nativeEvent.isComposing
                           ) {
@@ -555,7 +555,7 @@ export default function App() {
                 </FieldGroup>
               </form>
               <p className="composer-help">
-                Enter to send · Shift + Enter for a new line{' '}
+                Enter to send · Shift + Enter for a new line{" "}
                 <span>Live text is saved when each step completes.</span>
               </p>
             </div>

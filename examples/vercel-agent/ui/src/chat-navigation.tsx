@@ -1,5 +1,5 @@
-import { Layers3, MessageSquare, Plus, ShieldCheck } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { Layers3, MessageSquare, Plus, ShieldCheck } from "lucide-react";
+import { Button } from "@/components/ui/button";
 
 export interface Chat {
   task: string;
@@ -45,10 +45,10 @@ export function ChatNavigation({
         {chats.map((chat) => (
           <Button
             key={chat.task}
-            variant={chat.task === task ? 'secondary' : 'ghost'}
+            variant={chat.task === task ? "secondary" : "ghost"}
             className="justify-start min-w-0 w-full"
             onClick={() => choose(chat.task)}
-            aria-current={chat.task === task ? 'page' : undefined}
+            aria-current={chat.task === task ? "page" : undefined}
           >
             <MessageSquare data-icon="inline-start" />
             <span className="truncate">{chat.title}</span>

@@ -1,12 +1,12 @@
-import { memo, type ComponentProps } from 'react';
-import { Streamdown } from 'streamdown';
+import { memo, type ComponentProps } from "react";
+import { Streamdown } from "streamdown";
 
 const components = {
   table: ({
     children,
     node: _node,
     ...props
-  }: ComponentProps<'table'> & { node?: unknown }) => (
+  }: ComponentProps<"table"> & { node?: unknown }) => (
     <div
       className="markdown-table"
       role="region"
@@ -27,10 +27,10 @@ export default memo(function Markdown({
 }) {
   return (
     <Streamdown
-      mode={streaming ? 'streaming' : 'static'}
+      mode={streaming ? "streaming" : "static"}
       isAnimating={streaming}
       skipHtml
-      disallowedElements={['img', 'iframe', 'script', 'style']}
+      disallowedElements={["img", "iframe", "script", "style"]}
       components={components}
       controls={false}
       className="markdown"

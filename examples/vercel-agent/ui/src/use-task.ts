@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from "react";
 
 export interface Part {
   type: string;
@@ -9,7 +9,7 @@ export interface Part {
   output?: unknown;
 }
 export interface Message {
-  role: 'user' | 'assistant' | 'tool';
+  role: "user" | "assistant" | "tool";
   content: string | Part[];
 }
 export interface Receipt {
@@ -18,7 +18,7 @@ export interface Receipt {
   result: unknown;
 }
 export interface Task {
-  status: 'pending' | 'completed' | 'failed';
+  status: "pending" | "completed" | "failed";
   prompt: string;
   previous: string | null;
   attempts: number;
@@ -49,7 +49,7 @@ export async function api<T>(path: string, options?: RequestInit): Promise<T> {
   if (!reply.ok) {
     const value = await reply.json().catch(() => ({}));
     throw new Error(
-      typeof value.error === 'string'
+      typeof value.error === "string"
         ? value.error
         : `Request failed (${reply.status})`,
     );
@@ -68,18 +68,22 @@ export function useTask(
   const [error, setError] = useState<string | null>(null);
   const initial = useRef(seed);
   initial.current = seed;
+
   useEffect(() => {
     setState(initial.current);
     setProgress(null);
     setError(null);
     setConnected(false);
     if (!id) return;
+
+    // SSE carries provisional text. Polling remains the source of durable state,
+    // including after a dropped stream or a worker restart.
     const controller = new AbortController();
     const events = new EventSource(`/api/tasks/${id}/events`);
     let timer: ReturnType<typeof setTimeout>;
     events.onopen = () => setConnected(true);
     events.onerror = () => setConnected(false);
-    events.addEventListener('progress', (event) => {
+    events.addEventListener("progress", (event) => {
       try {
         const value = JSON.parse(event.data) as Progress;
         setProgress(value);
@@ -87,6 +91,7 @@ export function useTask(
         /* Ignore a malformed preview; poll authoritative state. */
       }
     });
+
     async function poll() {
       try {
         const value = await api<Task>(`/api/tasks/${id}`, {
@@ -95,7 +100,7 @@ export function useTask(
         if (controller.signal.aborted) return;
         setState(value);
         setError(null);
-        if (value.status !== 'pending') {
+        if (value.status !== "pending") {
           events.close();
           setConnected(false);
           return;
@@ -105,11 +110,12 @@ export function useTask(
         setError(
           failure instanceof Error
             ? failure.message
-            : 'Connection interrupted. Reconnecting…',
+            : "Connection interrupted. Reconnecting…",
         );
       }
       timer = setTimeout(() => void poll(), 1000);
     }
+
     void poll();
     return () => {
       controller.abort();
@@ -117,5 +123,6 @@ export function useTask(
       clearTimeout(timer);
     };
   }, [id, revision]);
+
   return { state, progress, connected, error };
 }

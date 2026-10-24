@@ -10,13 +10,16 @@
     "zod": "4.6.7"
   },
   "devDependencies": {
-    "@types/node": "24.19.2"
+    "@types/node": "24.19.2",
+    "prettier": "3.9.9"
   },
   "scripts": {
     "build": "node ../../tools/javascript/node-build.mjs tsconfig.json",
+    "format": "prettier --write \"**/*.{ts,tsx,mjs}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,mjs}\"",
     "test": "node --test test/*.test.mjs",
     "test:e2e": "node test/process.mjs",
-    "demo": "node demo/launch.mjs",
+    "demo": "node script/launch.mjs",
     "build:ui": "npm run --prefix ui build",
     "test:tools": "node test/tool-process.mjs"
   }

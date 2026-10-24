@@ -61,6 +61,7 @@ const demo = createDemoServer({
 });
 async function start() {
   if (stopping) throw new Error("Demo is stopping");
+  // Replacements start with empty local storage and recover from the same bucket.
   const generation = randomUUID();
   observerToken = randomUUID();
   let output = "",

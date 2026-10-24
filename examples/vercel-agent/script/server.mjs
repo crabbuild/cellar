@@ -1,7 +1,7 @@
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
-import {join} from "node:path";
-import {ticketStore} from "./tickets.mjs";
+import { join } from "node:path";
+import { ticketStore } from "./tickets.mjs";
 
 const idPattern = /^[a-zA-Z0-9_-]{1,64}$/;
 const types = new Set([
@@ -13,12 +13,20 @@ const types = new Set([
   "completed",
   "failed",
 ]);
+
 function asset(path) {
-  if (path === '/') return ['index.html', 'text/html'];
+  if (path === "/") return ["index.html", "text/html"];
   if (!/^\/assets\/[a-zA-Z0-9_.-]+\.(js|css|woff2?)$/.test(path)) return;
-  const type = path.endsWith('.js') ? 'text/javascript' : path.endsWith('.css') ? 'text/css' : path.endsWith('.woff2') ? 'font/woff2' : 'font/woff';
+  const type = path.endsWith(".js")
+    ? "text/javascript"
+    : path.endsWith(".css")
+      ? "text/css"
+      : path.endsWith(".woff2")
+        ? "font/woff2"
+        : "font/woff";
   return [path.slice(1), type];
 }
+
 async function body(req, limit = 192 * 1024) {
   let bytes = 0;
   const chunks = [];
@@ -29,6 +37,7 @@ async function body(req, limit = 192 * 1024) {
   }
   return Buffer.concat(chunks).toString("utf8");
 }
+
 function json(res, status, value) {
   res.writeHead(status, {
     "content-type": "application/json",
@@ -36,10 +45,21 @@ function json(res, status, value) {
   });
   res.end(JSON.stringify(value));
 }
-export function createDemoServer({ backend, token, restart, model, provider, directory }) {
-  const tickets = ticketStore(directory ? join(directory, "tickets.sqlite") : ":memory:");
+
+export function createDemoServer({
+  backend,
+  token,
+  restart,
+  model,
+  provider,
+  directory,
+}) {
+  const tickets = ticketStore(
+    directory ? join(directory, "tickets.sqlite") : ":memory:",
+  );
   const tasks = new Map();
   let clients = 0;
+
   function task(id) {
     if (!tasks.has(id)) {
       if (tasks.size >= 128) {
@@ -54,6 +74,7 @@ export function createDemoServer({ backend, token, restart, model, provider, dir
     }
     return tasks.get(id);
   }
+
   function send(res, event, data) {
     // Disconnect slow readers instead of buffering unbounded preview text.
     if (res.writableLength > 256 * 1024) {
@@ -62,12 +83,14 @@ export function createDemoServer({ backend, token, restart, model, provider, dir
     }
     res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
   }
+
   function reset() {
     for (const item of tasks.values()) {
       item.state = { type: "recovering", attempt: 0, text: "", deltaEvents: 0 };
       for (const res of item.clients) send(res, "progress", item.state);
     }
   }
+
   const server = createServer(async (req, res) => {
     try {
       const origin = `http://127.0.0.1:${server.address().port}`;
@@ -77,13 +100,16 @@ export function createDemoServer({ backend, token, restart, model, provider, dir
         return json(res, 403, { error: "Origin rejected" });
       const path = new URL(req.url, origin).pathname;
       if (path === "/internal/tickets" && req.method === "POST") {
-        if (req.headers.authorization !== `Bearer ${token()}`) return json(res, 403, {error: "Tool service rejected"});
+        if (req.headers.authorization !== `Bearer ${token()}`)
+          return json(res, 403, { error: "Tool service rejected" });
         const value = JSON.parse(await body(req, 4096));
-        if (req.headers.authorization !== `Bearer ${token()}`) return json(res, 403, {error: "Worker replaced"});
-        const result = tickets.create(req.headers['idempotency-key'], value);
+        if (req.headers.authorization !== `Bearer ${token()}`)
+          return json(res, 403, { error: "Worker replaced" });
+        const result = tickets.create(req.headers["idempotency-key"], value);
         return json(res, result.status, result.result);
       }
-      if (path === "/api/tickets" && req.method === "GET") return json(res, 200, tickets.stats());
+      if (path === "/api/tickets" && req.method === "GET")
+        return json(res, 200, tickets.stats());
       if (path === "/internal/events" && req.method === "POST") {
         if (req.headers.authorization !== `Bearer ${token()}`)
           return json(res, 403, { error: "Observer rejected" });
@@ -100,7 +126,16 @@ export function createDemoServer({ backend, token, restart, model, provider, dir
             (typeof e.text !== "string" || e.text.length > 32000)) ||
           (e.step !== undefined &&
             (!Number.isInteger(e.step) || e.step < 0 || e.step > 15)) ||
-          (e.tool !== undefined && (typeof e.tool !== "string" || !["increment", "calculate", "lookup", "saveNote", "readState", "createTicket"].includes(e.tool))) ||
+          (e.tool !== undefined &&
+            (typeof e.tool !== "string" ||
+              ![
+                "increment",
+                "calculate",
+                "lookup",
+                "saveNote",
+                "readState",
+                "createTicket",
+              ].includes(e.tool))) ||
           (e.count !== undefined &&
             (!Number.isSafeInteger(e.count) || e.count < 0))
         )
@@ -118,7 +153,7 @@ export function createDemoServer({ backend, token, restart, model, provider, dir
           ...(e.step !== undefined ? { step: e.step } : {}),
           ...(e.text !== undefined ? { text: e.text } : {}),
           ...(e.count !== undefined ? { count: e.count } : {}),
-          ...(e.tool !== undefined ? {tool: e.tool} : {}),
+          ...(e.tool !== undefined ? { tool: e.tool } : {}),
           replayed: e.replayed === true,
           deltaEvents: item.state.deltaEvents + (e.type === "text" ? 1 : 0),
         };
@@ -137,6 +172,7 @@ export function createDemoServer({ backend, token, restart, model, provider, dir
         path,
       );
       if (match?.[2] && req.method === "GET") {
+        // Subscribing only observes previews; it never starts or retries a turn.
         if (clients >= 64)
           return json(res, 503, { error: "Too many stream connections" });
         const item = task(match[1]);

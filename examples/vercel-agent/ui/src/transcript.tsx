@@ -1,5 +1,5 @@
-import { lazy, memo, Suspense } from 'react';
-import { cn } from 'cn';
+import { lazy, memo, Suspense } from "react";
+import { cn } from "cn";
 import {
   BookOpen,
   Calculator,
@@ -9,26 +9,26 @@ import {
   Layers3,
   Ticket,
   Wrench,
-} from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
-import type { Message } from './use-task';
+} from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import type { Message } from "./use-task";
 
 export const names: Record<string, { label: string; icon: typeof Wrench }> = {
-  increment: { label: 'Update counter', icon: Database },
-  calculate: { label: 'Calculate', icon: Calculator },
-  lookup: { label: 'Look up reference', icon: BookOpen },
-  saveNote: { label: 'Save note', icon: FileText },
-  readState: { label: 'Read saved state', icon: Database },
-  createTicket: { label: 'Create ticket', icon: Ticket },
+  increment: { label: "Update counter", icon: Database },
+  calculate: { label: "Calculate", icon: Calculator },
+  lookup: { label: "Look up reference", icon: BookOpen },
+  saveNote: { label: "Save note", icon: FileText },
+  readState: { label: "Read saved state", icon: Database },
+  createTicket: { label: "Create ticket", icon: Ticket },
 };
 export const textOf = (message: Message) =>
-  typeof message.content === 'string'
+  typeof message.content === "string"
     ? message.content
     : message.content
-        .filter((part) => part.type === 'text')
-        .map((part) => part.text ?? '')
-        .join('');
-const MarkdownRenderer = lazy(() => import('./Markdown'));
+        .filter((part) => part.type === "text")
+        .map((part) => part.text ?? "")
+        .join("");
+const MarkdownRenderer = lazy(() => import("./Markdown"));
 export function Markdown({
   text,
   streaming = false,
@@ -78,32 +78,32 @@ export const Transcript = memo(function Transcript({
 }) {
   const results = new Map(
     messages.flatMap((message) =>
-      typeof message.content === 'string'
+      typeof message.content === "string"
         ? []
         : message.content
-            .filter((part) => part.type === 'tool-result')
+            .filter((part) => part.type === "tool-result")
             .map((part) => [part.toolCallId, part.output] as const),
     ),
   );
   return messages.map((message, index) => {
-    if (message.role === 'tool') return null;
+    if (message.role === "tool") return null;
     const text = textOf(message);
     const calls =
-      typeof message.content === 'string'
+      typeof message.content === "string"
         ? []
-        : message.content.filter((part) => part.type === 'tool-call');
+        : message.content.filter((part) => part.type === "tool-call");
     if (!text && !calls.length) return null;
     return (
       <article
         key={index}
         className={cn(
-          'message',
-          message.role === 'user' ? 'user-message' : 'assistant-message',
+          "message",
+          message.role === "user" ? "user-message" : "assistant-message",
         )}
       >
         <div className="message-label">
-          {message.role === 'user' ? (
-            'You'
+          {message.role === "user" ? (
+            "You"
           ) : (
             <>
               <Layers3 aria-hidden="true" /> Cellar
@@ -111,7 +111,7 @@ export const Transcript = memo(function Transcript({
           )}
         </div>
         {text ? (
-          message.role === 'user' ? (
+          message.role === "user" ? (
             <p className="user-text">{text}</p>
           ) : (
             <Markdown text={text} />
@@ -120,7 +120,7 @@ export const Transcript = memo(function Transcript({
         {calls.map((part, call) => (
           <ToolCall
             key={part.toolCallId ?? call}
-            name={part.toolName ?? 'Tool'}
+            name={part.toolName ?? "Tool"}
             input={part.input}
             output={results.get(part.toolCallId)}
           />

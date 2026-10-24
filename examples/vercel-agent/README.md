@@ -24,7 +24,7 @@ npm run --prefix examples/vercel-agent/ui build
 cargo build --locked -p cellar-javascript --no-default-features --features node --bin cellar-vercel-agent-example
 
 CELLAR_AI_HOST="$CARGO_TARGET_DIR/debug/cellar-vercel-agent-example" \
-  node --env-file="$HOME/.openai.env" examples/vercel-agent/demo/launch.mjs
+  node --env-file="$HOME/.openai.env" examples/vercel-agent/script/launch.mjs
 ```
 
 Open **http://127.0.0.1:4318**. The environment file supplies `OPENAI_API_KEY`
@@ -136,6 +136,11 @@ history is bounded to 192 KiB. A cell name permanently identifies one turn.
 A new request with the same ID but a different prompt or parent returns 409.
 
 ## Repeat the verification
+
+Format the handwritten JavaScript, TypeScript and React code with
+`npm run --prefix examples/vercel-agent format`. Check formatting without editing
+with `npm run --prefix examples/vercel-agent format:check`. Generated shadcn
+components and build output are excluded.
 
 ```sh
 npm test --prefix examples/vercel-agent

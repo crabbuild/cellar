@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createDemoServer } from "../demo/server.mjs";
+import { createDemoServer } from "../script/server.mjs";
 
 async function setup(t) {
   let observerToken = "private-test-token";
@@ -130,7 +130,7 @@ test("launcher releases its directory lock after a spawn failure", async () => {
     await assert.rejects(
       promisify(execFile)(
         process.execPath,
-        [new URL("../demo/launch.mjs", import.meta.url).pathname],
+        [new URL("../script/launch.mjs", import.meta.url).pathname],
         {
           env: {
             ...process.env,
