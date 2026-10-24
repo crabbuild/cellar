@@ -264,6 +264,10 @@ impl FleetHostAuthorization {
         self.record.state
     }
 
+    pub(crate) fn epoch(&self) -> u64 {
+        self.record.epoch
+    }
+
     pub fn eligibility(&self) -> FleetNodeEligibility {
         self.state().eligibility()
     }
@@ -433,6 +437,14 @@ pub(crate) struct FleetTrustSnapshot {
 }
 
 impl FleetTrustSnapshot {
+    pub(crate) fn fleet(&self) -> [u8; 16] {
+        self.fleet
+    }
+
+    pub(crate) fn cluster(&self) -> ClusterId {
+        self.cluster
+    }
+
     pub(crate) fn revision(&self) -> u64 {
         self.revision
     }

@@ -42,13 +42,13 @@ pub(crate) struct Received {
     _peer: Permit,
 }
 
-pub(crate) struct Delivery {
-    reply: Option<oneshot::Receiver<Result<Received, InspectionError>>>,
-    cancel: watch::Sender<bool>,
+pub(crate) struct Delivery<T = Received> {
+    pub(super) reply: Option<oneshot::Receiver<Result<T, InspectionError>>>,
+    pub(super) cancel: watch::Sender<bool>,
 }
 
-impl Delivery {
-    pub(crate) async fn receive(mut self) -> Result<Received, InspectionError> {
+impl<T> Delivery<T> {
+    pub(crate) async fn receive(mut self) -> Result<T, InspectionError> {
         self.reply
             .take()
             .ok_or(InspectionError::Unavailable)?
@@ -57,13 +57,13 @@ impl Delivery {
     }
 }
 
-impl Drop for Delivery {
+impl<T> Drop for Delivery<T> {
     fn drop(&mut self) {
         self.cancel.send_replace(true);
     }
 }
 
-fn classify(error: TransportError, stage: u8) -> InspectionError {
+pub(super) fn classify(error: TransportError, stage: u8) -> InspectionError {
     match error {
         TransportError::Overloaded => InspectionError::Overloaded,
         TransportError::Refused | TransportError::UnknownGroup | TransportError::Identity => {
@@ -78,7 +78,7 @@ fn classify(error: TransportError, stage: u8) -> InspectionError {
 }
 
 impl Registry {
-    fn inspection_peer_budget(
+    pub(super) fn inspection_peer_budget(
         &mut self,
         node: NodeId,
         limit: usize,

@@ -109,10 +109,30 @@ fleet-aware reconciliation is integrated.
 `RaftCells::observe_node` uses bounded node control admission independently of
 cell handles. It returns actual engine identity, occupied and unattached history
 counts, configured profile and the explicitly named startup enrollment cut.
-It also reports `fleet_trust_revision`, the last complete rooted node cut
-installed by the owned directory worker. The startup cut remains unchanged.
-These are local observations, not fresh remote readiness, capacity activation or
-removal proof. Remote node inspection and complete inventory remain FO-03 work.
+It also reports `fleet_trust_revision` and `current_enrollment`, the last complete
+rooted node cut installed by the owned directory worker, including its node
+epoch. The startup cut remains unchanged. These local observations grant no
+capacity activation, quorum or removal proof.
+
+`inspect_peer_node(node, minimum_revision, timeout)` reads an exact remote process
+without a business cell or member identity. Both endpoints must have installed at
+least the requested trust revision. The request and response bind fleet, cluster,
+protocol, physical node/disk/process/engine identities, labels, nonce and channel.
+Rooted transport trust permits only this node metadata operation; it does not
+create namespace inspection/query grants or group authority.
+
+The response distinguishes startup enrollment from the installed current state
+and epoch. Restart/resize exclusion and full evacuation remain different modes.
+The origin rechecks current root identity/state and process discovery before
+returning the observation. A stale or missing view, pressure and unusable response
+are not node-failure evidence; only a failed direct connection attempt is reported
+as unreachable. Sample age includes origin administrative queue residence.
+
+Bodies are at most 16 KiB. The RPC shares the existing independent metadata slots,
+node and peer budgets; a 64 KiB host response reservation survives delivery to an
+unpolled caller. Cancellation stops the physical transport owner, and shutdown
+joins it before releasing physical ownership. This is a readiness observation,
+not a placement activation, terminal operation receipt or complete inventory.
 
 Managed discovery reads the current catalog root and bounded node table rather
 than expanding trust from bucket objects or unsolicited traffic. An unchanged
@@ -133,8 +153,9 @@ not establish the evacuation/removal proof required before publishing `Removed`.
 One owned discovery batch holds a 4 MiB administrative metadata reservation
 through completion. Its read-only catalog adapter has a separate bounded turn,
 so a held background root read cannot reject foreground history operations by
-owning their catalog turn. Managed hosts require at least that capacity plus a 4 KiB
-control request and two administrative items. The original batch deadline and
+owning their catalog turn. Managed hosts require at least that capacity plus a
+64 KiB response and a 4 KiB request, with three administrative items. Cached node
+probes can therefore progress while discovery waits on storage. The original batch deadline and
 joined shutdown apply to both trust reads and endpoint observations.
 
 `register_managed_history` lazily registers dormant metadata using an opaque
@@ -181,7 +202,7 @@ response alone is not a fleet completion certificate.
 Cellar-owned markers stay at 1. Membership and intent records require an explicit
 nullable `fleet` field. Birth records also require an explicit nullable
 `cancelled_by` field; the namespace protocol identity ends in
-`/fleet-1/enrollment-1`.
+`/fleet-1/enrollment-1/node-probes-1`.
 Older namespace protocols refuse startup; there is no legacy reader or migration.
 Use a fresh experimental namespace and matching participants. Do not downgrade a
 guarded engine to an older binary or remove the guard field to regain admission.

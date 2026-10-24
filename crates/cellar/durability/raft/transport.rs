@@ -36,6 +36,8 @@ mod fleet;
 pub(crate) mod inspections;
 #[path = "transport_metrics.rs"]
 mod metrics;
+#[path = "node_inspection_transport.rs"]
+pub(crate) mod node_inspections;
 #[path = "query_transport.rs"]
 mod queries;
 #[path = "transport_resources.rs"]
@@ -1196,6 +1198,22 @@ impl State {
                     .map_err(|error| TransportError::Tls(error.to_string()))?;
                 return self
                     .receive_inspection(&mut stream, &exporter, prefix)
+                    .await;
+            }
+            if &prefix[..4] == node_inspections::REQUEST_MAGIC {
+                if lane != Lane::Control
+                    || sequence != 0
+                    || !self.inspection_enabled.load(Ordering::Acquire)
+                {
+                    return Err(TransportError::Protocol);
+                }
+                let exporter = stream
+                    .get_ref()
+                    .1
+                    .export_keying_material([0; 32], node_inspections::EXPORT_LABEL, None)
+                    .map_err(|error| TransportError::Tls(error.to_string()))?;
+                return self
+                    .receive_node_inspection(&mut stream, &exporter, prefix)
                     .await;
             }
             if &prefix[..4] == seeds::REQUEST_MAGIC {

@@ -205,6 +205,10 @@ fn trusted_nodes(trust: &FleetTrustSnapshot) -> Vec<DiscoveryNode> {
 }
 
 impl Directory {
+    pub(super) fn authorization(&self, node: NodeId) -> Option<&FleetHostAuthorization> {
+        self.rooted.as_ref()?.node(node)
+    }
+
     pub(super) fn rooted_revision(&self) -> Option<u64> {
         self.rooted.as_ref().map(FleetTrustSnapshot::revision)
     }

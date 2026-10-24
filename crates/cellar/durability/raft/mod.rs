@@ -21,6 +21,7 @@ mod inspection_wire;
 pub(crate) mod mailbox;
 mod manifest;
 pub(crate) mod member_state;
+mod node_inspection_wire;
 pub(crate) mod object_metrics;
 pub(crate) mod operations;
 pub(crate) mod options;

@@ -95,6 +95,9 @@ impl RaftTransport {
             }
         }
         registry.fleet_trust = Some(Arc::new(trust));
+        if !state.inspection_enabled.swap(true, Ordering::AcqRel) {
+            state.control_connections.add_permits(inspections::SLOTS);
+        }
         drop(registry);
         state.invalidate_snapshot_routes();
         Ok(())

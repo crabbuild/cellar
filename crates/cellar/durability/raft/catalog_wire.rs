@@ -164,6 +164,7 @@ mod tests {
             "cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1/nodes-1",
             "cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1/nodes-1/bundles-1",
             "cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1/nodes-1/bundles-1/fleet-1",
+            "cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1/nodes-1/bundles-1/fleet-1/enrollment-1",
         ] {
             root.protocol_digest = Sha256::digest(protocol.as_bytes()).into();
             let encoded = encode(ROOT, &root, 64 * 1024).unwrap();

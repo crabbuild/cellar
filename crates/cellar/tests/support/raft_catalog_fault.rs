@@ -9,6 +9,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 #[derive(Debug, Default)]
 pub struct Store {
     pub hold_next_fleet_read: AtomicBool,
+    pub hold_fleet_reads: AtomicBool,
     pub fleet_read_hang: AtomicBool,
     pub active_fleet_reads: AtomicUsize,
     pub fleet_read_resume: tokio::sync::Notify,
@@ -268,7 +269,8 @@ impl ObjectStore for Store {
     async fn get_opts(&self, path: &Path, options: GetOptions) -> object_store::Result<GetResult> {
         tokio::task::yield_now().await;
         if path.as_ref().ends_with("/fleet/head")
-            && self.hold_next_fleet_read.swap(false, Ordering::AcqRel)
+            && (self.hold_fleet_reads.load(Ordering::Acquire)
+                || self.hold_next_fleet_read.swap(false, Ordering::AcqRel))
         {
             struct Reading<'a>(&'a AtomicUsize);
 

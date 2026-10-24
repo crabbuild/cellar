@@ -2,20 +2,36 @@
 //! the same bounded administrative queue and physical waiter ownership.
 use super::*;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RaftHostEnrollmentObservation {
     pub fleet: [u8; 16],
     pub revision: u64,
+    pub epoch: u64,
     pub physical_host: IncarnationId,
     pub state: super::super::fleet_catalog::FleetNodeState,
     pub capability_digest: [u8; 32],
 }
 
-#[derive(Clone, Debug)]
+impl RaftHostEnrollmentObservation {
+    pub(crate) fn capture(auth: &super::super::fleet_catalog::FleetHostAuthorization) -> Self {
+        Self {
+            fleet: auth.fleet(),
+            revision: auth.revision(),
+            epoch: auth.epoch(),
+            physical_host: auth.physical_host(),
+            state: auth.state(),
+            capability_digest: auth.capability_digest(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RaftHostObservation {
     pub node: super::super::inspection::NodeInspection,
     /// Rooted observation used by this boot, never a fresh eligibility proof.
     pub startup_enrollment: Option<RaftHostEnrollmentObservation>,
+    /// Enrollment in the installed current trust cut. It may differ from boot.
+    pub current_enrollment: Option<RaftHostEnrollmentObservation>,
     /// Last complete rooted trust cut installed by the owned directory worker.
     /// This acknowledgement grants neither placement eligibility nor quorum.
     pub fleet_trust_revision: Option<u64>,
@@ -26,6 +42,15 @@ pub struct RaftHostObservation {
     /// Physical engine slots not attached as running cells, including retained
     /// or retired histories. This count never claims inventory completeness.
     pub unattached_engine_histories: u32,
+}
+
+/// Authenticated metadata from an exact remote process under the requested
+/// minimum trust cut. This grants no capacity activation or quorum authority.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RaftPeerNodeObservation {
+    pub view: RaftHostObservation,
+    /// Complete local request duration, including control queue residence.
+    pub sample_age_ms: u64,
 }
 
 impl Driver {
@@ -46,6 +71,10 @@ impl Driver {
             return;
         }
         match std::mem::replace(&mut request.kind, NodeKind::ControllerStatus) {
+            NodeKind::InspectPeer {
+                node,
+                minimum_revision,
+            } => self.start_node_inspection(request, node, minimum_revision),
             NodeKind::RegisterHistory(authorization) => {
                 self.start_history_registration(request, *authorization)
             }
@@ -76,18 +105,19 @@ impl Driver {
             .keys()
             .filter(|scope| !self.cells.contains_key(*scope))
             .count();
+        let current_enrollment = self
+            .directory
+            .as_ref()
+            .and_then(|d| d.authorization(node.identity.node))
+            .map(RaftHostEnrollmentObservation::capture);
         Ok(RaftHostObservation {
             node,
-            startup_enrollment: self.options.managed.as_ref().map(|managed| {
-                let auth = &managed.authorization;
-                RaftHostEnrollmentObservation {
-                    fleet: auth.fleet(),
-                    revision: auth.revision(),
-                    physical_host: auth.physical_host(),
-                    state: auth.state(),
-                    capability_digest: auth.capability_digest(),
-                }
-            }),
+            startup_enrollment: self
+                .options
+                .managed
+                .as_ref()
+                .map(|managed| RaftHostEnrollmentObservation::capture(&managed.authorization)),
+            current_enrollment,
             fleet_trust_revision: self
                 .directory
                 .as_ref()
@@ -107,10 +137,18 @@ impl Driver {
 }
 
 pub(super) fn reply_node(request: &mut NodeRequest, result: Result<Response, CommandFailure>) {
+    reply_node_charged(request, result, None);
+}
+
+pub(super) fn reply_node_charged(
+    request: &mut NodeRequest,
+    result: Result<Response, CommandFailure>,
+    bytes: Option<Permit>,
+) {
     if let Some(reply) = request.reply.take() {
         let _ = reply.send(result.map(|response| client::ChargedResponse {
             response,
-            _bytes: None,
+            _bytes: bytes,
         }));
     }
 }

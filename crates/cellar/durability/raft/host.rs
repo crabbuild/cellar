@@ -71,9 +71,13 @@ mod node_control;
 #[path = "host_registration.rs"]
 mod registration;
 use node_control::reply_node;
-pub use node_control::{RaftHostEnrollmentObservation, RaftHostObservation};
+pub use node_control::{
+    RaftHostEnrollmentObservation, RaftHostObservation, RaftPeerNodeObservation,
+};
 #[path = "host_membership.rs"]
 mod membership;
+#[path = "host_node_inspection.rs"]
+mod node_inspection;
 pub use directory::RaftNodeDirectoryOptions;
 #[path = "host_seed.rs"]
 mod seed;
@@ -169,7 +173,9 @@ impl RaftHostOptions {
         if let Some(managed) = &self.managed {
             managed.validate()?;
             anyhow::ensure!(
-                self.max_control_bytes >= 4 * 1024 * 1024 + 4096 && self.max_control_requests >= 2,
+                self.max_control_bytes
+                    >= 4 * 1024 * 1024 + super::inspection::RESPONSE_RESERVATION + 4096
+                    && self.max_control_requests >= 3,
                 "managed discovery requires bounded metadata and control capacity"
             );
             anyhow::ensure!(
@@ -1138,6 +1144,7 @@ enum SqlPurpose {
 }
 
 enum Job {
+    NodeInspection(Box<node_inspection::Completed>),
     HistoryRegistered(Box<registration::Completed>),
     Drained(Box<drain::Completed>),
     Effect(Box<effect_scheduler::Completed>),
@@ -3059,6 +3066,7 @@ impl Driver {
             Job::LeaderLoad(completed) => self.finish_leader_load(*completed),
             Job::Inspection(completed) => self.finish_inspection(*completed),
             Job::PeerInspection(completed) => self.finish_peer_inspection(*completed),
+            Job::NodeInspection(completed) => self.finish_node_inspection(*completed),
             Job::Directory(observation) => self.on_directory(*observation),
             Job::Standby(completed) => self.on_standby_job(*completed),
             Job::Leadership {

@@ -5,6 +5,10 @@ use super::*;
 pub(crate) enum NodeKind {
     Drain,
     Observe,
+    InspectPeer {
+        node: cellar_logic::consensus::NodeId,
+        minimum_revision: u64,
+    },
     RegisterHistory(Box<crate::raft::fleet_catalog::FleetGroupAuthorization>),
     ControllerStatus,
     SetControllerEnabled(bool),
@@ -16,6 +20,7 @@ pub(crate) enum ControlRequest {
 }
 
 pub(crate) struct NodeRequest {
+    pub started: u64,
     pub kind: NodeKind,
     pub reply: Option<ResponseSender>,
     pub control: Arc<AttemptControl>,
@@ -24,6 +29,51 @@ pub(crate) struct NodeRequest {
 }
 
 impl RaftCells {
+    /// Inspect an enrolled remote process without a cell. Both endpoints must
+    /// acknowledge at least this trust revision; stale or missing metadata is
+    /// not evidence of node failure. No placement or membership is activated.
+    pub fn inspect_peer_node(
+        &self,
+        node: cellar_logic::consensus::NodeId,
+        minimum_revision: u64,
+        timeout: Duration,
+    ) -> Pin<
+        Box<
+            dyn Future<
+                    Output = Result<
+                        super::super::RaftPeerNodeObservation,
+                        super::super::InspectionError,
+                    >,
+                > + Send,
+        >,
+    > {
+        use super::super::InspectionError;
+        if minimum_revision == 0
+            || minimum_revision >= u64::MAX - 2
+            || timeout.is_zero()
+            || timeout > Duration::from_secs(60)
+        {
+            return Box::pin(async { Err(InspectionError::Refused) });
+        }
+        let response = self.node_call(
+            NodeKind::InspectPeer {
+                node,
+                minimum_revision,
+            },
+            timeout,
+        );
+        Box::pin(async move {
+            match response.await.map_err(|error| match error {
+                CommandFailure::Overloaded => InspectionError::Overloaded,
+                CommandFailure::UnsupportedCapability => InspectionError::Refused,
+                _ => InspectionError::Unavailable,
+            })? {
+                Response::PeerNodeInspection(result) => result.map(|view| *view),
+                _ => Err(InspectionError::Unavailable),
+            }
+        })
+    }
+
     /// Register dormant metadata for an already enrolled history under this
     /// host's declared class. This creates no member, image or voting authority.
     /// A lost response can race publication; retry the same authorization.
@@ -56,8 +106,8 @@ impl RaftCells {
         })
     }
 
-    /// Point-in-time local physical inventory. Enrollment is the startup cut,
-    /// explicitly not a fresh capacity-ready, quorum or removal certificate.
+    /// Point-in-time local physical inventory with startup and installed current
+    /// enrollment. This grants no capacity activation, quorum or removal proof.
     pub fn observe_node(
         &self,
         timeout: Duration,
@@ -127,6 +177,7 @@ impl RaftCells {
             self.handle
                 .control_requests
                 .try_send(ControlRequest::Node(Box::new(NodeRequest {
+                    started: now,
                     kind,
                     reply: Some(reply),
                     control: control.clone(),

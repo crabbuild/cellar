@@ -1127,6 +1127,7 @@ impl CancelFailure {
 }
 
 pub(crate) enum Response {
+    PeerNodeInspection(Result<Box<super::RaftPeerNodeObservation>, super::InspectionError>),
     HistoryRegistered,
     Node(Box<super::RaftHostObservation>),
     Fleet(Option<Box<crate::raft::member_state::FleetMembershipStatus>>),

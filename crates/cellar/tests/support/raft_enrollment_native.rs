@@ -22,6 +22,288 @@ use std::{
 const TIMEOUT: Duration = Duration::from_secs(5);
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn fleet_enrollment_node_probe_resource_floor() -> Result<()> {
+    let f = Fixture::new().await?;
+    let authorization = f.enroll().await?;
+    let bad_root = tempfile::tempdir()?;
+    let bad = public_node::node_named(
+        bad_root.path(),
+        f.definition.application.clone(),
+        &f.spec.label,
+    )
+    .await?;
+    let (mut config, services) = f.config(&bad, authorization.clone()).await?;
+    config.host.max_control_bytes = 4 * 1024 * 1024 + 4096;
+    config.host.max_control_requests = 2;
+    let failure = bad
+        .start_raft_cells(config, services)
+        .await
+        .err()
+        .ok_or_else(|| anyhow::anyhow!("undersized managed control capacity accepted"))?;
+    ensure!(format!("{failure:#}")
+        .contains("managed discovery requires bounded metadata and control capacity"));
+    bad.shutdown(ShutdownMode::Preserve).await?;
+    let snapshot = f.catalog.read(TIMEOUT).await?;
+    ensure!(f
+        .catalog
+        .authorize_host(&snapshot, f.spec.node, TIMEOUT)
+        .await?
+        .storage_instance()
+        .is_none());
+
+    let root = tempfile::tempdir()?;
+    let node =
+        public_node::node_named(root.path(), f.definition.application.clone(), &f.spec.label)
+            .await?;
+    let (mut config, services) = f.config(&node, authorization).await?;
+    config.host.max_control_bytes = 4 * 1024 * 1024 + 64 * 1024 + 4096;
+    config.host.max_control_requests = 3;
+    let host = node.start_raft_cells(config, services).await?;
+    let (_peer_root, peer_node, _peer) = f.peer_host(5).await?;
+    let revision = f.catalog.read(TIMEOUT).await?.revision();
+    f.remote(&host, NodeId::new([5; 16])?, revision).await?;
+    f.store.fleet_read_hang.store(true, Ordering::Release);
+    f.store.hold_fleet_reads.store(true, Ordering::Release);
+    f.domain
+        .run(cellar::asyncrt::timeout(TIMEOUT, async {
+            while f.store.active_fleet_reads.load(Ordering::Acquire) < 2 {
+                cellar::asyncrt::sleep(Duration::from_millis(5)).await;
+            }
+        }))
+        .await??;
+    let observed = host
+        .inspect_peer_node(NodeId::new([5; 16])?, revision, TIMEOUT)
+        .await?;
+    ensure!(observed.view.current_enrollment.unwrap().revision >= revision);
+    ensure!(host.resource_usage().control.bytes == 4 * 1024 * 1024);
+    node.shutdown(ShutdownMode::Preserve).await?;
+    peer_node.shutdown(ShutdownMode::Preserve).await?;
+    ensure!(f.store.active_fleet_reads.load(Ordering::Acquire) == 0);
+    ensure!(host.resource_usage().control.bytes == 0);
+    f.domain.shutdown().await;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn fleet_enrollment_node_probe_shutdown() -> Result<()> {
+    use tokio::io::AsyncReadExt;
+    let f = Fixture::new().await?;
+    let (_root, node, host) = f.empty_host().await?;
+    let (_peer_root, peer_node, _peer) = f.peer_host(5).await?;
+    let revision = f.catalog.read(TIMEOUT).await?.revision();
+    f.remote(&host, NodeId::new([5; 16])?, revision).await?;
+    let peer_log_path = peer_node.info().data_dir.join("raft");
+    peer_node.shutdown(ShutdownMode::Preserve).await?;
+    let process = ProcessGeneration::new([99; 16])?;
+    let log = f
+        .domain
+        .run(ReplicaLog::open(
+            ReplicaLogOptions::new(
+                peer_log_path,
+                NodeId::new([5; 16])?,
+                DiskLineage::new([15; 16])?,
+                process,
+                LogOpenMode::Resume,
+            ),
+            Arc::new(cellar_ltx::DirectFileSystem),
+        ))
+        .await??;
+    let control = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+    let data = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+    let query = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+    let endpoint = RaftPeerNode {
+        node: NodeId::new([5; 16])?,
+        disk: DiskLineage::new([15; 16])?,
+        process,
+        label: "fleet-peer-5".into(),
+        server_name: "localhost".into(),
+        control_address: control.local_addr()?,
+        data_address: data.local_addr()?,
+        query_address: query.local_addr()?,
+    };
+    let namespace = Catalog::new(
+        f.store.clone(),
+        CatalogOptions {
+            prefix: "host-enrollment/".into(),
+            ..Default::default()
+        },
+    )?
+    .existing_namespace(f.declaration.namespace.clone())
+    .await?;
+    namespace
+        .register_node_storage(&log, TIMEOUT)
+        .await?
+        .publication(endpoint, TIMEOUT)
+        .await?
+        .publish(TIMEOUT)
+        .await?;
+    let tls = Arc::new(
+        rustls::ServerConfig::builder_with_provider(Arc::new(
+            rustls::crypto::ring::default_provider(),
+        ))
+        .with_protocol_versions(&[&rustls::version::TLS13])?
+        .with_no_client_auth()
+        .with_single_cert(
+            vec![include_bytes!("../../transport/tcp/fixtures/server.der")
+                .to_vec()
+                .into()],
+            rustls::pki_types::PrivatePkcs8KeyDer::from(
+                include_bytes!("../../transport/tcp/fixtures/key.der").to_vec(),
+            )
+            .into(),
+        )?,
+    );
+    let (ready, mut accepted) = tokio::sync::oneshot::channel();
+    let server = f.domain.spawn(async move {
+        let (tcp, _) = control.accept().await?;
+        let mut stream = tokio_rustls::TlsAcceptor::from(tls).accept(tcp).await?;
+        let mut byte = [0; 1];
+        stream.read_exact(&mut byte).await?;
+        let _ = ready.send(());
+        let mut buffer = [0; 1024];
+        loop {
+            match stream.read(&mut buffer).await {
+                Ok(0) => break,
+                Ok(_) => (),
+                Err(error)
+                    if matches!(
+                        error.kind(),
+                        std::io::ErrorKind::UnexpectedEof | std::io::ErrorKind::ConnectionReset
+                    ) =>
+                {
+                    break
+                }
+                Err(error) => return Err(error.into()),
+            }
+        }
+        Ok::<_, anyhow::Error>(())
+    })?;
+    let pending = f.domain.run(cellar::asyncrt::timeout(TIMEOUT, async {
+        loop {
+            let mut pending = host.inspect_peer_node(NodeId::new([5;16])?, revision, TIMEOUT);
+            cellar::asyncrt::select! {
+                ready = &mut accepted => { ready?; return Ok::<_,anyhow::Error>(pending); },
+                result = &mut pending => {
+                    match result {
+                        Err(InspectionError::Unreachable | InspectionError::Unavailable | InspectionError::StalePeer | InspectionError::Refused) => cellar::asyncrt::sleep(Duration::from_millis(10)).await,
+                        result => anyhow::bail!("unexpected blackholed node result: {result:?}"),
+                    }
+                },
+            }
+        }
+    })).await???;
+    ensure!(host
+        .resource_usage()
+        .transport
+        .is_some_and(|usage| usage.inspection_metadata.bytes > 0));
+    let report = f
+        .domain
+        .run(cellar::asyncrt::timeout(TIMEOUT, host.close()))
+        .await???;
+    ensure!(report.unfinished.is_empty());
+    ensure!(host.resource_usage().control.bytes == 4096);
+    ensure!(matches!(pending.await, Err(InspectionError::Unavailable)));
+    ensure!(host.resource_usage().control.bytes == 0);
+    let joined = f
+        .domain
+        .run(cellar::asyncrt::timeout(TIMEOUT, server))
+        .await??;
+    joined??;
+    log.close().await?;
+    node.shutdown(ShutdownMode::Preserve).await?;
+    f.domain.shutdown().await;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn fleet_enrollment_empty_host() -> Result<()> {
+    let f = Fixture::new().await?;
+    let (_root, node, host) = f.empty_host().await?;
+    let (_peer_root, peer_node, peer) = f.peer_host(5).await?;
+    let revision = f.catalog.read(TIMEOUT).await?.revision();
+    let remote = f.remote(&host, NodeId::new([5; 16])?, revision).await?;
+    ensure!(remote.view.node.identity.node == NodeId::new([5; 16])?);
+    ensure!(remote.view.node.identity.disk == DiskLineage::new([15; 16])?);
+    ensure!(remote.view.node.groups == 0 && remote.view.node.reserved_bytes == 0);
+    ensure!(remote.view.registered_histories == 0 && remote.view.dormant_histories == 0);
+    ensure!(
+        remote.view.pending_history_registrations == 0
+            && remote.view.unattached_engine_histories == 0
+    );
+    let current = remote.view.current_enrollment.unwrap();
+    ensure!(current.fleet == [80; 16] && current.revision >= revision && current.epoch == 2);
+    ensure!(
+        current.state == FleetNodeState::Registered
+            && !current.state.eligibility().receive_replicas
+    );
+    ensure!(
+        current.physical_host == f.spec.physical_host
+            && current.capability_digest == f.spec.capability_digest
+    );
+    ensure!(remote.sample_age_ms <= TIMEOUT.as_millis() as u64);
+    let reverse = f.remote(&peer, f.spec.node, revision).await?;
+    ensure!(reverse.view.node.identity.node == f.spec.node && reverse.view.node.groups == 0);
+    ensure!(matches!(
+        host.inspect_peer_node(NodeId::new([5; 16])?, revision + 1, TIMEOUT)
+            .await,
+        Err(InspectionError::StalePeer)
+    ));
+    ensure!(matches!(
+        host.inspect_peer_node(NodeId::new([99; 16])?, revision, TIMEOUT)
+            .await,
+        Err(InspectionError::Refused)
+    ));
+    ensure!(matches!(
+        host.inspect_peer_node(f.spec.node, revision, TIMEOUT).await,
+        Err(InspectionError::Refused)
+    ));
+    ensure!(f.calls.load(Ordering::Acquire) == 0);
+    node.shutdown(ShutdownMode::Preserve).await?;
+    peer_node.shutdown(ShutdownMode::Preserve).await?;
+    ensure!(host.resource_usage().control.bytes == 0 && peer.resource_usage().control.bytes == 0);
+    f.domain.shutdown().await;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn fleet_enrollment_eligibility_modes() -> Result<()> {
+    let f = Fixture::new().await?;
+    let (_root, node, host) = f.empty_host().await?;
+    let (_peer_root, peer_node, _peer) = f.peer_host(5).await?;
+    let target = NodeId::new([5; 16])?;
+    for (i, state) in [
+        FleetNodeState::Active,
+        FleetNodeState::RestartPending,
+        FleetNodeState::ResizePending,
+        FleetNodeState::Draining,
+        FleetNodeState::Evacuated,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let revision = f.state(target, state, 70 + i as u8).await?;
+        let observation = f.remote(&host, target, revision).await?;
+        ensure!(observation.view.startup_enrollment.unwrap().state == FleetNodeState::Registered);
+        let current = observation.view.current_enrollment.unwrap();
+        ensure!(
+            current.state == state && current.revision >= revision && current.epoch == 3 + i as u64
+        );
+        ensure!(current.state.eligibility().receive_replicas == (state == FleetNodeState::Active));
+        ensure!(
+            current.state.eligibility().receive_leadership == (state == FleetNodeState::Active)
+        );
+        ensure!(
+            current.state.eligibility().evacuate_memberships == (state == FleetNodeState::Draining)
+        );
+        ensure!(observation.view.node.groups == 0);
+    }
+    node.shutdown(ShutdownMode::Preserve).await?;
+    peer_node.shutdown(ShutdownMode::Preserve).await?;
+    f.domain.shutdown().await;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn fleet_enrollment_dynamic_trust_isolation() -> Result<()> {
     let f = Fixture::new().await?;
     let (_root, node, host) = f.empty_host().await?;
@@ -130,6 +412,127 @@ struct Fixture {
 }
 
 impl Fixture {
+    async fn peer_host(&self, id: u8) -> Result<(tempfile::TempDir, cellar::sdk::Node, RaftCells)> {
+        let mut spec = self.spec.clone();
+        spec.node = NodeId::new([id; 16])?;
+        spec.disk = DiskLineage::new([id + 10; 16])?;
+        spec.label = format!("fleet-peer-{id}");
+        let snapshot = self.catalog.read(TIMEOUT).await?;
+        let commit = self
+            .catalog
+            .register_node(
+                &snapshot,
+                &Self::request(id + 50, snapshot.revision()),
+                &spec,
+                TIMEOUT,
+            )
+            .await?;
+        let auth = self
+            .catalog
+            .authorize_host(&commit.snapshot, spec.node, TIMEOUT)
+            .await?;
+        let root = tempfile::tempdir()?;
+        let node = public_node::node_named(
+            root.path(),
+            self.definition.application.clone(),
+            &spec.label,
+        )
+        .await?;
+        let (config, services) = self.config_for(&node, auth, &spec).await?;
+        let host = node.start_raft_cells(config, services).await?;
+        Ok((root, node, host))
+    }
+
+    async fn remote(
+        &self,
+        host: &RaftCells,
+        node: NodeId,
+        revision: u64,
+    ) -> Result<RaftPeerNodeObservation> {
+        self.domain
+            .run(cellar::asyncrt::timeout(TIMEOUT, async {
+                loop {
+                    match host.inspect_peer_node(node, revision, TIMEOUT).await {
+                        Ok(view) => return Ok::<_, anyhow::Error>(view),
+                        Err(
+                            InspectionError::Refused
+                            | InspectionError::Unavailable
+                            | InspectionError::StalePeer
+                            | InspectionError::Overloaded,
+                        ) => {
+                            cellar::asyncrt::sleep(Duration::from_millis(10)).await;
+                        }
+                        Err(error) => return Err(error.into()),
+                    }
+                }
+            }))
+            .await??
+    }
+
+    async fn state(&self, node: NodeId, state: FleetNodeState, id: u8) -> Result<u64> {
+        let snapshot = self.catalog.read(TIMEOUT).await?;
+        let key = hex::encode(node.bytes());
+        let bytes = self
+            .catalog
+            .get(&snapshot, FleetTable::Nodes, &key, TIMEOUT)
+            .await?
+            .unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&bytes[13..bytes.len() - 32])?;
+        let mut payload = std::str::from_utf8(&bytes[13..bytes.len() - 32])?.to_owned();
+        let operating = matches!(
+            state,
+            FleetNodeState::RestartPending
+                | FleetNodeState::ResizePending
+                | FleetNodeState::Draining
+                | FleetNodeState::Evacuated
+                | FleetNodeState::Removed
+        );
+        for (field, replacement) in [
+            ("state", serde_json::to_value(state)?),
+            (
+                "epoch",
+                serde_json::json!(value["epoch"].as_u64().unwrap() + 1),
+            ),
+            (
+                "operation",
+                if operating {
+                    serde_json::json!(vec![100; 16])
+                } else {
+                    serde_json::Value::Null
+                },
+            ),
+        ] {
+            payload = payload.replace(
+                &format!("\"{field}\":{}", serde_json::to_string(&value[field])?),
+                &format!("\"{field}\":{}", serde_json::to_string(&replacement)?),
+            );
+        }
+        use sha2::{Digest, Sha256};
+        let mut updated = bytes[..9].to_vec();
+        updated.extend_from_slice(&(payload.len() as u32).to_be_bytes());
+        updated.extend_from_slice(payload.as_bytes());
+        updated.extend_from_slice(&Sha256::digest(&updated));
+        let commit = self
+            .catalog
+            .commit(
+                &snapshot,
+                &FleetMutation {
+                    id: [id; 16],
+                    operation: [100; 16],
+                    principal: "enrollment-test".into(),
+                    expected_revision: snapshot.revision(),
+                    changes: vec![FleetChange {
+                        table: FleetTable::Nodes,
+                        key,
+                        value: Some(updated),
+                    }],
+                },
+                TIMEOUT,
+            )
+            .await?;
+        Ok(commit.snapshot.revision())
+    }
+
     async fn history(&self, id: u8) -> Result<FleetGroupAuthorization> {
         let namespace = Catalog::new(
             self.store.clone(),
@@ -307,18 +710,27 @@ impl Fixture {
         node: &cellar::sdk::Node,
         authorization: FleetHostAuthorization,
     ) -> Result<(RaftCellsConfig, RaftCellsServices)> {
+        self.config_for(node, authorization, &self.spec).await
+    }
+
+    async fn config_for(
+        &self,
+        node: &cellar::sdk::Node,
+        authorization: FleetHostAuthorization,
+        spec: &FleetNodeSpec,
+    ) -> Result<(RaftCellsConfig, RaftCellsServices)> {
         let listeners = NodeRaftListeners {
             control: tokio::net::TcpListener::bind("127.0.0.1:0").await?,
             data: tokio::net::TcpListener::bind("127.0.0.1:0").await?,
             query: tokio::net::TcpListener::bind("127.0.0.1:0").await?,
         };
-        let process = ProcessGeneration::new([24; 16])?;
+        let process = ProcessGeneration::new([spec.node.bytes()[0] + 20; 16])?;
         let peer = RaftPeerNode {
-            node: self.spec.node,
-            disk: self.spec.disk,
+            node: spec.node,
+            disk: spec.disk,
             process,
-            label: self.spec.label.clone(),
-            server_name: self.spec.server_name.clone(),
+            label: spec.label.clone(),
+            server_name: spec.server_name.clone(),
             control_address: listeners.control.local_addr()?,
             data_address: listeners.data.local_addr()?,
             query_address: listeners.query.local_addr()?,

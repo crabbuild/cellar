@@ -12,6 +12,15 @@ under implementation.
 The [technical design](../../../../plans/multi-raft/technical-design.md) defines
 the complete contract.
 
+Managed empty hosts expose `RaftCells::inspect_peer_node` under rooted fleet
+trust. It authenticates both physical processes and a requested minimum installed
+trust revision without constructing a cell. Current enrollment state/epoch is
+separate from startup enrollment, and metadata grants no membership, capacity
+activation or removal proof. The [fleet catalog contract](fleet_catalog/README.md)
+describes identity, response bounds, cancellation and remaining management work.
+The experimental namespace protocol now ends in `/node-probes-1`; use fresh
+namespaces and matching binaries, with numeric markers retained at 1.
+
 `RaftClass::immutable_blobs(RaftBlobLimits)` enables bounded immutable values and
 changes the class identity. Commands use `put_blob` and `blob`; queries use `blob`
 against their pinned committed image. Actual bytes share the command transaction

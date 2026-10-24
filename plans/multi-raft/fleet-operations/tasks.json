@@ -328,7 +328,12 @@
         "crates/cellar/application/consensus/client_bindings.rs",
         "crates/cellar/durability/raft/host_registration.rs",
         "crates/cellar/durability/raft/transport_fleet.rs",
-        "crates/cellar/durability/raft/transport_fleet_tests.rs"
+        "crates/cellar/durability/raft/transport_fleet_tests.rs",
+        "crates/cellar/durability/raft/host_node_inspection.rs",
+        "crates/cellar/durability/raft/node_inspection_transport.rs",
+        "crates/cellar/durability/raft/node_inspection_wire.rs",
+        "crates/cellar/durability/raft/node_inspection_auth_tests.rs",
+        "crates/cellar/durability/raft/node_inspection_wire_tests.rs"
       ],
       "steps": [
         "Add CAS-authorized node-set revisions with bounded route and permission refresh.",
@@ -586,6 +591,25 @@
         {
           "name": "fleet_enrollment_dynamic_trust_isolation",
           "oracle": "A held background root read cannot take the foreground history-admission turn; registration still succeeds, and shutdown joins the held read before releasing its physical metadata reservation.",
+          "invariants": [
+            "F06",
+            "F07",
+            "F08"
+          ]
+        },
+        {
+          "name": "fleet_enrollment_node_probe_shutdown",
+          "oracle": "A resumed enrolled process accepts TLS but never replies; host shutdown joins the physical node probe and releases its reservations while the unpolled caller retains only its request permit until consumption.",
+          "invariants": [
+            "F02",
+            "F06",
+            "F07",
+            "F08"
+          ]
+        },
+        {
+          "name": "fleet_enrollment_node_probe_resource_floor",
+          "oracle": "An undersized managed control budget refuses startup before storage pinning; the exact supported floor serves a node probe while both catalog readers are held and joins their physical reads on shutdown.",
           "invariants": [
             "F06",
             "F07",

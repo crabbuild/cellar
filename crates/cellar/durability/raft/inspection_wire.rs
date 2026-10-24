@@ -23,7 +23,7 @@ where
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Profile {
+pub(crate) struct Profile {
     pool: String,
     region: String,
     zone: String,

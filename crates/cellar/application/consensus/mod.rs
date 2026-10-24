@@ -45,7 +45,7 @@ pub use crate::raft::host::{
     RaftArchiveOptions, RaftCellPlacement, RaftCellRegistration, RaftCellsConfig,
     RaftCellsServices, RaftControllerOptions, RaftControllerStatus, RaftHostEnrollmentObservation,
     RaftHostObservation, RaftHostOptions, RaftInspectionScanOptions, RaftManagedHostOptions,
-    RaftNamespaceRegistration, RaftNodeDirectoryOptions, RaftPeerNode,
+    RaftNamespaceRegistration, RaftNodeDirectoryOptions, RaftPeerNode, RaftPeerNodeObservation,
 };
 pub use crate::raft::inspection::{
     CellInspection, InspectionError, LeaderLoad, MemberInspection, NodeInspection, RaftNodeProfile,
