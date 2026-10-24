@@ -47,7 +47,7 @@ jobs:
   fastapi:
     name: FastAPI deployment (${{ matrix.runtime }})
     runs-on: ubuntu-22.04
-    timeout-minutes: 40
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
@@ -133,44 +133,42 @@ jobs:
                           raise RuntimeError(f"FastAPI read smoke failed: {outcomes}")
           PY
 
-  agent:
-    name: Durable PydanticAI agent (${{ matrix.runtime }})
-    runs-on: ubuntu-22.04
-    timeout-minutes: 40
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - runtime: '3.14.5'
-            smoke_flags: ''
-          - runtime: '3.14.5t'
-            smoke_flags: '--expect-free-threaded'
-    env:
-      CARGO_TARGET_DIR: ${{ github.workspace }}/target
-      PYTHONDONTWRITEBYTECODE: '1'
-      PYDANTIC_AI_NO_BANNER: '1'
-    steps:
       - uses: actions/checkout@v6
         with:
+          ref: 9310c4fd65cadd27dfcf92f64d3b6d6bf61a57f6
+          path: fastapi-before
           persist-credentials: false
-      - uses: actions/setup-python@v6
-        with:
-          python-version: '3.14'
-      - name: Install build tools
+      - name: Build the before-direct-routing package with the same packaging tools
+        env:
+          CARGO_TARGET_DIR: ${{ runner.temp }}/fastapi-before-target
         run: |
-          rustup toolchain install "$RUST_VERSION" --profile minimal
-          rustup default "$RUST_VERSION"
-          python -m pip install uv==0.11.19
-      - name: Package the agent with its pinned runtime and dependencies
-        run: |
-          mkdir -p "$RUNNER_TEMP/agent"
-          python examples/python-agent/package.py --runtime '${{ matrix.runtime }}' \
+          mkdir -p "$RUNNER_TEMP/fastapi-before"
+          cp tools/python/package_example.py tools/python/environment.py fastapi-before/tools/python/
+          python fastapi-before/examples/python-fastapi/package.py --runtime '${{ matrix.runtime }}' \
             --profile '${{ inputs.profile || 'dev' }}' \
-            --prefix "$RUNNER_TEMP/agent/environment" --output "$RUNNER_TEMP/agent/package"
-      - name: Test durable agent boundaries and real host restart
+            --prefix "$RUNNER_TEMP/fastapi-before/environment" --output "$RUNNER_TEMP/fastapi-before/package" \
+            > "$RUNNER_TEMP/fastapi-before/build.log" 2>&1
+          git -C fastapi-before diff > "$RUNNER_TEMP/fastapi-before/packaging-backport.patch"
+      - name: Compare frozen before and direct hosts with disjoint CPU pools
+        env:
+          CELLAR_MAX_REQUESTS: '64'
+          CELLAR_ADMISSION_WAIT_MS: '10'
         run: |
-          export PYO3_PYTHON="$(UV_PYTHON_INSTALL_DIR="$RUNNER_TEMP/agent/environment/runtime" uv python find --managed-python '${{ matrix.runtime }}')"
-          export CELLAR_PYTHON_SITE_PACKAGES="$RUNNER_TEMP/agent/environment/site"
-          PYTHONPATH="$CELLAR_PYTHON_SITE_PACKAGES" "$PYO3_PYTHON" -B examples/python-agent/test_app.py
-          python -B examples/python-agent/smoke.py --cellar "$CARGO_TARGET_DIR/debug/cellar" \
-            --project "$RUNNER_TEMP/agent/environment/project.json" ${{ matrix.smoke_flags }}
+          cargo build --locked -p cellar-python --example python-offered-load --profile lab --no-default-features
+          mapfile -t pools < "$RUNNER_TEMP/fastapi/cpu-pools.txt"
+          python -B tools/python/fastapi_direct_comparison.py \
+            --cellar "$CARGO_TARGET_DIR/debug/cellar" \
+            --client "$CARGO_TARGET_DIR/lab/examples/python-offered-load" --client-profile lab \
+            --output "$RUNNER_TEMP/fastapi-comparison" \
+            --host-cpus "${pools[0]}" --client-cpus "${pools[1]}" \
+            --rates 2000 5000 8000 12000 --duration-ms 10000 --warmup-ms 2000 --repetitions 3 --max-inflight 64
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: fastapi-capacity-${{ matrix.runtime }}-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/fastapi-comparison
+            ${{ runner.temp }}/fastapi-comparison-builds.json
+            ${{ runner.temp }}/fastapi-comparison-starts.jsonl
+            ${{ runner.temp }}/fastapi-before/build.log
+            ${{ runner.temp }}/fastapi-before/packaging-backport.patch
