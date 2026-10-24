@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { testBudget } from "./test-budgets.mjs";
 import { readFileSync } from "node:fs";
 import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
 import { configureTextEncoding } from "@bufbuild/protobuf/wire";
@@ -28,6 +29,7 @@ function context(reply, expected = contract) {
     expire: () => { active = false; },
     [Symbol.for("cellar.rpc")]: {
       check() { if (!active) throw Error("ContextExpired"); },
+      budget: () => testBudget(),
       verify(method) {
         method.verify(expected);
         return {maxMessageBytes:expected.limits.max_message_bytes,

@@ -323,6 +323,7 @@ impl JavaScriptApplication {
             "JavaScript invocation exceeds value budget"
         );
         self.runtime.start(Start {
+            budget_source: Some(cellar::sdk::rpc::BudgetSource::capture(&context)?),
             id: invocation,
             _bytes: self.runtime.reserve(charge)?,
             payload,
@@ -359,6 +360,7 @@ impl JavaScriptApplication {
                     payload,
                     body,
                     signal,
+                    budget,
                     _bytes,
                 } => {
                     if !active.load(Ordering::Acquire) {
@@ -389,8 +391,8 @@ impl JavaScriptApplication {
                                         let body = body
                                             .context("RPC call requires a byte attachment")
                                             .context(cellar_guest::failure::Validation)?;
-                                        let bytes = operations::call_bytes_with_signal(
-                                            context, contract, payload, body, signal,
+                                        let bytes = operations::call_bytes_in_budget(
+                                            context, contract, payload, body, signal, budget,
                                         )
                                         .await?;
                                         return Ok((Value::Null, Some(bytes)));

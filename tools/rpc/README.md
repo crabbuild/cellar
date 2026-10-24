@@ -65,6 +65,32 @@ write with an invalid reply. A second native node startup reads the same SQLite
 files and replays receipts without duplicate effects. Guest runtimes remain
 supervised across those two node starts; this is not a process-crash test.
 
+The same test injects slow verification, encoding and decoding for each
+V8/Node caller against Rust, V8 and Node providers across both starts: 36 probes.
+Verification/encoding expiry must leave count zero. Decode expiry must return
+`DeadlineExceeded/unknown` after one saved increment; explicit same-ID retries
+recover the original receipt, including after restart. Incoming parent caps,
+foreign-budget refusal, bounded control reuse and admission with a held budget
+are checked with `max_pending_operations = 1`.
+
+```text
+generated call
+     |
+original native budget -- host/parent cap
+     |
+verify -> encode -> binary bridge -> native route/proof -> decode
+     |                       |                            |
+same deadline          opaque native handle          same deadline
+```
+
+V8 uses a native clock callback. Node's private control charges its IPC round
+trip and one native-clock tick conservatively; no absolute timestamp crosses
+clock domains. Control capacity is separate from SDK mutation/operation slots,
+and release/retirement reclaim it. Nine SDK/control regression tests cover
+pre-codec expiry, remaining-time subtraction, decode ambiguity, options captured
+before the Node wait, foreign scope and cleanup. Explicit guest remote/nested
+codec-deadline qualification remains open.
+
 ## Codec and generated API checks
 
 ```sh
@@ -179,7 +205,8 @@ Rust and Python providers across two node starts. Verification/encoding expiry
 submits no business call; decode expiry stays unknown and an explicit same-ID
 retry recovers the saved receipt. It also checks a real incoming parent cap,
 cross-invocation budget refusal and the captured clock from a native thread
-without an installed execution domain. V8/Node guest codec budgets remain open.
+without an installed execution domain. The V8/Node budget evidence is described
+above; explicit guest remote/nested codec-deadline qualification remains open.
 
 ## Portable Protobuf profile
 
@@ -432,7 +459,8 @@ acknowledgement, and verify full reclamation and subscription cleanup on return
 and retirement. Node's protected listener survives `stopImmediatePropagation`;
 synthetic abort events cannot consume the real subscription. The SDK also
 checks cancellation before encoding/submission and around response decoding.
-Guest call-budget accounting before codecs remains separate work.
+The separate codec-budget probes above check whole-call expiry; these 17
+cancellation cases do not qualify every provider or proof-wait boundary.
 
 ```text
 asyncio.Task.cancel()

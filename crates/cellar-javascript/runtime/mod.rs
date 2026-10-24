@@ -10,6 +10,7 @@ use std::time::Duration;
 use tokio::sync::{mpsc as channel, watch, OwnedSemaphorePermit, Semaphore};
 #[cfg(feature = "embed")]
 mod binary;
+mod budgets;
 #[cfg(feature = "embed")]
 mod encoding;
 #[cfg(feature = "embed")]
@@ -73,6 +74,7 @@ pub(crate) type Life = Arc<AtomicBool>;
 
 /// Admission message. The byte permit follows the payload until it is dropped.
 pub(crate) struct Start {
+    pub budget_source: Option<cellar::sdk::rpc::BudgetSource>,
     pub id: u64,
     pub payload: String,
     pub body: Option<Vec<u8>>,
@@ -90,6 +92,7 @@ pub(crate) enum Event {
         payload: String,
         body: Option<Vec<u8>>,
         signal: Option<cellar::sdk::web::AbortSignal>,
+        budget: Option<cellar::sdk::rpc::CallBudget>,
         _bytes: OwnedSemaphorePermit,
     },
     Complete {

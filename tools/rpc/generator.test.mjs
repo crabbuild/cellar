@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { testBudget } from "./test-budgets.mjs";
 import { readFileSync } from "node:fs";
 import { create, fromBinary } from "@bufbuild/protobuf";
 import { CodeGeneratorRequestSchema, FileDescriptorSetSchema } from "@bufbuild/protobuf/wkt";
@@ -45,6 +46,7 @@ test("the generated plain-JS client and server registration execute actual codec
   let calls = 0;
   const context = {[Symbol.for("cellar.rpc")]: {
     check() {},
+    budget: () => testBudget(),
     verify(method) { method.verify(JSON.parse(readFileSync(new URL("./fixtures/generated/rpc.json",import.meta.url)))); },
     async call(metadata, bytes) {
       calls++;

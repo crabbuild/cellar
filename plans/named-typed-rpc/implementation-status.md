@@ -15,7 +15,7 @@ does not close schema, resource, packaging or performance requirements.
 
 | Priority | Remaining gap | Deliverable / completion evidence |
 | --- | --- | --- |
-| P0 — next | Invocation deadlines, cancellation and failure provenance | Delivered: native local/peer deadlines and cancellation, Python native-owned codec budgets, plus Python task and V8/Node JS/TS cancellation controls that join native cleanup. Next: V8/Node pre-codec budgets, followed by dependency cycles, parent-write/child-refusal provenance and cancellation during proof/lifecycle waits. See the current evidence below. |
+| P0 — next | Invocation deadlines, cancellation and failure provenance | Delivered: native local/peer deadlines and cancellation, Python/V8/Node whole-call codec budgets, plus guest cancellation controls that join native cleanup. Next: explicit guest remote/nested codec-deadline tests, followed by dependency cycles, parent-write/child-refusal provenance and cancellation during proof/lifecycle waits. See the current evidence below. |
 | P0 | Resource bounds and parser correctness | Audit effective method/runtime/host/peer minima, retained binary copies and decoder allocations; reject malformed descriptors before generation; demonstrate bounded queues, reservations and memory under saturation, flood and disconnect. |
 | P1 | Language/profile coverage | Exercise the portable Protobuf profile as real business calls across all local/remote pairs; qualify supported Python interpreter modes and remaining lifecycle/regression boundaries. |
 | P1 | Reproducible application delivery | Deliver `cellar rpc generate/check`, static binding and frozen package inventories, embedded Python source identity, a published typed-RPC example and clean-machine CI. |
@@ -31,9 +31,9 @@ Counter fixture alone is not the highest-priority deliverable now.
 | Package | State | Authoritative evidence / next action |
 | --- | --- | --- |
 | RPC-01: Contracts/toolchain | In progress | Counter and portable-profile outputs reproduce byte-for-byte in all four authoring modes; generated APIs pass TS/Python static checks; full schema/conformance qualification remains |
-| RPC-02: Native typed path | In progress | Native RPC and transport tests, seven generated-profile/vector tests and a real-node restart/receipt test pass; shared decoded-slot checks, fixed control budgets and native catalog limits precede codecs; local/peer parent budgets are inherited and native expiry is tested; native invocation cancellation and Python/V8/Node caller controls are implemented and tested; guest pre-codec budgets and full call provenance remain |
+| RPC-02: Native typed path | In progress | Native RPC and transport tests, seven generated-profile/vector tests and a real-node restart/receipt test pass; shared decoded-slot checks, fixed control budgets and native catalog limits precede codecs; local/peer parent budgets are inherited and native expiry is tested; native invocation cancellation and Python/V8/Node caller controls are implemented and tested; whole-call guest budgets work locally; explicit guest remote/nested deadlines and full call provenance remain |
 | RPC-03: Binary bridges | In progress | Shared `cell.call`, Python raw bytes, owned V8 attachments and binary Node framing implemented; runtime attachment/cleanup tests pass; aggregate copy accounting and full cancellation/flood qualification remain |
-| RPC-04: JS/TS services | In progress | Generated clients/handlers, binary dispatch and live descriptor checks work in V8/Node; real startup refuses stale codecs; typed AbortSignal options work in V8/Node with native cleanup; full schema/resource/deadline qualification remains |
+| RPC-04: JS/TS services | In progress | Generated clients/handlers, binary dispatch and live descriptor checks work in V8/Node; real startup refuses stale codecs; typed AbortSignal options and native-owned whole-call codec budgets work with bounded cleanup; full schema/resource/deadline qualification remains |
 | RPC-05: Python services | In progress | Generated async APIs, live codec checks and dispatch work with receipts/restart; stale providers/clients are refused; task cancellation reaches native/peer calls and joins cleanup; native-owned budgets cover validation, encoding, transport and decoding; packaging and free-threaded qualification remain |
 | RPC-06: Fleet/durability | In progress | Local/remote/handoff, 32 failed-recovery admission, 48 SIGKILL and 64 proof cases pass together; further interpreter modes and broader qualification remain |
 | RPC-07: Packaging/performance | Pending | Reproducible generation, clean-machine packaging, CI and measured performance report |
@@ -70,6 +70,44 @@ pairs. Preserve the full test matrix, failures and remaining work across turns.
 
 ## Current evidence
 
+- With V8/Node codec budgets, the combined normal-stack `--suite all` passes
+  all seven suites and publishes `.cellar/rpc/js-budget-full-matrix.json` only
+  after native nodes and guest runtimes drain: 16 local pairs, 16 remote/handoff
+  pairs, three native deadline cases, 17 cancellation cases, 32 failed-recovery
+  cases, 48 observed process kills and 64 proof/fencing cases. Full-qualification
+  flags remain false. Format/layout check 972 Rust files, documentation validates
+  734 local references, and the native-only dependency guard resolves 465
+  packages without a JavaScript engine.
+- V8 and Node generated calls now start a private budget before codecs run.
+  Options are captured before Node's first asynchronous wait; even a throwing
+  option getter joins and releases its original control. Verification, encoding,
+  native admission/queueing/transport/proof and response decoding share one
+  native-owned deadline, capped by the original host and incoming parent.
+  The opaque budget travels separately from JSON/business bytes, and native
+  refusals retain their outcome. SDK-detected expiry after native success is
+  `DeadlineExceeded/unknown`; no retry is automatic.
+- V8 reads the original native monotonic clock through private callbacks. Node
+  obtains an invocation-scoped native handle through bounded IPC, charges the
+  control round trip and one clock tick conservatively, and forwards a ceiling
+  relative to that handle's original start. No absolute timestamp crosses clock
+  domains. The effective Node window may be shorter than requested. Controls
+  use a separate per-invocation bound, no SDK mutation slot, and are reclaimed
+  on release, completion and retirement. Foreign replay is refused while
+  foreign cleanup can only release the original capability.
+- The initial four JS deadline regressions fail before the fix. All 63 SDK
+  tests now pass, including five deadline tests and four tests of the actual
+  Node control helper. They cover pre-codec expiry, time subtraction, default
+  and requested/parent caps, expiry around decoding, options captured before
+  the Node wait, foreign scope, capacity reuse and retirement cleanup.
+- The real Rust/V8/Node executable passes all nine caller/provider pairs and
+  36 slow verification/encoding/decoding probes across two native starts.
+  Pre-submission expiry leaves count zero; decode expiry follows one saved
+  increment, and explicit same-ID retries recover its original receipt across
+  restart. Real incoming parent caps, foreign-budget refusal and separate
+  control capacity pass with one pending SDK slot. The 30 JS library tests,
+  Node HTTP restart/native-addon tests, strict API/build checks, and all-target
+  Clippy in combined, V8-only and Node-only modes pass. These codec probes are
+  local evidence; explicit guest remote/nested deadline cases remain next.
 - The budget branch now incorporates main through `f0414a3d`, including Python
   lifecycle hardening, bounded replication metadata and the console move.
   Conflict resolution preserves explicit RPC dispatch alongside main's direct
@@ -81,7 +119,7 @@ pairs. Preserve the full test matrix, failures and remaining work across turns.
   publishes `.cellar/rpc/python-budget-merged-full-matrix.json` after cleanup:
   16 local pairs, 16 remote/handoff pairs, three deadline cases, 17 cancellation
   cases, 32 failed-recovery cases, 48 process kills and 64 proof/fencing cases.
-  Full-qualification flags remain false; V8/Node codec budgets are still next.
+  Full-qualification flags remain false. This predates the JS budget slice above.
 - With Python codec budgets, the combined normal-stack `--suite all` retry
   passes all seven objects: 16 local pairs, 16 remote/handoff pairs, three
   deadline cases, 17 cancellation cases, 32 failed-recovery cases, 48 process
@@ -114,7 +152,7 @@ pairs. Preserve the full test matrix, failures and remaining work across turns.
   generated API checks and existing HTTP/lifecycle/remote/handoff/watchdog
   bridge executable pass. Native RPC's 50 tests, restart/deadline executable
   and seven profile tests pass; current Clippy, format/layout, dependency and
-  docs checks pass. V8/Node guest codec budgets remain the next P0 delivery.
+  docs checks pass. This Python evidence predates the JS budget slice above.
 - One combined run stops at the first `before_handler rust->rust` process-crash
   case with OS `EPERM`, after the earlier suites and all 32 recovery cases pass.
   The isolated crash rerun passes all 48 cases. The first error lacks enough
@@ -688,17 +726,14 @@ The implementation PR is a draft until the remaining correctness and delivery
 boundaries are qualified. Deliver the following slices in order; each slice
 must preserve the existing recovery, crash, proof and receipt evidence.
 
-1. **P0: charge the remaining JS/TS codecs to the original call deadline.** Python
-   now uses an opaque `BudgetSource`/`CallBudget` captured from its original native
-   context. Start the equivalent budget before validation and encoding in V8 and
-   Node; include reply decoding.
-   Use a trusted monotonic clock, inherit the parent/host cap, and forward only
-   the remaining duration. Completion requires slow encoder/decoder tests and
-   local/remote nested calls that cannot reset or extend the original budget.
-   Preserve conservative outcomes when expiry follows native submission.
-   V8 can use the native budget directly. Node needs a private, bounded control
-   that charges IPC queue/acknowledgement time without a second SDK mutation
-   slot; never interpret a timestamp from one clock domain in another.
+1. **P0: qualify guest deadlines over remote and nested routes.** Python, V8 and
+   Node now use opaque native-owned whole-call budgets and pass local slow-codec
+   and real incoming parent-cap tests. Extend the signed two-domain deadline
+   fixture with guest callers, slow codecs and nested children requesting longer
+   timeouts. Observe the real owner and original invocation; prove no queue,
+   peer retry or child call resets/extends the deadline, late SDK work is refused,
+   receipts reconcile ambiguous writes and cleanup admits a fresh call. Include
+   Node control queue/acknowledgement delay and retain conservative outcomes.
 2. **P0: close cancellation and provenance gaps.** Cancel during output-proof
    and lifecycle waits, exercise self-calls and A-to-B-to-A cycles, and verify
    bounded cleanup. Test a parent that writes before a child is refused and

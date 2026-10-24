@@ -82,12 +82,15 @@ struct State {
     runtime: Arc<Runtime>,
     invocations: HashMap<u64, InvocationState>,
     operations: HashMap<u64, Operation>,
+    budgets: super::budgets::Budgets,
     objects: HashMap<u64, Life>,
 }
 
 // V8 callbacks share state only within the isolate thread. Never hold a borrow
 // across application JavaScript, including property access or value conversion.
 type Shared = Rc<RefCell<State>>;
+#[path = "v8_budgets.rs"]
+mod budget_controls;
 
 fn refuse(scope: &v8::PinScope, message: &str) {
     if let Some(text) = v8::String::new(scope, message) {
@@ -140,6 +143,22 @@ fn operation(
     }
     let mut state = state.borrow_mut();
     let runtime = state.runtime.clone();
+    let budget = if !args.get(4).is_undefined() {
+        if name != "cell.call" || !args.get(4).is_number() {
+            return refuse(scope, "ContextMismatch");
+        }
+        let Some(id) = args.get(4).number_value(scope).filter(|id| {
+            id.is_finite() && *id > 0.0 && id.fract() == 0.0 && *id <= 9_007_199_254_740_991.0
+        }) else {
+            return refuse(scope, "ContextMismatch");
+        };
+        match state.budgets.get(invocation, id as u64) {
+            Ok(budget) => Some(budget),
+            Err(error) => return refuse(scope, error),
+        }
+    } else {
+        None
+    };
     let Some(active) = state.invocations.get_mut(&invocation) else {
         return refuse(scope, "ContextExpired");
     };
@@ -151,6 +170,10 @@ fn operation(
     }
     if name == "$check" {
         return;
+    }
+    if name == "$rpc_budget" {
+        drop(state);
+        return budget_controls::begin(scope, invocation, rv);
     }
 
     let mutation = !cellar_guest::operations::is_read(&name);
@@ -197,6 +220,7 @@ fn operation(
             payload,
             body,
             signal: cancellation.as_ref().map(|controller| controller.signal()),
+            budget,
             _bytes: bytes,
         })
         .is_err()
@@ -296,6 +320,7 @@ pub(super) fn run(
         runtime: runtime.clone(),
         invocations: HashMap::new(),
         operations: HashMap::new(),
+        budgets: super::budgets::Budgets::default(),
         objects: HashMap::new(),
     }));
     isolate.set_slot(state.clone());
@@ -459,7 +484,9 @@ pub(super) fn run(
                 continue;
             }
             // A handler must await its SDK operations before reporting completion.
-            let failed = promise.state() == v8::PromiseState::Rejected || invocation.pending != 0;
+            let failed = promise.state() == v8::PromiseState::Rejected
+                || invocation.pending != 0
+                || state.borrow().budgets.has(id);
             invocation.start.active.store(false, Ordering::Release);
             let result = promise.result(turn);
             let (payload, body) = if failed {
@@ -496,6 +523,7 @@ pub(super) fn run(
             let mut state = state.borrow_mut();
             for id in &finished {
                 state.invocations.remove(id);
+                state.budgets.retire(*id);
             }
             state
                 .operations

@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { Script } from "node:vm";
 import { addAbortListener } from "node:events";
 import test from "node:test";
+import { testBudgetControl } from "./test-budgets.mjs";
 import { CounterClient } from "./fixtures/generated/javascript/counter_cellar.js";
 
 const contract = JSON.parse(readFileSync(new URL("./fixtures/generated/rpc.json", import.meta.url)));
@@ -15,6 +16,7 @@ function start(signal, subscribe) {
   const runner = factory((invocation, name, payload) => {
     if (invocation !== current) throw Error("ContextMismatch");
     if (name === "$check") return;
+    if (name === "$rpc_budget") return testBudgetControl();
     assert.equal(name, "cell.call");
     assert.equal(Object.hasOwn(JSON.parse(payload), "signal"), false);
     admitted++;

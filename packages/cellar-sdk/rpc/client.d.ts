@@ -11,6 +11,10 @@ export interface RpcAbortSignal {
 
 /** Call controls. The generated client never automatically retries. */
 export interface RpcCallOptions {
+  /** Whole-call ceiling in milliseconds, including verification, encoding,
+   * transport and decoding. The original host/parent cap can only shorten it.
+   * Node conservatively charges its private budget-control round trip.
+   * Options are captured before the first asynchronous wait. */
   timeoutMs?: number;
   /** Native Node signals and bundled AbortController implementations are accepted.
    * Cancellation waits for native cleanup and never promises rollback. */

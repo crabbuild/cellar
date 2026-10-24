@@ -18,6 +18,12 @@ const parse = JSON.parse,
 const scope = new AsyncLocalStorage();
 const active = new Map(),
   pending = new Map();
+const budgets = makeBudgets(process.hrtime.bigint.bind(process.hrtime), scope.getStore.bind(scope), active,
+  config.pendingLimit, (value) => send(value), () => {
+    const id = ++next;
+    if (!Number.isSafeInteger(id)) reject('OperationLimit');
+    return id;
+  });
 let next = 0,
   runner;
 const socket = connect({ host: '127.0.0.1', port: config.port });
@@ -63,12 +69,13 @@ function validBody(body) {
 
 // AsyncLocalStorage binds promises, timers and Node I/O continuations to their
 // invocation. Rust repeats the liveness/limit checks before accepting effects.
-const factory = makeRunner((invocation, name, payload, body) => {
+const factory = makeRunner((invocation, name, payload, body, budget) => {
   if (scope.getStore() !== invocation) reject('ContextMismatch');
 
   const state = active.get(invocation);
   if (!state) reject('ContextExpired');
   if (name === '$check') return;
+  if (name === '$rpc_budget') return budgets.start(invocation, state);
   if ((name === 'cell.call') !== (body !== undefined)) reject('ValidationError');
   if (body !== undefined && !validBody(body)) {
     reject('ValidationError');
@@ -94,6 +101,7 @@ const factory = makeRunner((invocation, name, payload, body) => {
   ].includes(name);
 
   if (mutation && state.mutation) reject('ConcurrentMutation');
+  const budgetFields = budgets.parameters(invocation, budget);
 
   const id = ++next;
   if (!Number.isSafeInteger(id)) reject('OperationLimit');
@@ -104,7 +112,7 @@ const factory = makeRunner((invocation, name, payload, body) => {
 
   const promise = new Promise(resolve => {
     pending.set(id, { invocation, mutation, resolve });
-    send({ type: 'operation', invocation, id, name, payload }, body);
+    send({ type: 'operation', invocation, id, name, payload, ...budgetFields }, body);
   });
   if (name !== 'cell.call') return promise;
 
@@ -122,7 +130,9 @@ const factory = makeRunner((invocation, name, payload, body) => {
 // Revocation prevents new Cellar calls. It cannot undo effects already submitted
 // to Rust, or stop arbitrary application work using Node's own OS capabilities.
 function revoke(id) {
+  const state = active.get(id);
   active.delete(id);
+  budgets.revoke(id, state);
 
   for (const [key, operation] of pending) {
     if (operation.invocation === id) {
@@ -149,7 +159,7 @@ function receive(message, body) {
         exit(70);
       }
 
-      const state = { count: 0, pending: 0, mutation: false };
+      const state = { count: 0, pending: 0, mutation: false, budgets:new Map() };
       active.set(message.id, state);
 
       scope.run(message.id, async () => {
@@ -174,7 +184,7 @@ function receive(message, body) {
 
         // Returning with outstanding SDK operations is a handler failure.
         failed ||=
-          state.pending !== 0 || Buffer.byteLength(payload) + (outputBody?.byteLength ?? 0) > config.valueLimit;
+          state.pending !== 0 || state.budgets.size !== 0 || Buffer.byteLength(payload) + (outputBody?.byteLength ?? 0) > config.valueLimit;
         revoke(message.id);
         send({
           type: 'complete',
@@ -185,6 +195,10 @@ function receive(message, body) {
       }).catch(() => exit(70));
       break;
     }
+
+    case 'budget_reply':
+      budgets.receive(message);
+      break;
 
     case 'reply': {
       const operation = pending.get(message.id);

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { testBudget, testBudgetControl } from "./test-budgets.mjs";
 import { readFileSync } from "node:fs";
 import { Script } from "node:vm";
 import { createFileRegistry, fromBinary } from "@bufbuild/protobuf";
@@ -81,7 +82,7 @@ test("a stale client fails before its allocating encoder or transport is called"
     decodeMessage() {throw Error("must not decode");},
   });
   const client = new RpcClient({[Symbol.for("cellar.rpc")]:{
-    check() {}, verify(method) {method.verify(contract);},
+    check() {}, budget: () => testBudget(), verify(method) {method.verify(contract);},
     async call() {submitted++;},
   }},"COUNTERS","alice");
   await assert.rejects(client.call(rule,{delta:1n}),{code:"ContractMismatch",outcome:"not_committed"});
@@ -97,6 +98,7 @@ test("the real runner supplies codec identity and limits to a consumer-only app"
   const runner = factory((id,name,payload,body) => {
     assert.equal(id,1);
     if (name === "$check") return;
+    if (name === "$rpc_budget") return testBudgetControl();
     assert.equal(name,"cell.call");
     assert.equal(JSON.parse(payload).method,"example.counter.v1.Counter/GetCount");
     assert.equal(body.length,0);
@@ -120,6 +122,7 @@ test("the real runner enforces native layout limits before a guest submits", asy
   let submitted = 0;
   const runner = factory((_id,name) => {
     if (name === "$check") return;
+    if (name === "$rpc_budget") return testBudgetControl();
     submitted++;
     throw Error("must not submit");
   })({async fetch(_request,ctx) {

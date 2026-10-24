@@ -67,6 +67,7 @@ fn roundtrip(app: Arc<JavaScriptApplication>) -> Result<()> {
             channel::channel(app.runtime.options.max_pending_operations + 1);
         let payload = json!({"kind":"rpc", "event":{"method":"example.counter.v1.Counter/GetCount"}, "identity":null, "object":1,"class":"Counter"}).to_string();
         app.runtime.start(Start {
+            budget_source: None,
             id,
             _bytes: app.runtime.reserve(payload.len())?,
             payload,

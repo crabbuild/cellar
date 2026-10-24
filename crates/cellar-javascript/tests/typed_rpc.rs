@@ -128,7 +128,24 @@ impl Application for Mixed {
                 "node" => "NODE",
                 _ => "V8",
             };
-            let value = if url.path().ends_with("/preflight") {
+            let value = if url.path().ends_with("/budget-parent") {
+                let child = generated::CounterClient::bind(&context, binding, "codec-parent")?;
+                let response = child
+                    .get_count_with_options(
+                        generated::GetCountRequest {},
+                        rpc::CallOptions {
+                            timeout: Some(Duration::from_millis(1000)),
+                            ..Default::default()
+                        },
+                    )
+                    .await?;
+                let remaining = response.count.context("missing parent budget")?.value;
+                ensure!(
+                    remaining > 0 && remaining <= 1000,
+                    "guest extended parent deadline"
+                );
+                serde_json::json!({"parent_capped":true})
+            } else if url.path().ends_with("/preflight") {
                 let stub = context.namespace(binding)?.get_by_name("never-construct");
                 let args = rpc::encode_envelope(
                     self.contract.digest(),
@@ -213,6 +230,7 @@ fn generated_named_methods_work_across_rust_v8_and_node_with_restart_receipts() 
     )?;
     let options = Options {
         turn_timeout: Duration::from_secs(2),
+        max_pending_operations: 1,
         ..Default::default()
     };
     JavaScriptRuntime::run(options.clone(), source, |v8| {
@@ -265,6 +283,31 @@ fn generated_named_methods_work_across_rust_v8_and_node_with_restart_receipts() 
                             else { assert_eq!(result, serde_json::json!({"value":(large * 3 + 3).to_string()})); }
                             request(&client, &base, &format!("/{target}/capture")).await?;
                             assert_eq!(request(&client, &base, &format!("/{target}/expired")).await?, serde_json::json!({"code":"ContextExpired", "outcome":"not_committed"}));
+                        }
+                    }
+                    for (index, caller) in ["v8", "node"].into_iter().enumerate() {
+                        assert_eq!(request(&client, &base, &format!("/{caller}/budget-capacity")).await?, serde_json::json!({"bounded":true,"slot_reused":true}));
+                        assert_eq!(request(&client, &base, &format!("/rust/budget-parent?target={caller}")).await?["parent_capped"], true);
+                        let (held_client, held_base, held_path) = (client.clone(), base.clone(), format!("/{caller}/budget-hold"));
+                        let held = tokio::spawn(async move { request(&held_client, &held_base, &held_path).await });
+                        for attempt in 0..100 {
+                            if request(&client, &base, &format!("/{caller}/budget-held")).await?["held"] == true { break; }
+                            ensure!(attempt < 99, "budget holder did not become ready");
+                            tokio::time::sleep(Duration::from_millis(1)).await;
+                        }
+                        assert_eq!(request(&client, &base, &format!("/{caller}/budget-foreign")).await?["scope_refused"], true);
+                        request(&client, &base, &format!("/{caller}/budget-free")).await?;
+                        assert_eq!(held.await??["joined"], true);
+                        for target in ["rust", "v8", "node"] {
+                            for phase in ["verify", "encode", "decode"] {
+                                let result = request(&client, &base, &format!("/{caller}/codec-budget?target={target}&phase={phase}&id=codec-budget-{caller}")).await?;
+                                assert_eq!(result["code"], "DeadlineExceeded", "{caller}->{target}/{phase}");
+                                assert_eq!(result["outcome"], if phase == "decode" {"unknown"} else {"not_committed"});
+                                assert_eq!(result["codec_entered"], phase);
+                                let expected = if phase != "decode" {0} else if round == 0 {index + 1} else {2};
+                                assert_eq!(result["count"], expected.to_string(), "{caller}->{target}/{phase}, round={round}");
+                                if phase == "decode" { assert_eq!(result["replay"], (index + 1).to_string()); }
+                            }
                         }
                     }
                     let NodeOutcome::Stopped(report) = host.shutdown(ShutdownMode::Preserve).await? else {anyhow::bail!("native RPC host failed")};

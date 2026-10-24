@@ -9,6 +9,7 @@ import {
 } from "./fixtures/generated/typescript/counter_pb.js";
 import { configureLiveClient, liveControl, liveSnapshot, liveSync } from "./live.js";
 import type { RpcAbortSignal } from "@cellar/sdk/rpc";
+import { budgetControl, codecBudget, parentBudget } from "./deadline.js";
 
 let constructed = 0;
 const maximum = (1n << 63n) - 1n;
@@ -33,6 +34,7 @@ export class Counter implements CounterHandler {
   constructor() { constructed++; }
 
   async getCount(_request: GetCountRequest, ctx: Context): Promise<GetCountResponse> {
+    if (ctx.identity?.name === "codec-parent") return create(GetCountResponseSchema, {count:{value:await parentBudget(ctx)}});
     const current = await ctx.storage.read("count");
     return create(GetCountResponseSchema, {count:{value:current.present ? integer(current.value) : 0n}});
   }
@@ -91,6 +93,7 @@ export function handler(Client: Client, createController?: () => Controller) {
       const [key, value = ""] = pair.split("=");
       return [decodeURIComponent(key), decodeURIComponent(value)];
     }));
+    if (/\/budget-(capacity|hold|held|free|foreign)$/.test(path)) return budgetControl(path, ctx);
     if (path.endsWith("/cancel-release")) {
       const control = cancelling.get(params.name);
       if (!control) throw Error("No pending cancellation probe");
@@ -149,6 +152,18 @@ export function handler(Client: Client, createController?: () => Controller) {
     if (path.endsWith("/probe-clear")) return jsonResponse(liveControl("clear"));
     const binding = params.target === "rust" ? "RUST" : params.target === "node" ? "NODE"
       : params.target === "python" ? "PYTHON" : "V8";
+    if (path.endsWith("/codec-budget")) {
+      const result = await codecBudget(ctx, binding, params.phase, params.id);
+      const probe = Client.bind(ctx, binding, "codec-budget-" + params.phase);
+      const current = await probe.getCount({});
+      let replay: string | null = null;
+      if (params.phase === "decode") {
+        const saved = await probe.increment({delta:1n, operationId:params.id});
+        if (saved.result.case !== "count") throw Error("Missing codec receipt");
+        replay = saved.result.value.value.toString();
+      }
+      return jsonResponse({...result, count:current.count!.value.toString(), replay});
+    }
     const client = Client.bind(ctx, binding, "alice");
     if (path.endsWith("/capture")) { retained = client; return jsonResponse({captured:true}); }
     try {

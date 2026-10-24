@@ -19,6 +19,22 @@ function check(transport) {
   }
 }
 
+function budgetFailure(error, outcome = "not_committed") {
+  const code = error?.code ?? error?.message;
+  return failure(["ContextExpired", "ContextMismatch", "DeadlineExceeded", "Unavailable", "ResourceExhausted"].includes(code)
+    ? code : "Unavailable", outcome);
+}
+
+function remaining(budget, outcome = "not_committed") {
+  try {
+    const value = budget.remaining();
+    if (!Number.isInteger(value) || value <= 0 || value > 0xffffffff) throw Error("Unavailable");
+    return value;
+  } catch (error) {
+    throw budgetFailure(error, outcome);
+  }
+}
+
 function aborted(signal, outcome = "not_committed") {
   if (signal === undefined) return false;
   try {
@@ -100,7 +116,7 @@ export class RpcClient {
 
   constructor(context, binding, name) {
     const transport = context?.[transportKey];
-    if (typeof transport?.check !== "function" || typeof transport?.call !== "function" || typeof transport?.verify !== "function" ||
+    if (typeof transport?.check !== "function" || typeof transport?.call !== "function" || typeof transport?.verify !== "function" || typeof transport?.budget !== "function" ||
         typeof binding !== "string" || binding.length === 0 || typeof name !== "string") {
       throw failure("InvalidArgument");
     }
@@ -112,32 +128,56 @@ export class RpcClient {
 
   async call(method, request, options = {}) {
     check(this.#transport);
-    if (!methods.has(method) || options === null || typeof options !== "object") {
-      throw failure("InvalidArgument");
-    }
-    let timeoutMs, signal;
+    let admitted;
+    try { admitted = this.#transport.budget(); }
+    catch (error) { throw budgetFailure(error); }
+
+    // Snapshot controls before Node's preflight can suspend. Even a throwing
+    // getter must join/release the original control, so retain its fixed error.
+    let timeoutMs, signal, invalid;
     try {
-      if (Object.keys(options).some(key => key !== "timeoutMs" && key !== "signal")) throw new TypeError();
+      if (!methods.has(method) || options === null || typeof options !== "object" ||
+          Object.keys(options).some(key => key !== "timeoutMs" && key !== "signal")) throw new TypeError();
       ({timeoutMs, signal} = options);
-      if (timeoutMs !== undefined && (!Number.isInteger(timeoutMs) || timeoutMs < 0 || timeoutMs > 0xffffffff)) {
-        throw new TypeError();
+      if (timeoutMs !== undefined && (!Number.isInteger(timeoutMs) || timeoutMs < 0 || timeoutMs > 0xffffffff)) throw new TypeError();
+    } catch { invalid = failure("InvalidArgument"); }
+
+    let budget, submitted = false;
+    try {
+      // V8 supplies a synchronous native control. Node obtains its opaque
+      // native handle over bounded IPC before any validation or codecs run.
+      try {
+        budget = typeof admitted?.then === "function" ? await admitted : admitted;
+      } catch (error) {
+        if (!invalid) throw budgetFailure(error);
       }
-    } catch {
-      throw failure("InvalidArgument");
+      if (invalid) throw invalid;
+      if (aborted(signal)) throw failure("Cancelled");
+      if (timeoutMs !== undefined) {
+        try { budget.limit(timeoutMs); }
+        catch (error) { throw budgetFailure(error); }
+      }
+      remaining(budget);
+      const limits = this.#transport.verify(method);
+      remaining(budget);
+      const body = method.encodeRequest(request, limits);
+      if (aborted(signal)) throw failure("Cancelled");
+      const metadata = {
+        binding: this.#binding, name: this.#name,
+        method: method.method, contract_digest: method.digest,
+      };
+      metadata.timeout_ms = remaining(budget);
+      submitted = true;
+      const reply = await this.#transport.call(metadata, body, signal, budget);
+      if (aborted(signal, "unknown")) throw failure("Cancelled", "unknown");
+      remaining(budget, "unknown");
+      const result = method.decodeResponse(reply, limits);
+      if (aborted(signal, "unknown")) throw failure("Cancelled", "unknown");
+      remaining(budget, "unknown");
+      return result;
+    } finally {
+      try { budget?.release(); }
+      catch (error) { throw budgetFailure(error, submitted ? "unknown" : "not_committed"); }
     }
-    if (aborted(signal)) throw failure("Cancelled");
-    const limits = this.#transport.verify(method);
-    const body = method.encodeRequest(request, limits);
-    if (aborted(signal)) throw failure("Cancelled");
-    const metadata = {
-      binding: this.#binding, name: this.#name,
-      method: method.method, contract_digest: method.digest,
-    };
-    if (timeoutMs !== undefined) metadata.timeout_ms = timeoutMs;
-    const reply = await this.#transport.call(metadata, body, signal);
-    if (aborted(signal, "unknown")) throw failure("Cancelled", "unknown");
-    const result = method.decodeResponse(reply, limits);
-    if (aborted(signal, "unknown")) throw failure("Cancelled", "unknown");
-    return result;
   }
 }

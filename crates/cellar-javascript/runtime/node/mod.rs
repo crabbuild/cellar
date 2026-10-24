@@ -167,7 +167,8 @@ fn run(
     // The factory is captured before importing application modules. The channel
     // secret is delivered only over inherited stdin, never argv or the environment.
     let script = format!(
-        "const makeRunner = ({});\n{}",
+        "const makeBudgets = ({});\nconst makeRunner = ({});\n{}",
+        include_str!("budget.js"),
         include_str!("../runner.js"),
         include_str!("worker.mjs")
     );
@@ -274,6 +275,8 @@ fn run(
     let mut invocations = HashMap::<u64, InvocationState>::new();
     let mut objects = HashMap::<u64, Life>::new();
     let mut last_operation = 0;
+    let mut last_budget = 0;
+    let mut budgets = super::budgets::Budgets::default();
     loop {
         if runtime.closed.load(Ordering::Acquire) {
             return Ok(());
@@ -298,6 +301,7 @@ fn run(
             .collect();
         for id in cancelled {
             invocations.remove(&id);
+            budgets.retire(id);
             transport.send(json!({"type":"cancel","id":id}))?;
         }
         let retired: Vec<_> = objects
@@ -407,6 +411,36 @@ fn run(
                     let _ = ready.send(Ok(()));
                 }
                 "heartbeat" => heartbeat = Instant::now(),
+                "budget_start" if initialized => {
+                    let invocation = number(&message, "invocation")?;
+                    let id = number(&message, "id")?;
+                    ensure!(id > last_budget, "Node budget identity reused");
+                    last_budget = id;
+                    let result = match invocations.get(&invocation).filter(|state| {
+                        state.start.active.load(Ordering::Acquire)
+                            && state.start.owner.load(Ordering::Acquire)
+                    }) {
+                        Some(state) => budgets.start(
+                            invocation,
+                            id,
+                            state.start.budget_source.as_ref(),
+                            runtime.options.max_pending_operations,
+                        ),
+                        None => Err("ContextExpired"),
+                    };
+                    let reply = match result {
+                        Ok(remaining) => {
+                            json!({"type":"budget_reply","invocation":invocation,"id":id,"ok":true,"remaining_ms":remaining})
+                        }
+                        Err(code) => {
+                            json!({"type":"budget_reply","invocation":invocation,"id":id,"ok":false,"code":code})
+                        }
+                    };
+                    transport.send(reply)?;
+                }
+                "budget_end" if initialized => {
+                    budgets.release(number(&message, "invocation")?, number(&message, "id")?);
+                }
                 "cancel_operation" if initialized => {
                     let invocation = number(&message, "invocation")?;
                     let id = number(&message, "id")?;
@@ -459,6 +493,30 @@ fn run(
                         reject(&mut transport, invocation, id, code)?;
                         continue;
                     }
+                    let budget = if message.get("budget_id").is_some() {
+                        let limit = message["budget_ms"]
+                            .as_u64()
+                            .and_then(|value| u32::try_from(value).ok());
+                        let selected =
+                            match (name == "cell.call", number(&message, "budget_id"), limit) {
+                                (true, Ok(budget), Some(limit)) => budgets
+                                    .limit(invocation, budget, limit)
+                                    .and_then(|()| budgets.get(invocation, budget)),
+                                _ => Err("ValidationError"),
+                            };
+                        match selected {
+                            Ok(budget) => Some(budget),
+                            Err(code) => {
+                                reject(&mut transport, invocation, id, code)?;
+                                continue;
+                            }
+                        }
+                    } else if message.get("budget_ms").is_some() {
+                        reject(&mut transport, invocation, id, "ValidationError")?;
+                        continue;
+                    } else {
+                        None
+                    };
                     let Ok(bytes) = runtime.reserve(size) else {
                         reject(&mut transport, invocation, id, "BridgeLimit")?;
                         continue;
@@ -474,6 +532,7 @@ fn run(
                             payload: payload.into(),
                             body,
                             signal: cancellation.as_ref().map(|controller| controller.signal()),
+                            budget,
                             _bytes: bytes,
                         })
                         .is_err()
@@ -499,7 +558,9 @@ fn run(
                         let failed = message["failed"]
                             .as_bool()
                             .context("invalid Node completion")?
-                            || !state.pending.is_empty();
+                            || !state.pending.is_empty()
+                            || budgets.has(id);
+                        budgets.retire(id);
                         let payload = if failed {
                             "null"
                         } else {

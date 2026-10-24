@@ -67,6 +67,32 @@ Unicode and shared/resizable/detached byte storage. Native code independently
 validates request and response wire bytes. Unknown fields from newer schemas
 may be discarded; this API does not promise lossless message forwarding.
 
+### Bound the whole named call
+
+`timeoutMs` covers verification, encoding, native queueing/routing, output proof
+and response decoding. Options are captured before the first asynchronous wait.
+Omitting the option still applies the original host and incoming parent limits;
+requesting a longer timeout cannot extend either cap.
+
+```text
+call entry -> private native budget -> verify -> encode -> submit -> decode
+                    |                                      |
+             original host/parent cap             same deadline throughout
+```
+
+V8 reads the native monotonic clock directly. Node obtains a private native
+handle over bounded IPC and conservatively charges the control round trip plus
+one clock tick. Its effective window can therefore be shorter than requested.
+Controls use a separate bounded pool and no extra SDK mutation slot. They are
+released on success, failure and invocation retirement.
+
+Expiry detected before submission is `DeadlineExceeded/not_committed`. Expiry
+detected after native success, including during decoding, is
+`DeadlineExceeded/unknown`: a mutation may already have committed. Native
+refusals retain their original outcome. Checks surround synchronous codecs;
+they do not interrupt a codec halfway through execution. Use operation receipts
+to reconcile ambiguous mutations; the client never retries automatically.
+
 ### Cancel a named call
 
 Pass `signal` with optional `timeoutMs`. Node applications can use the native

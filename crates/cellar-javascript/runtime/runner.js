@@ -11,6 +11,7 @@
     isArray = Array.isArray;
   const MapClass = Map,
     ErrorClass = Error;
+  const budgetKeys = new WeakMap();
   const rpcKey = Symbol.for("cellar.rpc");
   const apply = Reflect.apply,
     own = Object.getOwnPropertyDescriptor;
@@ -127,7 +128,7 @@
   // Each facade closes over one invocation ID. The backend independently checks
   // continuation identity and liveness whenever that facade calls into Rust.
   function context(id, identity, contracts) {
-    const call = async (name, value = {}, body, signal) => {
+    const call = async (name, value = {}, body, signal, budget) => {
       let encoded, pending;
 
       try {
@@ -170,7 +171,9 @@
         // returns a private [promise, cancel] pair; other operations keep their
         // existing promise shape. No cancellation authority crosses JSON.
         try {
-          const admitted = host(id, name, encoded, body);
+          const key = budget === undefined ? undefined : budgetKeys.get(budget);
+          if (budget !== undefined && key === undefined) throw new ErrorClass("ContextMismatch");
+          const admitted = host(id, name, encoded, body, key);
           if (name === "cell.call") [pending, cancel] = admitted;
           else pending = admitted;
           submitted = true;
@@ -217,6 +220,15 @@
     return freeze({
       [rpcKey]: freeze({
         check: () => host(id, "$check", "{}"),
+        budget: () => {
+          const wrap = control => {
+            const budget = freeze({__proto__:null, remaining:control[1], limit:control[2], release:control[3]});
+            budgetKeys.set(budget, control[0]);
+            return budget;
+          };
+          const control = host(id, "$rpc_budget", "{}");
+          return typeof control?.then === "function" ? control.then(wrap) : wrap(control);
+        },
         verify: method => {
           try {
             const contract = contracts[method.digest];
@@ -231,7 +243,7 @@
             throw error;
           }
         },
-        call: (metadata, body, signal) => call("cell.call", metadata, body, signal),
+        call: (metadata, body, signal, budget) => call("cell.call", metadata, body, signal, budget),
       }),
       identity: identity && freeze(identity),
       now: () => call("clock.now"),

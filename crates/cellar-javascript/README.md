@@ -379,11 +379,29 @@ run. New SDK operations from that cleanup fail with
 `ContextExpired/not_committed`, including after awaiting another JavaScript
 promise. In Node, cancelled application code may continue its own OS work.
 
-### Typed RPC cancellation
+### Typed RPC deadlines and cancellation
 
 Generated clients accept `{timeoutMs, signal}`. Use a native Node `AbortSignal`,
 or bundle a compatible implementation for embedded V8. The
 [SDK example](../../packages/cellar-sdk/README.md#cancel-a-named-call) shows both.
+
+Every generated call starts a private budget before codecs run. Verification,
+encoding, native admission/transport/proof and decoding share the original
+deadline, capped by host policy and the incoming parent call. V8 uses the native
+monotonic clock; Node uses a bounded private IPC control, conservatively charging
+its round trip and one clock tick. Options are captured before that wait.
+
+```text
+original Context -> native budget -> verify -> encode -> native call -> decode
+                         |                                  |
+                  parent/host ceiling                no fresh timeout
+```
+
+Budget controls have their own per-invocation bound and consume no extra SDK
+mutation slot. Release and retirement reclaim them. An expired pre-submission
+call is `DeadlineExceeded/not_committed`; expiry after a successful native call
+is `DeadlineExceeded/unknown`, including during decoding. Codec checks occur
+before and after synchronous work; they do not preempt it.
 
 ```text
 checked admission -> [private reply promise, cancellation control]
@@ -406,8 +424,8 @@ native future and reservations until it settles. Signal subscriptions are also
 removed on invocation retirement. Node captures its
 [protected abort-listener API](https://nodejs.org/docs/latest-v24.x/api/events.html#eventsaddabortlistenersignal-listener)
 before importing the application. Cancellation never promises rollback, and
-synced writes remain committed. Guest encoding budgets and broader cancellation
-qualification remain in the [RPC ledger](../../plans/named-typed-rpc/implementation-status.md).
+synced writes remain committed. Broader remote/nested deadline, proof-wait and
+cancellation qualification remain in the [RPC ledger](../../plans/named-typed-rpc/implementation-status.md).
 
 ## Limits, errors, and shutdown
 
