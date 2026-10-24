@@ -103,6 +103,10 @@ pub mod verification {
         CommittedReceipt, ExecutionError, ExecutionLimits, ExecutionStatus, PreparedCommand,
         PrivateExecutor, PrivateOptions, RegisteredQueryOutput, StageOutcome, StoredReceipt,
     };
+    pub use crate::raft::fleet_catalog::{
+        FleetCatalog, FleetCatalogError, FleetChange, FleetCommit, FleetCursor, FleetEntry,
+        FleetMutation, FleetPage, FleetSnapshot, FleetTable,
+    };
     pub use crate::raft::inspection::{
         CellInspection, LeaderLoad, MemberInspection, NodeInspection, RaftNodeProfile,
         ReplicaOccupancy,
