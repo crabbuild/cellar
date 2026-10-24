@@ -111,6 +111,8 @@ class NativeArrivalTests(unittest.TestCase):
                     "--python-host", f"python={CLIENT}", "--build-profile", "lab", "--output", str(output)]
             for arguments in (["--read-cells", "-1"], ["--read-cells", "65"],
                               ["--read-cells", "32", "--body-bytes", "1"],
+                              ["--python-read-mode", "initial"],
+                              ["--python-read-mode", "direct-initial", "--cell-echo"],
                               ["--read-cells", "1", "--body-bytes", "0", "--cell-echo"]):
                 with self.subTest(arguments=arguments):
                     result = subprocess.run([*base, *arguments], capture_output=True, timeout=10)

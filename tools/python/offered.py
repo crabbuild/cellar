@@ -140,7 +140,9 @@ def measure(client, host, args, rate, duration, path, reads=()):
 def run_case(client, executable, mode, args, root, case):
     cpus = args.cpu_placement["host"] if args.cpu_placement else None
     evidence = root / "host-affinity.json"
-    host = Host(executable, mode + "-resident", root, "primary",
+    read_mode = args.python_read_mode if mode == "python" else "nested"
+    fixture = mode + {"nested": "", "initial": "-initial", "direct-initial": "-direct-initial"}[read_mode] + "-resident"
+    host = Host(executable, fixture, root, "primary",
                 command_prefix=affinity.prefix(cpus, evidence))
     case.update(status="running", phases=[], load_average_before=list(os.getloadavg()))
     try:
@@ -152,7 +154,8 @@ def run_case(client, executable, mode, args, root, case):
         case["host"] = host.ready
         require(host.ready["embed_compiled"] == (mode == "python")
                 and host.ready["debug_assertions"] == (args.build_profile == "dev")
-                and host.ready["durability"] == "local-only", "incorrect measurement host")
+                and host.ready["durability"] == "local-only"
+                and host.ready["mode"] == fixture, "incorrect measurement host")
         case["python_runtime"] = host.python_runtime() if mode == "python" else None
         reads = read_targets(args.read_cells)
         population = 1 if args.cell_echo else args.read_cells
@@ -182,9 +185,14 @@ def run_case(client, executable, mode, args, root, case):
             if mode == "python":
                 before = phase["before"]["runtime"]["interpreter"]["interpreter"]
                 after = phase["after"]["runtime"]["interpreter"]["interpreter"]
+                handlers = 2 if population and read_mode != "direct-initial" else 1
                 require(after["handlers_completed"] - before["handlers_completed"]
-                        >= (2 if population else 1) * phase["measurement"]["outcomes"].get("success", 0),
+                        >= handlers * phase["measurement"]["outcomes"].get("success", 0),
                         "interpreter observation omitted completed requests")
+                if read_mode == "direct-initial":
+                    require(phase["after"]["runtime"]["bridge"]["operations"]["admitted"]
+                            == phase["before"]["runtime"]["bridge"]["operations"]["admitted"],
+                            "direct snapshot reads unexpectedly submitted SDK operations")
             print(f"{case['runtime']} r{case['repetition']} offered={rate}: "
                   f"{phase['measurement']['outcomes']}", flush=True)
         if mode == "python":
@@ -213,6 +221,8 @@ def main():
     parser.add_argument("--body-bytes", type=int, default=4096)
     parser.add_argument("--read-cells", type=int, default=0,
                         help="Read 1..64 resident cells instead of echo; requires --body-bytes 0")
+    parser.add_argument("--python-read-mode", choices=("nested", "initial", "direct-initial"), default="nested",
+                        help="Python cell read path: nested SDK calls, initial snapshots, or native routing plus snapshots")
     parser.add_argument("--cell-echo", action="store_true",
                         help="Echo through one resident cell instead of the root handler; excludes --read-cells")
     parser.add_argument("--timeout-ms", type=int, default=1000)
@@ -232,6 +242,8 @@ def main():
     read_targets(args.read_cells)
     require(not args.cell_echo or not args.read_cells, "cell echo and cell reads are distinct workloads")
     require(not args.read_cells or args.body_bytes == 0, "cell reads require --body-bytes 0")
+    require(args.python_read_mode == "nested" or args.read_cells,
+            "optimized Python read modes require --read-cells")
     client = args.client.resolve(strict=True)
     hosts = [("native", "native", args.native_host.resolve(strict=True))]
     for argument in args.python_host:
@@ -246,6 +258,7 @@ def main():
         "source_git_sha": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
         "source_diff_sha256": hashlib.sha256(subprocess.check_output(["git", "diff", "HEAD"])).hexdigest()},
         "read_cells": args.read_cells,
+        "python_read_mode": args.python_read_mode,
         "cell_echo": args.cell_echo,
         "client": {"path": str(client), "sha256": digest(client)},
         "measurement_sources": {name: digest(Path(__file__).with_name(name))
