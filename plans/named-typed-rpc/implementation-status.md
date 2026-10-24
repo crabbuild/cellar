@@ -70,6 +70,12 @@ pairs. Preserve the full test matrix, failures and remaining work across turns.
 
 ## Current evidence
 
+- After integrating current main, `--suite all` passes again with normal stack
+  settings: 16 local pairs, 16 remote/handoff pairs, three deadline cases,
+  17 cancellation cases, 32 failed-recovery cases, 48 process kills and 64
+  proof/fencing cases. The executable exits successfully and publishes
+  `.cellar/rpc/pr-full-matrix.json` after runtime cleanup. Full-qualification
+  flags remain false; the ordered follow-ups below are still required.
 - The implementation branch incorporates `origin/main` at `e0035689`, including
   Python completion-handoff telemetry and log shutdown publication fixes.
   Post-merge checks pass 29 Python library tests, 21 qualifier tests, 54 JS SDK
@@ -640,8 +646,9 @@ must preserve the existing recovery, crash, proof and receipt evidence.
 2. **P0: close cancellation and provenance gaps.** Cancel during output-proof
    and lifecycle waits, exercise self-calls and A-to-B-to-A cycles, and verify
    bounded cleanup. Test a parent that writes before a child is refused and
-   attempts to forge refusal metadata. Only trusted pre-admission refusal may
-   establish `not_committed`; a lost response or earlier write stays ambiguous.
+   attempts to forge refusal metadata. Trusted pre-admission refusal may establish
+   `not_committed` for that call; it cannot reclassify the parent's earlier
+   writes. A lost response remains unknown.
 3. **P0: qualify parser and resource boundaries.** Reject invalid global symbols,
    imports and options before invoking message generators. Verify effective
    method/runtime/host/peer minima, account for retained binary copies, and
