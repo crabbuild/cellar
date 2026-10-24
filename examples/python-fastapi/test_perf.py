@@ -1,4 +1,5 @@
 """Check placement through the CLI/native-child boundary used by benchmarks."""
+import copy
 import json
 import os
 from pathlib import Path
@@ -9,6 +10,7 @@ from types import SimpleNamespace
 import unittest
 
 from perf import start_host
+from updates import reconcile
 import affinity
 
 
@@ -87,6 +89,65 @@ while True:
                         self.assertEqual(affinity.available(), allowed, "parent affinity changed")
                     finally:
                         host.stop()
+
+
+class UpdateRecovery(unittest.TestCase):
+    def test_unbounded_update_population_refuses_before_launching_host(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "results"
+            result = subprocess.run([
+                sys.executable, "-B", str(Path(__file__).with_name("offered_perf.py")),
+                "--operation", "update", "--rates", "100000", "--duration-ms", "1000",
+                "--client", "/nonexistent/client", "--client-profile", "lab",
+                "--cellar", "/nonexistent/cellar", "--project", "example=/nonexistent/project",
+                "--output", str(output),
+            ], capture_output=True, text=True, timeout=5)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("update phase exceeds 10000 distinct orders", result.stderr)
+            self.assertFalse(output.exists())
+
+    def evidence(self):
+        before, observed, targets, samples = {}, {}, [], []
+        for i, outcome in enumerate(("success", "client_late", "client_capacity", "timeout", "http_status", "body_mismatch", "transport")):
+            path = f"/orders/{i}"
+            initial = dict(order_id=str(i), status="pending", version=1, created_at_ms=12)
+            expected = dict(initial, status="confirmed", version=2)
+            before[path] = initial
+            observed[path] = expected if i in (0, 3, 5) else initial
+            targets.append(dict(path=path, body=[], expected_body=list(json.dumps(expected).encode())))
+            samples.append(dict(id=i, outcome=outcome, dispatched_ns=None if outcome.startswith("client_") else 1))
+        return dict(workload=dict(updates=targets), samples=samples), before, observed
+
+    def test_uncertain_commits_remain_distinct_from_acknowledgements(self):
+        raw, before, observed = self.evidence()
+        self.assertEqual(reconcile(raw, before, observed), dict(acknowledged=1, not_dispatched=2,
+                                                               uncertain_committed=2, uncertain_unchanged=2))
+
+    def test_recovery_refuses_lost_ack_corruption_and_unsubmitted_changes(self):
+        raw, before, observed = self.evidence()
+        for index, value in [(0, before["/orders/0"]), (1, dict(before["/orders/1"], version=2)),
+                             (3, dict(before["/orders/3"], version=9))]:
+            with self.subTest(index=index):
+                wrong = copy.deepcopy(observed)
+                wrong[f"/orders/{index}"] = value
+                with self.assertRaises(RuntimeError):
+                    reconcile(raw, before, wrong)
+        for mapping in (before, observed):
+            wrong = dict(mapping)
+            del wrong["/orders/0"]
+            with self.assertRaises(RuntimeError):
+                reconcile(raw, wrong, observed) if mapping is before else reconcile(raw, before, wrong)
+
+    def test_recovery_refuses_duplicate_or_reordered_arrivals(self):
+        raw, before, observed = self.evidence()
+        wrong = copy.deepcopy(raw)
+        wrong["workload"]["updates"][1] = wrong["workload"]["updates"][0]
+        with self.assertRaises(RuntimeError):
+            reconcile(wrong, before, observed)
+        wrong = copy.deepcopy(raw)
+        wrong["samples"].reverse()
+        with self.assertRaises(RuntimeError):
+            reconcile(wrong, before, observed)
 
 
 if __name__ == "__main__":
