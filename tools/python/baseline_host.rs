@@ -4,6 +4,7 @@ use cellar::sdk::*;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 struct Controlled {
+    direct: bool,
     application: Arc<dyn Application>,
     stop: Arc<tokio::sync::Notify>,
     memory: Arc<Mutex<Value>>,
@@ -32,6 +33,24 @@ impl Drop for CountedCell {
 impl Application for Controlled {
     fn invoke(self: Arc<Self>, context: Context, event: Invocation) -> HandlerFuture<Output> {
         if let Invocation::Fetch(request) = &event {
+            let selected = if request.url.ends_with("/resume-cell") {
+                Some(true)
+            } else if request.url.ends_with("/resume-shared") {
+                Some(false)
+            } else {
+                None
+            };
+            if selected.is_some() || request.url.ends_with("/resume-observations") {
+                return Box::pin(async move {
+                    if let Some(cell) = selected {
+                        cellar::pool::diagnostic_resume_cells(cell);
+                    }
+                    let counts = cellar::pool::diagnostic_resume_counts();
+                    Ok(Output::Http(
+                        http::Response::from_json(&counts)?.into_http(&context)?,
+                    ))
+                });
+            }
             if request.url.ends_with("/native-observations") {
                 let memory = self.memory.lock().unwrap().clone();
                 let observation = (self.observe)();
@@ -50,6 +69,28 @@ impl Application for Controlled {
                         http::Response::new(200, Vec::new(), Vec::new()).into_http(&context)?,
                     ))
                 });
+            }
+        }
+        if self.direct {
+            if let Invocation::Fetch(request) = event {
+                let name = http::Url::new(&request.url, None)
+                    .ok()
+                    .and_then(|url| url.pathname().strip_prefix("/cells/").map(str::to_owned));
+                if let Some(name) = name {
+                    return Box::pin(async move {
+                        Ok(Output::Http(
+                            context
+                                .namespace("ENTITIES")?
+                                .get_by_name(&name)
+                                .fetch(&context, request)
+                                .await?,
+                        ))
+                    });
+                }
+                return self
+                    .application
+                    .clone()
+                    .invoke(context, Invocation::Fetch(request));
             }
         }
         self.application.clone().invoke(context, event)
@@ -182,6 +223,7 @@ pub(super) async fn drive(
         json!({"sample":memory(), "sampled_elapsed_ns":0}),
     ));
     let app: Arc<dyn Application> = Arc::new(Controlled {
+        direct: arguments.mode.contains("-direct"),
         application,
         stop: shutdown.clone(),
         memory: samples.clone(),

@@ -3838,7 +3838,7 @@ async fn drive_cell_inner(
         let (started, moves) = match wake_with_cross_entry_gate(&mut ops, &mut entry, budget).await
         {
             Wake::Op(op, result) => {
-                slot.turn(|worker| {
+                slot.diagnostic_turn_resume(&scope, |worker| {
                     let started = worker.turn_deliver(&mut entry, op, result);
                     (started, worker.take_alarm_moves())
                 })
@@ -3858,7 +3858,7 @@ async fn drive_cell_inner(
             }
             Wake::Cancelled { shutdown } => {
                 let cancelled = slot
-                    .turn(|worker| {
+                    .diagnostic_turn_resume(&scope, |worker| {
                         let started = if shutdown {
                             worker.turn_cancel_for_shutdown(&mut entry)
                         } else {
@@ -3874,29 +3874,33 @@ async fn drive_cell_inner(
             }
             Wake::Expired => {
                 entry.time_out(budget);
-                slot.turn(|worker| worker.turn_retire_input_gates(&entry))
-                    .await;
+                slot.diagnostic_turn_resume(&scope, |worker| {
+                    worker.turn_retire_input_gates(&entry)
+                })
+                .await;
                 #[cfg(cellar_internal_tests)]
                 notify_gated_failure_for_test(&mut entry, &mut test_observers.gated_failure);
                 (Vec::new(), Vec::new())
             }
             Wake::Idle => {
                 entry.stuck();
-                slot.turn(|worker| worker.turn_retire_input_gates(&entry))
-                    .await;
+                slot.diagnostic_turn_resume(&scope, |worker| {
+                    worker.turn_retire_input_gates(&entry)
+                })
+                .await;
                 #[cfg(cellar_internal_tests)]
                 notify_gated_failure_for_test(&mut entry, &mut test_observers.gated_failure);
                 (Vec::new(), Vec::new())
             }
             Wake::PendingEventIdle => {
-                slot.turn(|worker| {
+                slot.diagnostic_turn_resume(&scope, |worker| {
                     let started = worker.turn_cancel_pending_events(&mut entry);
                     (started, worker.take_alarm_moves())
                 })
                 .await
             }
             Wake::Poll => {
-                slot.turn(|worker| {
+                slot.diagnostic_turn_resume(&scope, |worker| {
                     let started = worker.turn_poll(&mut entry);
                     (started, worker.take_alarm_moves())
                 })

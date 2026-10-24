@@ -294,6 +294,7 @@ impl PythonApplication {
             "Python invocation exceeds value budget"
         );
         self.runtime.start(Start {
+            queued_at: cellar::asyncrt::instant(),
             id: invocation,
             reservation: self.runtime.budget.reserve(charge)?,
             payload,
@@ -398,12 +399,17 @@ impl PythonApplication {
                     }
                 }
                 Event::Complete {
+                    queued_at,
                     payload,
                     body,
                     failed,
                     reservation,
                 } => {
                     let _reservation = reservation;
+                    self.runtime
+                        .budget
+                        .completion_handoff
+                        .observe(queued_at.elapsed());
                     if failed {
                         if payload == "{\"error\":\"Overloaded\"}" {
                             return Err(cellar::sdk::ApplicationOverloaded.into());

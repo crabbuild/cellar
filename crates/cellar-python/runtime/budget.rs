@@ -22,9 +22,13 @@ pub struct BridgeReport {
     pub budget_exhaustions: usize,
     pub pending_reservations: usize,
     pub operations: super::OperationReport,
+    pub dispatch_handoff: super::LatencyReport,
+    pub completion_handoff: super::LatencyReport,
 }
 
 pub(crate) struct Budget {
+    pub dispatch_handoff: super::telemetry::Histogram,
+    pub completion_handoff: super::telemetry::Histogram,
     pub metrics: Arc<super::telemetry::Metrics>,
     maximum: usize,
     used: AtomicUsize,
@@ -39,6 +43,8 @@ pub(crate) struct Budget {
 impl Budget {
     pub fn new(maximum: usize) -> Arc<Self> {
         Arc::new(Self {
+            dispatch_handoff: Default::default(),
+            completion_handoff: Default::default(),
             metrics: Arc::default(),
             maximum,
             used: AtomicUsize::new(0),
@@ -84,6 +90,8 @@ impl Budget {
             budget_exhaustions: self.denied.load(Ordering::Relaxed),
             pending_reservations: self.pending.load(Ordering::Acquire),
             operations: self.metrics.report(),
+            dispatch_handoff: self.dispatch_handoff.report(),
+            completion_handoff: self.completion_handoff.report(),
         }
     }
 
