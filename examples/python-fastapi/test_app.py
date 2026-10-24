@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "crates/cellar-python/python"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from app import Order, buffered_http, fetch
-from cellar import Conflict, Request, Snapshot
+from cellar import CellIdentity, Conflict, Request, Snapshot
 
 
 class OrderSnapshots(unittest.IsolatedAsyncioTestCase):
@@ -74,6 +74,52 @@ class OrderSnapshots(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(batch['puts']['order'], json.loads(response.body))
         self.assertEqual(batch['puts']['creation']['payload'], payload)
         self.assertEqual(batch['puts']['creation']['response']['body'], response.body.decode('ascii'))
+
+    async def test_direct_cell_fastapi_matches_python_gateway_validation_and_results(self):
+        payload = dict(customer_id='customer', items=[dict(sku='widget', quantity=2, unit_price_cents=1250)])
+        cases = [('GET', None, True, 200), ('GET', None, False, 404),
+                 ('POST', payload, False, 201), ('POST', {'items': []}, False, 422),
+                 ('POST', payload, True, 409),
+                 ('PATCH', {'expected_version': 1, 'status': 'confirmed'}, True, 200),
+                 ('PATCH', {'expected_version': 2, 'status': 'confirmed'}, True, 409),
+                 ('PATCH', {'expected_version': 1, 'status': 'unknown'}, True, 422)]
+        for method, payload, present, status in cases:
+            with self.subTest(method=method, status=status):
+                observed = []
+                for direct in (False, True):
+                    ctx, _ = self.context(present)
+                    ctx.identity = CellIdentity('example', 'Order', 'test-scope', 1)
+                    ctx.storage.read_json.side_effect = None
+                    ctx.storage.read_json.return_value = Snapshot(False, None)
+                    cell = Order()
+
+                    async def dispatch(request):
+                        return await cell.fetch(request, ctx)
+
+                    forwarded = AsyncMock(side_effect=dispatch)
+                    namespace = SimpleNamespace(get_by_name=lambda name: SimpleNamespace(fetch=forwarded))
+                    outer = SimpleNamespace(identity=None, namespace=lambda name: namespace)
+                    request = Request('https://orders/orders/example?tag=a&tag=b', method,
+                        b'' if payload is None else json.dumps(payload), [('content-type', 'application/json')])
+                    response = await (cell.fetch(request, ctx) if direct else fetch(request, outer))
+                    self.assertEqual(response.status, status)
+                    if direct:
+                        forwarded.assert_not_awaited()
+                    elif status != 422:
+                        forwarded.assert_awaited_once()
+                    else:
+                        forwarded.assert_not_awaited()
+                    observed.append((response.status, response.body, response.headers,
+                                     ctx.storage.apply.await_args_list, ctx.storage.read_json.await_args_list))
+                self.assertEqual(observed[0], observed[1])
+
+    async def test_direct_route_cannot_use_another_order_identity(self):
+        ctx, _ = self.context()
+        ctx.identity = CellIdentity('different', 'Order', 'test-scope', 1)
+        with self.assertRaisesRegex(RuntimeError, 'does not match'):
+            await Order().fetch(Request('https://orders/orders/example'), ctx)
+        ctx.storage.read_json.assert_not_awaited()
+        ctx.storage.apply.assert_not_awaited()
 
 
 class BufferedHTTP(unittest.IsolatedAsyncioTestCase):

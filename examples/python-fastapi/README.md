@@ -6,6 +6,16 @@ Each order is a durable Cellar cell with SQLite state, atomic creation receipts
 and checked status changes. Cellar owns the listener, routing and durability;
 Uvicorn and Docker are not required.
 
+The native host routes canonical `GET`, `POST` and `PATCH /orders/{order_id}`
+requests directly to the named order cell. FastAPI runs inside that cell, with
+the original request, validation and dependency injection. This removes the
+waiting Python gateway invocation for these routes. Other URLs, including
+percent-encoded IDs, retain the Python gateway. Cell activation happens before
+FastAPI body validation on the direct path, so an invalid body can activate a
+cell without writing an order. Admission and authorization policies must account
+for that ordering. This is an example-specific routing implementation; its
+performance benefit still requires measurement.
+
 ## Build the application and its dependencies
 
 Prerequisites: Rust 1.98.1 (the SDK CI toolchain), `uv`, and Python 3.11 or newer
@@ -255,10 +265,11 @@ not qualify write capacity, long-running resource stability or fleet recovery.
 
 ### Size ingress for nested calls
 
-An order request occupies a Python invocation slot while awaiting its cell,
+Canonical order requests use one Python invocation inside the cell. Requests
+that fall back to the Python gateway occupy a slot while awaiting their cell,
 which needs another slot in the same interpreter. The default 128-slot Python
-budget covers both, plus alarms, queues and other Python invocations. A waiting
-parent keeps its slot. The CLI leaves native stateless admission unbounded when
+budget covers these calls, plus alarms, queues and other Python invocations.
+A waiting parent keeps its slot. The CLI leaves native stateless admission unbounded when
 `CELLAR_MAX_REQUESTS` is unset; the embedded library's default is 64 per script
 pool. Configure the CLI explicitly when qualifying a deployment.
 
@@ -293,8 +304,9 @@ have committed before a child was refused, so its mutation outcome remains
 [ASGI HTTP protocol](https://asgi.readthedocs.io/en/stable/specs/www.html), which
 [FastAPI implements](https://fastapi.tiangolo.com/advanced/middleware/). It passes
 the original Cellar context in request-local ASGI state; an async dependency
-retrieves it. Async routes call named Cellar cells rather than opening SQLite
-connections themselves. SDK operations still execute in the original Rust turn.
+retrieves it. On the direct path, async routes use the current order cell's
+context after checking its identity; gateway routes call the named cell.
+SDK operations still execute in the original Rust turn.
 
 Responses are fully buffered up to 1 MiB, with at most 128 headers/32 KiB of
 header data. Native bridge limits also apply. Binary bodies, repeated headers,
