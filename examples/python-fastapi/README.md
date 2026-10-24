@@ -77,6 +77,14 @@ restart. Reusing the ID for a different order refuses. Preserve receipts for the
 full business reconciliation window. SDK failures expose conservative outcomes;
 the example never automatically retries an ambiguous mutation.
 
+The compiled host supplies each order invocation with an initial `order`
+snapshot, declared in both `main.rs` and the package descriptor. Reads use this
+snapshot without another Python-to-host storage call. Writes use the same
+snapshot as a checked-batch precondition, so an intervening writer produces a
+409 rather than overwriting newer state. The snapshot is captured before the
+cell handler runs and does not refresh after an await. FastAPI routing,
+validation and dependency injection still run for every public request.
+
 ## Test a fresh package installation locally
 
 Stop the dev host first. The following drill temporarily moves the original

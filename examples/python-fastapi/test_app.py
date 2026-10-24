@@ -1,14 +1,79 @@
 """Boundaries of the example's buffered ASGI transport, using real FastAPI."""
 import asyncio
+import copy
+import json
 from pathlib import Path
 import sys
+from types import SimpleNamespace
 import unittest
+from unittest.mock import AsyncMock
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "crates/cellar-python/python"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from app import buffered_http, fetch
-from cellar import Request
+from app import Order, buffered_http, fetch
+from cellar import Conflict, Request, Snapshot
+
+
+class OrderSnapshots(unittest.IsolatedAsyncioTestCase):
+    def context(self, present=True):
+        order = dict(order_id='example', customer_id='customer',
+                     items=[dict(sku='widget', quantity=1, unit_price_cents=1250)], total_cents=1250,
+                     status='pending', version=1, created_at_ms=1000)
+        snapshot = Snapshot(present, order if present else None)
+        storage = SimpleNamespace(read_json=AsyncMock(side_effect=AssertionError('unexpected live read')),
+                                  apply=AsyncMock())
+        return SimpleNamespace(initial_storage={'order': snapshot}, storage=storage,
+                               now_ms=AsyncMock(return_value=1000)), snapshot
+
+    async def test_reads_use_captured_present_or_missing_order(self):
+        for present in (True, False):
+            with self.subTest(present=present):
+                ctx, snapshot = self.context(present)
+                response = await Order().fetch(Request('https://orders/example'), ctx)
+                self.assertEqual(response.status, 200 if present else 404)
+                if present:
+                    self.assertEqual(json.loads(response.body), snapshot.value)
+                ctx.storage.read_json.assert_not_awaited()
+                ctx.storage.apply.assert_not_awaited()
+
+    async def test_missing_declaration_cannot_fall_back_to_a_live_read(self):
+        ctx, _ = self.context()
+        ctx.initial_storage = {}
+        with self.assertRaises(KeyError):
+            await Order().fetch(Request('https://orders/example'), ctx)
+        ctx.storage.read_json.assert_not_awaited()
+
+    async def test_patch_checks_original_snapshot_and_does_not_retry_conflicts(self):
+        for conflict in (False, True):
+            with self.subTest(conflict=conflict):
+                ctx, snapshot = self.context()
+                original = copy.deepcopy(snapshot.value)
+                if conflict:
+                    ctx.storage.apply.side_effect = Conflict('intervening writer')
+                response = await Order().fetch(Request('https://orders/example', 'PATCH',
+                    b'{"expected_version":1,"status":"confirmed"}'), ctx)
+                self.assertEqual(response.status, 409 if conflict else 200)
+                ctx.storage.apply.assert_awaited_once_with(checks={'order': snapshot},
+                    puts={'order': dict(original, version=2, status='confirmed')})
+                self.assertEqual(snapshot.value, original)
+                ctx.storage.read_json.assert_not_awaited()
+
+    async def test_create_keeps_receipt_and_order_in_one_checked_batch(self):
+        ctx, snapshot = self.context(False)
+        receipt = Snapshot(False, None)
+        ctx.storage.read_json.side_effect = None
+        ctx.storage.read_json.return_value = receipt
+        payload = dict(customer_id='customer', items=[dict(sku='widget', quantity=2, unit_price_cents=1250)])
+        response = await Order().fetch(Request('https://orders/example', 'POST', json.dumps(payload)), ctx)
+        self.assertEqual(response.status, 201)
+        ctx.storage.read_json.assert_awaited_once_with('creation')
+        ctx.storage.apply.assert_awaited_once()
+        batch = ctx.storage.apply.await_args.kwargs
+        self.assertEqual(batch['checks'], {'order': snapshot, 'creation': receipt})
+        self.assertEqual(batch['puts']['order'], json.loads(response.body))
+        self.assertEqual(batch['puts']['creation']['payload'], payload)
+        self.assertEqual(batch['puts']['creation']['response']['body'], response.body.decode('ascii'))
 
 
 class BufferedHTTP(unittest.IsolatedAsyncioTestCase):

@@ -161,7 +161,9 @@ def render(order, status=200):
 
 class Order:
     async def fetch(self, request, ctx):
-        current = await ctx.storage.read_json("order")
+        # The compiled host captures this invocation's state before Python
+        # dispatch. Checked writes still detect any intervening writer.
+        current = ctx.initial_storage["order"]
         if request.method == "GET":
             return render(current.value) if current.present else CellResponse.json({"detail": "Order not found"}, 404)
         if request.method == "POST":

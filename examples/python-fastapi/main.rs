@@ -34,6 +34,7 @@ fn main() -> Result<()> {
             Source::new(include_str!("app.py"), "app.py")
                 .events([EventKind::Fetch])
                 .cell("Order")
+                .cell_initial_reads("Order", EventKind::Fetch, ["order"])
                 .require_distribution("annotated-doc", "0.0.5")
                 .require_distribution("annotated-types", "0.8.0")
                 .require_distribution("anyio", "4.15.1")

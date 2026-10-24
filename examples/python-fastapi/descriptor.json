@@ -7,6 +7,11 @@
       "Order": [
         "fetch"
       ]
+    },
+    "initial_reads": {
+      "Order": {
+        "fetch": ["order"]
+      }
     }
   },
   "distributions": [
