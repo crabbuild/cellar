@@ -661,6 +661,7 @@ async fn run_case(
         anyhow::bail!("settle original obligation before clock-only cut: original five-second deadline elapsed; last_source={initial_pending}; evidence={saved:?}");
     }
     initial_settlement.context("settle original obligation before clock-only cut")??;
+    let initial_fetch_started = Instant::now();
     let original = fetch(
         &client,
         &source,
@@ -668,10 +669,20 @@ async fn run_case(
         "projection",
     )
     .await?;
-    ensure!(
-        original["processed"] == 1,
-        "initial consumer fetch did not expose one proven record: {original}"
-    );
+    if original["processed"] != 1 {
+        let saved = save_clock_evidence(
+            directory,
+            "initial-fetch-failure.json",
+            &json!({"format":1,"stage":"initial consumer fetch","response":original,
+                "elapsed_ms":initial_fetch_started.elapsed().as_millis(),
+                "cutoff_utc_ms":wall(),"proxy_failure":proxy.capture.failure(),
+                "source_closed":source.is_closed(),
+                "destination_closed":destination.is_closed()}),
+        );
+        anyhow::bail!(
+            "initial consumer fetch did not expose one proven record: {original}; evidence={saved:?}"
+        );
+    }
     let receipt = Receipt::decode(
         original["batch"]["receipt"]
             .as_str()
