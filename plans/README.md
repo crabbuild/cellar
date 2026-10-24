@@ -29,11 +29,13 @@ behavior. Broader API sketches in plan 008 remain future work.
 | Design | Status | Scope |
 | --- | --- | --- |
 | [002: Transactional outbox and durable event delivery](002-outbox-streams-subscriptions.md) | Proposed | Atomic event emission, durable streams, resumable subscriptions, recovery, retention, and implementation phases |
+| [007: CQRS read replicas and automatic recovery](read-replicas/README.md) | Proposed | Independent read placement, proof-bound snapshots, typed command/query contracts, self-healing and executable delivery/qualification plans |
 
-The primitive design is separate from the completed component organization
-work below. Its API sketches describe proposed behavior, not the current SDK.
-Implementation is underway; the [requirement audit and verification status](outbox-implementation-status.md)
-track the full remaining scope.
+These primitive designs are separate from the completed component organization
+work below. Their API sketches describe proposed behavior, not the current SDK.
+Outbox implementation is underway; its [requirement audit and verification status](outbox-implementation-status.md)
+tracks the remaining event-delivery scope. Read replicas remain a proposed design
+with a separate implementation and qualification plan.
 
 ## Component organization baseline
 

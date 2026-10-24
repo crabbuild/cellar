@@ -1,0 +1,521 @@
+{
+  "schema": 1,
+  "title": "Cellar independently placed read replicas",
+  "prepared_at": "2026-10-19",
+  "planned_at": "0efd8f4d871199542f97f9fe0b74086a38606d02",
+  "state": "PROPOSED_NOT_IMPLEMENTED",
+  "implementation_checkout_requirement": "Complete pinned source or reviewed successor; run source drift checks before implementation.",
+  "documentation": {
+    "index": "README.md",
+    "design": "007-technical-design.md",
+    "implementation": "008-implementation-plan.md",
+    "qualification": "009-qualification.md",
+    "application_integration": "010-application-integration.md"
+  },
+  "non_goals": [
+    "concurrent_writers",
+    "replacement_consensus",
+    "strong_replica_reads",
+    "time_bounded_staleness",
+    "read_disks_as_durability_witnesses",
+    "demand_based_replica_count_autoscaling",
+    "machine_provisioning"
+  ],
+  "roles": {
+    "primary": "A",
+    "durability_followers": [
+      "D",
+      "E"
+    ],
+    "read_replicas": [
+      "B",
+      "C"
+    ]
+  },
+  "invariants": [
+    "I1",
+    "I2",
+    "I3",
+    "I4",
+    "I5",
+    "I6",
+    "I7",
+    "I8",
+    "I9",
+    "I10"
+  ],
+  "proposed_test_targets": {
+    "cellar-logic": [
+      "read_replica_decisions",
+      "replica_placement"
+    ],
+    "cellar-ltx": [
+      "read_replica_apply"
+    ],
+    "cellar": [
+      "native_read_replica_proof",
+      "native_read_replica_materializer",
+      "native_read_replica",
+      "native_read_replica_transport",
+      "native_read_replica_failover",
+      "native_read_replica_repair"
+    ],
+    "cellar-axum": [
+      "cqrs"
+    ]
+  },
+  "command_policy": {
+    "executed_during_planning": false,
+    "new_targets_and_runner_require_implementation": true,
+    "expected_exit_code": 0,
+    "test_success_requires_nonzero_named_tests": true,
+    "ci_rust_version": "1.98.1",
+    "parallel_fleet_cases": false
+  },
+  "tasks": [
+    {
+      "id": "RR-01",
+      "title": "Decision contracts and executable invariant model",
+      "depends_on": [],
+      "status": "TODO",
+      "plan": "008-implementation-plan.md",
+      "verification_commands": [
+        "cargo test -p cellar-logic --test read_replica_decisions --locked -- --test-threads=1",
+        "cargo check -p cellar-logic --locked",
+        "cargo check-layout"
+      ],
+      "required_proposed_tests": [
+        "stale_completion_cannot_publish",
+        "read_progress_does_not_credit_write_proof",
+        "cross_epoch_requires_bridge",
+        "minimum_version_never_degrades",
+        "unsupported_consistency_is_explicit",
+        "disconnected_read_requires_policy",
+        "operation_ids_are_scoped_by_application_and_class",
+        "many_operations_keep_distinct_definitions"
+      ],
+      "requires_review": true,
+      "evidence": []
+    },
+    {
+      "id": "RR-02",
+      "title": "Immutable ticket-to-LTX proof receipts",
+      "depends_on": [
+        "RR-01"
+      ],
+      "status": "TODO",
+      "plan": "008-implementation-plan.md",
+      "verification_commands": [
+        "cargo test -p cellar --test native_read_replica_proof --locked -- --test-threads=1",
+        "cargo test -p cellar --test native_replication --test native_log --locked -- --test-threads=1"
+      ],
+      "required_proposed_tests": [
+        "ticket_maps_to_completed_capture",
+        "bucket_and_fleet_receipts_do_not_mix",
+        "failed_pipeline_tail_has_no_receipt",
+        "noop_capture_returns_existing_cut",
+        "receipt_ledger_is_bounded"
+      ],
+      "requires_review": true,
+      "evidence": []
+    },
+    {
+      "id": "RR-03",
+      "title": "Core-authorized safe-cut publication",
+      "depends_on": [
+        "RR-02"
+      ],
+      "status": "TODO",
+      "plan": "008-implementation-plan.md",
+      "verification_commands": [
+        "cargo test -p cellar-logic --test read_replica_decisions --locked -- --test-threads=1",
+        "cargo test -p cellar --test native_read_replica_proof --test native_counter --locked -- --test-threads=1"
+      ],
+      "required_proposed_tests": [
+        "bucket_cut_waits_for_owner_verification",
+        "fenced_gate_does_not_publish",
+        "cancelled_gate_does_not_publish",
+        "blocked_read_delivery_does_not_block_write"
+      ],
+      "requires_review": true,
+      "evidence": []
+    },
+    {
+      "id": "RR-04",
+      "title": "Bounded snapshot and incremental LTX materializer",
+      "depends_on": [
+        "RR-01"
+      ],
+      "status": "TODO",
+      "plan": "008-implementation-plan.md",
+      "verification_commands": [
+        "cargo test -p cellar-ltx --test read_replica_apply --test checkpoint_scheduling --locked -- --test-threads=1",
+        "cargo test -p cellar --test native_read_replica_materializer --locked -- --test-threads=1",
+        "cargo check -p cellar-ltx --no-default-features --locked",
+        "cargo check -p cellar-ltx --all-features --locked"
+      ],
+      "required_proposed_tests": [
+        "apply_matches_restore_at_exact_cut",
+        "gap_requests_reseed",
+        "corrupt_segment_never_publishes",
+        "growth_and_truncation_match_checksum",
+        "reader_keeps_old_image_during_swap",
+        "restart_ignores_partial_publication",
+        "segment_crossing_cut_is_rejected",
+        "disk_cap_preserves_last_generation"
+      ],
+      "requires_review": true,
+      "evidence": []
+    },
+    {
+      "id": "RR-05",
+      "title": "Read-only storage, context and query registration",
+      "depends_on": [
+        "RR-04"
+      ],
+      "status": "TODO",
+      "plan": "008-implementation-plan.md",
+      "verification_commands": [
+        "cargo test -p cellar --test native_read_replica --test native_counter --locked -- --test-threads=1",
+        "cargo test -p cellar --all-features --doc --locked"
+      ],
+      "required_proposed_tests": [
+        "query_does_not_construct_cell",
+        "sql_write_and_effects_are_denied",
+        "all_reads_pin_one_generation",
+        "retired_query_handle_refuses_access",
+        "query_timeout_interrupts_sql",
+        "incompatible_query_digest_is_refused",
+        "duplicate_operation_registration_is_rejected",
+        "typed_query_callback_has_no_primary_instance",
+        "registration_modules_compose_without_overwrite",
+        "operations_allow_distinct_request_response_types",
+        "contract_factory_runs_only_for_primary_commands"
+      ],
+      "requires_review": true,
+      "evidence": []
+    },
+    {
+      "id": "RR-06",
+      "title": "Authenticated bootstrap and tail transport",
+      "depends_on": [
+        "RR-03",
+        "RR-04"
+      ],
+      "status": "TODO",
+      "plan": "008-implementation-plan.md",
+      "verification_commands": [
+        "cargo test -p cellar --test native_read_replica_transport --test native_replication --locked -- --test-threads=1"
+      ],
+      "required_proposed_tests": [
+        "bootstrap_excludes_later_unproven_state",
+        "tail_is_idempotent",
+        "wrong_target_or_generation_is_refused",
+        "malformed_frame_is_bounded",
+        "expired_pin_requires_new_snapshot",
+        "source_change_cancels_old_session",
+        "transport_shutdown_joins_all_tasks",
+        "manifest_response_requires_authentication",
+        "replayed_response_cannot_change_session",
+        "chunk_digest_matches_authenticated_manifest",
+        "tampered_query_result_is_refused"
+      ],
+      "requires_review": true,
+      "evidence": []
+    },
+    {
+      "id": "RR-07",
+      "title": "Placement, replica lifecycle and query routing",
+      "depends_on": [
+        "RR-05",
+        "RR-06"
+      ],
+      "status": "TODO",
+      "plan": "008-implementation-plan.md",
+      "verification_commands": [
+        "cargo test -p cellar-logic --test read_replica_decisions --locked -- --test-threads=1",
+        "cargo test -p cellar --test native_read_replica --test native_read_replica_transport --test native_node --locked -- --test-threads=1",
+        "cargo test -p cellar-axum --test cqrs --locked -- --test-threads=1"
+      ],
+      "required_proposed_tests": [
+        "ordinary_rpc_stays_owner_routed",
+        "query_routes_to_eligible_replica",
+        "fallback_uses_safe_read_handler",
+        "stale_directory_cannot_grant_authority",
+        "replica_outage_bounds_owner_fallback",
+        "query_never_creates_missing_cell",
+        "declared_command_routes_to_current_primary",
+        "query_label_cannot_invoke_registered_command",
+        "ingress_and_typed_calls_share_dispatch_policy",
+        "query_contract_policy_cannot_be_weakened",
+        "multiple_commands_and_queries_dispatch_independently",
+        "per_query_policies_remain_independent",
+        "ambiguous_payload_type_requires_operation_handle",
+        "native_and_axum_share_operation_dispatch",
+        "public_query_route_preserves_minimum_version"
+      ],
+      "requires_review": true,
+      "evidence": []
+    },
+    {
+      "id": "RR-07A",
+      "title": "Automatic placement, repair supervisor and policy reconciliation",
+      "depends_on": [
+        "RR-07"
+      ],
+      "status": "TODO",
+      "plan": "008-implementation-plan.md",
+      "verification_commands": [
+        "cargo test -p cellar-logic --test replica_placement --locked -- --test-threads=1",
+        "cargo test -p cellar --test native_read_replica_repair --test native_node --locked -- --test-threads=1"
+      ],
+      "required_proposed_tests": [
+        "deterministic_replica_ranking_is_stable",
+        "placements_enforce_failure_domain_constraints",
+        "exhausted_capacity_reports_under_replicated",
+        "concurrent_reconcilers_cannot_publish_stale_plan",
+        "replica_loss_triggers_bounded_repair",
+        "automatic_move_waits_for_replacement_readiness",
+        "node_rejoin_does_not_trigger_repair_churn",
+        "repair_runs_without_incoming_requests",
+        "controller_restart_resumes_pending_repair",
+        "repair_storm_respects_cluster_budgets",
+        "stale_reservations_release_target_capacity",
+        "policy_change_does_not_admit_retired_replica",
+        "idle_release_and_sticky_cells_repair_without_requests",
+        "lost_enrollment_is_rediscovered_without_activation_churn"
+      ],
+      "requires_review": true,
+      "evidence": []
+    },
+    {
+      "id": "RR-08",
+      "title": "Write-version receipts and version-qualified reads",
+      "depends_on": [
+        "RR-03",
+        "RR-07A"
+      ],
+      "status": "TODO",
+      "plan": "008-implementation-plan.md",
+      "verification_commands": [
+        "cargo test -p cellar --test native_read_replica_proof --test native_read_replica --locked -- --test-threads=1",
+        "cargo test -p cellar-logic --test read_replica_decisions --locked -- --test-threads=1"
+      ],
+      "required_proposed_tests": [
+        "versioned_write_then_replica_read_covers_token",
+        "minimum_version_times_out_without_downgrade",
+        "invalid_token_has_bounded_cost",
+        "lost_write_reply_remains_ambiguous",
+        "read_result_propagates_session_minimum",
+        "no_change_rpc_returns_covering_cut",
+        "idempotent_reply_retains_exact_receipt",
+        "gate_follower_reply_has_covering_version",
+        "missing_ltx_base_never_fabricates_version",
+        "orchestration_returns_versions_per_cell"
+      ],
+      "requires_review": true,
+      "evidence": []
+    },
+    {
+      "id": "RR-09",
+      "title": "Takeover, epoch bridges and replica reconciliation",
+      "depends_on": [
+        "RR-08"
+      ],
+      "status": "TODO",
+      "plan": "008-implementation-plan.md",
+      "verification_commands": [
+        "cargo test -p cellar --test native_read_replica_failover --test native_log --test native_node --locked -- --test-threads=1",
+        "cargo test -p cellar-logic --test read_replica_decisions --locked -- --test-threads=1",
+        "cargo test -p cellar --test native_read_replica_repair --locked -- --test-threads=1"
+      ],
+      "required_proposed_tests": [
+        "behind_replica_recovers_before_promotion",
+        "new_epoch_covers_old_token_only_with_bridge",
+        "old_primary_cannot_publish",
+        "read_replica_cannot_replace_missing_witness",
+        "warm_reuse_matches_normal_restore",
+        "promotion_never_mutates_pinned_read_image",
+        "same_epoch_resume_requires_verified_bridge",
+        "multihop_token_coverage_survives_data_compaction",
+        "conflicting_or_pruned_history_never_satisfies_token",
+        "primary_loss_triggers_safe_automatic_takeover",
+        "missing_witness_blocks_automatic_takeover"
+      ],
+      "requires_review": true,
+      "evidence": []
+    },
+    {
+      "id": "RR-10",
+      "title": "Resource budgets, shutdown, administration and rollout",
+      "depends_on": [
+        "RR-09"
+      ],
+      "status": "TODO",
+      "plan": "008-implementation-plan.md",
+      "verification_commands": [
+        "cargo test -p cellar --test native_read_replica --test native_read_replica_transport --test native_read_replica_failover --test native_execution --test native_concurrency --test native_node --test native_cli --locked -- --test-threads=1"
+      ],
+      "required_proposed_tests": [
+        "source_pins_do_not_block_log_gc",
+        "saturated_queries_preserve_proof_progress",
+        "shutdown_releases_replica_pins",
+        "feature_off_preserves_existing_paths",
+        "disable_drains_without_mutable_replay"
+      ],
+      "requires_review": true,
+      "evidence": []
+    },
+    {
+      "id": "RR-11",
+      "title": "Disjoint-topology fault and performance harness",
+      "depends_on": [
+        "RR-10"
+      ],
+      "status": "TODO",
+      "plan": "008-implementation-plan.md",
+      "verification_commands": [
+        "python3 -m unittest discover -s tools/perf -p 'test_read_replicas.py'",
+        "python3 tools/perf/read_replicas.py --help",
+        "python3 -m unittest discover -s tools/perf -p 'test_*.py'"
+      ],
+      "required_proposed_tests": [],
+      "requires_review": true,
+      "evidence": []
+    },
+    {
+      "id": "RR-12",
+      "title": "Qualification, documentation and release decision",
+      "depends_on": [
+        "RR-11"
+      ],
+      "status": "TODO",
+      "plan": "008-implementation-plan.md",
+      "verification_commands": [
+        "cargo format --check",
+        "cargo check-layout",
+        "python3 tools/check_native_dependencies.py",
+        "python3 tools/docs/check.py",
+        "cargo check --workspace --all-targets --all-features --locked",
+        "cargo test --workspace --all-features --lib --tests --locked -- --test-threads=1",
+        "cargo test --workspace --all-features --doc --locked",
+        "cargo clippy --workspace --all-targets --all-features --locked -- -D warnings",
+        "cargo test -p cellar-axum --no-default-features --locked",
+        "cargo check -p cellar-axum-counter --no-default-features --bins --locked",
+        "git diff --check"
+      ],
+      "required_proposed_tests": [
+        "integration_example_supports_many_operations"
+      ],
+      "requires_review": true,
+      "evidence": []
+    }
+  ],
+  "qualification": {
+    "test_ids": [
+      "T01",
+      "T02",
+      "T03",
+      "T04",
+      "T05",
+      "T06",
+      "T07",
+      "T08",
+      "T09",
+      "T10",
+      "T11",
+      "T12",
+      "T13",
+      "T14",
+      "T15",
+      "T16",
+      "T17"
+    ],
+    "scenario_ids": [
+      "Q1",
+      "Q2",
+      "Q3",
+      "Q4",
+      "Q5",
+      "Q6",
+      "Q7",
+      "Q8",
+      "Q9",
+      "Q10",
+      "Q11",
+      "Q12",
+      "Q13",
+      "Q14",
+      "Q15",
+      "Q16"
+    ],
+    "runner": "tools/perf/read_replicas.py",
+    "runner_state": "PROPOSED",
+    "required_numeric_thresholds": [
+      "offered_arrivals_per_second",
+      "query_p95_limit",
+      "query_p99_limit",
+      "write_p99_limit",
+      "write_p99_regression_limit",
+      "timeout_rejection_ceiling",
+      "memory_disk_pin_budgets",
+      "replica_recovery_deadline",
+      "writer_takeover_deadline",
+      "failure_detection_limit",
+      "inventory_revisit_limit",
+      "repair_queue_limit",
+      "replica_count_repair_deadline",
+      "movement_churn_limit"
+    ],
+    "release_requires_independent_audit": true,
+    "feature_default": "off",
+    "posture_matrix_required": true,
+    "topology": {
+      "baseline_nodes": 5,
+      "automatic_repair_nodes": 6,
+      "spare_node": "F",
+      "automatic_repair_requires_no_application_requests": true
+    }
+  },
+  "cqrs_contract": {
+    "operation_kinds": [
+      "Command",
+      "Query"
+    ],
+    "classification_source": "compiled_cell_contract",
+    "shared_dispatcher": true,
+    "business_handlers_forward_requests": false,
+    "legacy_fetch_rpc_destination": "primary",
+    "query_kind_mismatch": "refuse_before_execution",
+    "typed_command_reply": "value_and_proven_version",
+    "multiple_operations_per_class": true,
+    "multiple_classes_per_application": true,
+    "registration_is_additive": true,
+    "operation_key": [
+      "existing_application_identity",
+      "class",
+      "operation_id"
+    ],
+    "shared_payload_requires_explicit_operation_handle": true,
+    "business_logic_owner": "application",
+    "application_orchestration": "existing_contexts_and_workflows",
+    "cross_cell_atomicity": false,
+    "orchestration_version_scope": "per_cell",
+    "primary_factory": "explicit_or_existing_validated_registration",
+    "http_adapters": "thin_native_and_axum_bindings_over_shared_dispatcher"
+  },
+  "placement": {
+    "mode": "automatic_policy",
+    "replica_count_excludes_primary": true,
+    "failure_domain_constraints": "required_or_preferred_explicitly",
+    "repair_without_operator_reassignment": true,
+    "repair_without_application_requests": true,
+    "primary_takeover": "existing_fenced_recovery_and_owner_cas",
+    "missing_evidence": "recovery_blocked_with_bounded_retries",
+    "manual_node_assignments": "test_debug_override",
+    "capacity_selection": "deterministic_rank_and_target_admission",
+    "machine_provisioning": false,
+    "idle_existing_cells": "wake_sticky_owner_or_guardedly_acquire_released_state",
+    "quiescent_reads": "validated_handoff_for_released_epoch_or_validated_clean_stop_with_current_sticky_owner_authority"
+  }
+}
