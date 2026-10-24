@@ -164,6 +164,7 @@ function receive(message, body) {
 
       scope.run(message.id, async () => {
         let payload = 'null',
+          failurePayload = 'null',
           failed = false,
           outputBody;
 
@@ -175,8 +176,9 @@ function receive(message, body) {
             if (validBody(result)) outputBody = result;
           }
           else payload = result;
-        } catch {
+        } catch (error) {
           failed = true;
+          failurePayload = runner.failurePayload(error);
         }
 
         // Cancellation may already have removed this invocation while it awaited.
@@ -189,7 +191,7 @@ function receive(message, body) {
         send({
           type: 'complete',
           id: message.id,
-          payload: failed ? 'null' : payload,
+          payload: failed ? failurePayload : payload,
           failed,
         }, failed ? undefined : outputBody);
       }).catch(() => exit(70));

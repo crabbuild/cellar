@@ -1,5 +1,5 @@
 //! Real authenticated fleet inputs for the all-language RPC qualification.
-use anyhow::{ensure, Result};
+use anyhow::{ensure, Context as _, Result};
 use cellar::{bucket::Bucket, sdk::*};
 use std::{path::Path, sync::Arc, time::Duration};
 
@@ -155,20 +155,29 @@ pub async fn start_configured(
         CompiledApplications::default()
             .register("rpc-qualification", "test", move || Ok(application.clone()))?;
     configure(&mut config, &mut services)?;
-    let node = Node::start(config, services, graph, applications).await?;
+    let node = Node::start(config, services, graph, applications)
+        .await
+        .with_context(|| format!("start fleet RPC node {name}"))?;
     tokio::time::timeout(Duration::from_secs(20), async {
-        while !node.is_ready().await? {
+        while !node
+            .is_ready()
+            .await
+            .with_context(|| format!("poll fleet RPC node {name} readiness"))?
+        {
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
         Ok::<_, anyhow::Error>(())
     })
-    .await??;
+    .await
+    .with_context(|| format!("fleet RPC node {name} readiness timed out"))??;
     Ok((node, format!("http://{address}")))
 }
 
 pub async fn stop(node: Node, mode: ShutdownMode) -> Result<()> {
-    let NodeOutcome::Stopped(proof) = node.shutdown(mode).await? else {
-        anyhow::bail!("fleet RPC node failed");
+    let label = format!("shutdown fleet RPC node {}", node.info().node);
+    let outcome = node.shutdown(mode).await.context(label)?;
+    let NodeOutcome::Stopped(proof) = outcome else {
+        anyhow::bail!("fleet RPC node failed: {outcome:?}");
     };
     ensure!(
         proof.ingress_drained

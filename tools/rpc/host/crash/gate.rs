@@ -258,6 +258,7 @@ impl Gate {
 pub struct Counter {
     pub crash: Arc<Gate>,
     pub live: Arc<super::super::proof::Live>,
+    pub provenance: Arc<super::super::provenance::Native>,
 }
 
 impl super::super::generated::CounterHandler for Counter {
@@ -269,6 +270,16 @@ impl super::super::generated::CounterHandler for Counter {
         let gate = self.crash.clone();
         let live = self.live.clone();
         let guard = live.begin(&context, &request.operation_id);
+        let id = request.operation_id.clone();
+        let post_commit = if id.starts_with("t06:") {
+            context
+                .storage()
+                .and_then(|storage| storage.get_json(&format!("receipt:{id}")))
+                .map(|saved| saved.is_none().then(|| context.clone()))
+        } else {
+            Ok(None)
+        };
+        let provenance = self.provenance.clone();
         let handler = super::super::counter::increment_with_checkpoint(
             context,
             request,
@@ -282,6 +293,13 @@ impl super::super::generated::CounterHandler for Counter {
             let result = handler.await;
             if let Some(guard) = guard.as_mut() {
                 guard.finish(result.is_ok());
+            }
+            if let Some(context) =
+                post_commit.map_err(|_| rpc::Failure::new(rpc::Code::Internal))?
+            {
+                if result.is_ok() {
+                    provenance.after_commit(&context, &id).await?;
+                }
             }
             result
         })

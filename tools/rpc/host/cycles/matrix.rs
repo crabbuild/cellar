@@ -12,7 +12,7 @@ use super::super::{
 const LEFT: &str = "rpc-cycle-left";
 const RIGHT: &str = "rpc-cycle-right";
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 struct Case {
     a: &'static str,
     b: &'static str,
@@ -285,19 +285,17 @@ pub async fn run(app: Arc<Composite>) -> Result<Value> {
                             "cycle case {}: {shape} {a}->{b}, peer={peer}, deadline={deadline}",
                             rows.len() + 1
                         );
+                        let scenario = Case {
+                            a,
+                            b,
+                            shape,
+                            peer,
+                            deadline,
+                        };
                         rows.push(
-                            case(
-                                app.clone(),
-                                &client,
-                                Case {
-                                    a,
-                                    b,
-                                    shape,
-                                    peer,
-                                    deadline,
-                                },
-                            )
-                            .await?,
+                            case(app.clone(), &client, scenario)
+                                .await
+                                .with_context(|| format!("cycle scenario {scenario:?}"))?,
                         );
                     }
                 }

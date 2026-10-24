@@ -484,13 +484,27 @@ pub(super) fn run(
                 continue;
             }
             // A handler must await its SDK operations before reporting completion.
-            let failed = promise.state() == v8::PromiseState::Rejected
-                || invocation.pending != 0
-                || state.borrow().budgets.has(id);
+            let rejected = promise.state() == v8::PromiseState::Rejected;
+            let unsettled = invocation.pending != 0 || state.borrow().budgets.has(id);
+            let failed = rejected || unsettled;
             invocation.start.active.store(false, Ordering::Release);
             let result = promise.result(turn);
             let (payload, body) = if failed {
-                ("null".into(), None)
+                // Only a fixed category may leave an entered RPC handler.
+                // Never stringify exceptions or inspect application objects.
+                let payload = if rejected && !unsettled && result.is_string() {
+                    let value = v8::Local::<v8::String>::try_from(result)
+                        .context("RPC failure category must be a string")?;
+                    if value.length() <= 64 {
+                        cellar_guest::rpc_failure::payload(&value.to_rust_string_lossy(turn))
+                            .unwrap_or("null")
+                    } else {
+                        "null"
+                    }
+                } else {
+                    "null"
+                };
+                (payload.into(), None)
             } else if result.is_uint8_array() {
                 // A malformed application reply is a call failure, not an
                 // engine failure. Missing bytes become InvalidResponse/unknown

@@ -482,6 +482,14 @@ interface, not a runtime class. See the [shared guest boundary](../cellar-guest/
 for failure provenance and conversion limits, and the
 [SDK guide](../../packages/cellar-sdk/README.md) for application error handling.
 
+For named RPC, an entered handler's fixed failure category survives with
+`unknown` effects. A child `DeadlineExceeded/not_committed` can therefore escape
+its parent as `DeadlineExceeded/unknown`. Earlier synced writes remain visible.
+Exception text, arbitrary codes and outcome getters cannot claim rollback;
+the native completion channel accepts only fixed categories. The
+[provenance matrix](../../tools/rpc/README.md#failures-after-a-parent-commits)
+checks this for both V8/TS and Node/JS.
+
 These are trusted application runtimes. V8 heap exhaustion can terminate the
 host process, and Node has normal OS capabilities. Deployment still needs native
 process supervision and memory limits.

@@ -499,16 +499,18 @@ impl PythonApplication {
                         .observe(queued_at.elapsed());
                     if let Some(prepared) = rpc_prepared.take() {
                         let result = if failed {
-                            let code = match payload.as_str() {
+                            let failure = match payload.as_str() {
                                 "{\"error\":\"InvalidResponse\"}" => {
-                                    cellar::sdk::rpc::Code::InvalidResponse
+                                    cellar::sdk::rpc::Failure::new(
+                                        cellar::sdk::rpc::Code::InvalidResponse,
+                                    )
                                 }
-                                "{\"error\":\"Overloaded\"}" => {
-                                    cellar::sdk::rpc::Code::ResourceExhausted
-                                }
-                                _ => cellar::sdk::rpc::Code::Internal,
+                                "{\"error\":\"Overloaded\"}" => cellar::sdk::rpc::Failure::new(
+                                    cellar::sdk::rpc::Code::ResourceExhausted,
+                                ),
+                                _ => cellar_guest::rpc_failure::failure(&payload),
                             };
-                            Err(cellar::sdk::rpc::Failure::new(code))
+                            Err(failure)
                         } else {
                             body.ok_or_else(|| {
                                 cellar::sdk::rpc::Failure::new(

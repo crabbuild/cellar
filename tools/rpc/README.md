@@ -316,13 +316,60 @@ same owner, scope and epoch.
 
 Reports are published only after every native node drains and every language
 runtime joins. `--suite local` is the default; `--suite all` writes separate
-`local`, `remote`, `deadline`, `cancellation`, `cycles`, `proof_wait`, `recovery`, `crash`
+`local`, `remote`, `deadline`, `cancellation`, `cycles`, `provenance`, `proof_wait`, `recovery`, `crash`
 and `proof` evidence objects. `remote_matrix_verified` and
 `remote_matrix_after_handoff_verified` record these measured boundaries. Full
 fleet qualification remains false: further interpreter modes, resource limits
 and the full lifecycle matrix are separate requirements. The dedicated proof suite below
 tests withheld/failed RPC output proof. This run uses normal GIL CPython; it is
 not free-threaded evidence.
+
+## Failures after a parent commits
+
+```sh
+cargo run --locked -p cellar-rpc-qualification --features full -- \
+  --suite provenance --report .cellar/rpc/provenance-matrix.json
+```
+
+The T06 matrix executes **96 cases**: all 16 Rust/Python/V8/Node
+caller/provider pairs, local and signed-peer ingress, and three failures after
+the provider syncs its atomic count and receipt.
+
+| Failure inside the parent | Parent's caller receives |
+| --- | --- |
+| Generated child call expires before its own submission | `DeadlineExceeded/unknown` |
+| Exception claims `MethodNotFound` and `not_committed` | `MethodNotFound/unknown` |
+| Exception has an unrecognized private code | `Internal/unknown` |
+
+```text
+generated Increment -> parent commits exact i64 count + operation receipt
+                              |
+                    fail after that durable write
+                      /                   \
+    real child DeadlineExceeded       forged exception metadata
+        / not_committed                    |
+                      \                   /
+                    parent effects: unknown
+                              |
+       two explicit same-ID retries -> saved result, unchanged count
+```
+
+The child uses a zero timeout: it never enters a business factory or handler.
+Its refusal is call-local evidence. The original parent must still read its
+own committed state before throwing, proving child expiry did not revoke the
+parent. Forged outcome accessors must never run. Fixed categories cross the
+guest completion channel; private text, unknown codes and outcome fields do not.
+The native dispatcher always assigns unknown effects to entered-handler errors.
+
+Counts exceed JavaScript's exact-number range and are checked as canonical
+64-bit values. Native observations verify the actual caller node, provider
+owner, scope, epoch, four warmed factories and exactly three Increment entries
+(one original plus two explicit retries). No refused child is constructed and
+no mutation is automatically replayed. Reports publish after native/guest drains.
+
+This covers a locally proven child refusal and forged exception metadata through
+real local/peer parent calls with GIL CPython. Broader peer/admission provenance,
+interpreter modes and resource/lifecycle qualification remain open.
 
 ## Peer deadlines and nested calls
 

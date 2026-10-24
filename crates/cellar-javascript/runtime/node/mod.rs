@@ -561,14 +561,19 @@ fn run(
                     if let Some(state) = invocations.remove(&id) {
                         state.start.active.store(false, Ordering::Release);
                         // Returning with unawaited SDK work cannot report success.
-                        let failed = message["failed"]
+                        let guest_failed = message["failed"]
                             .as_bool()
-                            .context("invalid Node completion")?
-                            || !state.pending.is_empty()
-                            || budgets.has(id);
+                            .context("invalid Node completion")?;
+                        let unsettled = !state.pending.is_empty() || budgets.has(id);
+                        let failed = guest_failed || unsettled;
                         budgets.retire(id);
                         let payload = if failed {
-                            "null"
+                            if guest_failed && !unsettled {
+                                cellar_guest::rpc_failure::payload(string(&message, "payload")?)
+                                    .unwrap_or("null")
+                            } else {
+                                "null"
+                            }
                         } else {
                             string(&message, "payload")?
                         };

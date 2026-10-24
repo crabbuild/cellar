@@ -16,6 +16,26 @@ _failures = dict(unraisable_errors=0, thread_errors=0)
 _failure_lock = threading.RLock()
 _memory_tracer = None
 
+# Categories are diagnostics, never evidence that an entered handler made no
+# writes. Capture the built-in exception dictionary accessor before app import;
+# subclass code/outcome/message properties must not run during sanitization.
+_exception_dict = BaseException.__dict__["__dict__"].__get__
+_rpc_failures = {code: '{"rpc_error":"' + code + '"}' for code in (
+    "InvalidArgument", "MethodNotFound", "ContractMismatch", "ResourceExhausted",
+    "ContextExpired", "Cancelled", "DeadlineExceeded", "Unavailable",
+    "OwnershipLost", "DurabilityUnproven", "InvalidResponse", "Internal",
+)}
+
+
+def _rpc_failure(error):
+    try:
+        code = dict.get(_exception_dict(error), "code")
+        if type(code) is str and len(code) <= 32:
+            return _rpc_failures.get(code, _rpc_failures["Internal"])
+    except BaseException:
+        pass
+    return _rpc_failures["Internal"]
+
 
 class _TaskCapacity(RuntimeError):
     """The managed factory refused a coroutine before constructing its task."""
@@ -125,6 +145,7 @@ async def _invoke(module, objects, payload, body, bridge, context, stats, maximu
     started = time.perf_counter_ns()
     metrics = stats["interpreter"]
     metrics["handlers_started"] += 1
+    kind = None
     try:
         if not bridge.active():
             metrics["handlers_cancelled"] += 1
@@ -189,11 +210,11 @@ async def _invoke(module, objects, payload, body, bridge, context, stats, maximu
         # Preserve the category without reading exception text or its claimed
         # outcome. A parent can commit before a nested admission refusal.
         _complete_failure(bridge, '{"error":"Overloaded"}')
-    except BaseException:
+    except BaseException as error:
         metrics["handlers_failed"] += 1
         # Exception messages, class names and tracebacks can contain request data
         # or credentials. The public failure carries no application-supplied text.
-        _complete_failure(bridge, '"Python handler failed"')
+        _complete_failure(bridge, _rpc_failure(error) if kind == "rpc" else '"Python handler failed"')
     finally:
         elapsed = time.perf_counter_ns() - started
         metrics["handler_wall_ns_sum"] += elapsed

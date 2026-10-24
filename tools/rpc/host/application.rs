@@ -246,6 +246,7 @@ pub struct Composite {
     live: Arc<super::proof::Live>,
     cancel_calls: Arc<super::cancel_calls::Calls>,
     pub(super) cycles: Arc<super::cycles::Tracker>,
+    provenance: Arc<super::provenance::Native>,
     catalog: rpc::Catalog,
     providers: BTreeMap<String, Arc<dyn Application>>,
     callers: BTreeMap<String, Arc<dyn Application>>,
@@ -257,6 +258,7 @@ impl Composite {
         contract: Arc<rpc::Contract>,
         crash: Arc<super::crash::Gate>,
         live: Arc<super::proof::Live>,
+        provenance: Arc<super::provenance::Native>,
     ) -> Result<Self> {
         let mut providers = BTreeMap::new();
         let mut callers = BTreeMap::new();
@@ -280,6 +282,7 @@ impl Composite {
             live,
             cancel_calls: Default::default(),
             cycles: Default::default(),
+            provenance,
             catalog,
             providers,
             callers,
@@ -414,7 +417,10 @@ impl Application for Composite {
                 "node" => "NODE",
                 _ => "RUST",
             };
-            let value = if url.path().ends_with("/cancel-state") {
+            let value = if url.path().ends_with("/provenance-control") {
+                self.provenance
+                    .control(query.get("action").is_some_and(|action| action == "clear"))
+            } else if url.path().ends_with("/cancel-state") {
                 self.cancel_calls
                     .snapshot(query.get("name").context("missing pending proof call")?)?
             } else if url.path().ends_with("/cancel-release") {

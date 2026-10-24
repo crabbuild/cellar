@@ -23,6 +23,7 @@ mod generated;
 #[path = "../../../crates/cellar-javascript/tests/support/native.rs"]
 mod native;
 mod proof;
+mod provenance;
 mod qualify;
 mod remote;
 
@@ -41,6 +42,7 @@ enum Suite {
     Deadline,
     Cancellation,
     Cycles,
+    Provenance,
     All,
 }
 
@@ -74,8 +76,9 @@ fn main() -> Result<()> {
                     Some("deadline") => Suite::Deadline,
                     Some("cancellation") => Suite::Cancellation,
                     Some("cycles") => Suite::Cycles,
+                    Some("provenance") => Suite::Provenance,
                     Some("all") => Suite::All,
-                    _ => anyhow::bail!("--suite must be local, remote, deadline, cancellation, cycles, crash, proof, proof-wait, proof-wait-smoke, fence, proof-recruitment, recovery, recovery-probe or all"),
+                    _ => anyhow::bail!("--suite must be local, remote, deadline, cancellation, cycles, provenance, crash, proof, proof-wait, proof-wait-smoke, fence, proof-recruitment, recovery, recovery-probe or all"),
                 }
             }
             "--serve-name" => server_name = Some(arguments.next().context("missing server node name")?),
@@ -83,7 +86,7 @@ fn main() -> Result<()> {
             "--serve-bucket" => server_bucket = Some(PathBuf::from(arguments.next().context("missing server bucket path")?)),
             "--serve-ready" => server_ready = Some(PathBuf::from(arguments.next().context("missing server readiness path")?)),
             _ => anyhow::bail!(
-                "usage: cellar-rpc-qualification [--suite local|remote|deadline|cancellation|cycles|crash|proof|proof-wait|proof-wait-smoke|fence|proof-recruitment|recovery|recovery-probe|all] [--report path.json]"
+                "usage: cellar-rpc-qualification [--suite local|remote|deadline|cancellation|cycles|provenance|crash|proof|proof-wait|proof-wait-smoke|fence|proof-recruitment|recovery|recovery-probe|all] [--report path.json]"
             ),
         }
     }
@@ -166,6 +169,8 @@ fn main() -> Result<()> {
                     let transaction_checkpoint = crash.clone();
                     let live = Arc::new(proof::Live::default());
                     let live_checkpoint = live.clone();
+                    let provenance = Arc::new(provenance::Native::default());
+                    let provenance_checkpoint = provenance.clone();
                     let rust = Registry::new(|_, _| Box::pin(async { Ok(Output::Done) }))
                         .cell("RustCounter", move |_, _| {
                             Ok(Arc::new(generated::CounterRegistration::register(
@@ -173,6 +178,7 @@ fn main() -> Result<()> {
                                 Arc::new(crash::Counter {
                                     crash: transaction_checkpoint.clone(),
                                     live: live_checkpoint.clone(),
+                                    provenance: provenance_checkpoint.clone(),
                                 }),
                             )?))
                         })?
@@ -192,6 +198,7 @@ fn main() -> Result<()> {
                         contract,
                         crash,
                         live,
+                        provenance,
                     )?);
                     let proof = tokio::runtime::Builder::new_multi_thread()
                         .worker_threads(4)
@@ -213,17 +220,19 @@ fn main() -> Result<()> {
                                 Suite::Deadline => deadline::run(app).await,
                                 Suite::Cancellation => deadline::cancellation::run(app).await,
                                 Suite::Cycles => cycles::run(app).await,
+                                Suite::Provenance => provenance::run(app).await,
                                 Suite::All => {
                                     let local = qualify::local(app.clone()).await?;
                                     let remote = remote::run(app.clone()).await?;
                                     let deadline = deadline::run(app.clone()).await?;
                                     let cancellation = deadline::cancellation::run(app.clone()).await?;
                                     let cycles = cycles::run(app.clone()).await?;
+                                    let provenance = provenance::run(app.clone()).await?;
                                     let proof_wait = proof::waits(app.clone()).await?;
                                     let recovery = admission::run(app.clone()).await?;
                                     let crash = crash::run(app.clone()).await?;
                                     let proof = proof::run(app).await?;
-                                    Ok(serde_json::json!({"format":1,"suite":"all","local":local,"remote":remote,"deadline":deadline,"cancellation":cancellation,"cycles":cycles,"proof_wait":proof_wait,"recovery":recovery,"crash":crash,"proof":proof}))
+                                    Ok(serde_json::json!({"format":1,"suite":"all","local":local,"remote":remote,"deadline":deadline,"cancellation":cancellation,"cycles":cycles,"provenance":provenance,"proof_wait":proof_wait,"recovery":recovery,"crash":crash,"proof":proof}))
                                 }
                             }
                         })?;

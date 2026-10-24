@@ -160,6 +160,22 @@ descriptors with the native artifact, including referenced types, maps, presence
 oneofs, packing and enum values. Clients check their own codecs before encoding
 a call; stale code or a missing native contract fails as
 `ContractMismatch/not_committed`. Verified JS reflection records are frozen.
+
+An infrastructure failure escaping a named handler keeps its fixed category,
+such as `DeadlineExceeded`, and has `outcome: "unknown"`. The handler may have
+written before a child call was refused:
+
+```text
+parent saves count + receipt -> child refuses before submission
+                                      |
+                         child: DeadlineExceeded / not_committed
+                                      |
+parent throws that failure -> caller: DeadlineExceeded / unknown
+```
+
+The child outcome describes only that child call. Exception text, arbitrary
+codes and claimed outcome fields cannot establish that the parent rolled back.
+Use the parent's operation receipt to resolve the mutation before retrying.
 See the [runnable Counter](../../tools/rpc/README.md)
 for the schema, complete receipt-based business implementation, generated JS/TS
 interfaces, host registration and real-node tests. Full fleet and failure

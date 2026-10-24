@@ -430,6 +430,13 @@ remains tracked in the
 
 ### Bound a typed call, including its codecs
 
+A fixed RPC error category escaping an entered business method is preserved,
+with an `unknown` effect outcome. A child refused with
+`DeadlineExceeded/not_committed` cannot prove that its parent's earlier writes
+rolled back. Exception text and outcome properties are not forwarded as proof.
+The [provenance matrix](../../tools/rpc/README.md#failures-after-a-parent-commits)
+verifies committed receipts and explicit retries across all four providers.
+
 `timeout_ms` applies from the start of the generated async call, including codec
 verification, request encoding, routing, output proof and response decoding:
 

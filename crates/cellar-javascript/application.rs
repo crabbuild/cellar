@@ -449,9 +449,7 @@ impl JavaScriptApplication {
                     let _bytes = _bytes;
                     if let Some(prepared) = rpc_prepared.take() {
                         let result = if failed {
-                            Err(cellar::sdk::rpc::Failure::new(
-                                cellar::sdk::rpc::Code::Internal,
-                            ))
+                            Err(cellar_guest::rpc_failure::failure(&payload))
                         } else {
                             body.ok_or_else(|| {
                                 cellar::sdk::rpc::Failure::new(

@@ -11,6 +11,7 @@ import { configureLiveClient, liveControl, liveSnapshot, liveSync } from "./live
 import type { RpcAbortSignal } from "@cellar/sdk/rpc";
 import { budgetControl, codecBudget, parentBudget, configureDeadlineClient, deadlineCall, deadlineControl, nestedDeadline } from "./deadline.js";
 import { configureCycles, cycleAfterCommit, cycleControl } from "./cycles.js";
+import { configureProvenance, provenanceAfterCommit, provenanceControl } from "./provenance.js";
 
 let constructed = 0;
 const maximum = (1n << 63n) - 1n;
@@ -68,6 +69,7 @@ export class Counter implements CounterHandler {
       await liveSync(ctx,request.operationId);
       if (!request.operationId.startsWith("proof-no-sync-")) await ctx.storage.sync();
       await cycleAfterCommit(ctx, request.operationId);
+      await provenanceAfterCommit(ctx, request.operationId);
       if (request.operationId === "invalid-reply") {
         // Deliberate post-commit bug. The caller must receive unknown effects;
         // retrying this ID after restart must return the durable saved result.
@@ -90,6 +92,7 @@ export function handler(Client: Client, createController?: () => Controller) {
   configureLiveClient(ctx => Client.bind(ctx,"RUST","alice"));
   configureDeadlineClient(Client);
   configureCycles(Client);
+  configureProvenance(Client);
   let retained: Calls | undefined;
   const cancelling = new Map<string, {controller: Controller; context: Context; finish: () => void;
     settled:boolean; result:Json; followup_writes:number}>();
@@ -103,6 +106,7 @@ export function handler(Client: Client, createController?: () => Controller) {
       : params.target === "python" ? "PYTHON" : "V8";
     if (/\/budget-(capacity|hold|held|free|foreign)$/.test(path)) return budgetControl(path, ctx);
     if (path.endsWith("/cycle-control")) return jsonResponse(cycleControl(params.action));
+    if (path.endsWith("/provenance-control")) return jsonResponse(provenanceControl(params.action === "clear"));
     if (path.endsWith("/cancel-release")) {
       const control = cancelling.get(params.name);
       if (!control) throw Error("No pending cancellation probe");

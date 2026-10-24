@@ -15,7 +15,7 @@ does not close schema, resource, packaging or performance requirements.
 
 | Priority | Remaining gap | Deliverable / completion evidence |
 | --- | --- | --- |
-| P0 — next | Failure provenance and remaining lifecycle boundaries | Delivered: whole-call budgets, 55 deadline cases, 128 proof-wait cases and 80 self/A-to-B-to-A cycle cases. Next: parent-write/child-refusal provenance, forged refusal metadata and broader lifecycle/resource failures. Preserve the delivered matrices. One unreproduced Node watchdog failure remains documented below. |
+| P0 — next | Remaining lifecycle and peer/admission provenance | Delivered: whole-call budgets, 55 deadline cases, 128 proof-wait cases, 80 cycle cases and 96 parent-write/child-refusal/forged-category cases. Fixed entered-handler categories now survive in all runtimes with unknown effects. Next: broader peer/admission provenance and T14/T17 lifecycle/resource failures; retain every delivered matrix and investigate recurring timeout/domain-closure diagnostics. |
 | P0 | Resource bounds and parser correctness | Audit effective method/runtime/host/peer minima, retained binary copies and decoder allocations; reject malformed descriptors before generation; demonstrate bounded queues, reservations and memory under saturation, flood and disconnect. |
 | P1 | Language/profile coverage | Exercise the portable Protobuf profile as real business calls across all local/remote pairs; qualify supported Python interpreter modes and remaining lifecycle/regression boundaries. |
 | P1 | Reproducible application delivery | Deliver `cellar rpc generate/check`, static binding and frozen package inventories, embedded Python source identity, a published typed-RPC example and clean-machine CI. |
@@ -31,7 +31,7 @@ Counter fixture alone is not the highest-priority deliverable now.
 | Package | State | Authoritative evidence / next action |
 | --- | --- | --- |
 | RPC-01: Contracts/toolchain | In progress | Counter and portable-profile outputs reproduce byte-for-byte in all four authoring modes; generated APIs pass TS/Python static checks; full schema/conformance qualification remains |
-| RPC-02: Native typed path | In progress | Native RPC/transport, generated-profile/vector and restart tests pass; codec limits precede allocation; 55 deadline, 128 proof-wait and 80 dependency-cycle cases cover caller/provider pairs, signals/deadlines, local/peer routes and bounded cleanup; provenance and broader lifecycle/resource qualification remain |
+| RPC-02: Native typed path | In progress | Native RPC/transport, generated-profile/vector and restart tests pass; codec limits precede allocation; 55 deadline, 128 proof-wait and 80 dependency-cycle cases cover caller/provider pairs, signals/deadlines, local/peer routes and bounded cleanup; 96 provenance cases preserve committed parent writes and fixed categories; broader peer/admission/lifecycle/resource qualification remains |
 | RPC-03: Binary bridges | In progress | Shared `cell.call`, Python raw bytes, owned V8 attachments and binary Node framing implemented; runtime attachment/cleanup tests pass; aggregate copy accounting and full cancellation/flood qualification remain |
 | RPC-04: JS/TS services | In progress | Generated clients/handlers, binary dispatch and live descriptor checks work in V8/Node; real startup refuses stale codecs; typed AbortSignal options and native-owned whole-call codec budgets work with bounded cleanup; full schema/resource/deadline qualification remains |
 | RPC-05: Python services | In progress | Generated async APIs, live codec checks and dispatch work with receipts/restart; stale providers/clients are refused; task cancellation reaches native/peer calls and joins cleanup; native-owned budgets cover validation, encoding, transport and decoding; packaging and free-threaded qualification remain |
@@ -50,11 +50,11 @@ Counter fixture alone is not the highest-priority deliverable now.
 | Bounded request/response codec and binary bridge accounting | Native wire checks and raw attachments implemented; exact retained-copy accounting and saturation qualification remain |
 | Input graph depth/element preflight before allocating language encoders | Rust generated visitors and iterative owned cleanup, Python graph/map checks and JS descriptor-driven type/graph/exact-size preflight tested; broader codec and decoder-allocation qualification remains |
 | Decoder layout/default-field allocation and effective limit plumbing | Shared decoded-slot estimate implemented in native wire and Rust/JS/Python encoders; default map layouts, fixed control budgets and native/guest catalog plumbing tested; exact allocation/RSS, saturation and method/runtime/host/peer minimum audit remain |
-| Invocation authority, cancellation, deadlines and nested-call provenance | Owner fencing and retained-client refusal cover all 16 pairs; 55 deadline cases cover guest nesting/codec costs; 128 proof-wait cases cover signal/deadline × local/peer × output/sync × all 16 pairs with fresh admission and original-authority checks; 80 self/A-to-B-to-A cases cover bounded cycle cleanup; broader lifecycle/provenance qualification remains |
+| Invocation authority, cancellation, deadlines and nested-call provenance | Owner fencing and retained-client refusal cover all 16 pairs; 55 deadline cases cover guest nesting/codec costs; 128 proof-wait cases cover signal/deadline × local/peer × output/sync × all 16 pairs with fresh admission and original-authority checks; 80 self/A-to-B-to-A cases cover bounded cycle cleanup; 96 parent-write/forged-category cases pass with unknown outcomes; broader peer/admission/lifecycle qualification remains |
 | Pre-factory contract validation and trusted refusal provenance | Native/Python cold-constructor tests pass through the host catalog; custom wrappers without a forwarded catalog remain conservative; peer/admission provenance remains |
 | `cellar rpc check`, pinned Buf workflow and static binding inventory validation | Pending |
 | Registered-method spans, bounded metric labels and payload-free diagnostics | Pending |
-| Business errors separated from infrastructure errors | All backends preserve business variants and post-write invalid-response/unknown locally; full host-code mapping/provenance remains |
+| Business errors separated from infrastructure errors | All backends preserve business variants and post-write invalid-response/unknown locally; entered-handler fixed categories survive with unknown effects in all runtimes; broader host-code mapping and peer/admission provenance remain |
 | Output proof after a handler returns without explicit sync | All 16 pairs pass real peer/bucket hold then release, and hold then failure; typed result/local commit, no early response, unknown failures and explicit receipt retries verified with GIL CPython |
 | Fencing after handler return and during its original sync await | All 16 pairs pass both phases with observed `NodeLeaseMismatch`, joined owner domain, advanced survivor epoch, acknowledged receipt recovery and late SDK refusal; GIL CPython |
 | Failed recovery before provider construction | All 16 pairs refuse missing and replaced original proof roots: 64 `Unavailable/unknown` calls, zero provider factories/handlers, unchanged retained proof and live recovery after metadata restoration; GIL CPython |
@@ -70,6 +70,52 @@ pairs. Preserve the full test matrix, failures and remaining work across turns.
 
 ## Current evidence
 
+- The final normal-stack serial run passes all ten suites and publishes
+  `.cellar/rpc/provenance-full-matrix.json` after native and guest drains:
+  16 local pairs, 16 remote/handoff pairs, 55 deadlines, 17 cancellations,
+  80 cycles, 96 provenance cases, 128 proof waits, 32 recovery cases, 48
+  observed process kills and 64 proof/fencing cases. The provenance report
+  contains all 96 unique combinations with fixed categories, unknown parent
+  effects, exact i64 counts, live parent authority and two receipt retries.
+  Full-qualification flags remain false. The earlier timeout/domain-closure
+  failures do not recur; their causes remain unestablished.
+- Serial regressions pass all 30 JS runtime tests, real V8/Node HTTP and restart,
+  Node npm/native-addon compatibility and both JS typed-RPC tests. Python passes
+  29 library tests, its full bridge/watchdog/recovery executable and typed RPC.
+  Clippy passes in combined, Node-only and V8-only modes. Format/layout check
+  986 Rust files, docs check 737 local references and the native dependency
+  graph remains engine-free at 465 packages. Builds/tests finish before the
+  serial combined executable starts; no policies or assertions are relaxed.
+- T06's dedicated `provenance` suite passes 96 cases: all 16 caller/provider
+  pairs, local/authenticated-peer parent calls and three post-commit failures.
+  Each parent syncs its atomic exact-i64 count/receipt, then receives a real
+  zero-timeout child refusal, throws a forged category/outcome, or throws an
+  unrecognized private code. The parent retains storage authority after its
+  child's refusal. Callers receive fixed categories with unknown effects;
+  two explicit same-ID retries recover the saved count without another write.
+  Native observations verify ingress, owner/scope/epoch, exactly four warmed
+  factories and no constructed child. This is GIL CPython and locally proven
+  child-refusal evidence; broader peer/admission provenance remains open.
+- The initial test reproduces a code-preservation gap: Rust-to-Python receives
+  `Internal/unknown` after the parent receives `DeadlineExceeded/not_committed`.
+  A bounded category-only completion path corrects this in Python, V8 and Node.
+  Native code independently recognizes only canonical categories and creates
+  `Failure::new`, which cannot establish rollback. Exception text, outcome
+  claims, accessors, proxy traps, non-scalar and oversized codes are refused or
+  reduced to Internal. Ordinary HTTP failure behavior remains unchanged.
+- The new sanitizer checks pass with all 65 SDK tests, 34 Python codec/client/
+  cancellation tests, 24 Python runner tests and 12 shared-guest unit tests.
+  Combined all-target Clippy and qualifier unit tests pass. Python CI includes
+  the new sanitizer tests; the JS SDK test glob includes the real-runner checks.
+- One concurrent validation attempt stops in cycle 28 with an unlocalized
+  `execution domain is closed`, before publishing a combined report. The Node
+  compatibility regression exceeds its unchanged 250 ms handler budget twice,
+  including an isolated attempt. An interleaved differential then passes all
+  three runs of the previous Node completion path and all three current runs;
+  the serial JS runtime/HTTP/native-addon/restart/typed-RPC suite also passes.
+  These passes do not establish the original causes. Node and cycle-stage
+  failure context is added without relaxing deadlines or cleanup assertions;
+  subsequent qualification runs serially after all builds/tests finish.
 - Main is integrated through `1a1b0243` (#113), preserving the streaming
   React chat and agent-tool recovery work. The single workflow conflict keeps
   both the RPC fixture install/test/typecheck/build and UI install/build/browser
@@ -885,9 +931,9 @@ The implementation PR is a draft until the remaining correctness and delivery
 boundaries are qualified. Deliver the following slices in order; each slice
 must preserve the existing recovery, crash, proof and receipt evidence.
 
-1. **P0: close failure-provenance and remaining lifecycle gaps.** Preserve the
-   80 self/A-to-B-to-A cleanup cases and 128 proof-wait cases. Prioritize a parent
-   that writes before a child is refused, plus forged refusal metadata (T06).
+1. **P0: close remaining lifecycle and peer/admission provenance gaps.** Preserve
+   the 96 parent-write/forged-category cases, 80 self/A-to-B-to-A cleanup cases
+   and 128 proof-wait cases. Qualify broader call-local peer/admission evidence.
    Qualify remaining lifecycle waits, forced guest peer retries and broader
    nested-provider paths. If the unexplained Node watchdog failure recurs, use
    its observer/heartbeat/input diagnostics to establish the actual cause before

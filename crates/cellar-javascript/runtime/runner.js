@@ -15,6 +15,24 @@
   const rpcKey = Symbol.for("cellar.rpc");
   const apply = Reflect.apply,
     own = Object.getOwnPropertyDescriptor;
+  const rpcFailures = freeze({
+    InvalidArgument:'{"rpc_error":"InvalidArgument"}', MethodNotFound:'{"rpc_error":"MethodNotFound"}',
+    ContractMismatch:'{"rpc_error":"ContractMismatch"}', ResourceExhausted:'{"rpc_error":"ResourceExhausted"}',
+    ContextExpired:'{"rpc_error":"ContextExpired"}', Cancelled:'{"rpc_error":"Cancelled"}',
+    DeadlineExceeded:'{"rpc_error":"DeadlineExceeded"}', Unavailable:'{"rpc_error":"Unavailable"}',
+    OwnershipLost:'{"rpc_error":"OwnershipLost"}', DurabilityUnproven:'{"rpc_error":"DurabilityUnproven"}',
+    InvalidResponse:'{"rpc_error":"InvalidResponse"}', Internal:'{"rpc_error":"Internal"}',
+  });
+  function handlerFailure(error) {
+    try {
+      // Read a data property without invoking code/outcome/message getters.
+      const descriptor = own(error, "code");
+      const value = descriptor && own(descriptor, "value");
+      const category = value && typeof value.value === "string" && value.value.length <= 32 && own(rpcFailures, value.value);
+      if (category) return category.value;
+    } catch { /* A proxy trap cannot manufacture outcome evidence. */ }
+    return rpcFailures.Internal;
+  }
   // Node supplies events.addAbortListener, which resists stopImmediatePropagation.
   // Closed V8 bundles may supply a standard AbortController polyfill.
   const dispose = Symbol.dispose;
@@ -358,6 +376,12 @@
     }
 
     return freeze({
+      failurePayload(error) {
+        if (typeof error === "string") {
+          for (const [, payload] of entries(rpcFailures)) if (payload === error) return payload;
+        }
+        return "null";
+      },
       async dispatch(id, payload, body) {
         const invocation = parse(payload);
         const ctx = context(id, invocation.identity, contracts);
@@ -383,7 +407,9 @@
         }
 
         if (rule) {
-          const result = await apply(rule.handler, target, [argument, ctx]);
+          let result;
+          try { result = await apply(rule.handler, target, [argument, ctx]); }
+          catch (error) { throw handlerFailure(error); }
           try {
             const encoded = rule.encode(result, rule.limits);
             if (!(encoded instanceof Uint8Array)) throw new ErrorClass("InvalidResponse");
