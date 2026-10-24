@@ -11,7 +11,61 @@ import weakref
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "crates/cellar-python/python"))
-from cellar import Response, ValidationError, _encode, _encode_response
+from cellar import Response, ValidationError, _encode, _encode_response, _decode_native
+
+
+class DecodingTests(unittest.TestCase):
+    def test_native_envelopes_and_whitespace_match_standard_decoder(self):
+        values = [None, False, 0, -2**63, 2**64 - 1, 1.25, "é☃😀",
+                  {"ok": True, "value": {"present": True, "value": None}},
+                  {"ok": False, "code": "Ambiguous", "error": "operation failed", "outcome": "unknown"},
+                  {"object": "activation", "kind": "fetch", "event": {"headers": [["x", "é"]]}},
+                  {"rows": [[n, "item", None, True] for n in range(32)]}]
+        deep = None
+        for _ in range(64):
+            deep = [deep]
+        values.append(deep)
+        for value in values:
+            encoded = json.dumps(value, separators=(",", ":"))
+            for payload in (encoded, " \t\n" + encoded, encoded + "\r\n "):
+                with self.subTest(payload=payload):
+                    self.assertEqual(_decode_native(payload), json.loads(payload))
+
+    def test_malformed_suffix_cannot_be_hidden_by_valid_prefix(self):
+        for payload in ('{}{}', '{"ok":true} false', 'nullx', '123 456', 'true\x00',
+                        '', ' ', '{', '[1,]', '"unterminated', '\ufeff{}', '{"x":01}'):
+            with self.subTest(payload=payload):
+                with self.assertRaises(json.JSONDecodeError) as expected:
+                    json.loads(payload)
+                with self.assertRaises(json.JSONDecodeError) as actual:
+                    _decode_native(payload)
+                self.assertEqual((actual.exception.msg, actual.exception.pos),
+                                 (expected.exception.msg, expected.exception.pos))
+
+    def test_nonordinary_inputs_keep_standard_decoder_behavior(self):
+        class Text(str):
+            pass
+        for payload in (b'{"x":1}', bytearray(b'{"x":1}'), '{"x":1}'.encode('utf-16'), Text('{"x":1}')):
+            self.assertEqual(_decode_native(payload), json.loads(payload))
+        for payload in (None, 7, [], memoryview(b'{}')):
+            with self.subTest(payload=type(payload)):
+                with self.assertRaises(TypeError) as expected:
+                    json.loads(payload)
+                with self.assertRaises(TypeError) as actual:
+                    _decode_native(payload)
+                self.assertEqual(str(actual.exception), str(expected.exception))
+
+    def test_shared_decoder_keeps_concurrent_values_independent(self):
+        barrier = threading.Barrier(4)
+
+        def decode(index):
+            value = {f"key-{index}": [{"value": index}, None, "é"]}
+            payload = json.dumps(value, separators=(",", ":"))
+            barrier.wait(timeout=5)
+            for _ in range(1000):
+                self.assertEqual(_decode_native(payload), value)
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            list(executor.map(decode, range(4)))
 
 
 class EncodingTests(unittest.TestCase):

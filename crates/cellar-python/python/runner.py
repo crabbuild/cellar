@@ -8,7 +8,7 @@ import resource
 import sys
 import threading
 import time
-from cellar import Batch, Context, Overloaded, Request, Response, Scheduled, _encode_response, _current_invocation
+from cellar import Batch, Context, Overloaded, Request, Response, Scheduled, _encode_response, _current_invocation, _decode_native
 
 _failures = dict(unraisable_errors=0, thread_errors=0)
 # Collection while taking a snapshot can invoke another destructor on the same
@@ -251,7 +251,7 @@ async def _serve(module, inbox, interval, shutdown, stats, maximum, telemetry, s
                     break
                 invocation, payload, body, bridge = start
                 del start
-                payload = json.loads(payload)
+                payload = _decode_native(payload)
                 context = Context(bridge, payload["identity"], payload.get("initial_storage"))
                 try:
                     # The managed factory checks all live tasks, including

@@ -14,6 +14,24 @@ from urllib.parse import urlsplit
 # each encode call; the encoder retains neither request values nor results.
 _value_encoder = _json.JSONEncoder(allow_nan=False, separators=(",", ":"))
 
+# Native envelopes are compact JSON strings. Reuse the standard scanner while
+# retaining loads() behavior for whitespace, alternate input types and errors.
+_native_raw_decode = _json.JSONDecoder().raw_decode
+
+
+def _decode_native(payload):
+    if type(payload) is not str:
+        return _json.loads(payload)
+    try:
+        value, end = _native_raw_decode(payload)
+    except _json.JSONDecodeError:
+        return _json.loads(payload)
+    if end != len(payload):
+        # A valid prefix must never hide trailing data. This also preserves
+        # ordinary JSON whitespace and the original error position/message.
+        return _json.loads(payload)
+    return value
+
 
 JSON: TypeAlias = type(None) | bool | int | float | str | list["JSON"] | dict[str, "JSON"]
 Headers: TypeAlias = Iterable[tuple[str, str]]
@@ -400,7 +418,7 @@ class Context:
         future = self._pending.get(sequence)
         if future is None or future.done():
             return
-        value = _json.loads(payload)
+        value = _decode_native(payload)
         if value["ok"]:
             future.set_result(value["value"] if body is None else (value["value"], body))
         else:
