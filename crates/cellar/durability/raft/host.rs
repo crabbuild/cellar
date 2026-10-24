@@ -14,7 +14,9 @@ use super::{
     runtime::{RaftRuntime, RuntimeEvents},
     transport::{GroupRoute, RaftPeer, RaftTransport},
 };
-use crate::application::consensus::client::{self, Binding, Kind, Request, Response};
+use crate::application::consensus::client::{
+    self, Binding, ControlRequest, Kind, NodeKind, NodeRequest, Request, Response,
+};
 use crate::application::consensus::{command_request_digest, OperationKind, RaftCells, RaftClass};
 use cellar_logic::consensus::*;
 use cellar_logic::raft_command::CommandState;
@@ -50,6 +52,10 @@ mod effect_scheduler;
 pub use controller::{RaftControllerOptions, RaftControllerStatus};
 #[path = "host_directory.rs"]
 mod directory;
+#[path = "host_enrollment.rs"]
+mod enrollment;
+pub(crate) use enrollment::NamespaceRegistration;
+pub use enrollment::{RaftManagedHostOptions, RaftNamespaceRegistration};
 #[path = "host_inspection.rs"]
 mod inspection;
 #[path = "host_leader_load.rs"]
@@ -60,6 +66,10 @@ pub(crate) use load::GroupResourceObserver;
 pub use load::RaftInspectionScanOptions;
 #[path = "host_fleet.rs"]
 mod fleet_control;
+#[path = "host_node.rs"]
+mod node_control;
+use node_control::reply_node;
+pub use node_control::{RaftHostEnrollmentObservation, RaftHostObservation};
 #[path = "host_membership.rs"]
 mod membership;
 pub use directory::RaftNodeDirectoryOptions;
@@ -89,6 +99,9 @@ pub struct RaftHostOptions {
     /// Publish and refresh explicitly configured physical node endpoints.
     /// Requires a trusted self endpoint and stable member/standby storage.
     pub node_directory: Option<RaftNodeDirectoryOptions>,
+    /// Explicit rooted node enrollment and compiled namespace capabilities.
+    /// Capacity readiness/activation and complete inventory are separate proofs.
+    pub managed: Option<RaftManagedHostOptions>,
     /// Enable native snapshot recovery and its larger image admission floor.
     pub enable_snapshots: bool,
     /// Applied entries between automatic checkpoints. Shared log-cache pressure
@@ -127,6 +140,7 @@ impl Default for RaftHostOptions {
             inspection_origins: Vec::new(),
             node_directory: None,
             node_profile: None,
+            managed: None,
             enable_snapshots: true,
             checkpoint_entries: 256,
             archive: RaftArchiveOptions::default(),
@@ -150,6 +164,15 @@ impl Default for RaftHostOptions {
 impl RaftHostOptions {
     pub(crate) fn validate(&self) -> anyhow::Result<()> {
         self.close_report.validate()?;
+        if let Some(managed) = &self.managed {
+            managed.validate()?;
+            anyhow::ensure!(
+                self.node_profile.is_some()
+                    && self.node_directory.is_some()
+                    && self.controller.is_none(),
+                "managed enrollment requires a profile/directory; disable the legacy controller"
+            );
+        }
         if let Some(directory) = &self.node_directory {
             directory.validate()?;
         }
@@ -310,6 +333,7 @@ pub(crate) struct Registration {
 
 pub(crate) struct Registrations {
     pub cells: Vec<Registration>,
+    pub namespaces: Vec<NamespaceRegistration>,
     pub peers: Vec<RaftPeerNode>,
     pub origins: Vec<NamespaceQueryOrigin>,
 }
@@ -350,11 +374,12 @@ async fn initialize(
     registrations: Registrations,
     directory: PathBuf,
     label: String,
-    options: RaftHostOptions,
+    mut options: RaftHostOptions,
     versions: super::version::VersionKeys,
 ) -> anyhow::Result<RaftCells> {
     let Registrations {
         cells: registrations,
+        namespaces: declared_namespaces,
         peers,
         origins,
     } = registrations;
@@ -366,7 +391,8 @@ async fn initialize(
         .transport
         .snapshot_limits(options.execution.max_image_bytes)?;
     anyhow::ensure!(
-        !registrations.is_empty() && registrations.len() <= options.max_groups,
+        (!registrations.is_empty() || options.managed.is_some())
+            && registrations.len() <= options.max_groups,
         "invalid registered group count"
     );
     let domain = service.log.domain();
@@ -401,6 +427,15 @@ async fn initialize(
             peer_count == peers.len() && peer_count <= service.transport.peer_limit(),
             "invalid peer discovery count"
         );
+        enrollment::prepare(
+            &mut options,
+            &service,
+            &registrations,
+            &declared_namespaces,
+            &peers,
+            &label,
+        )
+        .await?;
         let mut grants = BTreeSet::new();
         for origin in origins {
             anyhow::ensure!(
@@ -412,6 +447,8 @@ async fn initialize(
         node_directory = directory::prepare(
             options.node_directory.as_ref(),
             &registrations,
+            &declared_namespaces,
+            options.managed.as_mut().map(|m| &mut m.authorization),
             &peers,
             &service,
             &label,
@@ -425,6 +462,12 @@ async fn initialize(
                     registration.namespace.config().namespace,
                 )
             })
+            .chain(declared_namespaces.iter().map(|registration| {
+                (
+                    registration.namespace.config().cluster,
+                    registration.namespace.config().namespace,
+                )
+            }))
             .collect();
         let mut grants = BTreeSet::new();
         for origin in &options.inspection_origins {
@@ -771,7 +814,7 @@ async fn initialize(
             );
             permit.attach(&service.runtime).await?;
         }
-        if !cells.is_empty() || !standbys.is_empty() {
+        if !cells.is_empty() || !standbys.is_empty() || options.managed.is_some() {
             let mut nonce = [0; 16];
             crate::asyncrt::rng("raft-archive-verifier").fill_bytes(&mut nonce);
             let owner = super::host_archive::Owner::open(
@@ -892,6 +935,7 @@ async fn initialize(
             pool,
             cells,
             standbys,
+            declared_namespaces,
             activating: None,
             active: BTreeSet::new(),
             applying: BTreeSet::new(),
@@ -1176,6 +1220,7 @@ struct Driver {
     leader_load: Option<load::Scanner>,
     directory: Option<directory::Directory>,
     standbys: BTreeMap<GroupScope, standby::Dormant>,
+    declared_namespaces: Vec<NamespaceRegistration>,
     activating: Option<GroupScope>,
     peers: BTreeMap<NodeId, RaftPeerNode>,
     label: String,
@@ -1741,25 +1786,6 @@ impl Driver {
 
     fn on_request(&mut self, mut request: Request) {
         self.reconcile_membership(&request.scope);
-        if matches!(request.kind, Kind::NodeDrain) {
-            self.start_node_drain(request);
-            return;
-        }
-        if matches!(
-            &request.kind,
-            Kind::ControllerStatus | Kind::SetControllerEnabled(_)
-        ) {
-            if self.closing.load(Ordering::Acquire) || request.control.cancelled() {
-                reply(&mut request, Err(CommandFailure::Unavailable));
-            } else {
-                let enabled = match request.kind {
-                    Kind::SetControllerEnabled(enabled) => Some(enabled),
-                    _ => None,
-                };
-                self.controller_control(request, enabled);
-            }
-            return;
-        }
         let scope = request.scope.clone();
         if matches!(&request.kind, Kind::Inspect | Kind::InspectPeer(_)) {
             if self.closing.load(Ordering::Acquire) {
@@ -1917,10 +1943,7 @@ impl Driver {
                     }
                 }));
             }
-            Kind::NodeDrain
-            | Kind::ControllerStatus
-            | Kind::SetControllerEnabled(_)
-            | Kind::Inspect
+            Kind::Inspect
             | Kind::InspectPeer(_)
             | Kind::AddLearner { .. }
             | Kind::ActivateLearner(_)
@@ -3236,7 +3259,7 @@ impl Driver {
     async fn run(
         &mut self,
         mut requests: mailbox::Receiver<Request>,
-        mut controls: mailbox::Receiver<Request>,
+        mut controls: mailbox::Receiver<ControlRequest>,
         mut closes: mpsc::UnboundedReceiver<()>,
     ) {
         let mut requests_open = true;
@@ -3258,7 +3281,7 @@ impl Driver {
             // business, completions and consensus between these small batches.
             for _ in 0..4 {
                 match controls.try_recv() {
-                    Ok(request) => self.on_request(request),
+                    Ok(request) => self.on_control(request),
                     Err(mpsc::error::TryRecvError::Empty) => break,
                     Err(mpsc::error::TryRecvError::Disconnected) => {
                         controls_open = false;
@@ -3276,7 +3299,7 @@ impl Driver {
                 return;
             };
             crate::asyncrt::select! {
-                request=controls.recv(),if controls_open=>match request{Some(request)=>self.on_request(request),None=>controls_open=false},
+                request=controls.recv(),if controls_open=>match request{Some(request)=>self.on_control(request),None=>controls_open=false},
                 request=requests.recv(),if requests_open=>match request{Some(request)=>self.on_request(request),None=>requests_open=false},
                 close=closes.recv(),if closes_open=>if close.is_some(){return;}else{closes_open=false;},
                 event=self.events.recv()=>match event{Some(event)=>self.on_event(event),None=>return},

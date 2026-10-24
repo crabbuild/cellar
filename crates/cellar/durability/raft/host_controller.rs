@@ -277,7 +277,7 @@ impl Driver {
         }
     }
 
-    pub(super) fn controller_control(&mut self, mut request: Request, enabled: Option<bool>) {
+    pub(super) fn controller_control(&mut self, mut request: NodeRequest, enabled: Option<bool>) {
         let result = (|| {
             let controller = self
                 .controller
@@ -308,7 +308,7 @@ impl Driver {
             }
             Ok(Response::Controller(controller.status.clone()))
         })();
-        reply(&mut request, result);
+        reply_node(&mut request, result);
     }
 
     pub(super) fn pump_controller(&mut self) {

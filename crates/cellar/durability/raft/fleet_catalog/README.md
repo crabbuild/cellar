@@ -81,6 +81,40 @@ Physical snapshot completion reservations cover the expanded bounded ledger.
 
 ## Host API and fresh learners
 
+### Rooted node enrollment
+
+`register_node` adds a bounded typed descriptor in the `Nodes` index with exact
+request identity and CAS reconciliation. `authorize_host` returns an opaque
+capability for that rooted node/disk, physical-host identity, endpoint name and
+compiled-capability digest. Boot refreshes it against the current root and
+refuses missing, evacuated, removed or incompatible records. Registration does
+not activate capacity or certify a complete managed inventory.
+
+An existing engine can be pinned in the registration request. A fresh engine is
+permanently pinned by a conditional node-record update during startup, after the
+ordinary namespace storage pin and before endpoint publication. Lost replies
+reconcile through that monotonic pin. Changing namespace catalog prefixes cannot
+make a replacement engine satisfy the fleet pin. The initial node-table bound is
+64 retained records, including removed identity tombstones; exhaustion refuses
+registration and does not collect identity history.
+
+`RaftManagedHostOptions` declares a bounded namespace/class list whose canonical
+digest must match enrollment. Classes resolve against the compiled application
+and existing namespace/schema/version metadata. This lets a managed host boot
+with zero registered groups. Existing participating histories must already have
+their rooted/committed group enrollment; this startup path cannot bootstrap an
+unguarded voter. The legacy group controller stays disabled on these hosts until
+fleet-aware reconciliation is integrated.
+
+`RaftCells::observe_node` uses bounded node control admission independently of
+cell handles. It returns actual engine identity, occupied and unattached history
+counts, configured profile and the explicitly named startup enrollment cut.
+It is a local observation, not fresh remote readiness, capacity activation or
+removal proof. Continuous trusted-node refresh/revocation, remote node inspection,
+dynamic dormant registration and complete inventory remain FO-03 work.
+
+### Group membership and learner activation
+
 The SDK handle exposes `enroll_fleet`, `begin_managed_repair`,
 `advance_managed_repair`, `fence_fleet_permit` and
 `activate_managed_learner`. They require the opaque capability. Managed groups

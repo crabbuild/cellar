@@ -297,6 +297,24 @@ impl Driver {
         authorization: Option<crate::raft::fleet_catalog::FleetPermitAuthorization>,
     ) {
         let scope = request.scope.clone();
+        if let Some(managed) = &self.options.managed {
+            if authorization.as_ref().is_none_or(|authorization| {
+                authorization.permit().binding().fleet() != managed.authorization.fleet()
+                    || !authorization.matches_scope(&scope)
+            }) {
+                reply(&mut request, Err(CommandFailure::CommandConflict));
+                return;
+            }
+            if !managed.authorization.eligibility().receive_replicas
+                && matches!(
+                    self.log.group(&scope),
+                    Err(super::super::storage::LogError::NotFound)
+                )
+            {
+                reply(&mut request, Err(CommandFailure::Unavailable));
+                return;
+            }
+        }
         let Some(dormant) = self.standbys.get(&scope).cloned() else {
             reply(&mut request, Err(CommandFailure::UnsupportedCapability));
             return;

@@ -37,11 +37,15 @@ pub use crate::raft::catalog::{
 pub use cellar_logic::raft_leadership::LeaderPolicy;
 pub use cellar_logic::raft_placement::PlacementPolicy;
 
-pub use crate::raft::fleet_catalog::{FleetGroupAuthorization, FleetPermitAuthorization};
+pub use crate::raft::fleet_catalog::{
+    FleetGroupAuthorization, FleetHostAuthorization, FleetNodeEligibility, FleetNodeSpec,
+    FleetNodeState, FleetPermitAuthorization, FleetRequestIdentity,
+};
 pub use crate::raft::host::{
     RaftArchiveOptions, RaftCellPlacement, RaftCellRegistration, RaftCellsConfig,
-    RaftCellsServices, RaftControllerOptions, RaftControllerStatus, RaftHostOptions,
-    RaftInspectionScanOptions, RaftNodeDirectoryOptions, RaftPeerNode,
+    RaftCellsServices, RaftControllerOptions, RaftControllerStatus, RaftHostEnrollmentObservation,
+    RaftHostObservation, RaftHostOptions, RaftInspectionScanOptions, RaftManagedHostOptions,
+    RaftNamespaceRegistration, RaftNodeDirectoryOptions, RaftPeerNode,
 };
 pub use crate::raft::inspection::{
     CellInspection, InspectionError, LeaderLoad, MemberInspection, NodeInspection, RaftNodeProfile,

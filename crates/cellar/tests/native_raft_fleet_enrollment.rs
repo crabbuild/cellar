@@ -2,6 +2,11 @@
 //! The complete dynamic host/trust inventory remains part of FO-03 delivery.
 #[path = "support/raft_catalog_fault.rs"]
 mod fault;
+#[path = "support/raft_enrollment_native.rs"]
+mod hosts;
+#[path = "support/raft_node.rs"]
+#[allow(dead_code)]
+mod public_node;
 
 use anyhow::{ensure, Result};
 use cellar::application::consensus::verification::{

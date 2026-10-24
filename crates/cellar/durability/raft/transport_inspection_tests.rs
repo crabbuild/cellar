@@ -372,6 +372,9 @@ async fn inspection_revocation_and_process_refresh_cancel_an_admitted_inbound_ca
             }
         }).await.map_err(|error| anyhow::anyhow!("host admission wait: {error}"))??
             .ok_or_else(|| anyhow::anyhow!("no admitted inspection"))?;
+        let client::ControlRequest::Cell(admitted) = admitted else {
+            anyhow::bail!("expected cell inspection control");
+        };
         assert!(matches!(admitted.kind, client::Kind::Inspect));
         assert!(!admitted.control.cancelled());
         if refresh {

@@ -22,6 +22,11 @@ use tokio::sync::{mpsc, oneshot, Notify};
 mod fleet;
 pub(crate) use fleet::FleetRequest;
 
+#[path = "client_node.rs"]
+mod node;
+use node::send_failure;
+pub(crate) use node::{ControlRequest, NodeKind, NodeRequest};
+
 /// A compare-and-set admission request for a preconfigured fresh learner.
 #[derive(Clone, Debug)]
 pub struct LearnerOptions {
@@ -206,7 +211,7 @@ pub(crate) struct Terminal {
 pub(crate) struct Handle {
     pub performance: Arc<crate::raft::performance::Registry>,
     pub requests: mailbox::Sender<Request>,
-    pub control_requests: mailbox::Sender<Request>,
+    pub control_requests: mailbox::Sender<ControlRequest>,
     pub control_budget: Arc<Budget>,
     pub close: mpsc::UnboundedSender<()>,
     pub domain: crate::asyncrt::DomainToken,
@@ -284,9 +289,6 @@ impl RaftCells {
         &self,
         deadline: u64,
     ) -> Result<super::RaftDrainReport, CommandFailure> {
-        let Some(binding) = self.handle.bindings.values().next().cloned() else {
-            return Ok(super::RaftDrainReport::default());
-        };
         let now = self
             .handle
             .domain
@@ -303,13 +305,9 @@ impl RaftCells {
         if self.handle.closing.load(Ordering::Acquire) {
             return Err(CommandFailure::Unavailable);
         }
-        let local = RaftCellHandle {
-            handle: self.handle.clone(),
-            binding,
-        };
-        match local
-            .call(
-                Kind::NodeDrain,
+        match self
+            .node_call(
+                NodeKind::Drain,
                 Duration::from_millis((deadline - now).min(3_600_000)),
             )
             .await?
@@ -325,7 +323,7 @@ impl RaftCells {
         &self,
     ) -> impl Future<Output = Result<super::RaftControllerStatus, CommandFailure>> + Send + 'static
     {
-        let call = self.controller_call(Kind::ControllerStatus);
+        let call = self.node_call(NodeKind::ControllerStatus, Duration::from_secs(5));
         async move {
             match call.await? {
                 Response::Controller(status) => Ok(status),
@@ -342,27 +340,16 @@ impl RaftCells {
         enabled: bool,
     ) -> impl Future<Output = Result<super::RaftControllerStatus, CommandFailure>> + Send + 'static
     {
-        let call = self.controller_call(Kind::SetControllerEnabled(enabled));
+        let call = self.node_call(
+            NodeKind::SetControllerEnabled(enabled),
+            Duration::from_secs(5),
+        );
         async move {
             match call.await? {
                 Response::Controller(status) => Ok(status),
                 _ => Err(CommandFailure::CorruptState),
             }
         }
-    }
-
-    fn controller_call(
-        &self,
-        kind: Kind,
-    ) -> Pin<Box<dyn Future<Output = Result<Response, CommandFailure>> + Send>> {
-        let Some(binding) = self.handle.bindings.values().next().cloned() else {
-            return Box::pin(async { Err(CommandFailure::UnsupportedCapability) });
-        };
-        RaftCellHandle {
-            handle: self.handle.clone(),
-            binding,
-        }
-        .call(kind, Duration::from_secs(5))
     }
 
     pub fn cell(
@@ -760,7 +747,7 @@ impl RaftCellHandle {
             if self.handle.closed.load(Ordering::Acquire)
                 || self.handle.closing.load(Ordering::Acquire)
                 || self.handle.admission.is_draining()
-                    && !matches!(kind, Kind::SystemCommand { .. } | Kind::NodeDrain)
+                    && !matches!(kind, Kind::SystemCommand { .. })
             {
                 return Err(CommandFailure::Unavailable);
             }
@@ -773,7 +760,6 @@ impl RaftCellHandle {
                 return Err(CommandFailure::Unavailable);
             }
             match &kind {
-                Kind::NodeDrain => {}
                 Kind::ActivateLearner(activation) | Kind::ActivateManaged { activation, .. } => {
                     if let Kind::ActivateManaged { authorization, .. } = &kind {
                         if !authorization.matches_scope(&self.binding.scope)
@@ -887,7 +873,7 @@ impl RaftCellHandle {
                         }
                     }
                 }
-                Kind::Inspect | Kind::ControllerStatus | Kind::SetControllerEnabled(_) => (),
+                Kind::Inspect => (),
                 Kind::InspectPeer(_) => {
                     if timeout > Duration::from_secs(60) {
                         return Err(CommandFailure::UnsupportedCapability);
@@ -954,16 +940,17 @@ impl RaftCellHandle {
             let _registration = self
                 .handle
                 .admission
-                .registration(matches!(kind, Kind::SystemCommand { .. } | Kind::NodeDrain))?;
+                .registration(matches!(kind, Kind::SystemCommand { .. }))?;
             if self.handle.closed.load(Ordering::Acquire)
                 || self.handle.closing.load(Ordering::Acquire)
             {
                 return Err(CommandFailure::Unavailable);
             }
-            let (budget, sender) = if kind.is_control() {
-                (&self.handle.control_budget, &self.handle.control_requests)
+            let administrative = kind.is_control();
+            let budget = if administrative {
+                &self.handle.control_budget
             } else {
-                (&self.handle.budget, &self.handle.requests)
+                &self.handle.budget
             };
             let permit = Arc::new(
                 budget
@@ -974,19 +961,25 @@ impl RaftCellHandle {
                 _guard: self.handle.work.enter(),
             });
             let (reply, receiver) = oneshot::channel();
-            sender
-                .try_send(Request {
-                    scope: self.binding.scope.clone(),
-                    kind,
-                    reply: Some(reply),
-                    control: control.clone(),
-                    _permit: permit.clone(),
-                    work,
-                })
-                .map_err(|e| match e {
-                    mpsc::error::TrySendError::Full(_) => CommandFailure::Overloaded,
-                    mpsc::error::TrySendError::Closed(_) => CommandFailure::Unavailable,
-                })?;
+            let request = Request {
+                scope: self.binding.scope.clone(),
+                kind,
+                reply: Some(reply),
+                control: control.clone(),
+                _permit: permit.clone(),
+                work,
+            };
+            if administrative {
+                self.handle
+                    .control_requests
+                    .try_send(ControlRequest::Cell(Box::new(request)))
+                    .map_err(send_failure)?;
+            } else {
+                self.handle
+                    .requests
+                    .try_send(request)
+                    .map_err(send_failure)?;
+            }
             Ok((receiver, timer, permit))
         })();
         Box::pin(async move {
@@ -1026,9 +1019,6 @@ pub(crate) enum Kind {
         authorization: Box<crate::raft::fleet_catalog::FleetPermitAuthorization>,
         activation: LearnerActivation,
     },
-    NodeDrain,
-    ControllerStatus,
-    SetControllerEnabled(bool),
     Inspect,
     InspectPeer(cellar_logic::consensus::NodeId),
     ActivateLearner(LearnerActivation),
@@ -1081,10 +1071,7 @@ impl Kind {
             Self::Command { input, .. }
             | Self::SystemCommand { input, .. }
             | Self::Query { input, .. } => input.len(),
-            Self::NodeDrain
-            | Self::ControllerStatus
-            | Self::SetControllerEnabled(_)
-            | Self::Inspect
+            Self::Inspect
             | Self::InspectPeer(_)
             | Self::Status
             | Self::AddLearner { .. }
@@ -1107,10 +1094,7 @@ impl Kind {
                 CancelFailure::Command(options.id)
             }
             Self::Query { .. } | Self::Seed { .. } => CancelFailure::Query,
-            Self::NodeDrain
-            | Self::ControllerStatus
-            | Self::SetControllerEnabled(_)
-            | Self::Inspect
+            Self::Inspect
             | Self::InspectPeer(_)
             | Self::Status
             | Self::AddLearner { .. }
@@ -1145,6 +1129,7 @@ impl CancelFailure {
 }
 
 pub(crate) enum Response {
+    Node(Box<super::RaftHostObservation>),
     Fleet(Option<Box<crate::raft::member_state::FleetMembershipStatus>>),
     Drained(super::RaftDrainReport),
     Controller(super::RaftControllerStatus),
@@ -1169,10 +1154,12 @@ pub(crate) struct ChargedResponse {
     pub _bytes: Option<Permit>,
 }
 
+pub(crate) type ResponseSender = oneshot::Sender<Result<ChargedResponse, CommandFailure>>;
+
 pub(crate) struct Request {
     pub scope: GroupScope,
     pub kind: Kind,
-    pub reply: Option<oneshot::Sender<Result<ChargedResponse, CommandFailure>>>,
+    pub reply: Option<ResponseSender>,
     pub control: Arc<AttemptControl>,
     pub _permit: Arc<Permit>,
     pub work: Arc<Work>,

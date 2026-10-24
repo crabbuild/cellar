@@ -2,9 +2,14 @@
 //! A retained mutation journal resolves ambiguous writes after later revisions.
 
 mod index;
+mod nodes;
 mod permits;
 mod records;
 
+pub use nodes::{
+    FleetHostAuthorization, FleetNodeEligibility, FleetNodeSpec, FleetNodeState,
+    FleetRequestIdentity,
+};
 pub use permits::{FleetGroupAuthorization, FleetPermitAuthorization};
 
 use records::{CommitRecord, Head, Pin};

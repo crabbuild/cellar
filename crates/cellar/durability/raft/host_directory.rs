@@ -57,6 +57,8 @@ fn remaining(domain: &crate::asyncrt::DomainToken, deadline: u64) -> anyhow::Res
 pub(super) async fn prepare(
     options: Option<&RaftNodeDirectoryOptions>,
     cells: &[Registration],
+    declared: &[NamespaceRegistration],
+    mut enrollment: Option<&mut super::super::fleet_catalog::FleetHostAuthorization>,
     peers: &BTreeMap<NodeId, RaftPeerNode>,
     service: &crate::daemon::NodeRaftService,
     label: &str,
@@ -66,9 +68,10 @@ pub(super) async fn prepare(
     };
     options.validate()?;
     anyhow::ensure!(
-        cells
-            .iter()
-            .any(|cell| !matches!(cell.placement, RaftCellPlacement::QueryRouter { .. })),
+        !declared.is_empty()
+            || cells
+                .iter()
+                .any(|cell| !matches!(cell.placement, RaftCellPlacement::QueryRouter { .. })),
         "node directory requires stable replica or standby storage"
     );
     let local = service.log.limits();
@@ -86,16 +89,19 @@ pub(super) async fn prepare(
         peer.validate_endpoint()?;
     }
     let mut namespaces = BTreeMap::new();
-    for cell in cells {
-        cell.namespace
-            .require_mode(cellar_logic::NamespaceMode::Raft)?;
+    for (namespace, class) in cells
+        .iter()
+        .map(|c| (&c.namespace, &c.class))
+        .chain(declared.iter().map(|c| (&c.namespace, &c.class)))
+    {
+        namespace.require_mode(cellar_logic::NamespaceMode::Raft)?;
         anyhow::ensure!(
-            cell.namespace.config().schema_digest == cell.class.schema_digest(),
+            namespace.config().schema_digest == class.schema_digest(),
             "registered schema disagrees with namespace"
         );
         namespaces
-            .entry(cell.namespace.config().cluster)
-            .or_insert_with(|| cell.namespace.clone());
+            .entry(namespace.config().cluster)
+            .or_insert_with(|| namespace.clone());
     }
     let domain = service.log.domain();
     let deadline = domain.mono_ms()?.saturating_add(options.timeout_ms);
@@ -105,6 +111,14 @@ pub(super) async fn prepare(
         let registration = namespace
             .register_node_storage(&service.log, remaining(&domain, deadline)?)
             .await?;
+        if let Some(authorization) = enrollment.as_mut() {
+            **authorization = authorization
+                .bind_storage(
+                    service.log.storage_instance()?,
+                    remaining(&domain, deadline)?,
+                )
+                .await?;
+        }
         let publication = registration
             .publication(own.clone(), remaining(&domain, deadline)?)
             .await?;
