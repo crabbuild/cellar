@@ -8,6 +8,10 @@ on:
       - 'examples/node/**'
       - 'examples/pi-agent/**'
       - 'tools/javascript/**'
+      - 'tools/rpc/**'
+      - 'tools/cellar-rpc-codegen/**'
+      - 'proto/**'
+      - 'plans/named-typed-rpc/*.proto'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - '.github/workflows/javascript-sdk.yml'
@@ -36,11 +40,15 @@ jobs:
           npm ci --prefix examples/javascript --ignore-scripts
           npm ci --prefix examples/node --ignore-scripts
           npm ci --prefix examples/pi-agent --ignore-scripts
+          npm ci --prefix tools/rpc --ignore-scripts
           npm run --prefix examples/node build
           npm run --prefix examples/pi-agent build
           npm test --prefix examples/pi-agent
           npm test --prefix tools/javascript
           npm run --prefix examples/javascript build
+          npm test --prefix tools/rpc
+          npm run --prefix tools/rpc typecheck
+          npm run --prefix tools/rpc build
       - name: Adapter and real-node tests
         run: cargo test --locked -p cellar-guest -p cellar-javascript --features cellar-javascript/embed,cellar-javascript/node
       - name: Node-only feature

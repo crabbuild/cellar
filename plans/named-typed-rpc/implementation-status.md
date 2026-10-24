@@ -70,6 +70,20 @@ pairs. Preserve the full test matrix, failures and remaining work across turns.
 
 ## Current evidence
 
+- The implementation branch incorporates `origin/main` at `e0035689`, including
+  Python completion-handoff telemetry and log shutdown publication fixes.
+  Post-merge checks pass 29 Python library tests, 21 qualifier tests, 54 JS SDK
+  tests, 10 Python cancellation tests and 17 Python codec/client tests. Both
+  contracts regenerate all 24 checked-in artifacts byte-for-byte; JS/TS plugin
+  output now has one final newline. Strict TS checks/build and all-target Clippy
+  for the generator, qualifier and affected adapters pass. Format/layout check
+  964 Rust files; the native dependency guard and its three regressions pass.
+- CI prepares the pinned Python codec dependency before the new typed-RPC test
+  and builds RPC JS fixtures before adapter tests. Native workspace test/doc/lint
+  selections exclude the opt-in full-runtime qualifier, preserving their engine
+  boundary. Both workflow files parse and the actual Cargo tree for that native
+  selection contains neither V8 nor the JS adapter. These local checks do not
+  establish a passing hosted CI run or complete clean-machine qualification.
 - After JS/TS controls, the combined `--suite all` passes with normal stack
   settings and publishes all seven objects after node/runtime drains: 16 local
   pairs, 16 remote pairs before/after handoff, three native deadline cases,
