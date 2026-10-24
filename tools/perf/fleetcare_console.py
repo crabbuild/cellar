@@ -28,7 +28,7 @@ def private_file(path, content):
 
 def console_config(port):
     return {
-        "listen": "0.0.0.0:4174", "assets": "/opt/cellar/dashboard",
+        "listen": "0.0.0.0:4174", "assets": "/opt/cellar/console",
         "audit": "/data/console-audit.sqlite",
         "origins": [f"http://127.0.0.1:{port}", f"http://localhost:{port}"],
         "fleets": [{"id": "fleetcare", "name": "FleetCare", "environment": "Local",

@@ -16,15 +16,15 @@ RUN --mount=type=cache,id=cellar-console-registry,target=/usr/local/cargo/regist
 
 FROM node:24-bookworm-slim AS browser
 WORKDIR /app
-COPY dashboard/package.json ./
+COPY packages/console/package.json ./
 RUN npm install --no-audit --no-fund
-COPY dashboard ./
+COPY packages/console ./
 RUN npm run build
 
 FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates python3 && rm -rf /var/lib/apt/lists/*
 COPY --from=build /out/ /usr/local/bin/
-COPY --from=browser /app/dist/ /opt/cellar/dashboard/
+COPY --from=browser /app/dist/ /opt/cellar/console/
 COPY tools/perf/fleetcare-simulator.py /usr/local/bin/
 COPY LICENSE NOTICE /usr/share/doc/cellar/
 WORKDIR /data

@@ -1,9 +1,9 @@
-name: Cellar dashboard
+name: Cellar console
 on:
   push:
-    paths: ['dashboard/**', '.github/workflows/dashboard.yml']
+    paths: ['packages/console/**', '.github/workflows/console.yml']
   pull_request:
-    paths: ['dashboard/**', '.github/workflows/dashboard.yml']
+    paths: ['packages/console/**', '.github/workflows/console.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -13,14 +13,14 @@ jobs:
     timeout-minutes: 15
     defaults:
       run:
-        working-directory: dashboard
+        working-directory: packages/console
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
         with:
           node-version: '24.13.1'
           cache: npm
-          cache-dependency-path: dashboard/package-lock.json
+          cache-dependency-path: packages/console/package-lock.json
       - run: npm ci
       - run: npm run build
       - run: npm run lint
@@ -29,6 +29,6 @@ jobs:
       - uses: actions/upload-artifact@v6
         if: failure()
         with:
-          name: dashboard-browser-results
-          path: dashboard/test-results
+          name: console-browser-results
+          path: packages/console/test-results
           retention-days: 7

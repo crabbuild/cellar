@@ -20,7 +20,7 @@ Applications implement `cellar::sdk` contracts and compile into native executabl
 | `crates/cellar-native/` | Owned values, codecs and web primitives |
 | `crates/cellar-ltx/` | SQLite WAL capture, LTX and replication mechanics |
 | `crates/cellar-axum/` | Axum integration and external ingress |
-| `crates/cellar-admin/`, `dashboard/` | Management API and browser console |
+| `crates/cellar-admin/`, `packages/console/` | Management API and browser console |
 | `examples/` | Reference applications and runnable examples |
 | `tools/`, `.github/workflows/` | Development tooling and CI |
 

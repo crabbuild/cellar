@@ -479,7 +479,7 @@ pub(crate) async fn asset(State(console): State<Arc<Console>>, uri: Uri) -> Resp
         Err(_) => {
             return (
                 StatusCode::SERVICE_UNAVAILABLE,
-                "Dashboard assets unavailable. Run npm ci && npm run build in dashboard/.",
+                "Console assets unavailable. Run npm ci && npm run build in packages/console/.",
             )
                 .into_response()
         }
