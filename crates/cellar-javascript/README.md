@@ -38,6 +38,8 @@ for checkpointed model and tool steps.
 The [Vercel AI SDK agent](../../examples/vercel-agent/README.md) demonstrates
 `ToolLoopAgent`, durable model middleware, atomic tools, six process interruption
 boundaries, and concurrent task recovery through the same Node bridge.
+It also includes a React/shadcn streaming chat workspace, six function tools,
+downstream HTTP idempotency, and live GPT-6 Luna interruption qualification.
 
 ## Choose an execution backend
 

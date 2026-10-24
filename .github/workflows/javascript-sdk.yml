@@ -43,16 +43,22 @@ jobs:
           npm ci --prefix examples/pi-agent --ignore-scripts
           npm ci --prefix examples/vercel-agent --ignore-scripts
           npm ci --prefix tools/rpc --ignore-scripts
+          npm ci --prefix examples/vercel-agent/ui --ignore-scripts
           npm run --prefix examples/node build
           npm run --prefix examples/pi-agent build
           npm test --prefix examples/pi-agent
           npm run --prefix examples/vercel-agent build
+          npm run --prefix examples/vercel-agent/ui build
           npm test --prefix examples/vercel-agent
           npm test --prefix tools/javascript
           npm run --prefix examples/javascript build
           npm test --prefix tools/rpc
           npm run --prefix tools/rpc typecheck
           npm run --prefix tools/rpc build
+      - name: Chat UI desktop and mobile behavior
+        run: |
+          npm exec --prefix examples/vercel-agent/ui -- playwright install --with-deps chromium
+          npm run --prefix examples/vercel-agent/ui test:ui
       - name: Adapter and real-node tests
         run: cargo test --locked -p cellar-guest -p cellar-javascript --features cellar-javascript/embed,cellar-javascript/node
       - name: Node-only feature
@@ -72,6 +78,7 @@ jobs:
         run: |
           cargo build --locked -p cellar-javascript --no-default-features --features node --bin cellar-vercel-agent-example
           CELLAR_AI_HOST="${CARGO_TARGET_DIR:-$PWD/target}/debug/cellar-vercel-agent-example" npm run --prefix examples/vercel-agent test:e2e
+          CELLAR_AI_HOST="${CARGO_TARGET_DIR:-$PWD/target}/debug/cellar-vercel-agent-example" npm run --prefix examples/vercel-agent test:tools
       - name: Quality and engine boundaries
         run: |
           cargo clippy --locked -p cellar-guest -p cellar-javascript --features cellar-javascript/embed,cellar-javascript/node --all-targets -- -D warnings

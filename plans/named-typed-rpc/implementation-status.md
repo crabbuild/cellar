@@ -70,6 +70,23 @@ pairs. Preserve the full test matrix, failures and remaining work across turns.
 
 ## Current evidence
 
+- Main is integrated through `1a1b0243` (#113), preserving the streaming
+  React chat and agent-tool recovery work. The single workflow conflict keeps
+  both the RPC fixture install/test/typecheck/build and UI install/build/browser
+  checks, plus the agent tool-recovery step. The merged workflow parses and
+  documentation still validates 735 local references. Main changes no Rust
+  implementation, typed-RPC fixtures, SDK sources or Cargo dependencies: the
+  nine-suite evidence below is from those identical RPC sources at `c381cb67`.
+- The merged agent passes its locked build and all 28 unit tests; the UI passes
+  its locked build and all six desktop/mobile browser tests. The native Node
+  host builds and passes all six fixture-provider crash/cold-recovery boundaries,
+  16 concurrent tasks, cold recovery and 32 unchanged duplicate results. The
+  external-tool scenario passes six tools across two attempts with count 13,
+  one external effect, two downstream requests and an unchanged duplicate.
+  This is fixture-mode integration evidence, not live-model qualification.
+  An initial parallel unit attempt reached the static page before UI assets
+  existed and returned 503. Building the UI before unit tests, as CI specifies,
+  passes all 28 assertions without changing code or weakening expectations.
 - With the corrected crash observer, the normal-stack executable passes all
   nine suites and publishes `.cellar/rpc/cycles-full-matrix.json` only after
   native nodes and guest runtimes drain: 16 local pairs, 16 remote/handoff pairs,
