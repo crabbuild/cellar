@@ -220,6 +220,10 @@ impl Manifest {
             .membership
             .validate(&conf, self.snapshot.position.index)
             .map_err(|_| ArchiveError::Corrupt("archive member bindings"))?;
+        self.snapshot
+            .membership
+            .validate_scope(scope)
+            .map_err(|_| ArchiveError::Corrupt("archive fleet binding"))?;
         if self.tails.len() > limits.max_tails
             || self.dependencies.len() > limits.max_dependencies
             || self.snapshot.object.kind != ObjectKind::Snapshot

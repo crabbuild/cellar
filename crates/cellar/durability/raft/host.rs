@@ -14,7 +14,9 @@ use super::{
     runtime::{RaftRuntime, RuntimeEvents},
     transport::{GroupRoute, RaftPeer, RaftTransport},
 };
-use crate::application::consensus::client::{self, Binding, Kind, Request, Response};
+use crate::application::consensus::client::{
+    self, Binding, ControlRequest, Kind, NodeKind, NodeRequest, Request, Response,
+};
 use crate::application::consensus::{command_request_digest, OperationKind, RaftCells, RaftClass};
 use cellar_logic::consensus::*;
 use cellar_logic::raft_command::CommandState;
@@ -50,6 +52,10 @@ mod effect_scheduler;
 pub use controller::{RaftControllerOptions, RaftControllerStatus};
 #[path = "host_directory.rs"]
 mod directory;
+#[path = "host_enrollment.rs"]
+mod enrollment;
+pub(crate) use enrollment::NamespaceRegistration;
+pub use enrollment::{RaftManagedHostOptions, RaftNamespaceRegistration};
 #[path = "host_inspection.rs"]
 mod inspection;
 #[path = "host_leader_load.rs"]
@@ -58,8 +64,25 @@ mod load;
 mod readiness;
 pub(crate) use load::GroupResourceObserver;
 pub use load::RaftInspectionScanOptions;
+#[path = "host_fleet.rs"]
+mod fleet_control;
+#[path = "host_fleet_observation.rs"]
+mod fleet_observation;
+pub use fleet_observation::{FleetMembershipConfiguration, FleetMembershipObservation};
+#[path = "host_initial.rs"]
+mod initial;
+#[path = "host_node.rs"]
+mod node_control;
+#[path = "host_registration.rs"]
+mod registration;
+use node_control::reply_node;
+pub use node_control::{
+    RaftHostEnrollmentObservation, RaftHostObservation, RaftPeerNodeObservation,
+};
 #[path = "host_membership.rs"]
 mod membership;
+#[path = "host_node_inspection.rs"]
+mod node_inspection;
 pub use directory::RaftNodeDirectoryOptions;
 #[path = "host_seed.rs"]
 mod seed;
@@ -84,9 +107,12 @@ pub struct RaftHostOptions {
     pub inspection_origins: Vec<super::transport_options::NamespaceInspectionOrigin>,
     /// Enable read-only placement inspection with explicit capacity declarations.
     pub node_profile: Option<super::inspection::RaftNodeProfile>,
-    /// Publish and refresh explicitly configured physical node endpoints.
-    /// Requires a trusted self endpoint and stable member/standby storage.
+    /// Publish and refresh configured physical endpoints, or the complete rooted
+    /// node set for managed hosts. Requires a trusted self endpoint and storage.
     pub node_directory: Option<RaftNodeDirectoryOptions>,
+    /// Explicit rooted node enrollment and compiled namespace capabilities.
+    /// Capacity readiness/activation and complete inventory are separate proofs.
+    pub managed: Option<RaftManagedHostOptions>,
     /// Enable native snapshot recovery and its larger image admission floor.
     pub enable_snapshots: bool,
     /// Applied entries between automatic checkpoints. Shared log-cache pressure
@@ -125,6 +151,7 @@ impl Default for RaftHostOptions {
             inspection_origins: Vec::new(),
             node_directory: None,
             node_profile: None,
+            managed: None,
             enable_snapshots: true,
             checkpoint_entries: 256,
             archive: RaftArchiveOptions::default(),
@@ -148,6 +175,21 @@ impl Default for RaftHostOptions {
 impl RaftHostOptions {
     pub(crate) fn validate(&self) -> anyhow::Result<()> {
         self.close_report.validate()?;
+        if let Some(managed) = &self.managed {
+            managed.validate()?;
+            anyhow::ensure!(
+                self.max_control_bytes
+                    >= 4 * 1024 * 1024 + super::inspection::RESPONSE_RESERVATION + 4096
+                    && self.max_control_requests >= 3,
+                "managed discovery requires bounded metadata and control capacity"
+            );
+            anyhow::ensure!(
+                self.node_profile.is_some()
+                    && self.node_directory.is_some()
+                    && self.controller.is_none(),
+                "managed enrollment requires a profile/directory; disable the legacy controller"
+            );
+        }
         if let Some(directory) = &self.node_directory {
             directory.validate()?;
         }
@@ -254,6 +296,8 @@ pub enum RaftCellPlacement {
     Standby,
     /// Resume a stable joined member or seed a new committed learner from the
     /// specified trusted peer. A claimed member with lost state is refused.
+    /// Fresh managed learners require authorized activation on a `Standby`;
+    /// this placement can still resume their intact retained engines.
     Joining {
         member: MemberId,
         source: MemberId,
@@ -261,6 +305,7 @@ pub enum RaftCellPlacement {
     },
     /// Seed a fresh learner from an exact S3 manifest selected by a live peer
     /// read barrier. Existing stable joined state resumes without reseeding.
+    /// Fresh managed learners use authorized `Standby` activation instead.
     JoiningFromS3 {
         member: MemberId,
         source: MemberId,
@@ -305,6 +350,7 @@ pub(crate) struct Registration {
 
 pub(crate) struct Registrations {
     pub cells: Vec<Registration>,
+    pub namespaces: Vec<NamespaceRegistration>,
     pub peers: Vec<RaftPeerNode>,
     pub origins: Vec<NamespaceQueryOrigin>,
 }
@@ -345,11 +391,12 @@ async fn initialize(
     registrations: Registrations,
     directory: PathBuf,
     label: String,
-    options: RaftHostOptions,
+    mut options: RaftHostOptions,
     versions: super::version::VersionKeys,
 ) -> anyhow::Result<RaftCells> {
     let Registrations {
         cells: registrations,
+        namespaces: declared_namespaces,
         peers,
         origins,
     } = registrations;
@@ -361,7 +408,8 @@ async fn initialize(
         .transport
         .snapshot_limits(options.execution.max_image_bytes)?;
     anyhow::ensure!(
-        !registrations.is_empty() && registrations.len() <= options.max_groups,
+        (!registrations.is_empty() || options.managed.is_some())
+            && registrations.len() <= options.max_groups,
         "invalid registered group count"
     );
     let domain = service.log.domain();
@@ -390,12 +438,21 @@ async fn initialize(
     let mut archive_owner = None;
     let mut node_directory = None;
     let peer_count = peers.len();
-    let peers: BTreeMap<_, _> = peers.into_iter().map(|peer| (peer.node, peer)).collect();
+    let mut peers: BTreeMap<_, _> = peers.into_iter().map(|peer| (peer.node, peer)).collect();
     let initialized = async {
         anyhow::ensure!(
             peer_count == peers.len() && peer_count <= service.transport.peer_limit(),
             "invalid peer discovery count"
         );
+        let authorizations = enrollment::prepare(
+            &mut options,
+            &service,
+            &registrations,
+            &declared_namespaces,
+            &peers,
+            &label,
+        )
+        .await?;
         let mut grants = BTreeSet::new();
         for origin in origins {
             anyhow::ensure!(
@@ -407,7 +464,9 @@ async fn initialize(
         node_directory = directory::prepare(
             options.node_directory.as_ref(),
             &registrations,
-            &peers,
+            &declared_namespaces,
+            options.managed.as_mut().map(|m| &mut m.authorization),
+            &mut peers,
             &service,
             &label,
         )
@@ -420,6 +479,12 @@ async fn initialize(
                     registration.namespace.config().namespace,
                 )
             })
+            .chain(declared_namespaces.iter().map(|registration| {
+                (
+                    registration.namespace.config().cluster,
+                    registration.namespace.config().namespace,
+                )
+            }))
             .collect();
         let mut grants = BTreeSet::new();
         for origin in &options.inspection_origins {
@@ -602,7 +667,16 @@ async fn initialize(
             );
             let permit = match placement {
                 RaftCellPlacement::Replica => {
-                    namespace.bootstrap_member(&birth, &service.log).await?
+                    if namespace.config().managed_fleet.is_some() {
+                        let authorization = authorizations.get(&scope).ok_or_else(|| {
+                            anyhow::anyhow!("managed initial host authorization required")
+                        })?;
+                        namespace
+                            .bootstrap_managed_member(&birth, &service.log, authorization)
+                            .await?
+                    } else {
+                        namespace.bootstrap_member(&birth, &service.log).await?
+                    }
                 }
                 RaftCellPlacement::Joining {
                     member,
@@ -696,6 +770,15 @@ async fn initialize(
                             let Value::Seeded(seed) = output.value else {
                                 anyhow::bail!("SQL seed response")
                             };
+                            // Managed fresh learners use registered standby activation
+                            // with an opaque catalog authorization. Retained joined
+                            // state above resumes without creating a new membership.
+                            standby::check_seed_guard(
+                                seed.membership(),
+                                seed.local(),
+                                None,
+                                false,
+                            )?;
                             service.log.create_seeded(*seed).await?;
                             namespace
                                 .resume_joined(&birth, &service.log, member)
@@ -757,7 +840,7 @@ async fn initialize(
             );
             permit.attach(&service.runtime).await?;
         }
-        if !cells.is_empty() || !standbys.is_empty() {
+        if !cells.is_empty() || !standbys.is_empty() || options.managed.is_some() {
             let mut nonce = [0; 16];
             crate::asyncrt::rng("raft-archive-verifier").fill_bytes(&mut nonce);
             let owner = super::host_archive::Owner::open(
@@ -803,6 +886,14 @@ async fn initialize(
         result: Mutex::new(None),
         changed: Notify::new(),
     });
+    let controller_bindings = if options.controller.is_some() {
+        bindings.values().cloned().collect()
+    } else {
+        Vec::new()
+    };
+    let has_effects = bindings
+        .values()
+        .any(|b| b.class.alarm_limits().is_some() || b.class.outbox_definition().is_some());
     let handle = Arc::new(client::Handle {
         performance: service.log.performance(),
         requests: sender,
@@ -822,7 +913,7 @@ async fn initialize(
         controller: Mutex::new(None),
         transport: service.transport.resource_observer(),
         max_input_bytes: options.max_input_bytes,
-        bindings,
+        bindings: client::Bindings::new(bindings, options.max_groups),
         work: crate::asyncrt::services().application_work_registry(),
     });
     if let Err(error) = service.transport.install_query_gateway(handle.clone()) {
@@ -856,16 +947,12 @@ async fn initialize(
             drain: None,
             effect_scheduler: options
                 .effects
-                .filter(|_| {
-                    local.bindings.values().any(|b| {
-                        b.class.alarm_limits().is_some() || b.class.outbox_definition().is_some()
-                    })
-                })
+                .filter(|_| has_effects)
                 .map(effect_scheduler::Scheduler::new),
             controller: options
                 .controller
                 .as_ref()
-                .map(|options| controller::Controller::new(options.clone(), &local)),
+                .map(|options| controller::Controller::new(options.clone(), controller_bindings)),
             leader_load: Some(load::Scanner::new(options.inspection_scan.clone())),
             directory: node_directory,
             peers,
@@ -878,6 +965,9 @@ async fn initialize(
             pool,
             cells,
             standbys,
+            declared_namespaces,
+            history_registration: None,
+            directory_path: directory,
             activating: None,
             active: BTreeSet::new(),
             applying: BTreeSet::new(),
@@ -1068,6 +1158,8 @@ enum SqlPurpose {
 }
 
 enum Job {
+    NodeInspection(Box<node_inspection::Completed>),
+    HistoryRegistered(Box<registration::Completed>),
     Drained(Box<drain::Completed>),
     Effect(Box<effect_scheduler::Completed>),
     Controller(Box<controller::Completed>),
@@ -1162,6 +1254,9 @@ struct Driver {
     leader_load: Option<load::Scanner>,
     directory: Option<directory::Directory>,
     standbys: BTreeMap<GroupScope, standby::Dormant>,
+    declared_namespaces: Vec<NamespaceRegistration>,
+    history_registration: Option<Arc<client::AttemptControl>>,
+    directory_path: PathBuf,
     activating: Option<GroupScope>,
     peers: BTreeMap<NodeId, RaftPeerNode>,
     label: String,
@@ -1290,6 +1385,10 @@ impl Driver {
                     }));
                 }
                 ReadPhase::Image => {
+                    if matches!(&read.operation, super::query::ReadOperation::Fleet { .. }) {
+                        self.finish_fleet_observation(id);
+                        continue;
+                    }
                     let metadata_only = matches!(
                         &read.operation,
                         super::query::ReadOperation::Seed {
@@ -1660,12 +1759,17 @@ impl Driver {
 
     fn on_routed_query(&mut self, mut request: Request) {
         let scope = request.scope.clone();
-        let Some(binding) = self
+        let Ok(binding) = self
             .local
             .bindings
             .get(&(scope.namespace, scope.cell.clone()))
-            .cloned()
-            .filter(|binding| binding.scope == scope)
+            .and_then(|binding| {
+                if binding.scope == scope {
+                    Ok(binding)
+                } else {
+                    Err(CommandFailure::CommandConflict)
+                }
+            })
         else {
             reply(&mut request, Err(CommandFailure::Unavailable));
             return;
@@ -1727,25 +1831,6 @@ impl Driver {
 
     fn on_request(&mut self, mut request: Request) {
         self.reconcile_membership(&request.scope);
-        if matches!(request.kind, Kind::NodeDrain) {
-            self.start_node_drain(request);
-            return;
-        }
-        if matches!(
-            &request.kind,
-            Kind::ControllerStatus | Kind::SetControllerEnabled(_)
-        ) {
-            if self.closing.load(Ordering::Acquire) || request.control.cancelled() {
-                reply(&mut request, Err(CommandFailure::Unavailable));
-            } else {
-                let enabled = match request.kind {
-                    Kind::SetControllerEnabled(enabled) => Some(enabled),
-                    _ => None,
-                };
-                self.controller_control(request, enabled);
-            }
-            return;
-        }
         let scope = request.scope.clone();
         if matches!(&request.kind, Kind::Inspect | Kind::InspectPeer(_)) {
             if self.closing.load(Ordering::Acquire) {
@@ -1786,11 +1871,22 @@ impl Driver {
         if request.control.cancelled() {
             return;
         }
-        if matches!(&request.kind, Kind::ActivateLearner(_)) {
-            if let Kind::ActivateLearner(activation) =
-                std::mem::replace(&mut request.kind, Kind::Status)
-            {
-                self.activate_learner(request, activation);
+        if matches!(
+            &request.kind,
+            Kind::ActivateLearner(_) | Kind::ActivateManaged { .. } | Kind::ActivateInitial(_)
+        ) {
+            match std::mem::replace(&mut request.kind, Kind::Status) {
+                Kind::ActivateLearner(activation) => {
+                    self.activate_learner(request, activation, None)
+                }
+                Kind::ActivateManaged {
+                    activation,
+                    authorization,
+                } => self.activate_learner(request, activation, Some(*authorization)),
+                Kind::ActivateInitial(authorization) => {
+                    self.activate_initial(request, *authorization)
+                }
+                _ => reply(&mut request, Err(CommandFailure::CorruptState)),
             }
             return;
         }
@@ -1812,15 +1908,16 @@ impl Driver {
         }
         if matches!(
             &request.kind,
-            Kind::BeginRepair { .. } | Kind::AdvanceRepair { .. }
+            Kind::BeginRepair { .. } | Kind::AdvanceRepair { .. } | Kind::Fleet(_)
         ) {
             match std::mem::replace(&mut request.kind, Kind::Status) {
-                Kind::BeginRepair { plan } => self.begin_repair(request, plan),
+                Kind::BeginRepair { plan } => self.begin_repair(request, plan, None),
                 Kind::AdvanceRepair {
                     id,
                     step,
                     expected_revision,
-                } => self.advance_repair(request, id, step, expected_revision),
+                } => self.advance_repair(request, id, step, expected_revision, None),
+                Kind::Fleet(action) => self.fleet_configuration(request, *action),
                 _ => reply(&mut request, Err(CommandFailure::CorruptState)),
             }
             return;
@@ -1894,13 +1991,13 @@ impl Driver {
                     }
                 }));
             }
-            Kind::NodeDrain
-            | Kind::ControllerStatus
-            | Kind::SetControllerEnabled(_)
-            | Kind::Inspect
+            Kind::Inspect
             | Kind::InspectPeer(_)
             | Kind::AddLearner { .. }
             | Kind::ActivateLearner(_)
+            | Kind::ActivateManaged { .. }
+            | Kind::ActivateInitial(_)
+            | Kind::Fleet(_)
             | Kind::Seed { .. }
             | Kind::BeginRepair { .. }
             | Kind::AdvanceRepair { .. } => {
@@ -1919,6 +2016,17 @@ impl Driver {
                     })
                     .map(Response::Repair);
                 reply(&mut request, result);
+            }
+            Kind::FleetStatus => {
+                let result = cell
+                    .group
+                    .membership()
+                    .map(|membership| Response::Fleet(membership.fleet_status().map(Box::new)))
+                    .map_err(|_| CommandFailure::CorruptState);
+                reply(&mut request, result);
+            }
+            Kind::ObserveFleet(authorization) => {
+                self.start_fleet_observation(request, *authorization);
             }
             Kind::Query {
                 contract,
@@ -2071,7 +2179,9 @@ impl Driver {
                     .local
                     .bindings
                     .get(&(scope.namespace, scope.cell.clone()))
-                    .is_some_and(|binding| binding.class.has_queries());
+                    .map_err(|_| RuntimeError::Closed)?
+                    .class
+                    .has_queries();
                 let (role, queries) = readiness::capture(
                     cell,
                     &status,
@@ -2974,12 +3084,14 @@ impl Driver {
 
     fn on_job(&mut self, job: Job) {
         match job {
+            Job::HistoryRegistered(completed) => self.finish_history_registration(*completed),
             Job::Drained(completed) => self.finish_node_drain(*completed),
             Job::Controller(completed) => self.finish_controller(*completed),
             Job::Effect(completed) => self.finish_effect(*completed),
             Job::LeaderLoad(completed) => self.finish_leader_load(*completed),
             Job::Inspection(completed) => self.finish_inspection(*completed),
             Job::PeerInspection(completed) => self.finish_peer_inspection(*completed),
+            Job::NodeInspection(completed) => self.finish_node_inspection(*completed),
             Job::Directory(observation) => self.on_directory(*observation),
             Job::Standby(completed) => self.on_standby_job(*completed),
             Job::Leadership {
@@ -3203,7 +3315,7 @@ impl Driver {
     async fn run(
         &mut self,
         mut requests: mailbox::Receiver<Request>,
-        mut controls: mailbox::Receiver<Request>,
+        mut controls: mailbox::Receiver<ControlRequest>,
         mut closes: mpsc::UnboundedReceiver<()>,
     ) {
         let mut requests_open = true;
@@ -3225,7 +3337,7 @@ impl Driver {
             // business, completions and consensus between these small batches.
             for _ in 0..4 {
                 match controls.try_recv() {
-                    Ok(request) => self.on_request(request),
+                    Ok(request) => self.on_control(request),
                     Err(mpsc::error::TryRecvError::Empty) => break,
                     Err(mpsc::error::TryRecvError::Disconnected) => {
                         controls_open = false;
@@ -3243,7 +3355,7 @@ impl Driver {
                 return;
             };
             crate::asyncrt::select! {
-                request=controls.recv(),if controls_open=>match request{Some(request)=>self.on_request(request),None=>controls_open=false},
+                request=controls.recv(),if controls_open=>match request{Some(request)=>self.on_control(request),None=>controls_open=false},
                 request=requests.recv(),if requests_open=>match request{Some(request)=>self.on_request(request),None=>requests_open=false},
                 close=closes.recv(),if closes_open=>if close.is_some(){return;}else{closes_open=false;},
                 event=self.events.recv()=>match event{Some(event)=>self.on_event(event),None=>return},
@@ -3263,6 +3375,9 @@ impl Driver {
 
     async fn shutdown(&mut self) -> Result<client::RaftCloseReport, CommandFailure> {
         self.closing.store(true, Ordering::Release);
+        if let Some(control) = self.history_registration.take() {
+            control.cancel();
+        }
         self.snapshot_source.take();
         if let Some(controller) = &self.controller {
             controller.stop();

@@ -79,11 +79,36 @@ impl NodeView {
     }
 }
 
+struct RegistrationIdentity<'a> {
+    node: NodeId,
+    disk: DiskLineage,
+    label: &'a str,
+    server_name: &'a str,
+}
+
 impl View {
     fn decode(
         &self,
         cluster: ClusterId,
         expected: &RaftPeerNode,
+        pin: &Pin,
+    ) -> Result<NodeView, CatalogError> {
+        self.decode_identity(
+            cluster,
+            &RegistrationIdentity {
+                node: expected.node,
+                disk: expected.disk,
+                label: &expected.label,
+                server_name: &expected.server_name,
+            },
+            pin,
+        )
+    }
+
+    fn decode_identity(
+        &self,
+        cluster: ClusterId,
+        expected: &RegistrationIdentity<'_>,
         pin: &Pin,
     ) -> Result<NodeView, CatalogError> {
         let instance = self.pin.validate(cluster, expected.node, expected.disk)?;
@@ -319,10 +344,52 @@ impl NodeRegistration {
         expected: &RaftPeerNode,
         timeout: Duration,
     ) -> Result<Option<NodeView>, CatalogError> {
-        let deadline = self.deadline(timeout)?;
         expected
             .validate_endpoint()
             .map_err(|_| CatalogError::Invalid("trusted node endpoint"))?;
+        self.observe_identity(
+            RegistrationIdentity {
+                node: expected.node,
+                disk: expected.disk,
+                label: &expected.label,
+                server_name: &expected.server_name,
+            },
+            None,
+            timeout,
+        )
+        .await
+    }
+
+    /// A catalog enrollment provides registration identity, never invented
+    /// addresses or a dummy group. The exact directory key supplies endpoints.
+    pub(crate) async fn observe_fleet_node(
+        &self,
+        expected: &crate::raft::fleet_catalog::FleetHostAuthorization,
+        timeout: Duration,
+    ) -> Result<Option<NodeView>, CatalogError> {
+        if expected.cluster() != self.cluster || !expected.permits_transport() {
+            return Err(CatalogError::Conflict("fleet node registration"));
+        }
+        self.observe_identity(
+            RegistrationIdentity {
+                node: expected.node(),
+                disk: expected.disk(),
+                label: expected.label(),
+                server_name: expected.server_name(),
+            },
+            expected.storage_instance(),
+            timeout,
+        )
+        .await
+    }
+
+    async fn observe_identity(
+        &self,
+        expected: RegistrationIdentity<'_>,
+        pinned: Option<EngineInstanceId>,
+        timeout: Duration,
+    ) -> Result<Option<NodeView>, CatalogError> {
+        let deadline = self.deadline(timeout)?;
         let pin_path = self.key(expected.node, "pin");
         let view_path = self.key(expected.node, "view");
         let pin = self.until(deadline, self.inner.read(&pin_path)).await?;
@@ -331,15 +398,21 @@ impl NodeRegistration {
             (None, None) => Ok(None),
             (Some(pin), None) => {
                 let pin: Pin = wire::decode(NODE_PIN, &pin, self.inner.limit)?;
-                pin.validate(self.cluster, expected.node, expected.disk)?;
+                let instance = pin.validate(self.cluster, expected.node, expected.disk)?;
+                if pinned.is_some_and(|required| required != instance) {
+                    return Err(CatalogError::LostStableState);
+                }
                 Ok(None)
             }
             (None, Some(_)) => Err(CatalogError::Corrupt("process view has no storage pin")),
             (Some(pin), Some(view)) => {
                 let pin: Pin = wire::decode(NODE_PIN, &pin, self.inner.limit)?;
-                pin.validate(self.cluster, expected.node, expected.disk)?;
+                let instance = pin.validate(self.cluster, expected.node, expected.disk)?;
+                if pinned.is_some_and(|required| required != instance) {
+                    return Err(CatalogError::LostStableState);
+                }
                 let view: View = wire::decode(NODE_VIEW, &view, self.inner.limit)?;
-                Ok(Some(view.decode(self.cluster, expected, &pin)?))
+                Ok(Some(view.decode_identity(self.cluster, &expected, &pin)?))
             }
         }
     }

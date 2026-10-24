@@ -300,16 +300,19 @@ async fn inspection_revocation_and_process_refresh_cancel_an_admitted_inbound_ca
             controller: Mutex::new(None),
             transport: fixture.transport.resource_observer(),
             max_input_bytes: 4096,
-            bindings: BTreeMap::from([(
-                (scope.namespace, scope.cell.clone()),
-                client::Binding {
-                    scope: scope.clone(),
-                    class,
-                    minimum: cellar_logic::consensus::Durability::Quorum,
-                    member: client::LocalMember::new(None),
-                    leader_hint: None,
-                },
-            )]),
+            bindings: client::Bindings::new(
+                BTreeMap::from([(
+                    (scope.namespace, scope.cell.clone()),
+                    client::Binding {
+                        scope: scope.clone(),
+                        class,
+                        minimum: cellar_logic::consensus::Durability::Quorum,
+                        member: client::LocalMember::new(None),
+                        leader_hint: None,
+                    },
+                )]),
+                1,
+            ),
             work: fixture
                 .domain
                 .run(async { crate::asyncrt::services().application_work_registry() })
@@ -372,6 +375,9 @@ async fn inspection_revocation_and_process_refresh_cancel_an_admitted_inbound_ca
             }
         }).await.map_err(|error| anyhow::anyhow!("host admission wait: {error}"))??
             .ok_or_else(|| anyhow::anyhow!("no admitted inspection"))?;
+        let client::ControlRequest::Cell(admitted) = admitted else {
+            anyhow::bail!("expected cell inspection control");
+        };
         assert!(matches!(admitted.kind, client::Kind::Inspect));
         assert!(!admitted.control.cancelled());
         if refresh {

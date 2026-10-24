@@ -32,21 +32,29 @@ pub use crate::raft::effects::{
 pub use crate::raft::receipt_maintenance::ReceiptMaintenanceLimits;
 
 pub use crate::raft::catalog::{
-    BirthProposal, CatalogOptions, InitialMember, NamespaceConfig, VoterPolicy,
+    BirthDisposition, BirthProposal, CatalogOptions, InitialMember, ManagedBirthOwner,
+    NamespaceConfig, VoterPolicy,
 };
 pub use cellar_logic::raft_leadership::LeaderPolicy;
 pub use cellar_logic::raft_placement::PlacementPolicy;
 
+pub use crate::raft::fleet_catalog::{
+    FleetGroupAuthorization, FleetHostAuthorization, FleetNodeEligibility, FleetNodeSpec,
+    FleetNodeState, FleetPermitAuthorization, FleetRequestIdentity,
+};
 pub use crate::raft::host::{
-    RaftArchiveOptions, RaftCellPlacement, RaftCellRegistration, RaftCellsConfig,
-    RaftCellsServices, RaftControllerOptions, RaftControllerStatus, RaftHostOptions,
-    RaftInspectionScanOptions, RaftNodeDirectoryOptions, RaftPeerNode,
+    FleetMembershipConfiguration, FleetMembershipObservation, RaftArchiveOptions,
+    RaftCellPlacement, RaftCellRegistration, RaftCellsConfig, RaftCellsServices,
+    RaftControllerOptions, RaftControllerStatus, RaftHostEnrollmentObservation,
+    RaftHostObservation, RaftHostOptions, RaftInspectionScanOptions, RaftManagedHostOptions,
+    RaftNamespaceRegistration, RaftNodeDirectoryOptions, RaftPeerNode, RaftPeerNodeObservation,
 };
 pub use crate::raft::inspection::{
     CellInspection, InspectionError, LeaderLoad, MemberInspection, NodeInspection, RaftNodeProfile,
     ReplicaOccupancy,
 };
 pub use crate::raft::member_state::{
+    FleetGroupBinding, FleetMembershipPermit, FleetMembershipStatus, FleetPermitPhase,
     JoiningMember, RepairPhase, RepairPlan, RepairStatus, RepairStep,
 };
 pub use crate::raft::operations::{
@@ -90,9 +98,10 @@ pub mod verification {
         CommittedImage, DurableApply, GroupLog, GroupWrite, SnapshotChange,
     };
     pub use crate::raft::catalog::{
-        BirthProposal, BootstrapPermit, Catalog, CatalogError, CatalogOptions, GroupBirth,
-        InitialMember, NamespaceCatalog, NamespaceConfig, NodePublication, NodeRegistration,
-        NodeView, VoterPolicy,
+        BirthDisposition, BirthInventoryCursor, BirthInventoryEntry, BirthInventoryPage,
+        BirthProposal, BootstrapPermit, Catalog, CatalogError, CatalogOptions,
+        FrozenBirthInventory, GroupBirth, InitialMember, NamespaceCatalog, NamespaceConfig,
+        NodePublication, NodeRegistration, NodeView, VoterPolicy,
     };
     pub use crate::raft::completion::{
         AcceptedProposal, ApplyCompletion, ApplyTicket, GroupStatus, RuntimeError, RuntimeEvent,
@@ -102,6 +111,11 @@ pub mod verification {
         query_registered, AppliedExecution, CommandAttempt, CommandAuthority, CommandRequest,
         CommittedReceipt, ExecutionError, ExecutionLimits, ExecutionStatus, PreparedCommand,
         PrivateExecutor, PrivateOptions, RegisteredQueryOutput, StageOutcome, StoredReceipt,
+    };
+    pub use crate::raft::fleet_catalog::{
+        FleetBirthAuthorization, FleetBirthReservation, FleetCatalog, FleetCatalogError,
+        FleetChange, FleetCommit, FleetCursor, FleetEntry, FleetHistory, FleetHistoryState,
+        FleetMutation, FleetPage, FleetSnapshot, FleetTable,
     };
     pub use crate::raft::inspection::{
         CellInspection, LeaderLoad, MemberInspection, NodeInspection, RaftNodeProfile,

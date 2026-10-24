@@ -134,6 +134,10 @@ pub(crate) struct PreparedSeed {
 }
 
 impl PreparedSeed {
+    pub(crate) fn membership(&self) -> &crate::raft::member_state::GroupMembership {
+        &self.descriptor.membership
+    }
+
     pub(crate) fn local(&self) -> &cellar_logic::consensus::ReplicaIdentity {
         self.grant.local()
     }

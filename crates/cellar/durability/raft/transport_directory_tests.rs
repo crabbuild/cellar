@@ -4,6 +4,9 @@ use crate::raft::catalog::{Catalog, CatalogOptions, NamespaceCatalog, NamespaceC
 use cellar_logic::NamespaceMode;
 use std::time::Duration;
 
+#[path = "transport_fleet_tests.rs"]
+mod fleet;
+
 struct Publisher {
     root: tempfile::TempDir,
     domain: crate::asyncrt::ExecutionDomain,

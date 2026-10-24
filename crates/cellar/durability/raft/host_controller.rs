@@ -150,12 +150,10 @@ pub(super) enum Completed {
 }
 
 impl Controller {
-    pub(super) fn new(options: RaftControllerOptions, local: &client::Handle) -> Self {
+    pub(super) fn new(options: RaftControllerOptions, bindings: Vec<Binding>) -> Self {
         let (stop, _) = watch::channel(false);
-        let histories = local
-            .bindings
-            .values()
-            .cloned()
+        let histories = bindings
+            .into_iter()
             .map(|binding| History {
                 binding,
                 candidate_cursor: None,
@@ -277,7 +275,7 @@ impl Driver {
         }
     }
 
-    pub(super) fn controller_control(&mut self, mut request: Request, enabled: Option<bool>) {
+    pub(super) fn controller_control(&mut self, mut request: NodeRequest, enabled: Option<bool>) {
         let result = (|| {
             let controller = self
                 .controller
@@ -308,7 +306,7 @@ impl Driver {
             }
             Ok(Response::Controller(controller.status.clone()))
         })();
-        reply(&mut request, result);
+        reply_node(&mut request, result);
     }
 
     pub(super) fn pump_controller(&mut self) {

@@ -16,6 +16,16 @@ use futures_util::TryStreamExt;
 use object_store::{path::Path, ObjectStore, PutMode, PutOptions, UpdateVersion};
 use std::{collections::BTreeSet, fmt, sync::Arc};
 
+#[path = "catalog_birth.rs"]
+mod births;
+pub use births::BirthDisposition;
+
+#[path = "catalog_inventory/mod.rs"]
+mod inventory;
+pub use inventory::{
+    BirthInventoryCursor, BirthInventoryEntry, BirthInventoryPage, FrozenBirthInventory,
+};
+
 #[path = "node_directory.rs"]
 mod directory;
 pub use directory::{NodePublication, NodeRegistration, NodeView};
@@ -28,6 +38,9 @@ pub enum CatalogError {
     Limit,
     WrongMode,
     NotInitialMember,
+    BirthCancelled,
+    BirthsFrozen,
+    ManagedAdmissionRequired,
     LostStableState,
     Unconfirmed,
     Storage(object_store::Error),
@@ -47,6 +60,8 @@ impl std::error::Error for CatalogError {}
 #[derive(Clone, Debug)]
 pub struct CatalogOptions {
     pub prefix: String,
+    /// Namespace/birth/claim bound. Immutable inventory pages have their own
+    /// fixed 64-KiB bound and bounded traversal.
     pub max_record_bytes: usize,
     /// Whole-operation bound for mandatory physical storage registration.
     pub node_timeout_ms: u64,
@@ -69,6 +84,12 @@ pub enum VoterPolicy {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ManagedBirthOwner {
+    pub(crate) fleet: [u8; 16],
+    pub(crate) catalog: [u8; 32],
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NamespaceConfig {
     pub cluster: ClusterId,
     pub namespace: NamespaceId,
@@ -76,6 +97,9 @@ pub struct NamespaceConfig {
     pub schema_digest: [u8; 32],
     pub minimum_durability: Durability,
     pub voters: VoterPolicy,
+    /// Immutable birth-admission owner. Managed namespaces refuse the ordinary
+    /// creation API; each birth needs an inventoried fleet reservation.
+    pub managed_fleet: Option<ManagedBirthOwner>,
 }
 
 impl NamespaceConfig {
@@ -92,6 +116,7 @@ impl NamespaceConfig {
             schema_digest,
             minimum_durability: Durability::Quorum,
             voters: VoterPolicy::ThreeVoters,
+            managed_fleet: None,
         }
     }
 }
@@ -254,25 +279,40 @@ impl Catalog {
             hex::encode(config.namespace.bytes())
         ));
         let bytes = wire::encode(wire::ROOT, &expected, self.inner.limit)?;
-        let observed = if create {
-            self.inner.create_and_observe(&key, &bytes).await?
-        } else {
-            self.inner
-                .read(&key)
-                .await?
-                .ok_or(CatalogError::Conflict("namespace missing"))?
+        let namespace = NamespaceCatalog {
+            inner: self.inner.clone(),
+            config,
+            root_digest: wire::digest(&bytes),
+            data_prefix,
+        };
+        let found = self.inner.read(&key).await?;
+        let observed = match found {
+            Some(bytes) => bytes,
+            None if !create => return Err(CatalogError::Conflict("namespace missing")),
+            None => {
+                if namespace.mode() == NamespaceMode::Raft
+                    && !namespace.initialize_birth_inventory().await?
+                {
+                    // A concurrent creator may already have published the
+                    // exact namespace. Missing occupied roots are not reset.
+                    self.inner
+                        .read(&key)
+                        .await?
+                        .ok_or(CatalogError::Corrupt("missing occupied namespace root"))?
+                } else {
+                    self.inner.create_and_observe(&key, &bytes).await?
+                }
+            }
         };
         let root: wire::Root = wire::decode(wire::ROOT, &observed, self.inner.limit)?;
         root.validate()?;
         if root != expected {
             return Err(CatalogError::Conflict("immutable namespace root"));
         }
-        Ok(NamespaceCatalog {
-            inner: self.inner.clone(),
-            config,
-            root_digest: wire::digest(&observed),
-            data_prefix,
-        })
+        if namespace.mode() == NamespaceMode::Raft {
+            namespace.require_birth_inventory().await?;
+        }
+        Ok(namespace)
     }
 }
 
@@ -400,115 +440,6 @@ impl NamespaceCatalog {
         Err(CatalogError::Unconfirmed)
     }
 
-    /// Concurrent creators follow the winning birth, including its placement;
-    /// retry never overwrites that record or substitutes another incarnation.
-    pub async fn resolve_birth(
-        &self,
-        mut proposal: BirthProposal,
-    ) -> Result<GroupBirth, CatalogError> {
-        self.require_mode(NamespaceMode::Raft)?;
-        self.check_scope(&proposal.scope)?;
-        proposal.voters.sort_by_key(|m| m.member);
-        proposal.learners.sort_by_key(|m| m.member);
-        self.check_members(&proposal.voters, &proposal.learners)?;
-        let key = self.birth_key(&proposal.scope.cell);
-        if let Some(bytes) = self.inner.read(&key).await? {
-            return self.decode_birth(&proposal.scope.cell, &bytes).await;
-        }
-        let reservation = wire::Reservation {
-            root_digest: self.root_digest,
-            scope: WireScope::from(&proposal.scope),
-        };
-        let reserved = wire::encode(wire::RESERVATION, &reservation, self.inner.limit)?;
-        let observed = self
-            .inner
-            .create_and_observe(&self.reservation_key(&proposal.scope), &reserved)
-            .await?;
-        if observed != reserved {
-            return Err(CatalogError::Conflict("group identity already reserved"));
-        }
-        let birth = wire::Birth {
-            root_digest: self.root_digest,
-            scope: WireScope::from(&proposal.scope),
-            voters: proposal
-                .voters
-                .into_iter()
-                .map(wire::Member::encode)
-                .collect(),
-            learners: proposal
-                .learners
-                .into_iter()
-                .map(wire::Member::encode)
-                .collect(),
-            empty_digest: wire::digest(&[]),
-        };
-        let bytes = wire::encode(wire::BIRTH, &birth, self.inner.limit)?;
-        let observed = self.inner.create_and_observe(&key, &bytes).await?;
-        self.decode_birth(&proposal.scope.cell, &observed).await
-    }
-
-    pub async fn birth(&self, cell: &str) -> Result<Option<GroupBirth>, CatalogError> {
-        self.require_mode(NamespaceMode::Raft)?;
-        if cell.is_empty() || cell.len() > 1024 || cell.chars().any(char::is_control) {
-            return Err(CatalogError::Invalid("cell identity"));
-        }
-        match self.inner.read(&self.birth_key(cell)).await? {
-            Some(bytes) => Ok(Some(self.decode_birth(cell, &bytes).await?)),
-            None => Ok(None),
-        }
-    }
-
-    async fn decode_birth(&self, cell: &str, bytes: &[u8]) -> Result<GroupBirth, CatalogError> {
-        let birth: wire::Birth = wire::decode(wire::BIRTH, bytes, self.inner.limit)?;
-        let scope = birth
-            .scope
-            .clone()
-            .decode()
-            .map_err(|_| CatalogError::Corrupt("birth scope"))?;
-        self.check_scope(&scope)?;
-        if scope.cell != cell
-            || birth.root_digest != self.root_digest
-            || birth.empty_digest != wire::digest(&[])
-        {
-            return Err(CatalogError::Conflict("birth namespace/cell/empty state"));
-        }
-        let voters = birth
-            .voters
-            .iter()
-            .map(wire::Member::decode)
-            .collect::<Result<Vec<_>, _>>()?;
-        let learners = birth
-            .learners
-            .iter()
-            .map(wire::Member::decode)
-            .collect::<Result<Vec<_>, _>>()?;
-        self.check_members(&voters, &learners)?;
-        let reservation = self
-            .inner
-            .read(&self.reservation_key(&scope))
-            .await?
-            .ok_or(CatalogError::Corrupt("missing group reservation"))?;
-        let value: wire::Reservation =
-            wire::decode(wire::RESERVATION, &reservation, self.inner.limit)?;
-        if value.root_digest != self.root_digest
-            || value
-                .scope
-                .decode()
-                .map_err(|_| CatalogError::Corrupt("reservation scope"))?
-                != scope
-        {
-            return Err(CatalogError::Conflict("group reservation"));
-        }
-        Ok(GroupBirth {
-            scope,
-            voters,
-            learners,
-            digest: wire::digest(bytes),
-            root_digest: self.root_digest,
-            catalog_owner: self.inner.owner.clone(),
-        })
-    }
-
     /// Use only with a parked runtime. Read the remote claim before deciding
     /// whether any blank initialization is legal, then sync local genesis before
     /// conditionally creating and reading back the one-time member claim.
@@ -516,6 +447,38 @@ impl NamespaceCatalog {
         &self,
         birth: &GroupBirth,
         log: &ReplicaLog,
+    ) -> Result<BootstrapPermit, CatalogError> {
+        self.bootstrap_initial(birth, log, None).await
+    }
+
+    pub(crate) async fn bootstrap_managed_member(
+        &self,
+        birth: &GroupBirth,
+        log: &ReplicaLog,
+        authorization: &super::fleet_catalog::FleetGroupAuthorization,
+    ) -> Result<BootstrapPermit, CatalogError> {
+        if !self
+            .config
+            .managed_fleet
+            .as_ref()
+            .is_some_and(|owner| owner.fleet == authorization.binding().fleet())
+            || !authorization.check_birth(self, birth)
+            || birth.voters.len() != 3
+            || !birth.learners.is_empty()
+        {
+            return Err(CatalogError::Conflict(
+                "managed initial birth authorization",
+            ));
+        }
+        self.bootstrap_initial(birth, log, Some(authorization.binding()))
+            .await
+    }
+
+    async fn bootstrap_initial(
+        &self,
+        birth: &GroupBirth,
+        log: &ReplicaLog,
+        authorization: Option<&super::member_state::FleetGroupBinding>,
     ) -> Result<BootstrapPermit, CatalogError> {
         self.require_mode(NamespaceMode::Raft)?;
         self.check_birth(birth)?;
@@ -545,18 +508,39 @@ impl NamespaceCatalog {
         if remote.is_some() && local.is_none() {
             return Err(CatalogError::LostStableState);
         }
+        if let Some(owner) = &self.config.managed_fleet {
+            let enrolled = match &local {
+                Some(group) => {
+                    group.birth_digest == birth.digest
+                        && group
+                            .membership()
+                            .map_err(CatalogError::Log)?
+                            .fleet_status()
+                            .is_some_and(|status| {
+                                status.binding.fleet() == owner.fleet
+                                    && status.binding.matches_scope(&birth.scope)
+                            })
+                }
+                None => false,
+            };
+            if !enrolled && (local.is_some() || authorization.is_none()) {
+                return Err(CatalogError::ManagedAdmissionRequired);
+            }
+        }
         // This call either durably creates genesis or verifies the existing
         // mapping's exact member, birth digest and initial ConfState.
-        let local = log
-            .create_group(GroupBootstrap {
-                scope: birth.scope.clone(),
-                member: selected.member,
-                birth_digest: birth.digest,
-                voters: birth.voters.iter().map(|m| m.member).collect(),
-                learners: birth.learners.iter().map(|m| m.member).collect(),
-            })
-            .await
-            .map_err(CatalogError::Log)?;
+        let bootstrap = GroupBootstrap {
+            scope: birth.scope.clone(),
+            member: selected.member,
+            birth_digest: birth.digest,
+            voters: birth.voters.iter().map(|m| m.member).collect(),
+            learners: birth.learners.iter().map(|m| m.member).collect(),
+        };
+        let local = match authorization {
+            Some(binding) => log.create_managed_group(bootstrap, binding.clone()).await,
+            None => log.create_group(bootstrap).await,
+        }
+        .map_err(CatalogError::Log)?;
         let payload = wire::Claim {
             root_digest: self.root_digest,
             scope: WireScope::from(&birth.scope),
@@ -701,7 +685,7 @@ impl NamespaceCatalog {
         }))
     }
 
-    fn check_birth(&self, birth: &GroupBirth) -> Result<(), CatalogError> {
+    pub(crate) fn check_birth(&self, birth: &GroupBirth) -> Result<(), CatalogError> {
         self.check_scope(&birth.scope)?;
         if birth.root_digest != self.root_digest
             || !Arc::ptr_eq(&birth.catalog_owner, &self.inner.owner)
@@ -709,6 +693,10 @@ impl NamespaceCatalog {
             return Err(CatalogError::Conflict("birth catalog binding"));
         }
         Ok(())
+    }
+
+    pub(crate) fn root_digest(&self) -> [u8; 32] {
+        self.root_digest
     }
 
     fn check_scope(&self, scope: &GroupScope) -> Result<(), CatalogError> {
@@ -794,13 +782,21 @@ impl Inner {
         &self,
         key: &Path,
     ) -> Result<Option<(Vec<u8>, UpdateVersion)>, CatalogError> {
+        self.read_versioned_bounded(key, self.limit).await
+    }
+
+    async fn read_versioned_bounded(
+        &self,
+        key: &Path,
+        limit: usize,
+    ) -> Result<Option<(Vec<u8>, UpdateVersion)>, CatalogError> {
         let object = match self.store.get(key).await {
             Ok(object) => object,
             Err(object_store::Error::NotFound { .. }) => return Ok(None),
             Err(error) => return Err(CatalogError::Storage(error)),
         };
         let length = usize::try_from(object.meta.size).map_err(|_| CatalogError::Limit)?;
-        if length > self.limit || object.range.start != 0 || object.range.end != object.meta.size {
+        if length > limit || object.range.start != 0 || object.range.end != object.meta.size {
             return Err(CatalogError::Limit);
         }
         let version = UpdateVersion {
@@ -829,6 +825,19 @@ impl Inner {
     }
 
     async fn create_and_observe(&self, key: &Path, bytes: &[u8]) -> Result<Vec<u8>, CatalogError> {
+        self.create_and_observe_bounded(key, bytes, self.limit)
+            .await
+    }
+
+    async fn create_and_observe_bounded(
+        &self,
+        key: &Path,
+        bytes: &[u8],
+        limit: usize,
+    ) -> Result<Vec<u8>, CatalogError> {
+        if bytes.len() > limit {
+            return Err(CatalogError::Limit);
+        }
         // All failed/ambiguous creates are reconciled by exact-key reads. Never
         // fall back to overwrite, unconditional PUT or a different identity.
         let result = self
@@ -839,7 +848,11 @@ impl Inner {
                 PutOptions::from(PutMode::Create),
             )
             .await;
-        match self.read(key).await? {
+        match self
+            .read_versioned_bounded(key, limit)
+            .await?
+            .map(|(bytes, _)| bytes)
+        {
             Some(observed) => {
                 if result.is_ok() && observed != bytes {
                     return Err(CatalogError::Conflict(

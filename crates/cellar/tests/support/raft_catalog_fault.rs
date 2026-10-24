@@ -8,6 +8,15 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 #[derive(Debug, Default)]
 pub struct Store {
+    pub hold_next_fleet_cas: AtomicBool,
+    pub fleet_cas_hang: AtomicBool,
+    pub fleet_cas_waiting: AtomicBool,
+    pub fleet_cas_resume: tokio::sync::Notify,
+    pub hold_next_fleet_read: AtomicBool,
+    pub hold_fleet_reads: AtomicBool,
+    pub fleet_read_hang: AtomicBool,
+    pub active_fleet_reads: AtomicUsize,
+    pub fleet_read_resume: tokio::sync::Notify,
     /// Hold one exact ordinal initial-member claim while the host initializes.
     pub hold_nth_claim: AtomicUsize,
     pub claim_hang: AtomicBool,
@@ -18,6 +27,15 @@ pub struct Store {
     pub fail_after: AtomicBool,
     pub fail_read: AtomicBool,
     pub fail_confirmation: AtomicBool,
+    pub hold_next_birth: AtomicBool,
+    pub hold_birth_confirmation: AtomicBool,
+    pub birth_confirmation_pending: AtomicBool,
+    pub birth_hang: AtomicBool,
+    pub birth_waiting: AtomicBool,
+    pub birth_resume: tokio::sync::Notify,
+    pub fail_birth_after: AtomicBool,
+    pub fail_birth_confirmation: AtomicBool,
+    pub fail_birth_read: AtomicBool,
     pub fail_head_before: AtomicBool,
     pub fail_head_after: AtomicBool,
     pub fail_bundle_after: AtomicBool,
@@ -48,6 +66,16 @@ pub struct Store {
     pub payload_resume: tokio::sync::Notify,
     pub held_payload_path: std::sync::Mutex<Option<Path>>,
     pub non_create: AtomicUsize,
+    pub birth_inventory_cas: AtomicUsize,
+    pub hold_next_birth_inventory_cas: AtomicBool,
+    pub birth_inventory_cas_hang: AtomicBool,
+    pub birth_inventory_cas_waiting: AtomicBool,
+    pub birth_inventory_cas_resume: tokio::sync::Notify,
+    pub fail_birth_inventory_after: AtomicBool,
+    pub fail_birth_inventory_confirmation: AtomicBool,
+    pub fail_birth_inventory_read: AtomicBool,
+    pub reject_listing: AtomicBool,
+    pub listing_calls: AtomicUsize,
     pub hold_next_view: AtomicBool,
     pub view_hang: AtomicBool,
     pub view_waiting: AtomicBool,
@@ -72,7 +100,29 @@ fn failure() -> object_store::Error {
     }
 }
 
+struct BirthWaiting<'a>(&'a AtomicBool);
+
+impl Drop for BirthWaiting<'_> {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::Release);
+    }
+}
+
 impl Store {
+    async fn wait_birth(&self) {
+        self.birth_waiting.store(true, Ordering::Release);
+        let _waiting = BirthWaiting(&self.birth_waiting);
+        loop {
+            let resumed = self.birth_resume.notified();
+            tokio::pin!(resumed);
+            resumed.as_mut().enable();
+            if !self.birth_hang.load(Ordering::Acquire) {
+                break;
+            }
+            resumed.await;
+        }
+    }
+
     // Shared with targets that do not arm the payload gate.
     #[allow(dead_code)]
     pub fn release_payload(&self) {
@@ -115,6 +165,9 @@ impl ObjectStore for Store {
             return Err(failure());
         }
         tokio::task::yield_now().await;
+        if path.filename() == Some("birth") && self.hold_next_birth.swap(false, Ordering::AcqRel) {
+            self.wait_birth().await;
+        }
         if path.as_ref().contains("/claims/")
             && self
                 .hold_nth_claim
@@ -151,6 +204,28 @@ impl ObjectStore for Store {
         if !matches!(options.mode, PutMode::Create) {
             self.non_create.fetch_add(1, Ordering::AcqRel);
         }
+        let inventory_cas =
+            path.as_ref().ends_with("/births/head") && matches!(options.mode, PutMode::Update(_));
+        if inventory_cas {
+            self.birth_inventory_cas.fetch_add(1, Ordering::AcqRel);
+            if self
+                .hold_next_birth_inventory_cas
+                .swap(false, Ordering::AcqRel)
+            {
+                self.birth_inventory_cas_waiting
+                    .store(true, Ordering::Release);
+                let _waiting = BirthWaiting(&self.birth_inventory_cas_waiting);
+                loop {
+                    let resumed = self.birth_inventory_cas_resume.notified();
+                    tokio::pin!(resumed);
+                    resumed.as_mut().enable();
+                    if !self.birth_inventory_cas_hang.load(Ordering::Acquire) {
+                        break;
+                    }
+                    resumed.await;
+                }
+            }
+        }
         if self.fail_before.swap(false, Ordering::AcqRel) {
             return Err(failure());
         }
@@ -161,7 +236,39 @@ impl ObjectStore for Store {
         if path.filename() == Some("head") && self.fail_head_before.swap(false, Ordering::AcqRel) {
             return Err(failure());
         }
+        if path.as_ref().ends_with("/fleet/head")
+            && matches!(options.mode, PutMode::Update(_))
+            && self.hold_next_fleet_cas.swap(false, Ordering::AcqRel)
+        {
+            self.fleet_cas_waiting.store(true, Ordering::Release);
+            let _waiting = BirthWaiting(&self.fleet_cas_waiting);
+            loop {
+                let resumed = self.fleet_cas_resume.notified();
+                tokio::pin!(resumed);
+                resumed.as_mut().enable();
+                if !self.fleet_cas_hang.load(Ordering::Acquire) {
+                    break;
+                }
+                resumed.await;
+            }
+        }
         let result = self.inner.put_opts(path, payload, options).await?;
+        if inventory_cas
+            && self
+                .fail_birth_inventory_confirmation
+                .swap(false, Ordering::AcqRel)
+        {
+            self.fail_birth_inventory_read
+                .store(true, Ordering::Release);
+            return Err(failure());
+        }
+        if inventory_cas
+            && self
+                .fail_birth_inventory_after
+                .swap(false, Ordering::AcqRel)
+        {
+            return Err(failure());
+        }
         if path.as_ref().contains("/archives/bundles/")
             && self.fail_bundle_after.swap(false, Ordering::AcqRel)
         {
@@ -178,6 +285,19 @@ impl ObjectStore for Store {
             return Err(failure());
         }
 
+        if path.filename() == Some("birth") {
+            if self.fail_birth_confirmation.swap(false, Ordering::AcqRel) {
+                self.fail_birth_read.store(true, Ordering::Release);
+                return Err(failure());
+            }
+            if self.fail_birth_after.swap(false, Ordering::AcqRel) {
+                return Err(failure());
+            }
+            if self.hold_birth_confirmation.swap(false, Ordering::AcqRel) {
+                self.birth_confirmation_pending
+                    .store(true, Ordering::Release);
+            }
+        }
         let head = path.filename() == Some("head");
         if head && path.as_ref().contains("/archives/") {
             self.archive_heads_waiting.fetch_add(1, Ordering::AcqRel);
@@ -216,6 +336,44 @@ impl ObjectStore for Store {
 
     async fn get_opts(&self, path: &Path, options: GetOptions) -> object_store::Result<GetResult> {
         tokio::task::yield_now().await;
+        if path.as_ref().ends_with("/births/head")
+            && self.fail_birth_inventory_read.swap(false, Ordering::AcqRel)
+        {
+            return Err(failure());
+        }
+        if path.as_ref().ends_with("/fleet/head")
+            && (self.hold_fleet_reads.load(Ordering::Acquire)
+                || self.hold_next_fleet_read.swap(false, Ordering::AcqRel))
+        {
+            struct Reading<'a>(&'a AtomicUsize);
+
+            impl Drop for Reading<'_> {
+                fn drop(&mut self) {
+                    self.0.fetch_sub(1, Ordering::AcqRel);
+                }
+            }
+            self.active_fleet_reads.fetch_add(1, Ordering::AcqRel);
+            let _reading = Reading(&self.active_fleet_reads);
+            loop {
+                let resumed = self.fleet_read_resume.notified();
+                tokio::pin!(resumed);
+                resumed.as_mut().enable();
+                if !self.fleet_read_hang.load(Ordering::Acquire) {
+                    break;
+                }
+                resumed.await;
+            }
+        }
+        if path.filename() == Some("birth")
+            && self
+                .birth_confirmation_pending
+                .swap(false, Ordering::AcqRel)
+        {
+            self.wait_birth().await;
+        }
+        if path.filename() == Some("birth") && self.fail_birth_read.swap(false, Ordering::AcqRel) {
+            return Err(failure());
+        }
         if matches!(path.filename(), Some("pin" | "view"))
             && self.fail_directory_reads.load(Ordering::Acquire)
         {
@@ -322,10 +480,18 @@ impl ObjectStore for Store {
     }
 
     fn list(&self, prefix: Option<&Path>) -> BoxStream<'static, object_store::Result<ObjectMeta>> {
+        self.listing_calls.fetch_add(1, Ordering::AcqRel);
+        if self.reject_listing.load(Ordering::Acquire) {
+            return futures_util::stream::once(async { Err(failure()) }).boxed();
+        }
         self.inner.list(prefix)
     }
 
     async fn list_with_delimiter(&self, prefix: Option<&Path>) -> object_store::Result<ListResult> {
+        self.listing_calls.fetch_add(1, Ordering::AcqRel);
+        if self.reject_listing.load(Ordering::Acquire) {
+            return Err(failure());
+        }
         self.inner.list_with_delimiter(prefix).await
     }
 

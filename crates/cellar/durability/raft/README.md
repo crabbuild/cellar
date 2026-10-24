@@ -12,6 +12,21 @@ under implementation.
 The [technical design](../../../../plans/multi-raft/technical-design.md) defines
 the complete contract.
 
+Managed empty hosts expose `RaftCells::inspect_peer_node` under rooted fleet
+trust. It authenticates both physical processes and a requested minimum installed
+trust revision without constructing a cell. Current enrollment state/epoch is
+separate from startup enrollment, and metadata grants no membership, capacity
+activation or removal proof. The [fleet catalog contract](fleet_catalog/README.md)
+describes identity, response bounds, cancellation and remaining management work.
+Fresh managed namespace roots require rooted birth reservations before creation;
+their histories retain exact birth/schema identity and pending node references.
+Import completeness and removal proof remain separate delivery work.
+Managed initial voters persist their enrollment with genesis before a permanent
+member claim and runtime attachment. Empty hosts can initialize them dynamically,
+and cold managed members resolve rooted peer views with only a self hint.
+The experimental namespace protocol now ends in `/managed-genesis-1`; use fresh
+namespaces and matching binaries, with numeric markers retained at 1.
+
 `RaftClass::immutable_blobs(RaftBlobLimits)` enables bounded immutable values and
 changes the class identity. Commands use `put_blob` and `blob`; queries use `blob`
 against their pinned committed image. Actual bytes share the command transaction
@@ -181,6 +196,25 @@ Records have strict canonical marker-1 framing and a content digest. Root mode,
 schema, cluster, minimum durability and voter policy cannot change in place.
 Three initial voters are required unless the immutable root explicitly selects
 the single-voter development policy.
+
+Raft birth writers first enter the authoritative
+[namespace admission inventory](catalog_inventory/README.md). Its CAS root can
+freeze new admissions while retaining pending, live and cancelled intents for
+bounded exact-key reconciliation. This birth cut does not quiesce membership or
+certify complete import/removal. Existing groups can continue business work and
+failover while new births are frozen.
+
+`NamespaceCatalog::cancel_birth` contends with creation at that same permanent
+cell-name key. A cancelled winner stores its exact scope and operation identity;
+late `resolve_birth` and ordinary `birth` calls return `BirthCancelled` and cannot
+mint a bootstrap capability. `birth_disposition` reports the exact live or
+cancelled winner for inventory reconciliation. A birth that won first stays live:
+cancellation returns it and does not revoke its members or delete its data.
+Another incarnation cannot reuse a cancelled name. The group-ID reservation also
+remains permanent. No timeout, lost reply or missing-key observation establishes
+that cancellation committed. Retry the original request or reconcile its exact
+key before releasing the corresponding inventory reservation. The cancellation
+deadline covers its entire attempt and starts no detached writer.
 
 Initial attachment requires a permanent member claim binding member, disk
 lineage and birth digest. The adapter reads the claim first, syncs/verifies local
@@ -1026,7 +1060,9 @@ during an active repair. Complete node-load collection is available through
 inspection; automatic balancing remains open.
 
 This extends the internal protocol to
-`cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1/nodes-1/bundles-1`; numeric format markers stay 1.
+`cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1/nodes-1/bundles-1/fleet-1/enrollment-1`;
+numeric format markers stay 1. Current birth records require an explicit nullable
+`cancelled_by` field, and managed group records require their fleet guard.
 Earlier roots/state have no compatibility reader. Use a fresh experimental
 namespace/prefix and local state. The earlier MR-10 evidence retains its exact
 historical protocol and source scope.

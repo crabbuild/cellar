@@ -79,14 +79,18 @@ impl Driver {
             {
                 continue;
             }
-            let binding = self
+            let Ok(binding) = self
                 .local
                 .bindings
-                .get(&(scope.namespace, scope.cell.clone()));
-            if binding.is_some_and(|b| {
-                b.scope == *scope
-                    && (b.class.alarm_limits().is_some() || b.class.outbox_definition().is_some())
-            }) {
+                .get(&(scope.namespace, scope.cell.clone()))
+            else {
+                owner.enabled = false;
+                return;
+            };
+            if binding.scope == *scope
+                && (binding.class.alarm_limits().is_some()
+                    || binding.class.outbox_definition().is_some())
+            {
                 selected = Some(scope.clone());
                 break;
             }
@@ -252,12 +256,17 @@ impl Driver {
             self.finish_effect_turn(sequence);
             return;
         }
-        let Some(binding) = self
+        let Ok(binding) = self
             .local
             .bindings
             .get(&(scope.namespace, scope.cell.clone()))
-            .cloned()
-            .filter(|b| b.scope == scope)
+            .and_then(|b| {
+                if b.scope == scope {
+                    Ok(b)
+                } else {
+                    Err(CommandFailure::CommandConflict)
+                }
+            })
         else {
             self.finish_effect_turn(sequence);
             return;

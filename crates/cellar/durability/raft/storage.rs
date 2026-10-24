@@ -21,6 +21,10 @@ use std::sync::{mpsc, Arc, Mutex, RwLock};
 use std::time::Duration;
 use tokio::sync::{oneshot, Notify};
 
+#[cfg(test)]
+#[path = "storage_genesis_tests.rs"]
+mod genesis_tests;
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum LogError {
     Invalid(String),
@@ -185,7 +189,11 @@ struct Request {
 
 enum Work {
     NodeFence(Reply<u64>),
-    Create(GroupBootstrap, Reply<GroupLog>),
+    Create(
+        GroupBootstrap,
+        Option<Box<super::member_state::FleetGroupBinding>>,
+        Reply<GroupLog>,
+    ),
     Seeded(Box<super::snapshot::PreparedSeed>, Reply<GroupLog>),
     Persist(OperationId, Vec<GroupWrite>, Reply<SyncReceipt>),
     Purge(Reply<()>),
@@ -368,13 +376,23 @@ impl ReplicaLog {
     }
 
     pub(crate) fn group_count(&self) -> Result<usize, LogError> {
+        self.group_count_with_pending(None)
+    }
+
+    /// Count an admitted slot once while ownership transfers to the durable
+    /// catalog. One lock prevents a sync racing two independent observations.
+    pub(crate) fn group_count_with_pending(
+        &self,
+        pending: Option<&GroupScope>,
+    ) -> Result<usize, LogError> {
         self.admit()?;
-        Ok(self
-            .inner
-            .groups
-            .read()
-            .map_err(|_| LogError::Closed)?
-            .len())
+        let groups = self.inner.groups.read().map_err(|_| LogError::Closed)?;
+        groups
+            .len()
+            .checked_add(usize::from(
+                pending.is_some_and(|scope| !groups.contains_key(scope)),
+            ))
+            .ok_or(LogError::Overloaded)
     }
 
     pub fn groups(&self) -> Result<Vec<GroupLog>, LogError> {
@@ -402,8 +420,24 @@ impl ReplicaLog {
 
     pub async fn create_group(&self, bootstrap: GroupBootstrap) -> Result<GroupLog, LogError> {
         bootstrap.configuration()?;
-        self.request(4096, |reply| Work::Create(bootstrap, reply))
+        self.request(4096, |reply| Work::Create(bootstrap, None, reply))
             .await
+    }
+
+    pub(crate) async fn create_managed_group(
+        &self,
+        bootstrap: GroupBootstrap,
+        binding: super::member_state::FleetGroupBinding,
+    ) -> Result<GroupLog, LogError> {
+        let conf = bootstrap.configuration()?;
+        if !binding.matches_scope(&bootstrap.scope) {
+            return Err(LogError::WrongIdentity);
+        }
+        super::member_state::GroupMembership::managed_initial(&conf, binding.clone())?;
+        self.request(24 * 1024, |reply| {
+            Work::Create(bootstrap, Some(Box::new(binding)), reply)
+        })
+        .await
     }
 
     pub(crate) async fn create_seeded(
@@ -764,6 +798,7 @@ impl Worker {
         }
         let scope = mapping.scope.clone().decode().map_err(records::corrupt)?;
         scope.validate().map_err(records::corrupt)?;
+        cache.membership.validate_scope(&scope)?;
         Ok(GroupLog {
             key: mapping.key,
             birth_digest: mapping.birth_digest,
@@ -799,7 +834,11 @@ impl Worker {
         Ok(sequence)
     }
 
-    fn create(&mut self, bootstrap: GroupBootstrap) -> Result<GroupLog, LogError> {
+    fn create(
+        &mut self,
+        bootstrap: GroupBootstrap,
+        binding: Option<super::member_state::FleetGroupBinding>,
+    ) -> Result<GroupLog, LogError> {
         let conf = bootstrap.configuration()?;
         if let Some(group) = self
             .groups
@@ -815,11 +854,32 @@ impl Worker {
                 && mapping.birth_digest == bootstrap.birth_digest
                 && mapping.initial_conf == conf.write_to_bytes().map_err(records::corrupt)?
             {
+                if let Some(binding) = &binding {
+                    let cache = group.read()?;
+                    if !cache
+                        .membership
+                        .fleet_status()
+                        .is_some_and(|status| status.binding == *binding)
+                        || !super::member_state::members(&cache.conf_state)
+                            .contains(&bootstrap.member.get())
+                        || !cache.membership.permits(group.identity())
+                    {
+                        return Err(LogError::WrongIdentity);
+                    }
+                }
                 return Ok(group.clone());
             }
             return Err(LogError::WrongIdentity);
         }
-        self.create_cache(bootstrap, conf.clone(), genesis(conf), None)
+        let mut cache = genesis(conf.clone());
+        if let Some(binding) = binding {
+            if !binding.matches_scope(&bootstrap.scope) {
+                return Err(LogError::WrongIdentity);
+            }
+            cache.membership =
+                super::member_state::GroupMembership::managed_initial(&conf, binding)?;
+        }
+        self.create_cache(bootstrap, conf, cache, None)
     }
 
     fn seeded(&mut self, seed: super::snapshot::PreparedSeed) -> Result<GroupLog, LogError> {
@@ -1042,8 +1102,8 @@ impl Worker {
                     let _ = reply.send(result);
                     fatal
                 }
-                Work::Create(bootstrap, reply) => {
-                    let result = self.create(bootstrap);
+                Work::Create(bootstrap, binding, reply) => {
+                    let result = self.create(bootstrap, binding.map(|binding| *binding));
                     let fatal = result.as_ref().err().filter(|error| error.fatal()).cloned();
                     if fatal.is_some() {
                         self.closed.store(true, Ordering::Release);

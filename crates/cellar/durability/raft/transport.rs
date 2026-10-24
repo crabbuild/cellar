@@ -30,10 +30,14 @@ use tokio::sync::{mpsc, oneshot, watch, Notify, Semaphore};
 mod control_sender;
 #[path = "transport_directory.rs"]
 mod directory;
+#[path = "transport_fleet.rs"]
+mod fleet;
 #[path = "inspection_transport.rs"]
 pub(crate) mod inspections;
 #[path = "transport_metrics.rs"]
 mod metrics;
+#[path = "node_inspection_transport.rs"]
+pub(crate) mod node_inspections;
 #[path = "query_transport.rs"]
 mod queries;
 #[path = "transport_resources.rs"]
@@ -266,6 +270,7 @@ struct Registry {
     inspection_peers: BTreeMap<NodeId, Arc<Budget>>,
     pools: BTreeMap<NodeId, Arc<Pool>>,
     node_views: BTreeMap<NodeId, crate::raft::catalog::NodeView>,
+    fleet_trust: Option<Arc<crate::raft::fleet_catalog::FleetTrustSnapshot>>,
     seed_peers: BTreeMap<NodeId, directory::SeedPeer>,
 }
 
@@ -425,6 +430,7 @@ impl RaftTransport {
                 inspection_peers: BTreeMap::new(),
                 pools: BTreeMap::new(),
                 node_views: BTreeMap::new(),
+                fleet_trust: None,
                 seed_peers: BTreeMap::new(),
             }),
             outgoing: Banks::new(
@@ -1192,6 +1198,22 @@ impl State {
                     .map_err(|error| TransportError::Tls(error.to_string()))?;
                 return self
                     .receive_inspection(&mut stream, &exporter, prefix)
+                    .await;
+            }
+            if &prefix[..4] == node_inspections::REQUEST_MAGIC {
+                if lane != Lane::Control
+                    || sequence != 0
+                    || !self.inspection_enabled.load(Ordering::Acquire)
+                {
+                    return Err(TransportError::Protocol);
+                }
+                let exporter = stream
+                    .get_ref()
+                    .1
+                    .export_keying_material([0; 32], node_inspections::EXPORT_LABEL, None)
+                    .map_err(|error| TransportError::Tls(error.to_string()))?;
+                return self
+                    .receive_node_inspection(&mut stream, &exporter, prefix)
                     .await;
             }
             if &prefix[..4] == seeds::REQUEST_MAGIC {

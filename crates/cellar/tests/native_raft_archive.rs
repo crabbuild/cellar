@@ -847,7 +847,12 @@ async fn archive_publication_rechecks_prior_payloads_before_head_success() -> Re
         let objects = fixture.store.list(None).try_collect::<Vec<_>>().await?;
         let head = objects
             .iter()
-            .find(|o| o.location.filename() == Some("head"))
+            .find(|o| {
+                o.location.filename() == Some("head")
+                    && o.location
+                        .as_ref()
+                        .starts_with(fixture.namespace.data_prefix())
+            })
             .context("archive head")?;
         let head_bytes = fixture
             .store
@@ -1165,7 +1170,12 @@ async fn archive_refuses_foreign_birth_and_noncanonical_head() -> Result<()> {
         .try_collect::<Vec<_>>()
         .await?
         .into_iter()
-        .find(|o| o.location.filename() == Some("head"))
+        .find(|o| {
+            o.location.filename() == Some("head")
+                && o.location
+                    .as_ref()
+                    .starts_with(fixture.namespace.data_prefix())
+        })
         .ok_or_else(|| anyhow::anyhow!("missing head"))?;
     let mut bytes = fixture
         .store
@@ -2914,7 +2924,11 @@ async fn bucket_archive_store_preserves_prefix_and_conditional_writes() -> Resul
             );
             ensure!(objects
                 .iter()
-                .any(|object| object.location.filename() == Some("head")));
+                .any(|object| object.location.filename() == Some("head")
+                    && object
+                        .location
+                        .as_ref()
+                        .starts_with(&format!("tenant/archive/{}", namespace.data_prefix()))));
             fixture.close().await
         })
         .await;

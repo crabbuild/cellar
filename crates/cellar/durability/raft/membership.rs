@@ -89,7 +89,7 @@ impl RepairRecord {
 mod tests;
 
 impl Plan {
-    fn public(&self) -> Result<RepairPlan, LogError> {
+    pub(super) fn public(&self) -> Result<RepairPlan, LogError> {
         Ok(RepairPlan {
             id: ProposalId::new(self.id).map_err(|_| invalid())?,
             policy_revision: self.policy_revision,
@@ -193,6 +193,16 @@ impl GroupMembership {
         conf: &ConfState,
         plan: &RepairPlan,
     ) -> Result<(), LogError> {
+        self.bind_repair_start_with(change, conf, plan, None)
+    }
+
+    pub(super) fn bind_repair_start_with(
+        &self,
+        change: &mut ConfChangeV2,
+        conf: &ConfState,
+        plan: &RepairPlan,
+        fleet: Option<FleetIntent>,
+    ) -> Result<(), LogError> {
         if plan.expected_revision.get() != self.revision
             || self.repair.as_ref().is_some_and(|p| p.phase.active())
             || self
@@ -237,6 +247,7 @@ impl GroupMembership {
             change,
             std::slice::from_ref(&plan.replacement),
             Some(RepairIntent::Start { plan: wire }),
+            fleet,
         )?;
         self.admit(change, &conf)
     }
@@ -247,6 +258,17 @@ impl GroupMembership {
         conf: &ConfState,
         id: ProposalId,
         step: RepairStep,
+    ) -> Result<(), LogError> {
+        self.bind_repair_step_with(change, conf, id, step, None)
+    }
+
+    pub(super) fn bind_repair_step_with(
+        &self,
+        change: &mut ConfChangeV2,
+        conf: &ConfState,
+        id: ProposalId,
+        step: RepairStep,
+        fleet: Option<FleetIntent>,
     ) -> Result<(), LogError> {
         let record = self.repair.as_ref().ok_or_else(invalid)?;
         if record.plan.id != id.bytes() {
@@ -273,7 +295,7 @@ impl GroupMembership {
                 RepairIntent::Abort { id: id.bytes() }
             }
         };
-        self.bind_intent(change, &[], Some(action))?;
+        self.bind_intent(change, &[], Some(action), fleet)?;
         self.admit(change, conf)
     }
 

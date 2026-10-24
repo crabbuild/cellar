@@ -616,12 +616,13 @@ impl RaftEffectSink for RaftNativeEffectSink {
                 let Some(handle) = hint.handle.upgrade() else {
                     continue;
                 };
-                let Some(binding) = handle
+                let binding = match handle
                     .bindings
                     .get(&(hint.scope.namespace, hint.scope.cell))
-                    .cloned()
-                else {
-                    continue;
+                {
+                    Ok(binding) => binding,
+                    Err(CommandFailure::Unavailable) => continue,
+                    Err(error) => return Err(error),
                 };
                 let endpoint = RaftCellHandle { handle, binding };
                 if endpoint.scope() != request.inner.target.scope()

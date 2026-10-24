@@ -33,7 +33,7 @@ impl Driver {
                 .local
                 .bindings
                 .get(&(request.scope.namespace, request.scope.cell.clone()))
-                .ok_or(InspectionError::Refused)?;
+                .map_err(|_| InspectionError::Unavailable)?;
             let birth = self
                 .cells
                 .get(&request.scope)
@@ -185,39 +185,8 @@ impl Driver {
         scope: &GroupScope,
         status: Option<(u64, GroupStatus)>,
     ) -> Result<InspectionSnapshot, CommandFailure> {
-        let mut profile = self
-            .options
-            .node_profile
-            .as_ref()
-            .ok_or(CommandFailure::UnsupportedCapability)?
-            .clone();
-        profile.draining |= self.local.admission.is_draining();
-        let groups = self
-            .log
-            .group_count()
-            .map_err(|_| CommandFailure::Unavailable)?
-            .checked_add(usize::from(self.activating.is_some()))
-            .ok_or(CommandFailure::Overloaded)?;
-        let groups = u32::try_from(groups).map_err(|_| CommandFailure::Overloaded)?;
-        let reserved_bytes = profile
-            .bytes_per_group
-            .checked_mul(u64::from(groups))
-            .ok_or(CommandFailure::Overloaded)?;
-        let local = self.log.limits();
-        let node = NodeInspection {
-            identity: NodeIdentity {
-                node: local.node,
-                disk: local.disk,
-                process: local.process,
-            },
-            storage_instance: self
-                .log
-                .storage_instance()
-                .map_err(|_| CommandFailure::Unavailable)?,
-            profile,
-            groups,
-            reserved_bytes,
-        };
+        let node = self.capture_node_profile()?;
+        let groups = node.groups;
         let leader_load = self.log.domain().mono_ms().ok().and_then(|now| {
             self.leader_load.as_ref()?.view(
                 now,
@@ -242,19 +211,63 @@ impl Driver {
             membership: None,
             configuration: None,
         };
+        self.fill_inspection(scope, status, &mut snapshot)?;
+        Ok(snapshot)
+    }
+
+    pub(super) fn capture_node_profile(&self) -> Result<NodeInspection, CommandFailure> {
+        let mut profile = self
+            .options
+            .node_profile
+            .as_ref()
+            .ok_or(CommandFailure::UnsupportedCapability)?
+            .clone();
+        profile.draining |= self.local.admission.is_draining();
+        let groups = self
+            .log
+            .group_count_with_pending(self.activating.as_ref())
+            .map_err(|_| CommandFailure::Unavailable)?;
+        let groups = u32::try_from(groups).map_err(|_| CommandFailure::Overloaded)?;
+        let reserved_bytes = profile
+            .bytes_per_group
+            .checked_mul(u64::from(groups))
+            .ok_or(CommandFailure::Overloaded)?;
+        let local = self.log.limits();
+        Ok(NodeInspection {
+            identity: NodeIdentity {
+                node: local.node,
+                disk: local.disk,
+                process: local.process,
+            },
+            storage_instance: self
+                .log
+                .storage_instance()
+                .map_err(|_| CommandFailure::Unavailable)?,
+            profile,
+            groups,
+            reserved_bytes,
+        })
+    }
+
+    fn fill_inspection(
+        &self,
+        scope: &GroupScope,
+        status: Option<(u64, GroupStatus)>,
+        snapshot: &mut InspectionSnapshot,
+    ) -> Result<(), CommandFailure> {
         if let Some(cell) = self.cells.get(scope) {
             snapshot.view.schema_digest = cell.schema_digest;
             snapshot.view.birth_digest = cell.birth.digest();
             let member = cell.group.identity().member;
             let cache = cell.group.read().map_err(|_| CommandFailure::Unavailable)?;
             if cell.failed {
-                return Ok(snapshot);
+                return Ok(());
             }
             if cell.retired
                 || !crate::raft::member_state::members(&cache.conf_state).contains(&member.get())
             {
                 snapshot.view.occupancy = ReplicaOccupancy::Retired(member);
-                return Ok(snapshot);
+                return Ok(());
             }
             let (started, status) = status.ok_or(CommandFailure::Overloaded)?;
             if status.replica != *cell.group.identity()
@@ -298,7 +311,7 @@ impl Driver {
             });
             snapshot.membership = Some(cache.membership.clone());
             snapshot.configuration = Some(cache.conf_state.clone());
-            return Ok(snapshot);
+            return Ok(());
         }
         if let Some(dormant) = self.standbys.get(scope) {
             snapshot.view.schema_digest = dormant.class.schema_digest();
@@ -314,7 +327,7 @@ impl Driver {
                     Err(_) => return Err(CommandFailure::Unavailable),
                 }
             };
-            return Ok(snapshot);
+            return Ok(());
         }
         Err(CommandFailure::UnsupportedCapability)
     }

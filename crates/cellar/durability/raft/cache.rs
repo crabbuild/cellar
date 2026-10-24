@@ -538,6 +538,8 @@ impl CachedGroup {
                 "applied configuration lacks ConfState".into(),
             ));
         }
+        next.membership
+            .validate_scope(&write.group.identity().scope)?;
         next.validate(max_entries)
             .map_err(|error| LogError::Invalid(error.to_string()))?;
         Ok(next)

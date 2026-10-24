@@ -64,6 +64,7 @@ async fn failed_preflight_joins_infrastructure_with_retained_handles() -> anyhow
         service,
         Registrations {
             cells: vec![],
+            namespaces: vec![],
             peers: vec![],
             origins: vec![],
         },
@@ -329,6 +330,7 @@ async fn peer_traffic_waits_until_all_local_groups_attach() -> anyhow::Result<()
             })
             .collect(),
         peers: peers.into_values().collect(),
+        namespaces: vec![],
         origins: vec![],
     };
     let service = local.service();
