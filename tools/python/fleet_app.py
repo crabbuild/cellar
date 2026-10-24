@@ -5,7 +5,8 @@ from cellar import Response
 
 print(json.dumps({"event": "embedded_python_started", "version": sys.version,
                   "free_threaded": "t" in sys.abiflags,
-                  "gil_enabled": sys._is_gil_enabled(), "limits": LIMITS}), flush=True)
+                  "gil_enabled": sys._is_gil_enabled(), "limits": LIMITS,
+                  "path_mode": PATH_MODE}), flush=True)
 
 
 async def fetch(request, ctx):
@@ -17,7 +18,8 @@ async def fetch(request, ctx):
 
 class Entity:
     async def fetch(self, request, ctx):
-        previous = await ctx.storage.read_json("state")
+        previous = (ctx.initial_storage["state"] if PATH_MODE == "direct-initial"
+                    else await ctx.storage.read_json("state"))
         state = previous.value if previous.present else {"writes": 0, "payload": ""}
         if request.method == "POST":
             writes = state["writes"] + 1

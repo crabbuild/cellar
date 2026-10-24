@@ -13,6 +13,15 @@ This is a measurement fixture, not an inventoried application deployment.
 Use the [package workflow](README.md) for production runtime and dependency
 verification. The Python fixture uses the standard library only.
 
+The default `--python-path bridge` routes HTTP through Python and reads storage
+after dispatch. `--python-path direct-initial` uses the native namespace stub for
+`/cells/NAME` and declares an initial `state` snapshot for the Python cell. Python
+still runs the business logic and submits the same checked write batch. The
+original native context owns admission, fencing and the response durability
+proof in both modes. Snapshots are invocation-local; they are not cached between
+requests. The fixture captures the selected mode at startup and refuses missing
+or mismatched observations. Both modes keep identical admission limits.
+
 ## Functional S3 recovery
 
 Build on the checkout's Rust toolchain, with its own writable target directory
@@ -81,7 +90,8 @@ docker build -f tools/python/fleet.Dockerfile \
 The optional `python-fleet` mode in the Native SDK workflow builds both ABIs
 on Linux. It probes the interpreter inside each image, exports the exact runtime
 and binaries, verifies their hashes, then runs native and Python functional S3
-recovery on that runner. This exercises image provisioning and Linux host
+recovery on that runner. Both Python paths run the complete three-scenario
+recovery suite. This exercises image provisioning and Linux host
 behavior; it is not a container-isolated fleet performance measurement.
 
 ```sh
@@ -104,7 +114,8 @@ gh workflow run native-sdk.yml --ref YOUR_BRANCH \
   -f mode=python-fleet -f replay_sha="$(git rev-parse HEAD)" -f fleet_measure=true
 ```
 
-It runs native, Python, Python, then native on each ABI's runner. Every run uses
+It runs native, Python bridge, Python direct-initial, then those three in reverse
+order on each ABI's runner. Every run uses
 the image's exact binaries, 32 resident cells, 64 admitted host requests, 256-byte
 stored payloads, and three repetitions at concurrency 1, 8 and 32. Each timed
 write phase is followed by a five-second read phase. The one-node bucket

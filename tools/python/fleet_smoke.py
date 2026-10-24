@@ -30,6 +30,11 @@ def free_port():
         return sock.getsockname()[1]
 
 
+def validate_python_path(observed, requested):
+    if observed.get("path_mode") != requested:
+        raise RuntimeError("Python fleet path differs from the requested measurement")
+
+
 class LocalFleet(Harness):
     def __init__(self, args):
         super().__init__(args)
@@ -108,6 +113,7 @@ class LocalFleet(Harness):
                    CELLAR_PERF_MAX_CACHED_ROUTES=str(self.args.max_cached_routes),
                    CELLAR_PERF_MAX_REQUESTS=str(self.args.max_requests),
                    CELLAR_PERF_SHUTDOWN_MS=str(self.args.shutdown_ms), CELLAR_PERF_DURABILITY=durability)
+        env["CELLAR_PERF_PYTHON_PATH"] = self.args.python_path
         for key in ("CELLAR_PYTHON_INVENTORY", "CELLAR_PERF_LOG_LEVEL"):
             env.pop(key, None)
         with path.open("w") as stream:
@@ -143,6 +149,7 @@ class LocalFleet(Harness):
                                                 self.args.max_cached_routes, self.args.max_requests)}
         if self.args.runtime == "python":
             policy["python"] = validate_python_startup(text, self.args.max_requests, self.args.shutdown_ms)
+            validate_python_path(policy["python"], self.args.python_path)
             if any(previous.get("python") != policy["python"] for previous in self.node_policies):
                 raise RuntimeError("Python ABI or admission limits changed across fleet processes")
         self.node_policies.append(policy)
@@ -230,6 +237,8 @@ def main():
     parser.add_argument("--host", type=Path, required=True)
     parser.add_argument("--load", type=Path, required=True)
     parser.add_argument("--runtime", choices=["native", "python"], required=True)
+    parser.add_argument("--python-path", choices=["bridge", "direct-initial"], default="bridge",
+                        help="Python root/read bridge or native routing with initial storage snapshots")
     parser.add_argument("--rustfs-image", required=True, help="already installed disposable backend image")
     parser.add_argument("--output", type=Path, required=True, help="new evidence directory")
     parser.add_argument("--max-cached-routes", type=int, default=0)
@@ -246,6 +255,8 @@ def main():
                         help="also measure GET requests against the acknowledged-write ledger")
     parser.add_argument("--scenario", nargs="+", choices=[s[0] for s in SCENARIOS], default=[s[0] for s in SCENARIOS])
     args = parser.parse_args()
+    if args.runtime != "python" and args.python_path != "bridge":
+        parser.error("--python-path requires --runtime python")
     args.cpu_placement = affinity.fleet_placement(args.host_cpus, args.client_cpus, args.store_cpus)
     args.host, args.load = args.host.resolve(strict=True), args.load.resolve(strict=True)
     args.port = free_port()
@@ -262,7 +273,7 @@ def main():
     sources = ("Cargo.toml", "Cargo.lock", "tools/perf/cells.rs", "tools/perf/load.rs", "tools/perf/deployment.rs",
                "tools/perf/embedded.rs", "tools/perf/run.py", "tools/python/fleet.rs",
                "tools/python/fleet_app.py", "tools/python/fleet.Dockerfile", "tools/python/fleet_smoke.py",
-               "tools/python/affinity.py")
+               "tools/python/affinity.py", "tools/python/fleet_gateway.rs")
     scope = ("CPU-separated closed-loop S3 measurement; shared host memory and disk; not production qualification"
              if args.cpu_placement else "functional S3 recovery; not a performance qualification")
     metadata = {"scope": scope,
