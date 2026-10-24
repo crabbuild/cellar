@@ -49,7 +49,8 @@ pub struct RaftHostObservation {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RaftPeerNodeObservation {
     pub view: RaftHostObservation,
-    /// Complete local request duration, including control queue residence.
+    /// Complete origin duration through SDK delivery, including control queue
+    /// residence and retention by an unpolled caller.
     pub sample_age_ms: u64,
 }
 

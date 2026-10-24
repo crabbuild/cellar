@@ -55,6 +55,11 @@ impl RaftCells {
         {
             return Box::pin(async { Err(InspectionError::Refused) });
         }
+        let domain = self.handle.domain.clone();
+        let started = match domain.mono_ms() {
+            Ok(started) => started,
+            Err(_) => return Box::pin(async { Err(InspectionError::Unavailable) }),
+        };
         let response = self.node_call(
             NodeKind::InspectPeer {
                 node,
@@ -68,7 +73,16 @@ impl RaftCells {
                 CommandFailure::UnsupportedCapability => InspectionError::Refused,
                 _ => InspectionError::Unavailable,
             })? {
-                Response::PeerNodeInspection(result) => result.map(|view| *view),
+                Response::PeerNodeInspection(result) => {
+                    let mut observed = result?;
+                    let age = domain
+                        .mono_ms()
+                        .ok()
+                        .and_then(|now| now.checked_sub(started))
+                        .ok_or(InspectionError::Unavailable)?;
+                    observed.sample_age_ms = observed.sample_age_ms.max(age);
+                    Ok(*observed)
+                }
                 _ => Err(InspectionError::Unavailable),
             }
         })

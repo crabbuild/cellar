@@ -123,10 +123,13 @@ create namespace inspection/query grants or group authority.
 
 The response distinguishes startup enrollment from the installed current state
 and epoch. Restart/resize exclusion and full evacuation remain different modes.
-The origin rechecks current root identity/state and process discovery before
-returning the observation. A stale or missing view, pressure and unusable response
+The origin rechecks root identity/state and process discovery before publishing
+its reply. A stale or missing view, pressure and unusable response
 are not node-failure evidence; only a failed direct connection attempt is reported
-as unreachable. Sample age includes origin administrative queue residence.
+as unreachable. Sample age includes origin administrative queue residence and
+reply retention by an unpolled caller, measured through SDK delivery.
+Admission must still compare the observation with its current rooted operation;
+metadata is a sampled view, not a lease or a linearizable control-store read.
 
 Bodies are at most 16 KiB. The RPC shares the existing independent metadata slots,
 node and peer budgets; a 64 KiB host response reservation survives delivery to an

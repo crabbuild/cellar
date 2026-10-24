@@ -22,6 +22,27 @@ use std::{
 const TIMEOUT: Duration = Duration::from_secs(5);
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn fleet_enrollment_node_probe_retained_age() -> Result<()> {
+    let f = Fixture::new().await?;
+    let (_root, node, host) = f.empty_host().await?;
+    let (_peer_root, peer_node, _peer) = f.peer_host(5).await?;
+    let revision = f.catalog.read(TIMEOUT).await?.revision();
+    let target = NodeId::new([5; 16])?;
+    f.remote(&host, target, revision).await?;
+    let pending = host.inspect_peer_node(target, revision, TIMEOUT);
+    let retained = Duration::from_millis(150);
+    f.domain
+        .run(async { cellar::asyncrt::sleep(retained).await })
+        .await?;
+    let observed = pending.await?;
+    ensure!(observed.sample_age_ms >= retained.as_millis() as u64);
+    node.shutdown(ShutdownMode::Preserve).await?;
+    peer_node.shutdown(ShutdownMode::Preserve).await?;
+    f.domain.shutdown().await;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn fleet_enrollment_node_probe_resource_floor() -> Result<()> {
     let f = Fixture::new().await?;
     let authorization = f.enroll().await?;

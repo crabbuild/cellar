@@ -615,6 +615,14 @@
             "F07",
             "F08"
           ]
+        },
+        {
+          "name": "fleet_enrollment_node_probe_retained_age",
+          "oracle": "A caller that retains an unpolled probe cannot receive a falsely fresh observation; reported origin age includes the complete delay through SDK delivery.",
+          "invariants": [
+            "F06",
+            "F07"
+          ]
         }
       ],
       "verification": [
