@@ -64,6 +64,12 @@ silently dropping slow requests or excluding failed intervals.
 | Sole-node zone failure | Strict-domain headroom check refuses scale-in even when aggregate slots fit |
 | Multiple departing nodes | No new replica targets a later departing node; complete keep-set plan precedes evacuation |
 | Assignment search exhausts its budget | Typed search-limit result, no partial unsafe scale-in and no false infeasibility proof |
+| Final fit but no legal move prefix | Refuse admission before copying; show the staging/retained-history constraint rather than assuming source reclamation |
+| Resource sample races materialization/release | No double-credit; stale process observations retain conservative physical and reservation charges |
+| Retired destination has free aggregate capacity | Refuse exact-history rebinding despite available slots; use a fresh eligible target |
+| Lost accepted stop reply | Retain disruption ownership and reconcile the same request/process before cancellation or another stop |
+| Survivor fails during evacuation finalization | Retain absence fences, refresh positive health proof and block completion until its actual prerequisites hold |
+| Retire cells then reduce capacity | Serving counts change only after terminal proof; retained bytes/slots still constrain scale-in and memory reduction |
 
 Verify every successful command against the retained operation ledger and all
 current serving replicas, then verify archive coverage of acknowledged committed
@@ -99,6 +105,16 @@ For one-node-failure tests, pre-place all ten possible three-node combinations
 evenly where policy permits. For two-node failures, enumerate each of the ten
 pairs on small functional fixtures, then run at least one overlapping pair at
 500-cell density. RF3 never promises survival of arbitrary two-node loss.
+In the exact equal five-node fixture, each pair initially leaves 50 cells with
+three copies, 300 with two and 150 with one. Verify that initial classification
+before repair changes the placement. See the [failure-spread example](planning-details.md#spread-correlated-failures-as-well-as-counts).
+
+Record per-stage initializer ownership, move-slot occupancy, copied bytes and
+leader-transfer attempt rates. Compare measured service rates with the
+[convergence lower bounds](maintenance-and-rebalancing.md#predict-convergence-from-the-limiting-service-stage).
+The ten-minute targets remain unpassed until the complete workflow, retries,
+archive checks and final observation windows fit. Raising concurrency is a new
+candidate requiring foreground and resource verification, not an automatic fix.
 
 Run at least three fresh matched baseline/candidate pairs, alternate AB/BA order,
 warm up before timing and retain every failed cohort. Report per-run and pooled

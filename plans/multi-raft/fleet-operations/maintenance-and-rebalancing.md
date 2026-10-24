@@ -73,6 +73,53 @@ reconciled. Once Node shutdown is admitted, resume requires a real rejoin; never
 reset the permanent closing/draining flags in place. Keep consensus, required
 replication and owned completion work running through the reversible barrier.
 
+## Maintenance decisions at each irreversible boundary
+
+The operation owns the decision; the node lifecycle owner performs stop. Keep
+these boundaries visible in SDK/API status rather than one generic `draining`
+flag. A readiness receipt has a checked input cut, not open-ended stop authority.
+
+| Observed phase | Next permitted action | Cancellation or failure handling |
+| --- | --- | --- |
+| Preparing, before stop admission | Settle transfers, verify survivors, refresh readiness | Cancel can restore eligibility after its handoff/actions settle and the stop request is durably fenced |
+| Ready, process still running | Exact-process guarded stop after revalidation | Stale readiness requires another check; a local cancellation fence defeats delayed stop |
+| Stop durably admitted | Finish the owned shutdown and join workers | Cannot reopen the permanent gate; cancellation waits for stop/rejoin outcome |
+| Stop response lost | Reconcile the same request, local guard and process identity | Keep disruption slot; neither timeout nor missing response proves the process exited |
+| Offline within grace | Restore the same intact volume/process lineage | Elections continue; second failure or elapsed grace permits bounded ordinary repair |
+| Rejoined, catching up | Install current trust/profile, verify all still-valid memberships and cuts | Exclude new placement/leadership until verification; stale stop for old process is refused |
+| Some memberships retired while offline | Report exact surviving and retired bindings | Do not label the result an intact restart; reconcile partial effects and use fresh replacement capacity where needed |
+| Resume terminally rooted | Release operation exclusions and disruption slot | Retry returns the same receipt; another lifecycle operation needs a new epoch |
+
+Serialize stop, stop-cancellation fencing and rejoin against the engine's
+lifecycle record. A root `CancelRequested` alone does not defeat an already
+issued stop capability. If the node is unreachable, preserve the unresolved
+stop and disruption reservation until its outcome/fence is established. Remote
+observation that a TCP port closed does not prove all physical owners joined.
+An external platform stop/isolation attestation is reported separately from a
+successful graceful-shutdown receipt; it cannot fabricate the latter.
+
+The pre-stop check identifies both surviving voters for every affected group,
+their current configuration, health freshness, published cut and placement
+eligibility. One reachable survivor is not enough. All affected groups must pass
+before admitting a planned stop. A concurrent unexpected second failure can
+still remove quorum after this point; the shared disruption slot prevents a
+second planned outage, not hardware failure. Expose this point-in-time safety
+boundary in the receipt and qualification rather than promising zero downtime.
+
+Leadership exclusion filters managed transfer/campaign requests; it is not
+vote revocation and cannot override a committed Raft configuration. Leadership
+can change during preparation. If the target becomes leader again before stop
+admission, repeat handoff or report blocked after revalidation. Do not freeze
+ticks, heartbeats, votes or append/apply work to keep a node out of leadership.
+
+Use the same sequencing for vertical resizing. For shrink, first obtain the
+target physical-fit assessment, then stop/join, then lower platform limits. For
+growth, first stop/join, then apply larger platform/runtime limits, then verify
+the observed profile before granting capacity. Both paths retain the original
+effective profile and pending target revision until rejoin is accepted. A
+configuration-only rollback is possible only after checking the actual physical
+resources and unchanged storage identity.
+
 ## Grace expiry and unexpected failure
 
 Default requested restart grace is 120 seconds, capped at 300 seconds. Start it
@@ -283,6 +330,85 @@ efficiency settings, not leases. Do not write heartbeats, telemetry or every cop
 chunk into the root. Coalesce status observations; publish durable root changes
 for admission, cancellation, finalization and lifecycle transitions. The single
 root's contention/latency is a measured scale limit, not an unlimited coordinator.
+
+## Select and schedule a concrete balancing action
+
+Run this sequence against the same complete observation window and projected
+reservation ledger used by capacity admission:
+
+1. Select the obligation: finish a committed joint action, restore redundancy,
+   evacuate, restore domains, satisfy explicit topology, then optional load work.
+   Required work is not a performance claim. Shared slots still bound it.
+2. For leader-only pressure, enumerate current eligible voters in the same
+   stable group. Check term/configuration, activity, matched and published cuts,
+   process/profile eligibility, transfer budget and expected incremental relief.
+   If no candidate passes, do not transfer to a merely reachable follower.
+3. If a replica move is required, select a node outside the group with an unused
+   valid local history binding, feasible domains and peak resources. Check the
+   complete final/staged plan for lifecycle work; a locally attractive first
+   move cannot substitute for scale-in feasibility.
+4. Evaluate the relevant objective. Optional performance work must clear
+   uncertainty and reduce the declared potential. Explicit topology work must
+   reduce distance to its feasible assignment. Required repair/evacuation uses
+   its safety and completion criteria even when load rises.
+5. Reserve exact resources with CAS and revalidate before starting. Record the
+   predicted relief and actual result; reconcile failed/ambiguous actions before
+   choosing another permit for that group.
+6. Reobserve before the next optional action. After convergence, require three
+   healthy windows and no residual optional permit. Keep the cooldown to prevent
+   an immediate reverse move. Completing already admitted seed/joint/handoff
+   steps is not a fresh, unrelated balancing decision.
+
+Separate per-node source, destination and leader-transfer tokens from the
+fleet-wide membership count. Two membership slots do not allow two physical
+initializers on the same destination. A small control frame cannot be queued
+behind rate-limited seed body work, and a token is released when its owning
+physical task completes, not when its RPC caller times out. Do not add new
+control-queue scheduling behavior without the separate evidence required by the
+performance work.
+
+Expose a reason when no action can help: `NoEligibleLeaderTarget`,
+`NoUnusedHistoryBinding`, `SharedBackendPressure`, `BelowUncertaintyMargin`,
+or `MoveBudgetExhausted`. These are planner diagnostics carried with an existing
+typed blocked/capacity result, not new claims that a node failed. Distinguish
+structural lack of a destination from temporary scheduling backpressure.
+
+Count both the source and destination against the per-node leader-transfer
+attempt limit. Failed attempts also consume that rate budget. This prevents a
+new target from receiving a fleet-wide burst even when each source sends slowly.
+
+## Predict convergence from the limiting service stage
+
+Report estimated work and measured stage rates before promising a completion
+time. With `M` replacements, seed bytes `B`, measured mean initializer ownership
+`s`, mean move occupancy `m`, and effective shared bandwidth `b`, lower bounds
+include:
+
+```text
+seed transmission time >= B / b
+one-target initialization time >= M * s
+two-slot membership occupancy time >= M * m / 2
+```
+
+Use actual per-stage concurrency and source/backend sharing; do not simply add
+overlapping lower bounds or treat their maximum as a guaranteed ETA. Catch-up,
+CAS conflict, elections, archive verification and the final observation window
+can extend the result. If apply rate cannot exceed incoming changes, catch-up
+has no finite projected finish and status must say so.
+
+For five-to-six equal-copy redistribution, F needs 250 new replicas. A single
+initializer on F makes 250 times its measured ownership duration a lower bound.
+Giving F 83 leaders through the one-transfer-per-node-per-five-seconds budget
+also spans at least 410 seconds between its first and last admitted transfer
+attempts; retries can extend that interval. The ten-minute qualification target
+therefore requires pipelining leadership as replicas become ready, plus enough
+remaining time for copies, retries and verification. It is an unpassed gate,
+not a duration implied by the target copy count or nominal network rate.
+
+If a gate fails, identify its limiting stage before raising concurrency. More
+simultaneous snapshots can increase SQL/image contention, archive backlog and
+foreground p99. Retain a higher-parallelism candidate only with measured benefit
+and unchanged safety/resource bounds.
 
 ## Operator status and recovery decisions
 

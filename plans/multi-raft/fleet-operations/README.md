@@ -26,13 +26,16 @@ Read these documents in order:
    admission, recovery and node lifecycle.
 2. [Capacity and scaling](capacity-and-scaling.md): exact add/remove protocols,
    complete feasibility, scale-out/in, CPU/memory resizing and retained state.
-3. [Maintenance and rebalancing](maintenance-and-rebalancing.md): guarded stop,
+3. [Planning details and worked examples](planning-details.md): explicit resource
+   ledgers, feasible move ordering, five-to-six/five-to-four calculations,
+   correlated failures, reduced cell counts and removal-proof closure.
+4. [Maintenance and rebalancing](maintenance-and-rebalancing.md): guarded stop,
    rolling restart, operation conflicts, movement algorithms and foreground budgets.
-4. [Implementation plan](implementation-plan.md): deliverable work packages,
+5. [Implementation plan](implementation-plan.md): deliverable work packages,
    dependencies, code ownership and acceptance gates.
-5. [Operator workflows](operator-workflows.md): future CLI contract and safe
+6. [Operator workflows](operator-workflows.md): future CLI contract and safe
    add, restart, evacuate, return and remove procedures.
-6. [Qualification](qualification.md): failure matrix, performance gates and
+7. [Qualification](qualification.md): failure matrix, performance gates and
    completion evidence.
 
 Run from the repository root:

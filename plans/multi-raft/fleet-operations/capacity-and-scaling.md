@@ -4,6 +4,8 @@ Status: implementation contract for FO-01 through FO-10, extending the
 [technical design](design.md). All APIs and commands remain proposed. This
 document defines the observable steps and failure handling for adding nodes,
 changing node size, withdrawing capacity and changing the fleet size.
+The [planning details](planning-details.md) specify the resource ledger, legal
+intermediate states, worked capacity changes and fewer-cell sizing bounds.
 
 ## Distinguish four capacity changes
 
@@ -183,6 +185,13 @@ pages and persist a resumable scan cursor. Bound search expansions explicitly
 limit. If the search limit prevents finding a complete plan, return
 `PlannerSearchExhausted`, not a mathematical claim that placement is impossible.
 V1 never starts scale-in from a partial feasibility plan.
+
+The final assignment is only half the proof. Simulate a legal bounded execution
+path with temporary learners, occupied source histories and actual host slots.
+If every first move exceeds a staging bound or targets a retired history slot,
+the operation needs additional fresh capacity even when the proposed final live
+counts fit. Report that limiting resource and history in the preview. See
+[complete planning](planning-details.md#a-complete-plan-includes-a-legal-execution-path).
 
 ## Add a node and make capacity usable
 

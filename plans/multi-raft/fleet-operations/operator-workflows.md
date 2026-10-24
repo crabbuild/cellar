@@ -11,6 +11,8 @@ for read, node registration, policy change, maintenance, removal and cancellatio
 Resource resizing and guarded maintenance stop also require their own explicit
 permissions. Detailed phase/rollback rules are in [capacity and scaling](capacity-and-scaling.md)
 and [maintenance and rebalancing](maintenance-and-rebalancing.md).
+Use the [worked planning examples](planning-details.md) to interpret the copy,
+retained-state and failure-headroom numbers in a preview.
 
 `--operation-id` is caller-generated and retained across retries. Every mutation
 also requires `--expected-revision`; a 409-style revision conflict requires a
@@ -50,7 +52,39 @@ outcome and 6 for wait timeout. JSON always includes phase and completion status
 `--wait` on mutation uses the same wait semantics and cannot turn admission into
 completion. There is no `--force` removal or quorum bypass.
 
+| Submission result | Retry rule |
+| --- | --- |
+| Admitted with handle | Inspect/wait for that operation; repeating its exact request returns the same identity |
+| Clean revision conflict with verified non-admission | Refresh the preview; a changed expected revision is a changed canonical request and uses a new operation ID |
+| Payload conflict | Inspect the original ID; do not overwrite its stored request |
+| Timeout, connection loss or unknown outcome | Retain the exact ID, expected revision and payload; reconcile before creating any replacement request |
+| Blocked after partial execution | Inspect committed and unresolved effects; cancel/reconcile the original operation before submitting an incompatible target |
+
+An immutable request can exist without root admission. Its existence alone is
+neither success nor proof that execution started. A negative reconciliation must
+check the current rooted request history, including later revisions, before
+reporting that the original admission did not occur.
+
 ## Add capacity
+
+The future management preview must make the operator's requested outcome
+reviewable before submission. It includes these fields; omitted or unknown
+values are displayed explicitly rather than replaced by zero:
+
+| Preview section | Required content |
+| --- | --- |
+| Identity and inputs | Fleet incarnation, input root/policy/inventory revisions, node-operation epochs and canonical request digest |
+| Desired result | Active keep-set, excluded/departing nodes, convergence mode, placement tolerance and recovery contract |
+| Resource fit | Per-node verified profile, physical usage, unmaterialized reservations, candidate peak, policy reserve and limiting dimension |
+| History fit | Serving, learner, dormant and retired counts; incompatible/retired target bindings; pending births/retirements |
+| Plan | Complete final assignment digest, executable move order, bytes/copies to move and peak temporary/retained occupancy |
+| Failure cases | Immediate quorum classification and RF3 restoration fit for every declared node/domain failure scenario |
+| Foreground impact | Current workload/p99, measured limiting service stage, movement budgets and uncertainty/unknown ETA |
+| Decision | Ready to submit, still planning or a typed blocked result with exact prerequisites |
+
+A preview is not a reservation. If its inputs change before admission, the API
+returns a conflict/revised preview instead of executing the old placement list.
+An inability to stage the first move is reported even when final copy counts fit.
 
 1. Provision a persistent volume and a compatible node with explicit resource
    bounds and trusted credentials. Starting the process does not grant membership.

@@ -12,6 +12,9 @@ The detailed execution contracts are [capacity and scaling](capacity-and-scaling
 and [maintenance and rebalancing](maintenance-and-rebalancing.md). They distinguish
 horizontal node-count changes from vertical resource resizing, and define the
 guarded stop and terminal-receipt protocols used by this design.
+The [planning details](planning-details.md) add accounting rules, legal move
+ordering, worked topology changes and the distinction between monotonic absence
+proofs and expiring survivor-health observations.
 
 Object-store compare-and-swap (CAS) serializes desired state and admission of
 membership work. It does not grant votes, elect leaders or replace a fresh Raft
@@ -395,8 +398,10 @@ Scale-in chooses explicit nodes or a deterministic low-migration-cost candidate,
 then performs this evacuation. Default minimum is four active nodes for an RF3
 fleet with one spare placement node, subject to stricter zone requirements.
 An explicit three-node policy is allowed only with a reported lack of repair
-spare; fewer than three is refused. After one-node loss, five-node load grows by
-25% before repair overhead; normal admission should leave additional headroom.
+spare; fewer than three is refused. After one-node loss and RF3 restoration,
+average serving copies on the four survivors grow from 300 to 375, a 25%
+increase. Leader pressure can rise before repair; follower-copy work rises as
+copies are restored. Neither figure predicts TPS or replaces resource headroom.
 Cold cells retain replicas. Actual cell deletion needs a committed retirement
 and admission-index tombstone; it does not immediately delete retained archives.
 

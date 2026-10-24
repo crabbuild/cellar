@@ -104,6 +104,11 @@ receipt protocol live in [capacity and scaling](capacity-and-scaling.md).
 The local stop fence, grace handling, rolling sequence, balancing potential and
 scheduler live in [maintenance and rebalancing](maintenance-and-rebalancing.md).
 Keep those contracts and the named manifest cases synchronized during review.
+The [planning details](planning-details.md) additionally require conservation of
+materialized resources, a feasible staged path, per-history target eligibility,
+exact failed-pair classification, fewer-cell retained-footprint accounting and
+separate absence/health proof lifetimes. The manifest assigns these acceptance
+cases to FO-04, FO-07, FO-09 and FO-10. Adding their names is not test execution.
 
 ## Review sequence inside each package
 
