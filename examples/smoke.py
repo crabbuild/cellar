@@ -47,11 +47,11 @@ def eventually(read, accept, timeout=20):
 
 
 class Host:
-    def __init__(self, cellar, project, root, extra_env=None):
+    def __init__(self, cellar, project, root, extra_env=None, *, command_prefix=()):
         self.log = root / "host.log"
         self.output = self.log.open("wb")
         self.child = subprocess.Popen(
-            [str(cellar), "dev", str(project), "--no-watch", "--port", "0", "--logs"],
+            [*command_prefix, str(cellar), "dev", str(project), "--no-watch", "--port", "0", "--logs"],
             stdout=self.output, stderr=subprocess.STDOUT,
             env={**os.environ, "NO_COLOR": "1", "CELLAR_TOKIO_THREADS": "2",
                  "CELLAR_SHUTDOWN_TOTAL_MS": "8000", **(extra_env or {})},

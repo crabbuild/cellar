@@ -2,6 +2,9 @@
 use anyhow::{ensure, Result};
 use cellar::sdk::Host;
 use cellar_python::{Environment, EventKind, Options, PythonRuntime, Source};
+use std::sync::Arc;
+
+mod ingress;
 
 const APPLICATION_VERSION: &str = match option_env!("CELLAR_APPLICATION_VERSION") {
     Some(version) => version,
@@ -34,6 +37,7 @@ fn main() -> Result<()> {
             Source::new(include_str!("app.py"), "app.py")
                 .events([EventKind::Fetch])
                 .cell("Order")
+                .cell_initial_reads("Order", EventKind::Fetch, ["order"])
                 .require_distribution("annotated-doc", "0.0.5")
                 .require_distribution("annotated-types", "0.8.0")
                 .require_distribution("anyio", "4.15.1")
@@ -55,7 +59,7 @@ fn main() -> Result<()> {
                     )?;
                 }
                 host.register("python-fastapi", APPLICATION_VERSION, move || {
-                    Ok(application.clone())
+                    Ok(Arc::new(ingress::Orders(application.clone())))
                 })?
                 .run_until_observed(stop.cancelled(), move |outcome| {
                     monitor.record_node(outcome)

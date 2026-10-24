@@ -24,6 +24,9 @@ from urllib.parse import urlsplit
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from smoke import Host, private_project
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools/python"))
+import affinity
+
 PAYLOAD = {"customer_id": "customer-perf", "items": [
     {"sku": "coffee", "quantity": 2, "unit_price_cents": 1250}]}
 CREATE = json.dumps(PAYLOAD, separators=(",", ":")).encode()
@@ -185,17 +188,23 @@ def stop_host(host):
     return report
 
 
-def start_host(args, directory):
+def start_host(args, directory, *, host_cpus=None):
     directory.mkdir()
     project = private_project(args.project, directory)
-    host = Host(args.cellar, project, directory, extra_env={"CELLAR_TOKIO_THREADS": str(args.rust_threads),
+    evidence = directory / "host-affinity.json"
+    host = Host(args.cellar, project, directory, command_prefix=affinity.prefix(host_cpus, evidence),
+                extra_env={"CELLAR_TOKIO_THREADS": str(args.rust_threads),
                 "CELLAR_DURABILITY": "bucket", "CELLAR_SHUTDOWN_TOTAL_MS": "15000",
                 "CELLAR_SHUTDOWN_REPORT_JSON": "1", "PYTHONDONTWRITEBYTECODE": "1"})
     try:
         origin = host.ready()
         children = subprocess.check_output(["pgrep", "-P", str(host.child.pid)], text=True).split()
         require(len(children) == 1, "expected exactly one compiled native application child")
-        return host, origin, int(children[0])
+        pid = int(children[0])
+        if host_cpus is not None:
+            affinity.verify(evidence, host_cpus, host.child.pid)
+            affinity.verify_threads(pid, host_cpus)
+        return host, origin, pid
     except BaseException:
         host.child.terminate()
         host.child.wait(timeout=40)

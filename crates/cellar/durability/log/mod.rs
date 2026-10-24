@@ -4357,7 +4357,7 @@ impl DurabilityOwner {
         }
     }
 
-    /// Stops the node-log roots, seals covered data, and joins the roots.
+    /// Quiesces live log transitions, seals covered data, and joins the node-log roots.
     ///
     /// This method has no deadline. Use [`Self::quiesce_and_seal_within`] during
     /// a bounded process shutdown.
@@ -4365,8 +4365,13 @@ impl DurabilityOwner {
         let Some(stack) = &self.stack else {
             return;
         };
-        stack.node_log_tasks.stop.request_stop();
+        // Close first takes the live-transition guard and prevents new
+        // publications. An already-admitted maintenance pass must finish
+        // installing its published epoch: stopping it first can leave the
+        // record ahead of the shipper, making the graceful seal refuse and
+        // an immediate restart wait for the predecessor lease to expire.
         stack.manager.close_gracefully().await;
+        stack.node_log_tasks.stop.request_stop();
         stack.node_log_tasks.roots.join().await;
     }
 
@@ -5816,6 +5821,15 @@ impl NodeLogManager {
         };
         let Some(shipper) = shipper else { return };
         shipper.degrade("graceful shutdown");
+        // Coverage counters cannot see a captured round until its completion
+        // is applied or discarded. Let the ship loop release those reservations
+        // before deciding whether the epoch is sealable. Do not hold the live
+        // transition guard: an admitted round may still need it to finish.
+        // The owner's process deadline cancels this wait and reports incomplete
+        // quiescence; a still-owned round must never look like a complete drain.
+        while Self::shipper_batch_in_flight(&shipper) {
+            crate::asyncrt::sleep(std::time::Duration::from_millis(10)).await;
+        }
         for _ in 0..50 {
             if self.ltx.all_shipped_tiered() {
                 break;

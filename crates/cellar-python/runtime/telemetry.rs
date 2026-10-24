@@ -85,7 +85,7 @@ impl OperationReport {
 }
 
 #[derive(Default)]
-struct Histogram {
+pub(crate) struct Histogram {
     samples: AtomicU64,
     total: AtomicU64,
     maximum: AtomicU64,
@@ -93,7 +93,7 @@ struct Histogram {
 }
 
 impl Histogram {
-    fn observe(&self, duration: Duration) {
+    pub(crate) fn observe(&self, duration: Duration) {
         let ns = duration.as_nanos().min(u64::MAX as u128) as u64;
         self.samples.fetch_add(1, Ordering::Relaxed);
         let _ = self
@@ -105,7 +105,7 @@ impl Histogram {
         self.buckets[BOUNDS.partition_point(|bound| *bound < ns)].fetch_add(1, Ordering::Relaxed);
     }
 
-    fn report(&self) -> LatencyReport {
+    pub(crate) fn report(&self) -> LatencyReport {
         LatencyReport {
             samples: self.samples.load(Ordering::Acquire),
             total_ns: self.total.load(Ordering::Relaxed),

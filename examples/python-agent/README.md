@@ -157,15 +157,17 @@ PydanticAI and transitive dependencies by version and wheel hashes, captures the
 runtime/source/dependency inventory, and rebuilds the executable bound to it:
 
 ```sh
-python3 examples/python-agent/package.py --runtime 3.14.5 \
+python3 examples/python-agent/package.py --runtime 3.14.5 --profile release \
   --prefix /absolute/new/agent-environment \
   --output /absolute/new/agent-package
 ```
 
 Install `uv==0.11.19` before running the builder. The prefix parent must exist and
-the prefix itself must be new. Use `--runtime 3.14.5t` for the other ABI. Packages
-are platform-specific and require the captured OS/native-library cohort. Publish
-and restore with the ordinary Cellar commands:
+the prefix itself must be new. Use `--runtime 3.14.5t` for the other ABI. The builder
+uses the selected Cargo profile for prerequisite capture and the final host.
+Omit `--profile` for a development build, or select `--profile lab` for optimized
+measurements. Packages are platform-specific and require the captured
+OS/native-library cohort. Publish and restore with the ordinary Cellar commands:
 
 ```sh
 cellar deploy /absolute/new/agent-package --bucket YOUR_BUCKET

@@ -2,6 +2,7 @@
 """Exercise the compiled counter load client against a deterministic HTTP peer."""
 import argparse
 import collections
+import hashlib
 import http.server
 import json
 import math
@@ -13,7 +14,7 @@ import threading
 
 def check(binary):
     lock = threading.Lock()
-    state = dict(writes=[7, 11], mode="valid", calls=collections.Counter())
+    state = dict(writes=[7, 11], payloads=[b'a' * 16, b'b' * 16], mode="valid", calls=collections.Counter())
 
     class Handler(http.server.BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
@@ -35,9 +36,13 @@ def check(binary):
                 if writing:
                     assert len(body) == 16
                     state["writes"][cell] += 1
+                    state["payloads"][cell] = body
                 mode = state["mode"]
                 value = dict(writes=state["writes"][cell] + (mode == "counter"),
                              payload_bytes=17 if mode == "payload" else 16, node="test-node")
+                if self.headers.get('x-cellar-verify-payload') == 'sha256' and mode != 'missing-digest':
+                    stored = b'x' * 16 if mode == 'corrupt-payload' else state['payloads'][cell]
+                    value['payload_sha256'] = hashlib.sha256(stored).hexdigest()
             payload = json.dumps(value).encode()
             self.send_response(503 if mode == "unavailable" else 200)
             self.send_header("Content-Length", str(len(payload)))
@@ -56,10 +61,16 @@ def check(binary):
                 return subprocess.run([str(binary), operation, url, "2", "2", "1", "16", str(ledger)],
                                       text=True, capture_output=True, timeout=15)
 
-            missing = run("read")
-            assert missing.returncode != 0 and not ledger.exists()
+            for operation in ('read', 'verify'):
+                missing = run(operation)
+                assert missing.returncode != 0 and not ledger.exists()
             assert not state["calls"], "missing ledger must fail before requests"
+            # Counter-only historical evidence cannot qualify payload recovery.
             ledger.write_text(json.dumps(dict(writes=state["writes"])))
+            legacy = run('verify')
+            assert legacy.returncode != 0 and not state['calls']
+            ledger.write_text(json.dumps(dict(writes=state["writes"],
+                payload_sha256=[hashlib.sha256(payload).hexdigest() for payload in state['payloads']])))
             original = ledger.read_bytes()
             timestamp = ledger.stat().st_mtime_ns
             for mode in ("valid", "counter", "payload", "unavailable"):
@@ -91,7 +102,36 @@ def check(binary):
             assert value["successful_writes"] == state["calls"]["POST"] == len(value["latency_us"])
             assert json.loads(ledger.read_text())["writes"] == state["writes"]
             assert sum(state["writes"]) == 18 + value["successful_writes"]
+            assert json.loads(ledger.read_text())['payload_sha256'] == [
+                hashlib.sha256(payload).hexdigest() for payload in state['payloads']]
             print(f"write/valid: accounted {value['successful_writes']} acknowledgements", flush=True)
+            original = ledger.read_bytes()
+            for mode in ('valid', 'corrupt-payload', 'missing-digest', 'counter', 'payload'):
+                state['mode'] = mode
+                state['calls'].clear()
+                result = run('verify')
+                value = json.loads(result.stdout)
+                assert (result.returncode == 0) == (mode == 'valid'), result.stderr
+                assert value['state_verification'] == 'counter+payload-sha256'
+                assert [row['cell'] for row in value['observations']] == [0, 1]
+                expected = json.loads(original)
+                for row in value['observations']:
+                    assert row['expected'] == expected['writes'][row['cell']]
+                    assert row['expected_payload_sha256'] == expected['payload_sha256'][row['cell']]
+                    if mode == 'valid':
+                        assert row['actual_payload_sha256'] == row['expected_payload_sha256']
+                assert bool(value['mismatches']) == (mode != 'valid')
+                assert state['calls']['GET'] == 2 and not state['calls']['POST']
+                assert ledger.read_bytes() == original, 'audit changed acknowledged evidence'
+                print(f'verify/{mode}: checked both cells without mutation', flush=True)
+            state['mode'] = 'counter'
+            state['calls'].clear()
+            result = run('write')
+            value = json.loads(result.stdout)
+            assert result.returncode != 0 and value['successful_writes'] == 0
+            assert value['errors'] and state['calls']['POST'] > 0
+            assert json.loads(ledger.read_bytes()) == json.loads(original), 'bad acknowledgement entered ledger'
+            print('write/wrong-counter: rejected acknowledgements without changing ledger', flush=True)
     finally:
         server.shutdown()
         server.server_close()

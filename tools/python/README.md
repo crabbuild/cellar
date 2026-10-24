@@ -73,6 +73,11 @@ Use the checkout's Rust toolchain and unique writable target directory from
 [AGENTS.md](../../AGENTS.md). Keep bytecode writes disabled throughout building;
 Python probes can otherwise mutate the tree after capture. The runtime disables
 bytecode writes independently. Do not install or edit packages after capture.
+Build the prerequisite-capture host with the same Cargo profile as the final
+project. `environment.py project --profile release` selects that profile in the
+generated project; omitting the option preserves the source project's profile.
+The FastAPI and agent `package.py` helpers accept `--profile dev|lab|release` and
+apply it to both builds, defaulting to `dev`.
 When any source, registration, dependency or runtime changes, capture a new
 inventory and rebuild the host. The native project selects its inventoried interpreter for a host build and adds libpython's loader paths to the executable; unrelated native projects ignore ambient inventory flags. Compiled package roots become `Options::module_paths` defaults. `Host::runtime_inventory` / `CompiledApplications::runtime_inventory` bind the same digest to generation admission, including after startup. `is_verified_build()` identifies hosts built
 with this binding; ordinary developer builds without it remain unverified.

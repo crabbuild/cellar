@@ -134,7 +134,15 @@ python3 tools/perf/analyze.py RUN_DIRECTORY OUTPUT_PREFIX
 The load generator increments a durable per-cell counter and replaces its JSON
 payload. It tracks every successful complete response, without retrying writes.
 Every verification reads every cell and requires its counter to equal exactly
-the acknowledged count. Bucket mode kills all nodes, discards their local data
+the acknowledged count and its stored payload digest to match the last acknowledged
+request. The server computes SHA-256 from actual stored bytes on verification
+GETs; the client derives its expected digest independently. Missing digests and
+same-length corruption fail verification. The client also checks each write's
+returned ordinal and never records failed or ambiguous attempts as acknowledged.
+Existing counter-only ledgers are rejected. Client-side digest accounting adds
+CPU work outside request latency samples but inside closed-loop throughput;
+comparisons require fresh runs on the same workload revision.
+Bucket mode kills all nodes, discards their local data
 and verifies restoration. Fleet mode kills one node and verifies recovery on
 survivors. Three-node scenarios then hand off and restart each node, verifying
 both after takeover and after subsequent writes. After the fleet has stopped,

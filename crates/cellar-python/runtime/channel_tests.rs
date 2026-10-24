@@ -7,6 +7,7 @@ fn mailbox_boundaries_release_every_reservation() {
     let (sender, mut receiver) = channel(2);
     let budget = Budget::new(3);
     let event = || Event::Complete {
+        queued_at: std::time::Instant::now(),
         payload: "x".into(),
         body: None,
         failed: false,

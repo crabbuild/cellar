@@ -38,7 +38,15 @@ impl Arguments {
         ensure!(
             matches!(
                 args[0].as_str(),
-                "native" | "python" | "python-defaults" | "native-resident" | "python-resident"
+                "native"
+                    | "python"
+                    | "python-defaults"
+                    | "native-resident"
+                    | "python-resident"
+                    | "python-initial"
+                    | "python-initial-resident"
+                    | "python-direct-initial"
+                    | "python-direct-initial-resident"
             ),
             "invalid host mode"
         );
@@ -123,35 +131,37 @@ fn python(arguments: Arguments, before: Value) -> Result<()> {
         "max_objects": options.max_objects, "shutdown_timeout_ms": options.shutdown_timeout.as_millis(),
         "poll_interval_ns": options.poll_interval.as_nanos(), "telemetry_interval_ms": options.telemetry_interval.as_millis(),
     });
+    let source = Source::new(include_str!("baseline_app.py"), "baseline_app.py")
+        .events([EventKind::Fetch])
+        .cell("Entity");
+    let source = if arguments.mode.contains("-initial") {
+        source.cell_initial_reads("Entity", EventKind::Fetch, ["count"])
+    } else {
+        source
+    };
     // SAFETY: this executable initializes once on its main thread, before any
     // node or foreign Python caller exists. The owned supervisor joins below.
     let report = unsafe {
-        PythonRuntime::run(
-            options,
-            Source::new(include_str!("baseline_app.py"), "baseline_app.py")
-                .events([EventKind::Fetch])
-                .cell("Entity"),
-            move |application, monitor| {
-                let observed = application.clone();
-                let observation: Observation = Arc::new(move || {
-                    json!({
-                        "kind":"python", "bridge":observed.bridge_report(), "interpreter":observed.interpreter_snapshot(), "limits":limits,
-                    })
-                });
-                let runtime = tokio::runtime::Builder::new_multi_thread()
-                    .worker_threads(4)
-                    .enable_all()
-                    .build()?;
-                let (outcome, report) =
-                    runtime.block_on(host::drive(&arguments, application, observation))?;
-                monitor.record_node(outcome);
-                std::fs::write(
-                    arguments.directory.join("native-complete.json"),
-                    serde_json::to_vec(&report)?,
-                )?;
-                Ok(())
-            },
-        )
+        PythonRuntime::run(options, source, move |application, monitor| {
+            let observed = application.clone();
+            let observation: Observation = Arc::new(move || {
+                json!({
+                    "kind":"python", "bridge":observed.bridge_report(), "interpreter":observed.interpreter_snapshot(), "limits":limits,
+                })
+            });
+            let runtime = tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(4)
+                .enable_all()
+                .build()?;
+            let (outcome, report) =
+                runtime.block_on(host::drive(&arguments, application, observation))?;
+            monitor.record_node(outcome);
+            std::fs::write(
+                arguments.directory.join("native-complete.json"),
+                serde_json::to_vec(&report)?,
+            )?;
+            Ok(())
+        })
     }?;
     ensure!(
         report.complete(),

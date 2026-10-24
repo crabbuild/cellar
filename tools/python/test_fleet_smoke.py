@@ -1,13 +1,89 @@
 """CPU-controlled fleet runs refuse missing or inconsistent resource evidence."""
 import json
+import hashlib
+import contextlib
+import io
 from pathlib import Path
+import sys
 import tempfile
 from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
-from fleet_smoke import LocalFleet
+from fleet_smoke import LocalFleet, validate_python_path
 from run import Harness
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'crates/cellar-python/python'))
+from cellar import Conflict, Request, Snapshot
+
+
+class CellPathTests(unittest.IsolatedAsyncioTestCase):
+    def application(self, mode):
+        source = Path(__file__).with_name('fleet_app.py')
+        namespace = dict(NODE='node1', LIMITS={}, PATH_MODE=mode)
+        # The embedding host owns the real ABI probe. These tests exercise the
+        # application with the actual SDK value types on the tooling interpreter.
+        with contextlib.redirect_stdout(io.StringIO()), \
+                patch.object(sys, '_is_gil_enabled', return_value=True, create=True):
+            exec(compile(source.read_text(), str(source), 'exec'), namespace)
+        return namespace['Entity']()
+
+    async def test_paths_produce_same_reads_and_checked_writes(self):
+        for present in [False, True]:
+            for method in ['GET', 'POST']:
+                outputs = []
+                for mode in ['bridge', 'direct-initial']:
+                    with self.subTest(present=present, method=method, mode=mode):
+                        state = {'writes': 7, 'payload': 'old'} if present else None
+                        snapshot = Snapshot(present, state)
+                        storage = SimpleNamespace(read_json=AsyncMock(return_value=snapshot), apply=AsyncMock())
+                        context = SimpleNamespace(storage=storage, initial_storage={'state': snapshot})
+                        response = await self.application(mode).fetch(
+                            Request('http://fixture/cells/a', method, b'new payload'), context)
+                        outputs.append((response.status, response.body, response.headers))
+                        self.assertNotIn('payload_sha256', json.loads(response.body))
+                        self.assertEqual(storage.read_json.await_count, int(mode == 'bridge'))
+                        if method == 'POST':
+                            storage.apply.assert_awaited_once_with(checks={'state': snapshot},
+                                puts={'state': {'writes': 8 if present else 1, 'payload': 'new payload'}})
+                        else:
+                            storage.apply.assert_not_awaited()
+                        self.assertEqual(snapshot.value, {'writes': 7, 'payload': 'old'} if present else None)
+                self.assertEqual(outputs[0], outputs[1])
+
+    async def test_snapshot_conflict_does_not_retry_or_return_success(self):
+        snapshot = Snapshot(True, {'writes': 4, 'payload': 'before'})
+        storage = SimpleNamespace(read_json=AsyncMock(), apply=AsyncMock(side_effect=Conflict('changed')))
+        context = SimpleNamespace(storage=storage, initial_storage={'state': snapshot})
+        with self.assertRaises(Conflict):
+            await self.application('direct-initial').fetch(
+                Request('http://fixture/cells/a', 'POST', b'after'), context)
+        storage.read_json.assert_not_awaited()
+        self.assertEqual(storage.apply.await_count, 1)
+        self.assertEqual(snapshot.value, {'writes': 4, 'payload': 'before'})
+
+    async def test_missing_declared_snapshot_refuses_without_live_read(self):
+        storage = SimpleNamespace(read_json=AsyncMock(), apply=AsyncMock())
+        with self.assertRaises(KeyError):
+            await self.application('direct-initial').fetch(Request('http://fixture/cells/a'),
+                SimpleNamespace(storage=storage, initial_storage={}))
+        storage.read_json.assert_not_awaited()
+        storage.apply.assert_not_awaited()
+
+    async def test_recovery_digest_reads_stored_bytes_without_writing(self):
+        for mode in ['bridge', 'direct-initial']:
+            for payload in ['', 'same size', 'other one', 'café ☕']:
+                with self.subTest(mode=mode, payload=payload):
+                    snapshot = Snapshot(True, {'writes': 4, 'payload': payload, 'payload_sha256': 'stale'})
+                    storage = SimpleNamespace(read_json=AsyncMock(return_value=snapshot), apply=AsyncMock())
+                    context = SimpleNamespace(storage=storage, initial_storage={'state': snapshot})
+                    response = await self.application(mode).fetch(
+                        Request('http://fixture/cells/a', headers=[('X-Cellar-Verify-Payload', 'sha256')]), context)
+                    value = json.loads(response.body)
+                    self.assertEqual(value['payload_sha256'], hashlib.sha256(payload.encode()).hexdigest())
+                    self.assertEqual(value['payload_bytes'], len(payload.encode()))
+                    self.assertEqual(value['writes'], 4)
+                    storage.apply.assert_not_awaited()
 
 
 class ResourceProofTests(unittest.TestCase):
@@ -70,6 +146,13 @@ class ResourceProofTests(unittest.TestCase):
 
 
 class MeasurementRecoveryTests(unittest.TestCase):
+    def test_missing_or_different_python_path_refuses_measurement(self):
+        for observed in ({}, {"path_mode": "bridge"}, {"path_mode": None}):
+            with self.subTest(observed=observed):
+                with self.assertRaisesRegex(RuntimeError, 'path differs'):
+                    validate_python_path(observed, 'direct-initial')
+        validate_python_path({"path_mode": "direct-initial"}, 'direct-initial')
+
     def test_reads_preserve_kill_disk_loss_and_acknowledged_recovery_checks(self):
         with tempfile.TemporaryDirectory() as root:
             args = SimpleNamespace(output=Path(root) / 'run', cells=2, warmup_seconds=5,

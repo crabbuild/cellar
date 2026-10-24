@@ -6,6 +6,19 @@ Each order is a durable Cellar cell with SQLite state, atomic creation receipts
 and checked status changes. Cellar owns the listener, routing and durability;
 Uvicorn and Docker are not required.
 
+The native host routes canonical `GET`, `POST` and `PATCH /orders/{order_id}`
+requests directly to the named order cell. FastAPI runs inside that cell, with
+the original request, validation and dependency injection. This removes the
+waiting Python gateway invocation for these routes. Other URLs, including
+percent-encoded IDs, retain the Python gateway. Cell activation happens before
+FastAPI body validation on the direct path, so an invalid body can activate a
+cell without writing an order. Admission and authorization policies must account
+for that ordering. This is an example-specific routing implementation; its
+performance benefit still requires measurement.
+Routing failures before Python starts use the same sanitized 503 error fields
+as the Python gateway. A lost response still leaves a mutation's outcome unknown;
+the native route never retries it automatically.
+
 ## Build the application and its dependencies
 
 Prerequisites: Rust 1.98.1 (the SDK CI toolchain), `uv`, and Python 3.11 or newer
@@ -30,7 +43,10 @@ The helper provisions CPython 3.14.5 inside the new prefix, downloads hash-locke
 wheels, installs them offline into `site/`, and builds the native host. It then
 captures runtime/source/native prerequisites, creates the environment archive
 and invokes `cellar build` with a `python_environment` project declaration.
-Existing prefixes are refused. The example uses the `dev` Cargo profile.
+Existing prefixes are refused. The helper defaults to the `dev` Cargo profile.
+Use `--profile release` for deployment or `--profile lab` for optimized
+measurements. The prerequisite capture host and final packaged host use the
+selected profile; the build-time `cellar` CLI remains in `debug/`.
 
 The package contains a manifest, executable and verified environment archive.
 Python source is embedded in the executable. No package installer runs on a
@@ -77,6 +93,14 @@ restart. Reusing the ID for a different order refuses. Preserve receipts for the
 full business reconciliation window. SDK failures expose conservative outcomes;
 the example never automatically retries an ambiguous mutation.
 
+The compiled host supplies each order invocation with an initial `order`
+snapshot, declared in both `main.rs` and the package descriptor. Reads use this
+snapshot without another Python-to-host storage call. Writes use the same
+snapshot as a checked-batch precondition, so an intervening writer produces a
+409 rather than overwriting newer state. The snapshot is captured before the
+cell handler runs and does not refresh after an await. FastAPI routing,
+validation and dependency injection still run for every public request.
+
 ## Test a fresh package installation locally
 
 Stop the dev host first. The following drill temporarily moves the original
@@ -109,6 +133,20 @@ PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$CELLAR_FASTAPI_ROOT/env-v1/site" \
 ```
 
 Use `3.14.5t` in the interpreter lookup for a free-threaded package.
+
+The compiled routing regression uses a fresh private project with its order
+binding deliberately removed. It checks equivalent sanitized failures for
+native routes and the Python gateway, operation counts proving no replay, and
+complete shutdown. It leaves the original project and deployment unchanged:
+
+```sh
+python3 -B examples/python-fastapi/test_ingress.py \
+  --cellar "$CARGO_TARGET_DIR/debug/cellar" \
+  --project "$CELLAR_FASTAPI_ROOT/env-v1/project.json" \
+  --output "$CELLAR_FASTAPI_ROOT/ingress-failure"
+```
+
+Add `--expect-free-threaded` for a `3.14.5t` project.
 
 ## Publish and install on fleet nodes
 
@@ -157,22 +195,16 @@ new executable; the live interpreter is never hot-reloaded.
 ## Measure read/write throughput and latency
 
 Use an optimized host and write generated results outside the source tree.
-With the environment above already packaged, prepare a `lab` profile project:
+Package a fresh environment with the `lab` profile so native dependency capture
+and the deployed executable use the same compilation settings:
 
 ```sh
-python3 - <<'PY'
-import json, os
-from pathlib import Path
-root = Path(os.environ["CELLAR_FASTAPI_ROOT"])
-project = json.loads((root / "env-v1/project.json").read_text())
-project["profile"] = "lab"
-(root / "perf-project.json").write_text(json.dumps(project, indent=2) + "\n")
-PY
-"$CARGO_TARGET_DIR/debug/cellar" build "$CELLAR_FASTAPI_ROOT/perf-project.json" \
+python3 examples/python-fastapi/package.py --profile lab \
+  --prefix "$CELLAR_FASTAPI_ROOT/perf-environment" \
   --output "$CELLAR_FASTAPI_ROOT/perf-package"
 python3 -B examples/python-fastapi/perf.py \
   --cellar "$CARGO_TARGET_DIR/debug/cellar" \
-  --project "$CELLAR_FASTAPI_ROOT/perf-project.json" \
+  --project "$CELLAR_FASTAPI_ROOT/perf-environment/project.json" \
   --output "$CELLAR_FASTAPI_ROOT/perf-results" \
   --concurrency 1 8 32 --repetitions 2 --read-seconds 8 --writes 512
 ```
@@ -216,7 +248,7 @@ python3 -B tools/python/test_offered.py "$CARGO_TARGET_DIR/lab/examples/python-o
 python3 -B examples/python-fastapi/offered_perf.py \
   --client "$CARGO_TARGET_DIR/lab/examples/python-offered-load" --client-profile lab \
   --cellar "$CARGO_TARGET_DIR/debug/cellar" \
-  --project "gil=$CELLAR_FASTAPI_ROOT/perf-project.json" \
+  --project "gil=$CELLAR_FASTAPI_ROOT/perf-environment/project.json" \
   --output "$CELLAR_FASTAPI_ROOT/offered-results" \
   --rates 1000 4000 8000 --duration-ms 5000 --repetitions 2
 ```
@@ -228,6 +260,15 @@ between repetitions; each host uses fresh private storage. Preparation sends
 measurement rotates these 32 read paths, validating exact response bytes and
 EOF. Host executable, inventory, source and client identities are retained;
 runtime/GIL checks and complete combined shutdown are required.
+
+On Linux, add `--host-cpus 0,1 --client-cpus 2,3` to assign disjoint logical
+CPU pools, choosing CPUs available in `os.sched_getaffinity(0)`. Both options
+must be supplied together. The harness applies the host mask before the CLI
+starts, verifies that its native child and threads inherit it, and checks
+native threads before and after each measured phase. Client launch masks and
+host observations are retained with the raw results. Affinity restricts
+eligible CPUs; it does not reserve exclusive cores or isolate shared memory
+and storage. Omitting both options keeps the caller's placement on any platform.
 
 Read `report.md` together with the raw JSON. Every planned arrival is retained,
 including client lateness/capacity drops, timeouts, HTTP failures and corrupt
@@ -241,10 +282,11 @@ not qualify write capacity, long-running resource stability or fleet recovery.
 
 ### Size ingress for nested calls
 
-An order request occupies a Python invocation slot while awaiting its cell,
+Canonical order requests use one Python invocation inside the cell. Requests
+that fall back to the Python gateway occupy a slot while awaiting their cell,
 which needs another slot in the same interpreter. The default 128-slot Python
-budget covers both, plus alarms, queues and other Python invocations. A waiting
-parent keeps its slot. The CLI leaves native stateless admission unbounded when
+budget covers these calls, plus alarms, queues and other Python invocations.
+A waiting parent keeps its slot. The CLI leaves native stateless admission unbounded when
 `CELLAR_MAX_REQUESTS` is unset; the embedded library's default is 64 per script
 pool. Configure the CLI explicitly when qualifying a deployment.
 
@@ -256,7 +298,7 @@ CELLAR_MAX_REQUESTS=64 CELLAR_ADMISSION_WAIT_MS=10 \
 python3 -B examples/python-fastapi/offered_perf.py \
   --client "$CARGO_TARGET_DIR/lab/examples/python-offered-load" --client-profile lab \
   --cellar "$CARGO_TARGET_DIR/debug/cellar" \
-  --project "gil=$CELLAR_FASTAPI_ROOT/perf-project.json" \
+  --project "gil=$CELLAR_FASTAPI_ROOT/perf-environment/project.json" \
   --output "$CELLAR_FASTAPI_ROOT/offered-bounded-results" \
   --rates 1000 4000 8000 --duration-ms 5000 --repetitions 2
 ```
@@ -279,8 +321,9 @@ have committed before a child was refused, so its mutation outcome remains
 [ASGI HTTP protocol](https://asgi.readthedocs.io/en/stable/specs/www.html), which
 [FastAPI implements](https://fastapi.tiangolo.com/advanced/middleware/). It passes
 the original Cellar context in request-local ASGI state; an async dependency
-retrieves it. Async routes call named Cellar cells rather than opening SQLite
-connections themselves. SDK operations still execute in the original Rust turn.
+retrieves it. On the direct path, async routes use the current order cell's
+context after checking its identity; gateway routes call the named cell.
+SDK operations still execute in the original Rust turn.
 
 Responses are fully buffered up to 1 MiB, with at most 128 headers/32 KiB of
 header data. Native bridge limits also apply. Binary bodies, repeated headers,
