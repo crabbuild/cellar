@@ -6,6 +6,7 @@ from counter_pb2 import Count, GetCountRequest, GetCountResponse, IncrementReque
 from counter_cellar import CounterClient, CounterRegistration
 import live
 import deadline
+import cycles
 
 constructed = 0
 retained = None
@@ -49,6 +50,7 @@ class PythonCounter:
             await live.sync(ctx, request.operation_id)
             if not request.operation_id.startswith("proof-no-sync-"):
                 await ctx.storage.sync()
+            await cycles.after_commit(ctx, request.operation_id)
             if request.operation_id == "invalid-reply":
                 # Intentionally wrong after commit. Retry must use its receipt.
                 return GetCountResponse(count=Count(value=value))
@@ -66,6 +68,8 @@ async def fetch(request, ctx):
     global retained
     url = urlsplit(request.url)
     query = dict(parse_qsl(url.query))
+    if url.path.endswith("/cycle-control"):
+        return Response.json(cycles.control(query["action"]))
     if url.path.endswith("/cancel-release"):
         cancel_releases[query["name"]][query.get("phase", "cancel")].set()
         return Response.json({"released": True})

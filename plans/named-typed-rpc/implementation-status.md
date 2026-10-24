@@ -15,7 +15,7 @@ does not close schema, resource, packaging or performance requirements.
 
 | Priority | Remaining gap | Deliverable / completion evidence |
 | --- | --- | --- |
-| P0 — next | Dependency cycles, failure provenance and remaining lifecycle boundaries | Delivered: whole-call budgets, 55 deadline cases and 128 local/peer proof-wait signal/deadline cases. Next: self/A-to-B-to-A cleanup, parent-write/child-refusal provenance, forged refusal metadata and broader lifecycle/resource failures. One unreproduced Node watchdog failure remains documented below. |
+| P0 — next | Failure provenance and remaining lifecycle boundaries | Delivered: whole-call budgets, 55 deadline cases, 128 proof-wait cases and 80 self/A-to-B-to-A cycle cases. Next: parent-write/child-refusal provenance, forged refusal metadata and broader lifecycle/resource failures. Preserve the delivered matrices. One unreproduced Node watchdog failure remains documented below. |
 | P0 | Resource bounds and parser correctness | Audit effective method/runtime/host/peer minima, retained binary copies and decoder allocations; reject malformed descriptors before generation; demonstrate bounded queues, reservations and memory under saturation, flood and disconnect. |
 | P1 | Language/profile coverage | Exercise the portable Protobuf profile as real business calls across all local/remote pairs; qualify supported Python interpreter modes and remaining lifecycle/regression boundaries. |
 | P1 | Reproducible application delivery | Deliver `cellar rpc generate/check`, static binding and frozen package inventories, embedded Python source identity, a published typed-RPC example and clean-machine CI. |
@@ -31,7 +31,7 @@ Counter fixture alone is not the highest-priority deliverable now.
 | Package | State | Authoritative evidence / next action |
 | --- | --- | --- |
 | RPC-01: Contracts/toolchain | In progress | Counter and portable-profile outputs reproduce byte-for-byte in all four authoring modes; generated APIs pass TS/Python static checks; full schema/conformance qualification remains |
-| RPC-02: Native typed path | In progress | Native RPC/transport, generated-profile/vector and restart tests pass; codec limits precede allocation; 55 deadline and 128 proof-wait cases cover all caller/provider pairs, signals/deadlines, local/peer routes and output/sync waits; cycles, provenance and broader lifecycle/resource qualification remain |
+| RPC-02: Native typed path | In progress | Native RPC/transport, generated-profile/vector and restart tests pass; codec limits precede allocation; 55 deadline, 128 proof-wait and 80 dependency-cycle cases cover caller/provider pairs, signals/deadlines, local/peer routes and bounded cleanup; provenance and broader lifecycle/resource qualification remain |
 | RPC-03: Binary bridges | In progress | Shared `cell.call`, Python raw bytes, owned V8 attachments and binary Node framing implemented; runtime attachment/cleanup tests pass; aggregate copy accounting and full cancellation/flood qualification remain |
 | RPC-04: JS/TS services | In progress | Generated clients/handlers, binary dispatch and live descriptor checks work in V8/Node; real startup refuses stale codecs; typed AbortSignal options and native-owned whole-call codec budgets work with bounded cleanup; full schema/resource/deadline qualification remains |
 | RPC-05: Python services | In progress | Generated async APIs, live codec checks and dispatch work with receipts/restart; stale providers/clients are refused; task cancellation reaches native/peer calls and joins cleanup; native-owned budgets cover validation, encoding, transport and decoding; packaging and free-threaded qualification remain |
@@ -50,7 +50,7 @@ Counter fixture alone is not the highest-priority deliverable now.
 | Bounded request/response codec and binary bridge accounting | Native wire checks and raw attachments implemented; exact retained-copy accounting and saturation qualification remain |
 | Input graph depth/element preflight before allocating language encoders | Rust generated visitors and iterative owned cleanup, Python graph/map checks and JS descriptor-driven type/graph/exact-size preflight tested; broader codec and decoder-allocation qualification remains |
 | Decoder layout/default-field allocation and effective limit plumbing | Shared decoded-slot estimate implemented in native wire and Rust/JS/Python encoders; default map layouts, fixed control budgets and native/guest catalog plumbing tested; exact allocation/RSS, saturation and method/runtime/host/peer minimum audit remain |
-| Invocation authority, cancellation, deadlines and nested-call provenance | Owner fencing and retained-client refusal cover all 16 pairs; 55 deadline cases cover guest nesting/codec costs; 128 proof-wait cases cover signal/deadline × local/peer × output/sync × all 16 pairs with fresh admission and original-authority checks; broader cycles/lifecycle/provenance qualification remains |
+| Invocation authority, cancellation, deadlines and nested-call provenance | Owner fencing and retained-client refusal cover all 16 pairs; 55 deadline cases cover guest nesting/codec costs; 128 proof-wait cases cover signal/deadline × local/peer × output/sync × all 16 pairs with fresh admission and original-authority checks; 80 self/A-to-B-to-A cases cover bounded cycle cleanup; broader lifecycle/provenance qualification remains |
 | Pre-factory contract validation and trusted refusal provenance | Native/Python cold-constructor tests pass through the host catalog; custom wrappers without a forwarded catalog remain conservative; peer/admission provenance remains |
 | `cellar rpc check`, pinned Buf workflow and static binding inventory validation | Pending |
 | Registered-method spans, bounded metric labels and payload-free diagnostics | Pending |
@@ -70,6 +70,57 @@ pairs. Preserve the full test matrix, failures and remaining work across turns.
 
 ## Current evidence
 
+- With the corrected crash observer, the normal-stack executable passes all
+  nine suites and publishes `.cellar/rpc/cycles-full-matrix.json` only after
+  native nodes and guest runtimes drain: 16 local pairs, 16 remote/handoff pairs,
+  55 deadline cases, 17 cancellations, 80 cycles, 128 proof waits, 32 recovery
+  cases, 48 observed process kills and 64 proof/fencing cases. All 80 report
+  combinations are unique; native retirement/revocation and fresh A/B counts
+  are verified. Full-qualification flags remain false. T06 provenance is next,
+  with broader lifecycle, resources, interpreter and delivery gates still open.
+  Format/layout check 982 Rust files, docs check 735 local references and the
+  native graph stays engine-free at 465 packages. All 25 qualifier unit tests,
+  63 SDK tests, 32 Python codec/cancellation tests, strict TS checks and affected
+  all-target Clippy pass. The unrelated prior watchdog failure does not recur;
+  its cause remains unestablished.
+- The first nine-suite attempt passes local/remote calls, 55 deadline cases,
+  17 cancellations, all 80 strengthened cycle cases, all 128 proof-wait cases
+  and all 32 recovery cases. It then fails the first crash case at the owned
+  process-group observation with `EPERM`. No success report is published.
+- A minimized real-child probe returns `EPERM` for all 25 exited/unreaped groups;
+  100 already-reaped groups return `ESRCH`. The new native regression fails
+  against the original observer and passes after the correction. Group cleanup
+  now keeps permission denial unproven within the same five-second bound and
+  succeeds only when both owned groups report `ESRCH`. Live/unreaped children
+  cannot pass cleanup, and broadcast/current-group selectors are rejected.
+  Apple’s [signal implementation](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/kern/kern_sig.c)
+  is consistent with the observed zombie-group result. The original failing
+  run did not retain which group was involved; the deterministic probe establishes
+  the observer bug without claiming a surviving worker was present in that run.
+- All 25 qualifier unit tests pass with the crash-observer correction, alongside
+  all-target Clippy for the qualifier and the JavaScript/Python/shared guest
+  crates. The real SIGKILL status, both group-absence checks and five-second
+  bound remain required; no permission error counts as proof of process exit.
+- The named `cycles` matrix passes all 80 cases, both in its dedicated run
+  and as a stage of the combined run: four self-call providers and all 16
+  A-to-B-to-A provider pairs, local/split signed-peer placement and explicit
+  signal/original deadline. The strengthened combined stage checks distinct
+  invocation authority even when outer and inner share a cell, inherited native
+  budgets, exact entered-frame inventories and stable owner/scope/epoch.
+- Each cycle frame syncs its atomic Counter receipt before awaiting its child.
+  The native caller joins cancellation/deadline with unknown effects, then stays
+  live through the cleanup audit. Every native frame retires and its captured
+  budget independently refuses authority; original Python/V8/Node continuations
+  refuse late storage/read/RPC work. Both A and B admit fresh mutations, counts
+  preserve the earlier commits, and exact native entry counts reject automatic
+  mutation replay. Python intentionally suppresses cancellation until an explicit
+  supervisor release. No guest task is detached; JS keeps one pending SDK slot.
+  GIL CPython is covered; broader T14/T17 and interpreter/resource gates remain.
+- The cycle slice passes 63 SDK tests, 32 Python codec/client/cancellation tests,
+  23 qualifier unit tests, strict TS API checks and all-target Clippy for the
+  qualifier, JavaScript, Python and shared guest crates with warnings denied.
+  Existing vendored Raft warnings are unchanged. The executable is not rebuilt
+  while its combined suite or disposable crash-owner processes are running.
 - The combined normal-stack executable passes all eight suites and publishes
   `.cellar/rpc/proof-wait-full-matrix.json` only after native nodes and all guest
   runtimes drain: 16 local pairs, 16 remote/handoff pairs, 55 deadline cases,
@@ -817,13 +868,13 @@ The implementation PR is a draft until the remaining correctness and delivery
 boundaries are qualified. Deliver the following slices in order; each slice
 must preserve the existing recovery, crash, proof and receipt evidence.
 
-1. **P0: close dependency-cycle, lifecycle and provenance gaps.** Preserve the
-   128 proof-wait cases and exercise self-calls/A-to-B-to-A with bounded cleanup.
+1. **P0: close failure-provenance and remaining lifecycle gaps.** Preserve the
+   80 self/A-to-B-to-A cleanup cases and 128 proof-wait cases. Prioritize a parent
+   that writes before a child is refused, plus forged refusal metadata (T06).
    Qualify remaining lifecycle waits, forced guest peer retries and broader
    nested-provider paths. If the unexplained Node watchdog failure recurs, use
    its observer/heartbeat/input diagnostics to establish the actual cause before
-   changing policy. Test a parent that writes before a child is refused and
-   attempts to forge refusal metadata. Trusted pre-admission refusal may establish
+   changing policy. Trusted pre-admission refusal may establish
    `not_committed` for that call; it cannot reclassify the parent's earlier
    writes. A lost response remains unknown. Preserve the 55 deadline cases;
    remaining T14/T17 boundaries and all supported interpreter modes stay open.

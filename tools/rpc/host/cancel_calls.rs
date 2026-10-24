@@ -67,7 +67,7 @@ impl Calls {
     pub async fn increment(
         self: &Arc<Self>,
         context: &Context,
-        binding: &str,
+        cell: (&str, &str),
         id: &str,
         delta: i64,
         deadline: bool,
@@ -85,7 +85,7 @@ impl Calls {
             calls: self.clone(),
             name: id.into(),
         };
-        let counter = CounterClient::bind(context, binding, "alice")?;
+        let counter = CounterClient::bind(context, cell.0, cell.1)?;
         let failure = counter
             .increment_with_options(
                 IncrementRequest {

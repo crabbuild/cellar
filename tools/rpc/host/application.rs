@@ -170,11 +170,16 @@ struct ObservedCell {
     audit: Arc<Audit>,
     crash: Arc<super::crash::Gate>,
     contract: Arc<rpc::Contract>,
+    cycles: Arc<super::cycles::Tracker>,
 }
 
 impl Cell for ObservedCell {
     fn invoke(self: Arc<Self>, context: Context, invocation: Invocation) -> HandlerFuture<Output> {
         Box::pin(async move {
+            let cycle = self.cycles.enter(&context, &invocation)?;
+            if cycle.as_ref().is_some_and(|frame| frame.gate) {
+                std::future::pending::<()>().await;
+            }
             let returned_method = match &invocation {
                 Invocation::CellRpc { method, .. } => Some(method.clone()),
                 _ => None,
@@ -211,6 +216,9 @@ impl Cell for ObservedCell {
                 invocation.as_mut().poll(cx)
             })
             .await?;
+            if let Some(frame) = cycle.as_ref().filter(|frame| frame.native) {
+                frame.wait_native(&context).await?;
+            }
             if let Some(method) = returned_method {
                 self.audit
                     .returned(&context, &method, &output, &self.contract)?;
@@ -237,6 +245,7 @@ pub struct Composite {
     pub(super) durability: super::proof::Controls,
     live: Arc<super::proof::Live>,
     cancel_calls: Arc<super::cancel_calls::Calls>,
+    pub(super) cycles: Arc<super::cycles::Tracker>,
     catalog: rpc::Catalog,
     providers: BTreeMap<String, Arc<dyn Application>>,
     callers: BTreeMap<String, Arc<dyn Application>>,
@@ -270,6 +279,7 @@ impl Composite {
             durability: Default::default(),
             live,
             cancel_calls: Default::default(),
+            cycles: Default::default(),
             catalog,
             providers,
             callers,
@@ -317,6 +327,7 @@ impl Application for Composite {
             audit: self.audit.clone(),
             crash: self.crash.clone(),
             contract: self.contract.clone(),
+            cycles: self.cycles.clone(),
         }))
     }
 
@@ -419,7 +430,10 @@ impl Application for Composite {
                 self.cancel_calls
                     .increment(
                         &context,
-                        binding,
+                        (
+                            binding,
+                            query.get("cell").map(String::as_str).unwrap_or("alice"),
+                        ),
                         query.get("id").context("missing proof operation ID")?,
                         query.get("delta").context("missing proof delta")?.parse()?,
                         query
@@ -446,7 +460,11 @@ impl Application for Composite {
                 );
                 serde_json::json!({"refused":true})
             } else {
-                let counter = super::generated::CounterClient::bind(&context, binding, "alice")?;
+                let counter = super::generated::CounterClient::bind(
+                    &context,
+                    binding,
+                    query.get("cell").map(String::as_str).unwrap_or("alice"),
+                )?;
                 if url.path().ends_with("/read") {
                     serde_json::json!({"value":counter.get_count(super::generated::GetCountRequest {}).await?.count.context("missing count")?.value.to_string()})
                 } else {

@@ -94,39 +94,73 @@ impl Owner {
             status.signal() == Some(libc::SIGKILL),
             "owner did not terminate with SIGKILL: {status}"
         );
-        tokio::time::timeout(Duration::from_secs(5), async {
-            loop {
-                // SAFETY: group is a positive PID returned for our child, which
-                // starts a new process group. Signal 0 only observes existence.
-                let mut alive = false;
-                for group in [
-                    self.group,
-                    self.worker.context("Node worker PID was not observed")?,
-                ] {
-                    // SAFETY: these are the independently created groups of our
-                    // owner and its observed Node worker; signal 0 is read-only.
-                    let exists = unsafe { libc::kill(-group, 0) };
-                    if exists == 0 {
-                        alive = true;
-                        continue;
-                    }
-                    let error = std::io::Error::last_os_error();
-                    if error.raw_os_error() != Some(libc::ESRCH) {
-                        return Err(error).context("observe owned crash process group after kill");
-                    }
-                }
-                if !alive {
-                    return Ok::<_, anyhow::Error>(());
-                }
-                tokio::time::sleep(Duration::from_millis(10)).await;
-            }
-        })
-        .await
-        .context("owner's Node worker survived host process loss")??;
+        wait_groups_gone(&[
+            ("owner", self.group),
+            (
+                "node",
+                self.worker.context("Node worker PID was not observed")?,
+            ),
+        ])
+        .await?;
         self.owned = false;
         Ok(())
     }
 }
+
+/// Success requires every owned process group to report ESRCH. This helper
+/// never sends a signal and never treats permission denial as proof of exit.
+async fn wait_groups_gone(groups: &[(&str, libc::pid_t)]) -> Result<()> {
+    ensure!(
+        !groups.is_empty() && groups.len() <= 2 && groups.iter().all(|(_, group)| *group > 1),
+        "invalid owned process groups"
+    );
+    let mut last = Vec::with_capacity(groups.len());
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            last.clear();
+            let mut alive = false;
+            for (role, group) in groups {
+                // SAFETY: these positive group IDs come from our independently
+                // created child processes. Signal 0 only observes existence.
+                let exists = unsafe { libc::kill(-*group, 0) };
+                if exists == 0 {
+                    last.push((*role, *group, "present"));
+                    alive = true;
+                    continue;
+                }
+                let error = std::io::Error::last_os_error();
+                match error.raw_os_error() {
+                    Some(libc::ESRCH) => last.push((*role, *group, "gone")),
+                    Some(libc::EPERM) => {
+                        // Darwin can retain a group with only zombie members
+                        // while excluding them from its signal-permission
+                        // check. Exit remains unproven until ESRCH; persistent
+                        // denial still fails at the original five-second bound.
+                        last.push((*role, *group, "permission_denied"));
+                        alive = true;
+                    }
+                    _ => {
+                        return Err(error).with_context(|| {
+                            format!("observe owned {role} process group {group} after kill")
+                        })
+                    }
+                }
+            }
+            if !alive {
+                return Ok::<_, anyhow::Error>(());
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .with_context(|| {
+        format!("owned process groups did not disappear after host process loss: {last:?}")
+    })?
+}
+
+#[cfg(test)]
+#[path = "process_tests.rs"]
+mod tests;
 
 impl Drop for Owner {
     fn drop(&mut self) {

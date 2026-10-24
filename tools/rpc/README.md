@@ -316,7 +316,7 @@ same owner, scope and epoch.
 
 Reports are published only after every native node drains and every language
 runtime joins. `--suite local` is the default; `--suite all` writes separate
-`local`, `remote`, `deadline`, `cancellation`, `proof_wait`, `recovery`, `crash`
+`local`, `remote`, `deadline`, `cancellation`, `cycles`, `proof_wait`, `recovery`, `crash`
 and `proof` evidence objects. `remote_matrix_verified` and
 `remote_matrix_after_handoff_verified` record these measured boundaries. Full
 fleet qualification remains false: further interpreter modes, resource limits
@@ -588,13 +588,63 @@ Python deadline failures retain `DeadlineExceeded/unknown`. Proof is opened only
 after cleanup checks. Two explicit same-ID retries must recover the saved result
 without another increment. Cancellation does not undo the already committed
 SQLite write. All native nodes and guest runtimes drain before report publication.
-T15 cycles, broader lifecycle failures, interpreter modes and resource saturation
-remain separate gates.
+T15 cycles have a separate matrix below. Broader lifecycle failures, interpreter
+modes and resource saturation remain separate gates.
 
 Node watchdog failures include heartbeat age, the Rust observer's loop gap,
 non-consuming input readiness and active invocation/object counts. These bounded
 diagnostics help distinguish worker silence from delayed host observation while
 preserving the configured watchdog deadline.
+
+## Named dependency cycles
+
+```sh
+cargo run --locked -p cellar-rpc-qualification --features full -- \
+  --suite cycles --report .cellar/rpc/cycle-matrix.json
+```
+
+The T15 matrix contains **80 cases**. All calls use generated Counter methods,
+the production native RPC path and real SQLite cells. No mock transport or
+JavaScript timer supplies the cancellation result.
+
+| Axis | Values |
+| --- | --- |
+| Cell dependency | Self-call in each of four providers; A → B → A for all 16 provider pairs |
+| Placement | One native node; or signed peers with A and B on different owners |
+| Trigger | Signal after every frame enters; or the original one-second deadline |
+
+```text
+source invocation remains live throughout cleanup
+      |
+      +--> A.outer --+--> A.inner ----------> native gate (held)
+                    |    same cell
+                    |
+                    +--> B.middle --> A.inner --> native gate (held)
+                         other cell   original A owner/scope/epoch
+
+each business frame saves an atomic count + receipt, then awaits its child
+      |
+signal / deadline -> native frames retire and lose authority
+      |
+resume original guest continuations -> late storage/read/RPC refused
+      |
+same-cell fresh reads + mutation admitted; committed counts preserved
+      |
+source performs another fresh RPC -> nodes and runtimes join -> publish
+```
+
+Native observations establish actual execution nodes, scopes, epochs and
+captured authority. A control callback failing a foreign-context check alone
+cannot establish revocation. Python deliberately retains cancelled frames until
+the supervisor releases them; V8 and Node retain their original continuations.
+JS still has one pending SDK operation slot. Each case checks the exact entered
+frame inventory, no automatic mutation replay, and fresh admission to the same
+named cells. Counts written before cancellation remain visible; failures are
+`Cancelled/unknown` or `DeadlineExceeded/unknown`.
+
+This qualifies the described Counter dependency waits with GIL CPython. It does
+not establish arbitrary CPU interruption, all Python modes, resource saturation
+or every T14/T17 lifecycle boundary. Full-qualification flags remain false.
 
 ## Abrupt owner process loss
 
@@ -627,6 +677,11 @@ after_count_before_receipt (all 16 caller/provider pairs)
        -> SIGKILL owner -> recover count 0 -> explicit same-ID retry
        -> one mutation + receipt
 ```
+
+Crash cleanup requires both the owner's and Node worker's process groups to
+report `ESRCH`. A permission denial remains unproven until the same five-second
+bound; it never counts as exit. Real-child regression tests hold a live group,
+then an exited/unreaped group, and require reaping before cleanup succeeds.
 
 The native barrier records the actual class, scope, owner epoch, observed count
 and receipt before the kill. The second boundary also validates the held typed
