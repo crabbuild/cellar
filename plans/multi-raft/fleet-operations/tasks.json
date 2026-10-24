@@ -325,7 +325,11 @@
         "crates/cellar/durability/raft/storage.rs",
         "crates/cellar/durability/raft/member_fleet_tests.rs",
         "crates/cellar/application/consensus/client_fleet.rs",
-        "crates/cellar/tests/native_raft_fleet_catalog.rs"
+        "crates/cellar/tests/native_raft_fleet_catalog.rs",
+        "crates/cellar/durability/raft/fleet_catalog/index.rs",
+        "crates/cellar/tests/native_raft_host.rs",
+        "crates/cellar/tests/native_raft_archive.rs",
+        "crates/cellar/tests/native_raft_directory.rs"
       ],
       "creates": [
         "crates/cellar/tests/native_raft_fleet_enrollment.rs",
@@ -348,7 +352,12 @@
         "crates/cellar/tests/support/raft_birth_admission.rs",
         "crates/cellar/durability/raft/host_initial.rs",
         "crates/cellar/durability/raft/storage_genesis_tests.rs",
-        "crates/cellar/tests/support/raft_initial_native.rs"
+        "crates/cellar/tests/support/raft_initial_native.rs",
+        "crates/cellar/durability/raft/coordination_index.rs",
+        "crates/cellar/durability/raft/catalog_inventory/mod.rs",
+        "crates/cellar/durability/raft/catalog_inventory/wire.rs",
+        "crates/cellar/durability/raft/catalog_inventory/README.md",
+        "crates/cellar/tests/support/raft_birth_inventory.rs"
       ],
       "steps": [
         "Add CAS-authorized node-set revisions with bounded route and permission refresh.",
@@ -356,7 +365,8 @@
         "Enroll all births and initial placements before activation; block incomplete imports and retired-slot reuse.",
         "Fence cancelled births using conditional tombstones at the existing per-cell-name birth key; preserve the name and incarnation permanently in v1.",
         "Support an empty managed host and node-level readiness without eager per-history registration; separate placement/leadership exclusion from evacuation.",
-        "Confirm permanent namespace group-identity claims before birth admission; atomically index group identity and cell name, retain harmless pre-admission claims after cancellation and refuse earlier fleet-root protocols."
+        "Confirm permanent namespace group-identity claims before birth admission; atomically index group identity and cell name, retain harmless pre-admission claims after cancellation and refuse earlier fleet-root protocols.",
+        "Maintain an authoritative bounded namespace birth-intent inventory before publication; freeze admissions by root CAS and reconcile every pending decision. Frozen birth inventory alone does not certify complete import, membership quiescence or removal."
       ],
       "acceptance": [
         "Inventory includes pending births and all managed namespaces.",
@@ -814,6 +824,76 @@
             "F01",
             "F04",
             "F05"
+          ]
+        },
+        {
+          "name": "namespace_birth_inventory_freeze_pending",
+          "oracle": "A held birth is in the frozen admission set; new names and mismatched-incarnation cancellation refuse while the admitted canonical writer can finish. Frozen operation retries preserve the same root and never list.",
+          "invariants": [
+            "F01",
+            "F04",
+            "F05",
+            "F07"
+          ]
+        },
+        {
+          "name": "namespace_birth_inventory_freeze_wins_admission",
+          "oracle": "Freeze wins the CAS before a held admission: the late admission cannot create a birth, even though harmless identity/pages were prepared.",
+          "invariants": [
+            "F01",
+            "F04",
+            "F05",
+            "F07"
+          ]
+        },
+        {
+          "name": "namespace_birth_inventory_pending_cancel_fence",
+          "oracle": "A pending intent enumerated from the frozen set can be conditionally cancelled; its delayed writer cannot overwrite the exact tombstone or change the frozen inventory.",
+          "invariants": [
+            "F01",
+            "F04",
+            "F05",
+            "F07"
+          ]
+        },
+        {
+          "name": "namespace_birth_inventory_lost_freeze_reply",
+          "oracle": "A lost post-CAS confirmation remains ambiguous; a fresh adapter resumes the exact frozen operation without another mutation.",
+          "invariants": [
+            "F01",
+            "F04",
+            "F05",
+            "F07"
+          ]
+        },
+        {
+          "name": "namespace_birth_inventory_missing_state",
+          "oracle": "Missing head, pin, both, intent, index page or an occupied namespace root refuses new authority and cannot be repaired by silently recreating an empty inventory.",
+          "invariants": [
+            "F01",
+            "F04",
+            "F05",
+            "F07"
+          ]
+        },
+        {
+          "name": "namespace_birth_inventory_paging_and_bounds",
+          "oracle": "A 140-birth frozen set streams under 1-KiB logical record limits and bounded 64-KiB index pages, with strict page/cursor bounds and no listing or omitted/duplicate entries.",
+          "invariants": [
+            "F01",
+            "F04",
+            "F05",
+            "F07"
+          ]
+        },
+        {
+          "name": "namespace_birth_inventory_untracked_decision",
+          "oracle": "Validly framed bucket birth/identity objects outside the authoritative frozen inventory cannot mint GroupBirth authority or appear as enrolled histories.",
+          "invariants": [
+            "F01",
+            "F04",
+            "F05",
+            "F07"
           ]
         }
       ],

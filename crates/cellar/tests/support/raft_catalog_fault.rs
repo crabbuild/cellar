@@ -66,6 +66,16 @@ pub struct Store {
     pub payload_resume: tokio::sync::Notify,
     pub held_payload_path: std::sync::Mutex<Option<Path>>,
     pub non_create: AtomicUsize,
+    pub birth_inventory_cas: AtomicUsize,
+    pub hold_next_birth_inventory_cas: AtomicBool,
+    pub birth_inventory_cas_hang: AtomicBool,
+    pub birth_inventory_cas_waiting: AtomicBool,
+    pub birth_inventory_cas_resume: tokio::sync::Notify,
+    pub fail_birth_inventory_after: AtomicBool,
+    pub fail_birth_inventory_confirmation: AtomicBool,
+    pub fail_birth_inventory_read: AtomicBool,
+    pub reject_listing: AtomicBool,
+    pub listing_calls: AtomicUsize,
     pub hold_next_view: AtomicBool,
     pub view_hang: AtomicBool,
     pub view_waiting: AtomicBool,
@@ -194,6 +204,28 @@ impl ObjectStore for Store {
         if !matches!(options.mode, PutMode::Create) {
             self.non_create.fetch_add(1, Ordering::AcqRel);
         }
+        let inventory_cas =
+            path.as_ref().ends_with("/births/head") && matches!(options.mode, PutMode::Update(_));
+        if inventory_cas {
+            self.birth_inventory_cas.fetch_add(1, Ordering::AcqRel);
+            if self
+                .hold_next_birth_inventory_cas
+                .swap(false, Ordering::AcqRel)
+            {
+                self.birth_inventory_cas_waiting
+                    .store(true, Ordering::Release);
+                let _waiting = BirthWaiting(&self.birth_inventory_cas_waiting);
+                loop {
+                    let resumed = self.birth_inventory_cas_resume.notified();
+                    tokio::pin!(resumed);
+                    resumed.as_mut().enable();
+                    if !self.birth_inventory_cas_hang.load(Ordering::Acquire) {
+                        break;
+                    }
+                    resumed.await;
+                }
+            }
+        }
         if self.fail_before.swap(false, Ordering::AcqRel) {
             return Err(failure());
         }
@@ -221,6 +253,22 @@ impl ObjectStore for Store {
             }
         }
         let result = self.inner.put_opts(path, payload, options).await?;
+        if inventory_cas
+            && self
+                .fail_birth_inventory_confirmation
+                .swap(false, Ordering::AcqRel)
+        {
+            self.fail_birth_inventory_read
+                .store(true, Ordering::Release);
+            return Err(failure());
+        }
+        if inventory_cas
+            && self
+                .fail_birth_inventory_after
+                .swap(false, Ordering::AcqRel)
+        {
+            return Err(failure());
+        }
         if path.as_ref().contains("/archives/bundles/")
             && self.fail_bundle_after.swap(false, Ordering::AcqRel)
         {
@@ -288,6 +336,11 @@ impl ObjectStore for Store {
 
     async fn get_opts(&self, path: &Path, options: GetOptions) -> object_store::Result<GetResult> {
         tokio::task::yield_now().await;
+        if path.as_ref().ends_with("/births/head")
+            && self.fail_birth_inventory_read.swap(false, Ordering::AcqRel)
+        {
+            return Err(failure());
+        }
         if path.as_ref().ends_with("/fleet/head")
             && (self.hold_fleet_reads.load(Ordering::Acquire)
                 || self.hold_next_fleet_read.swap(false, Ordering::AcqRel))
@@ -427,10 +480,18 @@ impl ObjectStore for Store {
     }
 
     fn list(&self, prefix: Option<&Path>) -> BoxStream<'static, object_store::Result<ObjectMeta>> {
+        self.listing_calls.fetch_add(1, Ordering::AcqRel);
+        if self.reject_listing.load(Ordering::Acquire) {
+            return futures_util::stream::once(async { Err(failure()) }).boxed();
+        }
         self.inner.list(prefix)
     }
 
     async fn list_with_delimiter(&self, prefix: Option<&Path>) -> object_store::Result<ListResult> {
+        self.listing_calls.fetch_add(1, Ordering::AcqRel);
+        if self.reject_listing.load(Ordering::Acquire) {
+            return Err(failure());
+        }
         self.inner.list_with_delimiter(prefix).await
     }
 

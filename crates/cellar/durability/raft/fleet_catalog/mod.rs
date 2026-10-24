@@ -31,7 +31,6 @@ const ROOT_LIMIT: usize = 1024 * 1024;
 const REQUEST_LIMIT: usize = 256 * 1024;
 const PAGE_LIMIT: usize = 64 * 1024;
 const HEAD_KIND: u8 = 40;
-const PAGE_KIND: u8 = 41;
 const REQUEST_KIND: u8 = 42;
 const PIN_KIND: u8 = 43;
 const COMMIT_KIND: u8 = 44;
@@ -49,6 +48,18 @@ pub enum FleetCatalogError {
     Unconfirmed,
     Closed,
     Storage(anyhow::Error),
+}
+
+impl From<super::catalog::CatalogError> for FleetCatalogError {
+    fn from(error: super::catalog::CatalogError) -> Self {
+        match error {
+            super::catalog::CatalogError::Invalid(reason) => Self::Invalid(reason),
+            super::catalog::CatalogError::Corrupt(reason) => Self::Corrupt(reason),
+            super::catalog::CatalogError::Limit => Self::Limit,
+            super::catalog::CatalogError::Storage(error) => Self::Storage(error.into()),
+            _ => Self::Corrupt("index storage contract"),
+        }
+    }
 }
 
 impl fmt::Display for FleetCatalogError {
@@ -90,24 +101,9 @@ impl FleetSnapshot {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct FleetEntry {
-    pub key: String,
-    pub value: Vec<u8>,
-}
-
-/// Bound to a particular immutable index; a new snapshot cannot reinterpret it.
-#[derive(Clone, Debug)]
-pub struct FleetCursor {
-    index: Option<[u8; 32]>,
-    hash: [u8; 32],
-    key: String,
-}
-
-pub struct FleetPage {
-    pub entries: Vec<FleetEntry>,
-    pub next: Option<FleetCursor>,
-}
+pub use crate::raft::coordination_index::{
+    IndexCursor as FleetCursor, IndexEntry as FleetEntry, IndexPage as FleetPage,
+};
 
 pub struct FleetCommit {
     pub snapshot: FleetSnapshot,

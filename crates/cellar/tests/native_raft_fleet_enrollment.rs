@@ -6,6 +6,8 @@ mod births;
 mod fault;
 #[path = "support/raft_enrollment_native.rs"]
 mod hosts;
+#[path = "support/raft_birth_inventory.rs"]
+mod inventory;
 #[path = "support/raft_node.rs"]
 #[allow(dead_code)]
 mod public_node;
@@ -158,7 +160,12 @@ async fn fleet_enrollment_cancelled_birth() -> Result<()> {
         if operation == ProposalId::new([6; 16])?)
     );
     assert_eq!(f.store.inner.get(&f.key()).await?.bytes().await?, tombstone);
-    assert_eq!(f.store.non_create.load(Ordering::Acquire), 0);
+    // Only the inventoried admission root may use conditional updates;
+    // birth decisions, claims and namespace identity remain immutable.
+    assert_eq!(
+        f.store.non_create.load(Ordering::Acquire),
+        f.store.birth_inventory_cas.load(Ordering::Acquire)
+    );
     f.close().await;
     Ok(())
 }
@@ -190,7 +197,12 @@ async fn fleet_enrollment_birth_wins_delayed_cancellation() -> Result<()> {
             .digest(),
         live.digest()
     );
-    assert_eq!(f.store.non_create.load(Ordering::Acquire), 0);
+    // Only the inventoried admission root may use conditional updates;
+    // birth decisions, claims and namespace identity remain immutable.
+    assert_eq!(
+        f.store.non_create.load(Ordering::Acquire),
+        f.store.birth_inventory_cas.load(Ordering::Acquire)
+    );
     f.close().await;
     Ok(())
 }

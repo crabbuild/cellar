@@ -1306,6 +1306,29 @@ async fn public_multi_group_replication_and_leader_failover() -> Result<()> {
                 .await?,
         );
     }
+    // Import birth quiescence must leave existing consensus, queries and
+    // recovery live. Every command and the failover below run after freeze.
+    let inventory_domain = cellar::sdk::ExecutionDomain::new(tokio::runtime::Handle::current());
+    let namespace = Catalog::new(
+        store.clone(),
+        CatalogOptions {
+            prefix: "multi-group/test".into(),
+            ..Default::default()
+        },
+    )?
+    .existing_namespace(registrations[0].namespace.clone())
+    .await?;
+    let cut = inventory_domain
+        .run(namespace.freeze_births(ProposalId::new([91; 16])?, Duration::from_secs(5)))
+        .await??;
+    assert_eq!(cut.len(), 2);
+    assert!(matches!(
+        namespace
+            .resolve_birth(proposal(2, "Counter:after-freeze", 7, 3))
+            .await,
+        Err(CatalogError::BirthsFrozen)
+    ));
+    inventory_domain.shutdown().await;
     let handles: Vec<_> = services
         .iter()
         .map(|service| {
@@ -2102,7 +2125,12 @@ async fn namespace_mode_conflict() -> Result<()> {
         other_namespace.resolve_birth(reused).await,
         Err(CatalogError::Conflict(_))
     ));
-    assert_eq!(store.non_create.load(Ordering::Acquire), 0);
+    // Only the inventoried admission root may use conditional updates;
+    // birth decisions, claims and namespace identity remain immutable.
+    assert_eq!(
+        store.non_create.load(Ordering::Acquire),
+        store.birth_inventory_cas.load(Ordering::Acquire)
+    );
     Ok(())
 }
 
@@ -2210,7 +2238,12 @@ async fn catalog_reconciles_lost_create_responses() -> Result<()> {
     store.fail_after.store(true, Ordering::Release);
     let permit = namespace.bootstrap_member(&birth, &log).await?;
     assert_eq!(permit.replica().scope, *birth.scope());
-    assert_eq!(store.non_create.load(Ordering::Acquire), 0);
+    // Only the inventoried admission root may use conditional updates;
+    // birth decisions, claims and namespace identity remain immutable.
+    assert_eq!(
+        store.non_create.load(Ordering::Acquire),
+        store.birth_inventory_cas.load(Ordering::Acquire)
+    );
     close(domain, log, None).await
 }
 

@@ -78,13 +78,17 @@ cancelled history can mint group or membership authorization.
 `enroll_history` registers one already observed immutable birth for import. It
 does not assert that an import is complete, quiesce legacy creators, convert an
 unmanaged namespace or authorize maintenance/removal. Those lifecycle checks
-remain pending. Group enrollment, managed-host startup and dormant registration
+remain pending. The [namespace birth inventory](../catalog_inventory/README.md)
+now indexes every canonical intent before publication and can freeze new birth
+admissions through CAS. Its frozen set includes pending and cancelled decisions;
+it is an import input, not membership quiescence or a complete-import certificate.
+Group enrollment, managed-host startup and dormant registration
 also compare the recorded birth digest and schema with their actual birth.
 Ordinary `bootstrap_member` can only resume an already enrolled managed group;
 it refuses fresh or bare genesis before creating local group state or a member
 claim. Managed host startup and `activate_managed_initial_member` use the guarded path described below.
 
-This experimental protocol hard-cuts to `/group-reservations-1`; use fresh fleet
+This experimental protocol hard-cuts to `/birth-inventory-1`; use fresh fleet
 roots, fresh namespaces and matching binaries. Fleet heads require the current
 protocol digest, and their permanent genesis pin binds it. Missing or earlier
 protocol state refuses initialization and reads; there is no compatibility reader.

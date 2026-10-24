@@ -520,6 +520,15 @@ async fn fleet_birth_reservation_group_claim_lost_reply() -> Result<()> {
 async fn fleet_birth_reservation_managed_gate() -> Result<()> {
     let f = Fixture::new().await?;
     ensure!(matches!(
+        f.domain
+            .run(
+                f.namespace
+                    .freeze_births(ProposalId::new([9; 16])?, TIMEOUT)
+            )
+            .await?,
+        Err(CatalogError::ManagedAdmissionRequired)
+    ));
+    ensure!(matches!(
         f.namespace.resolve_birth(f.proposal.clone()).await,
         Err(CatalogError::ManagedAdmissionRequired)
     ));

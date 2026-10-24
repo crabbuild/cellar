@@ -197,6 +197,13 @@ schema, cluster, minimum durability and voter policy cannot change in place.
 Three initial voters are required unless the immutable root explicitly selects
 the single-voter development policy.
 
+Raft birth writers first enter the authoritative
+[namespace admission inventory](catalog_inventory/README.md). Its CAS root can
+freeze new admissions while retaining pending, live and cancelled intents for
+bounded exact-key reconciliation. This birth cut does not quiesce membership or
+certify complete import/removal. Existing groups can continue business work and
+failover while new births are frozen.
+
 `NamespaceCatalog::cancel_birth` contends with creation at that same permanent
 cell-name key. A cancelled winner stores its exact scope and operation identity;
 late `resolve_birth` and ordinary `birth` calls return `BirthCancelled` and cannot

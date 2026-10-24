@@ -247,6 +247,18 @@
       "sha256": "3241c6239bb14a3180c709e1c21b2dc8ed77fe58d8c4914b04be9e3c36756c40"
     },
     {
+      "path": "crates/cellar/tests/native_raft_archive.rs",
+      "sha256": "65994c3f51940020bf4c15e7ac63937c2fbc918721dde685e43101a2ae2def93"
+    },
+    {
+      "path": "crates/cellar/tests/native_raft_directory.rs",
+      "sha256": "fbcf7020ce4cfd7b8401541e527908f9346e14c39210e06fb00cabb38f28ac36"
+    },
+    {
+      "path": "crates/cellar/tests/native_raft_host.rs",
+      "sha256": "6540910a66a7f323a5ebdd21dc0ce5871e010d1916b192797bccf967923d62b5"
+    },
+    {
       "path": "crates/cellar/tests/support/raft_catalog_fault.rs",
       "sha256": "6cc836fd38bb430549df29f8b5d4e409b55ab27ada19a20d6f432dbe4a27de24"
     },

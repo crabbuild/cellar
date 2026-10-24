@@ -97,9 +97,10 @@ pub mod verification {
         CommittedImage, DurableApply, GroupLog, GroupWrite, SnapshotChange,
     };
     pub use crate::raft::catalog::{
-        BirthDisposition, BirthProposal, BootstrapPermit, Catalog, CatalogError, CatalogOptions,
-        GroupBirth, InitialMember, NamespaceCatalog, NamespaceConfig, NodePublication,
-        NodeRegistration, NodeView, VoterPolicy,
+        BirthDisposition, BirthInventoryCursor, BirthInventoryEntry, BirthInventoryPage,
+        BirthProposal, BootstrapPermit, Catalog, CatalogError, CatalogOptions,
+        FrozenBirthInventory, GroupBirth, InitialMember, NamespaceCatalog, NamespaceConfig,
+        NodePublication, NodeRegistration, NodeView, VoterPolicy,
     };
     pub use crate::raft::completion::{
         AcceptedProposal, ApplyCompletion, ApplyTicket, GroupStatus, RuntimeError, RuntimeEvent,

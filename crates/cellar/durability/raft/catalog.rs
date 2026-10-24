@@ -20,6 +20,12 @@ use std::{collections::BTreeSet, fmt, sync::Arc};
 mod births;
 pub use births::BirthDisposition;
 
+#[path = "catalog_inventory/mod.rs"]
+mod inventory;
+pub use inventory::{
+    BirthInventoryCursor, BirthInventoryEntry, BirthInventoryPage, FrozenBirthInventory,
+};
+
 #[path = "node_directory.rs"]
 mod directory;
 pub use directory::{NodePublication, NodeRegistration, NodeView};
@@ -33,6 +39,7 @@ pub enum CatalogError {
     WrongMode,
     NotInitialMember,
     BirthCancelled,
+    BirthsFrozen,
     ManagedAdmissionRequired,
     LostStableState,
     Unconfirmed,
@@ -53,6 +60,8 @@ impl std::error::Error for CatalogError {}
 #[derive(Clone, Debug)]
 pub struct CatalogOptions {
     pub prefix: String,
+    /// Namespace/birth/claim bound. Immutable inventory pages have their own
+    /// fixed 64-KiB bound and bounded traversal.
     pub max_record_bytes: usize,
     /// Whole-operation bound for mandatory physical storage registration.
     pub node_timeout_ms: u64,
@@ -270,25 +279,40 @@ impl Catalog {
             hex::encode(config.namespace.bytes())
         ));
         let bytes = wire::encode(wire::ROOT, &expected, self.inner.limit)?;
-        let observed = if create {
-            self.inner.create_and_observe(&key, &bytes).await?
-        } else {
-            self.inner
-                .read(&key)
-                .await?
-                .ok_or(CatalogError::Conflict("namespace missing"))?
+        let namespace = NamespaceCatalog {
+            inner: self.inner.clone(),
+            config,
+            root_digest: wire::digest(&bytes),
+            data_prefix,
+        };
+        let found = self.inner.read(&key).await?;
+        let observed = match found {
+            Some(bytes) => bytes,
+            None if !create => return Err(CatalogError::Conflict("namespace missing")),
+            None => {
+                if namespace.mode() == NamespaceMode::Raft
+                    && !namespace.initialize_birth_inventory().await?
+                {
+                    // A concurrent creator may already have published the
+                    // exact namespace. Missing occupied roots are not reset.
+                    self.inner
+                        .read(&key)
+                        .await?
+                        .ok_or(CatalogError::Corrupt("missing occupied namespace root"))?
+                } else {
+                    self.inner.create_and_observe(&key, &bytes).await?
+                }
+            }
         };
         let root: wire::Root = wire::decode(wire::ROOT, &observed, self.inner.limit)?;
         root.validate()?;
         if root != expected {
             return Err(CatalogError::Conflict("immutable namespace root"));
         }
-        Ok(NamespaceCatalog {
-            inner: self.inner.clone(),
-            config,
-            root_digest: wire::digest(&observed),
-            data_prefix,
-        })
+        if namespace.mode() == NamespaceMode::Raft {
+            namespace.require_birth_inventory().await?;
+        }
+        Ok(namespace)
     }
 }
 
@@ -758,13 +782,21 @@ impl Inner {
         &self,
         key: &Path,
     ) -> Result<Option<(Vec<u8>, UpdateVersion)>, CatalogError> {
+        self.read_versioned_bounded(key, self.limit).await
+    }
+
+    async fn read_versioned_bounded(
+        &self,
+        key: &Path,
+        limit: usize,
+    ) -> Result<Option<(Vec<u8>, UpdateVersion)>, CatalogError> {
         let object = match self.store.get(key).await {
             Ok(object) => object,
             Err(object_store::Error::NotFound { .. }) => return Ok(None),
             Err(error) => return Err(CatalogError::Storage(error)),
         };
         let length = usize::try_from(object.meta.size).map_err(|_| CatalogError::Limit)?;
-        if length > self.limit || object.range.start != 0 || object.range.end != object.meta.size {
+        if length > limit || object.range.start != 0 || object.range.end != object.meta.size {
             return Err(CatalogError::Limit);
         }
         let version = UpdateVersion {
@@ -793,6 +825,19 @@ impl Inner {
     }
 
     async fn create_and_observe(&self, key: &Path, bytes: &[u8]) -> Result<Vec<u8>, CatalogError> {
+        self.create_and_observe_bounded(key, bytes, self.limit)
+            .await
+    }
+
+    async fn create_and_observe_bounded(
+        &self,
+        key: &Path,
+        bytes: &[u8],
+        limit: usize,
+    ) -> Result<Vec<u8>, CatalogError> {
+        if bytes.len() > limit {
+            return Err(CatalogError::Limit);
+        }
         // All failed/ambiguous creates are reconciled by exact-key reads. Never
         // fall back to overwrite, unconditional PUT or a different identity.
         let result = self
@@ -803,7 +848,11 @@ impl Inner {
                 PutOptions::from(PutMode::Create),
             )
             .await;
-        match self.read(key).await? {
+        match self
+            .read_versioned_bounded(key, limit)
+            .await?
+            .map(|(bytes, _)| bytes)
+        {
             Some(observed) => {
                 if result.is_ok() && observed != bytes {
                     return Err(CatalogError::Conflict(

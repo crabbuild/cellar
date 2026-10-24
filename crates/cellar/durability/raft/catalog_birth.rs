@@ -118,33 +118,25 @@ impl NamespaceCatalog {
         proposal.voters.sort_by_key(|m| m.member);
         proposal.learners.sort_by_key(|m| m.member);
         self.check_members(&proposal.voters, &proposal.learners)?;
-        let key = self.birth_key(&proposal.scope.cell);
+        let requested = proposal.scope.clone();
+        let mut birth = self.admit_birth_intent(proposal).await?;
+        let scope = birth
+            .scope
+            .clone()
+            .decode()
+            .map_err(|_| CatalogError::Corrupt("birth intent scope"))?;
+        let key = self.birth_key(&scope.cell);
         if let Some(bytes) = self.inner.read(&key).await? {
-            return self
-                .decode_birth_disposition(&proposal.scope.cell, &bytes)
-                .await;
+            return self.decode_birth_disposition(&scope.cell, &bytes).await;
         }
-        self.reserve_group_identity(&proposal.scope).await?;
-        let birth = wire::Birth {
-            root_digest: self.root_digest,
-            scope: WireScope::from(&proposal.scope),
-            voters: proposal
-                .voters
-                .into_iter()
-                .map(wire::Member::encode)
-                .collect(),
-            learners: proposal
-                .learners
-                .into_iter()
-                .map(wire::Member::encode)
-                .collect(),
-            empty_digest: wire::digest(&[]),
-            cancelled_by: cancelled.map(|operation| operation.bytes()),
-        };
+        if cancelled.is_some() && scope != requested {
+            return Err(CatalogError::Conflict("birth intent changed"));
+        }
+        self.verify_group_identity(&scope).await?;
+        birth.cancelled_by = cancelled.map(|operation| operation.bytes());
         let bytes = wire::encode(wire::BIRTH, &birth, self.inner.limit)?;
         let observed = self.inner.create_and_observe(&key, &bytes).await?;
-        self.decode_birth_disposition(&proposal.scope.cell, &observed)
-            .await
+        self.decode_birth_disposition(&scope.cell, &observed).await
     }
 
     /// A permanent identity claim grants neither birth nor membership authority.
@@ -168,6 +160,29 @@ impl NamespaceCatalog {
             .await?;
         if observed != reserved {
             return Err(CatalogError::Conflict("group identity already reserved"));
+        }
+        Ok(())
+    }
+
+    pub(crate) async fn verify_group_identity(
+        &self,
+        scope: &GroupScope,
+    ) -> Result<(), CatalogError> {
+        let reservation = self
+            .inner
+            .read(&self.reservation_key(scope))
+            .await?
+            .ok_or(CatalogError::Corrupt("missing group reservation"))?;
+        let value: wire::Reservation =
+            wire::decode(wire::RESERVATION, &reservation, self.inner.limit)?;
+        if value.root_digest != self.root_digest
+            || value
+                .scope
+                .decode()
+                .map_err(|_| CatalogError::Corrupt("reservation scope"))?
+                != *scope
+        {
+            return Err(CatalogError::Conflict("group reservation"));
         }
         Ok(())
     }
@@ -260,22 +275,8 @@ impl NamespaceCatalog {
             .map(wire::Member::decode)
             .collect::<Result<Vec<_>, _>>()?;
         self.check_members(&voters, &learners)?;
-        let reservation = self
-            .inner
-            .read(&self.reservation_key(&scope))
-            .await?
-            .ok_or(CatalogError::Corrupt("missing group reservation"))?;
-        let value: wire::Reservation =
-            wire::decode(wire::RESERVATION, &reservation, self.inner.limit)?;
-        if value.root_digest != self.root_digest
-            || value
-                .scope
-                .decode()
-                .map_err(|_| CatalogError::Corrupt("reservation scope"))?
-                != scope
-        {
-            return Err(CatalogError::Conflict("group reservation"));
-        }
+        self.verify_group_identity(&scope).await?;
+        self.verify_birth_intent(&birth).await?;
         if let Some(operation) = birth.cancelled_by {
             return Ok(BirthDisposition::Cancelled {
                 scope,
