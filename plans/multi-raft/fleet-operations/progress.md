@@ -257,6 +257,65 @@ Complete import/birth admission, full retired-engine lifecycle, physical-host
 policy and eligibility inspection are also pending. These local results make no
 RustFS deployment, fleet-operation, TPS/p99 or soak claim.
 
+## FO-03 progress: authenticated node observations
+
+Source `164359427707f5bc80a64dd8d981debef7cd5d5e` includes the node RPC from
+`c84540a701cf1474b7ae809d4fc3ec100c9bfc35`, the merge of `origin/main` at
+`47f4a8924a54b25b579f17ad2fc5a46eb97a6ba6`, and conservative age through SDK
+delivery. `RaftCells::inspect_peer_node` needs no cell scope or member. Both
+physical processes must be rooted and discovered, and both installed trust cuts
+must reach the requested minimum revision. Metadata grants no namespace query,
+group membership, capacity activation or removal authority.
+
+The response distinguishes startup enrollment from the installed current state
+and epoch. Real TLS cases verify two empty hosts, reciprocal discovery, current
+restart/resize/drain classification, unknown targets and insufficient revisions.
+Reply age includes administrative queue residence and retention by an unpolled
+caller; an old reply cannot appear fresh merely because its consumer waited.
+
+Bodies are bounded at 16 KiB and share the existing independent metadata slots
+and peer banks. Host response bytes remain charged through delivery. Managed
+control capacity now covers one 4 MiB discovery read, a 64 KiB response and a
+4 KiB request across three items. The exact-floor case serves cached metadata
+with both catalog readers held; undersized startup refuses before engine pinning.
+A blackholed TLS case verifies joined shutdown and the retained caller permit.
+
+The protocol hard-cuts to `/fleet-1/enrollment-1/node-probes-1`, retaining numeric
+markers at 1. The older enrollment protocol is explicitly refused. Use fresh
+experimental namespaces and matching participants; no compatibility reader was
+added. The main merge keeps upstream's complete archive-metric vocabulary checks
+and snapshot failure diagnostics.
+
+| Merged-tree verification | Result |
+| --- | --- |
+| Native cohort across 13 targets | 307 passed, including 24 enrollment cases, archive 53, snapshot 44, membership 27 and storage 17 |
+| Raft library tests | 132 passed, including strict node-body and channel/purpose/request authentication cases |
+| Upstream startup confirmation | 4 passed |
+| Clippy, formatting and layout | Passed with warnings denied for affected targets; 921 Rust files |
+| Native dependency, documentation and plan checks | Passed; no JavaScript engine, 119 required cases, 67 source anchors and 10 validator tests |
+
+The post-merge cohort ran in two stages: archive/directory/effects/catalog passed
+96 cases before the retained-age fixture constructed its sleep outside the
+domain. After fixing only that test's domain entry, enrollment and the remaining
+targets passed another 211. Production source did not change between these runs.
+The 13-target Clippy run passed; focused lib/enrollment Clippy reran after that
+fixture correction. The 132-unit run predates the fixture-only correction.
+
+Earlier complete pre-merge native qualification (306 cases), the initial fixture
+compile error, the Clippy fixture cleanup and the post-merge failed cohort remain
+retained separately. The partial `implementation/fo03/node-observation-boundary.json`
+record stores exact log and executable hashes and these scope distinctions.
+Raw artifacts remain ignored, outside `plans/multi-raft/evidence/`.
+
+The low-level node probe supplies required-revision observations. The full move
+executor still must wait for its participants and validate current root policy;
+this implementation does not complete that executor or the final quorum proof.
+Complete inventory/import, birth/drain admission, retired binding lifecycle,
+unknown-node ingress and strict physical-host policy remain FO-03 delivery work.
+The complete FO-03 listing still refuses six missing cases; the task remains
+`IN_PROGRESS`. RustFS deployment, full fleet workflows, TPS/p99, enforced Colima
+resource tiers and the endurance soak remain unqualified.
+
 ## Next implementation boundary
 
 FO-03 adds the trusted dynamic node set, empty managed host readiness, bounded
@@ -267,11 +326,13 @@ reconciliation, lifecycle, API/CLI, scaling and qualification scope.
 
 `node/raft_startup.rs`, `host.rs` and `host_directory.rs` now accept zero groups
 only with explicit rooted enrollment and compiled namespace/class declarations;
-node controls no longer borrow a first-cell binding. The remaining work includes
-authenticated remote node observations, required trusted-revision acknowledgements
-and complete import/birth admission. Current-root trust refresh and transport
-revocation are locally implemented; they do not complete the remote readiness
-and movement protocol. Dynamic binding mutations now belong to the
+node controls no longer borrow a first-cell binding. Remote node observations now
+bind both physical processes and a minimum installed trust revision, with current
+enrollment separate from startup state. The remaining work includes complete
+import/birth admission, physical-host placement policy, unknown-node ingress and
+binding acknowledgements to the actual movement executor. Current-root trust
+refresh, transport revocation and metadata RPCs do not complete that movement
+protocol. Dynamic binding mutations now belong to the
 serialized host, with bounded reader access and no lock guard crossing an await.
 Retained active histories still reopen through startup recovery registrations;
 the new metadata path refuses resetting their physical slots. A local observation,
@@ -280,14 +341,15 @@ enrollment/readiness proof.
 
 ## Prioritized remaining delivery
 
-The next change should finish authenticated node observations and live trust
-refresh/revocation in FO-03. This gives a coordinator an authoritative view of
-new capacity without relying on the local startup cut. The following order keeps
+The next changes should close FO-03's remaining trust, complete-inventory and
+birth/lifecycle admission boundaries. Revision- and process-bound node observations
+are available; admission still requires current root policy and complete history
+coverage. The following order keeps
 safe admission ahead of automation; the manifest dependencies remain unchanged.
 
 | Priority | Boundary | Required result before advancing |
 | --- | --- | --- |
-| P0, first | FO-03 node trust and readiness | Purpose-bound remote node controls work without a business group; current rooted trust rejects unknown or revoked nodes across inbound calls, routes and grants. Physical-host identity and eligibility modes are checked. Cover `fleet_enrollment_unknown_node`, `fleet_enrollment_route_revocation`, `fleet_enrollment_empty_host`, `fleet_enrollment_physical_host` and `fleet_enrollment_eligibility_modes`. |
+| P0, first | FO-03 remaining trust and placement checks | Close `fleet_enrollment_unknown_node`, `fleet_enrollment_route_revocation` and `fleet_enrollment_physical_host`: cover unsolicited ingress, move-participant acknowledgement enforcement and strict physical-host policy. Empty-host metadata and current eligibility inspection are implemented locally; neither activates capacity. |
 | P0, next | FO-03 complete inventory and lifecycle exclusion | An incomplete import cannot authorize management; a concurrent birth cannot escape a drain cut; a retired physical binding cannot be reused. Cover `fleet_enrollment_incomplete_import`, `fleet_enrollment_birth_drain_race` and `fleet_enrollment_retired_binding`, then pass the complete FO-03 listing and behavior tests. |
 | P1 | FO-04 placement, FO-05 fresh load, then FO-06 reconciliation | Validate final assignments and every staged move against retained/temporary costs, failure domains and one-node-loss restoration. Reconciliation must survive cancellation, restart and lost replies, with fresh terminal quorum proof before releasing reservations. Verify foreground overhead before enabling optional balancing. |
 | P2 | FO-07 maintenance, FO-08 operator surfaces, then FO-09 scaling | Deliver the durable stop fence and one-disruption slot, complete evacuation/removal proof, authenticated idempotent API/CLI workflows and observed-limit checks for resource changes. Proposed commands are not available until these packages pass. |

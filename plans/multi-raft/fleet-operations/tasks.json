@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "baseline_revision": "a155d22a7bbee57de3eccde135d8691e812068a6",
+  "baseline_revision": "164359427707f5bc80a64dd8d981debef7cd5d5e",
   "invariants": {
     "F01": "Quorum authority",
     "F02": "Stable identities",
@@ -315,7 +315,9 @@
         "crates/cellar/durability/raft/inspection_transport.rs",
         "crates/cellar/durability/raft/transport.rs",
         "crates/cellar/durability/raft/transport_directory.rs",
-        "crates/cellar/durability/raft/transport_directory_tests.rs"
+        "crates/cellar/durability/raft/transport_directory_tests.rs",
+        "crates/cellar/durability/raft/inspection_identity.rs",
+        "crates/cellar/durability/raft/mod.rs"
       ],
       "creates": [
         "crates/cellar/tests/native_raft_fleet_enrollment.rs",
