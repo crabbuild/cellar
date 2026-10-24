@@ -92,6 +92,8 @@ pub struct Contract {
 impl Contract {
     /// Load an application descriptor set at startup, with no I/O or runtime
     /// schema lookup. Unsupported features and unresolved imports are refused.
+    /// Cross-file symbol collisions, undeclared type references and cyclic
+    /// imports are rejected within bounded expanded-name inventories.
     pub fn from_descriptor(bytes: &[u8], limits: Limits) -> Result<Self> {
         let limits = limits.validate()?;
         ensure!(
@@ -104,35 +106,14 @@ impl Contract {
             "invalid RPC descriptor file count"
         );
         set.file.sort_by(|a, b| a.name.cmp(&b.name));
-        let mut names = BTreeSet::new();
+        // Validate the complete namespace and import graph before cloning any
+        // message subtrees or projecting language codec inventories.
+        super::descriptor::validate(&set)?;
         let mut message_defs = BTreeMap::new();
         let mut enums = BTreeSet::new();
         for file in &mut set.file {
-            let name = file
-                .name
-                .as_deref()
-                .context("RPC descriptor file has no name")?;
-            ensure!(
-                name.ends_with(".proto")
-                    && name.len() <= 1024
-                    && !name.contains(['\\', '\0'])
-                    && name
-                        .split('/')
-                        .all(|part| !part.is_empty() && part != "." && part != ".."),
-                "RPC descriptor filename must be a canonical relative proto path"
-            );
-            ensure!(
-                names.insert(name.to_string()),
-                "duplicate RPC descriptor file"
-            );
-            ensure!(
-                file.syntax.as_deref() == Some("proto3"),
-                "RPC contracts require proto3"
-            );
-            ensure!(file.extension.is_empty(), "RPC extensions are unsupported");
             file.source_code_info = None;
             let package = file.package.as_deref().unwrap_or_default();
-            ensure!(valid_identifier(package, true), "invalid RPC package");
             for definition in &file.message_type {
                 collect_messages(package, definition, 0, &mut message_defs, &mut enums)?;
             }
@@ -150,11 +131,6 @@ impl Contract {
             message_defs.len() + enums.len() <= 4096,
             "too many RPC message and enum types"
         );
-        for file in &set.file {
-            for dependency in &file.dependency {
-                ensure!(names.contains(dependency), "missing RPC descriptor import");
-            }
-        }
         super::schema::messages(&message_defs)?;
         let mut messages = BTreeMap::new();
         let mut map_defaults = BTreeMap::new();

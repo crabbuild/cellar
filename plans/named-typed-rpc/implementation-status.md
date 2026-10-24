@@ -17,8 +17,8 @@ does not close schema, resource, packaging or performance requirements.
 
 | Priority | Remaining gap | Deliverable / completion evidence |
 | --- | --- | --- |
-| P0 — next | Remaining lifecycle and peer/admission provenance | Delivered: whole-call budgets, 55 deadline cases, 128 proof-wait cases, 80 cycle cases and 96 parent-write/child-refusal/forged-category cases. Fixed entered-handler categories now survive in all runtimes with unknown effects. Next: broader peer/admission provenance and T14/T17 lifecycle/resource failures; retain every delivered matrix and investigate recurring timeout/domain-closure diagnostics. |
-| P0 | Resource bounds and parser correctness | Audit effective method/runtime/host/peer minima, retained binary copies and decoder allocations; reject malformed descriptors before generation; demonstrate bounded queues, reservations and memory under saturation, flood and disconnect. |
+| P0 — next | Remaining lifecycle and peer/admission provenance | Delivered: whole-call budgets, 55 deadline cases, 128 proof-wait cases, 80 cycle cases and 96 parent-write/child-refusal/forged-category cases. Next slice: owned Node worker failure during typed calls and host shutdown, proving joins and reservation cleanup; then remaining V8/Python lifecycle waits and broader peer/admission provenance. Retain every delivered matrix and investigate recurring timeout/domain-closure diagnostics. |
+| P0 | Resource bounds and parser correctness | Global symbol/import validation and bounded expanded-name inventories are delivered. Close remaining option/schema semantics; audit effective method/runtime/host/peer minima, retained binary copies and decoder allocations; demonstrate bounded queues, reservations and memory under saturation, flood and disconnect. |
 | P1 | Language/profile coverage | Exercise the portable Protobuf profile as real business calls across all local/remote pairs; qualify supported Python interpreter modes and remaining lifecycle/regression boundaries. |
 | P1 | Reproducible application delivery | Deliver `cellar rpc generate/check`, static binding and frozen package inventories, embedded Python source identity, a published typed-RPC example and clean-machine CI. |
 | P2 | Operation visibility | Add registered-method spans, bounded labels and payload-free diagnostics for failures, deadlines and proof waits. |
@@ -32,7 +32,7 @@ Counter fixture alone is not the highest-priority deliverable now.
 
 | Package | State | Authoritative evidence / next action |
 | --- | --- | --- |
-| RPC-01: Contracts/toolchain | In progress | Counter and portable-profile outputs reproduce byte-for-byte in all four authoring modes; generated APIs pass TS/Python static checks; full schema/conformance qualification remains |
+| RPC-01: Contracts/toolchain | In progress | Counter and portable-profile outputs reproduce byte-for-byte in all four authoring modes; global symbols/import visibility and expanded inventory budgets are validated before output/compiler work; generated APIs pass TS/Python static checks; remaining options/schema/conformance qualification stays open |
 | RPC-02: Native typed path | In progress | Native RPC/transport, generated-profile/vector and restart tests pass; codec limits precede allocation; 55 deadline, 128 proof-wait and 80 dependency-cycle cases cover caller/provider pairs, signals/deadlines, local/peer routes and bounded cleanup; 96 provenance cases preserve committed parent writes and fixed categories; broader peer/admission/lifecycle/resource qualification remains |
 | RPC-03: Binary bridges | In progress | Shared `cell.call`, Python raw bytes, owned V8 attachments and binary Node framing implemented; runtime attachment/cleanup tests pass; aggregate copy accounting and full cancellation/flood qualification remain |
 | RPC-04: JS/TS services | In progress | Generated clients/handlers, binary dispatch and live descriptor checks work in V8/Node; real startup refuses stale codecs; typed AbortSignal options and native-owned whole-call codec budgets work with bounded cleanup; full schema/resource/deadline qualification remains |
@@ -46,7 +46,7 @@ Counter fixture alone is not the highest-priority deliverable now.
 | --- | --- |
 | Typed APIs and runnable examples in Rust, JS, TS and Python | Generated APIs and runnable qualification fixtures implemented; strict TS/Python API checks pass; published example packaging remains |
 | Descriptor/profile validation and exact artifact identity | Implementation under test |
-| Complete malformed-descriptor semantic checks before invoking message generators | Partial; map ownership/shape/key types, synthetic oneofs, enum aliases/reservations and field reservations/packing now checked with adversarial tests; full symbol/import/option semantics remain |
+| Complete malformed-descriptor semantic checks before invoking message generators | Partial; global symbols, import graph/visibility/indexes, expanded-name budgets, map ownership/shape/key types, synthetic oneofs, enum aliases/reservations and field reservations/packing have adversarial tests; remaining option/schema semantics stay open |
 | Explicit registration, full method validation and RPC-only cells | Implementation under test |
 | Live language codec identity against the native artifact | JS/Python provider readiness and client pre-encode checks implemented and tested, including recursive/map/well-known types; static binding/package verification remains |
 | Bounded request/response codec and binary bridge accounting | Native wire checks and raw attachments implemented; exact retained-copy accounting and saturation qualification remain |
@@ -72,16 +72,41 @@ pairs. Preserve the full test matrix, failures and remaining work across turns.
 
 ## Current evidence
 
+- Descriptor admission now validates one global namespace, including packages,
+  enum values in their enclosing scope, fields, oneofs and service methods.
+  Every message/enum reference requires the defining file to be visible through
+  local declarations, direct imports or public reexports. Import cycles, duplicate
+  dependencies and invalid/ambiguous modifier indexes are refused. Symbol names,
+  counts and aggregate expanded-name bytes are bounded before index-name
+  allocation and message-subtree cloning. The
+  [generator guide](../../tools/cellar-rpc-codegen/README.md#descriptor-admission)
+  records the portable profile and its additional modifier restrictions.
+- Eleven new native tests reproduce admission of malformed descriptors before
+  the fix. All 42 native RPC unit tests now pass, including 15 descriptor tests;
+  eight native integration tests, nine generator unit tests and the generator
+  executable regression pass. Four real CLI refusals use no compilers on PATH
+  and preserve both absent output and preexisting artifacts/user files. Native
+  library/tests and generator all-target Clippy pass with warnings denied.
+- Counter/profile regeneration reproduces all 24 artifacts. Native tests also
+  verify exact descriptor bytes, digests and codec inventories after file-order
+  changes. A separate three-file public-import example generates Rust, Python,
+  TypeScript and JavaScript; strict TypeScript checks and real Node/Python
+  message-descriptor/codec checks pass with `9_007_199_254_740_993`. This does not
+  claim new public-import fleet calls or a fresh ten-suite run. Local raw evidence
+  is under `.cellar/rpc/descriptor-admission-67284/` (`generation.log`, inputs,
+  outputs and `summary.json`); native/codegen check logs are
+  `/tmp/cellar-rpc-descriptor-*.log`. All full-qualification flags remain false;
+  option/schema semantics, runtime allocation/RSS and lifecycle work remain.
 - Main is integrated through `2133d124` (#115). Its copyright notices are
-  preserved, including the one Node transport comment conflict. All 974 checked
-  runtime, SDK and fixture source files remain identical to the ten-suite-tested
-  `73a62b5a` after removing only notice text. New Cellar-owned sources receive
+  preserved, including the one Node transport comment conflict. At the notice
+  merge, all 974 checked runtime, SDK and fixture source files matched the
+  ten-suite-tested `73a62b5a` after removing only notice text. New sources receive
   matching notices. The generator applies notices reproducibly while retaining
   producer comments; nine generator tests and generator Clippy pass, and both
   Counter/profile sets reproduce all 24 artifacts with unchanged descriptor
   bytes. SDK, Python sanitizer/runner, three build-identity tests, documentation
-  and workflow parsing pass after the merge. Full runtime evidence above is
-  from the unchanged implementation before the notice merge; it is not a fresh
+  and workflow parsing pass after the merge. Ten-suite runtime evidence is
+  from the implementation before the notice merge; it is not a fresh
   package/release qualification or a resolution of the transient failures.
 - The final normal-stack serial run passes all ten suites and publishes
   `.cellar/rpc/provenance-full-matrix.json` after native and guest drains:
@@ -947,15 +972,19 @@ must preserve the existing recovery, crash, proof and receipt evidence.
 1. **P0: close remaining lifecycle and peer/admission provenance gaps.** Preserve
    the 96 parent-write/forged-category cases, 80 self/A-to-B-to-A cleanup cases
    and 128 proof-wait cases. Qualify broader call-local peer/admission evidence.
-   Qualify remaining lifecycle waits, forced guest peer retries and broader
+   Next, qualify owned Node worker failure during an active typed call and host
+   shutdown: require native joins, retired invocation authority and reservations
+   returning to baseline. Then cover remaining V8/Python lifecycle waits,
+   forced guest peer retries and broader
    nested-provider paths. If the unexplained Node watchdog failure recurs, use
    its observer/heartbeat/input diagnostics to establish the actual cause before
    changing policy. Trusted pre-admission refusal may establish
    `not_committed` for that call; it cannot reclassify the parent's earlier
    writes. A lost response remains unknown. Preserve the 55 deadline cases;
    remaining T14/T17 boundaries and all supported interpreter modes stay open.
-2. **P0: qualify parser and resource boundaries.** Reject invalid global symbols,
-   imports and options before invoking message generators. Verify effective
+2. **P0: qualify parser and resource boundaries.** Keep global symbol/import
+   validation and expanded-name budgets green; close remaining option/schema
+   semantics before invoking message generators. Verify effective
    method/runtime/host/peer minima, account for retained binary copies, and
    measure decoder allocations and RSS under saturation, flood and disconnect.
    Completion requires bounded queues and reservations that return to baseline

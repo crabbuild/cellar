@@ -9,6 +9,7 @@ mod budget;
 mod catalog;
 mod client;
 mod contract;
+mod descriptor;
 mod envelope;
 mod failure;
 mod graph;

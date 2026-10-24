@@ -29,6 +29,60 @@ retaining producer comments. Regeneration preserves this preamble; descriptor
 and inventory artifacts remain binary/JSON without comment headers, following
 [NOTICE](../../NOTICE).
 
+## Descriptor admission
+
+Generation and native startup use the same `Contract::from_descriptor` validator.
+An invalid descriptor fails before the generator creates its output directory,
+writes an artifact or invokes a language compiler.
+
+```text
+descriptor set (at most 4 MiB)
+        |
+canonical files + acyclic imports + bounded symbol namespace
+        |
+visible message/enum references + portable schema semantics
+        |
+normalized descriptor + digest + codec inventory
+        |
+language name checks -> output files -> message/service generators
+```
+
+Packages, messages, enums, services, fields, oneofs and methods share one symbol
+namespace. Enum values occupy their enclosing package or message scope, so
+`enum First { ZERO = 0; }` and `enum Second { ZERO = 0; }` collide in the same
+scope. Distinct nested message scopes may each declare `ZERO`.
+
+A file may reference its own types, direct imports, and the public exports of
+those imports. Including another file in the descriptor set is insufficient:
+
+```text
+service.proto -> forward.proto --public--> types.proto   visible
+                             --ordinary-> private.proto hidden
+```
+
+This follows Protobuf's [import visibility rules](https://protobuf.dev/programming-guides/proto3/#importing-definitions).
+Present weak imports behave as direct imports and do not reexport their types;
+every dependency must still be included. Cellar additionally rejects duplicate
+imports, duplicate modifier indexes and indexes marked both public and weak.
+Negative or out-of-range indexes, self imports and import cycles are refused.
+
+| Descriptor budget | Maximum |
+| --- | --- |
+| Files | 256 |
+| Qualified symbol or referenced type name | 1,024 ASCII bytes |
+| All symbols, including package prefixes and enum values | 100,000 |
+| Aggregate expanded symbol-name bytes | 16 MiB |
+| Message and enum types | 4,096 |
+| Fields | 65,536 |
+| Methods | 4,096; each wire name at most 256 bytes |
+
+Expanded-name limits are checked before allocating each index name or cloning
+message subtrees. These limits bound descriptor inventory work; they are separate
+from message codec budgets and do not establish an aggregate runtime RSS limit.
+The Counter and portable-profile fixtures retain their exact artifact identity.
+
+## Generated language APIs
+
 JavaScript output includes `.js` and `.d.ts`; TypeScript output includes message
 types, concrete named clients, handler interfaces and explicit registrations.
 Both use the pinned Protobuf-ES plugins and the codec-neutral `@cellar/sdk/rpc`

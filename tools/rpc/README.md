@@ -95,6 +95,11 @@ suite below adds explicit guest remote/nested and codec-expiry evidence.
 
 ## Codec and generated API checks
 
+Native startup and generation share the generator's
+[descriptor admission rules and budgets](../cellar-rpc-codegen/README.md#descriptor-admission).
+Global symbols and import visibility are validated before output files or
+language compilers; valid fixture descriptor bytes and inventories remain stable.
+
 ```sh
 npm test --prefix tools/rpc
 npm run typecheck --prefix tools/rpc
