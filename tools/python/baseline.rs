@@ -81,7 +81,7 @@ fn memory() -> Value {
 fn main() -> Result<()> {
     let arguments = Arguments::parse()?;
     tracing_subscriber::fmt()
-        .with_env_filter("cellar::actor=warn,cellar::daemon::embedded=warn")
+        .with_env_filter("cellar::actor=warn,cellar::actor::effects=info,cellar::daemon::embedded=warn,store=debug")
         .with_ansi(false)
         .with_writer(std::io::stderr)
         .try_init()

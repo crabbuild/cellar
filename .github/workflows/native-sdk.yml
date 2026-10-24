@@ -420,6 +420,9 @@ jobs:
           PY
       - name: Qualify activation churn and owner-loss recovery
         run: |
+          python -u tools/python/churn_resource_probe.py > "$RUNNER_TEMP/python-load/churn-resource-observations.jsonl" &
+          resource_probe_pid=$!
+          trap 'kill "$resource_probe_pid"; wait "$resource_probe_pid" || true' EXIT
           python tools/python/churn.py --native-host "$RUNNER_TEMP/load-native" \
             --python-host "selected=$RUNNER_TEMP/load-python" --output "$RUNNER_TEMP/python-load/churn" \
             --build-profile lab --population 128 --rounds 16 --concurrency 4 --repetitions "$CELLAR_LOAD_REPETITIONS"
