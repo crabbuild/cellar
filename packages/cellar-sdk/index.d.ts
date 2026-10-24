@@ -18,6 +18,7 @@ export interface RequestData {
   url: string;
   method: string;
   headers: Headers;
+
   /** Base64-encoded bytes, not plain text. */
   body: string;
 }
@@ -26,6 +27,7 @@ export interface RequestData {
 export interface ResponseData {
   status: number;
   headers: Headers;
+
   /** Base64-encoded bytes, not plain text. */
   body: string;
 }
@@ -33,8 +35,10 @@ export interface ResponseData {
 /** Buffered request delivered to a handler; not the browser Request class. */
 export interface Request extends Omit<RequestData, "body"> {
   body: Uint8Array;
+
   /** Decode UTF-8 synchronously; throws for invalid UTF-8. */
   text(): string;
+
   /** Decode and parse JSON synchronously; invalid input throws. */
   json(): Json;
 }
@@ -42,8 +46,10 @@ export interface Request extends Omit<RequestData, "body"> {
 /** Decoded response returned by a nested cell fetch. */
 export interface Response extends Omit<ResponseData, "body"> {
   body: Uint8Array;
+
   /** Decode UTF-8 synchronously; throws for invalid UTF-8. */
   text(): string;
+
   /** Decode and parse JSON synchronously; invalid input throws. */
   json(): Json;
 }
@@ -63,6 +69,7 @@ export interface Batch {
   checks?: Record<string, Snapshot>;
   puts?: Record<string, Json>;
   deletes?: string[];
+
   /** Absolute Unix time in milliseconds. Mutually exclusive with delete_alarm. */
   alarm_at_ms?: number;
   delete_alarm?: boolean;
@@ -94,13 +101,28 @@ export interface Context {
   /** Null for application-level handlers outside a cell. */
   readonly identity: Readonly<Identity> | null;
 
+  /** Fetch an outbound response without buffering its complete body. */
   fetchStream(request: RequestData): Promise<LiveResponse>;
+
+  /** Consume an upgrade response capability and obtain its client socket. */
   acceptWebSocket(response: LiveResponse): Promise<WebSocket>;
+
+  /** Create a server endpoint; return its paired upgrade with webSocketResponse(). */
   websocketPair(): Promise<WebSocket>;
+
+  /** Resolve an opaque socket ID within the current invocation. */
   websocket(id: string): WebSocket;
+
+  /** Connect an outbound client endpoint; consume events with next(). */
   connectWebSocket(url: string, protocols?: string[]): Promise<WebSocket>;
+
+  /** List accepted cell sockets, optionally filtered by tag. */
   websockets(tag?: string | null): Promise<WebSocket[]>;
+
+  /** Read the cell's automatic text request/response pair, or null. */
   getWebSocketAutoResponse(): Promise<[string, string] | null>;
+
+  /** Configure an automatic text reply without waking the cell; null disables it. */
   setWebSocketAutoResponse(pair: [string, string] | null): Promise<null>;
 
   /** Read the host clock as Unix milliseconds. */
@@ -113,10 +135,13 @@ export interface Context {
   readonly storage: {
     read(key: string): Promise<Snapshot>;
     apply(batch: Batch): Promise<null>;
+
     /** Await the host's configured durability proof for cell writes. */
     sync(): Promise<null>;
+
     /** Execute cell-local SQL with positional parameters. */
     sql(sql: string, params?: Json[]): Promise<SqlResult>;
+
     /** Read the cell's alarm time in Unix milliseconds, or null. */
     getAlarm(): Promise<number | null>;
   };
@@ -127,6 +152,8 @@ export interface Context {
     name: string,
   ): {
     fetch(request: RequestData): Promise<Response>;
+
+    /** Fetch a live cell response that can be forwarded or consumed in chunks. */
     fetchStream(request: RequestData): Promise<LiveResponse>;
   };
 
@@ -198,11 +225,17 @@ export interface Cell {
     context: Context,
   ): FetchOutput | Promise<FetchOutput>;
   alarm?(alarm: Alarm, context: Context): void | Promise<void>;
+
+  /** Native open notification for a hibernating cell socket. */
   websocket_open?(event: WebSocketOpen, context: Context): void | Promise<void>;
+
+  /** Handle a message using this callback's invocation-scoped socket authority. */
   websocket_message?(
     event: WebSocketMessage,
     context: Context,
   ): void | Promise<void>;
+
+  /** Native close notification, including the close code and reason. */
   websocket_close?(
     event: WebSocketClose,
     context: Context,
@@ -254,79 +287,138 @@ export function request(
   options?: { method?: string; headers?: Headers; body?: string | Uint8Array },
 ): RequestData;
 
+/** Text or binary chunks produced synchronously or asynchronously. */
 export type Chunks =
   AsyncIterable<string | Uint8Array> | Iterable<string | Uint8Array>;
+
+/** A producer whose chunks are written with native backpressure. */
 export interface StreamingResponseData extends ResponseData {
   chunks: Chunks;
 }
+
+/** An upgrade returned by webSocketResponse() for an accepted server socket. */
 export interface WebSocketResponseData {
+  /** Opaque socket capability; keep it as a string to preserve all ID bits. */
   websocket: string;
   headers: Headers;
+
   /** Worker socket consumer; returning ends its invocation authority. */
   run?: (socket: WebSocket, context: Context) => void | Promise<void>;
 }
+
+/**
+ * Native response capability scoped to the current invocation.
+ * Return it directly to forward the response, or consume it with chunks().
+ * A forwarded response or accepted WebSocket upgrade consumes the capability.
+ */
 export interface LiveResponse {
+  /** Opaque native capability; do not convert it to a number. */
   readonly forward: string;
   readonly status: number;
   readonly headers: Headers;
+
+  /** Buffered prefix, also emitted first by chunks() when nonempty. */
   readonly body: Uint8Array;
   readonly stream: boolean;
   readonly websocket: boolean;
+
+  /** Consume once; stopping iteration releases the native response consumer. */
   chunks(): AsyncIterable<Uint8Array>;
+
+  /** Release the response consumer, including a pending read. */
   cancel(): Promise<null>;
 }
+
+/** Supported buffered, streaming, upgrade, and forwarded fetch results. */
 export type FetchOutput =
   ResponseData | StreamingResponseData | WebSocketResponseData | LiveResponse;
+
+/** Native cell callback identifying a newly opened socket. */
 export interface WebSocketOpen {
   id: string;
   protocol: string;
 }
+
+/** Native cell message callback; data decodes the text or base64 wire field. */
 export interface WebSocketMessage {
   id: string;
   text?: string;
+
+  /** Base64-encoded binary frame, when present. Prefer the decoded data field. */
   body?: string;
   data: string | Uint8Array;
 }
+
+/** Native cell callback identifying a closed socket. */
 export interface WebSocketClose {
   id: string;
   code: number;
   reason: string;
   was_clean: boolean;
 }
+
+/** Events pulled from a worker server or outbound client socket. */
 export type SocketEvent =
   | { type: "open"; protocol: string }
   | { type: "message"; text?: string; body?: string; data: string | Uint8Array }
   | { type: "close"; code: number; reason: string; was_clean: boolean };
+
+/** Invocation-scoped facade over the native WebSocket endpoint. */
 export interface WebSocket {
+  /** Opaque native ID; never convert it to a JavaScript number. */
   readonly id: string;
+
+  /** Accept a server socket; hibernating cell sockets use registered callbacks. */
   accept(options?: { hibernating?: boolean; tags?: string[] }): Promise<null>;
+
+  /** Send one text or binary frame within the native frame-size limit. */
   send(data: string | Uint8Array): Promise<null>;
+
+  /** Start the close handshake; defaults to code 1000 and an empty reason. */
   close(code?: number, reason?: string): Promise<null>;
-  /** Worker server or explicitly accepted outbound client endpoint. */
+
+  /** Pull an event from a worker server or accepted outbound client endpoint. */
   next(): Promise<SocketEvent>;
+
+  /** Store JSON on the native socket for later cell callbacks. */
   setAttachment(value: Json): Promise<null>;
+
+  /** Read the attachment, or null when absent. */
   getAttachment(): Promise<Json>;
+
+  /** Read the tags supplied when accepting a hibernating socket. */
   tags(): Promise<string[]>;
+
+  /** Last automatic response time in Unix milliseconds, or null. */
   autoResponseTimestamp(): Promise<number | null>;
+
+  /** Read the negotiated protocol, outbound URL, and native connection state. */
   info(): Promise<{
     protocol: string;
     url: string | null;
     state: "Connecting" | "Open" | "Closing" | "Closed";
   }>;
 }
+
+/** Stream bounded text or byte chunks under the original invocation. */
 export function streamResponse(
   chunks: Chunks,
   options?: { status?: number; headers?: Headers },
 ): StreamingResponseData;
+
+/** Format one SSE event, preserving multiline data and validating field values. */
 export function sseEvent(
   data: string,
   options?: { event?: string; id?: string; retry?: number },
 ): string;
+
 /** Pass already formatted SSE events, for example from sseEvent(). */
 export function sseResponse(
   events: Chunks,
   options?: { status?: number; headers?: Headers },
 ): StreamingResponseData;
+
+/** Build an upgrade; workers supply run, while hibernating cells use callbacks. */
 export function webSocketResponse(
   socket: WebSocket,
   options?: { headers?: Headers; run?: WebSocketResponseData["run"] },

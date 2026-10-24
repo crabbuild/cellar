@@ -85,21 +85,31 @@ export function streamResponse(chunks, { status = 200, headers = [] } = {}) {
 /** Format one SSE event; use with streamResponse or sseResponse. */
 export function sseEvent(data, { event, id, retry } = {}) {
   let result = "";
+
+  // Field values occupy one line; reject characters that could inject fields.
   for (const [key, value] of [
     ["event", event],
     ["id", id],
   ]) {
     if (value !== undefined) {
-      if (typeof value !== "string" || /[\r\n\0]/.test(value))
+      if (typeof value !== "string" || /[\r\n\0]/.test(value)) {
         throw new TypeError("Invalid SSE field");
+      }
+
       result += `${key}: ${value}\n`;
     }
   }
+
   if (retry !== undefined) {
-    if (!Number.isSafeInteger(retry) || retry < 0)
+    if (!Number.isSafeInteger(retry) || retry < 0) {
       throw new TypeError("Invalid SSE retry");
+    }
+
     result += `retry: ${retry}\n`;
   }
+
+  // Normalize newlines, prefix every data line, and end with a blank line so
+  // the client dispatches exactly one event, including trailing empty data.
   return (
     result +
     String(data)
@@ -111,6 +121,7 @@ export function sseEvent(data, { event, id, retry } = {}) {
   );
 }
 
+/** Stream already formatted SSE events with the event-stream headers. */
 export function sseResponse(events, options = {}) {
   return streamResponse(events, {
     ...options,
@@ -122,7 +133,11 @@ export function sseResponse(events, options = {}) {
   });
 }
 
-/** For workers, run(socket, ctx) retains the invocation until it completes. */
+/**
+ * Return a WebSocket upgrade for an accepted socket.
+ * Workers use run(socket, ctx) to retain the invocation until consumption ends;
+ * hibernating cells instead receive their registered WebSocket callbacks.
+ */
 export function webSocketResponse(socket, { headers = [], run } = {}) {
   return { websocket: socket.id, headers, run };
 }

@@ -2,17 +2,18 @@
 
 // Shared SDK facade for embedded V8 and Node. This file is a factory expression:
 // the Rust bootstrap evaluates or embeds it, then supplies the private host call.
+// Keep the expression free of a trailing semicolon for embedding in parentheses.
 host => {
   "use strict";
 
   // Capture these builtins before importing/evaluating application code.
-  const parse = JSON.parse,
-    stringify = JSON.stringify,
-    freeze = Object.freeze;
-  const entries = Object.entries,
-    isArray = Array.isArray;
-  const MapClass = Map,
-    ErrorClass = Error;
+  const parse = JSON.parse;
+  const stringify = JSON.stringify;
+  const freeze = Object.freeze;
+  const entries = Object.entries;
+  const isArray = Array.isArray;
+  const MapClass = Map;
+  const ErrorClass = Error;
   const alphabet =
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
@@ -65,14 +66,18 @@ host => {
   // runs in embedded V8, where those host APIs are not available.
   function decode(text) {
     const bytes = [];
-    let bits = 0,
-      count = 0;
+    let bits = 0;
+    let count = 0;
 
     for (const c of text) {
-      if (c === "=") break;
+      if (c === "=") {
+        break;
+      }
 
       const n = alphabet.indexOf(c);
-      if (n < 0) throw new ErrorClass("InvalidBase64");
+      if (n < 0) {
+        throw new ErrorClass("InvalidBase64");
+      }
 
       bits = (bits << 6) | n;
       count += 6;
@@ -86,8 +91,10 @@ host => {
     return new Uint8Array(bytes);
   }
 
+  // Encode each bounded body or socket frame for the JSON bridge.
   function encode(bytes) {
     let result = "";
+
     for (let i = 0; i < bytes.length; i += 3) {
       const n =
         (bytes[i] << 16) | ((bytes[i + 1] ?? 0) << 8) | (bytes[i + 2] ?? 0);
@@ -99,20 +106,29 @@ host => {
     }
     return result;
   }
+
+  // UTF-8 encoding must also work in V8 without Node or browser text encoders.
   function bytes(value) {
     if (typeof value === "string") {
       const encoded = encodeURIComponent(value.toWellFormed());
       const output = [];
+
       for (let i = 0; i < encoded.length; i++) {
         if (encoded[i] === "%") {
           output.push(parseInt(encoded.slice(i + 1, i + 3), 16));
           i += 2;
-        } else output.push(encoded.charCodeAt(i));
+        } else {
+          output.push(encoded.charCodeAt(i));
+        }
       }
+
       return new Uint8Array(output);
     }
-    if (!(value instanceof Uint8Array))
+
+    if (!(value instanceof Uint8Array)) {
       throw new TypeError("Expected text or Uint8Array");
+    }
+
     return value;
   }
 
@@ -183,8 +199,8 @@ host => {
       }
     };
 
-    // These objects contain bridge calls, never native storage handles. Binding
-    // lookup and effect execution remain in the original Rust invocation.
+    // Socket facades carry opaque IDs, never native handles. Each operation
+    // resolves its authority through the current Rust invocation.
     const socket = id =>
       freeze({
         id,
@@ -206,6 +222,7 @@ host => {
           call("websocket.close", { id, code, reason }),
         next: async () => {
           const event = await call("websocket.next", { id });
+
           return freeze(
             event.type !== "message"
               ? event
@@ -223,26 +240,40 @@ host => {
           call("websocket.auto_response_timestamp", { id }),
         info: () => call("websocket.info", { id }),
       });
+
+    // Keep the native response capability intact so callers can either forward
+    // it directly or pull chunks without buffering the complete response.
     const liveResponse = result => {
       const id = result.forward;
+
       return freeze({
         ...result,
         body: decode(result.body),
         async *chunks() {
           try {
-            if (result.body) yield decode(result.body);
+            // A buffered prefix precedes any chunks from the native stream.
+            if (result.body) {
+              yield decode(result.body);
+            }
+
             while (result.stream) {
               const chunk = await call("response.read", { id });
-              if (chunk.done) break;
+
+              if (chunk.done) {
+                break;
+              }
+
               yield decode(chunk.body);
             }
           } finally {
+            // Release the native consumer even if iteration stops early.
             await call("response.cancel", { id });
           }
         },
         cancel: () => call("response.cancel", { id }),
       });
     };
+
     return freeze({
       fetchStream: async value =>
         liveResponse(await call("http.fetch_stream", { request: value })),
@@ -254,8 +285,10 @@ host => {
             })
           ).id,
         ),
+      // Private hooks used by dispatch while retaining this invocation.
       _call: call,
       _encode: data => encode(bytes(data)),
+
       websocket: socket,
       websocketPair: async () => socket((await call("websocket.pair")).id),
       connectWebSocket: async (url, protocols = []) =>
@@ -265,6 +298,7 @@ host => {
       getWebSocketAutoResponse: () => call("websocket.auto_response.get"),
       setWebSocketAutoResponse: pair =>
         call("websocket.auto_response", { pair }),
+
       identity: identity && freeze(identity),
       now: () => call("clock.now"),
       variable: name => call("var", { name }),
@@ -324,8 +358,8 @@ host => {
   // Objects are cached by activation ID; retirement discards activation-local
   // JavaScript state without changing the cell's durable Rust-owned storage.
   return (app, descriptor, maximum) => {
-    const declared = parse(descriptor),
-      objects = new MapClass();
+    const declared = parse(descriptor);
+    const objects = new MapClass();
 
     for (const name of declared.events) {
       if (typeof app[name] !== "function") {
@@ -355,7 +389,9 @@ host => {
           target = objects.get(invocation.object);
 
           if (!target) {
-            if (objects.size >= maximum) throw new ErrorClass("ObjectLimit");
+            if (objects.size >= maximum) {
+              throw new ErrorClass("ObjectLimit");
+            }
 
             target = new app.cells[invocation.class]();
             objects.set(invocation.object, target);
@@ -366,25 +402,34 @@ host => {
           invocation.kind === "fetch"
             ? request(invocation.event)
             : json(invocation.event);
+
         if (invocation.kind === "websocket_message") {
           event = freeze({
             ...event,
             data: event.body === undefined ? event.text : decode(event.body),
           });
         }
+
         let result = await target[invocation.kind](event, ctx);
+
+        // Forward the native capability without consuming its body or upgrade.
         if (invocation.kind === "fetch" && result?.forward !== undefined) {
           return stringify({ forward: result.forward });
         }
+
         if (invocation.kind === "fetch" && result?.chunks !== undefined) {
+          // Publish headers before pulling the producer. Each awaited write
+          // preserves native backpressure and keeps invocation authority alive.
           await ctx._call("response.start", {
             status: result.status,
             headers: result.headers,
             body: "",
           });
+
           for await (const chunk of result.chunks) {
             await ctx._call("response.write", { body: ctx._encode(chunk) });
           }
+
           result = { streamed: true };
         } else if (
           invocation.kind === "fetch" &&
@@ -394,11 +439,16 @@ host => {
             websocket: result.websocket,
             headers: result.headers ?? [],
           };
+
           if (result.run) {
+            // Workers consume events in this retained invocation. Hibernating
+            // cells omit run and receive separate native WebSocket callbacks.
             await ctx._call("response.upgrade", response);
             await result.run(ctx.websocket(result.websocket), ctx);
             result = { streamed: true };
-          } else result = response;
+          } else {
+            result = response;
+          }
         }
 
         // Non-HTTP handlers complete without an application return value.

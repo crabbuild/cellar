@@ -15,12 +15,16 @@ test("SSE preserves multiline data and rejects field injection", () => {
     sseEvent("a\r\nb\rc\n", { event: "change", id: "42", retry: 1000 }),
     "event: change\nid: 42\nretry: 1000\ndata: a\ndata: b\ndata: c\ndata: \n\n",
   );
+
   for (const value of ["bad\nfield", "bad\rfield", "bad\0field"]) {
     assert.throws(() => sseEvent("x", { id: value }), TypeError);
     assert.throws(() => sseEvent("x", { event: value }), TypeError);
   }
-  for (const retry of [-1, 0.1, Infinity])
+
+  for (const retry of [-1, 0.1, Infinity]) {
     assert.throws(() => sseEvent("x", { retry }), TypeError);
+  }
+
   assert.equal(sseResponse([]).headers[0][1], "text/event-stream");
 });
 
@@ -34,11 +38,13 @@ test("shared runtime awaits native backpressure before pulling the next chunk", 
       "utf8",
     ),
   );
-  let unblock,
-    pulled = 0;
+  let unblock;
+  let pulled = 0;
   const calls = [];
   const runner = factory(async (id, name, payload) => {
     calls.push([name, JSON.parse(payload)]);
+
+    // Hold the first write to emulate a native consumer applying backpressure.
     if (
       name === "response.write" &&
       calls.filter(([name]) => name === "response.write").length === 1
@@ -47,6 +53,7 @@ test("shared runtime awaits native backpressure before pulling the next chunk", 
         unblock = resolve;
       });
     }
+
     return JSON.stringify({ ok: true, value: null });
   })(
     {
@@ -72,12 +79,18 @@ test("shared runtime awaits native backpressure before pulling the next chunk", 
       event: { body: "", headers: [], method: "GET", url: "http://test" },
     }),
   );
-  while (!unblock) await new Promise(resolve => setImmediate(resolve));
+
+  // The producer must stay on its first chunk until the native write resolves.
+  while (!unblock) {
+    await new Promise(resolve => setImmediate(resolve));
+  }
+
   assert.equal(pulled, 1);
   assert.deepEqual(
     calls.map(([name]) => name),
     ["response.start", "response.write"],
   );
+
   unblock();
   assert.deepEqual(JSON.parse(await completion), { streamed: true });
   assert.equal(pulled, 2);
