@@ -208,6 +208,55 @@ the broader registry regression run from the final enrollment-only storage-error
 classification rerun. No deployed RustFS, capacity-ready, TPS/p99 or soak claim is
 made by this local SDK verification.
 
+## FO-03 progress: rooted transport trust
+
+Source `a155d22a7bbee57de3eccde135d8691e812068a6` installs a complete bounded
+node-table cut before managed process discovery. The directory worker refreshes
+the current root, reuses the validated immutable node cut when that exact root
+is unchanged, and discovers enrolled nodes through exact namespace directory
+keys without configured addresses. The fleet and namespace engine pins must
+agree. Bucket objects and traffic cannot expand this trusted set.
+
+Trust installation rejects older cuts, missing retained identities, changed pins
+and removed-identity revival. Final `Removed` status cancels peer pools,
+query/inspection grants and physical seed epochs. Restart, resize, draining and
+evacuated states keep transport available while membership work resolves;
+placement eligibility remains separate. This transport adapter does not prove
+that publishing `Removed` is legal; the later lifecycle/removal workflow must
+establish that proof first.
+
+The one owned discovery batch holds a 4 MiB control reservation through metadata
+and endpoint completion. Its read-only catalog adapter has a separate bounded
+turn. A held background root read therefore cannot take the foreground history
+admission turn. Managed hosts require that metadata capacity plus a 4 KiB request
+and two administrative items. Local `fleet_trust_revision` acknowledges the last
+installed complete cut, while the original startup enrollment remains distinct.
+Neither field is authenticated remote readiness or a removal certificate.
+
+| Verification | Result |
+| --- | --- |
+| Nine-target native cohort | 169 passed: directory 16, effects 16, catalog 11, enrollment 19, permits 7, host 29, membership 27, operations 23 and reads 21 |
+| New enrollment boundaries | A live empty host observes a newer root without creating a group; a held discovery read permits foreground registration, then joins and releases its budget on close |
+| Raft library tests | 128 passed, including new unknown-node/pin and revocation/grant/seed-owner cases |
+| Focused Clippy | Passed with warnings denied; existing vendor warnings remain |
+| Formatting, layout and native dependencies | Passed: 912 Rust files and 454 reachable packages, no JavaScript engine |
+| Documentation, source preflight and plan validation | Passed; 116 required cases, 66 source anchors and all 10 validator tests |
+
+The initial shared-turn cohort exposed two enrollment failures. Its failed log
+is retained as `implementation/fo03-trust-native-shared-turn-failed.log` under the
+usual ignored artifact directory. The final complete native and Raft unit runs
+follow the isolated-reader fix; assertions were not weakened. The membership
+process helper remains ignored in direct listings and is invoked by its passing
+parent. Logs and executable hashes are recorded in the partial
+`implementation/fo03/trust-boundary.json` record.
+
+Eight required FO-03 cases are still absent, and its complete listing still
+refuses qualification. Authenticated remote node observations and the required
+trusted-revision acknowledgements by move participants remain to implement.
+Complete import/birth admission, full retired-engine lifecycle, physical-host
+policy and eligibility inspection are also pending. These local results make no
+RustFS deployment, fleet-operation, TPS/p99 or soak claim.
+
 ## Next implementation boundary
 
 FO-03 adds the trusted dynamic node set, empty managed host readiness, bounded
@@ -219,8 +268,10 @@ reconciliation, lifecycle, API/CLI, scaling and qualification scope.
 `node/raft_startup.rs`, `host.rs` and `host_directory.rs` now accept zero groups
 only with explicit rooted enrollment and compiled namespace/class declarations;
 node controls no longer borrow a first-cell binding. The remaining work includes
-authenticated remote node observations, live trusted-node revision/revocation
-and complete import/birth admission. Dynamic binding mutations now belong to the
+authenticated remote node observations, required trusted-revision acknowledgements
+and complete import/birth admission. Current-root trust refresh and transport
+revocation are locally implemented; they do not complete the remote readiness
+and movement protocol. Dynamic binding mutations now belong to the
 serialized host, with bounded reader access and no lock guard crossing an await.
 Retained active histories still reopen through startup recovery registrations;
 the new metadata path refuses resetting their physical slots. A local observation,
