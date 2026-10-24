@@ -914,6 +914,14 @@ impl RaftCellHandle {
                         return Err(CommandFailure::UnsupportedCapability);
                     }
                 }
+                Kind::ObserveFleet(authorization) => {
+                    if self.binding.member().is_none()
+                        || timeout > Duration::from_secs(60)
+                        || !authorization.matches_scope(&self.binding.scope)
+                    {
+                        return Err(CommandFailure::UnsupportedCapability);
+                    }
+                }
                 Kind::AdvanceRepair {
                     expected_revision, ..
                 } => {
@@ -1022,6 +1030,7 @@ pub(crate) enum Kind {
     ActivateInitial(Box<crate::raft::fleet_catalog::FleetGroupAuthorization>),
     Fleet(Box<FleetRequest>),
     FleetStatus,
+    ObserveFleet(Box<crate::raft::fleet_catalog::FleetGroupAuthorization>),
     ActivateManaged {
         authorization: Box<crate::raft::fleet_catalog::FleetPermitAuthorization>,
         activation: LearnerActivation,
@@ -1092,6 +1101,7 @@ impl Kind {
             | Self::ActivateInitial(_)
             | Self::Fleet(_)
             | Self::FleetStatus
+            | Self::ObserveFleet(_)
             | Self::RepairStatus => 0,
         }
     }
@@ -1115,6 +1125,7 @@ impl Kind {
             | Self::ActivateInitial(_)
             | Self::Fleet(_)
             | Self::FleetStatus
+            | Self::ObserveFleet(_)
             | Self::RepairStatus => CancelFailure::Status,
         }
     }
@@ -1142,6 +1153,7 @@ pub(crate) enum Response {
     HistoryRegistered,
     Node(Box<super::RaftHostObservation>),
     Fleet(Option<Box<crate::raft::member_state::FleetMembershipStatus>>),
+    FleetObservation(Box<crate::raft::host::FleetMembershipObservation>),
     Drained(super::RaftDrainReport),
     Controller(super::RaftControllerStatus),
     PeerInspection(

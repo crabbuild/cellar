@@ -43,8 +43,9 @@ pub use crate::raft::fleet_catalog::{
     FleetNodeState, FleetPermitAuthorization, FleetRequestIdentity,
 };
 pub use crate::raft::host::{
-    RaftArchiveOptions, RaftCellPlacement, RaftCellRegistration, RaftCellsConfig,
-    RaftCellsServices, RaftControllerOptions, RaftControllerStatus, RaftHostEnrollmentObservation,
+    FleetMembershipConfiguration, FleetMembershipObservation, RaftArchiveOptions,
+    RaftCellPlacement, RaftCellRegistration, RaftCellsConfig, RaftCellsServices,
+    RaftControllerOptions, RaftControllerStatus, RaftHostEnrollmentObservation,
     RaftHostObservation, RaftHostOptions, RaftInspectionScanOptions, RaftManagedHostOptions,
     RaftNamespaceRegistration, RaftNodeDirectoryOptions, RaftPeerNode, RaftPeerNodeObservation,
 };

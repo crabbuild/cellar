@@ -66,6 +66,9 @@ pub(crate) use load::GroupResourceObserver;
 pub use load::RaftInspectionScanOptions;
 #[path = "host_fleet.rs"]
 mod fleet_control;
+#[path = "host_fleet_observation.rs"]
+mod fleet_observation;
+pub use fleet_observation::{FleetMembershipConfiguration, FleetMembershipObservation};
 #[path = "host_initial.rs"]
 mod initial;
 #[path = "host_node.rs"]
@@ -1382,6 +1385,10 @@ impl Driver {
                     }));
                 }
                 ReadPhase::Image => {
+                    if matches!(&read.operation, super::query::ReadOperation::Fleet { .. }) {
+                        self.finish_fleet_observation(id);
+                        continue;
+                    }
                     let metadata_only = matches!(
                         &read.operation,
                         super::query::ReadOperation::Seed {
@@ -2017,6 +2024,9 @@ impl Driver {
                     .map(|membership| Response::Fleet(membership.fleet_status().map(Box::new)))
                     .map_err(|_| CommandFailure::CorruptState);
                 reply(&mut request, result);
+            }
+            Kind::ObserveFleet(authorization) => {
+                self.start_fleet_observation(request, *authorization);
             }
             Kind::Query {
                 contract,

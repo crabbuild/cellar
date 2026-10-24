@@ -329,7 +329,8 @@
         "crates/cellar/durability/raft/fleet_catalog/index.rs",
         "crates/cellar/tests/native_raft_host.rs",
         "crates/cellar/tests/native_raft_archive.rs",
-        "crates/cellar/tests/native_raft_directory.rs"
+        "crates/cellar/tests/native_raft_directory.rs",
+        "crates/cellar/durability/raft/query.rs"
       ],
       "creates": [
         "crates/cellar/tests/native_raft_fleet_enrollment.rs",
@@ -357,7 +358,9 @@
         "crates/cellar/durability/raft/catalog_inventory/mod.rs",
         "crates/cellar/durability/raft/catalog_inventory/wire.rs",
         "crates/cellar/durability/raft/catalog_inventory/README.md",
-        "crates/cellar/tests/support/raft_birth_inventory.rs"
+        "crates/cellar/tests/support/raft_birth_inventory.rs",
+        "crates/cellar/tests/support/raft_fleet_observation.rs",
+        "crates/cellar/durability/raft/host_fleet_observation.rs"
       ],
       "steps": [
         "Add CAS-authorized node-set revisions with bounded route and permission refresh.",
@@ -366,7 +369,8 @@
         "Fence cancelled births using conditional tombstones at the existing per-cell-name birth key; preserve the name and incarnation permanently in v1.",
         "Support an empty managed host and node-level readiness without eager per-history registration; separate placement/leadership exclusion from evacuation.",
         "Confirm permanent namespace group-identity claims before birth admission; atomically index group identity and cell name, retain harmless pre-admission claims after cancellation and refuse earlier fleet-root protocols.",
-        "Maintain an authoritative bounded namespace birth-intent inventory before publication; freeze admissions by root CAS and reconcile every pending decision. Frozen birth inventory alone does not certify complete import, membership quiescence or removal."
+        "Maintain an authoritative bounded namespace birth-intent inventory before publication; freeze admissions by root CAS and reconcile every pending decision. Frozen birth inventory alone does not certify complete import, membership quiescence or removal.",
+        "Observe enrolled group configuration through a new quorum ReadIndex per invocation, without requiring a SQL image. Preserve joint roles, exact birth/process identity, bounded reply retention and original-deadline cancellation; this is not a complete-import or removal certificate."
       ],
       "acceptance": [
         "Inventory includes pending births and all managed namespaces.",
@@ -895,6 +899,61 @@
             "F05",
             "F07"
           ]
+        },
+        {
+          "name": "fleet_observation_without_image",
+          "oracle": "Leader and follower observations cover a fresh quorum barrier and coherent durable membership without a SQL image, application callback or query-reader pin; a later observation covers an acknowledged write.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F06",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_observation_requires_enrollment",
+          "oracle": "An unenrolled group and a rooted authorization for a different actual birth cannot mint an enrolled quorum observation; committing enrollment permits a matching fresh read.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F06",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_observation_partition_and_recovery",
+          "oracle": "A saved successful observation and cached local guard cannot satisfy new isolated invocations. A majority successor and the healed old process obtain new barriers covering an acknowledged successor write.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F06",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_observation_permit_phases",
+          "oracle": "Fresh observations retain seeding bindings, both joint voter sets and terminal membership at the corresponding durable revisions; the guard and application state survive movement.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F06",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_observation_cancellation_pressure_and_close",
+          "oracle": "Administrative reservations remain bounded under unpolled and overloaded calls. Dropped quorumless waiters and joined shutdown release pending reads and response reservations without minting success.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F06",
+            "F08",
+            "F10"
+          ]
         }
       ],
       "verification": [
@@ -916,6 +975,28 @@
           "cellar",
           "--test",
           "native_raft_fleet_enrollment",
+          "--locked",
+          "--",
+          "--test-threads=1"
+        ],
+        [
+          "cargo",
+          "test",
+          "-p",
+          "cellar",
+          "--test",
+          "native_raft_fleet_permits",
+          "--locked",
+          "--",
+          "--list"
+        ],
+        [
+          "cargo",
+          "test",
+          "-p",
+          "cellar",
+          "--test",
+          "native_raft_fleet_permits",
           "--locked",
           "--",
           "--test-threads=1"

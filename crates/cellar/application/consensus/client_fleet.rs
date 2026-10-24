@@ -1,6 +1,7 @@
 //! Managed configuration calls retain opaque catalog authorizations.
 use super::*;
 use crate::raft::fleet_catalog::{FleetGroupAuthorization, FleetPermitAuthorization};
+use crate::raft::host::FleetMembershipObservation;
 use crate::raft::member_state::{FleetMembershipStatus, RepairPlan, RepairStatus, RepairStep};
 
 pub(crate) enum FleetRequest {
@@ -47,6 +48,27 @@ impl FleetRequest {
 }
 
 impl RaftCellHandle {
+    /// Read the enrolled configuration after a new quorum ReadIndex barrier.
+    /// The result is one observation during this invocation, not a lease or a
+    /// certificate to release reservations or remove a node. Cached local fleet
+    /// status, an old observation and a successful enrollment retry cannot
+    /// substitute for this call's barrier. No application query or image is
+    /// required. The original deadline also bounds barrier retries.
+    pub fn observe_fleet_membership(
+        &self,
+        authorization: FleetGroupAuthorization,
+        timeout: Duration,
+    ) -> impl Future<Output = Result<FleetMembershipObservation, CommandFailure>> + Send + 'static
+    {
+        let call = self.call(Kind::ObserveFleet(Box::new(authorization)), timeout);
+        async move {
+            match call.await? {
+                Response::FleetObservation(observation) => Ok(*observation),
+                _ => Err(CommandFailure::CorruptState),
+            }
+        }
+    }
+
     /// Initialize an exact reserved initial voter inside this existing host.
     /// Enrollment and genesis share their first sync before attachment. The
     /// receipt is local durable state, never a live-quorum/write-ack proof.

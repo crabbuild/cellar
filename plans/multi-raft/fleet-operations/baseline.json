@@ -183,6 +183,10 @@
       "sha256": "29e031663914883ef0afb3ad35cd547eafe8e439b64ad1dd5511c1c1b9e4d7c0"
     },
     {
+      "path": "crates/cellar/durability/raft/query.rs",
+      "sha256": "f715b985f9a099830fa2115d2a84820c05668a61103447be0adcb9e4a8cb9012"
+    },
+    {
       "path": "crates/cellar/durability/raft/records.rs",
       "sha256": "d50eb545b4ee3dccd86675ce40bcf058f949a4377960d941b5b26da8f41327c0"
     },

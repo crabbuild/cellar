@@ -3,6 +3,8 @@
 #[path = "support/raft_cluster.rs"]
 #[allow(dead_code)]
 mod cluster;
+#[path = "support/raft_fleet_observation.rs"]
+mod observation;
 #[path = "support/raft_node.rs"]
 #[allow(dead_code)]
 mod public_node;
@@ -71,6 +73,10 @@ async fn leader(domain: &ExecutionDomain, cells: &[RaftCellHandle]) -> Result<us
 
 impl Fixture {
     async fn new() -> Result<Self> {
+        Self::create(true, true).await
+    }
+
+    async fn create(write_image: bool, enroll: bool) -> Result<Self> {
         let (gate, entered) = public_node::Gate::new();
         gate.release();
         let calls: Vec<_> = (0..4).map(|_| Arc::new(AtomicUsize::new(0))).collect();
@@ -160,18 +166,22 @@ impl Fixture {
             )
             .await?;
         // Establish a real SQL image before metadata-only enrollment changes.
-        f.write(1, 5, true).await?;
+        if write_image {
+            f.write(1, 5, true).await?;
+        }
         let root = f.catalog.read(TIMEOUT).await?;
         let authorization = f.catalog.authorize_group(&root, &scope, TIMEOUT).await?;
         let expected = f.handles[primary].status().await?.membership_revision;
-        let enrolled = f.handles[primary]
-            .enroll_fleet(authorization, expected, TIMEOUT)
-            .await?;
-        ensure!(
-            enrolled.binding == f.binding
-                && enrolled.consumed_sequence == 0
-                && enrolled.permit.is_none()
-        );
+        if enroll {
+            let enrolled = f.handles[primary]
+                .enroll_fleet(authorization, expected, TIMEOUT)
+                .await?;
+            ensure!(
+                enrolled.binding == f.binding
+                    && enrolled.consumed_sequence == 0
+                    && enrolled.permit.is_none()
+            );
+        }
         Ok(f)
     }
 
@@ -604,6 +614,19 @@ async fn fleet_permit_joint_cancel() -> Result<()> {
     let ns = f.registration.namespace.namespace;
     let name = f.registration.birth.scope.cell.clone();
     let get = f.definitions[3].get.clone();
+    let group_authorization = f
+        .catalog
+        .authorize_group(&root, &f.registration.birth.scope, TIMEOUT)
+        .await?;
+    for cell in [&f.handles[f.primary], &target] {
+        ensure!(
+            cell.observe_fleet_membership(group_authorization.clone(), Duration::from_millis(500),)
+                .await
+                .is_err(),
+            "a new majority alone cannot authorize a joint observation"
+        );
+    }
+    let reopen_authorization = group_authorization.clone();
     f.cluster = f
         .cluster
         .restart(
@@ -633,6 +656,15 @@ async fn fleet_permit_joint_cancel() -> Result<()> {
                     ensure!(
                         matches!(read, Err(CommandFailure::VersionUnavailable)),
                         "retained joint target bypassed the missing old majority: {read:?}"
+                    );
+                    ensure!(
+                        cell.observe_fleet_membership(
+                            reopen_authorization,
+                            Duration::from_millis(200),
+                        )
+                        .await
+                        .is_err(),
+                        "reopened joint metadata bypassed the missing old majority"
                     );
                     Ok(())
                 })
@@ -668,6 +700,12 @@ async fn fleet_permit_joint_cancel() -> Result<()> {
                 &plan
             )?)
     );
+    let fresh = f.handles[f.primary]
+        .observe_fleet_membership(group_authorization, TIMEOUT)
+        .await?;
+    assert_eq!(fresh.status(), &terminal);
+    ensure!(fresh.configuration().outgoing_voters().is_empty());
+    ensure!(fresh.applied().index >= fresh.barrier());
     assert_eq!(f.strong().await?, 5);
     f.change(21, FleetTable::Admissions, None).await?;
     f.close().await

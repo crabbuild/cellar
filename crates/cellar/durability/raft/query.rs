@@ -56,6 +56,10 @@ pub(crate) enum Phase {
 }
 
 pub(crate) enum ReadOperation {
+    Fleet {
+        authorization: crate::raft::fleet_catalog::FleetGroupAuthorization,
+        charge: crate::raft::budget::Permit,
+    },
     Query {
         contract: OperationContract,
         input: Vec<u8>,
@@ -82,6 +86,25 @@ pub(crate) struct PendingRead {
 }
 
 impl PendingRead {
+    pub fn fleet(
+        request: Request,
+        authorization: crate::raft::fleet_catalog::FleetGroupAuthorization,
+        charge: crate::raft::budget::Permit,
+    ) -> Self {
+        Self::with_options(
+            request,
+            ReadOperation::Fleet {
+                authorization,
+                charge,
+            },
+            &QueryOptions {
+                consistency: QueryConsistency::Linearizable,
+                ..Default::default()
+            },
+            None,
+        )
+    }
+
     pub fn new(
         request: Request,
         contract: OperationContract,

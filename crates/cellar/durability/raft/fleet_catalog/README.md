@@ -135,6 +135,33 @@ control request/response payloads and pending fleet goals are also boxed;
 ordinary command carriers do not embed a full permit.
 Physical snapshot completion reservations cover the expanded bounded ledger.
 
+### Quorum-backed membership observation
+
+`RaftCellHandle::observe_fleet_membership` requires a rooted group authorization
+that matches the host's actual immutable birth and schema. Each invocation runs
+a new safe ReadIndex through the existing bounded read dispatcher. The host waits
+until its durable applied position covers that barrier and its route covers the
+observed membership revision, then captures the configuration and fleet guard
+under the same short cache read. The result binds the exact node, disk, process
+and history. It includes incoming/outgoing voter sets, current/next learners,
+joint auto-leave state, committed joined-member bindings and repair phase.
+
+This metadata read needs neither a SQL image nor an application query. It shares
+the existing administrative admission and reserves an additional 64 KiB/item
+before cloning membership state. That reservation remains held through reply
+delivery, including an unpolled SDK waiter. Pressure refuses immediately rather
+than adding an unbounded queue. Cancellation, the original deadline and shutdown
+release the pending read; barrier retries do not extend that deadline. Business
+write acknowledgement does not call this API or the fleet catalog.
+
+`fleet_membership_status` and idempotent enrollment replies remain local synced
+observations. Neither supplies this invocation's quorum barrier. Likewise, saving
+a `FleetMembershipObservation` does not establish current quorum later or grant
+a lease. It is an input to complete-import and terminal-operation verification,
+not a complete inventory, archive-coverage or node-removal certificate. Rooted
+operation sequencing, complete history coverage and physical work joins remain
+separate controller obligations.
+
 ## Host API and fresh learners
 
 ### Rooted node enrollment
