@@ -236,7 +236,12 @@ async fn cluster(groups: usize) -> Result<BTreeSet<String>> {
         ensure!(status == reqwest::StatusCode::OK);
         let observed = service.performance();
         ensure!(observed.available && !observed.saturated && observed.source.len() == 32);
-        ensure!(observed.operations.len() == 23 && observed.counters.len() == 20);
+        // The archive admission/publication instruments already belong to the
+        // fixed vocabulary. Keep exact cardinality, including their counters.
+        ensure!(observed.operations.len() == 26 && observed.counters.len() == 34);
+        for name in ["archive_admission_check", "archive_admission_wait", "archive_publication_batch"] {
+            ensure!(observed.operations.iter().any(|operation| operation.name == name));
+        }
         let mut perf_ids = BTreeSet::new();
         for line in text.lines().filter(|line| !line.starts_with('#') && !line.is_empty()) {
             let mut fields = line.split_whitespace();
@@ -245,7 +250,9 @@ async fn cluster(groups: usize) -> Result<BTreeSet<String>> {
             ensure!(value.is_finite() && value >= 0.0 && fields.next().is_none());
             ensure!(perf_ids.insert(name.to_owned()));
         }
-        ensure!(perf_ids.len() == 551);
+        // Two availability gauges, 34 counters, and 26 operations with five
+        // outcomes, sixteen buckets, a sum and a count each.
+        ensure!(perf_ids.len() == 634);
         let expected = observed.prometheus().lines().filter(|line| !line.starts_with('#') && !line.is_empty()).map(|line| line.split_whitespace().next().unwrap().to_owned()).collect::<BTreeSet<_>>();
         ensure!(perf_ids == expected && perf_ids.is_disjoint(&identities));
         identities.extend(perf_ids);
