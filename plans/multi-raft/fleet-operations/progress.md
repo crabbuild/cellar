@@ -497,6 +497,48 @@ FO-03 remains `IN_PROGRESS`: five mandatory cases are still absent
 incomplete listing. The acceptance inventory stays at 135 cases and 67 source
 anchors; FO-04 through FO-10 remain pending.
 
+## FO-03 progress: group identity admission
+
+Source `c4d2c0ec7b409a136aa4dd663464f20a7e1fc9ba` confirms the namespace's permanent group-ID claim before
+fleet admission, then indexes the history, cell name and fleet-wide group ID in
+one root CAS. A conflicting claim in another namespace refuses before a history
+is admitted. A pre-admission claim left by cancellation or a losing root turn
+grants no birth or membership authority; retain it and reconcile the original
+request. The immutable namespace claim also prevents a competing catalog from
+stealing the ID between confirmation and root admission.
+
+The experimental protocol now ends in `/group-reservations-1`. Fleet heads
+require its digest and the permanent genesis pin binds it. Earlier or missing
+protocol state refuses initialization and reads. Use fresh fleet roots, fresh
+namespaces and matching binaries; numeric markers remain 1. No legacy reader or
+state migration was added.
+
+Four new native cases cover aliases across names/incarnations/namespaces/data
+prefixes, an existing unmanaged claim, cancellation before root CAS and lost
+claim confirmation with exact retry after later revisions and adapter restart.
+The catalog's malformed-record case also refuses missing/foreign head protocols.
+The duplicate admission was reproduced before its fix; no assertion was weakened.
+
+The final cohort passed **328 native cases across 13 targets**, including all
+**45 enrollment cases**, plus **136 Raft unit tests and four startup tests**.
+Affected Clippy with warnings denied, format/layout over 926 Rust files,
+native dependencies (454 packages, no JavaScript engine), plan validation,
+10 validator tests and documentation checks passed. No Rust bytes changed after
+qualification. The initial manual native total omitted the preceding birth/drain
+case; the retained correction records all 13 summaries totaling 328, zero failed.
+
+The ignored partial record `implementation/fo03/group-reservations-boundary.json`
+under `.cellar/raft-perf/fleet-operations/` stores exact source/log/executable
+hashes. Adjacent logs use `fo03-group-reservations-*.log`; executable cache paths
+do not archive binary bytes. No raw evidence is tracked. These runs do not
+qualify RustFS, Colima resource enforcement, fleet automation, TPS/p99 or soak.
+
+The acceptance inventory now contains 139 cases and 67 source anchors. FO-03
+remains `IN_PROGRESS` with the same five mandatory cases absent: unknown-node
+ingress, move-participant revision acknowledgements, actual retired-binding
+lifecycle, complete imports and rooted physical-host policy. The complete FO-03
+listing still correctly refuses qualification. FO-04 through FO-10 remain pending.
+
 ## Prioritized remaining delivery
 
 The next changes should close FO-03's remaining trust, complete-inventory and
@@ -507,7 +549,7 @@ safe admission ahead of automation; the manifest dependencies remain unchanged.
 
 | Priority | Boundary | Required result before advancing |
 | --- | --- | --- |
-| P0, first | FO-03 complete inventory and member lifecycle | Finish exact group-identity conflict reconciliation, the explicit complete/quiesced import cut and actual retired-binding lifecycle refusal. Original voters now settle after rooted drain/restart/resize exclusion, and initialization retries through startup-recovered handles retain data. The actual SDK birth/drain race is covered; this does not certify evacuation. Close `fleet_enrollment_incomplete_import` and `fleet_enrollment_retired_binding`. |
+| P0, first | FO-03 complete inventory and member lifecycle | Finish the explicit complete/quiesced import cut and actual retired-binding lifecycle refusal. Group identity is now fenced before admission and indexed atomically with its history/name. Original voters now settle after rooted drain/restart/resize exclusion, and initialization retries through startup-recovered handles retain data. The actual SDK birth/drain race is covered; this does not certify evacuation. Close `fleet_enrollment_incomplete_import` and `fleet_enrollment_retired_binding`. |
 | P0, next | FO-03 remaining trust and placement checks | Close `fleet_enrollment_unknown_node`, `fleet_enrollment_route_revocation` and `fleet_enrollment_physical_host`: cover unsolicited ingress, move-participant acknowledgement enforcement and strict physical-host policy for movement. Initial birth-domain admission and cell-free observations are implemented locally; neither activates capacity. Pass the complete FO-03 listing and behavior tests before advancing. |
 | P1 | FO-04 placement, FO-05 fresh load, then FO-06 reconciliation | Validate final assignments and every staged move against retained/temporary costs, failure domains and one-node-loss restoration. Reconciliation must survive cancellation, restart and lost replies, with fresh terminal quorum proof before releasing reservations. Verify foreground overhead before enabling optional balancing. |
 | P2 | FO-07 maintenance, FO-08 operator surfaces, then FO-09 scaling | Deliver the durable stop fence and one-disruption slot, complete evacuation/removal proof, authenticated idempotent API/CLI workflows and observed-limit checks for resource changes. Proposed commands are not available until these packages pass. |
