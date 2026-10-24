@@ -227,6 +227,26 @@ the new metadata path refuses resetting their physical slots. A local observatio
 dummy business cell or successful TCP connect cannot substitute for the remaining
 enrollment/readiness proof.
 
+## Prioritized remaining delivery
+
+The next change should finish authenticated node observations and live trust
+refresh/revocation in FO-03. This gives a coordinator an authoritative view of
+new capacity without relying on the local startup cut. The following order keeps
+safe admission ahead of automation; the manifest dependencies remain unchanged.
+
+| Priority | Boundary | Required result before advancing |
+| --- | --- | --- |
+| P0, first | FO-03 node trust and readiness | Purpose-bound remote node controls work without a business group; current rooted trust rejects unknown or revoked nodes across inbound calls, routes and grants. Physical-host identity and eligibility modes are checked. Cover `fleet_enrollment_unknown_node`, `fleet_enrollment_route_revocation`, `fleet_enrollment_empty_host`, `fleet_enrollment_physical_host` and `fleet_enrollment_eligibility_modes`. |
+| P0, next | FO-03 complete inventory and lifecycle exclusion | An incomplete import cannot authorize management; a concurrent birth cannot escape a drain cut; a retired physical binding cannot be reused. Cover `fleet_enrollment_incomplete_import`, `fleet_enrollment_birth_drain_race` and `fleet_enrollment_retired_binding`, then pass the complete FO-03 listing and behavior tests. |
+| P1 | FO-04 placement, FO-05 fresh load, then FO-06 reconciliation | Validate final assignments and every staged move against retained/temporary costs, failure domains and one-node-loss restoration. Reconciliation must survive cancellation, restart and lost replies, with fresh terminal quorum proof before releasing reservations. Verify foreground overhead before enabling optional balancing. |
+| P2 | FO-07 maintenance, FO-08 operator surfaces, then FO-09 scaling | Deliver the durable stop fence and one-disruption slot, complete evacuation/removal proof, authenticated idempotent API/CLI workflows and observed-limit checks for resource changes. Proposed commands are not available until these packages pass. |
+| Release gate | FO-10 deployed qualification | Qualify RustFS conditional writes and real five/six/four-node workflows, faults and the 24-hour soak. At 1 vCPU/3 GiB per node, maximize successful TPS with p99 below 200 ms preferred and 500 ms hard ceiling. Measure enabled-idle controller cost and use matched comparisons for optional performance changes. |
+
+The local implementation has no measured TPS or latency improvement claim. Keep
+fleet management default-off until its release gates pass. Optional throughput
+or latency changes must meet the existing qualification gates; additional code
+alone is not evidence of an improvement.
+
 ## Expanded operating design
 
 The [lifecycle execution contract](lifecycle-execution.md) adds the authority and
