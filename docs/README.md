@@ -28,6 +28,9 @@ addons, React server rendering and a verified runtime directory.
 The [durable Pi agent](../examples/pi-agent/README.md) runs a TypeScript agent
 loop with checkpointed model decisions, atomic tool receipts and alarm recovery.
 
+[Streaming and WebSockets](27-streaming-and-websockets.md) covers Rust, Python,
+JavaScript and TypeScript producers, upgrades, forwarding and lifecycle rules.
+
 ## Choose a reading path
 
 | Reader | Recommended path | Deliverable |

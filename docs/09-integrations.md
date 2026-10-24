@@ -22,6 +22,9 @@ consistency with each external system.
 | Facets | Use cell-owned facet lifecycle and properties; test parent cancellation | [facets](../crates/cellar/application/facets.rs) |
 | Compiled loader | Load registered native application objects with host quotas | [loader](../crates/cellar/application/loader.rs) |
 
+See [streaming and WebSockets across languages](27-streaming-and-websockets.md)
+for Rust, Python, JavaScript and TypeScript APIs.
+
 ## WebSockets and containers
 
 The SDK includes socket pairs, ordinary and hibernating acceptance, text/binary

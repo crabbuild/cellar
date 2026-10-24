@@ -2,26 +2,27 @@
 
 // Injected by the Rust bootstrap. No application code runs before the private
 // transport and context factory have captured their dependencies.
-import { readFileSync } from 'node:fs';
-import { connect } from 'node:net';
-import { AsyncLocalStorage } from 'node:async_hooks';
-import { pathToFileURL } from 'node:url';
+import { readFileSync } from "node:fs";
+import { connect } from "node:net";
+import { AsyncLocalStorage } from "node:async_hooks";
+import { pathToFileURL } from "node:url";
 
-if (Number(process.versions.node.split('.')[0]) < 24) {
-  throw new Error('Cellar requires Node 24 or later');
+if (Number(process.versions.node.split(".")[0]) < 24) {
+  throw new Error("Cellar requires Node 24 or later");
 }
 
 // Bootstrap configuration arrives on stdin, keeping the authentication secret
 // out of argv and the environment. stdout/stderr remain available to the app.
-const config = JSON.parse(readFileSync(0, 'utf8'));
-const parse = JSON.parse,
-  stringify = JSON.stringify;
+const config = JSON.parse(readFileSync(0, "utf8"));
+const parse = JSON.parse;
+const stringify = JSON.stringify;
 const scope = new AsyncLocalStorage();
-const active = new Map(),
-  pending = new Map();
-let next = 0,
-  runner;
-const socket = connect({ host: '127.0.0.1', port: config.port });
+// Track invocation authority separately from operations waiting for Rust replies.
+const active = new Map();
+const pending = new Map();
+let next = 0;
+let runner;
+const socket = connect({ host: "127.0.0.1", port: config.port });
 const exit = process.exit.bind(process);
 const maximum = Math.min(config.valueLimit * 6 + 4096, config.bridgeLimit);
 
@@ -43,11 +44,11 @@ function send(value) {
   socket.write(frame);
 }
 
-socket.on('error', () => exit(70));
-socket.on('close', () => exit(70));
-await new Promise(resolve => socket.once('connect', resolve));
+socket.on("error", () => exit(70));
+socket.on("close", () => exit(70));
+await new Promise(resolve => socket.once("connect", resolve));
 socket.setNoDelay(true);
-send({ type: 'hello', secret: config.secret });
+send({ type: "hello", secret: config.secret });
 delete config.secret;
 
 function reject(code) {
@@ -57,34 +58,49 @@ function reject(code) {
 // AsyncLocalStorage binds promises, timers and Node I/O continuations to their
 // invocation. Rust repeats the liveness/limit checks before accepting effects.
 const factory = makeRunner((invocation, name, payload) => {
-  if (scope.getStore() !== invocation) reject('ContextMismatch');
+  if (scope.getStore() !== invocation) {
+    reject("ContextMismatch");
+  }
 
   const state = active.get(invocation);
-  if (!state) reject('ContextExpired');
-  if (Buffer.byteLength(payload) > config.valueLimit) reject('ValueLimit');
+
+  if (!state) {
+    reject("ContextExpired");
+  }
+
+  if (Buffer.byteLength(payload) > config.valueLimit) {
+    reject("ValueLimit");
+  }
 
   if (
     state.count >= config.operationLimit ||
     state.pending >= config.pendingLimit
   ) {
-    reject('OperationLimit');
+    reject("OperationLimit");
   }
 
   // Only known reads may overlap a mutation. SQL and nested cell fetches are
   // conservatively treated as mutations, even when a caller expects a read.
   const mutation = ![
-    'clock.now',
-    'storage.read',
-    'alarm.get',
-    'var',
-    'kv.get',
-    'kv.list',
+    "clock.now",
+    "storage.read",
+    "alarm.get",
+    "var",
+    "kv.get",
+    "kv.list",
+    "websocket.next",
+    "response.read",
   ].includes(name);
 
-  if (mutation && state.mutation) reject('ConcurrentMutation');
+  if (mutation && state.mutation) {
+    reject("ConcurrentMutation");
+  }
 
   const id = ++next;
-  if (!Number.isSafeInteger(id)) reject('OperationLimit');
+
+  if (!Number.isSafeInteger(id)) {
+    reject("OperationLimit");
+  }
 
   state.count++;
   state.pending++;
@@ -92,7 +108,7 @@ const factory = makeRunner((invocation, name, payload) => {
 
   return new Promise(resolve => {
     pending.set(id, { invocation, mutation, resolve });
-    send({ type: 'operation', invocation, id, name, payload });
+    send({ type: "operation", invocation, id, name, payload });
   });
 });
 
@@ -105,7 +121,7 @@ function revoke(id) {
     if (operation.invocation === id) {
       pending.delete(key);
       operation.resolve(
-        stringify({ ok: false, code: 'ContextExpired', outcome: 'unknown' }),
+        stringify({ ok: false, code: "ContextExpired", outcome: "unknown" }),
       );
     }
   }
@@ -113,7 +129,7 @@ function revoke(id) {
 
 function receive(message) {
   switch (message.type) {
-    case 'start': {
+    case "start": {
       if (
         !runner ||
         active.has(message.id) ||
@@ -125,53 +141,71 @@ function receive(message) {
       const state = { count: 0, pending: 0, mutation: false };
       active.set(message.id, state);
 
-      scope.run(message.id, async () => {
-        let payload = 'null',
-          failed = false;
+      scope
+        .run(message.id, async () => {
+          let payload = "null";
+          let failed = false;
 
-        try {
-          payload = await runner.dispatch(message.id, message.payload);
-        } catch {
-          failed = true;
-        }
+          try {
+            payload = await runner.dispatch(message.id, message.payload);
+          } catch {
+            failed = true;
+          }
 
-        // Cancellation may already have removed this invocation while it awaited.
-        if (active.get(message.id) !== state) return;
+          // Cancellation may already have removed this invocation while it awaited.
+          if (active.get(message.id) !== state) {
+            return;
+          }
 
-        // Returning with outstanding SDK operations is a handler failure.
-        failed ||=
-          state.pending !== 0 || Buffer.byteLength(payload) > config.valueLimit;
-        revoke(message.id);
-        send({
-          type: 'complete',
-          id: message.id,
-          payload: failed ? 'null' : payload,
-          failed,
-        });
-      }).catch(() => exit(70));
+          // Returning with outstanding SDK operations is a handler failure.
+          failed ||=
+            state.pending !== 0 ||
+            Buffer.byteLength(payload) > config.valueLimit;
+          revoke(message.id);
+          send({
+            type: "complete",
+            id: message.id,
+            payload: failed ? "null" : payload,
+            failed,
+          });
+        })
+        .catch(() => exit(70));
       break;
     }
 
-    case 'reply': {
+    case "reply": {
       const operation = pending.get(message.id);
-      if (!operation) break;
-      if (operation.invocation !== message.invocation) exit(70);
+
+      if (!operation) {
+        break;
+      }
+
+      if (operation.invocation !== message.invocation) {
+        exit(70);
+      }
 
       pending.delete(message.id);
       const state = active.get(operation.invocation);
-      if (!state) break;
+
+      if (!state) {
+        break;
+      }
 
       state.pending--;
-      if (operation.mutation) state.mutation = false;
+
+      if (operation.mutation) {
+        state.mutation = false;
+      }
+
       operation.resolve(message.payload);
       break;
     }
 
-    case 'cancel':
+    case "cancel":
       revoke(message.id);
       break;
 
-    case 'retire':
+    case "retire":
       runner.retire(message.id);
       break;
 
@@ -182,12 +216,12 @@ function receive(message) {
 
 // Incrementally copy into one bounded frame; coalesced frames are dispatched
 // individually instead of retaining an unbounded concatenated input buffer.
-let header = Buffer.alloc(4),
-  headerBytes = 0,
-  frame = null,
-  frameBytes = 0;
+let header = Buffer.alloc(4);
+let headerBytes = 0;
+let frame = null;
+let frameBytes = 0;
 
-socket.on('data', chunk => {
+socket.on("data", chunk => {
   try {
     let offset = 0;
 
@@ -198,10 +232,15 @@ socket.on('data', chunk => {
         headerBytes += n;
         offset += n;
 
-        if (headerBytes < 4) continue;
+        if (headerBytes < 4) {
+          continue;
+        }
 
         const length = header.readUInt32BE();
-        if (!length || length > maximum) exit(70);
+
+        if (!length || length > maximum) {
+          exit(70);
+        }
 
         frame = Buffer.allocUnsafe(length);
         frameBytes = 0;
@@ -214,7 +253,7 @@ socket.on('data', chunk => {
       offset += n;
 
       if (frameBytes === frame.length) {
-        const message = parse(frame.toString('utf8'));
+        const message = parse(frame.toString("utf8"));
         frame = null;
         receive(message);
       }
@@ -230,11 +269,11 @@ const app = await import(pathToFileURL(config.entry).href);
 // CJS exports are exposed as default; ESM uses named exports, with an optional
 // default application object for compatibility with normal npm packages.
 runner = factory(
-  typeof app.fetch === 'function' || app.cells ? app : (app.default ?? app),
+  typeof app.fetch === "function" || app.cells ? app : (app.default ?? app),
   config.descriptor,
   config.maximum,
 );
-send({ type: 'ready' });
+send({ type: "ready" });
 
 // Rust uses heartbeat absence to detect a blocked event loop, not slow async I/O.
-setInterval(() => send({ type: 'heartbeat' }), 25);
+setInterval(() => send({ type: "heartbeat" }), 25);

@@ -6,6 +6,7 @@
 pub mod failure;
 pub mod operations;
 mod storage;
+pub mod transport;
 pub mod values;
 
 /// Limits enforced before entering native effects.
