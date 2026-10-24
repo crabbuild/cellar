@@ -63,9 +63,37 @@ returned the identical completed task. A new follow-up correctly recalled
 The deterministic suite independently passed all six interruption boundaries
 against RustFS. It also completed 16 concurrent production-entry turns, erased
 the worker's local files, and recovered identical results for 32 duplicate
-submissions. The unit suite has 31 passing tests, including backend selection,
+submissions. The unit suite has 34 passing tests, including backend selection,
 refusal to fall back from incomplete S3 configuration, and inherited local-store
 override removal. Default local-store recovery remains covered.
+
+## Sidebar discovery
+
+The transcript was durable, but the original sidebar depended on the creating
+browser's local storage. A regression reproduced an empty sidebar in a fresh
+browser while the saved transcript loaded correctly by URL.
+
+Conversation discovery now lives in a separate `ConversationDirectory` cell,
+using cell-owned SQL and the same bucket durability policy. Unique task keys
+make concurrent acceptance/alarm registration idempotent. The turn's persisted
+alarm repairs interruption between acceptance and directory registration before
+provider work. Follow-ups replace their parent in the recent conversation list.
+Browser local storage is only a cache, and directory outages show a retry state.
+
+The desktop and mobile regression loads history without local storage, clears
+the cache again, and opens a saved conversation from the home page without a
+turn URL or resubmission. Eight UI tests passed. In the live RustFS demo, all
+27 worker-local files across three worker directories were deleted. Two sidebar
+conversations then restored identically through the directory endpoint, before
+any task HTTP request. Opening a saved link also registers previously unindexed
+turns; the directory does not scan or reverse opaque IDs for undiscovered old
+turns.
+
+The example uses a bounded 128-invocation bridge budget for nested ingress,
+turn, alarm and directory calls. The deterministic RustFS run verifies that
+the directory contains the recovered task before a task GET at each crash
+boundary, and lists all 16 concurrent conversations before replaying duplicate
+submissions. The framework's default invocation limit is unchanged.
 
 ## Reproduce and inspect
 

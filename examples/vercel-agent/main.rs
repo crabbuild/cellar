@@ -26,11 +26,18 @@ fn main() -> Result<()> {
         }
     };
     NodeRuntime::run(
-        Options::default(),
+        // Each turn can have ingress, cell, alarm and directory invocations in
+        // flight together. Keep the 16-turn example bounded with room for that
+        // nested call graph rather than exhausting the default 64 slots.
+        Options {
+            max_invocations: 128,
+            ..Options::default()
+        },
         node,
         Source::module()
             .events([EventKind::Fetch])
-            .cell_events("DurableAgent", [EventKind::Fetch, EventKind::Alarm]),
+            .cell_events("DurableAgent", [EventKind::Fetch, EventKind::Alarm])
+            .cell_events("ConversationDirectory", [EventKind::Fetch]),
         |application| {
             let stop = application.clone();
             let host = if let Some(sha) = inventory {
@@ -59,8 +66,11 @@ fn graph() -> cellar::sdk::DeploymentGraph {
             stream_bindings: Vec::new(),
             src: String::new(),
             script_name: "vercel-agent-example".into(),
-            do_classes: vec!["DurableAgent".into()],
-            bindings: vec![("AGENTS".into(), "DurableAgent".into())],
+            do_classes: vec!["DurableAgent".into(), "ConversationDirectory".into()],
+            bindings: vec![
+                ("AGENTS".into(), "DurableAgent".into()),
+                ("CONVERSATIONS".into(), "ConversationDirectory".into()),
+            ],
             blob_bindings: vec![],
             sql_bindings: vec![],
             kv_bindings: vec![],

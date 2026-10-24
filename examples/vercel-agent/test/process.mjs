@@ -161,16 +161,26 @@ try {
     const first = await start(boundary, 1);
     const url = `${first.ingress}/agents/task`;
     // Acceptance can itself lose its response. Recovery uses the same task ID.
+    let submissionFailure;
     const submission = fetch(url, {
       method: "POST",
       body: JSON.stringify({ prompt: "Add three" }),
     }).then(
-      (reply) => {
-        assert.ok(reply.ok);
+      async (reply) => {
+        assert.ok(
+          reply.ok,
+          `Task acceptance returned ${reply.status}: ${await reply.text()}`,
+        );
       },
       () => {},
     );
+    // Surface assertion failures through the owning scenario so cleanup still
+    // joins workers, rather than leaving an unhandled rejected POST promise.
+    submission.catch((error) => {
+      submissionFailure = error;
+    });
     await until(async () => {
+      if (submissionFailure) throw submissionFailure;
       if (first.child.exitCode !== null) throw new Error(first.logs());
       try {
         await access(join(root, `${boundary}.marker`));
@@ -210,6 +220,14 @@ try {
         return false;
       }
     }, "recovery without a task HTTP request");
+    const history = await until(async () => {
+      const reply = await fetch(`${second.ingress}/conversations`);
+      return reply.ok ? reply.json() : null;
+    }, "conversation directory admission after the old owner's lease expires");
+    assert.ok(
+      history.chats.some((chat) => chat.task === "task"),
+      "alarm must repair history indexing before a task GET",
+    );
     const result = await until(async () => {
       const reply = await fetch(recoveredUrl);
       if (!reply.ok) return null; // Prior owner lease may still need to expire.
@@ -339,6 +357,15 @@ try {
     await rm(first.data, { recursive: true });
     await assert.rejects(access(first.data), { code: "ENOENT" });
     const second = await start("concurrent", 2);
+    const history = await until(async () => {
+      const reply = await fetch(`${second.ingress}/conversations`);
+      return reply.ok ? reply.json() : null;
+    }, "cold conversation directory");
+    assert.equal(
+      history.chats.length,
+      16,
+      "all conversations must be discoverable without browser storage",
+    );
     await Promise.all(
       Array.from({ length: 32 }, async (_, index) => {
         const id = index % results.length;

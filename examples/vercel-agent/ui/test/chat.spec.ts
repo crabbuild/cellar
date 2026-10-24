@@ -12,6 +12,21 @@ async function setup(page: Page) {
       return route.fulfill({ json: { provider: "fixture", model: "ui-test" } });
     if (path === "/api/restart")
       return route.fulfill({ json: { restarted: true } });
+    if (path === "/api/conversations") {
+      const parents = new Set(requests.map((item) => item.previous));
+      return route.fulfill({
+        json: {
+          chats: requests
+            .filter((item) => !parents.has(item.id))
+            .map((item) => ({
+              task: item.id,
+              title: item.prompt.slice(0, 48),
+              prompt: item.prompt,
+              previous: item.previous,
+            })),
+        },
+      });
+    }
     if (path.endsWith("/events"))
       return route.fulfill({
         contentType: "text/event-stream",
@@ -79,6 +94,42 @@ async function setup(page: Page) {
     },
   };
 }
+
+test("server conversation history restores without browser storage or a turn URL", async ({
+  page,
+}, info) => {
+  const server = await setup(page);
+  server.requests.push({
+    id: "restored-turn",
+    prompt: "Saved conversation from the bucket",
+    previous: null,
+  });
+  server.complete();
+  await page.goto("/?task=restored-turn");
+  await expect(
+    page.getByRole("heading", { name: "Verified result" }),
+  ).toBeVisible();
+  if (info.project.name === "mobile")
+    await page.getByRole("button", { name: "Open conversations" }).click();
+  await expect(
+    page
+      .getByRole("navigation", { name: "Conversations" })
+      .getByRole("button", { name: "Saved conversation from the bucket" }),
+  ).toBeVisible();
+  await page.evaluate(() => localStorage.clear());
+  await page.goto("/");
+  if (info.project.name === "mobile")
+    await page.getByRole("button", { name: "Open conversations" }).click();
+  await page
+    .getByRole("navigation", { name: "Conversations" })
+    .getByRole("button", { name: "Saved conversation from the bucket" })
+    .click();
+  await expect(page).toHaveURL(/task=restored-turn/);
+  await expect(
+    page.getByRole("heading", { name: "Verified result" }),
+  ).toBeVisible();
+  expect(server.requests).toHaveLength(1);
+});
 
 test("streamed Markdown, durable completion, reload, and follow-up preserve turn identity", async ({
   page,

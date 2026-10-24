@@ -45,6 +45,25 @@ send, Shift+Enter for a line break, and IME composition. Mobile navigation and
 saved-work panels use accessible shadcn Sheets. The conversation and Markdown
 tables have keyboard access; motion respects reduced-motion preferences.
 
+The sidebar reads `/api/conversations`, backed by a cell-owned durable
+`ConversationDirectory` in the same bucket as the turns. Browser local storage
+is only a display cache: an empty browser can discover saved conversations
+without a turn URL. Follow-ups replace their parent in the list, while keeping
+the conversation's original title. The directory returns 20 recent conversation
+leaves and retains up to 128 turn references, with prompts bounded to 8,000
+characters each.
+
+Turn acceptance and directory registration are separate cell writes. The
+already persisted turn alarm repairs a crash between them before provider work
+starts. Opening an existing saved link also registers it in the directory;
+links saved before this directory existed become discoverable when opened.
+This directory belongs to the loopback workspace, rather than a browser or an
+authenticated tenant.
+
+The example configures 128 bridge invocation slots to accommodate concurrent
+ingress, turn, alarm and directory calls. The 16-turn recovery test exercises
+that bounded call graph; it is not a maximum-capacity qualification.
+
 **Restart worker** sends SIGKILL to this launcher's host and starts a replacement
 with a new node identity and empty local storage. It keeps the development
 bucket and independent ticket service. Pending work resumes through alarms.

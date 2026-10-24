@@ -11,10 +11,14 @@ export function ChatNavigation({
   chats,
   task,
   choose,
+  loading,
+  error,
 }: {
   chats: Chat[];
   task: string | null;
   choose: (id: string | null) => void;
+  loading: boolean;
+  error: boolean;
 }) {
   return (
     <div className="navigation-content">
@@ -39,9 +43,16 @@ export function ChatNavigation({
         New chat
       </Button>
       <div className="nav-label">
-        Conversations <span>{chats.length}</span>
+        Conversations{" "}
+        <span>
+          {!chats.length && loading
+            ? "…"
+            : !chats.length && error
+              ? "—"
+              : chats.length}
+        </span>
       </div>
-      <nav aria-label="Conversations" className="chat-list">
+      <nav aria-label="Conversations" className="chat-list" aria-busy={loading}>
         {chats.map((chat) => (
           <Button
             key={chat.task}
@@ -55,10 +66,13 @@ export function ChatNavigation({
           </Button>
         ))}
       </nav>
-      {!chats.length ? (
+      {loading || error || !chats.length ? (
         <p className="nav-hint">
-          Your conversations will appear here. Each one has a link you can
-          return to.
+          {loading
+            ? "Restoring conversations…"
+            : error
+              ? "Conversation history is unavailable. Retrying automatically…"
+              : "Your conversations will appear here. Each one has a link you can return to."}
         </p>
       ) : null}
       <div className="nav-footer">

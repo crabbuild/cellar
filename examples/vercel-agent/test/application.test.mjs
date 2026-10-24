@@ -9,8 +9,11 @@ function setup(parent) {
   const ctx = {
     identity: { name: "child" },
     now: async () => 1000,
-    cell: () => ({
-      fetch: async () => ({ status: parent ? 200 : 404, json: () => parent }),
+    cell: (binding) => ({
+      fetch: async () =>
+        binding === "CONVERSATIONS"
+          ? { status: 200 }
+          : { status: parent ? 200 : 404, json: () => parent },
     }),
     storage: {
       read: async (key) =>

@@ -51,8 +51,8 @@ import {
 } from "@/components/ui/tooltip";
 import { Spinner } from "@/components/ui/spinner";
 import { api, useTask, type Task } from "./use-task";
+import { useConversations } from "./use-conversations";
 
-const storageKey = "cellar.chats.v1";
 const suggestions = [
   {
     icon: Calculator,
@@ -74,28 +74,7 @@ const suggestions = [
   },
 ];
 
-function readChats(): Chat[] {
-  try {
-    const saved: unknown = JSON.parse(localStorage.getItem(storageKey) ?? "[]");
-    return Array.isArray(saved)
-      ? saved
-          .filter(
-            (item): item is Chat =>
-              item &&
-              typeof item === "object" &&
-              /^[a-zA-Z0-9_-]{1,64}$/.test(item.task) &&
-              typeof item.title === "string" &&
-              typeof item.prompt === "string" &&
-              (item.previous === null || typeof item.previous === "string"),
-          )
-          .slice(0, 20)
-      : [];
-  } catch {
-    return [];
-  }
-}
 export default function App() {
-  const [chats, setChats] = useState(readChats);
   const [task, setTask] = useState<string | null>(() => {
     const id = new URL(location.href).searchParams.get("task");
     return id && /^[a-zA-Z0-9_-]{1,64}$/.test(id) ? id : null;
@@ -113,6 +92,12 @@ export default function App() {
   const viewport = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLTextAreaElement>(null);
   const { state, progress, connected, error } = useTask(task, seed, revision);
+  const {
+    chats,
+    setChats,
+    loading: historyLoading,
+    error: historyError,
+  } = useConversations(task, state, revision);
   const active = Boolean(task && (!state || state.status === "pending"));
   const pending = chats.find((chat) => chat.task === task);
   const preview =
@@ -137,13 +122,6 @@ export default function App() {
         ),
       );
   }, []);
-  useEffect(() => {
-    try {
-      localStorage.setItem(storageKey, JSON.stringify(chats));
-    } catch {
-      /* Chats remain available through their URL when storage is unavailable. */
-    }
-  }, [chats]);
   useEffect(() => {
     const url = new URL(location.href);
     if (task) url.searchParams.set("task", task);
@@ -262,7 +240,13 @@ export default function App() {
   }
 
   const navigation = (
-    <ChatNavigation chats={chats} task={task} choose={choose} />
+    <ChatNavigation
+      chats={chats}
+      task={task}
+      choose={choose}
+      loading={historyLoading}
+      error={historyError}
+    />
   );
 
   const ledger = (

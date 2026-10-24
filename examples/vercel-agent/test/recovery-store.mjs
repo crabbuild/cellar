@@ -20,6 +20,7 @@ export async function workerState(directory) {
       const file = join(path, item.name);
       if (item.isDirectory()) await visit(file);
       else if (item.name === "db.sqlite") {
+        if (!relative(directory, file).startsWith("DurableAgent:")) continue;
         const db = new DatabaseSync(file, { readOnly: true });
         try {
           const rows = db
@@ -114,15 +115,18 @@ export async function recoveryStore(directory, scenario) {
       }));
       const segments = objects.filter(
         (object) =>
-          object.key.startsWith("cells/") && object.key.includes("/ltx/"),
+          object.key.startsWith("cells/DurableAgent:") &&
+          object.key.includes("/ltx/"),
       );
       assert.ok(
         segments.length > 0,
         "S3 bucket must contain real cell LTX objects",
       );
       const ownership = [];
-      for (const object of objects.filter((object) =>
-        object.key.endsWith("/own.json"),
+      for (const object of objects.filter(
+        (object) =>
+          object.key.startsWith("cells/DurableAgent:") &&
+          object.key.endsWith("/own.json"),
       )) {
         const file = join(directory, `ownership-${randomUUID()}.json`);
         try {

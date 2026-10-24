@@ -169,6 +169,22 @@ export function createDemoServer({
         await restart(reset);
         return json(res, 200, { restarted: true });
       }
+      if (path === "/api/conversations" && req.method === "GET") {
+        const target = backend();
+        if (!target)
+          return json(res, 503, {
+            error: "Conversation history is recovering",
+          });
+        const reply = await fetch(`${target}/conversations`, {
+          signal: AbortSignal.timeout(15000),
+        });
+        res.writeHead(reply.status, {
+          "content-type": "application/json",
+          "cache-control": "no-store",
+        });
+        res.end(await reply.text());
+        return;
+      }
       const match = /^\/api\/tasks\/([a-zA-Z0-9_-]{1,64})(\/events)?$/.exec(
         path,
       );
