@@ -86,12 +86,7 @@ Python reports
 its actual ABI/GIL state before/after work and recovery; a free-threaded run must
 remain GIL-off.
 
-## Experimental continuation comparison
-
-This draft adds a process-wide benchmark switch for cell continuation scheduling.
-The default remains the shared stateless lane. The candidate resumes cells on
-their individual scheduler lanes, preserving the worker lock and existing turn,
-activation, cancellation and durability checks. It is not qualified for production.
+## Initial snapshots and handoff measurements
 
 The `python-initial` and `python-initial-resident` host modes register an initial
 `count` snapshot. The `python-direct-initial` and
@@ -100,23 +95,12 @@ ingress before invoking the Python cell. Build the embedded host as above, then
 start it with `python-baseline MODE DIRECTORY primary` using a new private
 directory. Use the listener address in its readiness file.
 
-The baseline host exposes these experimental controls:
-
-- `/resume-shared` selects the existing shared lane.
-- `/resume-cell` selects the candidate per-cell lane.
-- `/resume-observations` returns the selected lane and cumulative resume counts
-  and queue-wait nanoseconds for both lanes.
-
-Drain requests before switching and compare counter deltas within the same host.
-The switch affects every cell in the process. These controls belong only to the
-private benchmark host. Python bridge observations additionally include bounded
-`dispatch_handoff` and `completion_handoff` latency histograms. A completion may
-arrive before the native handler suspends, so resume counts need not equal Python
-completion counts. These timings do not establish end-to-end throughput gains.
-
-Before adopting the candidate, complete comparisons on both CPython ABIs and
-controlled Linux runs, plus scheduler fairness, cancellation, ownership loss and
-durability regression checks. Keep raw evidence outside the repository.
+Python bridge observations include bounded `dispatch_handoff` and
+`completion_handoff` latency histograms. Dispatch measures native enqueue until
+Python delivery; completion measures Python enqueue until the original native
+invocation receives the reply. These include scheduling delays across the bridge,
+but do not replace end-to-end HTTP latency or durability measurements. Compare
+counter deltas after draining work, and retain raw evidence outside the repository.
 
 ## Independent offered rates
 

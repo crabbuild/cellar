@@ -268,55 +268,7 @@ impl Drop for CurrentSlotGuard {
     }
 }
 
-static DIAGNOSTIC_CELL_RESUME: AtomicBool = AtomicBool::new(false);
-static DIAGNOSTIC_STATELESS_COUNT: AtomicU64 = AtomicU64::new(0);
-static DIAGNOSTIC_STATELESS_NS: AtomicU64 = AtomicU64::new(0);
-static DIAGNOSTIC_CELL_COUNT: AtomicU64 = AtomicU64::new(0);
-static DIAGNOSTIC_CELL_NS: AtomicU64 = AtomicU64::new(0);
-
-/// Experimental process-wide control for the continuation benchmark.
-/// Switch only after benchmark traffic has drained. Not a stable SDK API.
-pub fn diagnostic_resume_cells(enabled: bool) {
-    DIAGNOSTIC_CELL_RESUME.store(enabled, Ordering::Release);
-}
-
-/// Bounded diagnostic counters; these grant no invocation authority.
-pub fn diagnostic_resume_counts() -> serde_json::Value {
-    serde_json::json!({"cell_lane":DIAGNOSTIC_CELL_RESUME.load(Ordering::Acquire),
-        "stateless_count":DIAGNOSTIC_STATELESS_COUNT.load(Ordering::Acquire),
-        "stateless_wait_ns":DIAGNOSTIC_STATELESS_NS.load(Ordering::Acquire),
-        "cell_count":DIAGNOSTIC_CELL_COUNT.load(Ordering::Acquire),
-        "cell_wait_ns":DIAGNOSTIC_CELL_NS.load(Ordering::Acquire)})
-}
-
 impl Slot {
-    pub(crate) async fn diagnostic_turn_resume<T>(
-        &self,
-        scope: &str,
-        f: impl FnOnce(&mut Worker) -> T,
-    ) -> T {
-        let cell = DIAGNOSTIC_CELL_RESUME.load(Ordering::Acquire);
-        let started = crate::asyncrt::instant();
-        let observed = |worker: &mut Worker| {
-            let elapsed = started.elapsed().as_nanos().min(u64::MAX as u128) as u64;
-            let (count, sum) = if cell {
-                (&DIAGNOSTIC_CELL_COUNT, &DIAGNOSTIC_CELL_NS)
-            } else {
-                (&DIAGNOSTIC_STATELESS_COUNT, &DIAGNOSTIC_STATELESS_NS)
-            };
-            count.fetch_add(1, Ordering::Relaxed);
-            let _ = sum.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |old| {
-                Some(old.saturating_add(elapsed))
-            });
-            f(worker)
-        };
-        if cell {
-            self.turn_cell(scope, observed).await
-        } else {
-            self.turn(observed).await
-        }
-    }
-
     pub(crate) fn handler_budget(&self) -> std::time::Duration {
         self.handler_budget
     }

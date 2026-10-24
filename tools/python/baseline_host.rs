@@ -33,24 +33,6 @@ impl Drop for CountedCell {
 impl Application for Controlled {
     fn invoke(self: Arc<Self>, context: Context, event: Invocation) -> HandlerFuture<Output> {
         if let Invocation::Fetch(request) = &event {
-            let selected = if request.url.ends_with("/resume-cell") {
-                Some(true)
-            } else if request.url.ends_with("/resume-shared") {
-                Some(false)
-            } else {
-                None
-            };
-            if selected.is_some() || request.url.ends_with("/resume-observations") {
-                return Box::pin(async move {
-                    if let Some(cell) = selected {
-                        cellar::pool::diagnostic_resume_cells(cell);
-                    }
-                    let counts = cellar::pool::diagnostic_resume_counts();
-                    Ok(Output::Http(
-                        http::Response::from_json(&counts)?.into_http(&context)?,
-                    ))
-                });
-            }
             if request.url.ends_with("/native-observations") {
                 let memory = self.memory.lock().unwrap().clone();
                 let observation = (self.observe)();
