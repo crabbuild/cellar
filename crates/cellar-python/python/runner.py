@@ -103,10 +103,16 @@ async def _invoke(module, objects, payload, body, bridge, context, stats, maximu
             target = objects[key][0]
         kind, value = payload["kind"], payload["event"]
         handler = getattr(target, kind)
-        argument = {"fetch": lambda: Request._from_wire(value, body),
-                    "queue": lambda: Batch(context, value),
-                    "scheduled": lambda: Scheduled(context, value),
-                    "alarm": lambda: value["scheduled_ms"]}[kind]()
+        if kind == "fetch":
+            argument = Request._from_wire(value, body)
+        elif kind == "queue":
+            argument = Batch(context, value)
+        elif kind == "scheduled":
+            argument = Scheduled(context, value)
+        elif kind == "alarm":
+            argument = value["scheduled_ms"]
+        else:
+            raise KeyError(kind)
         result = handler(argument, context)
         if not inspect.isawaitable(result):
             raise TypeError("Cellar handlers must return an awaitable")
