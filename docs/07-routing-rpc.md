@@ -37,6 +37,7 @@ invalidate a newer sample's route or reservations, or act as an ownership epoch.
 | --- | --- | --- |
 | Cell `fetch` | HTTP-shaped entity interface | Method, route, body bounds, status and response schema |
 | Cell `rpc` / `call` | Structured internal entity operation | Method, argument/result schema, remote errors |
+| Generated typed cell client | Named unary business methods across languages | Protobuf service/messages, exact contract digest and command receipts |
 | Service `fetch` / `rpc` | A declared application/entrypoint boundary | Service version, capabilities, props and authorization |
 | Outbound `Context::fetch` | External HTTP service | Deadline, idempotency and ambiguous outcomes |
 
@@ -45,6 +46,34 @@ structured value and remote-error envelopes. The structured decoder has a
 64 MiB ceiling; set lower business payload budgets. Service capabilities retain
 their originating execution domain, and copied props are subject to its loader
 policy. Cancellation-aware variants are available on cell and service calls.
+
+The [named, typed RPC design](../plans/009-named-typed-rpc.md) defines Protobuf
+contracts and generated cell clients/handlers for Rust, JavaScript/TypeScript
+and Python over this native path. Named unary APIs now run across all four
+local backends; [runnable fixtures and qualification commands](../tools/rpc/README.md)
+show generation, explicit registration and receipt recovery. Remote routing,
+failure, schema and packaging qualification remain open in the
+[implementation ledger](../plans/named-typed-rpc/implementation-status.md).
+
+Typed Rust calls start their timeout budget before request encoding. Native
+local dispatch carries that deadline into the target invocation. Peer dispatch
+sends the remaining duration and the receiver caps it with its own host policy
+before reading the body; nested typed calls cannot extend it. Expiry refuses new SDK access, cached storage writes
+and transaction commits, while transaction rollback can still clean up the
+original connection. A timeout after submission leaves the effect outcome
+unknown. The deadline fixture verifies native remote/nested calls and receiver
+caps. Broader cancellation, failure provenance and full guest/lifecycle qualification
+remain open in the ledger.
+
+Native RPC signals are watched by the host independently of application turns.
+Processed cancellation permanently revokes the invocation's SDK authority,
+including cached storage writes and commits, and reaches pending nested calls.
+Queued RPCs can leave worker/input-gate admission without waiting for that gate
+to open. Rollback remains available on the original connection. Cancellation
+after submission is `Cancelled/unknown`; a write synced beforehand can survive.
+Completed callees detach from their caller's cancellation tree so valid
+background work keeps its own lifetime. Full guest cancellation controls and
+proof/lifecycle qualification remain open.
 
 ## Design for ambiguous responses
 

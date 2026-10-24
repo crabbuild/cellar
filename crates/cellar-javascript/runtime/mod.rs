@@ -9,6 +9,11 @@ use std::sync::{
 use std::time::Duration;
 use tokio::sync::{mpsc as channel, watch, OwnedSemaphorePermit, Semaphore};
 #[cfg(feature = "embed")]
+mod binary;
+mod budgets;
+#[cfg(feature = "embed")]
+mod encoding;
+#[cfg(feature = "embed")]
 mod engine;
 #[cfg(feature = "node")]
 pub mod node;
@@ -21,6 +26,9 @@ pub struct Options {
     pub max_invocations: usize,
     /// Maximum retained JavaScript cell objects across live native activations.
     pub max_objects: usize,
+    /// Embedded V8 native text-decoder handles, reclaimed with their JS owners.
+    /// Separate from cell-object admission. Node uses its own encoding globals.
+    pub max_text_decoders: usize,
     /// Maximum outstanding SDK operations per invocation.
     pub max_pending_operations: usize,
     /// Total SDK operation budget for one invocation, including completed calls.
@@ -47,6 +55,7 @@ impl Default for Options {
         Self {
             max_invocations: 64,
             max_objects: 4096,
+            max_text_decoders: 4096,
             max_pending_operations: 16,
             max_operations: 1024,
             max_value_bytes: 2 * 1024 * 1024,
@@ -65,8 +74,10 @@ pub(crate) type Life = Arc<AtomicBool>;
 
 /// Admission message. The byte permit follows the payload until it is dropped.
 pub(crate) struct Start {
+    pub budget_source: Option<cellar::sdk::rpc::BudgetSource>,
     pub id: u64,
     pub payload: String,
+    pub body: Option<Vec<u8>>,
     pub active: Life,
     pub owner: Life,
     pub sender: channel::Sender<Event>,
@@ -79,10 +90,14 @@ pub(crate) enum Event {
         id: u64,
         name: String,
         payload: String,
+        body: Option<Vec<u8>>,
+        signal: Option<cellar::sdk::web::AbortSignal>,
+        budget: Option<cellar::sdk::rpc::CallBudget>,
         _bytes: OwnedSemaphorePermit,
     },
     Complete {
         payload: String,
+        body: Option<Vec<u8>>,
         failed: bool,
         _bytes: OwnedSemaphorePermit,
     },
@@ -93,6 +108,7 @@ pub(crate) struct Reply {
     pub invocation: u64,
     pub id: u64,
     pub payload: String,
+    pub body: Option<Vec<u8>>,
     pub _bytes: OwnedSemaphorePermit,
 }
 
@@ -139,13 +155,24 @@ impl Runtime {
             .map_err(|_| anyhow::anyhow!("JavaScript admission exhausted"))
     }
 
+    #[cfg(test)]
     pub fn reply(&self, invocation: u64, id: u64, payload: String) -> Result<()> {
-        let bytes = self.reserve(payload.len())?;
+        self.reply_parts(invocation, id, (payload, None))
+    }
+
+    pub fn reply_parts(
+        &self,
+        invocation: u64,
+        id: u64,
+        (payload, body): (String, Option<Vec<u8>>),
+    ) -> Result<()> {
+        let bytes = self.reserve(value_size(&payload, body.as_deref())?)?;
         self.replies
             .try_send(Reply {
                 invocation,
                 id,
                 payload,
+                body,
                 _bytes: bytes,
             })
             .map_err(|_| anyhow::anyhow!("JavaScript reply capacity exhausted"))
@@ -197,9 +224,11 @@ fn run_with<T>(
         + Send,
 ) -> Result<T> {
     source.validate()?;
+    source.rpc.validate_bridge(options.max_value_bytes)?;
     ensure!(
         (1..=4096).contains(&options.max_invocations)
-            && (1..=1_000_000).contains(&options.max_objects),
+            && (1..=1_000_000).contains(&options.max_objects)
+            && (1..=65_536).contains(&options.max_text_decoders),
         "invalid JavaScript admission limits"
     );
     ensure!(
@@ -274,6 +303,20 @@ fn run_with<T>(
     })
 }
 
+/// Charge control metadata and exact owned bytes, with checked arithmetic.
+pub(crate) fn value_size(payload: &str, body: Option<&[u8]>) -> Result<usize> {
+    payload
+        .len()
+        .checked_add(body.map_or(0, <[u8]>::len))
+        .ok_or_else(|| anyhow::anyhow!("JavaScript value size overflow"))
+}
+
 #[cfg(all(test, feature = "embed"))]
 #[path = "../runtime_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+mod attachment_tests;
+
+#[cfg(test)]
+mod cancellation_tests;

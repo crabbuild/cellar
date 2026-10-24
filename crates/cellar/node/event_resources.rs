@@ -98,6 +98,9 @@ async fn rpc(
     let result = activation_exchange(method, || {
         let (reply, receiver) = tokio::sync::oneshot::channel();
         let request = RpcCallReq {
+            parent_cancellation: None,
+            signal: None,
+            deadline_ms: None,
             authority: Some(authority.clone()),
             // The operation/body is unchanged. A fresh dispatch identity avoids
             // an abort tombstone from the prior ambiguous call cancelling replay.

@@ -297,6 +297,12 @@ impl Storage {
 
     fn activation_scope(&self) -> Result<&str> {
         let scope = self.installed_activation_scope()?;
+        // Cached activation-bound handles consult the executing invocation's
+        // budget too. Rollback/retirement deliberately use the installed scope
+        // directly, so expiry can never prevent transaction cleanup.
+        crate::host_io::installed_context()
+            .expect("installed activation scope has a context")
+            .check_rpc_authority()?;
         // A synchronous application poll can outlive forced host closure.
         // Recheck ordinary operations and commit here; rollback/retirement
         // deliberately retain installed_activation_scope on the original DB.

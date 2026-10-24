@@ -20,6 +20,151 @@ Use the [embedded TypeScript example](../../examples/javascript/README.md) or
 instructions. The [adapter guide](../../crates/cellar-javascript/README.md)
 describes runtime limits and supported events.
 
+## Named, typed business methods
+
+Protobuf service generation adds a typed entity API through `@cellar/sdk/rpc`.
+Generate a contract once and import its client in either JS or TS:
+
+Generated packages use pinned `@bufbuild/protobuf` 2.16.0. Include that runtime
+in the application dependencies; the core SDK stays codec-neutral.
+
+```ts
+import type { Context } from "@cellar/sdk";
+import { CounterClient } from "./generated/counter_cellar.js";
+
+export async function increment(ctx: Context) {
+  const counter = CounterClient.bind(ctx, "COUNTERS", "alice");
+  const reply = await counter.increment({delta:1n, operationId:"order-123"});
+  switch (reply.result.case) {
+    case "count": return reply.result.value.value;
+    case "outOfRange": throw Error(reply.result.value.reason);
+    case "operationConflict": throw Error("Operation ID has different arguments");
+    default: throw Error("Counter returned no business result");
+  }
+}
+```
+
+The returned count is `bigint`; convert it to a decimal string before placing it
+in JSON. Generated message constructors (`create(ResponseSchema, ...)`) supply
+the concrete response type expected by registered handlers. Clients belong to
+one invocation; do not retain them for a later event. Mutation retries require
+application receipts and the same operation ID.
+
+The same runtime validation applies to plain JavaScript and TypeScript. Client
+inputs use generated field names and exact Protobuf types; the SDK refuses
+numeric `int64` values, misspelled fields and coercions before submission:
+
+```js
+await counter.increment({delta: 1n, operationId: "order-123"}); // Valid.
+await counter.increment({delta: 1, operationId: "order-123"});  // InvalidArgument.
+await counter.increment({delta: 1n, operationID: "order-123"}); // InvalidArgument.
+```
+
+The codec checks nesting, wire elements and the complete encoded size before
+creating a message or binary buffer. It preserves optional presence and selected
+oneof defaults, accepts valid non-finite Protobuf floats, and refuses malformed
+Unicode and shared/resizable/detached byte storage. Native code independently
+validates request and response wire bytes. Unknown fields from newer schemas
+may be discarded; this API does not promise lossless message forwarding.
+
+### Bound the whole named call
+
+`timeoutMs` covers verification, encoding, native queueing/routing, output proof
+and response decoding. Options are captured before the first asynchronous wait.
+Omitting the option still applies the original host and incoming parent limits;
+requesting a longer timeout cannot extend either cap.
+
+```text
+call entry -> private native budget -> verify -> encode -> submit -> decode
+                    |                                      |
+             original host/parent cap             same deadline throughout
+```
+
+V8 reads the native monotonic clock directly. Node obtains a private native
+handle over bounded IPC and conservatively charges the control round trip plus
+one clock tick. Its effective window can therefore be shorter than requested.
+Controls use a separate bounded pool and no extra SDK mutation slot. They are
+released on success, failure and invocation retirement.
+
+Expiry detected before submission is `DeadlineExceeded/not_committed`. Expiry
+detected after native success, including during decoding, is
+`DeadlineExceeded/unknown`: a mutation may already have committed. Native
+refusals retain their original outcome. Checks surround synchronous codecs;
+they do not interrupt a codec halfway through execution. Use operation receipts
+to reconcile ambiguous mutations; the client never retries automatically.
+
+### Cancel a named call
+
+Pass `signal` with optional `timeoutMs`. Node applications can use the native
+`AbortController`, `AbortSignal.any()` and `AbortSignal.timeout()`. A closed V8
+bundle can import an AbortController implementation; the
+[runnable V8 fixture](../../tools/rpc/v8.ts) bundles `abort-controller` 3.0.0.
+`RpcAbortSignal` describes the shared surface without requiring DOM type libraries.
+
+```js
+// For embedded V8: import { AbortController } from "abort-controller";
+const controller = new AbortController(); // Node's native global works too.
+const pending = counter.increment(
+  {delta: 1n, operationId: "order-123"},
+  {timeoutMs: 1000, signal: controller.signal},
+);
+
+controller.abort();
+try {
+  await pending;
+} catch (error) {
+  if (error.code !== "Cancelled") throw error;
+  // Cancellation is not a rollback verdict. Reconcile the durable receipt
+  // for "order-123" before deciding whether to repeat the mutation.
+}
+```
+
+```text
+AbortSignal -> private control for this admitted call
+                         |
+                 native AbortSignal
+                    /         \
+                local       signed peer abort
+                    \         /
+                 revoke pending SDK authority
+                         |
+              native operation settles
+                         |
+           release admission -> reject the JS promise
+```
+
+An already-aborted signal fails before encoding/submission with
+`Cancelled/not_committed`. Submitted calls retain their native outcome; a late
+cancellation can return `unknown` after a successful native result. Earlier
+synced writes survive. The SDK waits for native cleanup and removes its signal
+subscription before settling; it never races a local rejection against detached
+native work. Reasons stay in JavaScript and never enter RPC metadata.
+A shared controller may fire from another callback, but retained contexts still
+cannot borrow that callback's SDK authority.
+
+Register only the service methods the class implements:
+
+```ts
+import { Counter } from "./counter.js";
+import { CounterRegistration } from "./generated/counter_cellar.js";
+
+export const cells = {Counter};
+export const rpc = {Counter:CounterRegistration};
+```
+
+The Rust `Source` also declares `cell_rpc(class, service, contract)`; a consumer
+source uses `rpc_contract(contract)`. Native registration and actual guest exports
+are checked at startup. Only explicit generated methods are callable, and cell
+state still lives in Rust-owned SQLite. Startup compares live provider codec
+descriptors with the native artifact, including referenced types, maps, presence,
+oneofs, packing and enum values. Clients check their own codecs before encoding
+a call; stale code or a missing native contract fails as
+`ContractMismatch/not_committed`. Verified JS reflection records are frozen.
+See the [runnable Counter](../../tools/rpc/README.md)
+for the schema, complete receipt-based business implementation, generated JS/TS
+interfaces, host registration and real-node tests. Full fleet and failure
+qualification is [still in progress](../../plans/named-typed-rpc/implementation-status.md).
+
 ## Install and build
 
 Inside this repository, example applications depend on the local package:
@@ -448,7 +593,7 @@ Keep these invocation rules in mind:
   transactions or recovery. A Node process alone does not make those effects
   durable or exactly once.
 
-See the [adapter's authority and failure contract](../../crates/cellar-javascript/README.md#authority-and-failure-behavior)
+See the [adapter's authority and lifetime contract](../../crates/cellar-javascript/README.md#understand-invocation-authority-and-object-lifetime)
 for cancellation, watchdogs, heap limits and unknown outcomes.
 
 ## More complete applications

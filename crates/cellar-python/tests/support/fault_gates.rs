@@ -17,7 +17,7 @@ use std::{
     },
     time::Duration,
 };
-use tokio::sync::Notify;
+use tokio::sync::{Notify, OwnedRwLockReadGuard, RwLock};
 
 #[derive(Default)]
 pub struct Gate {
@@ -27,6 +27,7 @@ pub struct Gate {
     pub lost_acks: AtomicUsize,
     pub members: Mutex<BTreeSet<String>>,
     changed: Notify,
+    publications: Arc<RwLock<()>>,
 }
 
 enum Admission {
@@ -38,6 +39,18 @@ enum Admission {
 impl Gate {
     pub fn hold(&self) {
         self.mode.store(1, Ordering::Release);
+    }
+
+    pub fn is_held(&self) -> bool {
+        self.mode.load(Ordering::Acquire) == 1
+    }
+
+    pub async fn hold_and_drain(&self) {
+        self.hold();
+        // A held caller drops its read permit before awaiting release. Only
+        // already-admitted underlying writes remain here, including multipart
+        // uploads and their in-flight parts.
+        drop(self.publications.write().await);
     }
 
     pub fn open(&self) {
@@ -73,6 +86,23 @@ impl Gate {
                 1 => changed.await,
                 3 => return Admission::CommitThenFail,
                 _ => return Admission::Fail,
+            }
+        }
+    }
+
+    async fn publication(&self) -> (Admission, OwnedRwLockReadGuard<()>) {
+        self.entered.fetch_add(1, Ordering::Relaxed);
+        loop {
+            let changed = self.changed.notified();
+            let permit = self.publications.clone().read_owned().await;
+            match self.mode.load(Ordering::Acquire) {
+                0 => return (Admission::Proceed, permit),
+                3 => return (Admission::CommitThenFail, permit),
+                1 => {
+                    drop(permit);
+                    changed.await;
+                }
+                _ => return (Admission::Fail, permit),
             }
         }
     }
@@ -143,23 +173,6 @@ impl fmt::Display for Store {
     }
 }
 
-impl Store {
-    async fn admit(&self, path: &Path) -> object_store::Result<()> {
-        // Lease renewal is not data durability proof. Keep it independent of
-        // the controlled data outage so the test isolates the output gate.
-        if path.as_ref().starts_with("nodes/") {
-            return Ok(());
-        }
-        self.gate
-            .enter()
-            .await
-            .map_err(|error| object_store::Error::Generic {
-                store: "durability qualification",
-                source: error.into(),
-            })
-    }
-}
-
 #[async_trait::async_trait]
 impl ObjectStore for Store {
     async fn put_opts(
@@ -168,10 +181,12 @@ impl ObjectStore for Store {
         payload: PutPayload,
         options: PutOptions,
     ) -> object_store::Result<PutResult> {
-        let admission = if path.as_ref().starts_with("nodes/") {
-            Admission::Proceed
+        // Node leases stay independent of the data cut and its drain.
+        let (admission, _publication) = if path.as_ref().starts_with("nodes/") {
+            (Admission::Proceed, None)
         } else {
-            self.gate.admission().await
+            let (admission, permit) = self.gate.publication().await;
+            (admission, Some(permit))
         };
         let failure = || object_store::Error::Generic {
             store: "durability qualification",
@@ -194,8 +209,21 @@ impl ObjectStore for Store {
         path: &Path,
         options: PutMultipartOptions,
     ) -> object_store::Result<Box<dyn MultipartUpload>> {
-        self.admit(path).await?;
-        self.inner.put_multipart_opts(path, options).await
+        if path.as_ref().starts_with("nodes/") {
+            return self.inner.put_multipart_opts(path, options).await;
+        }
+        let (admission, permit) = self.gate.publication().await;
+        if !matches!(admission, Admission::Proceed) {
+            return Err(object_store::Error::Generic {
+                store: "durability qualification",
+                source: "controlled durability transport failure".into(),
+            });
+        }
+        let upload = self.inner.put_multipart_opts(path, options).await?;
+        Ok(Box::new(PublicationUpload {
+            upload,
+            permit: Some(Arc::new(permit)),
+        }))
     }
 
     async fn get_opts(&self, path: &Path, options: GetOptions) -> object_store::Result<GetResult> {
@@ -220,5 +248,33 @@ impl ObjectStore for Store {
 
     async fn copy_if_not_exists(&self, from: &Path, to: &Path) -> object_store::Result<()> {
         self.inner.copy_if_not_exists(from, to).await
+    }
+}
+
+#[derive(Debug)]
+struct PublicationUpload {
+    upload: Box<dyn MultipartUpload>,
+    permit: Option<Arc<OwnedRwLockReadGuard<()>>>,
+}
+
+#[async_trait::async_trait]
+impl MultipartUpload for PublicationUpload {
+    fn put_part(&mut self, payload: PutPayload) -> object_store::UploadPart {
+        let part = self.upload.put_part(payload);
+        let permit = self.permit.clone();
+        Box::pin(async move {
+            let _permit = permit;
+            part.await
+        })
+    }
+
+    async fn complete(&mut self) -> object_store::Result<PutResult> {
+        let _permit = self.permit.take();
+        self.upload.complete().await
+    }
+
+    async fn abort(&mut self) -> object_store::Result<()> {
+        let _permit = self.permit.take();
+        self.upload.abort().await
     }
 }

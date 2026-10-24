@@ -48,7 +48,7 @@ downstream HTTP idempotency, and live GPT-6 Luna interruption qualification.
 | How does code execute? | One dedicated V8 thread inside the Rust host. | An actual Node process owned by the Rust bootstrap. |
 | What ships? | A Rust executable containing the compiled application bundle. | The Rust host, Node executable, emitted modules, and dependencies. |
 | How does npm work? | Compatible ESM/CommonJS code is bundled at build time. | Normal installed npm module resolution, including ESM/CommonJS and dynamic imports. |
-| Which runtime APIs exist? | ECMAScript builtins and Cellar SDK bindings. | Node builtins, timers, global fetch, streams, and compatible native addons. |
+| Which runtime APIs exist? | ECMAScript builtins, bounded text encoding and Cellar SDK bindings. | Node builtins, timers, global fetch, streams, and compatible native addons. |
 | How is a blocked runtime detected? | An interruptible V8 pump-turn budget. | An event-loop heartbeat timeout. |
 | When is it useful? | Business modules whose effects use Cellar bindings. | Agent SDKs or packages needing the Node runtime and OS APIs. |
 
@@ -65,10 +65,23 @@ application code against ES2023 without DOM or Node globals.
 
 Both backends expose **buffered Cellar HTTP**. Node packages may use streams or
 WebSockets for their own I/O, but the Cellar bridge does not expose streaming
-responses or WebSocket upgrades. Cellar workflows, RPC, and JavaScript-authored
+responses or WebSocket upgrades. Cellar workflows and JavaScript-authored
 Raft commands are outside this adapter's current contract. The Node example
 qualifies React server rendering; browser DOM execution and arbitrary framework
 integrations are separate concerns.
+
+Named, typed unary RPC is implemented and under cross-language qualification.
+Protobuf generates `CounterClient` methods, handler interfaces and explicit
+registrations; RPC-only cells do not need a dummy `fetch`. The
+[runnable RPC fixtures](../../tools/rpc/README.md) exercise Rust/V8/Node pairs and
+receipt recovery. See the [implementation ledger](../../plans/named-typed-rpc/implementation-status.md)
+for remaining fleet, schema validation, packaging and performance gates.
+
+Embedded V8 installs `TextEncoder` and `TextDecoder` before bundle evaluation,
+using Cellar's native encoding primitives. Decoding supports labels, fatal mode,
+BOM handling and incremental state. Inputs are bounded by `max_value_bytes`;
+native decoder handles have a separate `max_text_decoders` cap and follow their
+JS owners. Fixed private byte storage is required at this native boundary.
 
 ## Write an application
 
@@ -365,8 +378,61 @@ Activation A                    Retire / restart               Activation B
 
 A JavaScript cell object lasts for one native activation. Persist business state
 through `ctx.storage`; object fields are caches. Native cancellation revokes SDK
-authority but does not undo committed writes. In Node, cancelled application code
-may continue its own OS work, while calls through its revoked Cellar context fail.
+authority but does not undo committed writes. V8 and Node settle pending SDK
+promises with `ContextExpired/unknown`, allowing `catch` and `finally` cleanup to
+run. New SDK operations from that cleanup fail with
+`ContextExpired/not_committed`, including after awaiting another JavaScript
+promise. In Node, cancelled application code may continue its own OS work.
+
+### Typed RPC deadlines and cancellation
+
+Generated clients accept `{timeoutMs, signal}`. Use a native Node `AbortSignal`,
+or bundle a compatible implementation for embedded V8. The
+[SDK example](../../packages/cellar-sdk/README.md#cancel-a-named-call) shows both.
+
+Every generated call starts a private budget before codecs run. Verification,
+encoding, native admission/transport/proof and decoding share the original
+deadline, capped by host policy and the incoming parent call. V8 uses the native
+monotonic clock; Node uses a bounded private IPC control, conservatively charging
+its round trip and one clock tick. Options are captured before that wait.
+
+```text
+original Context -> native budget -> verify -> encode -> native call -> decode
+                         |                                  |
+                  parent/host ceiling                no fresh timeout
+```
+
+Budget controls have their own per-invocation bound and consume no extra SDK
+mutation slot. Release and retirement reclaim them. An expired pre-submission
+call is `DeadlineExceeded/not_committed`; expiry after a successful native call
+is `DeadlineExceeded/unknown`, including during decoding. Codec checks occur
+before and after synchronous work; they do not preempt it.
+
+```text
+checked admission -> [private reply promise, cancellation control]
+                            |                    |
+                  await native reply      AbortSignal callback
+                            |                    |
+                            |            original native call
+                            |             local / signed peer
+                            v
+                release mutation and byte ownership
+                            |
+                    settle the JS promise
+```
+
+The control can only cancel its admitted operation. It grants no ability to
+submit SDK effects and carries no caller-selected cancellation ID. Ordinary
+SDK admission still checks the original V8 continuation or Node async scope.
+Cancellation consumes no extra SDK operation slot; cleanup keeps the original
+native future and reservations until it settles. Signal subscriptions are also
+removed on invocation retirement. Node captures its
+[protected abort-listener API](https://nodejs.org/docs/latest-v24.x/api/events.html#eventsaddabortlistenersignal-listener)
+before importing the application. Cancellation never promises rollback, and
+synced writes remain committed. The signed two-node fixture now tests guest
+remote/nested deadlines, receiver caps, slow codecs and Node control queueing.
+Broader proof/lifecycle waits, dependency cycles and cancellation qualification
+remain in the [RPC ledger](../../plans/named-typed-rpc/implementation-status.md).
 
 ## Limits, errors, and shutdown
 
@@ -375,6 +441,7 @@ Defaults come from [Options](runtime/mod.rs) and [NodeOptions](runtime/node/mod.
 | Setting | Default | Scope |
 | --- | --- | --- |
 | `max_invocations` / `max_objects` | 64 / 4,096 | Admitted calls / retained cell objects per runtime. |
+| `max_text_decoders` | 4,096 | Native text-decoder handles in embedded V8; separate from cell objects. |
 | `max_pending_operations` / `max_operations` | 16 / 1,024 | Outstanding / total SDK operations per invocation. |
 | `max_body_bytes` / `max_value_bytes` | 1 MiB / 2 MiB | Buffered HTTP body / encoded bridge value. |
 | `max_batch_operations` | 128 | Checks, mutations, and optional alarm change per storage batch. |

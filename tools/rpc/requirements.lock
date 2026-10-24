@@ -1,0 +1,9 @@
+# Exact local qualification environment, including the typechecker's dependencies.
+ast_serialize==0.13.1
+librt==0.16.0
+mypy==2.4.0
+mypy_extensions==1.1.0
+pathspec==1.1.1
+protobuf==7.34.2
+types-protobuf==7.34.1.20260816
+typing_extensions==4.16.0

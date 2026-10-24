@@ -1,0 +1,22 @@
+[package]
+name = "cellar-rpc-codegen"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.94.1"
+license = "Apache-2.0"
+publish = false
+
+[[bin]]
+name = "cellar-rpc-codegen"
+path = "main.rs"
+
+[dependencies]
+anyhow.workspace = true
+cellar.workspace = true
+heck.workspace = true
+prost.workspace = true
+prost-types.workspace = true
+prost-build.workspace = true
+serde_json.workspace = true
+proc-macro2 = { workspace = true, features = ["span-locations"] }
+syn = { workspace = true, features = ["full", "visit"] }

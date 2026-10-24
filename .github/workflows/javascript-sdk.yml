@@ -9,6 +9,10 @@ on:
       - 'examples/pi-agent/**'
       - 'examples/vercel-agent/**'
       - 'tools/javascript/**'
+      - 'tools/rpc/**'
+      - 'tools/cellar-rpc-codegen/**'
+      - 'proto/**'
+      - 'plans/named-typed-rpc/*.proto'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - '.github/workflows/javascript-sdk.yml'
@@ -38,6 +42,7 @@ jobs:
           npm ci --prefix examples/node --ignore-scripts
           npm ci --prefix examples/pi-agent --ignore-scripts
           npm ci --prefix examples/vercel-agent --ignore-scripts
+          npm ci --prefix tools/rpc --ignore-scripts
           npm ci --prefix examples/vercel-agent/ui --ignore-scripts
           npm run --prefix examples/node build
           npm run --prefix examples/pi-agent build
@@ -47,6 +52,9 @@ jobs:
           npm test --prefix examples/vercel-agent
           npm test --prefix tools/javascript
           npm run --prefix examples/javascript build
+          npm test --prefix tools/rpc
+          npm run --prefix tools/rpc typecheck
+          npm run --prefix tools/rpc build
       - name: Chat UI desktop and mobile behavior
         run: |
           npm exec --prefix examples/vercel-agent/ui -- playwright install --with-deps chromium

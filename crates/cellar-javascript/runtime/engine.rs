@@ -22,18 +22,75 @@ struct Operation {
     invocation: u64,
     mutation: bool,
     resolver: v8::Global<v8::PromiseResolver>,
+    cancellation: Option<cellar::sdk::web::AbortController>,
+}
+
+/// A private function created during checked admission can cancel only that
+/// operation. An AbortSignal may invoke it from a different continuation.
+fn cancel_operation(
+    scope: &mut v8::PinScope,
+    args: v8::FunctionCallbackArguments,
+    _rv: v8::ReturnValue,
+) {
+    let Some(state) = scope.get_slot::<Shared>().cloned() else {
+        return;
+    };
+    let Some(id) = args.data().number_value(scope) else {
+        return;
+    };
+    let controller = {
+        let state = state.borrow();
+        state.operations.get(&(id as u64)).and_then(|operation| {
+            state
+                .invocations
+                .get(&operation.invocation)
+                .filter(|invocation| {
+                    !state.runtime.closed.load(Ordering::Acquire)
+                        && invocation.start.active.load(Ordering::Acquire)
+                        && invocation.start.owner.load(Ordering::Acquire)
+                })
+                .and(operation.cancellation.clone())
+        })
+    };
+    if let Some(controller) = controller {
+        if controller.abort(None).is_err() {
+            refuse(scope, "RuntimeFailed");
+        }
+    }
+}
+
+fn expire(scope: &mut v8::PinScope, operation: Operation) -> Result<()> {
+    // Settle the same private reply shape as Node revocation. The facade turns
+    // it into a typed rejection so application catch/finally blocks can run.
+    // Already submitted work may have committed; cancellation cannot prove it
+    // did not. Any new SDK call from cleanup is refused by invocation liveness.
+    let id = v8::Number::new(scope, operation.invocation as f64);
+    scope.set_continuation_preserved_embedder_data(id.into());
+    let resolver = v8::Local::new(scope, &operation.resolver);
+    let payload = v8::String::new(
+        scope,
+        r#"{"ok":false,"code":"ContextExpired","outcome":"unknown"}"#,
+    )
+    .context("JavaScript cancellation allocation failed")?;
+    let undefined = v8::undefined(scope);
+    let result = v8::Array::new_with_elements(scope, &[payload.into(), undefined.into()]);
+    resolver.resolve(scope, result.into());
+    Ok(())
 }
 
 struct State {
     runtime: Arc<Runtime>,
     invocations: HashMap<u64, InvocationState>,
     operations: HashMap<u64, Operation>,
+    budgets: super::budgets::Budgets,
     objects: HashMap<u64, Life>,
 }
 
 // V8 callbacks share state only within the isolate thread. Never hold a borrow
 // across application JavaScript, including property access or value conversion.
 type Shared = Rc<RefCell<State>>;
+#[path = "v8_budgets.rs"]
+mod budget_controls;
 
 fn refuse(scope: &v8::PinScope, message: &str) {
     if let Some(text) = v8::String::new(scope, message) {
@@ -77,8 +134,31 @@ fn operation(
     }
     let name = name.to_rust_string_lossy(scope);
     let payload = payload.to_rust_string_lossy(scope);
+    let body = match super::binary::copy(scope, args.get(3), limit) {
+        Ok(body) => body,
+        Err(_) => return refuse(scope, "ValidationError"),
+    };
+    if (name == "cell.call") != body.is_some() {
+        return refuse(scope, "ValidationError");
+    }
     let mut state = state.borrow_mut();
     let runtime = state.runtime.clone();
+    let budget = if !args.get(4).is_undefined() {
+        if name != "cell.call" || !args.get(4).is_number() {
+            return refuse(scope, "ContextMismatch");
+        }
+        let Some(id) = args.get(4).number_value(scope).filter(|id| {
+            id.is_finite() && *id > 0.0 && id.fract() == 0.0 && *id <= 9_007_199_254_740_991.0
+        }) else {
+            return refuse(scope, "ContextMismatch");
+        };
+        match state.budgets.get(invocation, id as u64) {
+            Ok(budget) => Some(budget),
+            Err(error) => return refuse(scope, error),
+        }
+    } else {
+        None
+    };
     let Some(active) = state.invocations.get_mut(&invocation) else {
         return refuse(scope, "ContextExpired");
     };
@@ -87,6 +167,13 @@ fn operation(
         || !active.start.owner.load(Ordering::Acquire)
     {
         return refuse(scope, "ContextExpired");
+    }
+    if name == "$check" {
+        return;
+    }
+    if name == "$rpc_budget" {
+        drop(state);
+        return budget_controls::begin(scope, invocation, rv);
     }
 
     let mutation = !cellar_guest::operations::is_read(&name);
@@ -99,7 +186,10 @@ fn operation(
         return refuse(scope, "ConcurrentMutation");
     }
 
-    let Ok(bytes) = runtime.reserve(payload.len()) else {
+    let Ok(size) = value_size(&payload, body.as_deref()) else {
+        return refuse(scope, "ValueLimit");
+    };
+    let Ok(bytes) = runtime.reserve(size) else {
         return refuse(scope, "BridgeLimit");
     };
     let Ok(id) = runtime.id() else {
@@ -108,6 +198,19 @@ fn operation(
     let Some(resolver) = v8::PromiseResolver::new(scope) else {
         return refuse(scope, "RuntimeFailed");
     };
+    let cancellation = (name == "cell.call").then(cellar::sdk::web::AbortController::new);
+    let cancel = if cancellation.is_some() {
+        let data = v8::Number::new(scope, id as f64);
+        let Some(cancel) = v8::Function::builder(cancel_operation)
+            .data(data.into())
+            .build(scope)
+        else {
+            return refuse(scope, "RuntimeFailed");
+        };
+        Some(cancel)
+    } else {
+        None
+    };
     if active
         .start
         .sender
@@ -115,6 +218,9 @@ fn operation(
             id,
             name,
             payload,
+            body,
+            signal: cancellation.as_ref().map(|controller| controller.signal()),
+            budget,
             _bytes: bytes,
         })
         .is_err()
@@ -132,9 +238,15 @@ fn operation(
             invocation,
             mutation,
             resolver: v8::Global::new(scope, resolver),
+            cancellation,
         },
     );
-    rv.set(promise.into());
+    if let Some(cancel) = cancel {
+        let admitted = v8::Array::new_with_elements(scope, &[promise.into(), cancel.into()]);
+        rv.set(admitted.into());
+    } else {
+        rv.set(promise.into());
+    }
 }
 
 fn script<'s>(scope: &v8::PinScope<'s, '_>, source: &str) -> Result<v8::Local<'s, v8::Value>> {
@@ -208,6 +320,7 @@ pub(super) fn run(
         runtime: runtime.clone(),
         invocations: HashMap::new(),
         operations: HashMap::new(),
+        budgets: super::budgets::Budgets::default(),
         objects: HashMap::new(),
     }));
     isolate.set_slot(state.clone());
@@ -217,6 +330,11 @@ pub(super) fn run(
     let scope = &mut v8::ContextScope::new(scope, context);
     let scope = std::pin::pin!(v8::TryCatch::new(scope));
     let scope = &mut scope.init();
+    super::encoding::install(
+        scope,
+        runtime.options.max_value_bytes,
+        runtime.options.max_text_decoders,
+    )?;
     let host =
         v8::Function::new(scope, operation).context("JavaScript bridge initialization failed")?;
     let factory = script(scope, include_str!("runner.js"))?;
@@ -284,12 +402,16 @@ pub(super) fn run(
                     let resolver = v8::Local::new(turn, &operation.resolver);
                     let payload = v8::String::new(turn, &reply.payload)
                         .context("JavaScript reply allocation failed")?;
-                    resolver.resolve(turn, payload.into());
+                    let body = super::binary::value(turn, reply.body)?;
+                    let result = v8::Array::new_with_elements(turn, &[payload.into(), body]);
+                    resolver.resolve(turn, result.into());
+                } else {
+                    expire(turn, operation)?;
                 }
             }
         }
 
-        for start in starts.try_iter().take(runtime.options.max_invocations) {
+        for mut start in starts.try_iter().take(runtime.options.max_invocations) {
             if !start.active.load(Ordering::Acquire) || !start.owner.load(Ordering::Acquire) {
                 continue;
             }
@@ -302,6 +424,7 @@ pub(super) fn run(
                     start.active.store(false, Ordering::Release);
                     let _ = start.sender.try_send(Event::Complete {
                         payload: "null".into(),
+                        body: None,
                         failed: true,
                         _bytes: runtime.reserve(4)?,
                     });
@@ -312,6 +435,7 @@ pub(super) fn run(
             let id = start.id;
             let value = v8::String::new(turn, &start.payload)
                 .context("JavaScript invocation allocation failed")?;
+            let body = super::binary::value(turn, start.body.take())?;
             state.borrow_mut().invocations.insert(
                 id,
                 InvocationState {
@@ -326,7 +450,7 @@ pub(super) fn run(
             turn.set_continuation_preserved_embedder_data(token.into());
             let dispatch = v8::Local::new(turn, &dispatch);
             let result = dispatch
-                .call(turn, undefined.into(), &[token.into(), value.into()])
+                .call(turn, undefined.into(), &[token.into(), value.into(), body])
                 .context("JavaScript dispatch failed")?;
             let promise = v8::Local::<v8::Promise>::try_from(result)?;
             state.borrow_mut().invocations.get_mut(&id).unwrap().promise =
@@ -360,11 +484,22 @@ pub(super) fn run(
                 continue;
             }
             // A handler must await its SDK operations before reporting completion.
-            let failed = promise.state() == v8::PromiseState::Rejected || invocation.pending != 0;
+            let failed = promise.state() == v8::PromiseState::Rejected
+                || invocation.pending != 0
+                || state.borrow().budgets.has(id);
             invocation.start.active.store(false, Ordering::Release);
             let result = promise.result(turn);
-            let payload = if failed {
-                "null".into()
+            let (payload, body) = if failed {
+                ("null".into(), None)
+            } else if result.is_uint8_array() {
+                // A malformed application reply is a call failure, not an
+                // engine failure. Missing bytes become InvalidResponse/unknown
+                // at the native RPC boundary, after any committed writes.
+                (
+                    "null".into(),
+                    super::binary::copy(turn, result, runtime.options.max_value_bytes)
+                        .unwrap_or(None),
+                )
             } else {
                 let result = v8::Local::<v8::String>::try_from(result)
                     .context("JavaScript completion must be encoded")?;
@@ -372,23 +507,36 @@ pub(super) fn run(
                     result.length() <= runtime.options.max_value_bytes,
                     "JavaScript completion exceeds limit"
                 );
-                result.to_rust_string_lossy(turn)
+                (result.to_rust_string_lossy(turn), None)
             };
-            let bytes = runtime.reserve(payload.len())?;
+            let bytes = runtime.reserve(value_size(&payload, body.as_deref())?)?;
             // +1 completion slot is reserved independently of operation capacity.
             let _ = invocation.start.sender.try_send(Event::Complete {
                 payload,
+                body,
                 failed,
                 _bytes: bytes,
             });
             finished.push(id);
         }
-        {
+        let abandoned = {
             let mut state = state.borrow_mut();
-            for id in finished {
-                state.invocations.remove(&id);
-                state.operations.retain(|_, op| op.invocation != id);
+            for id in &finished {
+                state.invocations.remove(id);
+                state.budgets.retire(*id);
             }
+            state
+                .operations
+                .extract_if(|_, operation| finished.contains(&operation.invocation))
+                .map(|(_, operation)| operation)
+                .collect::<Vec<_>>()
+        };
+        // Dropping a PromiseResolver leaves awaiters suspended forever. Remove
+        // native authority first, then settle every abandoned operation. Its
+        // continuations run at the next bounded microtask checkpoint, including
+        // cleanup that awaits a separate application promise before resuming.
+        for operation in abandoned {
+            expire(turn, operation)?;
         }
 
         let retired: Vec<_> = state

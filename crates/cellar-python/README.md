@@ -32,6 +32,7 @@ One native Cellar process
 | Run a counter with Pydantic, NumPy, alarms, and bindings | [Runnable Python example](../../examples/python/README.md) |
 | Serve a framework application | [FastAPI order service](../../examples/python-fastapi/README.md), using an example-only buffered ASGI transport |
 | Persist model/tool steps and resume after restart | [PydanticAI agent](../../examples/python-agent/README.md) |
+| Call named business methods across Rust, Python, JS and TS | [Typed RPC fixtures and all-backend harness](../../tools/rpc/README.md), with qualification [status](../../plans/named-typed-rpc/implementation-status.md) |
 | Deliver a verified runtime and dependencies | [Environment build/install workflow](../../tools/python/README.md) |
 | Measure latency, throughput, memory, and recovery | [Baseline harness](../../tools/python/baseline.md) |
 | Work on scheduling, cleanup, or telemetry | [Runtime internals and diagnostics](runtime/README.md) |
@@ -375,6 +376,85 @@ Business effect commits --> reply is lost / too large / cancelled
                      look up a durable receipt / reconcile
                      before deciding whether to retry
 ```
+
+### Cancel a typed RPC
+
+Generated async methods support ordinary Python task cancellation, including
+`Task.cancel()`, `asyncio.timeout()` and a cancelling `TaskGroup`:
+
+```python
+import asyncio
+from counter_cellar import CounterClient
+from counter_pb2 import IncrementRequest
+
+async def add_once(ctx):
+    counter = CounterClient.bind(ctx, "COUNTERS", "alice")
+    try:
+        async with asyncio.timeout(0.25):
+            return await counter.increment(
+                IncrementRequest(delta=1, operation_id="order-42"),
+                timeout_ms=1000,
+            )
+    except TimeoutError:
+        # The mutation may already have committed. Reconcile the durable
+        # receipt for "order-42" before deciding whether to repeat it.
+        raise
+```
+
+```text
+Python task cancellation
+          |
+          v
+original invocation + operation ID
+          |
+     native AbortSignal ----> local callee / signed peer abort
+          |                               |
+          |                    revoke pending descendants
+          v
+native operation settles; mutation/byte permits released
+          |
+          v
+Python receives CancelledError; parent remains usable
+```
+
+Cancellation bypasses the SDK operation mailbox and needs no extra mutation
+permit. The task waits for the original native acknowledgement before raising
+`CancelledError`; repeated cancellation cannot abandon that cleanup. Native
+invocation retirement also releases the waiter. A still-pending target can
+continue running application code, but its revoked SDK authority refuses late
+writes and commits. A completed call may already have committed, and earlier
+synced writes survive.
+Cancellation never authorizes an automatic retry. Full lifecycle qualification
+remains tracked in the
+[RPC ledger](../../plans/named-typed-rpc/implementation-status.md).
+
+### Bound a typed call, including its codecs
+
+`timeout_ms` applies from the start of the generated async call, including codec
+verification, request encoding, routing, output proof and response decoding:
+
+```text
+native budget = min(host policy, parent RPC deadline, requested timeout)
+      |
+      +--> verify --> encode --> native call --> decode --> result
+      |                         same deadline
+      +------------- expiration checkpoints ----------------+
+```
+
+The host supplies an opaque budget using the original execution-domain clock.
+The guest cannot replace it with a timestamp, extend it with a nested timeout,
+or reuse it in another invocation. Omitting `timeout_ms` uses the host/parent
+cap; zero refuses before encoding. Checkpoints run around synchronous codecs.
+
+| Expiration point | Outcome |
+| --- | --- |
+| Before native submission, including validation/encoding | `DeadlineExceeded / not_committed` |
+| After submission, including response decoding | `DeadlineExceeded / unknown` |
+
+Native admission failures retain their own proven effect outcome.
+Invocation retirement can produce `ContextExpired` at either checkpoint.
+A timeout during decoding may follow a committed write. Use the business
+operation ID to recover its receipt with an explicit retry.
 
 ### Alarms, queues, and cron can repeat
 

@@ -90,6 +90,7 @@ pub const DEFAULT_MAX_CELL_REQUESTS: usize = 64;
 /// lifetime to the driver through [`Self::drive_stateless_fetch`].
 #[doc(hidden)]
 pub struct RequestCancellationLifetime {
+    authority: Arc<InvocationCancellation>,
     gates: Arc<crate::host_gates::GateService>,
     request_id: crate::engine_api::RequestId,
     finished: Mutex<bool>,
@@ -102,7 +103,15 @@ impl RequestCancellationLifetime {
     }
 
     fn from_request_id(request_id: crate::engine_api::RequestId) -> Arc<Self> {
+        Self::from_parent(request_id, None)
+    }
+
+    fn from_parent(
+        request_id: crate::engine_api::RequestId,
+        parent: Option<&Arc<InvocationCancellation>>,
+    ) -> Arc<Self> {
         Arc::new(Self {
+            authority: InvocationCancellation::new(parent),
             gates: crate::asyncrt::services().gates(),
             request_id,
             finished: Mutex::new(false),
@@ -126,6 +135,7 @@ impl RequestCancellationLifetime {
             .lock()
             .expect("request cancellation lifetime poisoned");
         if !*finished {
+            self.authority.revoke();
             self.gates.abort_request(self.request_id);
         }
     }
@@ -135,6 +145,7 @@ impl RequestCancellationLifetime {
             .finished
             .lock()
             .expect("request cancellation lifetime poisoned");
+        self.authority.revoke();
         self.gates.clear_request_cancellation(self.request_id);
         *finished = true;
     }
@@ -394,7 +405,15 @@ impl RemoteRequestRegistry {
         &mut self,
         request: crate::engine_api::RequestId,
     ) -> Arc<RequestCancellationLifetime> {
-        let lifetime = RequestCancellationLifetime::from_request_id(request);
+        self.active_with_parent(request, None)
+    }
+
+    fn active_with_parent(
+        &mut self,
+        request: crate::engine_api::RequestId,
+        parent: Option<&Arc<InvocationCancellation>>,
+    ) -> Arc<RequestCancellationLifetime> {
+        let lifetime = RequestCancellationLifetime::from_parent(request, parent);
         self.states
             .insert(request, RemoteRequestState::Active(lifetime.clone()));
         lifetime
@@ -742,6 +761,7 @@ struct RpcCancellationGuard {
 
 impl RpcCancellationGuard {
     fn complete(&mut self) {
+        self.lifetime.authority.detach();
         self.requests
             .lock()
             .expect("request registry poisoned")
@@ -865,7 +885,10 @@ pub(crate) async fn receive_service_fetch_response_for_test(
     receive_service_response(response, lifetime, Some(cancel)).await
 }
 
+pub(crate) mod cancellation;
 pub(crate) mod catalog_control;
+#[doc(hidden)]
+pub use cancellation::InvocationCancellation;
 pub(crate) mod event_inventory;
 pub(crate) mod event_state;
 pub(crate) mod rpc_authority;
@@ -877,6 +900,9 @@ pub(crate) mod stream_control;
 pub use rpc_authority::{RpcAuthority, SourceAuthority};
 
 pub(crate) struct RpcInvocation {
+    pub parent_cancellation: Option<Arc<InvocationCancellation>>,
+    pub signal: Option<cellar_native::web::AbortSignal>,
+    pub deadline_ms: Option<u64>,
     pub cell: String,
     pub name: Option<String>,
     pub method: String,
@@ -2093,6 +2119,9 @@ impl RuntimeManager {
     ) -> anyhow::Result<crate::engine_api::RpcOutcome> {
         self.rpc_invocation(
             RpcInvocation {
+                parent_cancellation: None,
+                signal: None,
+                deadline_ms: None,
                 cell,
                 name,
                 method,
@@ -2120,6 +2149,9 @@ impl RuntimeManager {
     ) -> anyhow::Result<crate::engine_api::RpcOutcome> {
         self.rpc_invocation(
             RpcInvocation {
+                parent_cancellation: call.parent_cancellation.clone(),
+                signal: call.signal.clone(),
+                deadline_ms: call.deadline_ms,
                 cell: call.scope.clone(),
                 name: call.name.clone(),
                 method: call.method.clone(),
@@ -2134,10 +2166,31 @@ impl RuntimeManager {
 
     async fn rpc_invocation(
         &self,
+        mut invocation: RpcInvocation,
+        cancel: Option<tokio::sync::oneshot::Receiver<()>>,
+    ) -> anyhow::Result<crate::engine_api::RpcOutcome> {
+        let parent = invocation.parent_cancellation.clone();
+        let signal = invocation.signal.take();
+        cancellation::receive(
+            parent.as_ref(),
+            signal.as_ref(),
+            // Keep the native drive out of each outer cancellation/select
+            // frame. Unoptimized builds otherwise copy its large future into
+            // every wrapper's poll stack and can exhaust a Tokio worker stack.
+            Box::pin(self.rpc_invocation_inner(invocation, cancel)),
+        )
+        .await
+    }
+
+    async fn rpc_invocation_inner(
+        &self,
         invocation: RpcInvocation,
         mut cancel: Option<tokio::sync::oneshot::Receiver<()>>,
     ) -> anyhow::Result<crate::engine_api::RpcOutcome> {
         let RpcInvocation {
+            parent_cancellation,
+            signal: _,
+            deadline_ms,
             cell,
             name,
             method,
@@ -2145,6 +2198,12 @@ impl RuntimeManager {
             request_id,
             authority,
         } = invocation;
+        if deadline_ms.is_some_and(|deadline| crate::asyncrt::mono_ms() >= deadline) {
+            return Err(crate::application::rpc::Failure::new(
+                crate::application::rpc::Code::DeadlineExceeded,
+            )
+            .into());
+        }
         rpc_authority::validate_target(authority.as_ref(), &cell, &method)?;
         if cancel
             .as_mut()
@@ -2167,7 +2226,7 @@ impl RuntimeManager {
                 requests.completed(request_id);
                 return Err(anyhow!("the client disconnected before dispatch"));
             }
-            Some(requests.active(request_id))
+            Some(requests.active_with_parent(request_id, parent_cancellation.as_ref()))
         } else {
             None
         };
@@ -2178,6 +2237,10 @@ impl RuntimeManager {
         });
         let (reply, receive) = tokio::sync::oneshot::channel();
         let job = CellJob::Rpc {
+            cancellation: cancellation
+                .as_ref()
+                .map(|lifetime| lifetime.authority.clone()),
+            deadline_ms,
             authority,
             request_id,
             scope: cell.clone(),
@@ -3689,6 +3752,16 @@ async fn drive_cell_inner(
     request_cancellation: Option<Arc<RequestCancellationLifetime>>,
     #[cfg(cellar_internal_tests)] mut test_observers: DriveCellTestObservers,
 ) -> anyhow::Result<Option<u64>> {
+    // Bind the canonical driver lifetime before construction or the first
+    // application poll. A consumable gate wake is not ongoing SDK authority.
+    let rpc_cancellation = if let CellJob::Rpc { cancellation, .. } = &mut job {
+        *cancellation = request_cancellation
+            .as_ref()
+            .map(|lifetime| lifetime.authority.clone());
+        cancellation.clone()
+    } else {
+        None
+    };
     let _request_cancellation = request_cancellation.map(RequestCancellationGuard::shared);
     // Held to the end of this function: the event's claim on the isolate
     // outlives every suspension, so the pool cannot free the worker under
@@ -3765,8 +3838,9 @@ async fn drive_cell_inner(
     };
     let (begun, started, moves) = loop {
         let mut waiting = None;
-        let taken = slot
-            .turn_cell(&scope, |worker| {
+        let mut cancelled_before_begin = false;
+        let taken = {
+            let acquiring = slot.turn_cell(&scope, |worker| {
                 let job = pending.take().expect("one job per attempt");
                 if let Some(open) = crate::host_gates::cell_gate_wait(job.scope()) {
                     waiting = Some(open);
@@ -3775,13 +3849,45 @@ async fn drive_cell_inner(
                 }
                 let (begun, started) = worker.turn_begin_cell(job, trace);
                 Some((begun, started, worker.take_alarm_moves()))
-            })
-            .await;
+            });
+            match &rpc_cancellation {
+                Some(cancellation) => {
+                    asyncrt::select_biased! { "cancelled RPCs leave the worker admission queue";
+                        _ = cancellation.cancelled() => { cancelled_before_begin = true; None },
+                        taken = acquiring => taken,
+                    }
+                }
+                None => acquiring.await,
+            }
+        };
+        if cancelled_before_begin {
+            if let Some(job) = pending.take() {
+                job.fail(anyhow::Error::new(crate::application::rpc::Failure::new(
+                    crate::application::rpc::Code::Cancelled,
+                )));
+            }
+            return Ok(None);
+        }
         match taken {
             Some(taken) => break taken,
             None => match waiting {
                 None => {}
-                Some(open) => match open.await {
+                Some(open) => match {
+                    match &rpc_cancellation {
+                        Some(cancellation) => {
+                            asyncrt::select_biased! { "cancelled RPCs leave a closed input gate";
+                                _ = cancellation.cancelled() => {
+                                    if let Some(job) = pending.take() {
+                                        job.fail(anyhow::Error::new(crate::application::rpc::Failure::new(crate::application::rpc::Code::Cancelled)));
+                                    }
+                                    return Ok(None);
+                                },
+                                opened = open => opened,
+                            }
+                        }
+                        None => open.await,
+                    }
+                } {
                     // The gate opened normally; try for the isolate again.
                     Ok(Ok(())) => {}
                     // The critical section this event queued behind failed,
