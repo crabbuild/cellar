@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "baseline_revision": "4832486df3eff29ab3b5ed61f572513e59b37828",
+  "baseline_revision": "cc470bb268f81bbc22f1f52e78c496e62ccb64af",
   "invariants": {
     "F01": "Quorum authority",
     "F02": "Stable identities",
@@ -139,7 +139,7 @@
     {
       "id": "FO-02",
       "title": "Bind every membership mutation to durable fleet permits",
-      "status": "IN_PROGRESS",
+      "status": "DONE",
       "depends_on": [
         "FO-01"
       ],
@@ -275,7 +275,9 @@
           "--test-threads=1"
         ]
       ],
-      "evidence": []
+      "evidence": [
+        ".cellar/raft-perf/fleet-operations/implementation/fo02/completion.json"
+      ]
     },
     {
       "id": "FO-03",

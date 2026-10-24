@@ -3,8 +3,9 @@
 Status: implementation in progress. The design began at source
 `e0035689dd1eaf059fca250f2eaf05b3280899bc`; `baseline.json` tracks the reviewed
 successor for source preflight. The [implementation progress](progress.md) records
-the catalog foundation and its verification. The complete fleet APIs and operator
-commands remain delivery targets. `tasks.json` retains exact package status.
+the catalog and durable membership guard, with local verification. Complete fleet
+management APIs and operator commands remain delivery targets. `tasks.json` retains
+exact package status.
 
 Deliver automatic redundancy repair, healthy-replica redistribution, load-aware
 leadership balancing, and operator-controlled node addition, maintenance and

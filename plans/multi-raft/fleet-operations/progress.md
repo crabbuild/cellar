@@ -1,10 +1,10 @@
 # Fleet operations implementation progress
 
-The full fleet operations goal is active. FO-01 is implemented at the catalog
-adapter boundary. FO-02 through FO-10 remain pending; the operator commands,
-automatic redistribution, managed maintenance and resize workflows are not yet
-available. The task manifest is authoritative for package status and retained
-completion records.
+The full fleet operations goal is active. FO-01 implements the catalog adapter
+and FO-02 implements the durable membership guard, with local native verification.
+FO-03 through FO-10 remain pending. The operator commands, automatic redistribution,
+managed maintenance and resize workflows are not yet available. The task manifest
+is authoritative for package status and retained completion records.
 
 ## Implemented catalog foundation
 
@@ -57,11 +57,79 @@ These results qualify local conditional in-memory storage and native directory
 regressions. Physical RustFS semantics, five/six-node operation, performance,
 failure/recovery histories and the 24-hour soak remain FO-10 gates.
 
+## Implemented membership guard
+
+Source `cc470bb268f81bbc22f1f52e78c496e62ccb64af` adds rooted opaque catalog
+capabilities and commits each group's enrollment, consumed sequence and exact
+permit with configuration apply. Unused cancellation commits a same-configuration
+fence; started learners abort through the existing repair state machine, and
+joint transitions still finish under both majorities. Snapshots, archives, engine
+reopen and successor validation retain and scope-check the guard.
+
+Managed SDK begin/advance/add-learner calls refuse missing authorization, including
+idempotent shortcuts. Fresh managed learners require registered standby activation
+with their capability. Legacy fresh peer/archive `Joining` startup refuses them
+before claiming a member; intact retained joined engines can resume normally.
+Large control payloads and optional fleet state are boxed, and physical snapshot
+completion reservations cover the expanded bounded ledger. The internal protocol
+ends in `/fleet-1`; older records refuse startup and require fresh experimental
+namespaces, with numeric format markers retained at 1.
+
+Read the [component contract](../../../crates/cellar/durability/raft/fleet_catalog/README.md)
+for the distinction between generic catalog projections, opaque authorizations,
+committed group state and fresh terminal quorum proof. Local fleet status is not
+a reservation-release certificate; typed controller reconciliation comes later.
+
+| Guard verification | Result |
+| --- | --- |
+| `native_raft_fleet_permits` | 7 passed: delayed cancellation replay, three retained-engine restart boundaries, joint cancellation/minority refusal, peer/archive seed roundtrip, quorumless fencing and guarded SDK/legacy startup ingress |
+| Core member-state tests | 15 passed, including 3 new scope/codec/successor cases |
+| Protocol cutover test | 1 passed; earlier namespace protocols refused |
+| Existing native regressions | 187 passed: archive 53, directory 16, catalog 11, membership 27, runtime 19, snapshot 44 and storage 17 |
+| Regression process fixtures | 5 helper cases remain ignored in direct listings and are invoked by their passing parent cases |
+| Focused Clippy, formatting, layout, native dependencies | Passed; 901 Rust files, 454 reachable packages and no JavaScript engine |
+| Documentation and plan validator tests | Passed; 10 validator cases |
+
+FO-02 also names the legacy startup regression explicitly, bringing the overall
+acceptance inventory to 98. Only FO-01 and FO-02 are complete at their documented
+local boundaries; the remaining fleet packages and qualification gates are open.
+
+The completion record, source/executable digests and exact log hashes are retained
+at ignored `.cellar/raft-perf/fleet-operations/implementation/fo02/completion.json`;
+its logs use the adjacent `fo02-*.log` paths. Initial argument-type and empty-engine
+Resume fixture failures remain retained. No assertion was weakened. Managed
+recovery cases use controlled retained-engine reopen; existing unmanaged abrupt
+process-kill regressions also passed. Abrupt managed fleet faults, deployed RustFS,
+resource tiers, performance and soak remain unqualified FO-10 work.
+
 ## Next implementation boundary
 
-FO-02 must persist a consumed permit sequence and exact active permit binding
-with each group's membership state. It must guard ordinary/managed configuration
-ingress, commit an unused-permit cancellation fence before releasing reservations,
-retain both-majority joint recovery, and preserve the guard through snapshots and
-archives. It must not use an object-store observation or RPC acceptance as quorum
-proof. Subsequent packages retain their complete design and acceptance scope.
+FO-03 adds the trusted dynamic node set, empty managed host readiness, bounded
+dormant registration and complete managed history/birth enrollment. It must keep
+storage pins and retired bindings immutable and separate restart/resize exclusions
+from evacuation. FO-04 through FO-10 retain their complete planning, telemetry,
+reconciliation, lifecycle, API/CLI, scaling and qualification scope.
+
+## Expanded operating design
+
+The [planning details](planning-details.md) specify exact resource accounting,
+staged feasibility, worked five-to-six/five-to-four changes, failed-pair
+classification, heterogeneous role costs, fewer-cell sizing and the removal
+proof boundary. Maintenance now has a phase-by-phase decision table and measured
+service-stage lower bounds for convergence. The operator workflow defines the
+required preview fields and distinguishes a clean non-admission conflict from
+an unknown submission outcome.
+
+Eleven future runtime cases were added across FO-04, FO-07, FO-09 and FO-10,
+bringing the acceptance inventory to 97. No additional package is marked done.
+The design also corrects the earlier 25% load statement: serving copies grow
+from 300 to 375 after RF3 restoration on four survivors; that is not a prediction
+of immediate follower work or throughput.
+
+For this documentation expansion, plan validation and its 10 validator tests,
+repository documentation checks and diff whitespace checks passed. A separate
+arithmetic check enumerated all ten failed pairs and verified the copy counts,
+fewer-cell count bounds and leader-transfer rate example. Those checks do not
+execute the new native acceptance cases. No new benchmark or full runtime
+qualification was claimed by that documentation expansion. FO-02 native guard
+verification is recorded separately above; full fleet qualification is pending.

@@ -56,10 +56,13 @@ async fn reserve_action(expected: FleetRevision, action: FleetAction)
     -> Result<ReservedAction, FleetCoordinationError>;
 
 // Raft guard and the membership change share committed durable state.
-async fn begin_managed_repair(permit: MembershipPermit, timeout: Duration)
+async fn begin_managed_repair(authorization: FleetPermitAuthorization,
+    plan: RepairPlan, timeout: Duration)
     -> Result<RepairStatus, CommandFailure>;
-async fn fence_unused_permit(permit: MembershipPermit, timeout: Duration)
-    -> Result<PermitReceipt, CommandFailure>;
+async fn fence_fleet_permit(authorization: FleetPermitAuthorization,
+    timeout: Duration) -> Result<FleetMembershipStatus, CommandFailure>;
+// These synced observations do not replace FO-06's fresh terminal quorum proof
+// and physical-work reconciliation before catalog reservation release.
 
 // Management observation is distinct from final completion.
 async fn submit_operation(request: FleetOperationRequest)
