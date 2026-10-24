@@ -16,6 +16,8 @@ local tool effects and recovery alarms, with credential-free and OpenAI modes.
 The [Vercel AI SDK agent](vercel-agent/README.md) runs TypeScript `ToolLoopAgent`
 through the JavaScript bridge with durable decisions, atomic tool receipts,
 alarm-driven cold recovery, and concurrent task qualification.
+Its React/shadcn chat UI renders live Markdown with Streamdown and includes
+GPT-6 Luna qualification for local and external tool recovery.
 [FleetCare](fleetcare/README.md) is a field-service application with embedded and
 daemon hosts, a local console and a repeatable fleet performance suite.
 
