@@ -92,19 +92,19 @@ by the text/tool stream collector.
 
 ```text
 Browser                   Node gateway              Rust / Cellar + Node agent
-   | POST turn ID + prompt      |                            |
-   |-------------------------->|---- native ingress -------->|
+   | POST turn ID + prompt     |                            |
+   |-------------------------->|---- native ingress ------->|
    |                           |                task + alarm; sync
-   |<--------------------------|<---------- durable HTTP 202 -|
+   |<--------------------------|<-------- durable HTTP 202 -|
    |                           |                            |
-   | SSE connection            |      alarm -> ToolLoopAgent |
-   |<------ real text deltas ---|<---- provider doStream ------|
+   | SSE connection            |      alarm -> ToolLoopAgent|
+   |<----- real text deltas ---|<---- provider doStream ----|
    |                           |       save complete decision; sync
    |                           |       SDK validates/executes tool
-   |<------ saved tool event ---|<---- effect + receipt; sync --|
+   |<----- saved tool event ---|<- effect + receipt; sync --|
    |                           |       save final conversation; sync
    | GET status                |                            |
-   |-------------------------->|------ authoritative journal ->|
+   |-------------------------->|--- authoritative journal ->|
 ```
 
 The native JavaScript fetch bridge remains buffered. The local Node gateway
