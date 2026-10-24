@@ -97,16 +97,22 @@ async def _invoke(module, objects, payload, body, bridge, context, stats, maximu
             if key not in objects:
                 if len(objects) >= maximum:
                     stats["budget_exhaustions"] += 1
-                    raise RuntimeError("Cellar Python object capacity exhausted")
+                    raise Overloaded("Cellar Python object capacity exhausted")
                 objects[key] = (getattr(module, payload["class"])(), bridge.owner_lifetime())
                 stats["objects_created"] += 1
             target = objects[key][0]
         kind, value = payload["kind"], payload["event"]
         handler = getattr(target, kind)
-        argument = {"fetch": lambda: Request._from_wire(value, body),
-                    "queue": lambda: Batch(context, value),
-                    "scheduled": lambda: Scheduled(context, value),
-                    "alarm": lambda: value["scheduled_ms"]}[kind]()
+        if kind == "fetch":
+            argument = Request._from_wire(value, body)
+        elif kind == "queue":
+            argument = Batch(context, value)
+        elif kind == "scheduled":
+            argument = Scheduled(context, value)
+        elif kind == "alarm":
+            argument = value["scheduled_ms"]
+        else:
+            raise KeyError(kind)
         result = handler(argument, context)
         if not inspect.isawaitable(result):
             raise TypeError("Cellar handlers must return an awaitable")
@@ -119,7 +125,7 @@ async def _invoke(module, objects, payload, body, bridge, context, stats, maximu
     except asyncio.CancelledError:
         metrics["handlers_cancelled"] += 1
         raise
-    except Overloaded:
+    except (Overloaded, _TaskCapacity):
         metrics["handlers_failed"] += 1
         # Preserve the category without reading exception text or its claimed
         # outcome. A parent can commit before a nested admission refusal.
@@ -192,8 +198,10 @@ async def _serve(module, inbox, interval, shutdown, stats, maximum, telemetry, s
             entry = invocations.get(invocation)
             if entry and not entry[0].cancelled():
                 error = entry[0].exception()
-                if error:
+                if error is not None:
                     # Keep failed cleanup registered for the final close pass.
+                    # An exception may define a false truth value; that must
+                    # never turn failed cleanup into a successful drain.
                     raise error
             invocations.pop(invocation, None)
 
@@ -254,7 +262,7 @@ async def _serve(module, inbox, interval, shutdown, stats, maximum, telemetry, s
                 except _TaskCapacity:
                     token = _current_invocation.set(bridge)
                     try:
-                        bridge.complete('"Python task capacity exhausted"', True)
+                        bridge.complete('{"error":"Overloaded"}', True)
                     finally:
                         context._close(finished=True)
                         _current_invocation.reset(token)

@@ -139,6 +139,18 @@ retire every created object at shutdown. The same scheduling, failure accounting
 and rotated comparisons apply. This measures read dispatch and bridge overhead;
 it does not test durable mutations or fleet recovery.
 
+Use `--python-read-mode initial` to capture each cell's `count` snapshot before
+Python dispatch, or `--python-read-mode direct-initial` to also route requests
+through native ingress. Both require `--read-cells` and keep the same JSON
+response and native Rust control. The default `nested` mode retains the root
+Python handler and SDK read. Reports record the selected mode and the actual
+host fixture; direct snapshot reads must submit zero SDK operations during each
+measured phase. Compare these modes separately: the direct route measures one
+Python cell handler per request, while nested routes measure two. Initial
+snapshots represent state before the handler runs and do not refresh after an
+await. These local-only read comparisons do not establish durable-write or
+FastAPI performance.
+
 For nested HTTP bodies, add `--cell-echo --body-bytes 65536` and choose a new
 output directory. The root handler forwards each POST to one resident cell,
 which echoes the exact request bytes without storage access. The driver checks
@@ -167,6 +179,8 @@ forward echoes through one resident cell. `load_body_bytes` selects the echo
 body size (0–65,536, default 4,096); cell reads always use zero request bytes.
 Live host thread masks are checked before and after each measured phase for all
 workloads.
+With nonzero `load_read_cells`, set `load_python_read_mode` to `nested`, `initial`
+or `direct-initial` to select the corresponding Python path described above.
 Set its optional `load_baseline_sha` to a full commit SHA to build another Python
 host on that same runner and include it in the rotated offered-load comparison.
 Both revisions use the selected matrix interpreter and toolchain. The job

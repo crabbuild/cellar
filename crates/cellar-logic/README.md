@@ -52,6 +52,12 @@ Keep policy decisions here and external mechanisms in host adapters. Read
 [authority decision record](../../docs/adr/002-cell-authority-and-proof.md)
 before changing ownership, recovery or output gates.
 
+Startup inventory confirmation is node work, independent of callers joining
+its owner reads. Cancelling a caller leaves a queued confirmation in place.
+Preserve shutdown and node fencing retire both queued and in-flight confirmation
+work and ignore late inventory or owner-read completions. An abandoned inventory
+keeps the owned-cell count unknown; retirement does not establish a complete count.
+
 ## Validate changes
 
 Check the crate and run its ordinary integration tests from the repository root,

@@ -236,7 +236,30 @@ async fn cluster(groups: usize) -> Result<BTreeSet<String>> {
         ensure!(status == reqwest::StatusCode::OK);
         let observed = service.performance();
         ensure!(observed.available && !observed.saturated && observed.source.len() == 32);
-        ensure!(observed.operations.len() == 23 && observed.counters.len() == 20);
+        ensure!(
+            observed.operations.len() == 26 && observed.counters.len() == 34,
+            "performance inventory changed: {} operations, {} counters",
+            observed.operations.len(), observed.counters.len()
+        );
+        // Archive admission/publication observations are fixed vocabulary,
+        // just like engine and transport metrics. Check their identities as
+        // well as the total so a missing series cannot hide behind another.
+        let archive_operations = observed.operations.iter().map(|operation| operation.name)
+            .filter(|name| name.starts_with("archive_")).collect::<BTreeSet<_>>();
+        ensure!(archive_operations == BTreeSet::from([
+            "archive_admission_check", "archive_admission_wait", "archive_publication_batch",
+        ]));
+        let archive_counters = observed.counters.iter().map(|counter| counter.name)
+            .filter(|name| name.starts_with("archive_")).collect::<BTreeSet<_>>();
+        ensure!(archive_counters == BTreeSet::from([
+            "archive_admission_granted", "archive_admission_observation_refused",
+            "archive_admission_retained_bytes_refused", "archive_admission_retained_entries_refused",
+            "archive_admission_reserved_bytes_deferred", "archive_admission_reserved_entries_deferred",
+            "archive_publication_cut_succeeded", "archive_publication_cut_failed",
+            "archive_coverage_advanced", "archive_coverage_index_advance",
+            "archive_coverage_image_pending", "archive_coverage_rejected",
+            "archive_coverage_unchanged", "archive_coverage_missing_cell",
+        ]));
         let mut perf_ids = BTreeSet::new();
         for line in text.lines().filter(|line| !line.starts_with('#') && !line.is_empty()) {
             let mut fields = line.split_whitespace();
@@ -245,7 +268,10 @@ async fn cluster(groups: usize) -> Result<BTreeSet<String>> {
             ensure!(value.is_finite() && value >= 0.0 && fields.next().is_none());
             ensure!(perf_ids.insert(name.to_owned()));
         }
-        ensure!(perf_ids.len() == 551);
+        // Two gauges, 34 counters, and 23 samples per operation (five outcome
+        // counters, 16 buckets, a sum and a count). This remains independent
+        // of the observed inventory and of the group population.
+        ensure!(perf_ids.len() == 634);
         let expected = observed.prometheus().lines().filter(|line| !line.starts_with('#') && !line.is_empty()).map(|line| line.split_whitespace().next().unwrap().to_owned()).collect::<BTreeSet<_>>();
         ensure!(perf_ids == expected && perf_ids.is_disjoint(&identities));
         identities.extend(perf_ids);

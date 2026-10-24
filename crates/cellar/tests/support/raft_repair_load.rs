@@ -164,6 +164,34 @@ pub async fn run() -> Result<()> {
     let follower = (0..3)
         .find(|node| !sources.contains(node))
         .context("common follower")?;
+    // The fault below holds every response on the repairing node's outgoing
+    // data connections, including ordinary Append acknowledgements. Place the
+    // traffic leader elsewhere so this is snapshot-budget contention, not a
+    // partition of the healthy leader's replication acknowledgements. Elections
+    // are independent per group; the two repair leaders do not establish this.
+    let healthy = leader(&cells[2], None).await?;
+    if healthy != sources[0] {
+        let status = cells[2][healthy].status().await?;
+        cells[2][healthy]
+            .transfer_leadership(
+                LeadershipTransfer {
+                    target: MemberId::new(sources[0] as u64 + 1)?,
+                    expected_term: status.term,
+                    expected_revision: status.membership_revision,
+                },
+                Duration::from_secs(2),
+            )
+            .await?;
+    }
+    tokio::time::timeout(Duration::from_secs(2), async {
+        while !cells[2][sources[0]].status().await?.command_ready {
+            tokio::time::sleep(Duration::from_millis(2)).await;
+        }
+        Ok::<_, anyhow::Error>(())
+    })
+    .await
+    .context("healthy group leadership outside the held data lane")??;
+
     cluster.isolate(follower, false).await?;
     let mut receipts = Vec::new();
     let mut cuts = Vec::new();
@@ -221,7 +249,9 @@ pub async fn run() -> Result<()> {
 
     let traffic = async {
         for sequence in 1..=24 {
-            let receipt = write(&cells[2], &definitions, Some(follower), sequence, 7).await?;
+            let receipt = write(&cells[2], &definitions, Some(follower), sequence, 7)
+                .await
+                .with_context(|| format!("healthy group command sequence={sequence}"))?;
             let read = cells[2][follower]
                 .query(
                     definitions[follower].get.clone(),
@@ -232,7 +262,9 @@ pub async fn run() -> Result<()> {
                         ..Default::default()
                     },
                 )
-                .await?;
+                .await
+                .with_context(|| format!("healthy group query sequence={sequence}"))?;
+            ensure!(read.served_by == MemberId::new(follower as u64 + 1)?);
             ensure!(read.result == (sequence as i64 * 7).to_be_bytes());
         }
         Ok::<_, anyhow::Error>(())

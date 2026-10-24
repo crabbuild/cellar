@@ -235,13 +235,16 @@ The initial implementation pins PyO3 and uses owned mailboxes rather than
 inside their original invocation and avoids a hidden executor with different
 execution-domain authority.
 
-All Python handler tasks share the interpreter and loop. Async I/O can overlap;
-Python bytecode is constrained by the GIL. A synchronous computation inside an
-async handler can block the Python loop while Rust routing/storage maintenance
-continues. Offloading trusted blocking library calls to bounded, supervised
-threads may be added, but it provides neither safe thread termination nor a
-promise of parallel Python bytecode execution. Scale CPU-bound workloads across
-node processes initially.
+All Python handler tasks share the interpreter and managed loop. Async I/O can
+overlap, but a synchronous computation inside an async handler blocks that loop
+on both threading ABIs while Rust routing/storage maintenance continues.
+Conventional CPython also constrains Python bytecode with the GIL. Free-threaded
+CPython permits worker threads to compute in parallel; selecting that ABI does
+not make handlers on one asyncio loop execute in parallel. Worker threads cannot
+borrow SDK authority from the loop. Applications must bound and join their
+threads, and cancelling `asyncio.to_thread` does not terminate its function.
+Scale CPU-bound handler workloads across node processes; qualify any application
+worker pool separately for cancellation, resource bounds and shutdown.
 
 ## Context authority and cross-thread dispatch
 
@@ -569,12 +572,49 @@ lifespan, WebSockets and streaming remain separate feature work. Preserve
 unsuccessful optimization measurements outside Git and defer candidates whose
 application-level benefit or regression risk remains unresolved.
 
+The Python lifetime CI exercise exposed a native startup-confirmation race:
+preserve shutdown or cancellation could retire an owner read while leaving its
+confirmation marker attached. Teardown now records an aborted confirmation,
+clears queued and in-flight markers, and ignores late inventory completions;
+caller cancellation keeps queued node-owned confirmation work. An aborted
+inventory does not publish a confirmed owned-cell count. Four deterministic core
+regressions reproduced the invalid transitions before the fix. All 34 ordinary
+core tests and 18 embedded lifecycle/fencing cases across both Python ABIs pass
+locally, including five repetitions of the failing lifetime exercise per ABI.
+This does not close the separate snapshot catch-up refusal or qualify a later
+release revision; full release CI remains required.
+
 The [durable churn qualification](../tools/python/baseline.md#durable-activation-churn)
 now supplies a repeatable resource/recovery gate above the resident-cell limit,
 with a short CI check and an opt-in optimized Linux workload for each threading
 ABI. It preserves unknown mutation outcomes and failed runs even when recovery
 succeeds. Its private development bucket and sampled memory observations do not
 close the production-backend or sustained memory-stability gates.
+
+The optimized Linux [bounded-cache qualification](https://github.com/crabbuild/cellar/actions/runs/40072076456)
+at `1bc28e78` (diagnostic workflow revision `aadf3429`) verified both threading
+ABIs with native controls: 1,024 cells, 128 activation rounds, 64 resident cells
+and two repetitions per runtime. Independent raw-ledger verification accounts
+for 1,056,768 acknowledged writes, 8,192 recovered cell instances after owner
+kill and local-disk deletion, and eight joined replacements. Late-run native
+allocator growth was near zero after bounding historical coverage metadata;
+final allocated memory was roughly 13–15 MB, versus 33–35 MB in the earlier
+unbounded-cache run. Python allocated-block counts were also flat late in the
+run. RSS retained some growth, and each primary observation spans only about
+10–14 minutes. This closes the measured historical coverage-cache growth case,
+not arbitrary application leaks, long-duration memory qualification or production
+backend/SLO acceptance. Raw evidence remains outside the repository.
+
+Node-log bundle eviction markers now follow the lifetime of retained bundles.
+A fixed live inventory previously retained 19,488 historical epoch markers
+after 20,000 epochs, including after complete bundle GC. The index now counts
+distinct cell/epoch membership per evicted bundle and removes each marker with
+its last reference. Live cutoffs remain conservative when rows arrive out of
+order; dropping a live cutoff and later recreating a lower one could hide a
+retained row. The owning-module regressions cover epoch churn, shared membership,
+complete GC, arrival ordering and persisted-row reload with corruption refusal.
+This bounds historical metadata by the live bundle inventory; retained data and
+total process memory still require workload-specific qualification.
 
 | Phase | Current assessment | Gate still open |
 | --- | --- | --- |
