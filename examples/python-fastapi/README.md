@@ -15,6 +15,9 @@ FastAPI body validation on the direct path, so an invalid body can activate a
 cell without writing an order. Admission and authorization policies must account
 for that ordering. This is an example-specific routing implementation; its
 performance benefit still requires measurement.
+Routing failures before Python starts use the same sanitized 503 error fields
+as the Python gateway. A lost response still leaves a mutation's outcome unknown;
+the native route never retries it automatically.
 
 ## Build the application and its dependencies
 

@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "crates/cellar-python/python"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from app import Order, buffered_http, fetch
-from cellar import CellIdentity, Conflict, Request, Snapshot
+from cellar import Ambiguous, CellIdentity, Conflict, Overloaded, OwnershipLost, Request, Snapshot
 
 
 class OrderSnapshots(unittest.IsolatedAsyncioTestCase):
@@ -120,6 +120,27 @@ class OrderSnapshots(unittest.IsolatedAsyncioTestCase):
             await Order().fetch(Request('https://orders/orders/example'), ctx)
         ctx.storage.read_json.assert_not_awaited()
         ctx.storage.apply.assert_not_awaited()
+
+    async def test_gateway_and_cell_failures_keep_unknown_outcomes_without_replay(self):
+        payload = dict(customer_id='customer', items=[dict(sku='widget', quantity=2, unit_price_cents=1250)])
+        for error in (Ambiguous, Overloaded, OwnershipLost):
+            for direct in (False, True):
+                with self.subTest(error=error.__name__, direct=direct):
+                    operation = AsyncMock(side_effect=error('private backend or request details'))
+                    ctx, _ = self.context(False)
+                    ctx.identity = CellIdentity('example', 'Order', 'test-scope', 1)
+                    ctx.storage.read_json.side_effect = None
+                    ctx.storage.read_json.return_value = Snapshot(False, None)
+                    ctx.storage.apply = operation
+                    namespace = SimpleNamespace(get_by_name=lambda name: SimpleNamespace(fetch=operation))
+                    outer = SimpleNamespace(identity=None, namespace=lambda name: namespace)
+                    request = Request('https://orders/orders/example', 'POST', json.dumps(payload),
+                                      [('content-type', 'application/json')])
+                    response = await (Order().fetch(request, ctx) if direct else fetch(request, outer))
+                    self.assertEqual(response.status, 503)
+                    self.assertEqual(json.loads(response.body), dict(detail='Cellar operation failed',
+                                     code=error.__name__, outcome='unknown'))
+                    operation.assert_awaited_once()
 
 
 class BufferedHTTP(unittest.IsolatedAsyncioTestCase):

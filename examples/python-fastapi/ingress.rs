@@ -21,18 +21,44 @@ fn order_name(method: &str, url: &str) -> Option<String> {
         .then_some(name)
 }
 
+fn route_failure(error: &anyhow::Error) -> cellar::engine_api::HttpResponse {
+    // Match the Python cell.fetch classification, including unknown outcomes
+    // after a submitted mutation. Never expose native/backend error chains.
+    let failure = cellar_guest::failure::envelope("cell.fetch", error);
+    cellar::engine_api::HttpResponse {
+        status: 503,
+        body: serde_json::json!({
+            "detail": "Cellar operation failed",
+            "code": failure["code"],
+            "outcome": failure["outcome"],
+        })
+        .to_string()
+        .into_bytes(),
+        headers: vec![("content-type".into(), "application/json".into())],
+        stream: None,
+        websocket: None,
+        write_position: None,
+        observed_position: None,
+    }
+}
+
 impl Application for Orders {
     fn invoke(self: Arc<Self>, context: Context, event: Invocation) -> HandlerFuture<Output> {
         if let Invocation::Fetch(request) = event {
             if let Some(name) = order_name(&request.method, &request.url) {
                 return Box::pin(async move {
-                    Ok(Output::Http(
+                    let response = async {
                         context
                             .namespace("ORDERS")?
                             .get_by_name(&name)
                             .fetch(&context, request)
-                            .await?,
-                    ))
+                            .await
+                    }
+                    .await;
+                    Ok(Output::Http(match response {
+                        Ok(response) => response,
+                        Err(error) => route_failure(&error),
+                    }))
                 });
             }
             return self.0.clone().invoke(context, Invocation::Fetch(request));
@@ -62,7 +88,47 @@ impl Application for Orders {
 
 #[cfg(test)]
 mod tests {
-    use super::order_name;
+    use super::{order_name, route_failure};
+
+    #[test]
+    fn route_failures_preserve_uncertainty_without_exposing_error_chains() {
+        use cellar::cell_dispatch::RoutedRequestError;
+        use cellar_logic::RequestError;
+        for (error, code) in [
+            (
+                anyhow::anyhow!("secret backend path or request body"),
+                "Ambiguous",
+            ),
+            (
+                anyhow::Error::new(cellar::sdk::ApplicationOverloaded),
+                "Overloaded",
+            ),
+            (
+                anyhow::Error::new(RoutedRequestError(RequestError::NodeFenced)),
+                "OwnershipLost",
+            ),
+            (
+                anyhow::Error::new(RoutedRequestError(RequestError::DurabilityUnproven)),
+                "Ambiguous",
+            ),
+            (
+                anyhow::Error::new(RoutedRequestError(RequestError::CapacityExhausted)),
+                "Overloaded",
+            ),
+        ] {
+            let response = route_failure(&error.context("private request details"));
+            assert_eq!(response.status, 503);
+            assert_eq!(
+                response.headers,
+                [("content-type".into(), "application/json".into())]
+            );
+            assert_eq!(
+                serde_json::from_slice::<serde_json::Value>(&response.body).unwrap(),
+                serde_json::json!({"detail":"Cellar operation failed", "code":code, "outcome":"unknown"})
+            );
+            assert!(response.write_position.is_none() && response.observed_position.is_none());
+        }
+    }
 
     #[test]
     fn only_canonical_supported_order_routes_enter_cells_directly() {
