@@ -375,6 +375,67 @@ qualification, implement an explicit rooted domain policy; never relabel colocat
 containers as independent physical failure domains. RustFS, resource enforcement,
 TPS/p99 and soak remain unqualified. Keep fleet management default-off.
 
+## FO-03 progress: guarded initial voters
+
+Source `db751b13429db2750892510ae4c43410b796a256` connects confirmed births in fresh managed namespaces to
+actual initial voters through both startup Replica registrations and
+`activate_managed_initial_member` on running empty hosts. Genesis and fleet
+enrollment share one engine sync before cache publication, permanent member-claim
+confirmation and runtime attachment. The explicit Genesis origin starts at index
+1; Committed enrollment still requires a later configuration entry. Missing
+origin fields, bare-slot retrofit, rebound guards and origin changes are refused.
+
+Dynamic initialization reuses the owned learner SQL/attachment pipeline, the
+original deadline, a 4 MiB metadata reservation and one initializer per host.
+Dropping a submitted caller can leave a successfully initialized member; same-capability
+retry observes its actual state. Shutdown cancels held claims and joins ownership.
+A matching declaration digest cannot bypass the namespace's coordination-key
+owner. Initializer inspection now counts a slot once during transfer to the
+synced engine catalog, under one catalog lock.
+
+Cold managed startup resolves exact rooted process views before membership-route
+construction, so a self-address hint is sufficient when required views exist.
+Retained histories still require their startup recovery registrations; this is
+address discovery, not automatic enrollment of unlisted or retired engine slots.
+The protocol hard-cuts to `/managed-genesis-1`, with numeric markers at 1 and no
+legacy reader for the new managed enrollment shape.
+
+| Guarded-genesis verification | Result |
+| --- | --- |
+| Final native cohort across 13 targets | 323 passed, including all 40 enrollment cases |
+| Raft library and startup confirmation | 136 and 4 passed |
+| Clippy | Affected targets plus library passed with warnings denied |
+| Formatting, layout and native dependencies | Passed; 926 Rust files, 454 reachable packages, no JavaScript engine |
+| Plan and documentation checks | Passed; 135 required cases, 67 source anchors and 10 validator tests |
+
+The six new native cases use actual empty SDK hosts, native SQLite/TLS, quorum
+and archive acknowledgements, linearizable reads, data/guard recovery after
+restart, held-claim caller cancellation, shutdown, stale history and foreign
+coordination scope. Two new pure membership cases check origin/fence semantics;
+two actual storage cases check sync visibility, reopen and non-retrofit.
+Node activation and distinct physical-host labels are trusted fixture inputs;
+these tests do not qualify physical capacity activation or independent machines.
+
+Initial compilation failures remain retained. The first runtime cohort exposed
+a real double count of an initializing slot after sync; the production counter
+was fixed without weakening its count assertion. The next cohort exposed a test
+waiting for SQL insertion rather than final member publication; that wait now
+uses the actual installed membership. Both failed cohorts remain retained beside
+the final successful run. Final source bytes were unchanged after qualification.
+
+The partial `implementation/fo03/managed-genesis-boundary.json` record under
+ignored `.cellar/raft-perf/fleet-operations/` pins source, log and executable hashes.
+Cache paths are mutable and binary bytes were not archived. No raw artifacts were
+added to `plans/multi-raft/evidence/`. FO-03 remains IN_PROGRESS with six mandatory
+cases absent; FO-04 through FO-10 remain pending.
+
+The next birth/drain integration must explicitly resume an already admitted birth
+across exclusion: dynamic metadata registration currently refuses Draining nodes,
+including this pending-birth case. Complete import cuts, retired-binding lifecycle,
+unknown ingress, actual participant acknowledgements and an explicit rooted domain
+policy remain open. Keep fleet management default-off. RustFS deployment, Colima
+limits, throughput/latency and the soak remain unqualified.
+
 ## Next implementation boundary
 
 FO-03 adds the trusted dynamic node set, empty managed host readiness, bounded
@@ -408,7 +469,7 @@ safe admission ahead of automation; the manifest dependencies remain unchanged.
 
 | Priority | Boundary | Required result before advancing |
 | --- | --- | --- |
-| P0, first | FO-03 complete inventory and member lifecycle | Finish guarded initial-member initialization and the explicit complete import cut; integrate the birth reservation boundary with actual lifecycle admission and retired-binding refusal. The new low-level birth/drain case does not replace `fleet_enrollment_birth_drain_race`. Cover that case, `fleet_enrollment_incomplete_import` and `fleet_enrollment_retired_binding`. |
+| P0, first | FO-03 complete inventory and member lifecycle | Finish the explicit complete import cut, admitted-birth continuation during drain, actual lifecycle admission and retired-binding refusal. Guarded initial voters now initialize through startup and empty-host SDK paths. The new low-level birth/drain case does not replace `fleet_enrollment_birth_drain_race`. Cover that case, `fleet_enrollment_incomplete_import` and `fleet_enrollment_retired_binding`. |
 | P0, next | FO-03 remaining trust and placement checks | Close `fleet_enrollment_unknown_node`, `fleet_enrollment_route_revocation` and `fleet_enrollment_physical_host`: cover unsolicited ingress, move-participant acknowledgement enforcement and strict physical-host policy for movement. Initial birth-domain admission and cell-free observations are implemented locally; neither activates capacity. Pass the complete FO-03 listing and behavior tests before advancing. |
 | P1 | FO-04 placement, FO-05 fresh load, then FO-06 reconciliation | Validate final assignments and every staged move against retained/temporary costs, failure domains and one-node-loss restoration. Reconciliation must survive cancellation, restart and lost replies, with fresh terminal quorum proof before releasing reservations. Verify foreground overhead before enabling optional balancing. |
 | P2 | FO-07 maintenance, FO-08 operator surfaces, then FO-09 scaling | Deliver the durable stop fence and one-disruption slot, complete evacuation/removal proof, authenticated idempotent API/CLI workflows and observed-limit checks for resource changes. Proposed commands are not available until these packages pass. |
