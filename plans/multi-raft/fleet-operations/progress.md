@@ -459,6 +459,44 @@ the new metadata path refuses resetting their physical slots. A local observatio
 dummy business cell or successful TCP connect cannot substitute for the remaining
 enrollment/readiness proof.
 
+## FO-03 progress: admitted birth settlement
+
+Source `deb67f903e230579593205dbedc47a6547e4a91e` fixes initialization retry through startup-recovered handles.
+The host validates the actual birth and declared namespace, then observes the
+retained original-voter guard without recreating the engine or SQLite image.
+The restart case retries the same capability; another archived write and read
+verify the accumulated data. An in-flight initializer still cannot return
+an attachment receipt early.
+
+A confirmed fresh managed birth can now register its original voters after
+rooted drain, restart or resize exclusion. The actual SDK race case holds the
+birth writer, excludes all three nodes, confirms the retained inventory and then
+initializes the voters and acknowledges a quorum/archive write. An excluded
+noninitial spare cannot use the exception. In the opposite root-CAS ordering,
+both the delayed and fresh reservation refuse; no birth, dormant binding or
+local voter appears. Trusted state changes remain fixture inputs; these cases
+do not implement or certify evacuation, capacity activation or process stop.
+
+The final affected native cohort passed **154 cases across seven targets**,
+including all **41 enrollment cases**. All **136 Raft unit tests**, affected
+Clippy with warnings denied, formatting/layout over 926 Rust files, native
+dependency checks (454 packages, no JavaScript engine), plan validation,
+10 validator tests and documentation checks passed. The two reproduced failures
+remain retained. No Rust bytes changed after qualification.
+
+The ignored partial record is `implementation/fo03/birth-continuation-boundary.json`
+under `.cellar/raft-perf/fleet-operations/`; adjacent logs use
+`fo03-birth-continuation-*.log`. It records exact source, log and observed executable
+hashes; mutable cache paths do not archive the binaries. No raw evidence is
+tracked. There is no new TPS/p99 or deployed RustFS/Colima qualification.
+
+FO-03 remains `IN_PROGRESS`: five mandatory cases are still absent
+(`fleet_enrollment_unknown_node`, `fleet_enrollment_route_revocation`,
+`fleet_enrollment_retired_binding`, `fleet_enrollment_incomplete_import` and
+`fleet_enrollment_physical_host`). `check-list FO-03` correctly refuses the
+incomplete listing. The acceptance inventory stays at 135 cases and 67 source
+anchors; FO-04 through FO-10 remain pending.
+
 ## Prioritized remaining delivery
 
 The next changes should close FO-03's remaining trust, complete-inventory and
@@ -469,7 +507,7 @@ safe admission ahead of automation; the manifest dependencies remain unchanged.
 
 | Priority | Boundary | Required result before advancing |
 | --- | --- | --- |
-| P0, first | FO-03 complete inventory and member lifecycle | Finish the explicit complete import cut, admitted-birth continuation during drain, actual lifecycle admission and retired-binding refusal. Guarded initial voters now initialize through startup and empty-host SDK paths. The new low-level birth/drain case does not replace `fleet_enrollment_birth_drain_race`. Cover that case, `fleet_enrollment_incomplete_import` and `fleet_enrollment_retired_binding`. |
+| P0, first | FO-03 complete inventory and member lifecycle | Finish exact group-identity conflict reconciliation, the explicit complete/quiesced import cut and actual retired-binding lifecycle refusal. Original voters now settle after rooted drain/restart/resize exclusion, and initialization retries through startup-recovered handles retain data. The actual SDK birth/drain race is covered; this does not certify evacuation. Close `fleet_enrollment_incomplete_import` and `fleet_enrollment_retired_binding`. |
 | P0, next | FO-03 remaining trust and placement checks | Close `fleet_enrollment_unknown_node`, `fleet_enrollment_route_revocation` and `fleet_enrollment_physical_host`: cover unsolicited ingress, move-participant acknowledgement enforcement and strict physical-host policy for movement. Initial birth-domain admission and cell-free observations are implemented locally; neither activates capacity. Pass the complete FO-03 listing and behavior tests before advancing. |
 | P1 | FO-04 placement, FO-05 fresh load, then FO-06 reconciliation | Validate final assignments and every staged move against retained/temporary costs, failure domains and one-node-loss restoration. Reconciliation must survive cancellation, restart and lost replies, with fresh terminal quorum proof before releasing reservations. Verify foreground overhead before enabling optional balancing. |
 | P2 | FO-07 maintenance, FO-08 operator surfaces, then FO-09 scaling | Deliver the durable stop fence and one-disruption slot, complete evacuation/removal proof, authenticated idempotent API/CLI workflows and observed-limit checks for resource changes. Proposed commands are not available until these packages pass. |
