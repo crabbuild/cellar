@@ -13,10 +13,22 @@ import weakref
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "crates/cellar-python/python"))
-from cellar import Response, ValidationError, _encode, _encode_response
+from cellar import Response, ValidationError, _encode, _encode_response, sse_event
 
 
 class EncodingTests(unittest.TestCase):
+    def test_sse_multiline_and_field_injection(self):
+        self.assertEqual(sse_event("a\r\nb\rc\n", event="change", id="42", retry=1000),
+                         "event: change\nid: 42\nretry: 1000\ndata: a\ndata: b\ndata: c\ndata: \n\n")
+        for value in ("bad\nfield", "bad\rfield", "bad\0field"):
+            with self.assertRaises(ValueError):
+                sse_event("x", id=value)
+            with self.assertRaises(ValueError):
+                sse_event("x", event=value)
+        for value in (-1, 0.1, True):
+            with self.assertRaises(ValueError):
+                sse_event("x", retry=value)
+
     def test_scalar_leaves_obey_the_exact_nesting_limit(self):
         for scalar in (None, True, False, 0, -2**63, 2**64 - 1, 1.25, "text"):
             value = scalar

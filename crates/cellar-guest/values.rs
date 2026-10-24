@@ -144,7 +144,7 @@ pub fn envelope_size(metadata: usize, body: usize) -> Result<usize> {
         .context("guest HTTP envelope size overflow")
 }
 
-fn headers(headers: &[(String, String)]) -> Result<()> {
+pub(crate) fn headers(headers: &[(String, String)]) -> Result<()> {
     ensure!(headers.len() <= 128, "too many guest HTTP headers");
     let bytes = headers.iter().fold(0usize, |bytes, (key, value)| {
         bytes.saturating_add(key.len()).saturating_add(value.len())
