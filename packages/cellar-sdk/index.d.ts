@@ -8,12 +8,7 @@
  * limits at runtime; TypeScript's number type cannot express those constraints.
  */
 export type Json =
-  | null
-  | boolean
-  | number
-  | string
-  | Json[]
-  | { [key: string]: Json };
+  null | boolean | number | string | Json[] | { [key: string]: Json };
 
 /** Ordered header pairs, including repeated header names. */
 export type Headers = [string, string][];
@@ -99,6 +94,15 @@ export interface Context {
   /** Null for application-level handlers outside a cell. */
   readonly identity: Readonly<Identity> | null;
 
+  fetchStream(request: RequestData): Promise<LiveResponse>;
+  acceptWebSocket(response: LiveResponse): Promise<WebSocket>;
+  websocketPair(): Promise<WebSocket>;
+  websocket(id: string): WebSocket;
+  connectWebSocket(url: string, protocols?: string[]): Promise<WebSocket>;
+  websockets(tag?: string | null): Promise<WebSocket[]>;
+  getWebSocketAutoResponse(): Promise<[string, string] | null>;
+  setWebSocketAutoResponse(pair: [string, string] | null): Promise<null>;
+
   /** Read the host clock as Unix milliseconds. */
   now(): Promise<number>;
 
@@ -118,8 +122,12 @@ export interface Context {
   };
 
   /** Address a named cell through a configured namespace binding. */
-  cell(binding: string, name: string): {
+  cell(
+    binding: string,
+    name: string,
+  ): {
     fetch(request: RequestData): Promise<Response>;
+    fetchStream(request: RequestData): Promise<LiveResponse>;
   };
 
   /** JSON operations on a configured shared KV binding. */
@@ -188,8 +196,17 @@ export interface Cell {
   fetch?(
     request: Request,
     context: Context,
-  ): ResponseData | Promise<ResponseData>;
+  ): FetchOutput | Promise<FetchOutput>;
   alarm?(alarm: Alarm, context: Context): void | Promise<void>;
+  websocket_open?(event: WebSocketOpen, context: Context): void | Promise<void>;
+  websocket_message?(
+    event: WebSocketMessage,
+    context: Context,
+  ): void | Promise<void>;
+  websocket_close?(
+    event: WebSocketClose,
+    context: Context,
+  ): void | Promise<void>;
 }
 
 /** Application exports loaded by the selected JavaScript backend. */
@@ -199,7 +216,7 @@ export interface Application {
   fetch?(
     request: Request,
     context: Context,
-  ): ResponseData | Promise<ResponseData>;
+  ): FetchOutput | Promise<FetchOutput>;
   queue?(batch: QueueBatch, context: Context): void | Promise<void>;
   scheduled?(event: Scheduled, context: Context): void | Promise<void>;
 }
@@ -236,3 +253,81 @@ export function request(
   url: string,
   options?: { method?: string; headers?: Headers; body?: string | Uint8Array },
 ): RequestData;
+
+export type Chunks =
+  AsyncIterable<string | Uint8Array> | Iterable<string | Uint8Array>;
+export interface StreamingResponseData extends ResponseData {
+  chunks: Chunks;
+}
+export interface WebSocketResponseData {
+  websocket: string;
+  headers: Headers;
+  /** Worker socket consumer; returning ends its invocation authority. */
+  run?: (socket: WebSocket, context: Context) => void | Promise<void>;
+}
+export interface LiveResponse {
+  readonly forward: string;
+  readonly status: number;
+  readonly headers: Headers;
+  readonly body: Uint8Array;
+  readonly stream: boolean;
+  readonly websocket: boolean;
+  chunks(): AsyncIterable<Uint8Array>;
+  cancel(): Promise<null>;
+}
+export type FetchOutput =
+  ResponseData | StreamingResponseData | WebSocketResponseData | LiveResponse;
+export interface WebSocketOpen {
+  id: string;
+  protocol: string;
+}
+export interface WebSocketMessage {
+  id: string;
+  text?: string;
+  body?: string;
+  data: string | Uint8Array;
+}
+export interface WebSocketClose {
+  id: string;
+  code: number;
+  reason: string;
+  was_clean: boolean;
+}
+export type SocketEvent =
+  | { type: "open"; protocol: string }
+  | { type: "message"; text?: string; body?: string; data: string | Uint8Array }
+  | { type: "close"; code: number; reason: string; was_clean: boolean };
+export interface WebSocket {
+  readonly id: string;
+  accept(options?: { hibernating?: boolean; tags?: string[] }): Promise<null>;
+  send(data: string | Uint8Array): Promise<null>;
+  close(code?: number, reason?: string): Promise<null>;
+  /** Worker server or explicitly accepted outbound client endpoint. */
+  next(): Promise<SocketEvent>;
+  setAttachment(value: Json): Promise<null>;
+  getAttachment(): Promise<Json>;
+  tags(): Promise<string[]>;
+  autoResponseTimestamp(): Promise<number | null>;
+  info(): Promise<{
+    protocol: string;
+    url: string | null;
+    state: "Connecting" | "Open" | "Closing" | "Closed";
+  }>;
+}
+export function streamResponse(
+  chunks: Chunks,
+  options?: { status?: number; headers?: Headers },
+): StreamingResponseData;
+export function sseEvent(
+  data: string,
+  options?: { event?: string; id?: string; retry?: number },
+): string;
+/** Pass already formatted SSE events, for example from sseEvent(). */
+export function sseResponse(
+  events: Chunks,
+  options?: { status?: number; headers?: Headers },
+): StreamingResponseData;
+export function webSocketResponse(
+  socket: WebSocket,
+  options?: { headers?: Headers; run?: WebSocketResponseData["run"] },
+): WebSocketResponseData;

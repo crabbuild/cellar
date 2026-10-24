@@ -5,7 +5,7 @@
 Write JavaScript or TypeScript application handlers and durable cells while
 Cellar's Rust host owns routing, SQLite state, ownership and recovery.
 
-This package supplies TypeScript declarations and five buffered HTTP helpers:
+This package supplies TypeScript declarations and HTTP helpers:
 `request`, `response`, `jsonResponse`, `utf8` and `bytesToBase64`. The host supplies
 `Context` when it invokes a handler. Installing the package alone does not start
 a Cellar server or create a storage backend.
@@ -274,8 +274,9 @@ export function fetch(_req: Request) {
 `jsonResponse` prepends `content-type: application/json`; avoid adding a second
 content-type unless you intentionally want duplicate headers. There is no
 browser `Response` constructor to call in the embedded profile. Cellar's bridge
-currently has no streaming-body or WebSocket-upgrade API, even when the Node
-application itself can use Node streams.
+also provides `streamResponse`, `sseResponse`, `sseEvent`, and
+`webSocketResponse`. See [streaming and WebSockets](../../docs/27-streaming-and-websockets.md)
+for live producers, native upgrades and forwarding with `fetchStream`.
 
 ## Storage, transactions and reusable components
 

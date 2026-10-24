@@ -26,6 +26,7 @@ serde_json.workspace = true
 tokio = { workspace = true, features = ["sync"] }
 v8 = { workspace = true, optional = true }
 [dev-dependencies]
+fastwebsockets.workspace = true
 tempfile.workspace = true
 reqwest.workspace = true
 [[bin]]

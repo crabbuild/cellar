@@ -1,7 +1,7 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 /**
- * Buffered HTTP helpers shared by Cellar's embedded V8 and Node.js backends.
+ * HTTP and streaming response helpers shared by Cellar's embedded V8 and Node.js backends.
  *
  * The native bridge carries bodies as base64 strings. Handlers receive decoded
  * bytes, while these builders encode outgoing bodies into the wire format.
@@ -18,9 +18,7 @@ export function bytesToBase64(bytes) {
   for (let i = 0; i < bytes.length; i += 3) {
     // Combine up to three bytes into a 24-bit value, then emit four 6-bit digits.
     const value =
-      (bytes[i] << 16) |
-      ((bytes[i + 1] ?? 0) << 8) |
-      (bytes[i + 2] ?? 0);
+      (bytes[i] << 16) | ((bytes[i + 1] ?? 0) << 8) | (bytes[i + 2] ?? 0);
 
     result +=
       alphabet[value >>> 18] +
@@ -70,14 +68,61 @@ export function jsonResponse(value, { status = 200, headers = [] } = {}) {
 }
 
 /** Build an encoded request for ctx.cell(binding, name).fetch(...). */
-export function request(
-  url,
-  { method = "GET", headers = [], body = "" } = {},
-) {
+export function request(url, { method = "GET", headers = [], body = "" } = {}) {
   return {
     url,
     method,
     headers,
     body: bytesToBase64(typeof body === "string" ? utf8(body) : body),
   };
+}
+
+/** Stream bounded chunks under the original invocation, with backpressure. */
+export function streamResponse(chunks, { status = 200, headers = [] } = {}) {
+  return { status, headers, body: "", chunks };
+}
+
+/** Format one SSE event; use with streamResponse or sseResponse. */
+export function sseEvent(data, { event, id, retry } = {}) {
+  let result = "";
+  for (const [key, value] of [
+    ["event", event],
+    ["id", id],
+  ]) {
+    if (value !== undefined) {
+      if (typeof value !== "string" || /[\r\n\0]/.test(value))
+        throw new TypeError("Invalid SSE field");
+      result += `${key}: ${value}\n`;
+    }
+  }
+  if (retry !== undefined) {
+    if (!Number.isSafeInteger(retry) || retry < 0)
+      throw new TypeError("Invalid SSE retry");
+    result += `retry: ${retry}\n`;
+  }
+  return (
+    result +
+    String(data)
+      .replace(/\r\n|\r/g, "\n")
+      .split("\n")
+      .map(line => `data: ${line}\n`)
+      .join("") +
+    "\n"
+  );
+}
+
+export function sseResponse(events, options = {}) {
+  return streamResponse(events, {
+    ...options,
+    headers: [
+      ["content-type", "text/event-stream"],
+      ["cache-control", "no-cache"],
+      ...(options.headers ?? []),
+    ],
+  });
+}
+
+/** For workers, run(socket, ctx) retains the invocation until it completes. */
+export function webSocketResponse(socket, { headers = [], run } = {}) {
+  return { websocket: socket.id, headers, run };
 }

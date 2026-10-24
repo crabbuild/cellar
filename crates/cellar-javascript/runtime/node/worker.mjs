@@ -79,6 +79,8 @@ const factory = makeRunner((invocation, name, payload) => {
     'var',
     'kv.get',
     'kv.list',
+    'websocket.next',
+    'response.read',
   ].includes(name);
 
   if (mutation && state.mutation) reject('ConcurrentMutation');

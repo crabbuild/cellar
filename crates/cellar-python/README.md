@@ -38,9 +38,10 @@ One native Cellar process
 | Measure latency, throughput, memory, and recovery | [Baseline harness](../../tools/python/baseline.md) |
 | Work on scheduling, cleanup, or telemetry | [Runtime internals and diagnostics](runtime/README.md) |
 
-The native adapter exposes bounded, buffered HTTP. General ASGI lifespan,
-streaming responses, WebSockets, workflows, outbox, stream bindings, binary SQL
-parameters, and `wait_until` are outside its current SDK contract.
+The adapter exposes bounded buffered HTTP, streaming HTTP/SSE, and native
+WebSocket upgrades/events. See [streaming and WebSockets](../../docs/27-streaming-and-websockets.md).
+General ASGI lifespan, workflows, outbox, stream bindings, binary SQL parameters,
+and application-authored `wait_until` are outside its current SDK contract.
 
 ## Write a Python application
 
