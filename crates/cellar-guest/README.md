@@ -139,8 +139,22 @@ Bindings are resolved from the original native context and deployment.
 | SQL bindings | `sql.query` | Bind JSON parameters and execute a query through the configured SQL service. |
 | Queues | `queue.send`, `queue.settle` | Send a JSON message or acknowledge/retry messages in the current batch. |
 | Scheduled work | `cron.no_retry` | Disable retries for the current scheduled invocation. |
+| Containers | `container.running`, `start`, `monitor`, `destroy`, `signal`, `set_inactivity_timeout` (all under `container.`) | Root-cell lifecycle through the native durability gates. |
+| Container exec | `container.exec`, `container.exec_output`, `container.exec.*` | Bounded output or invocation-owned stdin/stdout/stderr, wait and signals. |
+| Container ports | `container.port.wait_ready`, `fetch`, `connect`, `connect_websocket` (all under `container.port.`) | Readiness, buffered HTTP, TCP and event-owned WebSockets. |
+| Container resources | `container.socket.*`, `container.websocket.*`, `container.release` | Invocation-local opaque handles, byte limits and deterministic release. |
 
-`operations::State` carries the current queue or scheduled event. Queue
+`operations::State` carries the current queue or scheduled event and the
+invocation's container resource table. Each table holds at most 64 live exec,
+TCP and WebSocket handles; native handles never cross the bridge. Drop the state
+on completion/cancellation. Resource IDs have meaning only within that state.
+Container commands remain native gated effects. Monitor, exec wait and stream
+reads are observational operations so they can progress alongside control calls.
+Read failures can follow consumed bytes and must not be treated as replayable.
+The [container guide](../../docs/09-integrations.md#how-cell-owned-containers-work)
+describes each facade and the engine requirements.
+
+`operations::State` also supplies event authority. Queue
 settlement and scheduled retry decisions require the corresponding event;
 having a binding alone does not supply it.
 
@@ -152,7 +166,8 @@ classifier recognizes it, but the shared `execute` dispatcher does not handle it
 
 HTTP bodies are buffered and bounded. Native response streams are collected
 before returning a guest value; this layer does not expose streaming HTTP or
-WebSocket upgrades to guest code.
+server WebSocket upgrades to guest code. Container ports have a separate
+explicit WebSocket API whose handles and frames belong to the opening invocation.
 
 ```text
                     Same native HTTP conversion rules
@@ -235,6 +250,7 @@ the owning adapter; see its guide for that additional error contract.
 | --- | --- |
 | [lib.rs](lib.rs) | Public modules and shared `Limits`. |
 | [operations.rs](operations.rs) | Operation dispatch, payload validation, read classification, and event state. |
+| [containers.rs](containers.rs) | Container operation validation, native handles and invocation resource cleanup. |
 | [storage.rs](storage.rs) | Checked batch validation and one-transaction application. |
 | [values.rs](values.rs) | Buffered HTTP conversion, byte accounting, JSON depth, and queue body conversion. |
 | [failure.rs](failure.rs) | Bounded reply encoding, error classification, and failure-provenance tests. |
@@ -253,3 +269,8 @@ Runtime identity, cancellation, and shutdown tests belong to
 [cellar-javascript](../cellar-javascript/README.md). When changing the protocol,
 check both adapters and the shared boundary: a local conversion change can alter
 another language's failure classification or byte budget.
+
+Container operations use [`cellar-container`](../cellar-container/README.md),
+which owns provider selection, invocation sessions and the native implementation.
+The guest boundary preserves its typed pre-effect validation marker and error
+provenance when encoding failures.

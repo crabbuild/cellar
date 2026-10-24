@@ -75,17 +75,8 @@ fn encode(value: &Value, limit: usize) -> anyhow::Result<String> {
     Ok(String::from_utf8(output.bytes)?)
 }
 
-/// Attached only to validation completed before any native effect starts.
-#[derive(Debug)]
-pub struct Validation;
-
-impl std::fmt::Display for Validation {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("invalid Cellar operation")
-    }
-}
-
-impl std::error::Error for Validation {}
+/// Proven pre-effect container and guest validation refusal.
+pub use cellar_container::Validation;
 
 pub fn envelope(name: &str, error: &Error) -> Value {
     let (code, outcome) = if error.is::<crate::storage::Conflict>() {
@@ -131,6 +122,19 @@ fn submitted(name: &str) -> (&'static str, &'static str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn container_validation_preserves_proven_refusal() {
+        let error = anyhow::Error::new(cellar_container::Validation);
+        assert_eq!(
+            envelope("container.start", &error)["outcome"],
+            "not_committed"
+        );
+        assert_eq!(
+            envelope("container.start", &anyhow::anyhow!("lost response"))["outcome"],
+            "unknown"
+        );
+    }
 
     #[test]
     fn binary_results_preserve_exact_encoded_limits_and_uncertainty() {

@@ -54,7 +54,7 @@ jobs:
           npm exec --prefix examples/vercel-agent/ui -- playwright install --with-deps chromium
           npm run --prefix examples/vercel-agent/ui test:ui
       - name: Adapter and real-node tests
-        run: cargo test --locked -p cellar-guest -p cellar-javascript --features cellar-javascript/embed,cellar-javascript/node
+        run: cargo test --locked -p cellar-container -p cellar-guest -p cellar-javascript --features cellar-javascript/embed,cellar-javascript/node
       - name: Node-only feature
         run: cargo test --locked -p cellar-javascript --no-default-features --features node
       - name: Runtime archive and admission boundaries
@@ -75,7 +75,7 @@ jobs:
           CELLAR_AI_HOST="${CARGO_TARGET_DIR:-$PWD/target}/debug/cellar-vercel-agent-example" npm run --prefix examples/vercel-agent test:tools
       - name: Quality and engine boundaries
         run: |
-          cargo clippy --locked -p cellar-guest -p cellar-javascript --features cellar-javascript/embed,cellar-javascript/node --all-targets -- -D warnings
+          cargo clippy --locked -p cellar-container -p cellar-guest -p cellar-javascript --features cellar-javascript/embed,cellar-javascript/node --all-targets -- -D warnings
           cargo format --check
           cargo check-layout
           python3 tools/check_native_dependencies.py

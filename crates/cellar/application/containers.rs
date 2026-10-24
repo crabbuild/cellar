@@ -12,6 +12,58 @@ use std::{
     time::Duration,
 };
 
+/// Authority for a host-selected external container or sandbox provider.
+/// It belongs to one root-cell event; providers must enforce their own remote
+/// instance fencing and isolation in addition to this local authority.
+pub struct ProviderAuthority {
+    context: Context,
+}
+
+impl Context {
+    /// Obtain event authority without requiring a local Docker deployment.
+    pub fn container_provider_authority(&self) -> Result<ProviderAuthority> {
+        self.check_turn()?;
+        anyhow::ensure!(
+            self.identity().is_some(),
+            "stateless handlers have no container"
+        );
+        anyhow::ensure!(
+            self.facet().is_none(),
+            "containers must be controlled by their root cell"
+        );
+        Ok(ProviderAuthority {
+            context: self.clone(),
+        })
+    }
+}
+
+impl ProviderAuthority {
+    pub fn check(&self, context: &Context) -> Result<()> {
+        context.check_turn()?;
+        self.context.check_turn()?;
+        anyhow::ensure!(
+            Arc::ptr_eq(&self.context.io, &context.io),
+            "container provider session belongs to another invocation"
+        );
+        Ok(())
+    }
+
+    /// Await the native container durability/output gate before a provider effect.
+    pub fn before_effect(&self, context: &Context) -> HandlerFuture<()> {
+        if let Err(error) = self.check(context) {
+            return Box::pin(async move { Err(error) });
+        }
+        let gate = host_gates::egress_gate_request(&context.io, cellar_logic::Channel::Container);
+        let context = context.clone();
+        Box::pin(async move {
+            host_gates::await_egress_gate(gate)
+                .await
+                .map_err(anyhow::Error::msg)?;
+            context.check_turn()
+        })
+    }
+}
+
 /// Options for the container's root process. Internet access defaults to off.
 #[derive(Clone, Debug, Default)]
 pub struct StartOptions {
@@ -339,6 +391,26 @@ impl Port {
             owner.check(&context)?;
             cancellation.disarm();
             head.into_http().map_err(anyhow::Error::msg)
+        })
+    }
+
+    /// Open an event-owned WebSocket whose frames are consumed with `next`.
+    /// The original event closes the socket on completion or cancellation.
+    pub fn connect_websocket(
+        &self,
+        context: &Context,
+        url: &str,
+        headers: http::Headers,
+    ) -> HandlerFuture<websocket::UpgradeResponse> {
+        let prepared = self.url(context, url);
+        let owner = self.owner.clone();
+        let context = context.clone();
+        Box::pin(async move {
+            let response = context
+                .container_websocket_polled(prepared?, headers)
+                .await?;
+            owner.check(&context)?;
+            Ok(response)
         })
     }
 

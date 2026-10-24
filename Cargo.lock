@@ -430,12 +430,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "cellar-container"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64 0.22.1",
+ "cellar",
+ "futures-util",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
 name = "cellar-guest"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
  "cellar",
+ "cellar-container",
  "cellar-logic",
  "futures-util",
  "serde",
@@ -447,10 +463,15 @@ name = "cellar-javascript"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "bytes",
  "cellar",
  "cellar-guest",
+ "fastwebsockets",
  "futures-util",
  "getrandom 0.3.4",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
  "libc",
  "reqwest",
  "serde",
@@ -458,6 +479,7 @@ dependencies = [
  "sha2",
  "tempfile",
  "tokio",
+ "url",
  "v8",
 ]
 
@@ -538,7 +560,11 @@ dependencies = [
  "cellar",
  "cellar-guest",
  "cellar-logic",
+ "fastwebsockets",
  "futures-util",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
  "libc",
  "object_store",
  "pyo3",
@@ -552,6 +578,7 @@ dependencies = [
  "tikv-jemallocator",
  "tokio",
  "tracing-subscriber",
+ "url",
 ]
 
 [[package]]

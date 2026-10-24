@@ -9,6 +9,14 @@ use std::{path::Path, sync::Arc, time::Duration};
 mod fixture;
 
 pub async fn start(path: &Path, application: Arc<dyn Application>) -> Result<(Node, String)> {
+    start_configured(path, application, |_, _, _| {}).await
+}
+
+pub async fn start_configured(
+    path: &Path,
+    application: Arc<dyn Application>,
+    configure: impl FnOnce(&mut NodeConfig, &mut NodeServices, &mut cellar::generation::DeploymentGraph),
+) -> Result<(Node, String)> {
     let name = "javascript-test";
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     let address = listener.local_addr()?;
@@ -52,7 +60,7 @@ pub async fn start(path: &Path, application: Arc<dyn Application>) -> Result<(No
     let executor = tokio::runtime::Handle::current();
     let peer_http = reqwest::Client::new();
     let peer_auth = Arc::new(PeerAuth::new([31; 32], name)?);
-    let services = NodeServices {
+    let mut services = NodeServices {
         wall_clock: None,
         http_client: None,
         host_executor: executor.clone(),
@@ -69,6 +77,7 @@ pub async fn start(path: &Path, application: Arc<dyn Application>) -> Result<(No
     let mut graph = fixture::graph("javascript-test", "", vec!["Counter".into()]);
     graph.primary.options.bindings = vec![("COUNTERS".into(), "Counter".into())];
     graph.primary.options.vars = vec![("DOMAIN_MARKER".into(), name.into())];
+    configure(&mut config, &mut services, &mut graph);
     let applications =
         CompiledApplications::default()
             .register("javascript-test", "test", move || Ok(application.clone()))?;

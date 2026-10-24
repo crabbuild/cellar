@@ -67,10 +67,25 @@ application code against ES2023 without DOM or Node globals.
 
 Both backends expose **buffered Cellar HTTP**. Node packages may use streams or
 WebSockets for their own I/O, but the Cellar bridge does not expose streaming
-responses or WebSocket upgrades. Cellar workflows, RPC, and JavaScript-authored
+responses or server WebSocket upgrades. Container ports provide a separate
+event-owned WebSocket API. Cellar workflows, RPC, and JavaScript-authored
 Raft commands are outside this adapter's current contract. The Node example
 qualifies React server rendering; browser DOM execution and arbitrary framework
 integrations are separate concerns.
+
+## Cell-owned Docker and Podman containers
+
+Both backends expose `ctx.container`: lifecycle, exec with binary streams and
+bounded output, readiness, buffered port HTTP, TCP and event-owned WebSockets.
+TypeScript declarations live in `@cellar/sdk`; JavaScript uses the same facade.
+All effects run through the original native Rust invocation and its durability
+and ownership gates. Reacquire facades in each event; do not retain them on the
+cell object for reuse by later invocations.
+
+See the [cross-language container guide](../../docs/09-integrations.md#apis-in-each-language)
+for deployment declarations, examples, byte limits, runtime prerequisites and
+the comparison with celld. This API does not implement the Cloudflare Sandbox
+SDK. The application engine and the container's own runtime remain separate.
 
 ## Write an application
 
@@ -458,3 +473,8 @@ For design context, see [ADR 005](../../docs/adr/005-embedded-javascript.md) and
 [delivery gates](../../plans/008-embedded-javascript-typescript.md). For repeatable
 measurements, use the [bridge benchmark](../../tools/perf/javascript/README.md)
 and read its [recorded results and limits](../../plans/javascript-bridge-performance-2026-10-22.md).
+
+A Rust host can select another container or sandbox backend with
+`Source::container_provider(Arc<dyn Provider>)`; see
+[`cellar-container`](../cellar-container/README.md) for the provider contract.
+The default provider preserves the native Docker/Podman behavior.

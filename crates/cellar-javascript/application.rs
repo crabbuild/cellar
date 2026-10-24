@@ -48,6 +48,7 @@ impl EventKind {
 /// `Source::module` describes registrations for an external Node module.
 #[derive(Clone)]
 pub struct Source {
+    containers: cellar_guest::containers::Adapter,
     pub(crate) code: String,
     pub(crate) filename: String,
     pub(crate) classes: Vec<String>,
@@ -66,6 +67,7 @@ impl Source {
     /// `code` must define `CellarApp`, as emitted by the Cellar npm build tool.
     pub fn new(code: impl Into<String>, filename: impl Into<String>) -> Self {
         Self {
+            containers: Default::default(),
             code: code.into(),
             filename: filename.into(),
             classes: Vec::new(),
@@ -98,6 +100,16 @@ impl Source {
         let name = name.into();
         self.classes.push(name.clone());
         self.cell_events.insert(name, events.into_iter().collect());
+        self
+    }
+
+    /// Select a trusted container/sandbox backend before starting the runtime.
+    /// Omission uses Cellar's native Docker/Podman provider.
+    pub fn container_provider(
+        mut self,
+        provider: Arc<dyn cellar_guest::containers::Provider>,
+    ) -> Self {
+        self.containers = cellar_guest::containers::Adapter::new(provider);
         self
     }
 
@@ -175,6 +187,8 @@ impl JavaScriptApplication {
         cell: Option<(u64, String, Life)>,
         state: State,
     ) -> Result<Output> {
+        let mut state = state;
+        state.containers = self.source.containers.session();
         let _permit = self
             .runtime
             .permits
@@ -413,6 +427,7 @@ impl Application for JavaScriptApplication {
                     State {
                         queue: Some(event),
                         scheduled: None,
+                        ..Default::default()
                     },
                 )
                 .await?;
@@ -432,6 +447,7 @@ impl Application for JavaScriptApplication {
                 State {
                     queue: None,
                     scheduled,
+                    ..Default::default()
                 },
             )
             .await
@@ -484,6 +500,7 @@ impl Cell for JavaScriptCell {
                     State {
                         queue: None,
                         scheduled: None,
+                        ..Default::default()
                     },
                 )
                 .await

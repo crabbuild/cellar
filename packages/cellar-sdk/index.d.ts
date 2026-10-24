@@ -88,6 +88,88 @@ export interface Identity {
   epoch: string;
 }
 
+export interface ContainerStartOptions {
+  entrypoint?: string[];
+  env?: [string, string][];
+  enable_internet?: boolean;
+  labels?: [string, string][];
+}
+
+export interface ContainerExecOptions {
+  cmd: string[];
+  env?: [string, string][];
+  cwd?: string;
+  user?: string;
+  combined?: boolean;
+}
+
+export interface ContainerExecOutput {
+  exit_code: number;
+  stdout: Uint8Array;
+  stderr: Uint8Array;
+}
+
+/** Invocation-owned process streams. Drain stdout and stderr concurrently. */
+export interface ContainerExec {
+  readStdout(): Promise<Uint8Array>;
+  readStderr(): Promise<Uint8Array>;
+  write(bytes: Uint8Array): Promise<null>;
+  closeStdin(): Promise<null>;
+  wait(): Promise<number>;
+  kill(signal?: number): Promise<null>;
+  /** Release streams without killing the process. */
+  release(): Promise<null>;
+}
+
+export type ContainerWebSocketEvent =
+  | { type: "open"; protocol: string }
+  | { type: "text"; text: string }
+  | { type: "binary"; data: Uint8Array }
+  | { type: "close"; code: number; reason: string; clean: boolean };
+
+/** Event-owned outbound WebSocket, closed when the invocation ends. */
+export interface ContainerWebSocket {
+  receive(): Promise<ContainerWebSocketEvent>;
+  sendText(text: string): Promise<null>;
+  sendBinary(bytes: Uint8Array): Promise<null>;
+  close(code?: number, reason?: string): Promise<null>;
+  release(): Promise<null>;
+}
+
+export interface ContainerSocket {
+  /** An empty chunk marks EOF. */
+  read(): Promise<Uint8Array>;
+  write(bytes: Uint8Array): Promise<null>;
+  closeWrite(): Promise<null>;
+  close(): Promise<null>;
+  release(): Promise<null>;
+}
+
+/** Available only on root cells whose class declares a container image. */
+export interface Container {
+  running(): Promise<boolean>;
+  /** Opaque run identity, represented as a string to avoid integer rounding. */
+  start(options?: ContainerStartOptions): Promise<string>;
+  monitor(): Promise<number>;
+  destroy(): Promise<null>;
+  signal(signal: number): Promise<null>;
+  /** Integral milliseconds, at most one day. */
+  setInactivityTimeout(timeout_ms: number): Promise<null>;
+  exec(options: ContainerExecOptions): Promise<ContainerExec>;
+  /** Combined stdout/stderr limit cannot exceed the host body limit. */
+  execOutput(options: ContainerExecOptions, max_bytes?: number): Promise<ContainerExecOutput>;
+  port(port: number): {
+    waitReady(timeout_ms?: number): Promise<null>;
+    /** Forward buffered HTTP; redirects are returned without following them. */
+    fetch(request: RequestData): Promise<Response>;
+    connect(): Promise<ContainerSocket>;
+    connectWebSocket(url: string, headers?: Headers): Promise<
+      | { upgraded: true; protocol: string; socket: ContainerWebSocket }
+      | { upgraded: false; response: Response }
+    >;
+  };
+}
+
 /**
  * Invocation-scoped authority supplied by the Rust host.
  *
@@ -98,6 +180,9 @@ export interface Identity {
 export interface Context {
   /** Null for application-level handlers outside a cell. */
   readonly identity: Readonly<Identity> | null;
+
+  /** Invocation-scoped control of this cell’s declared container. */
+  readonly container: Container;
 
   /** Read the host clock as Unix milliseconds. */
   now(): Promise<number>;

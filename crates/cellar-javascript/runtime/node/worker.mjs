@@ -79,6 +79,9 @@ const factory = makeRunner((invocation, name, payload) => {
     'var',
     'kv.get',
     'kv.list',
+    'container.running', 'container.monitor',
+    'container.exec.read_stdout', 'container.exec.read_stderr', 'container.exec.wait',
+    'container.socket.read', 'container.websocket.receive',
   ].includes(name);
 
   if (mutation && state.mutation) reject('ConcurrentMutation');
