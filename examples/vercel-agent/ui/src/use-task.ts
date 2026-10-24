@@ -23,6 +23,7 @@ export interface Task {
   status: "pending" | "completed" | "failed";
   prompt: string;
   previous: string | null;
+  updatedAt: number | null;
   attempts: number;
   modelSteps: number;
   toolReceipts: number;
@@ -64,7 +65,10 @@ export function useTask(
   seed: Task | null,
   revision: number,
 ) {
-  const [state, setState] = useState<Task | null>(seed);
+  const [loaded, setLoaded] = useState({ id, value: seed });
+  // A selection change must not expose the previous turn's state while the
+  // new effect is starting; the history directory also consumes this value.
+  const state = loaded.id === id ? loaded.value : seed;
   const [progress, setProgress] = useState<Progress | null>(null);
   const [connected, setConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -72,7 +76,7 @@ export function useTask(
   initial.current = seed;
 
   useEffect(() => {
-    setState(initial.current);
+    setLoaded({ id, value: initial.current });
     setProgress(null);
     setError(null);
     setConnected(false);
@@ -100,7 +104,7 @@ export function useTask(
           signal: controller.signal,
         });
         if (controller.signal.aborted) return;
-        setState(value);
+        setLoaded({ id, value });
         setError(null);
         if (value.status !== "pending") {
           events.close();

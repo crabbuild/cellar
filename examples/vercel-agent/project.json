@@ -13,7 +13,10 @@
   "primary": {
     "script_name": "vercel-agent-example",
     "application_version": "v1",
-    "cells": ["DurableAgent"],
-    "bindings": [{"type":"durable_object_namespace","name":"AGENTS","class_name":"DurableAgent"}]
+    "cells": ["DurableAgent", "ConversationDirectory"],
+    "bindings": [
+      {"type":"durable_object_namespace","name":"AGENTS","class_name":"DurableAgent"},
+      {"type":"durable_object_namespace","name":"CONVERSATIONS","class_name":"ConversationDirectory"}
+    ]
   }
 }
