@@ -37,7 +37,7 @@ mod snapshot;
 pub use snapshot::InterpreterSnapshot;
 mod memory;
 mod wakeup;
-pub(crate) use bridge::{Event, InvocationBridge, Life, Start};
+pub(crate) use bridge::{Event, InvocationBridge, Life, OperationMessage, Start};
 pub use environment::Environment;
 pub use initialization::Interpreter;
 pub use inventory::{is_verified_build, verified_inventory_sha256};

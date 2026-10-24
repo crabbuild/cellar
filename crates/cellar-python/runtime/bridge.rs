@@ -23,16 +23,18 @@ impl OwnerLifetime {
     }
 }
 
+pub(crate) struct OperationMessage {
+    pub id: u64,
+    pub name: String,
+    pub payload: String,
+    pub body: Option<Vec<u8>>,
+    pub mutation: Option<Mutation>,
+    pub reservation: super::Reservation,
+    pub observation: super::telemetry::Operation,
+}
+
 pub(crate) enum Event {
-    Operation {
-        id: u64,
-        name: String,
-        payload: String,
-        body: Option<Vec<u8>>,
-        mutation: Option<Mutation>,
-        reservation: super::Reservation,
-        observation: super::telemetry::Operation,
-    },
+    Operation(Box<OperationMessage>),
     Complete {
         queued_at: std::time::Instant,
         payload: String,
@@ -194,7 +196,7 @@ impl InvocationBridge {
                 pyo3::exceptions::PyRuntimeError::new_err("Python SDK operation queue is closed")
             }
         })?;
-        permit.send(Event::Operation {
+        permit.send(Event::Operation(Box::new(OperationMessage {
             id,
             name: name.to_owned(),
             payload: payload.to_owned(),
@@ -202,7 +204,7 @@ impl InvocationBridge {
             mutation,
             reservation,
             observation: self.budget.metrics.admit(self.clock_origin),
-        });
+        })));
         self.budget
             .copied_input(name.len() + payload.len() + body.map_or(0, <[u8]>::len));
         Ok(())

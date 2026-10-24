@@ -340,15 +340,16 @@ impl PythonApplication {
                 "Python runtime is closed"
             );
             match event {
-                Event::Operation {
-                    id,
-                    name,
-                    payload,
-                    body,
-                    mutation,
-                    reservation,
-                    mut observation,
-                } => {
+                Event::Operation(operation) => {
+                    let runtime::OperationMessage {
+                        id,
+                        name,
+                        payload,
+                        body,
+                        mutation,
+                        reservation,
+                        mut observation,
+                    } = *operation;
                     if !active.active() {
                         continue;
                     }
