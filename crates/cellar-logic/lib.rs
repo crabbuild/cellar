@@ -680,6 +680,13 @@ struct ShedCut {
     cells: usize,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Confirmation {
+    Complete,
+    Reading,
+    Aborted,
+}
+
 /// All authoritative coordination state for the first vertical slice.
 pub struct State {
     node: NodeId,
@@ -714,7 +721,7 @@ pub struct State {
     /// finds on its own disk, to count what it still owns without waking
     /// any of it. Until this finishes the published owned count is absent,
     /// so no peer balances against a node that only looks empty.
-    confirming: bool,
+    confirmation: Confirmation,
     confirming_cells: BTreeSet<CellId>,
     next_op: OpId,
     next_timer_generation: u64,
@@ -917,7 +924,7 @@ impl State {
             swap_eager_classes: BTreeSet::new(),
             resuming: false,
             resuming_cells: BTreeSet::new(),
-            confirming: false,
+            confirmation: Confirmation::Complete,
             confirming_cells: BTreeSet::new(),
             next_op: 1,
             next_timer_generation: 1,
@@ -1070,9 +1077,10 @@ impl State {
     }
 
     /// Whether the owned-cell count describes every record this node holds.
-    /// False while a restarted process confirms its local inventory.
+    /// False while a restarted process confirms its local inventory or after
+    /// teardown abandons that confirmation.
     pub fn ownership_confirmed(&self) -> bool {
-        !self.confirming
+        self.confirmation == Confirmation::Complete
     }
 
     /// Whether this node is handing its cells away. Published in the lease,
@@ -1641,7 +1649,7 @@ impl State {
                 ));
             }
         }
-        if !self.confirming && !self.confirming_cells.is_empty() {
+        if self.confirmation != Confirmation::Reading && !self.confirming_cells.is_empty() {
             return Err("confirmation finished with cells still confirming".into());
         }
         let actual_resuming: BTreeSet<_> = self
@@ -2285,7 +2293,7 @@ impl State {
         result: Result<Vec<LocalCell>, Failure>,
         effects: &mut Vec<Effect>,
     ) {
-        if self.confirming {
+        if self.confirmation == Confirmation::Reading {
             self.confirm_local_cells(result, effects);
             return;
         }
@@ -2342,7 +2350,7 @@ impl State {
         effects: &mut Vec<Effect>,
     ) {
         let Ok(mut cells) = result else {
-            self.confirming = false;
+            self.confirmation = Confirmation::Complete;
             return;
         };
         cells.sort();
@@ -2365,13 +2373,28 @@ impl State {
             self.put_cell(local.id, cell);
         }
         if self.confirming_cells.is_empty() {
-            self.confirming = false;
+            self.confirmation = Confirmation::Complete;
         }
     }
 
     fn settle_confirmation(&mut self, id: &str) {
         if self.confirming_cells.remove(id) && self.confirming_cells.is_empty() {
-            self.confirming = false;
+            self.confirmation = Confirmation::Complete;
+        }
+    }
+
+    /// Teardown ends startup work without proving the owned-cell count. Clear
+    /// both indexes before their owner-read phases are retired; late inventory
+    /// results must not create new reads after this boundary.
+    fn abort_confirmation(&mut self) {
+        if self.confirmation != Confirmation::Reading {
+            return;
+        }
+        self.confirmation = Confirmation::Aborted;
+        for id in std::mem::take(&mut self.confirming_cells) {
+            if let Some(cell) = self.cells.get_mut(&id) {
+                cell.confirming = false;
+            }
         }
     }
 
@@ -2703,7 +2726,7 @@ impl State {
             self.resuming = true;
             effects.push(Effect::ReadLocalCells);
         } else if confirm_local {
-            self.confirming = true;
+            self.confirmation = Confirmation::Reading;
             effects.push(Effect::ReadLocalCells);
         }
     }
@@ -4044,12 +4067,12 @@ impl State {
             return;
         };
         cell.requests.remove(&request);
-        // A clean-generation resume is node demand, not caller demand. If a
-        // joined caller cancels, keep that resume queued so readiness can
-        // still observe its terminal outcome.
+        // Startup resume and inventory confirmation are node demand. A
+        // joined caller cancelling must not discard either queued operation.
         if cell.requests.is_empty()
             && !cell.alarm_wake
             && !cell.resume_demand
+            && !cell.confirming
             && cell.phase == Phase::WaitingActivation
         {
             let start = cell.waiting_activation.take();
@@ -4091,6 +4114,7 @@ impl State {
     /// callers. A later completion is ignored because its operation is no
     /// longer current.
     fn begin_preserve(&mut self, effects: &mut Vec<Effect>) {
+        self.abort_confirmation();
         self.activation_waiters.clear();
         self.capacity_waiters.clear();
 
@@ -5816,7 +5840,7 @@ impl State {
         effects: &mut Vec<Effect>,
     ) -> Result<Option<OpId>, EvictError> {
         let refuse = |reason| Err(EvictError::Refused(reason));
-        if !self.ready_to_serve() || self.confirming {
+        if !self.ready_to_serve() || !self.ownership_confirmed() {
             return refuse(EvictRefusal::NodeUnavailable);
         }
         if self.is_active(id) {
@@ -6916,6 +6940,7 @@ impl State {
             return;
         }
         self.fenced = true;
+        self.abort_confirmation();
         self.activation_waiters.clear();
         self.activation_permits.clear();
         self.capacity_waiters.clear();

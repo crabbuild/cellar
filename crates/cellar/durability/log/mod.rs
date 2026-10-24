@@ -37,6 +37,8 @@ use crate::ltx_repl::ShipEntry;
 use crate::peer_auth::PeerAuth;
 
 mod bundle_budget;
+#[cfg(test)]
+mod bundle_index_tests;
 #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
 mod bundle_scan_tests;
 mod bundle_snapshot;
@@ -324,8 +326,13 @@ const BUNDLE_ROW_INDEX_CAPACITY: usize = 512;
 const BUNDLE_GC_EXAMINED_PER_TICK: usize = 512;
 
 struct IndexedBundle {
-    cells: BTreeSet<String>,
+    epochs: BTreeSet<(String, u64)>,
     rows: Option<Vec<cellar_ltx::bundle::BundleRow>>,
+}
+
+struct EvictedEpoch {
+    through: u64,
+    bundles: usize,
 }
 
 #[derive(Default)]
@@ -335,8 +342,10 @@ struct BundleIndex {
     recent: std::collections::VecDeque<String>,
     /// The highest txid whose row metadata left `recent`, per cell epoch. A
     /// cell needs its evicted bundles only until its per-cell coverage passes
-    /// this cut, so a covered cell costs no bundle read.
-    evicted: BTreeMap<(String, u64), u64>,
+    /// this cut, so a covered cell costs no bundle read. Keep a cut only while
+    /// retained bundles reference it. Forgetting a live cut and later learning
+    /// a lower txid could hide an older retained row from compaction.
+    evicted: BTreeMap<(String, u64), EvictedEpoch>,
 }
 
 /// One cell epoch's view of the index. The rows, the evicted bundles, and
@@ -350,8 +359,11 @@ struct CellBundleRows {
 
 impl BundleIndex {
     fn insert(&mut self, key: String, rows: Vec<cellar_ltx::bundle::BundleRow>) {
-        let cells: BTreeSet<String> = rows.iter().map(|row| row.cell.clone()).collect();
-        for cell in &cells {
+        let epochs: BTreeSet<(String, u64)> = rows
+            .iter()
+            .map(|row| (row.cell.clone(), row.cell_epoch))
+            .collect();
+        for (cell, _) in &epochs {
             self.by_cell
                 .entry(cell.clone())
                 .or_default()
@@ -361,7 +373,7 @@ impl BundleIndex {
         let previous = self.bundles.insert(
             key.clone(),
             IndexedBundle {
-                cells,
+                epochs,
                 rows: Some(rows),
             },
         );
@@ -374,13 +386,30 @@ impl BundleIndex {
                 .recent
                 .pop_front()
                 .expect("an over-capacity bundle row index is not empty");
-            let rows = self
-                .bundles
-                .get_mut(&oldest)
-                .and_then(|bundle| bundle.rows.take());
-            for row in rows.into_iter().flatten() {
-                let through = self.evicted.entry((row.cell, row.cell_epoch)).or_default();
-                *through = (*through).max(row.txid);
+            let Some(bundle) = self.bundles.get_mut(&oldest) else {
+                continue;
+            };
+            let Some(rows) = bundle.rows.take() else {
+                continue;
+            };
+            // Count each bundle once per epoch, even if it contains several
+            // rows for that epoch. GC releases the same membership below.
+            for identity in &bundle.epochs {
+                let cut = self
+                    .evicted
+                    .entry(identity.clone())
+                    .or_insert(EvictedEpoch {
+                        through: 0,
+                        bundles: 0,
+                    });
+                cut.bundles += 1;
+            }
+            for row in rows {
+                let cut = self
+                    .evicted
+                    .get_mut(&(row.cell, row.cell_epoch))
+                    .expect("each evicted row epoch has registered bundle membership");
+                cut.through = cut.through.max(row.txid);
             }
         }
     }
@@ -423,7 +452,10 @@ impl BundleIndex {
         CellBundleRows {
             located,
             evicted,
-            evicted_through: self.evicted.get(&(cell.to_string(), epoch)).copied(),
+            evicted_through: self
+                .evicted
+                .get(&(cell.to_string(), epoch))
+                .map(|cut| cut.through),
         }
     }
 
@@ -433,7 +465,19 @@ impl BundleIndex {
             let Some(bundle) = self.bundles.remove(*key) else {
                 continue;
             };
-            for cell in bundle.cells {
+            let evicted = bundle.rows.is_none();
+            for identity in bundle.epochs {
+                if evicted {
+                    let cut = self
+                        .evicted
+                        .get_mut(&identity)
+                        .expect("an evicted bundle retains every referenced epoch cut");
+                    cut.bundles -= 1;
+                    if cut.bundles == 0 {
+                        self.evicted.remove(&identity);
+                    }
+                }
+                let cell = identity.0;
                 let empty = self.by_cell.get_mut(&cell).is_some_and(|cell_keys| {
                     cell_keys.remove(*key);
                     cell_keys.is_empty()

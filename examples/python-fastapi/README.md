@@ -101,6 +101,14 @@ snapshot as a checked-batch precondition, so an intervening writer produces a
 cell handler runs and does not refresh after an await. FastAPI routing,
 validation and dependency injection still run for every public request.
 
+For deployments with many distinct orders, configure a finite native residency
+budget, for example `CELLAR_MAX_RESIDENT_CELLS=1024`. The native CLI otherwise has
+no resident-cell ceiling, while the embedded Python runtime defaults to at most
+4,096 cached cell objects. Choose a native limit below that Python budget to
+allow room for retirement. Evicted cells keep their durable state and reactivate
+on later requests. The benchmark's explicit resident limit exercises this churn
+instead of filling the interpreter's object cache indefinitely.
+
 ## Test a fresh package installation locally
 
 Stop the dev host first. The following drill temporarily moves the original
@@ -337,3 +345,37 @@ Keep SDK dependencies/endpoints async: synchronous FastAPI functions run in a
 thread pool outside the managed SDK loop. Background work remains nondurable;
 use Cellar queues or alarms for persisted jobs. The adapter waits for the ASGI
 call to finish and propagates cancellation without returning a partial response.
+
+### Independent-arrival durable updates
+
+Use the same native arrival client and packaged project with `--operation update`:
+
+```sh
+python3 -B examples/python-fastapi/offered_perf.py \
+  --operation update \
+  --client "$CARGO_TARGET_DIR/lab/examples/python-offered-load" --client-profile lab \
+  --cellar "$CARGO_TARGET_DIR/debug/cellar" \
+  --project "python=$CELLAR_FASTAPI_ROOT/perf-environment/project.json" \
+  --output "$CELLAR_FASTAPI_ROOT/offered-updates" \
+  --rates 100 500 1000 --duration-ms 5000 --warmup-ms 500 --repetitions 3
+```
+
+Each warmup and measurement phase seeds a separate set of pending orders outside
+measurement, then schedules one checked PATCH per order. The arrival harness sets
+`--resident-cells 64` by default on both the original and replacement hosts. This
+overrides inherited `CELLAR_MAX_RESIDENT_CELLS`; values from 1 to 2,048 leave room
+below the example's 4,096-object Python budget for pending retirement. The client never cycles
+targets or retries mutations. Each phase permits at most 10,000 orders; this
+workload includes activation when the seeded population exceeds resident capacity.
+Use the Linux `--host-cpus` and `--client-cpus` options above for disjoint CPU pools.
+
+After all phases, the harness gracefully stops the host, restarts the same
+private project and reads every target. Acknowledged updates must retain their
+exact expected value; undispatched targets must remain unchanged. HTTP errors,
+timeouts, transport errors and invalid responses remain uncertain, with their
+recovered state reported separately as unchanged or committed. Recovery never
+turns a failed request into measured success. Raw arrival, seed and recovery
+records are retained, and both hosts must drain completely. This checks graceful
+restart persistence; process-kill, disk-loss and fleet recovery need their own
+qualification. Percentiles cover successful requests, so always inspect offered
+rate, success fraction, client drops and failures together.

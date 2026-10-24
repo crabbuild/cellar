@@ -29,6 +29,8 @@ struct Workload {
     max_lag_ms: u64,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     reads: Vec<ReadTarget>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    updates: Vec<UpdateTarget>,
     #[serde(skip)]
     failure_details: AtomicUsize,
 }
@@ -38,6 +40,36 @@ struct Workload {
 struct ReadTarget {
     path: String,
     expected_body: Vec<u8>,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct UpdateTarget {
+    path: String,
+    body: Vec<u8>,
+    expected_body: Vec<u8>,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum Targets {
+    Reads(Vec<ReadTarget>),
+    Updates(UpdateManifest),
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct UpdateManifest {
+    updates: Vec<UpdateTarget>,
+}
+
+fn valid_path(path: &str) -> bool {
+    path.starts_with('/')
+        && !path.starts_with("//")
+        && path.len() <= 256
+        && path
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'/' | b'-' | b'_'))
 }
 
 #[derive(Serialize)]
@@ -89,7 +121,7 @@ fn elapsed(start: Instant) -> u64 {
 impl Workload {
     fn parse(args: &[String]) -> Result<(Self, PathBuf)> {
         ensure!(args.len() == 8 || args.len() == 9,
-            "usage: python-offered-load URL RATE DURATION_MS MAX_INFLIGHT BODY_BYTES TIMEOUT_MS MAX_LAG_MS OUTPUT.json [READ_TARGETS.json]");
+            "usage: python-offered-load URL RATE DURATION_MS MAX_INFLIGHT BODY_BYTES TIMEOUT_MS MAX_LAG_MS OUTPUT.json [TARGETS.json]");
         let mut url = Url::parse(&args[0])?;
         ensure!(
             url.scheme() == "http"
@@ -102,47 +134,66 @@ impl Workload {
                 && url.fragment().is_none(),
             "a private loopback origin is required"
         );
-        let reads: Vec<ReadTarget> = if let Some(path) = args.get(8) {
-            ensure!(url.path() == "/", "read targets require a root origin");
+        let (reads, updates) = if let Some(path) = args.get(8) {
+            ensure!(url.path() == "/", "targets require a root origin");
             let mut bytes = Vec::new();
             File::open(path)?
-                .take(5 * 1_048_576 + 1)
+                .take(32 * 1_048_576 + 1)
                 .read_to_end(&mut bytes)?;
             ensure!(
-                bytes.len() <= 5 * 1_048_576,
-                "read manifest exceeds byte limit"
+                bytes.len() <= 32 * 1_048_576,
+                "target manifest exceeds byte limit"
             );
-            serde_json::from_slice(&bytes)?
+            match serde_json::from_slice::<Targets>(&bytes)? {
+                Targets::Reads(reads) => {
+                    ensure!((1..=64).contains(&reads.len()), "invalid read target count");
+                    (reads, Vec::new())
+                }
+                Targets::Updates(manifest) => {
+                    ensure!(
+                        (1..=10_000).contains(&manifest.updates.len()),
+                        "invalid update target count"
+                    );
+                    (Vec::new(), manifest.updates)
+                }
+            }
         } else {
             if url.path() == "/" {
                 url.set_path("/echo");
             }
-            Vec::new()
+            (Vec::new(), Vec::new())
         };
-        if args.len() == 9 {
-            ensure!((1..=64).contains(&reads.len()), "invalid read target count");
-            let mut paths = HashSet::new();
-            for target in &reads {
-                ensure!(
-                    target.path.starts_with('/')
-                        && !target.path.starts_with("//")
-                        && target.path.len() <= 256
-                        && target.path.bytes().all(|byte| byte.is_ascii_alphanumeric()
-                            || matches!(byte, b'/' | b'-' | b'_'))
-                        && paths.insert(&target.path)
-                        && target.expected_body.len() <= 65_536,
-                    "invalid or duplicate read target"
-                );
-            }
+        let mut paths = HashSet::new();
+        let mut total = 0;
+        for (path, body, expected) in reads
+            .iter()
+            .map(|target| (&target.path, &[][..], target.expected_body.as_slice()))
+            .chain(updates.iter().map(|target| {
+                (
+                    &target.path,
+                    target.body.as_slice(),
+                    target.expected_body.as_slice(),
+                )
+            }))
+        {
             ensure!(
-                reads
-                    .iter()
-                    .map(|target| target.expected_body.len())
-                    .sum::<usize>()
-                    <= 1_048_576,
-                "read targets exceed total body limit"
+                valid_path(path)
+                    && paths.insert(path)
+                    && body.len() <= 65_536
+                    && expected.len() <= 65_536,
+                "invalid or duplicate target"
             );
+            total += body.len() + expected.len();
         }
+        ensure!(
+            total
+                <= if updates.is_empty() {
+                    1_048_576
+                } else {
+                    8 * 1_048_576
+                },
+            "targets exceed total body limit"
+        );
         let workload = Self {
             url: url.into(),
             rate: args[1].parse()?,
@@ -152,6 +203,7 @@ impl Workload {
             timeout_ms: args[5].parse()?,
             max_lag_ms: args[6].parse()?,
             reads,
+            updates,
             failure_details: AtomicUsize::new(0),
         };
         ensure!(
@@ -159,13 +211,20 @@ impl Workload {
                 && (1..=120_000).contains(&workload.duration_ms)
                 && (1..=512).contains(&workload.max_inflight)
                 && workload.body_bytes <= 65_536
-                && (workload.reads.is_empty() || workload.body_bytes == 0)
+                && ((workload.reads.is_empty() && workload.updates.is_empty())
+                    || workload.body_bytes == 0)
                 && (1..=10_000).contains(&workload.timeout_ms)
                 && (1..=1_000).contains(&workload.max_lag_ms),
             "invalid finite workload limits"
         );
         let planned = workload.rate * workload.duration_ms / 1_000;
         ensure!((1..=1_000_000).contains(&planned), "invalid arrival count");
+        // Each PATCH is submitted at most once. Never cycle a successful write
+        // into a receipt replay or retry an unknown mutation after a timeout.
+        ensure!(
+            workload.updates.is_empty() || workload.updates.len() as u64 == planned,
+            "updates require exactly one distinct target per scheduled arrival"
+        );
         Ok((workload, PathBuf::from(&args[7])))
     }
 }
@@ -183,7 +242,20 @@ async fn request(
     mut sample: Sample,
 ) -> Sample {
     let echo_body = payload(sample.id, workload.body_bytes);
-    let (request, expected) = if workload.reads.is_empty() {
+    let (request, expected) = if !workload.updates.is_empty() {
+        let target = &workload.updates[sample.id as usize];
+        (
+            client
+                .patch(format!(
+                    "{}{}",
+                    workload.url.trim_end_matches('/'),
+                    target.path
+                ))
+                .header("content-type", "application/json")
+                .body(target.body.clone()),
+            target.expected_body.as_slice(),
+        )
+    } else if workload.reads.is_empty() {
         (
             client
                 .post(&workload.url)

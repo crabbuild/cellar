@@ -37,6 +37,13 @@ class Handler(BaseHTTPRequestHandler):
         body = self.rfile.read(int(self.headers.get("content-length", "0")))
         self.respond(body)
 
+    def do_PATCH(self):
+        body = self.rfile.read(int(self.headers.get("content-length", "0")))
+        expected, reply = self.server.updates[self.path]
+        if body != expected or self.headers.get("content-type") != "application/json":
+            raise ValueError("incorrect mutation body or content type")
+        self.respond(reply)
+
     def do_GET(self):
         self.respond(self.server.reads[self.path])
 
@@ -104,17 +111,21 @@ class NativeArrivalTests(unittest.TestCase):
                     "--python-host", f"python={CLIENT}", "--build-profile", "lab", "--output", str(output)]
             for arguments in (["--read-cells", "-1"], ["--read-cells", "65"],
                               ["--read-cells", "32", "--body-bytes", "1"],
+                              ["--python-read-mode", "initial"],
+                              ["--python-read-mode", "direct-initial", "--cell-echo"],
                               ["--read-cells", "1", "--body-bytes", "0", "--cell-echo"]):
                 with self.subTest(arguments=arguments):
                     result = subprocess.run([*base, *arguments], capture_output=True, timeout=10)
                     self.assertNotEqual(result.returncode, 0)
                     self.assertFalse(output.exists(), result.stderr.decode())
 
-    def run_client(self, mode, *, inflight=16, timeout=500, body_bytes=137, reads=False, cell_echo=False):
+    def run_client(self, mode, *, inflight=16, timeout=500, body_bytes=137, reads=False, cell_echo=False, updates=False):
         server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         server.mode, server.received, server.lock = mode, 0, threading.Lock()
         server.paths = []
         server.reads = {"/orders/first": b'{"id":"first"}', "/orders/second": b'{"id":"second"}'}
+        server.updates = {f"/orders/update-{i}": (f'{{"expected_version":{i}}}'.encode(),
+                          f'{{"version":{i + 1}}}'.encode()) for i in range(50)}
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         try:
@@ -122,11 +133,16 @@ class NativeArrivalTests(unittest.TestCase):
                 output = Path(root) / "samples.json"
                 origin = f"http://127.0.0.1:{server.server_port}" + ("/cell-echo" if cell_echo else "")
                 command = [str(CLIENT), origin,
-                           "100", "500", str(inflight), str(0 if reads else body_bytes), str(timeout), "200", str(output)]
+                           "100", "500", str(inflight), str(0 if reads or updates else body_bytes), str(timeout), "200", str(output)]
                 if reads:
                     manifest = Path(root) / "reads.json"
                     manifest.write_text(json.dumps([dict(path=path, expected_body=list(body))
                                                    for path, body in server.reads.items()]))
+                    command.append(str(manifest))
+                if updates:
+                    manifest = Path(root) / "updates.json"
+                    manifest.write_text(json.dumps(dict(updates=[dict(path=path, body=list(body), expected_body=list(reply))
+                        for path, (body, reply) in server.updates.items()])))
                     command.append(str(manifest))
                 result = subprocess.run(command, capture_output=True, timeout=10)
                 self.assertEqual(result.returncode, 0, result.stderr.decode())
@@ -137,7 +153,12 @@ class NativeArrivalTests(unittest.TestCase):
                 self.assertGreater(dispatched, 0)
                 with server.lock:
                     self.assertEqual(server.received, dispatched, "redirect or hidden resend")
-                    if reads:
+                    if updates:
+                        self.assertEqual(len(server.paths), len(set(server.paths)), "mutation was replayed")
+                        for row in report["samples"]:
+                            self.assertEqual(("PATCH", f"/orders/update-{row['id']}") in server.paths,
+                                             row["dispatched_ns"] is not None)
+                    elif reads:
                         self.assertEqual(set(server.paths), {("GET", path) for path in server.reads})
                     else:
                         self.assertEqual(set(server.paths), {("POST", "/cell-echo" if cell_echo else "/echo")})
@@ -245,6 +266,32 @@ class NativeArrivalTests(unittest.TestCase):
         _, summary = self.run_client("wrong", reads=True)
         self.assertGreater(summary["outcomes"].get("body_mismatch", 0), 0)
         self.assertNotIn("success", summary["outcomes"])
+
+    def test_updates_are_distinct_and_exact_without_retries(self):
+        for mode, timeout, expected in [("echo", 500, "success"), ("wrong", 500, "body_mismatch"),
+                                         ("error", 500, "http_status"), ("redirect", 500, "http_status"),
+                                         ("timeout", 50, "timeout")]:
+            with self.subTest(mode=mode):
+                report, summary = self.run_client(mode, updates=True, timeout=timeout)
+                self.assertEqual(len(report["workload"]["updates"]), 50)
+                self.assertGreater(summary["outcomes"].get(expected, 0), 0)
+                if expected != "success":
+                    self.assertNotIn("success", summary["outcomes"])
+
+    def test_update_manifest_requires_one_distinct_target_per_arrival(self):
+        valid = dict(path="/orders/one", body=[1], expected_body=[2])
+        with tempfile.TemporaryDirectory() as root:
+            manifest, output = Path(root) / "updates.json", Path(root) / "result.json"
+            for document in [dict(updates=[]), dict(updates=[valid, valid]),
+                             dict(updates=[valid]), dict(updates=[dict(valid, path="//remote")]),
+                             dict(updates=[dict(valid, body=[0] * 65_537)]),
+                             dict(updates=[valid], reads=[])]:
+                manifest.write_text(json.dumps(document))
+                result = subprocess.run([str(CLIENT), "http://127.0.0.1:9", "2", "1000", "1",
+                                         "0", "100", "1", str(output), str(manifest)],
+                                        capture_output=True, timeout=5)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse(output.exists())
 
     def test_invalid_read_manifest_refuses_before_creating_report(self):
         valid = {"path": "/orders/one", "expected_body": [1, 2]}

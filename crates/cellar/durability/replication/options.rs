@@ -17,6 +17,9 @@ pub struct ReplicationOptions {
     pub sync_concurrency: usize,
     pub restore_concurrency: usize,
     pub hydration_concurrency: usize,
+    /// Maximum remembered (cell, epoch) coverage watermarks. Zero disables
+    /// caching. Eviction only adds durable-store reads; it never deletes data.
+    pub coverage_cache_entries: usize,
     pub log_batch_interval: Duration,
     /// Superseded-epoch GC grace. None disables deletion; Some(ZERO) enables
     /// deletion without a grace period. Live epochs are never deleted by GC.
@@ -43,6 +46,7 @@ impl Default for ReplicationOptions {
             sync_concurrency: 64,
             restore_concurrency: 64,
             hydration_concurrency: 1,
+            coverage_cache_entries: 4096,
             log_batch_interval: Duration::from_millis(crate::queue_batching::timing().log_ms),
             epoch_gc_grace: None,
             hydrate_bytes_per_second: 16 << 20,
@@ -78,6 +82,10 @@ impl ReplicationOptions {
                 "{name} must fit a positive semaphore limit"
             );
         }
+        anyhow::ensure!(
+            self.coverage_cache_entries <= 1_048_576,
+            "coverage_cache_entries must not exceed 1048576"
+        );
         if let Some(config) = self.compaction {
             anyhow::ensure!(
                 config.min_txids >= 2,
@@ -108,6 +116,10 @@ impl ReplicationOptions {
         };
         let options = Self {
             compaction: crate::ltx_repl::compaction_config_from_env()?,
+            coverage_cache_entries: crate::env_vars::with_default(
+                "CELLAR_LTX_COVERAGE_CACHE_ENTRIES",
+                defaults.coverage_cache_entries,
+            )?,
             flush_interval: Duration::from_millis(crate::env_vars::with_default(
                 "CELLAR_LOG_FLUSH_MS",
                 2000u64,

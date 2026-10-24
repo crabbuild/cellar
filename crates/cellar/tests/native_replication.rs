@@ -535,6 +535,10 @@ async fn replication_configuration_rejects_invalid_limits_and_namespaces() -> Re
             ..Default::default()
         },
         ReplicationOptions {
+            coverage_cache_entries: 1_048_577,
+            ..Default::default()
+        },
+        ReplicationOptions {
             sync_concurrency: usize::MAX,
             ..Default::default()
         },
@@ -586,6 +590,7 @@ async fn command_line_replication_adapter_validates_and_captures_policy() -> Res
         assert_eq!(policy.paged_min_bytes, 5 << 20);
         assert!(!policy.paged_restore);
         assert_eq!(policy.truncate_pages, 0);
+        assert_eq!(policy.coverage_cache_entries, 2);
         assert_eq!(
             policy.compaction,
             Some(CompactionConfig {
@@ -611,6 +616,7 @@ async fn command_line_replication_adapter_validates_and_captures_policy() -> Res
             ("CELLAR_LTX_PAGED", "unusable"),
             ("CELLAR_LTX_COMPACTION_MIN_MB", "18446744073709551615"),
             ("CELLAR_LTX_TRUNCATE_PAGES", "4294967296"),
+            ("CELLAR_LTX_COVERAGE_CACHE_ENTRIES", "1048577"),
             ("CELLAR_LTX_COMPACTIONS", "0"),
         ] {
             let previous = std::env::var(name)?;
@@ -622,6 +628,9 @@ async fn command_line_replication_adapter_validates_and_captures_policy() -> Res
             assert_eq!(replica.options(), &policy);
             std::env::set_var(name, previous);
         }
+        std::env::set_var("CELLAR_LTX_COVERAGE_CACHE_ENTRIES", "0");
+        assert_eq!(ReplicationOptions::from_env()?.coverage_cache_entries, 0);
+        assert_eq!(replica.options(), &policy);
         std::env::set_var("CELLAR_LTX_RETENTION_SECS", "0");
         assert_eq!(ReplicationOptions::from_env()?.epoch_gc_grace, None);
         domain.shutdown().await;
@@ -642,6 +651,7 @@ async fn command_line_replication_adapter_validates_and_captures_policy() -> Res
         .env("CELLAR_LTX_PAGED_MIN_MB", "5")
         .env("CELLAR_LTX_PAGED", "0")
         .env("CELLAR_LTX_TRUNCATE_PAGES", "0")
+        .env("CELLAR_LTX_COVERAGE_CACHE_ENTRIES", "2")
         .env("CELLAR_LTX_COMPACTION", "1")
         .env("CELLAR_LTX_COMPACTION_MIN_TXIDS", "2")
         .env("CELLAR_LTX_COMPACTION_MIN_MB", "1")
