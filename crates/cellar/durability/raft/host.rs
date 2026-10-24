@@ -1216,8 +1216,12 @@ fn failure(error: ExecutionError) -> CommandFailure {
 }
 
 impl Driver {
+    #[track_caller]
     fn finish_read(&mut self, id: &ReadId, result: Result<Response, CommandFailure>) {
         if let Some(mut read) = self.reads.remove(id) {
+            if let Err(error) = &result {
+                eprintln!("[DEBUG-snapshot-c72] finish_read {error:?}, scope={:?}, phase={}, expired={}, at={}", read.request.scope, read.phase as u8, read.expired(), std::panic::Location::caller());
+            }
             if result.is_err() {
                 read.request.control.cancel();
             }
@@ -1608,6 +1612,7 @@ impl Driver {
 
     #[track_caller]
     fn fail(&mut self, scope: &GroupScope) {
+        eprintln!("[DEBUG-snapshot-c72] host fail {:?} at {}", scope, std::panic::Location::caller());
         if let Some(cell) = self.cells.get_mut(scope) {
             if !cell.failed {
                 tracing::error!(group = ?scope.group, location = %std::panic::Location::caller(), "Raft host closed group admission after a failure");
@@ -1939,6 +1944,7 @@ impl Driver {
                     match decoded {
                         Ok(version) => Some(version),
                         Err(error) => {
+                            eprintln!("[DEBUG-snapshot-c72] query token rejected {error:?}, scope={scope:?}");
                             let failure = if error == super::version::VersionError::WrongHistory {
                                 CommandFailure::WrongIncarnation
                             } else {

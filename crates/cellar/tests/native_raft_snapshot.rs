@@ -1866,8 +1866,16 @@ async fn native_snapshot_drill(
                 ..Default::default()
             },
         )
-        .await
-        .context("restored follower query")?;
+        .await;
+    let read = match read {
+        Ok(read) => read,
+        Err(error) => {
+            let statuses = futures_util::future::join_all(handles.iter().map(|handle| handle.status())).await;
+            let attempts = cluster.data_attempts(follower);
+            let close = cluster.close().await;
+            anyhow::bail!("restored follower query: {error:?}; primary={primary}, follower={follower}, cut={cut:?}, required={:?}, statuses={statuses:?}, attempts={attempts}, close={close:?}", last.version);
+        }
+    };
     assert_eq!(read.result, 12i64.to_be_bytes());
     let status = handles[follower].status().await?;
     ensure!(
