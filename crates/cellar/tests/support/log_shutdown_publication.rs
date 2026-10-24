@@ -25,6 +25,87 @@ async fn shutdown_deadline_during_publication_refuses_complete_drain() -> Result
     run(true, true).await
 }
 
+#[tokio::test]
+async fn shutdown_waits_for_cancelled_shipping_round_before_sealing() -> Result<()> {
+    shipping_round(false).await
+}
+
+#[tokio::test]
+async fn shutdown_deadline_with_outstanding_shipping_round_refuses_complete_drain() -> Result<()> {
+    shipping_round(true).await
+}
+
+async fn shipping_round(deadline: bool) -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    let mut pair = pair(
+        &directory.path().join("fleet.sqlite"),
+        directory.path(),
+        "closing-round",
+        LogOptions::default(),
+    )
+    .await?;
+    let domain = pair.domain.clone();
+    let result = domain
+        .run(async {
+            // The real synchronous submission reserves a round before returning
+            // its future. Never poll or apply this round: it cannot authorize a
+            // fleet acknowledgement, and cancellation must release its reservation.
+            let round = pair.log.ship(
+                vec![cellar::ltx_repl::ShipEntry {
+                    cell: CELL.into(),
+                    epoch: 1,
+                    txid: 1,
+                    bytes: Vec::new(),
+                }],
+                0,
+            );
+            if deadline {
+                ensure!(
+                    !pair
+                        .owner
+                        .quiesce_and_seal_within(Duration::from_millis(50))
+                        .await,
+                    "an outstanding shipping round fabricated a complete drain"
+                );
+                drop(round);
+                pair.log.maintain().await?;
+                ensure!(
+                    !pair.log.healthy() && pair.log.ensemble_width() == 0,
+                    "cancelled shipping round resurrected the stopped shipper"
+                );
+            } else {
+                let mut close = Box::pin(pair.owner.quiesce_and_seal());
+                let early = tokio::time::timeout(Duration::from_millis(100), &mut close).await;
+                ensure!(
+                    early.is_err(),
+                    "shutdown skipped an outstanding shipping round"
+                );
+                drop(round);
+                tokio::time::timeout(Duration::from_secs(3), close).await?;
+            }
+            let (bytes, _) = pair
+                .bucket
+                .get("nodes/leader-closing-round.json")
+                .await?
+                .context("leader lease missing")?;
+            let wire: serde_json::Value = serde_json::from_slice(&bytes)?;
+            ensure!(
+                wire["log"]["epoch"] == 1 && wire["log"]["may_have_fleet_acks"] == false,
+                "unpolled shipping round fabricated a fleet proof: {wire}"
+            );
+            ensure!(
+                wire["log"]["state"] == if deadline { "open" } else { "sealed" },
+                "shipping reservation produced an incorrect shutdown state: {wire}"
+            );
+            Ok::<_, anyhow::Error>(())
+        })
+        .await;
+    domain.run(pair.owner.shutdown_local()).await?;
+    domain.shutdown().await;
+    pair.transport.follower_domain.shutdown().await;
+    result?
+}
+
 async fn run(recruit: bool, deadline: bool) -> Result<()> {
     let directory = tempfile::tempdir()?;
     let gate = Arc::new(PublicationGate {

@@ -5821,6 +5821,15 @@ impl NodeLogManager {
         };
         let Some(shipper) = shipper else { return };
         shipper.degrade("graceful shutdown");
+        // Coverage counters cannot see a captured round until its completion
+        // is applied or discarded. Let the ship loop release those reservations
+        // before deciding whether the epoch is sealable. Do not hold the live
+        // transition guard: an admitted round may still need it to finish.
+        // The owner's process deadline cancels this wait and reports incomplete
+        // quiescence; a still-owned round must never look like a complete drain.
+        while Self::shipper_batch_in_flight(&shipper) {
+            crate::asyncrt::sleep(std::time::Duration::from_millis(10)).await;
+        }
         for _ in 0..50 {
             if self.ltx.all_shipped_tiered() {
                 break;

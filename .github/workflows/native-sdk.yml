@@ -602,6 +602,7 @@ jobs:
             /tmp/cellar-native-replay-${{ github.run_id }}-${{ github.run_attempt }}/**/cold-start-failure.json
             /tmp/cellar-native-replay-${{ github.run_id }}-${{ github.run_attempt }}/**/cold-adopt-failure.json
             /tmp/cellar-native-replay-${{ github.run_id }}-${{ github.run_attempt }}/**/initial-settlement-failure.json
+            /tmp/cellar-native-replay-${{ github.run_id }}-${{ github.run_attempt }}/**/initial-fetch-failure.json
             /tmp/cellar-native-replay-${{ github.run_id }}-${{ github.run_attempt }}/**/settlement-failure.json
             /tmp/cellar-native-replay-${{ github.run_id }}-${{ github.run_attempt }}/**/delayed-cold-read.json
             /tmp/cellar-native-replay-${{ github.run_id }}-${{ github.run_attempt }}/**/accepted-prefix.json
