@@ -22,12 +22,18 @@ on:
       - 'Cargo.toml'
       - 'Cargo.lock'
   workflow_dispatch:
+    inputs:
+      profile:
+        description: Cargo profile for both prerequisite capture and packaged hosts
+        type: choice
+        default: dev
+        options: [dev, lab, release]
 
 permissions:
   contents: read
 
 concurrency:
-  group: cellar-python-examples-${{ github.ref }}
+  group: cellar-python-examples-${{ github.ref }}-${{ inputs.profile || 'dev' }}
   cancel-in-progress: true
 
 env:
@@ -67,8 +73,10 @@ jobs:
           python -m pip install uv==0.11.19
       - name: Package the application and its Python dependencies
         run: |
+          python -B tools/python/test_package_example.py
           mkdir -p "$RUNNER_TEMP/fastapi"
           python examples/python-fastapi/package.py --runtime '${{ matrix.runtime }}' \
+            --profile '${{ inputs.profile || 'dev' }}' \
             --prefix "$RUNNER_TEMP/fastapi/environment" --output "$RUNNER_TEMP/fastapi/package"
       - name: Test buffered ASGI boundaries
         run: |
@@ -139,6 +147,7 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/agent"
           python examples/python-agent/package.py --runtime '${{ matrix.runtime }}' \
+            --profile '${{ inputs.profile || 'dev' }}' \
             --prefix "$RUNNER_TEMP/agent/environment" --output "$RUNNER_TEMP/agent/package"
       - name: Test durable agent boundaries and real host restart
         run: |

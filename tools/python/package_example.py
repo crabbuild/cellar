@@ -14,6 +14,8 @@ def package(example, binary):
     parser.add_argument("--prefix", type=Path, required=True, help="new immutable absolute runtime prefix")
     parser.add_argument("--output", type=Path, required=True, help="new package directory outside the prefix")
     parser.add_argument("--runtime", choices=["3.14.5", "3.14.5t"], default="3.14.5")
+    parser.add_argument("--profile", choices=["dev", "lab", "release"], default="dev",
+                        help="host Cargo profile: dev for development, lab for measurement, release for deployment")
     parser.add_argument("--version", default="v1", help="compiled application version for process replacement")
     args = parser.parse_args()
     if not args.prefix.is_absolute() or args.prefix.exists() or args.prefix.is_symlink():
@@ -44,18 +46,20 @@ def package(example, binary):
         "-r", example / "requirements.lock", "--dest", prefix / "wheels")
     run(python, "-I", "-B", "-m", "pip", "install", "--no-index", "--require-hashes", "--only-binary", ":all:",
         "--find-links", prefix / "wheels", "--target", prefix / "site", "-r", example / "requirements.lock")
-    run("cargo", "build", "-p", "cellar-python", "--bin", binary, "--features", "embed", "--locked")
+    run("cargo", "build", "-p", "cellar-python", "--bin", binary, "--features", "embed", "--locked",
+        "--profile", args.profile)
+    host = target / ("debug" if args.profile == "dev" else args.profile) / binary
     inventory, archive, project = (prefix / name for name in ("inventory.json", "environment.tar.gz", "project.json"))
     triple = next(line.removeprefix("host: ") for line in subprocess.check_output(
         ["rustc", "-vV"], text=True, env=env).splitlines() if line.startswith("host: "))
     tool = ROOT / "tools/python/environment.py"
     run(python, tool, "capture", "--python", python, "--site-packages", prefix / "site",
-        "--native-host", target / "debug" / binary, "--source", example / "app.py",
+        "--native-host", host, "--source", example / "app.py",
         "--filename", "app.py", "--descriptor", example / "descriptor.json", "--target", triple,
         "--output", inventory)
     run(python, tool, "bundle", inventory, "--prefix", prefix, "--output", archive)
     run(python, tool, "project", example / "project.json", "--inventory", inventory,
-        "--archive", archive, "--version", args.version, "--output", project)
+        "--archive", archive, "--version", args.version, "--profile", args.profile, "--output", project)
     run("cargo", "build", "-p", "cellar", "--bin", "cellar", "--locked")
     run(target / "debug/cellar", "build", project, "--output", output)
     run(python, tool, "verify", inventory)

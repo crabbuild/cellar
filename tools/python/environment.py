@@ -131,6 +131,8 @@ def project(args):
     config["cargo_manifest"] = str((source.parent / config["cargo_manifest"]).resolve(strict=True))
     if args.version is not None:
         config["primary"]["application_version"] = args.version
+    if args.profile is not None:
+        config["profile"] = args.profile
     config["python_environment"] = dict(inventory=str(args.inventory.resolve(strict=True)), archive=str(args.archive.resolve(strict=True)))
     args.output.write_text(json.dumps(config, indent=2) + "\n")
     print("Prepared native project " + str(args.output))
@@ -160,6 +162,7 @@ def main():
     command.add_argument("--inventory", type=Path, required=True)
     command.add_argument("--archive", type=Path, required=True)
     command.add_argument("--version")
+    command.add_argument("--profile", choices=["dev", "lab", "release"])
     command.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     {"capture": capture, "verify": verify, "bundle": bundle, "project": project}[args.command](args)

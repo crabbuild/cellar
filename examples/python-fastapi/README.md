@@ -30,7 +30,10 @@ The helper provisions CPython 3.14.5 inside the new prefix, downloads hash-locke
 wheels, installs them offline into `site/`, and builds the native host. It then
 captures runtime/source/native prerequisites, creates the environment archive
 and invokes `cellar build` with a `python_environment` project declaration.
-Existing prefixes are refused. The example uses the `dev` Cargo profile.
+Existing prefixes are refused. The helper defaults to the `dev` Cargo profile.
+Use `--profile release` for deployment or `--profile lab` for optimized
+measurements. The prerequisite capture host and final packaged host use the
+selected profile; the build-time `cellar` CLI remains in `debug/`.
 
 The package contains a manifest, executable and verified environment archive.
 Python source is embedded in the executable. No package installer runs on a
@@ -165,22 +168,16 @@ new executable; the live interpreter is never hot-reloaded.
 ## Measure read/write throughput and latency
 
 Use an optimized host and write generated results outside the source tree.
-With the environment above already packaged, prepare a `lab` profile project:
+Package a fresh environment with the `lab` profile so native dependency capture
+and the deployed executable use the same compilation settings:
 
 ```sh
-python3 - <<'PY'
-import json, os
-from pathlib import Path
-root = Path(os.environ["CELLAR_FASTAPI_ROOT"])
-project = json.loads((root / "env-v1/project.json").read_text())
-project["profile"] = "lab"
-(root / "perf-project.json").write_text(json.dumps(project, indent=2) + "\n")
-PY
-"$CARGO_TARGET_DIR/debug/cellar" build "$CELLAR_FASTAPI_ROOT/perf-project.json" \
+python3 examples/python-fastapi/package.py --profile lab \
+  --prefix "$CELLAR_FASTAPI_ROOT/perf-environment" \
   --output "$CELLAR_FASTAPI_ROOT/perf-package"
 python3 -B examples/python-fastapi/perf.py \
   --cellar "$CARGO_TARGET_DIR/debug/cellar" \
-  --project "$CELLAR_FASTAPI_ROOT/perf-project.json" \
+  --project "$CELLAR_FASTAPI_ROOT/perf-environment/project.json" \
   --output "$CELLAR_FASTAPI_ROOT/perf-results" \
   --concurrency 1 8 32 --repetitions 2 --read-seconds 8 --writes 512
 ```
@@ -224,7 +221,7 @@ python3 -B tools/python/test_offered.py "$CARGO_TARGET_DIR/lab/examples/python-o
 python3 -B examples/python-fastapi/offered_perf.py \
   --client "$CARGO_TARGET_DIR/lab/examples/python-offered-load" --client-profile lab \
   --cellar "$CARGO_TARGET_DIR/debug/cellar" \
-  --project "gil=$CELLAR_FASTAPI_ROOT/perf-project.json" \
+  --project "gil=$CELLAR_FASTAPI_ROOT/perf-environment/project.json" \
   --output "$CELLAR_FASTAPI_ROOT/offered-results" \
   --rates 1000 4000 8000 --duration-ms 5000 --repetitions 2
 ```
@@ -264,7 +261,7 @@ CELLAR_MAX_REQUESTS=64 CELLAR_ADMISSION_WAIT_MS=10 \
 python3 -B examples/python-fastapi/offered_perf.py \
   --client "$CARGO_TARGET_DIR/lab/examples/python-offered-load" --client-profile lab \
   --cellar "$CARGO_TARGET_DIR/debug/cellar" \
-  --project "gil=$CELLAR_FASTAPI_ROOT/perf-project.json" \
+  --project "gil=$CELLAR_FASTAPI_ROOT/perf-environment/project.json" \
   --output "$CELLAR_FASTAPI_ROOT/offered-bounded-results" \
   --rates 1000 4000 8000 --duration-ms 5000 --repetitions 2
 ```
