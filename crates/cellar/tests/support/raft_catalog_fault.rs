@@ -8,6 +8,9 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 #[derive(Debug, Default)]
 pub struct Store {
+    pub fail_fleet_after: AtomicBool,
+    pub fail_fleet_confirmation: AtomicBool,
+    pub fail_fleet_read: AtomicBool,
     pub hold_next_fleet_cas: AtomicBool,
     pub fleet_cas_hang: AtomicBool,
     pub fleet_cas_waiting: AtomicBool,
@@ -252,7 +255,16 @@ impl ObjectStore for Store {
                 resumed.await;
             }
         }
+        let fleet_cas =
+            path.as_ref().ends_with("/fleet/head") && matches!(options.mode, PutMode::Update(_));
         let result = self.inner.put_opts(path, payload, options).await?;
+        if fleet_cas && self.fail_fleet_confirmation.swap(false, Ordering::AcqRel) {
+            self.fail_fleet_read.store(true, Ordering::Release);
+            return Err(failure());
+        }
+        if fleet_cas && self.fail_fleet_after.swap(false, Ordering::AcqRel) {
+            return Err(failure());
+        }
         if inventory_cas
             && self
                 .fail_birth_inventory_confirmation
@@ -335,6 +347,11 @@ impl ObjectStore for Store {
     }
 
     async fn get_opts(&self, path: &Path, options: GetOptions) -> object_store::Result<GetResult> {
+        if path.as_ref().ends_with("/fleet/head")
+            && self.fail_fleet_read.swap(false, Ordering::AcqRel)
+        {
+            return Err(failure());
+        }
         tokio::task::yield_now().await;
         if path.as_ref().ends_with("/births/head")
             && self.fail_birth_inventory_read.swap(false, Ordering::AcqRel)

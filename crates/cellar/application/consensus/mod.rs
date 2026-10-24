@@ -115,7 +115,8 @@ pub mod verification {
     pub use crate::raft::fleet_catalog::{
         FleetBirthAuthorization, FleetBirthReservation, FleetCatalog, FleetCatalogError,
         FleetChange, FleetCommit, FleetCursor, FleetEntry, FleetHistory, FleetHistoryState,
-        FleetMutation, FleetPage, FleetSnapshot, FleetTable,
+        FleetImportPhase, FleetMutation, FleetNamespaceImport, FleetPage, FleetSnapshot,
+        FleetTable,
     };
     pub use crate::raft::inspection::{
         CellInspection, LeaderLoad, MemberInspection, NodeInspection, RaftNodeProfile,

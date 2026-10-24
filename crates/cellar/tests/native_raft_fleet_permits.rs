@@ -1,8 +1,13 @@
 //! Managed permits through native SQLite hosts, real TLS links and retained
 //! engines. Catalog edits here stand in for the later typed fleet controller.
+#[path = "support/raft_catalog_fault.rs"]
+#[allow(dead_code)]
+mod catalog_fault;
 #[path = "support/raft_cluster.rs"]
 #[allow(dead_code)]
 mod cluster;
+#[path = "support/raft_namespace_import.rs"]
+mod namespace_import;
 #[path = "support/raft_fleet_observation.rs"]
 mod observation;
 #[path = "support/raft_node.rs"]
@@ -77,6 +82,21 @@ impl Fixture {
     }
 
     async fn create(write_image: bool, enroll: bool) -> Result<Self> {
+        Self::configured(
+            write_image,
+            enroll,
+            RaftHostOptions::default(),
+            Arc::new(object_store::memory::InMemory::new()),
+        )
+        .await
+    }
+
+    async fn configured(
+        write_image: bool,
+        enroll: bool,
+        host: RaftHostOptions,
+        store: Arc<dyn ObjectStore>,
+    ) -> Result<Self> {
         let (gate, entered) = public_node::Gate::new();
         gate.release();
         let calls: Vec<_> = (0..4).map(|_| Arc::new(AtomicUsize::new(0))).collect();
@@ -113,8 +133,13 @@ impl Fixture {
                 learners: vec![],
             },
         };
-        let cluster =
-            cluster::Cluster::start_with_standby(&definitions, vec![registration.clone()]).await?;
+        let cluster = cluster::Cluster::start_with_standby_store(
+            &definitions,
+            vec![registration.clone()],
+            host,
+            store,
+        )
+        .await?;
         let handles = cluster
             .services
             .iter()
@@ -124,7 +149,7 @@ impl Fixture {
         let primary = leader(&domain, &handles).await?;
         let catalog = Self::open_catalog(&domain, cluster.store.clone())?;
         catalog.initialize(TIMEOUT).await?;
-        let binding = FleetGroupBinding::new(IncarnationId::new([80; 16])?, &scope)?;
+        let binding = catalog.group_binding(&scope)?;
         let f = Self {
             cluster,
             definitions,

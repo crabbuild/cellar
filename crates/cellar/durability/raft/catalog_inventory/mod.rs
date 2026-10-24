@@ -9,7 +9,9 @@ use futures_util::future::BoxFuture;
 use object_store::{path::Path, PutMode, PutOptions, UpdateVersion};
 use std::{sync::Arc, time::Duration};
 
+mod import;
 mod wire;
+pub(crate) use import::BirthImportCut;
 use wire::{Head, Mode, Pin};
 
 const HEAD_KIND: u8 = 6;
@@ -192,6 +194,7 @@ impl Store<'_> {
         {
             return Err(CatalogError::Corrupt("birth intent identity"));
         }
+        self.0.check_birth_owner(intent.managed_owner.as_ref())?;
         let voters = intent
             .voters
             .iter()
@@ -314,8 +317,9 @@ impl NamespaceCatalog {
     pub(super) async fn admit_birth_intent(
         &self,
         proposal: BirthProposal,
+        owner: Option<&crate::raft::catalog::ManagedBirthOwner>,
     ) -> Result<record::Birth, CatalogError> {
-        let (proposal, _) = self.prepare_birth(proposal)?;
+        let (proposal, _) = self.prepare_birth_with_owner(proposal, owner)?;
         let store = Store(self);
         let index = Index::new(&store);
         let key = name_key(&proposal.scope.cell);
@@ -335,6 +339,7 @@ impl NamespaceCatalog {
                 .map(record::Member::encode)
                 .collect(),
             empty_digest: record::digest(&[]),
+            managed_owner: owner.cloned(),
             cancelled_by: None,
         };
         let bytes = record::encode(record::BIRTH, &intent, self.inner.limit)?;
@@ -348,13 +353,18 @@ impl NamespaceCatalog {
                 }
                 return Ok(prior);
             }
-            if matches!(head.mode, Mode::Frozen { .. }) {
-                return Err(CatalogError::BirthsFrozen);
-            }
-            if self.config.managed_fleet.is_some() {
-                self.verify_group_identity(&proposal.scope).await?;
-            } else {
-                self.reserve_group_identity(&proposal.scope).await?;
+            match (&head.mode, owner) {
+                (Mode::Open, None) => self.reserve_group_identity(&proposal.scope).await?,
+                (Mode::Owned { fleet, catalog }, Some(owner))
+                | (Mode::Adopted { fleet, catalog, .. }, Some(owner))
+                    if *fleet == owner.fleet && *catalog == owner.catalog =>
+                {
+                    self.verify_group_identity(&proposal.scope).await?;
+                }
+                (Mode::Frozen { .. } | Mode::Importing { .. }, _) => {
+                    return Err(CatalogError::BirthsFrozen);
+                }
+                _ => return Err(CatalogError::ManagedAdmissionRequired),
             }
             if self
                 .inner

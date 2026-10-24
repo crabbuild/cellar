@@ -1,9 +1,71 @@
 //! Actual empty managed hosts, durable genesis, native SQLite and TLS quorum.
 //! Active node metadata is fixture input, not capacity-activation qualification.
 use super::*;
+use anyhow::Context as _;
 use cellar::application::consensus::verification::{
-    FleetBirthAuthorization, FleetHistoryState, NamespaceCatalog,
+    FleetBirthAuthorization, FleetHistoryState, FleetImportPhase, NamespaceCatalog,
 };
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn fleet_genesis_imported_namespace() -> Result<()> {
+    let f = Fixture::with_domains(false, true).await?;
+    let nodes = fleet(&f).await?;
+    let (namespace, _) = initial_birth(&f).await?;
+    ensure!(namespace.config().managed_fleet.is_none());
+    let cut = f
+        .domain
+        .run(namespace.freeze_births(ProposalId::new([100; 16])?, TIMEOUT))
+        .await??;
+    ensure!(cut.is_empty());
+    let root = f.catalog.read(TIMEOUT).await?;
+    f.catalog
+        .begin_namespace_import(
+            &root,
+            &Fixture::request(190, root.revision()),
+            &namespace,
+            &cut,
+            TIMEOUT,
+        )
+        .await?;
+    for id in 191..=194 {
+        let root = f.catalog.read(TIMEOUT).await?;
+        f.catalog
+            .advance_namespace_import(
+                &root,
+                &Fixture::request(id, root.revision()),
+                &namespace,
+                None,
+                TIMEOUT,
+            )
+            .await?;
+    }
+    let root = f.catalog.read(TIMEOUT).await?;
+    ensure!(
+        f.catalog
+            .namespace_import(&root, &namespace, TIMEOUT)
+            .await?
+            .phase()
+            == FleetImportPhase::Complete
+    );
+    let (proposal, auth) = birth(&f).await?;
+    let cells = registered(&nodes, &auth).await?;
+    activate(&cells, &auth).await?;
+    write_read(&f, &cells, 1, 4, 4).await?;
+    let retained = stop(nodes).await?;
+    let nodes = restart(&f, retained, &proposal).await?;
+    let cells = handles(&nodes, &proposal)?;
+    write_read(&f, &cells, 2, 5, 9).await?;
+    for cell in &cells {
+        let guard = cell
+            .fleet_membership_status()
+            .await?
+            .context("imported namespace guard")?;
+        ensure!(guard.binding == f.catalog.group_binding(&proposal.scope)?);
+    }
+    stop(nodes).await?;
+    f.domain.shutdown().await;
+    Ok(())
+}
 
 struct Running {
     root: tempfile::TempDir,
@@ -570,7 +632,7 @@ async fn fleet_genesis_stale_history_refused() -> Result<()> {
     let nodes = fleet(&f).await?;
     let (proposal, auth) = birth(&f).await?;
     let cells = registered(&nodes, &auth).await?;
-    let binding = FleetGroupBinding::new(IncarnationId::new([80; 16])?, &proposal.scope)?;
+    let binding = f.catalog.group_binding(&proposal.scope)?;
     let root = f.catalog.read(TIMEOUT).await?;
     f.catalog
         .commit(

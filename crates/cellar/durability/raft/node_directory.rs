@@ -170,6 +170,32 @@ pub struct NodePublication {
 }
 
 impl NamespaceCatalog {
+    /// Import reads the permanent physical pin without requiring a live
+    /// advisory process view. Presence of an arbitrary fleet pin is insufficient.
+    pub(crate) async fn verify_fleet_storage_pin(
+        &self,
+        expected: &crate::raft::fleet_catalog::FleetHostAuthorization,
+    ) -> Result<(), CatalogError> {
+        self.require_mode(NamespaceMode::Raft)?;
+        if expected.cluster() != self.config.cluster {
+            return Err(CatalogError::Conflict("import storage cluster"));
+        }
+        let instance = expected
+            .storage_instance()
+            .ok_or(CatalogError::Conflict("unbound import engine"))?;
+        let path = node_key(&self.inner, self.config.cluster, expected.node(), "pin");
+        let bytes = self
+            .inner
+            .read(&path)
+            .await?
+            .ok_or(CatalogError::Corrupt("missing import storage pin"))?;
+        let pin: Pin = wire::decode(NODE_PIN, &bytes, self.inner.limit)?;
+        if pin.validate(self.config.cluster, expected.node(), expected.disk())? != instance {
+            return Err(CatalogError::LostStableState);
+        }
+        Ok(())
+    }
+
     pub async fn register_node_storage(
         &self,
         log: &ReplicaLog,
@@ -248,13 +274,7 @@ impl NodeRegistration {
     }
 
     fn key(&self, node: NodeId, leaf: &str) -> Path {
-        Path::from(format!(
-            "{}raft/{}/nodes/{}/{}",
-            self.inner.prefix,
-            hex::encode(self.cluster.bytes()),
-            hex::encode(node.bytes()),
-            leaf
-        ))
+        node_key(&self.inner, self.cluster, node, leaf)
     }
 
     fn deadline(&self, timeout: Duration) -> Result<u64, CatalogError> {
@@ -416,6 +436,16 @@ impl NodeRegistration {
             }
         }
     }
+}
+
+fn node_key(inner: &Inner, cluster: ClusterId, node: NodeId, leaf: &str) -> Path {
+    Path::from(format!(
+        "{}raft/{}/nodes/{}/{}",
+        inner.prefix,
+        hex::encode(cluster.bytes()),
+        hex::encode(node.bytes()),
+        leaf
+    ))
 }
 
 impl NodePublication {

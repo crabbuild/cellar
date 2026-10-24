@@ -235,6 +235,8 @@ pub(super) struct Birth {
     pub learners: Vec<Member>,
     pub empty_digest: [u8; 32],
     #[serde(deserialize_with = "required_nullable")]
+    pub managed_owner: Option<super::catalog::ManagedBirthOwner>,
+    #[serde(deserialize_with = "required_nullable")]
     pub cancelled_by: Option<[u8; 16]>,
 }
 

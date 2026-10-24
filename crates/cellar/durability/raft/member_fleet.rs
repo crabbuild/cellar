@@ -17,6 +17,7 @@ mod tests;
 #[serde(deny_unknown_fields)]
 pub struct FleetGroupBinding {
     fleet: [u8; 16],
+    catalog: [u8; 32],
     cluster: [u8; 16],
     namespace: [u8; 16],
     cell: String,
@@ -25,10 +26,18 @@ pub struct FleetGroupBinding {
 }
 
 impl FleetGroupBinding {
-    pub fn new(fleet: IncarnationId, scope: &GroupScope) -> Result<Self, LogError> {
+    pub fn new(
+        fleet: IncarnationId,
+        scope: &GroupScope,
+        catalog: [u8; 32],
+    ) -> Result<Self, LogError> {
         scope.validate().map_err(|_| invalid())?;
+        if catalog == [0; 32] {
+            return Err(invalid());
+        }
         Ok(Self {
             fleet: fleet.bytes(),
+            catalog,
             cluster: scope.cluster.bytes(),
             namespace: scope.namespace.bytes(),
             cell: scope.cell.clone(),
@@ -39,6 +48,10 @@ impl FleetGroupBinding {
 
     pub fn fleet(&self) -> [u8; 16] {
         self.fleet
+    }
+
+    pub fn catalog(&self) -> [u8; 32] {
+        self.catalog
     }
 
     pub fn scope(&self) -> Result<GroupScope, LogError> {
@@ -55,6 +68,8 @@ impl FleetGroupBinding {
     pub fn key(&self) -> Result<String, LogError> {
         self.validate()?;
         let bytes = serde_json::to_vec(&(
+            self.fleet,
+            self.catalog,
             self.cluster,
             self.namespace,
             &self.cell,
@@ -71,6 +86,9 @@ impl FleetGroupBinding {
     }
 
     fn validate(&self) -> Result<(), LogError> {
+        if self.catalog == [0; 32] {
+            return Err(invalid());
+        }
         IncarnationId::new(self.fleet).map_err(|_| invalid())?;
         ClusterId::new(self.cluster).map_err(|_| invalid())?;
         NamespaceId::new(self.namespace).map_err(|_| invalid())?;

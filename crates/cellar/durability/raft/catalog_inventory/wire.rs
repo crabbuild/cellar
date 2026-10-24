@@ -5,8 +5,23 @@ use serde::{Deserialize, Serialize};
 #[serde(deny_unknown_fields)]
 pub(super) enum Mode {
     Open,
-    Owned { fleet: [u8; 16], catalog: [u8; 32] },
-    Frozen { operation: [u8; 16] },
+    Owned {
+        fleet: [u8; 16],
+        catalog: [u8; 32],
+    },
+    Frozen {
+        operation: [u8; 16],
+    },
+    Importing {
+        fleet: [u8; 16],
+        catalog: [u8; 32],
+        cut: BirthImportCut,
+    },
+    Adopted {
+        fleet: [u8; 16],
+        catalog: [u8; 32],
+        cut: BirthImportCut,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -59,10 +74,53 @@ impl Head {
                 ProposalId::new(*operation)
                     .map_err(|_| CatalogError::Corrupt("birth freeze operation"))?;
             }
+            (
+                Mode::Importing {
+                    fleet,
+                    catalog,
+                    cut,
+                },
+                None,
+            ) => {
+                cut.validate(namespace)?;
+                validate_owner(*fleet, *catalog)?;
+                if self.revision != cut.revision.checked_add(1).ok_or(CatalogError::Limit)?
+                    || self.count != cut.count
+                    || self.index != cut.index
+                {
+                    return Err(CatalogError::Corrupt("changed import admission set"));
+                }
+            }
+            (
+                Mode::Adopted {
+                    fleet,
+                    catalog,
+                    cut,
+                },
+                None,
+            ) => {
+                cut.validate(namespace)?;
+                validate_owner(*fleet, *catalog)?;
+                if self.revision < cut.revision.checked_add(2).ok_or(CatalogError::Limit)?
+                    || self.count < cut.count
+                    || (self.count == cut.count && self.index != cut.index)
+                {
+                    return Err(CatalogError::Corrupt("regressed adopted admission set"));
+                }
+            }
             _ => return Err(CatalogError::Corrupt("birth inventory owner")),
         }
         Ok(())
     }
+}
+
+fn validate_owner(fleet: [u8; 16], catalog: [u8; 32]) -> Result<(), CatalogError> {
+    cellar_logic::consensus::IncarnationId::new(fleet)
+        .map_err(|_| CatalogError::Corrupt("import fleet owner"))?;
+    if catalog == [0; 32] {
+        return Err(CatalogError::Corrupt("import catalog owner"));
+    }
+    Ok(())
 }
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]

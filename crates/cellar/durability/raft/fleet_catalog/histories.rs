@@ -25,47 +25,62 @@ pub enum FleetHistoryState {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Member {
-    member: u64,
-    node: [u8; 16],
+pub(super) struct Member {
+    pub(super) member: u64,
+    pub(super) node: [u8; 16],
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub(super) enum Origin {
+    Managed,
+    Observed,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct FleetHistory {
-    binding: FleetGroupBinding,
-    schema_digest: [u8; 32],
-    namespace_root: [u8; 32],
-    birth_digest: [u8; 32],
-    admission: [u8; 16],
-    operation: [u8; 16],
-    voters: Vec<Member>,
-    learners: Vec<Member>,
-    state: FleetHistoryState,
+    pub(super) binding: FleetGroupBinding,
+    pub(super) schema_digest: [u8; 32],
+    pub(super) namespace_root: [u8; 32],
+    pub(super) birth_digest: [u8; 32],
+    pub(super) admission: [u8; 16],
+    pub(super) operation: [u8; 16],
+    pub(super) voters: Vec<Member>,
+    pub(super) learners: Vec<Member>,
+    pub(super) state: FleetHistoryState,
+    pub(super) origin: Origin,
 }
 
 impl FleetHistory {
     /// An exact observed birth is import material, not proof that the namespace
     /// inventory is complete or that legacy creation has been quiesced.
     pub fn observed(
-        fleet: IncarnationId,
+        binding: FleetGroupBinding,
         namespace: &NamespaceCatalog,
         birth: &GroupBirth,
         admission: ProposalId,
         operation: ProposalId,
     ) -> Result<Self> {
         namespace.check_birth(birth).map_err(catalog_error)?;
+        if !binding.matches_scope(birth.scope())
+            || birth.managed_owner().is_some_and(|owner| {
+                owner.fleet != binding.fleet() || owner.catalog != binding.catalog()
+            })
+        {
+            return Err(FleetCatalogError::Conflict);
+        }
         if namespace
             .config()
             .managed_fleet
             .as_ref()
-            .is_some_and(|owner| owner.fleet != fleet.bytes())
+            .is_some_and(|owner| {
+                owner.fleet != binding.fleet() || owner.catalog != binding.catalog()
+            })
         {
             return Err(FleetCatalogError::Conflict);
         }
         let value = Self {
-            binding: FleetGroupBinding::new(fleet, birth.scope())
-                .map_err(|_| FleetCatalogError::Invalid("history scope"))?,
+            binding,
             schema_digest: namespace.config().schema_digest,
             namespace_root: namespace.root_digest(),
             birth_digest: birth.digest(),
@@ -74,6 +89,7 @@ impl FleetHistory {
             voters: birth.voters().iter().copied().map(Member::from).collect(),
             learners: birth.learners().iter().copied().map(Member::from).collect(),
             state: FleetHistoryState::Live,
+            origin: Origin::Observed,
         };
         value.validate()?;
         Ok(value)
@@ -95,6 +111,10 @@ impl FleetHistory {
         self.schema_digest
     }
 
+    pub(crate) fn allows_managed_genesis(&self) -> bool {
+        self.origin == Origin::Managed
+    }
+
     pub fn encode(&self) -> Result<Vec<u8>> {
         self.validate()?;
         encode(HISTORY_KIND, self, 4096)
@@ -106,7 +126,7 @@ impl FleetHistory {
         Ok(value)
     }
 
-    fn validate(&self) -> Result<()> {
+    pub(super) fn validate(&self) -> Result<()> {
         self.binding
             .scope()
             .map_err(|_| FleetCatalogError::Corrupt("history binding"))?;
@@ -162,7 +182,7 @@ impl FleetHistory {
         })
     }
 
-    fn name_key(&self) -> Result<String> {
+    pub(super) fn name_key(&self) -> Result<String> {
         let scope = self
             .binding
             .scope()
@@ -174,7 +194,7 @@ impl FleetHistory {
         ))
     }
 
-    fn group_key(&self) -> Result<String> {
+    pub(super) fn group_key(&self) -> Result<String> {
         let scope = self
             .binding
             .scope()
@@ -222,6 +242,7 @@ impl Member {
 pub struct FleetBirthAuthorization {
     history: FleetHistory,
     proposal: BirthProposal,
+    owner: ManagedBirthOwner,
 }
 
 impl FleetBirthAuthorization {
@@ -237,16 +258,20 @@ impl FleetBirthAuthorization {
         self.proposal.clone()
     }
 
+    pub(crate) fn owner(&self) -> &ManagedBirthOwner {
+        &self.owner
+    }
+
     pub(crate) fn check_namespace(
         &self,
         namespace: &NamespaceCatalog,
     ) -> std::result::Result<(), CatalogError> {
-        if namespace
-            .config()
-            .managed_fleet
-            .as_ref()
-            .map(|owner| owner.fleet)
-            != Some(self.history.binding.fleet())
+        if self.owner.fleet != self.history.binding.fleet()
+            || namespace
+                .config()
+                .managed_fleet
+                .as_ref()
+                .is_some_and(|owner| owner != &self.owner)
             || namespace.root_digest() != self.history.namespace_root
             || namespace.config().schema_digest != self.history.schema_digest
         {
@@ -272,18 +297,7 @@ impl FleetCatalog {
         {
             return Err(FleetCatalogError::Invalid("managed namespace"));
         }
-        let bytes = serde_json::to_vec(&(
-            "cellar-fleet-birth-owner-1",
-            self.inner.cluster,
-            self.inner.incarnation,
-            &self.inner.bucket.prefix,
-            &self.inner.prefix,
-        ))
-        .map_err(|_| FleetCatalogError::Invalid("catalog identity"))?;
-        let owner = ManagedBirthOwner {
-            fleet: self.inner.incarnation,
-            catalog: hash(&bytes),
-        };
+        let owner = self.birth_owner()?;
         if config
             .managed_fleet
             .as_ref()
@@ -293,6 +307,21 @@ impl FleetCatalog {
         }
         config.managed_fleet = Some(owner);
         Ok(config)
+    }
+
+    pub(super) fn birth_owner(&self) -> Result<ManagedBirthOwner> {
+        let bytes = serde_json::to_vec(&(
+            "cellar-fleet-birth-owner-1",
+            self.inner.cluster,
+            self.inner.incarnation,
+            &self.inner.bucket.prefix,
+            &self.inner.prefix,
+        ))
+        .map_err(|_| FleetCatalogError::Invalid("catalog identity"))?;
+        Ok(ManagedBirthOwner {
+            fleet: self.inner.incarnation,
+            catalog: hash(&bytes),
+        })
     }
 
     /// Import one observed history. This never marks an inventory complete;
@@ -307,14 +336,18 @@ impl FleetCatalog {
     ) -> Result<FleetCommit> {
         self.check_snapshot(snapshot)?;
         validate_request(request)?;
+        if let Some(owner) = birth.managed_owner() {
+            if self.birth_owner()? != *owner {
+                return Err(FleetCatalogError::Conflict);
+            }
+        }
         if namespace.config().managed_fleet.is_some()
             && self.bind_namespace(namespace.config().clone())? != *namespace.config()
         {
             return Err(FleetCatalogError::Conflict);
         }
         let history = FleetHistory::observed(
-            IncarnationId::new(self.inner.incarnation)
-                .map_err(|_| FleetCatalogError::Corrupt("fleet"))?,
+            self.binding(birth.scope())?,
             namespace,
             birth,
             ProposalId::new(request.id).map_err(|_| FleetCatalogError::Invalid("admission"))?,
@@ -338,37 +371,44 @@ impl FleetCatalog {
     ) -> Result<FleetBirthReservation> {
         self.check_snapshot(snapshot)?;
         validate_request(request)?;
-        if self.bind_namespace(namespace.config().clone())? != *namespace.config()
-            || namespace.config().cluster.bytes() != self.inner.cluster
+        if namespace.config().cluster.bytes() != self.inner.cluster
             || namespace.config().voters != VoterPolicy::ThreeVoters
             || proposal.voters.len() != 3
             || !proposal.learners.is_empty()
         {
             return Err(FleetCatalogError::Invalid("managed initial placement"));
         }
-        let (proposal, digest) = namespace.prepare_birth(proposal).map_err(catalog_error)?;
-        let history = FleetHistory {
-            binding: self.binding(&proposal.scope)?,
-            schema_digest: namespace.config().schema_digest,
-            namespace_root: namespace.root_digest(),
-            birth_digest: digest,
-            admission: request.id,
-            operation: request.operation,
-            voters: proposal.voters.iter().copied().map(Member::from).collect(),
-            learners: vec![],
-            state: FleetHistoryState::Reserved,
-        };
-        history.validate()?;
-        let commit = self
-            .run(
-                timeout,
-                self.insert_history(snapshot, request, &history, namespace, true),
-            )
-            .await?;
-        Ok(FleetBirthReservation {
-            commit,
-            authorization: FleetBirthAuthorization { history, proposal },
+        self.run(timeout, async {
+            let owner = self.managed_owner_for_birth(snapshot, namespace).await?;
+            let (proposal, digest) = namespace
+                .prepare_birth_with_owner(proposal, Some(&owner))
+                .map_err(catalog_error)?;
+            let history = FleetHistory {
+                binding: self.binding(&proposal.scope)?,
+                schema_digest: namespace.config().schema_digest,
+                namespace_root: namespace.root_digest(),
+                birth_digest: digest,
+                admission: request.id,
+                operation: request.operation,
+                voters: proposal.voters.iter().copied().map(Member::from).collect(),
+                learners: vec![],
+                state: FleetHistoryState::Reserved,
+                origin: Origin::Managed,
+            };
+            history.validate()?;
+            let commit = self
+                .insert_history(snapshot, request, &history, namespace, true)
+                .await?;
+            Ok(FleetBirthReservation {
+                commit,
+                authorization: FleetBirthAuthorization {
+                    history,
+                    proposal,
+                    owner,
+                },
+            })
         })
+        .await
     }
 
     /// Exact-key reconciliation, followed by the original revision's CAS.
@@ -386,12 +426,13 @@ impl FleetCatalog {
         authorization
             .check_namespace(namespace)
             .map_err(catalog_error)?;
-        if authorization.history.binding.fleet() != self.inner.incarnation
-            || self.bind_namespace(namespace.config().clone())? != *namespace.config()
-        {
+        if authorization.history.binding.fleet() != self.inner.incarnation {
             return Err(FleetCatalogError::Conflict);
         }
         self.run(timeout, async {
+            if self.managed_owner_for_birth(snapshot, namespace).await? != authorization.owner {
+                return Err(FleetCatalogError::Conflict);
+            }
             let mut history = authorization.history.clone();
             match namespace
                 .birth_disposition(&authorization.scope().cell)
@@ -598,7 +639,10 @@ impl FleetCatalog {
     }
 }
 
-fn history_mutation(request: &FleetRequestIdentity, changes: Vec<FleetChange>) -> FleetMutation {
+pub(super) fn history_mutation(
+    request: &FleetRequestIdentity,
+    changes: Vec<FleetChange>,
+) -> FleetMutation {
     FleetMutation {
         id: request.id,
         operation: request.operation,
@@ -608,7 +652,7 @@ fn history_mutation(request: &FleetRequestIdentity, changes: Vec<FleetChange>) -
     }
 }
 
-fn validate_request(request: &FleetRequestIdentity) -> Result<()> {
+pub(super) fn validate_request(request: &FleetRequestIdentity) -> Result<()> {
     if request.id == [0; 16]
         || request.operation == [0; 16]
         || request.expected_revision == 0
@@ -621,7 +665,7 @@ fn validate_request(request: &FleetRequestIdentity) -> Result<()> {
     Ok(())
 }
 
-fn catalog_error(error: CatalogError) -> FleetCatalogError {
+pub(super) fn catalog_error(error: CatalogError) -> FleetCatalogError {
     match error {
         CatalogError::Invalid(reason) => FleetCatalogError::Invalid(reason),
         CatalogError::Corrupt(reason) => FleetCatalogError::Corrupt(reason),

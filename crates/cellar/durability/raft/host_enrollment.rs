@@ -148,7 +148,8 @@ pub(super) async fn prepare(
             ),
             Err(super::super::storage::LogError::NotFound) => anyhow::ensure!(
                 cell.placement == RaftCellPlacement::Replica
-                    && cell.namespace.config().managed_fleet.is_some()
+                    && cell.birth.managed_owner().is_some()
+                    && authorization.allows_managed_genesis()
                     || matches!(
                         cell.placement,
                         RaftCellPlacement::Standby | RaftCellPlacement::QueryRouter { .. }

@@ -67,7 +67,8 @@ fn fixture() -> (GroupMembership, ConfState, GroupScope, FleetGroupBinding) {
         group: GroupId::new([3; 16]).unwrap(),
         incarnation: IncarnationId::new([4; 16]).unwrap(),
     };
-    let binding = FleetGroupBinding::new(IncarnationId::new([5; 16]).unwrap(), &scope).unwrap();
+    let binding =
+        FleetGroupBinding::new(IncarnationId::new([5; 16]).unwrap(), &scope, [90; 32]).unwrap();
     let conf = ConfState {
         voters: vec![1, 2, 3],
         ..Default::default()

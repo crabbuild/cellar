@@ -2,6 +2,7 @@
 //! A retained mutation journal resolves ambiguous writes after later revisions.
 
 mod histories;
+mod imports;
 mod index;
 mod nodes;
 mod permits;
@@ -10,6 +11,7 @@ mod records;
 pub use histories::{
     FleetBirthAuthorization, FleetBirthReservation, FleetHistory, FleetHistoryState,
 };
+pub use imports::{FleetImportPhase, FleetNamespaceImport};
 pub use nodes::{
     FleetHostAuthorization, FleetNodeEligibility, FleetNodeSpec, FleetNodeState,
     FleetRequestIdentity,

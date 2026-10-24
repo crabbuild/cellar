@@ -6,10 +6,11 @@ cancelled decision can be published. The index reserves each cell name
 permanently and retains pending, live and cancelled intents. It never infers
 completeness from object listing or currently serving nodes.
 
-This is the birth half of import quiescence. It does **not** certify complete
-fleet enrollment, quiesce membership changes, transfer an imported namespace's
-birth ownership, authorize evacuation or release reservations. Those integration
-steps remain required before fleet maintenance can use an import.
+The fleet catalog's [namespace import runtime](../fleet_catalog/imports/README.md)
+uses this frozen set to settle decisions, verify committed group enrollment and
+execute an exact-owner handoff. The inventory alone does **not** certify complete
+fleet enrollment, authorize evacuation or release reservations. Fleet-wide
+namespace coverage and lifecycle gates remain required for maintenance.
 
 ## Admission and immutable decisions
 
@@ -41,10 +42,10 @@ using the set as an import input. Missing replies and missing decision keys are
 not absence proof.
 
 Retry the same freeze operation after an uncertain response or adapter restart.
-A different operation conflicts; this substep has no unfreeze or ownership
-handoff API. Fresh managed namespaces retain their immutable fleet owner and
-refuse ordinary freeze. Controlled import completion/cancellation and subsequent
-managed birth admission still need their own lifecycle integration.
+A different operation conflicts. The fleet runtime can claim the exact cut and
+adopt it after rooted quorum-coverage verification; stopping retains the claim
+and frozen references. There is no automatic unfreeze. Fresh managed namespaces
+retain their immutable fleet owner and refuse ordinary freeze.
 
 `frozen_birth_page` reads only the fixed root through opaque cuts and cursors.
 Entries expose the canonical proposal and expected **live** decision digest; a
@@ -77,6 +78,12 @@ The embedding supplies a conditional-capable provider client without hidden
 mutation retries, as in the native Raft performance harness. The adapter itself
 does not overwrite or silently replace a failed CAS with another identity.
 
-The internal protocol hard-cuts to `/birth-inventory-1`. Use fresh fleet roots,
+After adoption, the immutable namespace configuration remains unchanged. New
+intents require the adopted fleet's rooted birth authorization and carry its
+explicit owner in their canonical birth record. New managed births cannot use
+bare bootstrap. Original imported births retain their earlier identity and
+replay their committed enrollment during intact-engine recovery.
+
+The internal protocol hard-cuts to `/namespace-import-1`. Use fresh fleet roots,
 fresh namespaces and matching binaries. Numeric format markers stay at 1;
 there is no compatibility reader or state migration.

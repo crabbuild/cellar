@@ -433,6 +433,7 @@ struct Fixture {
     definition: public_node::Counter,
     calls: Arc<AtomicUsize>,
     _entered: tokio::sync::mpsc::UnboundedReceiver<()>,
+    distinct_hosts: bool,
 }
 
 impl Fixture {
@@ -441,7 +442,7 @@ impl Fixture {
         spec.node = NodeId::new([id; 16])?;
         spec.disk = DiskLineage::new([id + 10; 16])?;
         spec.label = format!("fleet-peer-{id}");
-        if self.declaration.namespace.managed_fleet.is_some() {
+        if self.distinct_hosts {
             spec.physical_host = IncarnationId::new([id + 90; 16])?;
         }
         Ok(spec)
@@ -641,7 +642,7 @@ impl Fixture {
             })
             .await?;
         Ok(FleetHistory::observed(
-            IncarnationId::new([80; 16])?,
+            self.catalog.group_binding(birth.scope())?,
             &namespace,
             &birth,
             ProposalId::new([id; 16])?,
@@ -680,6 +681,10 @@ impl Fixture {
     }
 
     async fn with_managed_births(managed: bool) -> Result<Self> {
+        Self::with_domains(managed, managed).await
+    }
+
+    async fn with_domains(managed: bool, distinct_hosts: bool) -> Result<Self> {
         let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
         let store = Arc::new(fault::Store::default());
         let bucket = Bucket::from_clients(
@@ -743,6 +748,7 @@ impl Fixture {
             definition,
             calls,
             _entered: entered,
+            distinct_hosts,
         })
     }
 
@@ -1193,7 +1199,7 @@ async fn fleet_enrollment_dynamic_bounds() -> Result<()> {
     );
     let mut conflicting = retained.scope().clone();
     conflicting.group = GroupId::new([89; 16])?;
-    let binding = FleetGroupBinding::new(IncarnationId::new([80; 16])?, &conflicting)?;
+    let binding = f.catalog.group_binding(&conflicting)?;
     let snapshot = f.catalog.read(TIMEOUT).await?;
     let committed = f
         .catalog
@@ -1312,7 +1318,7 @@ async fn fleet_enrollment_dynamic_birth_digest() -> Result<()> {
         group: GroupId::new([40; 16])?,
         incarnation: IncarnationId::new([3; 16])?,
     };
-    let binding = FleetGroupBinding::new(IncarnationId::new([80; 16])?, &scope)?;
+    let binding = f.catalog.group_binding(&scope)?;
     let root = f.catalog.read(TIMEOUT).await?;
     let bytes = f
         .catalog
@@ -1369,7 +1375,7 @@ async fn fleet_enrollment_dynamic_stale_history() -> Result<()> {
         incarnation: IncarnationId::new([3; 16])?,
     };
     let snapshot = f.catalog.read(TIMEOUT).await?;
-    let binding = FleetGroupBinding::new(IncarnationId::new([80; 16])?, &scope)?;
+    let binding = f.catalog.group_binding(&scope)?;
     f.catalog
         .commit(
             &snapshot,
@@ -1435,7 +1441,7 @@ async fn fleet_enrollment_dynamic_undeclared_class() -> Result<()> {
         group: GroupId::new([42; 16])?,
         incarnation: IncarnationId::new([3; 16])?,
     };
-    let binding = FleetGroupBinding::new(IncarnationId::new([80; 16])?, &scope)?;
+    let binding = f.catalog.group_binding(&scope)?;
     let snapshot = f.catalog.read(TIMEOUT).await?;
     let committed = f
         .catalog

@@ -71,7 +71,8 @@ impl Driver {
                     .ok_or(CommandFailure::UnsupportedCapability)?;
                 (&declared.namespace, &cell.birth)
             };
-            if namespace.config().managed_fleet.is_none()
+            if birth.managed_owner().is_none()
+                || !authorization.allows_managed_genesis()
                 || !authorization.check_birth(namespace, birth)
             {
                 return Err(CommandFailure::CommandConflict);

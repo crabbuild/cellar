@@ -32,7 +32,7 @@ impl NamespaceCatalog {
         if self.config.managed_fleet.is_some() {
             return Err(CatalogError::ManagedAdmissionRequired);
         }
-        self.select_birth(proposal, None).await?.live()
+        self.select_birth(proposal, None, None).await?.live()
     }
 
     /// Fence an uncreated cell name with an immutable conditional-create
@@ -52,7 +52,7 @@ impl NamespaceCatalog {
         if self.config.managed_fleet.is_some() {
             return Err(CatalogError::ManagedAdmissionRequired);
         }
-        self.cancel_selected_birth(proposal, operation, timeout)
+        self.cancel_selected_birth(proposal, operation, timeout, None)
             .await
     }
 
@@ -65,8 +65,13 @@ impl NamespaceCatalog {
         timeout: Duration,
     ) -> Result<BirthDisposition, CatalogError> {
         authorization.check_namespace(self)?;
-        self.cancel_selected_birth(authorization.proposal(), operation, timeout)
-            .await
+        self.cancel_selected_birth(
+            authorization.proposal(),
+            operation,
+            timeout,
+            Some(authorization.owner()),
+        )
+        .await
     }
 
     pub async fn resolve_managed_birth(
@@ -78,11 +83,13 @@ impl NamespaceCatalog {
         if timeout.is_zero() || timeout > Duration::from_secs(60) {
             return Err(CatalogError::Invalid("managed birth timeout"));
         }
-        let birth =
-            crate::asyncrt::timeout(timeout, self.select_birth(authorization.proposal(), None))
-                .await
-                .map_err(|_| CatalogError::Unconfirmed)??
-                .live()?;
+        let birth = crate::asyncrt::timeout(
+            timeout,
+            self.select_birth(authorization.proposal(), None, Some(authorization.owner())),
+        )
+        .await
+        .map_err(|_| CatalogError::Unconfirmed)??
+        .live()?;
         if !authorization.check_birth(self, &birth) {
             return Err(CatalogError::Conflict("reserved birth winner"));
         }
@@ -94,11 +101,12 @@ impl NamespaceCatalog {
         proposal: BirthProposal,
         operation: ProposalId,
         timeout: Duration,
+        owner: Option<&ManagedBirthOwner>,
     ) -> Result<BirthDisposition, CatalogError> {
         if timeout.is_zero() || timeout > Duration::from_secs(60) {
             return Err(CatalogError::Invalid("birth cancellation timeout"));
         }
-        crate::asyncrt::timeout(timeout, self.select_birth(proposal, Some(operation)))
+        crate::asyncrt::timeout(timeout, self.select_birth(proposal, Some(operation), owner))
             .await
             .map_err(|_| CatalogError::Unconfirmed)?
     }
@@ -107,6 +115,7 @@ impl NamespaceCatalog {
         &self,
         mut proposal: BirthProposal,
         cancelled: Option<ProposalId>,
+        owner: Option<&ManagedBirthOwner>,
     ) -> Result<BirthDisposition, CatalogError> {
         self.require_mode(NamespaceMode::Raft)?;
         self.check_scope(&proposal.scope)?;
@@ -119,7 +128,7 @@ impl NamespaceCatalog {
         proposal.learners.sort_by_key(|m| m.member);
         self.check_members(&proposal.voters, &proposal.learners)?;
         let requested = proposal.scope.clone();
-        let mut birth = self.admit_birth_intent(proposal).await?;
+        let mut birth = self.admit_birth_intent(proposal, owner).await?;
         let scope = birth
             .scope
             .clone()
@@ -189,9 +198,10 @@ impl NamespaceCatalog {
 
     /// Canonical expected live decision, before any storage mutation. This is
     /// also used to bind the rooted reservation to its exact delayed writer.
-    pub(crate) fn prepare_birth(
+    pub(crate) fn prepare_birth_with_owner(
         &self,
         mut proposal: BirthProposal,
+        owner: Option<&ManagedBirthOwner>,
     ) -> Result<(BirthProposal, [u8; 32]), CatalogError> {
         self.require_mode(NamespaceMode::Raft)?;
         self.check_scope(&proposal.scope)?;
@@ -217,6 +227,7 @@ impl NamespaceCatalog {
                 .map(wire::Member::encode)
                 .collect(),
             empty_digest: wire::digest(&[]),
+            managed_owner: owner.cloned(),
             cancelled_by: None,
         };
         let digest = wire::digest(&wire::encode(wire::BIRTH, &birth, self.inner.limit)?);
@@ -264,6 +275,7 @@ impl NamespaceCatalog {
         {
             return Err(CatalogError::Conflict("birth namespace/cell/empty state"));
         }
+        self.check_birth_owner(birth.managed_owner.as_ref())?;
         let voters = birth
             .voters
             .iter()
@@ -291,6 +303,29 @@ impl NamespaceCatalog {
             digest: wire::digest(bytes),
             root_digest: self.root_digest,
             catalog_owner: self.inner.owner.clone(),
+            managed_owner: birth.managed_owner,
         }))
+    }
+
+    pub(super) fn check_birth_owner(
+        &self,
+        owner: Option<&ManagedBirthOwner>,
+    ) -> Result<(), CatalogError> {
+        if let Some(owner) = owner {
+            cellar_logic::consensus::IncarnationId::new(owner.fleet)
+                .map_err(|_| CatalogError::Corrupt("birth fleet owner"))?;
+            if owner.catalog == [0; 32] {
+                return Err(CatalogError::Corrupt("birth catalog owner"));
+            }
+        }
+        if self
+            .config
+            .managed_fleet
+            .as_ref()
+            .is_some_and(|expected| Some(expected) != owner)
+        {
+            return Err(CatalogError::Conflict("birth owner differs from namespace"));
+        }
+        Ok(())
     }
 }

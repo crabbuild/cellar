@@ -43,6 +43,19 @@ pub struct IndexCursor {
     key: String,
 }
 
+impl IndexCursor {
+    /// Restore a rooted controller's exact continuation. A caller-supplied
+    /// cursor is only a read position; owners must root progress themselves.
+    pub(crate) fn after(index: Option<[u8; 32]>, key: String) -> Result<Self, CatalogError> {
+        validate_key(&key)?;
+        Ok(Self {
+            index,
+            hash: hash(key.as_bytes()),
+            key,
+        })
+    }
+}
+
 pub struct IndexPage {
     pub entries: Vec<IndexEntry>,
     pub next: Option<IndexCursor>,

@@ -667,7 +667,7 @@ async fn initialize(
             );
             let permit = match placement {
                 RaftCellPlacement::Replica => {
-                    if namespace.config().managed_fleet.is_some() {
+                    if birth.managed_owner().is_some() {
                         let authorization = authorizations.get(&scope).ok_or_else(|| {
                             anyhow::anyhow!("managed initial host authorization required")
                         })?;

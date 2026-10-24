@@ -6,7 +6,7 @@ still commits configurations, grants fresh-quorum seeding and acknowledges
 business writes. No business acknowledgement calls the fleet catalog.
 
 The adapter and its verification export are available for integration work.
-Complete inventory, typed capacity/lifecycle admission, automatic reconciliation
+Fleet-wide inventory, typed capacity/lifecycle admission, automatic reconciliation
 and operator workflows are separate packages in the
 [fleet operations plan](../../../../../plans/multi-raft/fleet-operations/README.md).
 Do not interpret successful generic metadata writes as proof that a placement
@@ -77,7 +77,10 @@ cancelled history can mint group or membership authorization.
 
 `enroll_history` registers one already observed immutable birth for import. It
 does not assert that an import is complete, quiesce legacy creators, convert an
-unmanaged namespace or authorize maintenance/removal. Those lifecycle checks
+unmanaged namespace or authorize maintenance/removal. The
+[namespace import runtime](imports/README.md) supplies the per-namespace claim,
+complete traversal, quorum coverage, stop/resume, exact-request recovery and
+birth-ownership handoff. Fleet-wide namespace coverage and lifecycle checks
 remain pending. The [namespace birth inventory](../catalog_inventory/README.md)
 now indexes every canonical intent before publication and can freeze new birth
 admissions through CAS. Its frozen set includes pending and cancelled decisions;
@@ -88,7 +91,7 @@ Ordinary `bootstrap_member` can only resume an already enrolled managed group;
 it refuses fresh or bare genesis before creating local group state or a member
 claim. Managed host startup and `activate_managed_initial_member` use the guarded path described below.
 
-This experimental protocol hard-cuts to `/birth-inventory-1`; use fresh fleet
+This experimental protocol hard-cuts to `/namespace-import-1`; use fresh fleet
 roots, fresh namespaces and matching binaries. Fleet heads require the current
 protocol digest, and their permanent genesis pin binds it. Missing or earlier
 protocol state refuses initialization and reads; there is no compatibility reader.
@@ -96,7 +99,9 @@ Numeric format markers remain 1.
 
 ## Opaque capabilities and committed consumption
 
-`FleetGroupBinding` describes fleet incarnation and exact cell history.
+`FleetGroupBinding` describes fleet incarnation, exact catalog-scope fingerprint
+and cell history. `FleetCatalog::group_binding` returns that scoped descriptor;
+the low-level constructor requires the catalog fingerprint explicitly.
 `FleetMembershipPermit` binds one sequence to a permit/operation identity,
 configuration revision, complete repair-plan digest and replacement member,
 node and disk. Constructing or serializing a descriptor grants no host authority.

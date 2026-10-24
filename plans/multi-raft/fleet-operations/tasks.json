@@ -360,7 +360,14 @@
         "crates/cellar/durability/raft/catalog_inventory/README.md",
         "crates/cellar/tests/support/raft_birth_inventory.rs",
         "crates/cellar/tests/support/raft_fleet_observation.rs",
-        "crates/cellar/durability/raft/host_fleet_observation.rs"
+        "crates/cellar/durability/raft/host_fleet_observation.rs",
+        "crates/cellar/durability/raft/catalog_inventory/import.rs",
+        "crates/cellar/durability/raft/fleet_catalog/imports/README.md",
+        "crates/cellar/durability/raft/fleet_catalog/imports/coverage.rs",
+        "crates/cellar/durability/raft/fleet_catalog/imports/inventory.rs",
+        "crates/cellar/durability/raft/fleet_catalog/imports/mod.rs",
+        "crates/cellar/durability/raft/fleet_catalog/imports/records.rs",
+        "crates/cellar/tests/support/raft_namespace_import.rs"
       ],
       "steps": [
         "Add CAS-authorized node-set revisions with bounded route and permission refresh.",
@@ -370,7 +377,10 @@
         "Support an empty managed host and node-level readiness without eager per-history registration; separate placement/leadership exclusion from evacuation.",
         "Confirm permanent namespace group-identity claims before birth admission; atomically index group identity and cell name, retain harmless pre-admission claims after cancellation and refuse earlier fleet-root protocols.",
         "Maintain an authoritative bounded namespace birth-intent inventory before publication; freeze admissions by root CAS and reconcile every pending decision. Frozen birth inventory alone does not certify complete import, membership quiescence or removal.",
-        "Observe enrolled group configuration through a new quorum ReadIndex per invocation, without requiring a SQL image. Preserve joint roles, exact birth/process identity, bounded reply retention and original-deadline cancellation; this is not a complete-import or removal certificate."
+        "Observe enrolled group configuration through a new quorum ReadIndex per invocation, without requiring a SQL image. Preserve joint roles, exact birth/process identity, bounded reply retention and original-deadline cancellation; this is not a complete-import or removal certificate.",
+        "Implement rooted per-namespace import Preparing/Inventory/Coverage/Handoff/Complete phases over the exact frozen set, conditional pending-decision cancellation, retained stop/resume and exact stored-candidate replay after lost replies.",
+        "Verify every live group through opaque safe-ReadIndex observations, complete retained witness/history/member-claim reads, and unresolved-admission refusal before exact catalog-scoped namespace handoff. This does not certify fleet-wide compiled namespace coverage or node absence.",
+        "Bind committed group guards and permits to the exact catalog fingerprint. Store managed ownership in each new canonical birth so an adopted immutable-unmanaged namespace can initialize later births with guards in the first sync while old histories replay their committed enrollment."
       ],
       "acceptance": [
         "Inventory includes pending births and all managed namespaces.",
@@ -952,6 +962,120 @@
             "F02",
             "F06",
             "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "namespace_import_live_cut_and_handoff",
+          "oracle": "A real live group continues quorum/archive writes while its exact frozen birth cut is inventoried and guarded. Missing proof blocks progress; Handoff refuses cancellation and only confirmed terminal ownership closes legacy new-name admission.",
+          "invariants": [
+            "F01",
+            "F03",
+            "F04",
+            "F05",
+            "F06",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "namespace_import_pending_stop_resume",
+          "oracle": "The rooted cursor includes a held unpublished birth. Stop retains its references; explicit resume conditionally cancels it, a delayed live writer cannot overwrite the tombstone, and all canonical histories remain indexed.",
+          "invariants": [
+            "F01",
+            "F03",
+            "F04",
+            "F05",
+            "F06",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "namespace_import_claim_stop_race",
+          "oracle": "A stopped root wins while another adapter holds namespace-claim CAS. The late claim may settle but its stale root CAS cannot advance stopped progress; exact resume reconciles the retained owner/cut.",
+          "invariants": [
+            "F01",
+            "F03",
+            "F04",
+            "F05",
+            "F06",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "namespace_import_lost_reply_reopen",
+          "oracle": "Lost root and namespace replies across begin, claim, coverage, adoption and terminal root CAS converge after adapter recreation using the original stored request, without reconstructing the opaque group proof or reopening unmanaged births.",
+          "invariants": [
+            "F01",
+            "F03",
+            "F04",
+            "F05",
+            "F06",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "namespace_import_catalog_scope",
+          "oracle": "Two catalogs with the same fleet incarnation have distinct binding keys. Cached foreign-scope enrollment, observations and membership permits cannot mutate a real enrolled group; a competing import cannot replace namespace ownership.",
+          "invariants": [
+            "F01",
+            "F03",
+            "F04",
+            "F05",
+            "F06",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "namespace_import_missing_coverage_page",
+          "oracle": "A missing retained coverage page refuses handoff before ownership changes. Exact metadata restoration resumes the original rooted cut without resetting or declaring an empty set.",
+          "invariants": [
+            "F01",
+            "F03",
+            "F04",
+            "F05",
+            "F06",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "namespace_import_radix_completeness",
+          "oracle": "A live quorum group and 140 cancelled births cross radix leaf boundaries; both rooted passes cover all 141 intents once, retain every history and use no object listing.",
+          "invariants": [
+            "F01",
+            "F03",
+            "F04",
+            "F05",
+            "F06",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_genesis_imported_namespace",
+          "oracle": "Three actual managed hosts import an empty immutable-unmanaged namespace, admit a later managed birth, initialize its guard in first sync, serve native SQL writes and recover intact after physical restart.",
+          "invariants": [
+            "F01",
+            "F03",
+            "F04",
+            "F05",
+            "F06",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "namespace_import_engine_pin_conflict",
+          "oracle": "A rooted but incorrect engine instance cannot satisfy import coverage: the actual namespace storage pin and permanent member claim must match each current voter. Failure retains frozen progress and refuses ownership handoff.",
+          "invariants": [
+            "F02",
+            "F05",
+            "F07",
             "F10"
           ]
         }

@@ -8,15 +8,23 @@ use cellar_logic::consensus::GroupScope;
 pub struct FleetGroupAuthorization {
     binding: FleetGroupBinding,
     history: Box<super::histories::FleetHistory>,
+    owner: super::super::catalog::ManagedBirthOwner,
 }
 
 impl FleetGroupAuthorization {
+    pub(crate) fn allows_managed_genesis(&self) -> bool {
+        self.history.allows_managed_genesis()
+    }
+
     pub(crate) fn check_birth(
         &self,
         namespace: &crate::raft::catalog::NamespaceCatalog,
         birth: &crate::raft::catalog::GroupBirth,
     ) -> bool {
         self.history.check_birth(namespace, birth)
+            && birth
+                .managed_owner()
+                .is_none_or(|owner| owner == &self.owner)
     }
 
     pub(crate) fn matches_birth(
@@ -27,6 +35,9 @@ impl FleetGroupAuthorization {
         self.matches_scope(birth.scope())
             && self.history.birth_digest() == birth.digest()
             && self.history.schema_digest() == schema
+            && birth
+                .managed_owner()
+                .is_none_or(|owner| owner == &self.owner)
     }
 
     pub(crate) fn binding(&self) -> &FleetGroupBinding {
@@ -84,6 +95,7 @@ impl FleetCatalog {
             Ok(FleetGroupAuthorization {
                 binding: actual,
                 history: Box::new(history),
+                owner: self.birth_owner()?,
             })
         })
         .await
@@ -135,7 +147,13 @@ impl FleetCatalog {
             IncarnationId::new(self.inner.incarnation)
                 .map_err(|_| FleetCatalogError::Corrupt("fleet incarnation"))?,
             scope,
+            self.birth_owner()?.catalog,
         )
         .map_err(|_| FleetCatalogError::Invalid("group scope"))
+    }
+
+    /// Exact catalog-scoped descriptor. The value itself grants no authority.
+    pub fn group_binding(&self, scope: &GroupScope) -> Result<FleetGroupBinding> {
+        self.binding(scope)
     }
 }

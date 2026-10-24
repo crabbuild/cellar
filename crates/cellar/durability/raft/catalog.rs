@@ -22,6 +22,7 @@ pub use births::BirthDisposition;
 
 #[path = "catalog_inventory/mod.rs"]
 mod inventory;
+pub(crate) use inventory::BirthImportCut;
 pub use inventory::{
     BirthInventoryCursor, BirthInventoryEntry, BirthInventoryPage, FrozenBirthInventory,
 };
@@ -83,7 +84,8 @@ pub enum VoterPolicy {
     SingleVoterDevelopment,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ManagedBirthOwner {
     pub(crate) fleet: [u8; 16],
     pub(crate) catalog: [u8; 32],
@@ -166,6 +168,7 @@ pub struct GroupBirth {
     digest: [u8; 32],
     root_digest: [u8; 32],
     catalog_owner: Arc<()>,
+    managed_owner: Option<ManagedBirthOwner>,
 }
 
 impl GroupBirth {
@@ -183,6 +186,10 @@ impl GroupBirth {
 
     pub fn digest(&self) -> [u8; 32] {
         self.digest
+    }
+
+    pub(crate) fn managed_owner(&self) -> Option<&ManagedBirthOwner> {
+        self.managed_owner.as_ref()
     }
 }
 
@@ -457,10 +464,8 @@ impl NamespaceCatalog {
         log: &ReplicaLog,
         authorization: &super::fleet_catalog::FleetGroupAuthorization,
     ) -> Result<BootstrapPermit, CatalogError> {
-        if !self
-            .config
-            .managed_fleet
-            .as_ref()
+        if !birth
+            .managed_owner()
             .is_some_and(|owner| owner.fleet == authorization.binding().fleet())
             || !authorization.check_birth(self, birth)
             || birth.voters.len() != 3
@@ -469,6 +474,13 @@ impl NamespaceCatalog {
             return Err(CatalogError::Conflict(
                 "managed initial birth authorization",
             ));
+        }
+        if !authorization.allows_managed_genesis() {
+            match log.group(birth.scope()) {
+                Ok(_) => (),
+                Err(LogError::NotFound) => return Err(CatalogError::ManagedAdmissionRequired),
+                Err(error) => return Err(CatalogError::Log(error)),
+            }
         }
         self.bootstrap_initial(birth, log, Some(authorization.binding()))
             .await
@@ -508,7 +520,7 @@ impl NamespaceCatalog {
         if remote.is_some() && local.is_none() {
             return Err(CatalogError::LostStableState);
         }
-        if let Some(owner) = &self.config.managed_fleet {
+        if let Some(owner) = birth.managed_owner() {
             let enrolled = match &local {
                 Some(group) => {
                     group.birth_digest == birth.digest

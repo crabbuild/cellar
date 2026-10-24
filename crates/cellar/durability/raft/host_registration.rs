@@ -109,7 +109,8 @@ impl Driver {
                 // The root admitted this original-voter reference before
                 // target exclusion. Settling it grants no new placement:
                 // reserve_birth orders new intent against that same root CAS.
-                let admitted_initial = namespace.config().managed_fleet.is_some()
+                let admitted_initial = birth.managed_owner().is_some()
+                    && fresh.allows_managed_genesis()
                     && birth.voters().iter().any(|member| member.node == current.node());
                 let settling = matches!(current.state(),
                     FleetNodeState::Draining | FleetNodeState::RestartPending | FleetNodeState::ResizePending);
@@ -174,7 +175,7 @@ impl Driver {
                 Ok(_) => return Err(CommandFailure::CommandConflict),
                 Err(_) => return Err(CommandFailure::Unavailable),
             }
-            if prepared.namespace.config().managed_fleet.is_none()
+            if prepared.birth.managed_owner().is_none()
                 && prepared
                     .birth
                     .voters()

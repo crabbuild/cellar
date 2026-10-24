@@ -614,7 +614,7 @@ impl FleetCatalog {
         Ok(nodes)
     }
 
-    async fn host_from(
+    pub(super) async fn host_from(
         &self,
         snapshot: &FleetSnapshot,
         node: NodeId,
