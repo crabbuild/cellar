@@ -22,6 +22,9 @@ consistency with each external system.
 | Facets | Use cell-owned facet lifecycle and properties; test parent cancellation | [facets](../crates/cellar/application/facets.rs) |
 | Compiled loader | Load registered native application objects with host quotas | [loader](../crates/cellar/application/loader.rs) |
 
+See [streaming and WebSockets across languages](27-streaming-and-websockets.md)
+for Rust, Python, JavaScript and TypeScript APIs.
+
 ## WebSockets and containers
 
 The SDK includes socket pairs, ordinary and hibernating acceptance, text/binary
@@ -172,8 +175,10 @@ mutation; issue control operations sequentially.
 HTTP forwarding rewrites the destination to the cell-owned port, preserving
 path/query, method, headers and buffered body. Redirects are returned to the
 caller. Adapter body, encoded-value, operation and concurrency limits still
-apply. This is buffered HTTP; arbitrary response streaming and server-side 101
-passthrough are outside the adapter HTTP contract.
+apply. Container port HTTP is buffered; arbitrary response streaming and
+server-side 101 passthrough are outside this port API. General streaming HTTP
+and WebSocket upgrades use the separate
+[language transport API](27-streaming-and-websockets.md).
 
 For container WebSockets, Python's `connect_websocket` returns either a
 `ContainerWebSocket` or the declined `Response`. JS/TS returns a discriminated

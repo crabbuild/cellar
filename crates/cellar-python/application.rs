@@ -27,6 +27,12 @@ pub enum EventKind {
     Alarm,
     Queue,
     Scheduled,
+    #[serde(rename = "websocket_open")]
+    WebSocketOpen,
+    #[serde(rename = "websocket_message")]
+    WebSocketMessage,
+    #[serde(rename = "websocket_close")]
+    WebSocketClose,
 }
 
 impl EventKind {
@@ -36,6 +42,9 @@ impl EventKind {
             Self::Alarm => "alarm",
             Self::Queue => "queue",
             Self::Scheduled => "scheduled",
+            Self::WebSocketOpen => "websocket_open",
+            Self::WebSocketMessage => "websocket_message",
+            Self::WebSocketClose => "websocket_close",
         }
     }
 }
@@ -224,6 +233,25 @@ impl PythonApplication {
     }
 
     async fn run(
+        self: &Arc<Self>,
+        context: Context,
+        event: Invocation,
+        cell: Option<(u64, String, Life)>,
+        mut state: State,
+    ) -> Result<Output> {
+        if matches!(event, Invocation::Fetch(_)) && state.queue.is_none() {
+            let app = self.clone();
+            let producer = context.clone();
+            return cellar_guest::transport::serve(&context, move |session| async move {
+                state.transport = session;
+                app.run_inner(producer, event, cell, state).await
+            })
+            .await;
+        }
+        self.run_inner(context, event, cell, state).await
+    }
+
+    async fn run_inner(
         &self,
         context: Context,
         event: Invocation,
@@ -267,7 +295,9 @@ impl PythonApplication {
                     "scheduled",
                     json!({"scheduled_ms":scheduled.scheduled_ms,"cron":scheduled.cron}),
                 ),
-                _ => anyhow::bail!("unsupported Python invocation"),
+                event => {
+                    cellar_guest::transport::invocation(event, self.runtime.options.max_body_bytes)?
+                }
             }
         };
         let identity = context
@@ -436,6 +466,13 @@ impl PythonApplication {
                         anyhow::anyhow!("Python handler completion decoding failed")
                     })?;
                     return if kind == "fetch" {
+                        if let Some(output) = state
+                            .transport
+                            .output(&context, &value)
+                            .map_err(|_| anyhow::anyhow!("invalid guest transport response"))?
+                        {
+                            return Ok(output);
+                        }
                         // Serde and HTTP conversion errors may quote malformed
                         // application values. Native ingress formats the full
                         // handler error chain, so replace it at this boundary.
@@ -488,6 +525,7 @@ impl Application for PythonApplication {
                     Invocation::Alarm { scheduled_ms: 0 },
                     None,
                     State {
+                        transport: Default::default(),
                         queue: Some(event),
                         scheduled: None,
                         ..Default::default()
@@ -508,6 +546,7 @@ impl Application for PythonApplication {
                 invocation,
                 None,
                 State {
+                    transport: Default::default(),
                     queue: None,
                     scheduled,
                     ..Default::default()
@@ -561,6 +600,7 @@ impl Cell for PythonCell {
                     event,
                     Some((self.object, self.class.clone(), self.life.clone())),
                     State {
+                        transport: Default::default(),
                         queue: None,
                         scheduled: None,
                         ..Default::default()

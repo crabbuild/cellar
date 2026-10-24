@@ -2,6 +2,7 @@
 
 """One interpreter and asyncio loop; no Cellar operations run on this thread."""
 import asyncio
+import base64
 from collections import deque
 from functools import partial
 import inspect
@@ -10,7 +11,7 @@ import resource
 import sys
 import threading
 import time
-from cellar import Batch, Context, Overloaded, Request, Response, Scheduled, _encode_response, _current_invocation
+from cellar import StreamingResponse, WebSocketResponse, Batch, Context, Overloaded, Request, Response, Scheduled, _encode_response, _current_invocation
 
 _failures = dict(unraisable_errors=0, thread_errors=0)
 # Collection while taking a snapshot can invoke another destructor on the same
@@ -113,6 +114,12 @@ async def _invoke(module, objects, payload, body, bridge, context, stats, maximu
             argument = Scheduled(context, value)
         elif kind == "alarm":
             argument = value["scheduled_ms"]
+        elif kind in ("websocket_open", "websocket_message", "websocket_close"):
+            argument = value
+            if "body" in argument:
+                argument["data"] = base64.b64decode(argument["body"])
+            elif "text" in argument:
+                argument["data"] = argument["text"]
         else:
             raise KeyError(kind)
         result = handler(argument, context)
@@ -121,7 +128,28 @@ async def _invoke(module, objects, payload, body, bridge, context, stats, maximu
         result = await result
         if kind == "fetch" and not isinstance(result, Response):
             raise TypeError("fetch must return cellar.Response")
-        value, output_body = result._completion() if kind == "fetch" else (None, None)
+        if kind == "fetch" and isinstance(result, StreamingResponse):
+            await context._call("response.start", status=result.status, headers=result.headers, body="")
+            iterator = result.chunks.__aiter__()
+            try:
+                async for chunk in iterator:
+                    if isinstance(chunk, str):
+                        body = chunk.encode()
+                    elif isinstance(chunk, (bytes, bytearray, memoryview)):
+                        body = bytes(chunk)
+                    else:
+                        raise TypeError("Stream chunks must be text or bytes")
+                    await context._call("response.write", body=base64.b64encode(body).decode())
+            finally:
+                if hasattr(iterator, "aclose"):
+                    await iterator.aclose()
+            value, output_body = {"streamed": True}, b""
+        elif kind == "fetch" and isinstance(result, WebSocketResponse) and result.run is not None:
+            await context._call("response.upgrade", websocket=result.socket.id, headers=result.headers)
+            await result.run(result.socket, context)
+            value, output_body = {"streamed": True}, b""
+        else:
+            value, output_body = result._completion() if kind == "fetch" else (None, None)
         bridge.complete(_encode_response(value) if kind == "fetch" else "null", False, output_body)
         metrics["handlers_completed"] += 1
     except asyncio.CancelledError:

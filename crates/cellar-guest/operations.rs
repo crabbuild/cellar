@@ -11,6 +11,7 @@ use serde_json::{json, Value};
 #[derive(Default)]
 pub struct State {
     pub containers: crate::containers::Session,
+    pub transport: std::sync::Arc<crate::transport::Session>,
     pub queue: Option<queue::Event>,
     pub scheduled: Option<cellar::sdk::cron::Scheduled>,
 }
@@ -31,6 +32,8 @@ pub fn is_read(name: &str) -> bool {
             | "var"
             | "kv.get"
             | "kv.list"
+            | "websocket.next"
+            | "response.read"
     )
 }
 
@@ -70,6 +73,13 @@ pub async fn execute(
         values::check_depth(&value).context(crate::failure::Validation)?;
         ensure!(value.is_object(), crate::failure::Validation);
         return crate::containers::execute(context, &state.containers, name, value, options).await;
+    }
+    if name == "cell.fetch_stream"
+        || name == "http.fetch_stream"
+        || name.starts_with("response.")
+        || name.starts_with("websocket.")
+    {
+        return state.transport.execute(context, name, value, options).await;
     }
     validate(name, &value).context(crate::failure::Validation)?;
     match name {

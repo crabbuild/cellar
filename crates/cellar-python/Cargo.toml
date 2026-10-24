@@ -91,3 +91,9 @@ name = "startup"
 path = "tests/startup.rs"
 harness = false
 required-features = ["embed"]
+
+[[test]]
+name = "streaming"
+path = "tests/streaming.rs"
+harness = false
+required-features = ["embed"]

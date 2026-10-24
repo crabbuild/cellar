@@ -65,10 +65,9 @@ code paths. The counter qualifies Zod number validation, not every Zod API. Its
 configuration skips third-party declaration checking while strictly checking
 application code against ES2023 without DOM or Node globals.
 
-Both backends expose **buffered Cellar HTTP**. Node packages may use streams or
-WebSockets for their own I/O, but the Cellar bridge does not expose streaming
-responses or server WebSocket upgrades. Container ports provide a separate
-event-owned WebSocket API. Cellar workflows, RPC, and JavaScript-authored
+Both backends expose buffered HTTP, streaming HTTP/SSE, and host-owned WebSocket
+upgrades/events. See [streaming and WebSockets](../../docs/27-streaming-and-websockets.md)
+for producers, forwarding, hibernation and cancellation. Cellar workflows, RPC, and JavaScript-authored
 Raft commands are outside this adapter's current contract. The Node example
 qualifies React server rendering; browser DOM execution and arbitrary framework
 integrations are separate concerns.
