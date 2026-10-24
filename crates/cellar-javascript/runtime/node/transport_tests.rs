@@ -35,6 +35,7 @@ fn receive(transport: &mut Transport) -> Result<Frame> {
 #[test]
 fn fragmented_binary_and_coalesced_empty_frames() -> Result<()> {
     let (mut peer, mut transport) = connected(128, 256)?;
+    assert!(!transport.input_ready()?);
     let bytes = frame(
         json!({"type":"operation","has_body":true}),
         &[0, 255, 128, 0],
@@ -52,6 +53,14 @@ fn fragmented_binary_and_coalesced_empty_frames() -> Result<()> {
     let mut bytes = frame(json!({"has_body":true}), &[]);
     bytes.extend(frame(json!({"has_body":false}), &[]));
     peer.write_all(&bytes)?;
+    // Writes need not have reached the nonblocking socket yet. Once ready,
+    // repeated diagnostic peeks must leave both frames untouched.
+    let until = Instant::now() + Duration::from_secs(2);
+    while !transport.input_ready()? {
+        ensure!(Instant::now() < until, "Node diagnostic readiness stalled");
+        std::thread::yield_now();
+    }
+    assert!(transport.input_ready()?);
     assert_eq!(receive(&mut transport)?.body, Some(vec![]));
     assert_eq!(receive(&mut transport)?.body, None);
     Ok(())

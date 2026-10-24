@@ -98,6 +98,18 @@ impl Transport {
         Ok(())
     }
 
+    /// Watchdog diagnostics must not consume a buffered control or attachment.
+    pub fn input_ready(&self) -> std::io::Result<bool> {
+        if !self.input.is_empty() {
+            return Ok(true);
+        }
+        match self.socket.peek(&mut [0]) {
+            Ok(size) => Ok(size != 0),
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => Ok(false),
+            Err(error) => Err(error),
+        }
+    }
+
     pub fn receive(&mut self) -> Result<Option<Frame>> {
         // At most one bounded frame is buffered; never accumulate a peer's flood.
         loop {

@@ -272,6 +272,7 @@ fn run(
     let mut authenticated = false;
     let mut initialized = false;
     let mut heartbeat = Instant::now();
+    let mut last_check = heartbeat;
     let mut invocations = HashMap::<u64, InvocationState>::new();
     let mut objects = HashMap::<u64, Life>::new();
     let mut last_operation = 0;
@@ -281,13 +282,18 @@ fn run(
         if runtime.closed.load(Ordering::Acquire) {
             return Ok(());
         }
+        let now = Instant::now();
+        let loop_gap = now.saturating_duration_since(last_check);
+        let heartbeat_gap = now.saturating_duration_since(heartbeat);
+        last_check = now;
         ensure!(
             if initialized {
-                heartbeat.elapsed() < node.heartbeat_timeout
+                heartbeat_gap < node.heartbeat_timeout
             } else {
-                Instant::now() < deadline
+                now < deadline
             },
-            "Node event loop or initialization timed out"
+            "Node event loop or initialization timed out: initialized={initialized}, heartbeat_gap_ms={}, observer_gap_ms={}, input_ready={:?}, invocations={}, objects={}",
+            heartbeat_gap.as_millis(), loop_gap.as_millis(), transport.input_ready().ok(), invocations.len(), objects.len()
         );
 
         // Retire authority before processing any newly received operations.
