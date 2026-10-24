@@ -85,7 +85,8 @@ async function completed(url) {
 }
 
 try {
-  const boundaries = live ? ['tool', 'completed'] : ['accepted', 'provider', 'model', 'tool', 'final-model', 'completed'];
+  const boundaries = live && process.env.CELLAR_AI_TEST_ALL_BOUNDARIES !== '1'
+    ? ['tool', 'completed'] : ['accepted', 'provider', 'model', 'tool', 'final-model', 'completed'];
   for (const boundary of boundaries) {
     const first = await start(boundary, 1);
     const url = `${first.ingress}/agents/task`;

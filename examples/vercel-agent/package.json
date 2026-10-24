@@ -15,6 +15,9 @@
   "scripts": {
     "build": "node ../../tools/javascript/node-build.mjs tsconfig.json",
     "test": "node --test test/*.test.mjs",
-    "test:e2e": "node test/process.mjs"
+    "test:e2e": "node test/process.mjs",
+    "demo": "node demo/launch.mjs",
+    "build:ui": "npm run --prefix ui build",
+    "test:tools": "node test/tool-process.mjs"
   }
 }

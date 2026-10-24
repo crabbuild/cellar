@@ -157,6 +157,23 @@ test('invalid tool arguments never mutate the counter or complete the task', asy
   assert.equal(data.get('run').status, 'pending');
 });
 
+test('an ambiguous first tool refuses later tools from the same model decision', async () => {
+  const {ctx, data} = storage();
+  const model = fixtureModel(); const generate = model.doGenerate;
+  model.doGenerate = async (...args) => {
+    const response = await generate(...args);
+    if (response.finishReason.unified === 'tool-calls') response.content.push({type: 'tool-call',
+      toolName: 'saveNote', toolCallId: 'after-ambiguous-write', input: '{"title":"Must not execute","content":"No further effects"}'});
+    return response;
+  };
+  await accept(ctx, 'Add three and save a note', model);
+  ctx.storage.sync = async () => { if (data.has('count')) throw new Error('ambiguous durability outcome'); };
+  await assert.rejects(execute(ctx, model), /ambiguous durability outcome/);
+  assert.equal(data.get('count'), 3);
+  assert.equal([...data.keys()].some(key => key.startsWith('note:')), false);
+  assert.equal(Object.keys(data.get('run').tools).length, 1);
+});
+
 test('acceptance and checkpoints reject oversized journals before commit', async () => {
   const {ctx, data} = storage();
   const model = fixtureModel();
