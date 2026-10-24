@@ -282,12 +282,11 @@ impl Runtime {
         identity::reserve(&self.next)
     }
 
-    pub fn start(&self, mut start: Start) -> Result<()> {
+    pub fn start(&self, start: Start) -> Result<()> {
         ensure!(
             !self.closed.load(Ordering::Acquire),
             "Python runtime is closed"
         );
-        start.queued_at = start.bridge.clock_origin + start.bridge.clock_origin.elapsed();
         self.starts
             .try_send(start)
             .context("Python invocation admission is full or closed")?;
@@ -413,10 +412,6 @@ impl Inbox {
             self.runtime
                 .budget
                 .copied_output(start.payload.len() + start.body.len());
-            self.runtime
-                .budget
-                .dispatch_handoff
-                .observe(start.queued_at.elapsed());
             Ok((start.id, payload, body, bridge))
         })
         .transpose()
