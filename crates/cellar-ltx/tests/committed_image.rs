@@ -132,10 +132,21 @@ fn committed_image_excludes_uncommitted_spilled_frames() {
         .unwrap();
     let bytes = writer.serialize(DatabaseName::Main).unwrap();
     let expected: [u8; 32] = Sha256::digest(&*bytes).into();
+    // Keep the committed WAL snapshot pinned. Without a reader SQLite may
+    // restart the WAL and overwrite its existing allocation, so file growth
+    // would not reliably distinguish new uncommitted frames.
+    let committed = Connection::open(db.path()).unwrap();
+    committed
+        .execute_batch("BEGIN; SELECT value FROM payload;")
+        .unwrap();
     let before = std::fs::metadata(db.wal_path()).unwrap().len();
     writer
         .execute_batch("BEGIN; UPDATE payload SET value=randomblob(1048576);")
         .unwrap();
+    // Cache pressure alone does not guarantee SQLite spills on every run.
+    // Explicitly flush dirty pages while keeping the transaction uncommitted,
+    // so the physical WAL assertion below establishes the tested condition.
+    writer.cache_flush().unwrap();
     assert!(std::fs::metadata(db.wal_path()).unwrap().len() > before);
     assert!(db
         .committed_image_digest(bytes.len() as u64, db.page_size(), 64 * 1024 * 1024)
@@ -147,6 +158,7 @@ fn committed_image_excludes_uncommitted_spilled_frames() {
         expected
     );
     compare(&db, &writer);
+    drop(committed);
     drop(writer);
     db.close().unwrap();
 }
