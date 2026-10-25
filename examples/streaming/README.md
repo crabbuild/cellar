@@ -12,6 +12,7 @@ CPython 3.14 build prerequisites. Use the repository Rust toolchain and a unique
 
 | Route | Behavior |
 | --- | --- |
+| `GET /` | Browser client with live WebSocket and SSE message logs. |
 | `GET /events` | Three SSE `progress` events, then `done`; the response finishes. |
 | `GET /ws` | Worker-owned WebSocket that echoes text and binary frames. |
 | `GET /rooms/demo/ws` | Hibernating cell socket with a durable message count. |
@@ -143,7 +144,8 @@ node examples/streaming/check.mjs http://127.0.0.1:9876
 curl http://127.0.0.1:9876/rooms/demo/state
 ```
 
-It verifies SSE framing, worker and cell handshakes, Unicode text, binary bytes
+It verifies browser asset delivery, SSE framing, worker and cell handshakes,
+Unicode text, binary bytes
 `[0, 128, 255]`, graceful close and the persisted message count. On fresh state,
 the count becomes 2. Running it again adds 2. It prints:
 
@@ -151,28 +153,23 @@ the count becomes 2. Running it again adds 2. It prints:
 PASS SSE progress, worker/cell text and binary echo, durable message count
 ```
 
-For browser code served from the same origin, the corresponding clients are:
+Open [the browser client](http://127.0.0.1:9876/). Choose a cell
+or worker socket, click **Connect**, type a message and click **Send**. The log
+shows the outgoing message and its incoming echo with arrival times. **Send binary
+sample** demonstrates a non-UTF-8 frame. Cell echoes update the stored room count;
+**Refresh count** also picks up messages sent by other clients. Each connection
+echoes its own messages; the example does not broadcast between connections.
 
-```js
-const events = new EventSource("/events");
-events.addEventListener("progress", event => {
-  console.log(event.lastEventId, JSON.parse(event.data));
-});
-// EventSource reconnects after EOF unless closed. This example has a finite feed.
-events.addEventListener("done", () => events.close());
+Click **Start SSE feed** to receive the three named `progress` events and final
+`done` event. Each is logged as the browser receives it. This finite sample emits
+quickly; the UI does not add a display delay. It closes EventSource on `done` so
+EOF does not trigger a reconnect. Start the feed again to run another response.
 
-const url = new URL("/rooms/demo/ws", location.href);
-url.protocol = location.protocol === "https:" ? "wss:" : "ws:";
-const socket = new WebSocket(url);
-socket.addEventListener("open", () => socket.send("hello"));
-socket.addEventListener("message", event => {
-  console.log(event.data);
-  socket.close(1000, "complete");
-});
-```
-
-The example provides API routes, not a browser page; the browser snippet assumes
-your page is served from the host's origin. The Node client works directly.
+The page uses the browser's `WebSocket` and `EventSource` APIs, with no framework
+or client dependencies. [client.js](assets/client.js) shows the actual event
+listeners. Log entries use text nodes and retain at most 100 records per protocol.
+The four projects serve the same [static assets](assets/index.html) through the
+native asset pipeline; `/events`, `/ws` and `/rooms/*` still enter the application.
 
 ## Restart and verification
 

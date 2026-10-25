@@ -48,6 +48,20 @@ async function echo(path) {
   }
 }
 
+// The same native host serves the browser client and forwards API routes.
+for (const [path, contentType] of [
+  ["/", "text/html"],
+  ["/client.js", "javascript"],
+  ["/style.css", "text/css"],
+]) {
+  const asset = await fetch(new URL(path, origin), {
+    signal: AbortSignal.timeout(10000),
+  });
+  assert.equal(asset.status, 200, `Missing browser asset: ${path}`);
+  assert.ok(asset.headers.get("content-type").includes(contentType));
+  await asset.arrayBuffer();
+}
+
 const response = await fetch(new URL("/events", origin), {
   signal: AbortSignal.timeout(10000),
 });

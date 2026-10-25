@@ -18,6 +18,15 @@
         "name": "ROOMS",
         "class_name": "Room"
       }
-    ]
+    ],
+    "assets": {
+      "directory": "assets",
+      "binding": "ASSETS",
+      "run_worker_first": [
+        "/events",
+        "/ws",
+        "/rooms/*"
+      ]
+    }
   }
 }
