@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "revision": "f06b286edbeb6285001bc75b5ecc32edd68ba779",
+  "revision": "024acc19fd70edcc4374280341140a8fabe8a964",
   "files": [
     {
       "path": ".github/workflows/native-sdk.yml",
@@ -31,6 +31,10 @@
       "sha256": "256bc5aae14a68d2360e420c0df279b435ade989353002843908baf604f42c08"
     },
     {
+      "path": "crates/cellar-admin/nodes.rs",
+      "sha256": "5bfbe5af276aa08293332314be3b8aa986a5d0ec6d49e74c215243bb9da8434b"
+    },
+    {
       "path": "crates/cellar-logic/lib.rs",
       "sha256": "8127cf30003407e44a1517f2453125db6c5f1cf0d10d1dd78eab0fcaedf27d84"
     },
@@ -48,11 +52,11 @@
     },
     {
       "path": "crates/cellar/application/consensus/mod.rs",
-      "sha256": "a124343f1e21856ed8ecb90066f67463afe4d6963609d96506f61a120cf08f0e"
+      "sha256": "32a35c3e0181aac8adc546490bd9547e67a8352f3c572e579b0fa41103a4af35"
     },
     {
       "path": "crates/cellar/application/consensus/protocol.rs",
-      "sha256": "d6ec76ca73681aa1f4b44a77eaba8dd07570e344bf844ac038662582132b8624"
+      "sha256": "c13fcf123c1a137246252924fdd618e0b9c97668f6c9204decd0ad9fc6dfee41"
     },
     {
       "path": "crates/cellar/application/consensus/resources.rs",
@@ -65,6 +69,10 @@
     {
       "path": "crates/cellar/durability/raft/README.md",
       "sha256": "25809daf0c88a13c3f4cbd4541c87327ccad341bbe5a16ab5d00ed7b873ee9d0"
+    },
+    {
+      "path": "crates/cellar/durability/raft/archive/bundle_tests.rs",
+      "sha256": "a3ed70ad0f330e4733d4e25c68bce667402ab3f17498f9883380cd32f684db36"
     },
     {
       "path": "crates/cellar/durability/raft/archive/mod.rs",
@@ -84,7 +92,7 @@
     },
     {
       "path": "crates/cellar/durability/raft/catalog_wire.rs",
-      "sha256": "2962fd1105353740dacd3af30c79b4d1bb1be3493c41acee589f7b4be43e8bff"
+      "sha256": "aba9a173f28e35490f1df4f95318279e776496bd0f678676713da9a99f9c9c53"
     },
     {
       "path": "crates/cellar/durability/raft/controller_action.rs",
@@ -108,7 +116,7 @@
     },
     {
       "path": "crates/cellar/durability/raft/host_directory.rs",
-      "sha256": "d4f422c3f2871814b907c3f11aa0cce0cfea11587e188e742fbf6a604ff21c0f"
+      "sha256": "687da34b37ddacbd654975ec740a680363e10436792fbe36e2e3e508679ac24d"
     },
     {
       "path": "crates/cellar/durability/raft/host_drain.rs",
@@ -168,7 +176,7 @@
     },
     {
       "path": "crates/cellar/durability/raft/mod.rs",
-      "sha256": "4e686bc57247ea456783f5f10eb137ebb0bb467b54836a85d3fb58f7367a6194"
+      "sha256": "52c901f75c37db20dd7c36067729e5b0bf5067b80d0912f0db5dbc4de921bfee"
     },
     {
       "path": "crates/cellar/durability/raft/node_directory.rs",
@@ -176,7 +184,7 @@
     },
     {
       "path": "crates/cellar/durability/raft/operations.rs",
-      "sha256": "1188a8e6e2b20324ebdb80cbbc1d34377dd23922db72a43ac38eacac0b1bb790"
+      "sha256": "58163b59b2f3baad2cdaad45f118a0fa028b21f6fddb0d49a18264416a93195e"
     },
     {
       "path": "crates/cellar/durability/raft/performance.rs",
@@ -212,7 +220,7 @@
     },
     {
       "path": "crates/cellar/durability/raft/storage.rs",
-      "sha256": "a10cc0c1d81a373d3f8dc614b6426b40dc7e2963530e2b978c0e4f78f4b544f3"
+      "sha256": "0ed23093c8b0069be803801a3b14d7f5624b0c73d9935bd16b4fcaf0f7879462"
     },
     {
       "path": "crates/cellar/durability/raft/transport.rs",
@@ -235,20 +243,40 @@
       "sha256": "a53f0a0475cdba087592713b7d3db5786554dde720af9297b7b8ef8a1ef00162"
     },
     {
+      "path": "crates/cellar/fleet/management/nodes.rs",
+      "sha256": "ddd7d353e74d04f90b4002d7cdea5295543ee3f7c20968f41ad59918bdec7fff"
+    },
+    {
+      "path": "crates/cellar/fleet/peer/probe.rs",
+      "sha256": "0d51f93d720d37fd566eec2540bf96181cfc48c9721ecb93a7e8c1d52592d362"
+    },
+    {
       "path": "crates/cellar/lib.rs",
       "sha256": "d71360f1ad07185064115a3610ee89d91d190f06e1f581f3968146bfe3966e26"
     },
     {
+      "path": "crates/cellar/node/driver.rs",
+      "sha256": "ddb148c3c0969d3f58596201df2189e7cac4baa06cdf1ba5c55ae409a1d3a0e5"
+    },
+    {
       "path": "crates/cellar/node/embedded.rs",
-      "sha256": "ae5b437edd7c75c1b07e743272f0160ab990bf5e6de10c50fcb1c9b12f6a1bc9"
+      "sha256": "bf09f4b323afc82f5f539a05e5aaf4056f59415d698ff50cb2fbe822500bcdd5"
     },
     {
       "path": "crates/cellar/node/lifecycle.rs",
       "sha256": "bb54e4cec3656633ef2ce205c3bdd31366ef06201a9ccdf0faecd256b256a211"
     },
     {
+      "path": "crates/cellar/node/mod.rs",
+      "sha256": "cdb43a4dc797fb08395c4ce1504e68f365979a97f0f56224baf6abf4719e3883"
+    },
+    {
+      "path": "crates/cellar/node/network/management.rs",
+      "sha256": "daedc1c4134a87a3cb21997502015391683b929a67f2f6a222460166b375c5a8"
+    },
+    {
       "path": "crates/cellar/node/raft_startup.rs",
-      "sha256": "8c86452b59e0fc303c3d4a33a9779f4efa4e71ae930ae7cf9c4c47404da0b98c"
+      "sha256": "654be40f39e5cf04b18e70e54d0e6f9119ec8cffc5c23eeaf6666c042838cf48"
     },
     {
       "path": "crates/cellar/storage/object/bucket.rs",
@@ -268,7 +296,7 @@
     },
     {
       "path": "crates/cellar/tests/support/raft_catalog_fault.rs",
-      "sha256": "10a017ad2175ff841b70f335a95e2bdf3199df2ce6ce265750d853c778a501a2"
+      "sha256": "27b55ef8a76f67cb7c623310bae8f4dc4402b24106c6c8da0f0e19e1a79e858d"
     },
     {
       "path": "crates/cellar/tests/support/raft_controller_native.rs",
@@ -293,12 +321,8 @@
     {
       "path": "tools/perf/raft_topology.py",
       "sha256": "39efd424765814014977cc8a450c84d733b86e733f7407c4145963fea0c05eef"
-    },
-    {
-      "path": "crates/cellar/durability/raft/archive/bundle_tests.rs",
-      "sha256": "a3ed70ad0f330e4733d4e25c68bce667402ab3f17498f9883380cd32f684db36"
     }
   ],
   "reviewed_from_revision": "900a677fb6481a259d1e24073d9dc1aacf785507",
-  "review_note": "FO-03 partial reviewed successor: append-only bounded namespace registry with permanent fleet-head count, actual compiled-host/class/data-root checks and complete two-way canonical birth/history inventory, including pending/cancelled/offline references. 356 distinct native cases passed across 13 targets: 295 in the first eleven targets, then snapshot 44/storage 17 in a complete rerun after a setup-write Ambiguous failure. 136 Raft units, four startup cases and source checks passed. Timing root cause remains unestablished. Five mandatory FO-03 cases, typed capacity/lifecycle admission and deployed qualification remain unfinished."
+  "review_note": "FO-03 partial successor: exact-boot fsynced stop/fence admission, Node-owned work, one remembered shutdown signal and signed physical closure after actual Node/engine joins. Final source passed 400 native Raft cases across 13 targets, 158 Raft units, 12 RPC, four startup and 19 admin cases. The separately audited pre-coalescing source tree passed 93 legacy Node cases. Physical closure is not terminal removal or capacity readiness; standalone Raft stop transport, Finalizing resumption, fresh terminal checks, atomic terminal receipt/slot release and fleet controller work remain pending. Deployed RustFS/Colima, TPS/p99 and soak are unqualified."
 }

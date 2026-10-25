@@ -1476,6 +1476,100 @@ release and capacity readiness remain required. The terminal
 remain pending; this increment establishes no deployed RustFS/Colima capacity,
 TPS/latency improvement, automation or soak qualification.
 
+## FO-03 progress: exact-boot stops and signed joined closure
+
+Source `024acc19fd70edcc4374280341140a8fabe8a964` pins the host's closure verification key in its rooted
+boot claim and fsyncs a separate bounded local lifecycle record before endpoint
+publication. The real engine worker persists exact operation/epoch/boot/process
+stop acceptance before a Node-owned task signals shutdown. Caller loss does not
+cancel that task. A synced local fence defeats delayed stops at its epoch;
+accepted stops cannot be cancelled or rebound. Missing lifecycle metadata refuses
+engine Resume. The guard adds no object-store call to business acknowledgement.
+
+The outer host signs and conditionally publishes closure only after the Node
+domain and physical Raft owners join. The CLI joins its core thread too. Closure
+publication owns a separate bounded reporting domain and reconciles a lost PUT
+response through exact bounded readback. Verification checks the exact selector
+and the rooted boot key and returns an opaque proof. The signature assumes
+trusted host code/private keys and coordination credentials. It supplies no
+fresh survivor/archive health, application completion, terminal node transition,
+volume deletion or disruption-slot release authority.
+
+The local SDK and existing authenticated private management endpoint accept the
+scoped stop/fence DTO. Managed hosts refuse generic management Stop. The admin
+adapter enforces Operate permission, identical guard/audit request IDs and an
+accepted, unconfirmed status. Legacy Actor-lease discovery remains a gap: a
+standalone authenticated Raft-control-lane RPC is still needed for an empty
+Raft-only node and a fleet controller.
+
+New native tests hold the actual engine sync and engine-lock drop, discard the
+caller, and wait for autonomous completion without another shutdown command.
+They refuse closure before physical join, verify publication after a lost PUT
+response, reject checksum-correct signature tampering, exercise local fence
+retry/late-stop refusal, and reject new stop admission after inventory changes.
+These focused stop fixtures use an empty managed departing host. Composing an
+actual voter replacement under writes with scoped stop, joined closure and a
+terminal removal receipt remains an end-to-end acceptance gap.
+Engine tests cover retained fences/accepted stops, fresh boot nonces despite a
+reused process hint, expired queued work, failed-sync ambiguity and missing
+mandatory lifecycle state. The first broader cohort aborted on a deterministic
+startup stack overflow in the unchanged retained-binding recovery test after
+79 enrollment cases passed. The retained published control passes that exact
+case; crash frames identify the nested startup polling path. The failed cohort
+and isolated reproduction remain retained and are not counted as a passing run.
+Boxing an inner helper was insufficient and was removed. The fix boxes the
+composite startup future at the SDK/domain boundary, preserving its public async
+API and cancellation ownership while preventing callers from embedding all
+nested startup state. The unchanged recovery case passes with the original
+stack configuration. In the retained arm64 debug executables, its main polling
+frame falls from approximately 825 KiB to 497 KiB; this is a compiler-frame
+measurement, not a steady-state memory or TPS claim. Temporary diagnostic output
+is removed.
+
+The audited pre-coalescing cohort passes **400 native Raft cases across 13
+targets**, **157 Raft units**, **12 RPC cases**, **93 legacy Node cases**, **four
+startup cases** and **19 admin cases**. Its 56 stages include warnings-denied
+Clippy, formatting/layout, dependencies, documentation and plan checks. Forty
+actual executables (22 test executables), the frozen 1,179 Rust files and 21
+Cargo/configuration inputs, exact source tree and patch are retained. Five
+process helper cases remain ignored in direct listings and are excluded from
+passed totals.
+
+Final review then reproduced duplicate shutdown-signal queueing with 10,000
+accepted retries while the driver can still be joining physical I/O. The
+production delivery helper remembers one successful or failed delivery outcome
+per reporter, rather than accumulating signals. The regression fails with the
+original repeated-send behavior; the real held-engine-lock case also exercises
+32 exact accepted requests. Only the reporter and that native retry test change
+in Rust after the audited broad cohort. Final-source verification passes **400 native Raft cases across 13 targets**,
+**158 Raft units**, **12 RPC cases**, **four startup cases** and **19 admin cases**.
+All 55 stages pass, including Clippy for the library/selected targets and admin
+with warnings denied, formatting/layout over 1,107 Rust files, native dependencies
+(465 packages, no JavaScript engine), documentation, plan validation and ten
+validator cases. The final record retains 39 actual executables (21 test
+executables); all 1,179 Rust files and 21 Cargo/configuration inputs match the
+implementation commit. The 93 legacy Node cases remain attributed to the earlier
+audited tree, without claiming a final-source rerun. Both source trees are
+independently checked against their Git blobs, and the exact earlier patch is
+retained. The plan has **213 required cases and 80 source anchors** and still
+identifies only `fleet_enrollment_incomplete_import` as absent at its actual
+terminal removal boundary.
+
+The partial record is `implementation/fo03/physical-stop-boundary.json` under
+ignored `.cellar/raft-perf/fleet-operations/`. It retains source/executable/log
+hashes, both successful cohorts, the startup failure/control/fix evidence and the
+expected failing duplicate-signal regression. These are native TLS, actual
+filesystem/SQLite and conditional in-memory-store checks. No raw evidence is
+tracked under `plans/multi-raft/evidence/`.
+
+The experimental protocol now ends in `/fleet-finalization-1/fleet-stop-1`.
+Use fresh coordination/data prefixes, namespaces, **engine directories** and
+matching binaries. Numeric markers remain 1, with no compatibility reader or
+migration. Automatic management remains default-off. FO-03 remains **IN_PROGRESS**;
+this increment does not close the actual terminal
+`fleet_enrollment_incomplete_import` case or claim deployed RustFS, resource,
+performance or soak qualification.
+
 ## Prioritized remaining delivery
 
 The append-only namespace registry, complete inventory read, native retired-binding
@@ -1483,7 +1577,8 @@ refusal, unrooted ingress refusal, catalog-scoped move trust admission,
 physical route/process revocation, rooted replica separation and typed evacuation
 exclusion, remote quorum observations, coherent publication cuts and complete-inventory
 candidate preparation with physical archive replay and a rooted no-new-boot
-Finalizing boundary are implemented.
+Finalizing boundary, exact-boot local stop/fence admission and signed post-join
+closure are implemented at their documented boundaries.
 The evacuation adapter consumes complete inventory inside its exact root CAS.
 Capacity activation and terminal lifecycle proof still require their
 operation-specific integration; a saved count cannot authorize
@@ -1491,21 +1586,23 @@ placement or maintenance. The manifest dependencies remain unchanged.
 
 | Priority | Boundary | Required result before advancing |
 | --- | --- | --- |
-| P0 | FO-03 physical closure, terminal completion and capacity readiness | Boot claims and Finalizing now order through root CAS. Next bind accepted stop work durably to the exact operation/epoch/engine/process, join reachable owners, retain uncertain occupancy for unreachable owners, and resume safely while Finalizing. Then obtain fresh terminal survivor checks and atomically root the terminal receipt/node transition/disruption-slot release. Close `fleet_enrollment_incomplete_import` at removal certification; gate new capacity on actual process/engine and observed or explicitly attested platform limits. |
+| P0 | FO-03 standalone stop transport, terminal completion and capacity readiness | Reuse the local owned stop/fence task through authenticated Raft-control-lane transport without an Actor lease. Resume or refresh candidates while Finalizing without rebinding accepted stop authority; retain uncertain occupancy for unreachable owners. Obtain fresh terminal survivor/inventory/archive checks and atomically root the terminal receipt/node transition/disruption-slot release. Close `fleet_enrollment_incomplete_import` at removal certification; gate new capacity on actual process/engine and observed or explicitly attested platform limits. |
 | P1 | FO-04 placement, FO-05 load, FO-06 reconciliation | Implement bounded staged feasibility for retained/temporary costs and one-node-loss headroom, fresh load observations and a domain-owned reconciler. Restart/cancellation/lost replies must converge; release reservations only with fresh terminal quorum proof and physical-work joins. |
-| P2 | FO-07 maintenance and FO-08 operator API/CLI | Deliver exact-operation/epoch/process stop fencing, shared disruption-slot integration for restart/resize, complete evacuation/removal receipts and authenticated idempotent workflows with revision guards and typed outcomes. Cover add/remove and rolling restart. |
+| P2 | FO-07 maintenance and FO-08 operator API/CLI | Integrate local stop/fence admission and verified closure with the shared disruption slot for restart/resize, complete evacuation/removal receipts and authenticated idempotent workflows with revision guards and typed outcomes. Deliver typed remote overload/unknown outcomes, add/remove, rolling restart and cancellation/resume. |
 | P3 | FO-09 scaling and fewer-cell shrink | Reconcile desired, effective and observed resources for horizontal and vertical changes. Require observed platform-limit checks and complete retained-state fit before shrinking; fewer cells do not establish removability. |
 | Release gate | FO-10 deployed qualification and performance | Qualify actual five/six/four-node RustFS/Colima operations and faults with enforced 1-vCPU/3-GiB limits and a 24-hour soak. Measure successful TPS, p50/p95/p99, archive catch-up and controller idle/movement overhead. Prefer p99 below 200 ms; 500 ms is the hard ceiling. Keep optional performance changes only with matched evidence of higher throughput or lower latency. |
 
 The next implementation slice is **FO-03 terminal finalization**, in this order:
 
-1. Complete physical closure after the rooted boot fence: durably bind accepted
-   stop work to the exact operation, node epoch, engine and boot process. Join
-   reachable owners and keep uncertain occupancy charged for unreachable owners.
-   Lost stop replies must reconcile the same request; an empty serving-group
-   count or deserialized receipt flag supplies no physical closure proof.
-2. Support restart-safe resumption and candidate refresh while Finalizing without
-   rebinding accepted stop authority. Obtain owned fresh survivor observations
+1. Expose the exact existing stop/fence task through authenticated Raft control
+   transport, independent of a legacy Actor lease. Preserve its original deadline,
+   bounded queue, exact boot selector and unknown-outcome semantics. Reconcile
+   reachable hosts through the signed post-join proof; keep uncertain occupancy
+   charged for unreachable owners and failed publication. Never promote an
+   empty group count, cached acceptance or deserialized flag into closure.
+2. Compose real voter replacement under writes with scoped stop, signed joined
+   closure and terminal removal. Support restart-safe resumption and candidate
+   refresh while Finalizing without rebinding accepted stop authority. Obtain owned fresh survivor observations
    immediately before terminal CAS, preserving the fixed business cut while
    rechecking exact history, configuration, settled permits, policy and operation.
 3. Atomically root the terminal receipt, transition the exact node epoch and

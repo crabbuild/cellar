@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "baseline_revision": "f06b286edbeb6285001bc75b5ecc32edd68ba779",
+  "baseline_revision": "024acc19fd70edcc4374280341140a8fabe8a964",
   "invariants": {
     "F01": "Quorum authority",
     "F02": "Stable identities",
@@ -337,7 +337,15 @@
         "crates/cellar/tests/support/raft_controller_native.rs",
         "crates/cellar/durability/raft/archive/mod.rs",
         "crates/cellar/durability/raft/manifest.rs",
-        "crates/cellar/durability/raft/archive/bundle_tests.rs"
+        "crates/cellar/durability/raft/archive/bundle_tests.rs",
+        "crates/cellar-admin/nodes.rs",
+        "crates/cellar/durability/raft/operations.rs",
+        "crates/cellar/fleet/management/nodes.rs",
+        "crates/cellar/fleet/peer/probe.rs",
+        "crates/cellar/node/driver.rs",
+        "crates/cellar/node/embedded.rs",
+        "crates/cellar/node/mod.rs",
+        "crates/cellar/node/network/management.rs"
       ],
       "creates": [
         "crates/cellar/tests/native_raft_fleet_enrollment.rs",
@@ -415,7 +423,13 @@
         "crates/cellar/tests/support/raft_evacuation_verification.rs",
         "crates/cellar/durability/raft/fleet_catalog/boots.rs",
         "crates/cellar/durability/raft/fleet_catalog/finalization/fencing.rs",
-        "crates/cellar/tests/support/raft_finalization_fence.rs"
+        "crates/cellar/tests/support/raft_finalization_fence.rs",
+        "crates/cellar/durability/raft/fleet_stop/mod.rs",
+        "crates/cellar/durability/raft/fleet_stop/records.rs",
+        "crates/cellar/durability/raft/fleet_stop/closure.rs",
+        "crates/cellar/durability/raft/fleet_stop/reporter.rs",
+        "crates/cellar/durability/raft/storage_lifecycle_tests.rs",
+        "crates/cellar/tests/support/raft_finalization_stop.rs"
       ],
       "steps": [
         "Add CAS-authorized node-set revisions with bounded route and permission refresh.",
@@ -439,7 +453,8 @@
         "Persist explicit Nodes or PhysicalHosts replica separation in the fleet head and initial genesis pin. Default to PhysicalHosts. Fresh managed births and actual fresh repair admission enforce the selected rooted contract; exact committed repairs remain continuable after exclusion. Node-only colocation grants no physical failure independence. Hard-cut prior protocol/records with marker 1 and no compatibility reader.",
         "Admit Active-to-Draining evacuation intent through one exact root CAS after an internal complete-inventory scan. Atomically persist its canonical operation, excluded node epoch and the single disruption slot, with a retained root digest that refuses generic deletion/reset. Reconcile admitted exact retries through the journal, including after later incomplete namespace additions. This is exclusion admission only, with no shutdown, node-absence, terminal evacuation/removal, reservation release or completed-controller claim. Permanently bind each evacuation operation ID to its exact canonical request through conditional create before root CAS, even if that candidate loses. Admitted reads and retry reconciliation verify that immutable binding; missing request bytes refuse.",
         "Prepare bounded digest-addressed evacuation candidates by consuming complete rooted inventory and owning actual authenticated RF3 observations plus exact physical archive replay. Retain one fixed publication cut per pending history across writes and replay retries; check stable membership, exact settled latest permits, current rooted node/disk/process/engine bindings and failure-domain separation. Reserved births block; canonical cancellations remain explicit. Recheck rooted inputs around immutable paged receipt work. Candidates leave the root and disruption slot unchanged; fresh terminal health, physical joins/fences and the atomic terminal receipt remain required.",
-        "Order every managed boot, including intact restart, against Finalizing through a permanent exact boot request and root CAS before endpoint publication. Bind trust and running-host authorization to the original boot process. Consume a complete historical candidate through fresh inventory and an owned process probe, then atomically root the Finalizing projection and higher node epoch while retaining the disruption slot. Reconcile exact committed retries without live inputs; preserve deadline checks at CAS. This boot fence grants no physical stop, terminal removal or resource release; Finalizing resumption and physical/terminal integration remain pending."
+        "Order every managed boot, including intact restart, against Finalizing through a permanent exact boot request and root CAS before endpoint publication. Bind trust and running-host authorization to the original boot process. Consume a complete historical candidate through fresh inventory and an owned process probe, then atomically root the Finalizing projection and higher node epoch while retaining the disruption slot. Reconcile exact committed retries without live inputs; preserve deadline checks at CAS. This boot fence grants no physical stop, terminal removal or resource release; Finalizing resumption and physical/terminal integration remain pending.",
+        "Pin the closure verification key at rooted boot and fsync an exact boot/process/engine lifecycle guard before endpoint publication. Admit scoped stop/fence work through the Node-owned bounded task and real engine worker with original deadlines. Sign immutable bounded closure only after actual Node/engine owners join; reconcile lost publication replies. Keep local acceptance, physical closure and future terminal removal/slot release distinct. Standalone Raft-control transport, Finalizing resumption, fresh terminal health, atomic completion and capacity readiness remain pending."
       ],
       "acceptance": [
         "Inventory includes pending births and all managed namespaces.",
@@ -1678,6 +1693,111 @@
           "oracle": "A journal-admitted process supersession cancels old physical pools and grants. Verified new discovery recreates pools only for retained group/query obligations, refreshes logical grants without advancing membership or grant revisions, rejects the old view and creates no pool for an empty discovery or the local node.",
           "invariants": [
             "F02",
+            "F06",
+            "F07",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_stop_waiter_loss_still_joins_and_signs",
+          "oracle": "Hold the actual engine sync, discard the waiter, and observe autonomous Node.finished without a second shutdown signal. No closure exists before join; post-join signed publication reconciles a lost successful PUT reply. A checksum-correct body edit cannot forge the boot-pinned signature; survivor writes and owner/scratch cleanup succeed.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F03",
+            "F06",
+            "F07",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_stop_cancellation_fence_defeats_late_stop",
+          "oracle": "Persist and retry a local same-epoch cancellation fence. A delayed stop refuses, the real node stays live, the rooted finalization/slot remains held, and a later unplanned teardown produces no signed closure.",
+          "invariants": [
+            "F02",
+            "F03",
+            "F04",
+            "F07",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_stop_closure_waits_for_physical_owner_join",
+          "oracle": "Hold the actual engine lock drop after stop acceptance. Refuse closure while physical ownership remains, refuse late fence cancellation, preserve survivor writes, then observe joined closure without another shutdown signal after releasing the gate.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F06",
+            "F07",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_stop_changed_inventory_refuses_admission",
+          "oracle": "Add an actual incomplete namespace after Finalizing. New stop admission refuses; a local fence may still narrow authority and raw shutdown creates no closure. This is not the required incomplete-import test at the actual terminal removal boundary.",
+          "invariants": [
+            "F02",
+            "F04",
+            "F05",
+            "F07",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_lifecycle_fences_and_boot_nonce_survive_reopen",
+          "oracle": "Use the actual engine worker and retained reopen. Fences and accepted stops survive fsync/reopen, accepted work cannot be cancelled, changed fields cannot reuse a boot nonce, a newer fresh nonce can replace the old boot even with the same process hint, and delayed old stop/foreign-catalog authority refuses.",
+          "invariants": [
+            "F02",
+            "F03",
+            "F04",
+            "F07",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_lifecycle_expired_queued_stop_has_no_effect",
+          "oracle": "Hold a prior physical sync while a stop waits in the engine queue; expire its original deadline before release and require no accepted local guard.",
+          "invariants": [
+            "F03",
+            "F04",
+            "F06",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_lifecycle_failed_sync_grants_no_cached_acceptance",
+          "oracle": "Inject a real sync failure and require no cached accepted stop or closure authority; join the failed engine without asserting that ambiguous disk work did not commit.",
+          "invariants": [
+            "F03",
+            "F07",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_lifecycle_missing_record_refuses_resume",
+          "oracle": "Close and join the real engine, delete only its mandatory lifecycle record, fsync, then require LostStableState on Resume rather than silently creating an empty guard.",
+          "invariants": [
+            "F02",
+            "F04",
+            "F07",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_stop_signal_retries_are_bounded",
+          "oracle": "Flood the actual shutdown channel through the production delivery helper with 10,000 accepted retries. Exactly one signal is queued, its confirmed historical delivery survives receiver closure, and a first failed delivery remains unconfirmed. The real held-engine-lock native case also reconciles 32 exact accepted requests before physical join.",
+          "invariants": [
+            "F02",
+            "F03",
             "F06",
             "F07",
             "F08",
