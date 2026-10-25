@@ -87,8 +87,8 @@ pub(super) fn encode(
             )
         })
         .transpose()?;
-    let mut body_file = filesystem.temporary_file(directory)?;
-    let mut index_file = filesystem.temporary_file(directory)?;
+    let mut body_file = super::file::open_spool(filesystem, directory, image.length)?;
+    let mut index_file = super::file::open_spool(filesystem, directory, image.length)?;
     let metadata = {
         let mut output = Writer::new(&mut body_file, limits.max_encoded_bytes)?;
         let mut index = Writer::new(&mut index_file, limits.max_encoded_bytes)?;

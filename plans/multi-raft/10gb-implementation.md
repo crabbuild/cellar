@@ -357,6 +357,40 @@ receipt reconciliation in 9.33 seconds (46,170,112-byte maximum RSS). It retains
 the diagnostic9 cache policy for comparison; this is not production 10 GB or RTO
 qualification. The fresh full-size archive/recovery rerun remains required.
 
+## Large snapshot cache policy
+
+The controlled macOS experiment showed that sequential snapshot spools can
+interfere with first-query I/O even though codec buffers remain bounded. The
+production codec now requests the injected file provider's optional streaming
+cache policy for encoder body/index and receive files when logical image size
+is at least 256 MiB. This selection also covers highly compressed large images;
+configured maximum quotas do not select the policy for small snapshots. The
+direct macOS provider uses `F_NOCACHE`. Other direct providers explicitly return
+`Unsupported` and retain the ordinary path. Real advice I/O errors abort and
+close files before refunding scratch admission. No path-name heuristic, global
+OS setting, sync omission, integrity shortcut or deadline increase is used.
+
+The selection regression fails before the codec requests advice. Five new cases
+cover threshold geometry, invalid declarations, failure on either encoder file,
+receive failures and actual native file I/O. Real SQLite round trips above
+256 MiB and at small size compare the complete encoded identity across accepted,
+unsupported and native-provider advice. They independently hash restored bytes,
+check SQL values and run SQLite integrity checking. The large image compresses
+below the policy threshold, and all instrumented reads/writes stay within 64 KiB.
+Cloned receive owners retain their exact file/byte charge until the last close.
+The synthetic 10 GB metadata case deliberately refuses incomplete receive;
+it does not qualify a 10 GB physical snapshot.
+
+The current ordinary scope passes 794 cases: the preceding 764 native cases
+and all 30 LTX integration cases, including the five cache-policy cases. Eight
+child/opt-in entries are ignored by these parent invocations. Rust 1.98.1 native
+all-target Clippy, the final cache-test Clippy target, native-only/no-Python
+libraries, formatting/layout (1,038 files), native dependency and documentation
+checks pass. The release libraries also build. These checks do not establish a
+bounded OS cache footprint or qualify production 10 GB recovery. The unchanged
+full-size archive diagnostic remains live under its separate filesystem variant;
+the checked-in production filesystem still needs its own full-size run.
+
 ## Remaining work
 
 The completion checklist remains open. Full native 10 GB warm takeover, exact

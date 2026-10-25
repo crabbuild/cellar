@@ -24,6 +24,10 @@ pub struct Metrics {
     pub short_read: AtomicBool,
     pub clone_mode: AtomicUsize,
     pub clone_calls: AtomicUsize,
+    /// 0: unsupported; 1: accepted; 2: I/O failure; 3: second file fails;
+    /// 4: forward to the native provider.
+    pub streaming_mode: AtomicUsize,
+    pub streaming_calls: AtomicUsize,
 }
 
 struct File {
@@ -48,6 +52,27 @@ impl File {
 }
 
 impl HostFileIo for File {
+    fn advise_streaming(&mut self) -> io::Result<()> {
+        let call = self.metrics.streaming_calls.fetch_add(1, Ordering::AcqRel) + 1;
+        match self.metrics.streaming_mode.load(Ordering::Acquire) {
+            1 => Ok(()),
+            2 => Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "injected cache-advice failure",
+            )),
+            3 if call == 2 => Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "injected index-advice failure",
+            )),
+            3 => Ok(()),
+            4 => self.inner.advise_streaming(),
+            _ => Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "fixture has no cache advice",
+            )),
+        }
+    }
+
     fn write_all(&mut self, bytes: &[u8]) -> io::Result<()> {
         self.write_bound(bytes.len())?;
         if self.metrics.fail_append.swap(false, Ordering::AcqRel) {
