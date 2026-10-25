@@ -17,10 +17,11 @@ does not close schema, resource, packaging or performance requirements.
 
 | Priority | Remaining gap | Deliverable / completion evidence |
 | --- | --- | --- |
-| P0 — next | Native lease expiry in the combined qualifier | The expanded 696-case run fails in proof-wait cases. Exact V8/local and Node-to-Rust/peer diagnostics both reproduced `NodeLeaseExpired`. The Node trace shows timely renewals with about 665 ms of validity, then ambiguous storage completion about 333 ms later and fencing at expiry. Locate the stalled storage/readback phase, add a regression at its owning boundary and rerun the focused diagnostic and original combined matrix. Passing retries do not establish a causal fix. Preserve TTLs, fencing, proof gates and unknown outcomes; never replay the failed mutation automatically. |
-| P0 | Python streaming/RPC handler deadlines | The latest full Python regression command passes bridge/watchdog/recovery and startup, then fails `/cell/sse` with `handler exceeded 250ms budget`; the standalone typed-RPC test hits the same budget. Both use the shared native test host and finish with zero native admissions/bytes/operations. Trace handler admission, pump and sync timing at those fixtures and establish a cause before changing policy. Do not infer the same cause as native lease expiry or earlier Node watchdog failures. |
+| P0 — next | Forced-shutdown proof and lifecycle qualification | Hosted lifecycle at `3605c5d8` fails Node-caller/V8-provider/peer/before-sync forced shutdown: the test expects a timed forced cut but receives a drained report with zero pending events/dispatches and no timeout. Establish whether work legitimately retired before the cut or guest work escaped accounting. Capture the live native/guest state at the cutoff, add a cause-specific regression and pass the original lifecycle command without weakening the forced-cut assertions. |
+| P0 | Native lease expiry in the combined qualifier | The expanded 696-case run fails in proof-wait cases. Exact V8/local and Node-to-Rust/peer diagnostics both reproduced `NodeLeaseExpired`. The Node trace shows timely renewals with about 665 ms of validity, then ambiguous storage completion about 333 ms later and fencing at expiry. Locate the stalled storage/readback phase, add a regression at its owning boundary and rerun the focused diagnostic and original combined matrix. Passing retries do not establish a causal fix. Preserve TTLs, fencing, proof gates and unknown outcomes; never replay the failed mutation automatically. |
+| P0 | Guest deadline and regression timing | The restored full command fails in the remote Node-to-Node verify-budget probe; the separate deadline suite fails waiting for late SDK work. Python streaming and typed RPC also have recorded 250 ms handler failures. Establish causes at each admission/codec/pump/sync boundary before changing policy; do not assume a shared cause with lease expiry. Preserve phase-entry, late-work and cleanup assertions. |
 | P0 | Remaining lifecycle and peer/admission provenance | Preserve whole-call budgets, 55 deadline cases, 128 proof-wait cases, 80 cycle cases, 96 provenance cases and 96 Node/V8 lifecycle cases. The Python follow-up covers cooperative cancellation suppression, forced host cutoff and persistent suppression with process supervision. Next close forced guest peer retries and broader call-local peer/admission evidence. Retain incomplete-shutdown failures while guest work remains, expired authority, zero native reservations and receipt-safe recovery. |
-| P0 | Resource bounds and parser correctness | Global symbol/import validation and bounded expanded-name inventories are delivered. Close remaining option/schema semantics; audit effective method/runtime/host/peer minima, retained binary copies and decoder allocations; demonstrate bounded queues, reservations and memory under saturation, flood and disconnect. |
+| P0 | Resource bounds and parser correctness | Global symbol/import validation and bounded expanded-name inventories are delivered. Generator input is now bounded before allocation and refuses non-files. Close remaining option/schema semantics; audit effective method/runtime/host/peer minima, retained binary copies and decoder allocations; demonstrate bounded queues, reservations and memory under saturation, flood and disconnect. |
 | P1 | Language/profile coverage | Exercise the portable Protobuf profile as real business calls across all local/remote pairs; qualify supported Python interpreter modes and remaining lifecycle/regression boundaries. |
 | P1 | Reproducible application delivery | Offline `cellar rpc check` now validates descriptors, exact canonical inventories and optional native catalog snapshots. Deliver unified generation, verified consumer binding/frozen package inventories, embedded Python source identity, a published typed-RPC example and clean-machine CI. |
 | P2 | Operation visibility | Add registered-method spans, bounded labels and payload-free diagnostics for failures, deadlines and proof waits. |
@@ -125,6 +126,67 @@ pairs. Preserve the full test matrix, failures and remaining work across turns.
   successful lifecycle report is published, and the subsequent Python groups
   do not run. Its cause remains unestablished; this is separate evidence from
   the local native lease trace and later executable removal.
+- After the user confirms that the Cargo directory can be recreated, the
+  locked full-runtime build at `3605c5d8` succeeds from the empty target in
+  4m59s. The fresh combined command fails in remote Node-to-Node codec-budget
+  verification: `/node/codec-budget?target=node&phase=verify&...&remote=true`
+  returns HTTP 500 with `JavaScript handler failed`. The separate `deadline`
+  suite then fails `guest deadline target did not attempt late SDK work` /
+  `deadline has elapsed`. Both finish with zero native/managed work and
+  `host_failed=true`; neither publishes a success report. Their cause is not
+  established, and passing earlier cases does not close either failure.
+  `.cellar/rpc/cellar-rpc-delivery-restored-{build,matrix,deadline}.log` retains
+  this evidence. These failures are independent observations from artifact
+  removal and native lease expiry; no shared cause is claimed.
+- The generator follow-up fixes a separate pre-allocation resource gap:
+  `std::fs::read` previously consumed the whole descriptor before the native
+  validator's size check. It now requires a regular file, checks the shared
+  public `Contract::MAX_DESCRIPTOR_BYTES` cap before reserving input and limits
+  the read to that cap plus one byte to detect growth. Output creation and
+  compiler execution still follow native descriptor admission. A real FIFO
+  regression first fails against the old reader after the test kills and joins
+  its own blocked child at five seconds. Oversized sparse input also tests
+  refusal while preserving existing user output. The Linux CLI gate now runs
+  these generator admission tests too. Final follow-up checks are recorded next.
+- Final generator-bound follow-up checks pass: nine generator unit tests and
+  all three executable admission tests (including the previously blocked FIFO),
+  all 65 RPC-related native library tests, four CLI checker tests, the native
+  typed-RPC integration and all 31 qualifier unit tests. Generator, CLI/native
+  integration and full qualifier Clippy pass. Format/layout cover 1,016 Rust
+  files; the native-only dependency graph stays engine-free at 465 packages;
+  documentation validation covers 749 local references.
+- Both fresh ordinary business-call matrices pass on that implementation:
+  all **16 local pairs** and **16 authenticated-peer pairs**, including native
+  restart, handoff and receipt recovery. The peer report records advanced owner
+  epochs and preserved scope identity. An independent report audit checks the
+  exact Cartesian pair set, contract digest, topology, owner transfer and receipt
+  flags. These reports keep their broader fleet/crash qualification flags false;
+  they do not replace the failing deadline/lifecycle or full 696-case commands.
+- `.cellar/rpc/delivery-bounds-local.json`: 734 bytes, SHA-256
+  `c337b1c6f9c997131ed86ad9ff29d266780c7d779d83adf9e2d18328a0d277f9`.
+  `.cellar/rpc/delivery-bounds-remote.json`: 1,075 bytes, SHA-256
+  `e61e43569c94e28d444bb5ae2f796ba6210bf355f8bf990b5220f4a530627a54`.
+  Their raw execution logs are `/tmp/cellar-rpc-delivery-bounds-{local,remote}.log`.
+- Fresh generation of both Counter and portable-profile bundles reproduces all
+  **24 tracked artifacts byte-for-byte** in Rust, Python, TypeScript and plain
+  JavaScript. The first attempt lacked `rustfmt` on the shell PATH; after fixing
+  the tool environment, the comparison uses tracked outputs rather than local
+  Python bytecode caches. Reference artifacts remain unchanged. The manifest
+  `.cellar/rpc/delivery-bounds-regeneration.json` is 4,678 bytes, SHA-256
+  `4ceaa5f41f3982fde768df34445b6c43cdb56f35133a87c050b5202abc2238ed`.
+- At `3605c5d8`, hosted
+  [Python examples](https://github.com/crabbuild/cellar/actions/runs/40173314384)
+  pass, and the offline CLI checks pass inside the
+  [lifecycle workflow](https://github.com/crabbuild/cellar/actions/runs/40173314418).
+  The lifecycle matrix itself fails at Node caller / V8 provider / peer /
+  before-sync forced shutdown: `drain_timed_out=false`, both work/cell drains
+  true and zero pending events/dispatches. The test requires a forced-cut proof.
+  Whether work retired early or accounting missed it remains unestablished;
+  the report is not relabelled as a successful forced cutoff. Managed/native
+  counts finish at zero with `host_failed=true`. No lifecycle success report is
+  published and the following Python groups do not run. The JS/Node and broad
+  native SDK workflows were still running at inspection. This result makes
+  lifecycle proof the next priority alongside the existing timing failures.
 - The unchanged exact V8/local/sync/deadline reproduction passes 16 rounds in
   `.cellar/rpc/delivery-lease-before.json`. Four instrumented runs then pass
   another **64 rounds**, saved as `.cellar/rpc/delivery-lease-trace-{1..4}.json`.
