@@ -18,6 +18,7 @@ for (const [fixture, platform] of [
   ["module", "neutral"],
   ["container-module", "neutral"],
   ["sandbox", "node"],
+  ["sandbox-module", "node"],
 ]) {
   for (const format of platform === "node" ? ["esm"] : ["iife", "esm"]) {
     const result = await build({
