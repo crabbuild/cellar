@@ -74,6 +74,8 @@ fn start_scope(
         "object":object,"class":object.map(|_| "Counter")}).to_string();
     runtime
         .start(Start {
+            body: None,
+            budget_source: None,
             id,
             _bytes: runtime.reserve(payload.len()).unwrap(),
             payload,

@@ -6,15 +6,43 @@ use cellar::sdk::*;
 use std::{path::Path, sync::Arc, time::Duration};
 #[path = "../../../cellar/tests/support/html.rs"]
 #[allow(dead_code)]
-mod fixture;
+pub(super) mod fixture;
 
+#[allow(dead_code)] // Shared tests select either the default or mixed-class host.
 pub async fn start(path: &Path, application: Arc<dyn Application>) -> Result<(Node, String)> {
     start_configured(path, application, |_, _, _| {}).await
+}
+
+#[allow(dead_code)]
+pub async fn start_with(
+    path: &Path,
+    application: Arc<dyn Application>,
+    classes: Vec<String>,
+    bindings: Vec<(String, String)>,
+) -> Result<(Node, String)> {
+    start_with_configuration(path, application, classes, bindings, |_, _, _| {}).await
 }
 
 pub async fn start_configured(
     path: &Path,
     application: Arc<dyn Application>,
+    configure: impl FnOnce(&mut NodeConfig, &mut NodeServices, &mut cellar::generation::DeploymentGraph),
+) -> Result<(Node, String)> {
+    start_with_configuration(
+        path,
+        application,
+        vec!["Counter".into()],
+        vec![("COUNTERS".into(), "Counter".into())],
+        configure,
+    )
+    .await
+}
+
+async fn start_with_configuration(
+    path: &Path,
+    application: Arc<dyn Application>,
+    classes: Vec<String>,
+    bindings: Vec<(String, String)>,
     configure: impl FnOnce(&mut NodeConfig, &mut NodeServices, &mut cellar::generation::DeploymentGraph),
 ) -> Result<(Node, String)> {
     let name = "javascript-test";
@@ -74,8 +102,8 @@ pub async fn start_configured(
         containers: None,
         metrics: None,
     };
-    let mut graph = fixture::graph("javascript-test", "", vec!["Counter".into()]);
-    graph.primary.options.bindings = vec![("COUNTERS".into(), "Counter".into())];
+    let mut graph = fixture::graph("javascript-test", "", classes);
+    graph.primary.options.bindings = bindings;
     graph.primary.options.vars = vec![("DOMAIN_MARKER".into(), name.into())];
     configure(&mut config, &mut services, &mut graph);
     let applications =

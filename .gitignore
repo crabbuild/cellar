@@ -20,6 +20,8 @@ console-audit.sqlite*
 !/examples/javascript/package-lock.json
 !/tools/javascript/package-lock.json
 !/tools/sandbox/compat/package-lock.json
+!/tools/rpc/package-lock.json
+/tools/rpc/dist/
 /examples/node/dist/
 !/examples/node/package-lock.json
 /examples/pi-agent/dist/

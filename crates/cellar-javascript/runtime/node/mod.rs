@@ -112,10 +112,14 @@ impl Drop for Process {
 struct InvocationState {
     start: Start,
     operations: usize,
-    // Operation ID -> whether its unresolved outcome is a mutation.
-    pending: HashMap<u64, bool>,
+    pending: HashMap<u64, PendingOperation>,
     response: Option<u64>,
     mutation: bool,
+}
+
+struct PendingOperation {
+    mutation: bool,
+    cancellation: Option<cellar::sdk::web::AbortController>,
 }
 
 fn number(value: &Value, field: &str) -> Result<u64> {
@@ -166,7 +170,8 @@ fn run(
     // The factory is captured before importing application modules. The channel
     // secret is delivered only over inherited stdin, never argv or the environment.
     let script = format!(
-        "const makeRunner = ({});\nconst ioSource = {};\n{}",
+        "const makeBudgets = ({});\nconst makeRunner = ({});\nconst ioSource = {};\n{}",
+        include_str!("budget.js"),
         include_str!("../runner.js"),
         serde_json::to_string(include_str!("io.mjs"))?,
         include_str!("worker.mjs")
@@ -274,20 +279,28 @@ fn run(
     let mut authenticated = false;
     let mut initialized = false;
     let mut heartbeat = Instant::now();
+    let mut last_check = heartbeat;
     let mut invocations = HashMap::<u64, InvocationState>::new();
     let mut objects = HashMap::<u64, Life>::new();
     let mut last_operation = 0;
+    let mut last_budget = 0;
+    let mut budgets = super::budgets::Budgets::default();
     loop {
         if runtime.closed.load(Ordering::Acquire) {
             return Ok(());
         }
+        let now = Instant::now();
+        let loop_gap = now.saturating_duration_since(last_check);
+        let heartbeat_gap = now.saturating_duration_since(heartbeat);
+        last_check = now;
         ensure!(
             if initialized {
-                heartbeat.elapsed() < node.heartbeat_timeout
+                heartbeat_gap < node.heartbeat_timeout
             } else {
-                Instant::now() < deadline
+                now < deadline
             },
-            "Node event loop or initialization timed out"
+            "Node event loop or initialization timed out: initialized={initialized}, heartbeat_gap_ms={}, observer_gap_ms={}, input_ready={:?}, invocations={}, objects={}",
+            heartbeat_gap.as_millis(), loop_gap.as_millis(), transport.input_ready().ok(), invocations.len(), objects.len()
         );
 
         // Retire authority before processing any newly received operations.
@@ -301,6 +314,7 @@ fn run(
             .collect();
         for id in cancelled {
             invocations.remove(&id);
+            budgets.retire(id);
             transport.send(json!({"type":"cancel","id":id}))?;
         }
         let retired: Vec<_> = objects
@@ -319,16 +333,19 @@ fn run(
             .take(runtime.options.max_invocations * runtime.options.max_pending_operations)
         {
             if let Some(state) = invocations.get_mut(&reply.invocation) {
-                if let Some(mutation) = state.pending.remove(&reply.id) {
-                    if mutation {
+                if let Some(operation) = state.pending.remove(&reply.id) {
+                    if operation.mutation {
                         state.mutation = false;
                     }
-                    transport.send(json!({
-                        "type": "reply",
-                        "invocation": reply.invocation,
-                        "id": reply.id,
-                        "payload": reply.payload
-                    }))?;
+                    transport.send_parts(
+                        json!({
+                            "type": "reply",
+                            "invocation": reply.invocation,
+                            "id": reply.id,
+                            "payload": reply.payload
+                        }),
+                        reply.body.as_deref(),
+                    )?;
                 }
             }
         }
@@ -345,6 +362,7 @@ fn run(
                     {
                         let _ = start.sender.try_send(Event::Complete {
                             payload: "null".into(),
+                            body: None,
                             failed: true,
                             _bytes: runtime.reserve(4)?,
                         });
@@ -356,11 +374,14 @@ fn run(
                     invocations.len() < runtime.options.max_invocations,
                     "Node invocation capacity exhausted"
                 );
-                transport.send(json!({
-                    "type": "start",
-                    "id": start.id,
-                    "payload": start.payload
-                }))?;
+                transport.send_parts(
+                    json!({
+                        "type": "start",
+                        "id": start.id,
+                        "payload": start.payload
+                    }),
+                    start.body.as_deref(),
+                )?;
                 invocations.insert(
                     start.id,
                     InvocationState {
@@ -377,9 +398,17 @@ fn run(
         transport.flush()?;
         // Bound each receive pass so a busy peer cannot starve shutdown or replies.
         for _ in 0..256 {
-            let Some(message) = transport.receive()? else {
+            let Some(frame) = transport.receive()? else {
                 break;
             };
+            let message = frame.metadata;
+            let mut body = frame.body;
+            ensure!(
+                body.is_none()
+                    || (initialized
+                        && matches!(message["type"].as_str(), Some("operation" | "complete"))),
+                "unexpected Node byte attachment"
+            );
             if !authenticated {
                 ensure!(
                     message["type"] == "hello" && message["secret"] == secret,
@@ -396,6 +425,52 @@ fn run(
                     let _ = ready.send(Ok(()));
                 }
                 "heartbeat" => heartbeat = Instant::now(),
+                "budget_start" if initialized => {
+                    let invocation = number(&message, "invocation")?;
+                    let id = number(&message, "id")?;
+                    ensure!(id > last_budget, "Node budget identity reused");
+                    last_budget = id;
+                    let result = match invocations.get(&invocation).filter(|state| {
+                        state.start.active.load(Ordering::Acquire)
+                            && state.start.owner.load(Ordering::Acquire)
+                    }) {
+                        Some(state) => budgets.start(
+                            invocation,
+                            id,
+                            state.start.budget_source.as_ref(),
+                            runtime.options.max_pending_operations,
+                        ),
+                        None => Err("ContextExpired"),
+                    };
+                    let reply = match result {
+                        Ok(remaining) => {
+                            json!({"type":"budget_reply","invocation":invocation,"id":id,"ok":true,"remaining_ms":remaining})
+                        }
+                        Err(code) => {
+                            json!({"type":"budget_reply","invocation":invocation,"id":id,"ok":false,"code":code})
+                        }
+                    };
+                    transport.send(reply)?;
+                }
+                "budget_end" if initialized => {
+                    budgets.release(number(&message, "invocation")?, number(&message, "id")?);
+                }
+                "cancel_operation" if initialized => {
+                    let invocation = number(&message, "invocation")?;
+                    let id = number(&message, "id")?;
+                    if let Some(state) = invocations.get(&invocation).filter(|state| {
+                        state.start.active.load(Ordering::Acquire)
+                            && state.start.owner.load(Ordering::Acquire)
+                    }) {
+                        if let Some(controller) = state
+                            .pending
+                            .get(&id)
+                            .and_then(|operation| operation.cancellation.as_ref())
+                        {
+                            controller.abort(None)?;
+                        }
+                    }
+                }
                 "operation" if initialized => {
                     let invocation = number(&message, "invocation")?;
                     let id = number(&message, "id")?;
@@ -413,6 +488,7 @@ fn run(
                         .map(|v| v.as_bool().context("invalid Node synchronous flag"))
                         .transpose()?
                         .unwrap_or(false);
+                    let size = value_size(payload, body.as_deref())?;
                     let Some(state) = invocations.get_mut(&invocation) else {
                         reject(&mut transport, invocation, id, "ContextExpired")?;
                         continue;
@@ -433,7 +509,9 @@ fn run(
                         Some("ContextExpired")
                     } else if synchronous && !supports_synchronous(name) {
                         Some("UnsupportedOperation")
-                    } else if name.len() > 64 || payload.len() > runtime.options.max_value_bytes {
+                    } else if (name == "cell.call") != body.is_some() {
+                        Some("ValidationError")
+                    } else if name.len() > 64 || size > runtime.options.max_value_bytes {
                         Some("ValueLimit")
                     } else if (completion && state.response.is_some())
                         || (!completion
@@ -450,10 +528,36 @@ fn run(
                         reject(&mut transport, invocation, id, code)?;
                         continue;
                     }
-                    let Ok(bytes) = runtime.reserve(payload.len()) else {
+                    let budget = if message.get("budget_id").is_some() {
+                        let limit = message["budget_ms"]
+                            .as_u64()
+                            .and_then(|value| u32::try_from(value).ok());
+                        let selected =
+                            match (name == "cell.call", number(&message, "budget_id"), limit) {
+                                (true, Ok(budget), Some(limit)) => budgets
+                                    .limit(invocation, budget, limit)
+                                    .and_then(|()| budgets.get(invocation, budget)),
+                                _ => Err("ValidationError"),
+                            };
+                        match selected {
+                            Ok(budget) => Some(budget),
+                            Err(code) => {
+                                reject(&mut transport, invocation, id, code)?;
+                                continue;
+                            }
+                        }
+                    } else if message.get("budget_ms").is_some() {
+                        reject(&mut transport, invocation, id, "ValidationError")?;
+                        continue;
+                    } else {
+                        None
+                    };
+                    let Ok(bytes) = runtime.reserve(size) else {
                         reject(&mut transport, invocation, id, "BridgeLimit")?;
                         continue;
                     };
+                    let cancellation =
+                        (name == "cell.call").then(cellar::sdk::web::AbortController::new);
                     if state
                         .start
                         .sender
@@ -464,6 +568,9 @@ fn run(
                             callback_scope,
                             blocking: synchronous,
                             synchronous: None,
+                            body,
+                            signal: cancellation.as_ref().map(|controller| controller.signal()),
+                            budget,
                             _bytes: bytes,
                         })
                         .is_err()
@@ -476,7 +583,13 @@ fn run(
                     } else {
                         state.operations += 1;
                     }
-                    state.pending.insert(id, mutation);
+                    state.pending.insert(
+                        id,
+                        PendingOperation {
+                            mutation,
+                            cancellation,
+                        },
+                    );
                     state.mutation |= mutation;
                 }
                 "complete" if initialized => {
@@ -484,19 +597,31 @@ fn run(
                     if let Some(state) = invocations.remove(&id) {
                         state.start.active.store(false, Ordering::Release);
                         // Returning with unawaited SDK work cannot report success.
-                        let failed = message["failed"]
+                        let guest_failed = message["failed"]
                             .as_bool()
-                            .context("invalid Node completion")?
-                            || !state.pending.is_empty();
+                            .context("invalid Node completion")?;
+                        let unsettled = !state.pending.is_empty() || budgets.has(id);
+                        let failed = guest_failed || unsettled;
+                        budgets.retire(id);
                         let payload = if failed {
-                            "null"
+                            if guest_failed && !unsettled {
+                                cellar_guest::rpc_failure::payload(string(&message, "payload")?)
+                                    .unwrap_or("null")
+                            } else {
+                                "null"
+                            }
                         } else {
                             string(&message, "payload")?
                         };
+                        if failed {
+                            body = None;
+                        }
+                        let bytes = runtime.reserve(value_size(payload, body.as_deref())?)?;
                         let _ = state.start.sender.try_send(Event::Complete {
                             payload: payload.into(),
+                            body,
                             failed,
-                            _bytes: runtime.reserve(payload.len())?,
+                            _bytes: bytes,
                         });
                     }
                 }

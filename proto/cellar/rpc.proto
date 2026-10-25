@@ -1,0 +1,45 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
+// Framework reply contract for named, typed Cellar RPC. Format marker remains 1.
+syntax = "proto3";
+
+package cellar.rpc;
+
+message RpcReply {
+  // A selected zero-length response is a valid encoded empty message.
+  // An unset result is a protocol failure, never an implicit success.
+  oneof result {
+    bytes response = 1;
+    RpcFailure failure = 2;
+  }
+}
+
+message RpcFailure {
+  // UNKNOWN and unspecified codes must never be interpreted as retry-safe.
+  RpcCode code = 1;
+  EffectOutcome outcome = 2;
+  // Fixed or sanitized framework text, bounded to 256 UTF-8 bytes.
+  string message = 3;
+}
+
+enum EffectOutcome {
+  EFFECT_OUTCOME_UNKNOWN = 0;
+  // Assigned only by a trusted framework boundary before business execution.
+  EFFECT_OUTCOME_NOT_COMMITTED = 1;
+}
+
+enum RpcCode {
+  RPC_CODE_UNSPECIFIED = 0;
+  RPC_CODE_INVALID_ARGUMENT = 1;
+  RPC_CODE_METHOD_NOT_FOUND = 2;
+  RPC_CODE_CONTRACT_MISMATCH = 3;
+  RPC_CODE_RESOURCE_EXHAUSTED = 4;
+  RPC_CODE_CONTEXT_EXPIRED = 5;
+  RPC_CODE_CANCELLED = 6;
+  RPC_CODE_DEADLINE_EXCEEDED = 7;
+  RPC_CODE_UNAVAILABLE = 8;
+  RPC_CODE_OWNERSHIP_LOST = 9;
+  RPC_CODE_DURABILITY_UNPROVEN = 10;
+  RPC_CODE_INVALID_RESPONSE = 11;
+  RPC_CODE_INTERNAL = 12;
+}

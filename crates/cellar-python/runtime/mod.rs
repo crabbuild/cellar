@@ -22,6 +22,9 @@ use std::{
 use tokio::sync::{mpsc as async_mpsc, watch, Semaphore};
 
 mod bridge;
+mod rpc_budget;
+mod rpc_calls;
+pub(crate) use rpc_calls::RpcCalls;
 mod budget;
 mod identity;
 mod lifetime;
@@ -48,6 +51,8 @@ pub use memory::{MemoryReport, MemorySample};
 static INITIALIZED: AtomicBool = AtomicBool::new(false);
 const FACADE: &str = include_str!("../python/cellar.py");
 const RUNNER: &str = include_str!("../python/runner.py");
+const RPC: &str = include_str!("../python/rpc.py");
+const RPC_SHAPES: &str = include_str!("../python/cellar_rpc_shapes.py");
 
 /// Finite bridge and body budgets, captured before starting the node.
 #[derive(Clone, Debug)]
@@ -204,7 +209,7 @@ pub struct Report {
     pub host_failed: bool,
     #[serde(default)]
     pub native_outcomes: Vec<serde_json::Value>,
-    #[serde(default)]
+    /// Required native cleanup evidence; absent observations cannot imply zero.
     pub bridge: BridgeReport,
 }
 
@@ -222,6 +227,7 @@ impl Report {
             && self.unraisable_errors == 0
             && self.thread_errors == 0
             && !self.host_failed
+            && self.bridge.native_invocations == 0
             && self.bridge.queued_bytes == 0
             && self.bridge.pending_reservations == 0
             && self.bridge.operations.settled()
@@ -241,8 +247,8 @@ pub struct Incomplete {
 
 impl std::fmt::Display for Incomplete {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Python shutdown incomplete: {} tasks, {} objects, {} threads; runtime_failed={}, host_failed={}, incomplete_native_outcomes={}, queued_bridge_bytes={}, bridge_reservations={}, pending_operations={}, pending_retirements={}",
-            self.report.pending_tasks, self.report.pending_objects, self.report.pending_threads, self.report.runtime_failed, self.report.host_failed, self.report.native_outcomes.iter().filter(|outcome| outcome["complete"] != true).count(), self.report.bridge.queued_bytes, self.report.bridge.pending_reservations, self.report.bridge.operations.pending, self.report.work.pending_retirements)
+        write!(f, "Python shutdown incomplete: {} tasks, {} objects, {} threads; runtime_failed={}, host_failed={}, incomplete_native_outcomes={}, native_invocations={}, queued_bridge_bytes={}, bridge_reservations={}, pending_operations={}, pending_retirements={}",
+            self.report.pending_tasks, self.report.pending_objects, self.report.pending_threads, self.report.runtime_failed, self.report.host_failed, self.report.native_outcomes.iter().filter(|outcome| outcome["complete"] != true).count(), self.report.bridge.native_invocations, self.report.bridge.queued_bytes, self.report.bridge.pending_reservations, self.report.bridge.operations.pending, self.report.work.pending_retirements)
     }
 }
 
@@ -266,6 +272,12 @@ pub(crate) struct Runtime {
 }
 
 impl Runtime {
+    pub fn bridge_report(&self) -> BridgeReport {
+        let mut report = self.budget.report();
+        report.native_invocations = self.options.max_invocations - self.permits.available_permits();
+        report
+    }
+
     pub(crate) fn lifecycle(&self) -> Arc<std::sync::atomic::AtomicU8> {
         self.wakeup.lifecycle()
     }
@@ -305,9 +317,10 @@ impl Runtime {
         operation: u64,
         output: (String, Option<Vec<u8>>),
         observation: telemetry::Operation,
+        raw: bool,
     ) -> Result<()> {
         let (value, body) = output;
-        let charge = crate::values::envelope_size(value.len(), body.as_ref().map_or(0, Vec::len))?;
+        let charge = bridge::body_charge(value.len(), body.as_ref().map_or(0, Vec::len), raw)?;
         self.replies
             .try_send(Reply {
                 invocation,
@@ -531,6 +544,7 @@ impl PythonRuntime {
         options.validate()?;
         source.validate()?;
         source.validate_initial_reads(options.max_batch_operations)?;
+        source.rpc.validate_bridge(options.max_value_bytes)?;
         initialization::ensure_main_thread()?;
         inventory::verify(&options, &source)
             .map_err(|_| anyhow::anyhow!("Python runtime inventory verification failed"))?;
@@ -600,6 +614,16 @@ impl PythonRuntime {
             let modules = py.import("sys")?.getattr("modules")?;
             let facade = PyModule::from_code(py, &CString::new(FACADE)?, c"cellar.py", c"cellar")?;
             modules.set_item("cellar", &facade)?;
+            let rpc =
+                PyModule::from_code(py, &CString::new(RPC)?, c"cellar_rpc.py", c"cellar_rpc")?;
+            modules.set_item("cellar_rpc", &rpc)?;
+            let shapes = PyModule::from_code(
+                py,
+                &CString::new(RPC_SHAPES)?,
+                c"cellar_rpc_shapes.py",
+                c"cellar_rpc_shapes",
+            )?;
+            modules.set_item("cellar_rpc_shapes", &shapes)?;
             let scope = scope::CallerScope::capture(py, &facade)?;
             let runner = PyModule::from_code(
                 py,
@@ -689,7 +713,7 @@ impl PythonRuntime {
                     .import("json")?
                     .call_method1("dumps", (outcome?,))?
                     .extract()?;
-                let mut report: Report = serde_json::from_str(&encoded)?;
+                let mut report: serde_json::Value = serde_json::from_str(&encoded)?;
                 // The host is joined; no sender can authorize more work. Drain
                 // unused channel entries and their reservations before observing.
                 let bound = inbox.borrow(py);
@@ -705,7 +729,17 @@ impl PythonRuntime {
                     .unwrap_or_else(std::sync::PoisonError::into_inner)
                     .try_iter()
                     .for_each(drop);
-                report.bridge = runtime.budget.report();
+                // The runner reports guest work only. Supply the required native
+                // evidence here, after joining the host and draining its queues;
+                // deserializing a published Report must never invent it.
+                report
+                    .as_object_mut()
+                    .context("Python shutdown report must be an object")?
+                    .insert(
+                        "bridge".into(),
+                        serde_json::to_value(runtime.bridge_report())?,
+                    );
+                let mut report: Report = serde_json::from_value(report)?;
                 report.memory = MemoryReport {
                     before_interpreter: memory_initial,
                     after_join: MemorySample::capture(),
@@ -759,3 +793,6 @@ pub(crate) fn channel(capacity: usize) -> (async_mpsc::Sender<Event>, async_mpsc
 
 #[cfg(test)]
 mod channel_tests;
+
+#[cfg(test)]
+mod report_tests;

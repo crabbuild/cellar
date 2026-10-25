@@ -6,6 +6,7 @@ import { readFileSync } from "node:fs";
 import { Worker } from "node:worker_threads";
 import { Serializer, Deserializer } from "node:v8";
 import { types } from "node:util";
+import { addAbortListener } from "node:events";
 import { setImmediate as checkpoint } from "node:timers/promises";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { pathToFileURL } from "node:url";
@@ -25,6 +26,12 @@ const workersLifetimes = parse(config.descriptor).workers_lifetimes;
 // Track invocation authority separately from operations waiting for Rust replies.
 const active = new Map();
 const pending = new Map();
+const budgets = makeBudgets(process.hrtime.bigint.bind(process.hrtime), () => scope.getStore()?.invocation, active,
+  config.pendingLimit, (value) => send(value), () => {
+    const id = ++next;
+    if (!Number.isSafeInteger(id)) reject('OperationLimit');
+    return id;
+  });
 let next = 0;
 let runner;
 const exit = process.exit.bind(process);
@@ -40,11 +47,11 @@ const io = new Worker(new URL(`data:text/javascript,${encodeURIComponent(ioSourc
 });
 io.on("error", () => exit(70));
 io.on("exit", () => exit(70));
-function send(value, synchronous = false) {
-  const encoded = stringify(value);
-  const size = Buffer.byteLength(encoded) + 4;
-  if (size > maximum + 4 || Atomics.add(queued, 0, BigInt(size)) + BigInt(size) > BigInt(config.bridgeLimit)) exit(70);
-  io.postMessage({ type: synchronous ? "synchronous" : "send", encoded });
+function send(value, body, synchronous = false) {
+  const encoded = stringify({ ...value, has_body: body !== undefined });
+  const size = Buffer.byteLength(encoded) + (body?.byteLength ?? 0) + 8;
+  if (size > maximum + 8 || Atomics.add(queued, 0, BigInt(size)) + BigInt(size) > BigInt(config.bridgeLimit)) exit(70);
+  io.postMessage({ type: synchronous ? "synchronous" : "send", encoded, body });
 }
 await new Promise(resolve => io.once("message", message => {
   if (message.type !== "connected") exit(70);
@@ -56,9 +63,14 @@ function reject(code) {
   throw new Error(code);
 }
 
+function validBody(body) {
+  return body instanceof Uint8Array && body.buffer instanceof ArrayBuffer &&
+    !body.buffer.resizable && !body.buffer.detached;
+}
+
 // AsyncLocalStorage binds promises, timers and Node I/O continuations to their
 // invocation. Rust repeats the liveness/limit checks before accepting effects.
-function operation(invocation, name, payload, synchronous = false) {
+function operation(invocation, name, payload, body, budget, synchronous = false) {
   const continuation = scope.getStore();
   if (continuation?.invocation !== invocation) {
     reject("ContextMismatch");
@@ -71,6 +83,10 @@ function operation(invocation, name, payload, synchronous = false) {
     reject("ContextExpired");
   }
 
+  if (name === "$check") return;
+  if (name === "$rpc_budget") return budgets.start(invocation, state);
+  if ((name === "cell.call") !== (body !== undefined)) reject("ValidationError");
+  if (body !== undefined && !validBody(body)) reject("ValidationError");
   if (synchronous && !["clock.now", "storage.read", "storage.apply", "storage.sql", "alarm.get",
       "workers.callback.start_sync", "workers.callback.finish_sync",
       "workers.callback.rollback", "workers.crypto.random", "workers.crypto.uuid", "workers.identity", "workers.namespace", "workers.sql.exec", "workers.sql.next", "workers.sql.close", "workers.sql.size",
@@ -78,7 +94,7 @@ function operation(invocation, name, payload, synchronous = false) {
     reject("UnsupportedOperation");
   }
 
-  if (Buffer.byteLength(payload) > config.valueLimit) {
+  if (Buffer.byteLength(payload) + (body?.byteLength ?? 0) > config.valueLimit) {
     reject("ValueLimit");
   }
 
@@ -126,6 +142,7 @@ function operation(invocation, name, payload, synchronous = false) {
     reject("ConcurrentMutation");
   }
 
+  const budgetFields = budgets.parameters(invocation, budget);
   const id = ++next;
 
   if (!Number.isSafeInteger(id)) {
@@ -139,7 +156,7 @@ function operation(invocation, name, payload, synchronous = false) {
 
   if (synchronous) {
     Atomics.store(synchronousHeader, 0, 0);
-    send({ type: "operation", invocation, id, name, payload, callback_scope: continuation.callback_scope, synchronous: true }, true);
+    send({ type: "operation", invocation, id, name, payload, callback_scope: continuation.callback_scope, synchronous: true, ...budgetFields }, undefined, true);
     // The I/O worker may wake this slot with a reply, revocation, or failure.
     // Rust's event-loop watchdog remains authoritative; no worker heartbeats
     // pretend the application thread is responsive while it waits.
@@ -153,12 +170,20 @@ function operation(invocation, name, payload, synchronous = false) {
     return result;
   }
 
-  return new Promise(resolve => {
+  const promise = new Promise(resolve => {
     pending.set(id, { invocation, mutation, resolve });
-    send({ type: "operation", invocation, id, name, payload, callback_scope: continuation.callback_scope });
+    send({ type: "operation", invocation, id, name, payload, callback_scope: continuation.callback_scope, ...budgetFields }, body);
   });
+  if (name !== "cell.call") return promise;
+  let cancelled = false;
+  const cancel = () => {
+    if (cancelled || active.get(invocation) !== state || !pending.has(id)) return;
+    cancelled = true;
+    send({ type: "cancel_operation", invocation, id });
+  };
+  return [promise, cancel];
 }
-const factory = makeRunner(operation, (invocation, name, payload) => operation(invocation, name, payload, true), (...requested) => {
+const factory = makeRunner(operation, (invocation, name, payload) => operation(invocation, name, payload, undefined, undefined, true), (...requested) => {
   const invocation = scope.getStore()?.invocation;
   const state = active.get(invocation);
   if (!state) reject("ContextExpired");
@@ -185,25 +210,28 @@ const factory = makeRunner(operation, (invocation, name, payload) => operation(i
     if (synchronous && isPromise(result)) throw new TypeError("transactionSync callback must not return a Promise");
     return result;
   });
-});
+}, addAbortListener);
 
 // Revocation prevents new Cellar calls. It cannot undo effects already submitted
 // to Rust, or stop arbitrary application work using Node's own OS capabilities.
 function revoke(id) {
+  const state = active.get(id);
   active.delete(id);
   runner?.cancel(id);
+  budgets.revoke(id, state);
 
   for (const [key, operation] of pending) {
     if (operation.invocation === id) {
       pending.delete(key);
-      operation.resolve(
-        stringify({ ok: false, code: "ContextExpired", outcome: "unknown" }),
-      );
+      operation.resolve([
+        stringify({ ok: false, code: "ContextExpired", outcome: "unknown" }), undefined,
+      ]);
     }
   }
 }
 
-function receive(message) {
+function receive(message, body) {
+  if (body !== undefined && message.type !== "start" && message.type !== "reply") exit(70);
   switch (message.type) {
     case "start": {
       if (
@@ -214,21 +242,24 @@ function receive(message) {
         exit(70);
       }
 
-      const state = { count: 0, pending: 0, mutation: false, activation: parse(message.payload).object };
+      const invocation = parse(message.payload);
+      const state = { count: 0, pending: 0, mutation: false, activation: invocation.object, budgets: new Map(), workers_lifetimes: workersLifetimes && invocation.kind !== "rpc" };
       active.set(message.id, state);
 
       scope
         .run({ invocation: message.id }, async () => {
           let payload = "null";
-          let failed = false;
-
+          let failed = false, failurePayload = "null", outputBody;
           try {
-            payload = await runner.dispatch(message.id, message.payload);
-          } catch {
+            const result = await runner.dispatch(message.id, message.payload, body);
+            if (result instanceof Uint8Array) { if (validBody(result)) outputBody = result; }
+            else payload = result;
+          } catch (error) {
             failed = true;
+            failurePayload = runner.failurePayload(error);
           }
 
-          if (workersLifetimes) {
+          if (state.workers_lifetimes) {
             // A dispatcher result is not the end of its microtask queue. Wait
             // through a complete Node checkpoint, then re-drain any derived
             // native I/O or callback work registered by that queue.
@@ -243,20 +274,23 @@ function receive(message) {
 
           // Returning with outstanding SDK operations is a handler failure.
           failed ||=
-            state.pending !== 0 ||
-            Buffer.byteLength(payload) > config.valueLimit;
+            state.pending !== 0 || state.budgets.size !== 0 ||
+            Buffer.byteLength(payload) + (outputBody?.byteLength ?? 0) > config.valueLimit;
           revoke(message.id);
           send({
             type: "complete",
             id: message.id,
-            payload: failed ? "null" : payload,
+            payload: failed ? failurePayload : payload,
             failed,
-          });
+          }, failed ? undefined : outputBody);
         })
         .catch(() => exit(70));
       break;
     }
 
+    case "budget_reply":
+      budgets.receive(message);
+      break;
     case "reply": {
       const operation = pending.get(message.id);
 
@@ -281,7 +315,7 @@ function receive(message) {
         state.mutation = false;
       }
 
-      operation.resolve(message.payload);
+      operation.resolve([message.payload, body]);
       break;
     }
 
@@ -300,24 +334,29 @@ function receive(message) {
 
 io.on("message", message => {
   try {
-    const size = Buffer.byteLength(message.encoded) + 4;
+    const size = Buffer.byteLength(message.encoded) + (message.body?.byteLength ?? 0) + 8;
     Atomics.sub(queued, 0, BigInt(size));
-    receive(parse(message.encoded));
+    receive(parse(message.encoded), message.body);
   } catch { exit(70); }
 });
 
 // Import only after installing the authenticated channel and private SDK facade.
-const app = await import(pathToFileURL(config.entry).href);
-
-// CJS exports are exposed as default; ESM uses named exports, with an optional
-// default application object for compatibility with normal npm packages.
-runner = factory(
-  typeof app.fetch === "function" || app.cells ? app : (app.default ?? app),
-  config.descriptor,
-  config.maximum,
-  config.lifetimeLimit,
-);
-send({ type: "ready" });
+// Import/registration errors can contain application data and local paths. Let
+// Rust report the fixed startup failure instead of Node printing their stacks.
+try {
+  const app = await import(pathToFileURL(config.entry).href);
+  // CJS exports are exposed as default; ESM uses named exports, with an optional
+  // default application object for compatibility with normal npm packages.
+  runner = factory(
+    typeof app.fetch === 'function' || app.cells ? app : (app.default ?? app),
+    config.descriptor,
+    config.maximum,
+    config.lifetimeLimit,
+  );
+} catch {
+  exit(70);
+}
+send({ type: 'ready' });
 
 // Rust uses heartbeat absence to detect a blocked event loop, not slow async I/O.
-setInterval(() => send({ type: "heartbeat" }), 25);
+setInterval(() => send({ type: 'heartbeat' }), 25);

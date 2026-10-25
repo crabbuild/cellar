@@ -31,11 +31,18 @@ impl Call {
             callback_scope,
             blocking,
             synchronous,
+            body,
+            signal,
+            budget,
             _bytes,
         } = event
         else {
             anyhow::bail!("guest completed during a synchronous native callback");
         };
+        ensure!(
+            body.is_none() && signal.is_none() && budget.is_none(),
+            failure::Validation
+        );
         Ok(Self {
             id,
             name,

@@ -19,9 +19,9 @@ function fail() {
   Atomics.notify(headerSlot, 0);
   exit(70);
 }
-function receive(message) {
+function receive(message, body) {
   if (waiting && message.type === "reply" && message.id === waiting.id) {
-    if (message.invocation !== waiting.invocation || typeof message.payload !== "string") fail();
+    if (message.invocation !== waiting.invocation || typeof message.payload !== "string" || body !== undefined) fail();
     const bytes = Buffer.from(message.payload);
     if (bytes.length > bytesSlot.length) fail();
     bytesSlot.set(bytes);
@@ -36,9 +36,9 @@ function receive(message) {
       payload: stringify({ ok: false, code: "ContextExpired", outcome: "unknown" }) });
   }
   const encoded = stringify(message);
-  const size = Buffer.byteLength(encoded) + 4;
+  const size = Buffer.byteLength(encoded) + (body?.byteLength ?? 0) + 8;
   if (Atomics.add(queued, 0, BigInt(size)) + BigInt(size) > BigInt(config.bridgeLimit)) fail();
-  parentPort.postMessage({ encoded });
+  parentPort.postMessage({ encoded, body });
 }
 parentPort.on("message", message => {
   if (message.type === "synchronous") {
@@ -46,23 +46,20 @@ parentPort.on("message", message => {
     const value = parse(message.encoded);
     waiting = { id: value.id, invocation: value.invocation };
   } else if (message.type !== "send") fail();
-  sendEncoded(message.encoded);
+  sendEncoded(message.encoded, message.body);
 });
-// Each JSON message has a four-byte big-endian length header. Bound both the
-// individual frame and queued output before allocating and writing the frame.
-function sendEncoded(encoded) {
+// Two network-order lengths frame control metadata and optional raw bytes.
+// Keep attachment presence separate from length: empty protobuf is valid data.
+function sendEncoded(encoded, body) {
   const bytes = Buffer.from(encoded);
-
-  if (
-    bytes.length > maximum ||
-    socket.writableLength + bytes.length + 4 > config.bridgeLimit
-  ) {
-    fail();
-  }
-
-  const frame = Buffer.allocUnsafe(bytes.length + 4);
+  const bodyLength = body?.byteLength ?? 0;
+  const size = bytes.length + bodyLength + 8;
+  if (bytes.length + bodyLength > maximum || socket.writableLength + size > config.bridgeLimit) fail();
+  const frame = Buffer.allocUnsafe(size);
   frame.writeUInt32BE(bytes.length);
-  bytes.copy(frame, 4);
+  frame.writeUInt32BE(bodyLength, 4);
+  bytes.copy(frame, 8);
+  if (body !== undefined) frame.set(body, 8 + bytes.length);
   socket.write(frame, () => Atomics.sub(queued, 0, BigInt(frame.length)));
 }
 
@@ -70,15 +67,17 @@ socket.on("error", fail);
 socket.on("close", fail);
 await new Promise(resolve => socket.once("connect", resolve));
 socket.setNoDelay(true);
-const hello = stringify({ type: "hello", secret: config.secret });
-Atomics.add(queued, 0, BigInt(Buffer.byteLength(hello) + 4));
+const hello = stringify({ type: "hello", secret: config.secret, has_body: false });
+Atomics.add(queued, 0, BigInt(Buffer.byteLength(hello) + 8));
 sendEncoded(hello);
 delete config.secret;
 parentPort.postMessage({ type: "connected" });
 
 // Incrementally copy into one bounded frame; coalesced frames are dispatched
 // individually instead of retaining an unbounded concatenated input buffer.
-let header = Buffer.alloc(4);
+const metadataDecoder = new TextDecoder("utf-8", { fatal: true });
+let metadataLength = 0;
+let header = Buffer.alloc(8);
 let headerBytes = 0;
 let frame = null;
 let frameBytes = 0;
@@ -89,18 +88,18 @@ socket.on("data", chunk => {
 
     while (offset < chunk.length) {
       if (!frame) {
-        const n = Math.min(4 - headerBytes, chunk.length - offset);
+        const n = Math.min(8 - headerBytes, chunk.length - offset);
         chunk.copy(header, headerBytes, offset, offset + n);
         headerBytes += n;
         offset += n;
 
-        if (headerBytes < 4) {
+        if (headerBytes < 8) {
           continue;
         }
 
-        const length = header.readUInt32BE();
-
-        if (!length || length > maximum) {
+        metadataLength = header.readUInt32BE();
+        const length = metadataLength + header.readUInt32BE(4);
+        if (!metadataLength || length > maximum) {
           fail();
         }
 
@@ -115,9 +114,11 @@ socket.on("data", chunk => {
       offset += n;
 
       if (frameBytes === frame.length) {
-        const message = parse(frame.toString("utf8"));
+        const message = parse(metadataDecoder.decode(frame.subarray(0, metadataLength)));
+        if (typeof message.has_body !== "boolean" || (!message.has_body && metadataLength !== frame.length)) fail();
+        const body = message.has_body ? Uint8Array.from(frame.subarray(metadataLength)) : undefined;
         frame = null;
-        receive(message);
+        receive(message, body);
       }
     }
   } catch {

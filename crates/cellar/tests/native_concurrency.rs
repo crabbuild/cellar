@@ -43,6 +43,20 @@ struct Signals {
 
 struct DropFlag(Arc<Signals>);
 
+struct QueuedRpcBytes(Arc<AtomicBool>);
+
+impl AsRef<[u8]> for QueuedRpcBytes {
+    fn as_ref(&self) -> &[u8] {
+        b"queued-rpc"
+    }
+}
+
+impl Drop for QueuedRpcBytes {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::Release);
+    }
+}
+
 impl Drop for DropFlag {
     fn drop(&mut self) {
         self.0.child_dropped.store(true, Ordering::Release);
@@ -467,6 +481,43 @@ async fn run() -> Result<()> {
         }
         assert_eq!(read.await??.body, b"9");
     }
+
+    // Cancelling an RPC behind an unrelated input gate must drop its actual
+    // queued payload and driver before that gate opens. A returned caller
+    // error alone cannot prove admission/resource cleanup.
+    let host = runtime.clone();
+    let mut holding = cellar::asyncrt::spawn(async move { fetch(&host, "/hold").await });
+    signals.started.notified().await;
+    let entered = signals.invocations.load(Ordering::Acquire);
+    let dropped = Arc::new(AtomicBool::new(false));
+    let payload = bytes::Bytes::from_owner(QueuedRpcBytes(dropped.clone()));
+    let (cancel_rpc, cancelled_rpc) = tokio::sync::oneshot::channel();
+    let host = runtime.clone();
+    let mut queued = cellar::asyncrt::spawn(async move {
+        host.rpc_cancellable(
+            "Counter:test".into(),
+            None,
+            "never-entered".into(),
+            cellar::engine_api::RpcData::Structured(payload),
+            Some(cellar::engine_api::next_request_id()),
+            Some(cancelled_rpc),
+        )
+        .await
+    });
+    assert_waiting(&mut queued).await;
+    cancel_rpc.send(()).unwrap();
+    assert!(queued.await?.is_err());
+    cellar::asyncrt::timeout(Duration::from_secs(1), async {
+        while !dropped.load(Ordering::Acquire) {
+            cellar::asyncrt::sleep(Duration::from_millis(2)).await;
+        }
+    })
+    .await
+    .map_err(|_| anyhow!("cancelled RPC retained its queued payload behind a live gate"))?;
+    assert_waiting(&mut holding).await;
+    assert_eq!(signals.invocations.load(Ordering::Acquire), entered);
+    signals.release.notify_one();
+    assert_eq!(holding.await??.body, b"held");
 
     let (cancel, cancelled) = tokio::sync::oneshot::channel();
     let host = runtime.clone();

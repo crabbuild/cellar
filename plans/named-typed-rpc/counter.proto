@@ -1,0 +1,43 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
+// Reference business contract for plan 009: named, typed Cellar RPC.
+syntax = "proto3";
+
+package example.counter.v1;
+
+service Counter {
+  rpc Increment(IncrementRequest) returns (IncrementResponse);
+  rpc GetCount(GetCountRequest) returns (GetCountResponse);
+}
+
+message IncrementRequest {
+  // Presence matters: omitted and zero are distinct validation cases.
+  optional int64 delta = 1;
+  // The implementation atomically stores a receipt with the counter update.
+  string operation_id = 2;
+}
+
+message IncrementResponse {
+  // The handler must select one result; Protobuf itself does not require it.
+  oneof result {
+    Count count = 1;
+    OutOfRange out_of_range = 2;
+    OperationConflict operation_conflict = 3;
+  }
+}
+
+message Count {
+  int64 value = 1;
+}
+
+message OutOfRange {
+  string reason = 1;
+}
+
+message OperationConflict {}
+
+message GetCountRequest {}
+
+message GetCountResponse {
+  Count count = 1;
+}

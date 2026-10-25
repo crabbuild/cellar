@@ -96,6 +96,10 @@ pub(super) fn child() -> Result<()> {
                     let before_data = data.entered.load(Ordering::Acquire);
                     peers.hold();
                     data.hold();
+                    ensure!(
+                        peers.is_held() && data.is_held(),
+                        "both proof gates must be held before dispatch"
+                    );
                     let mut pending = Box::pin(client.get(format!("{url}/proof/{kind}")).send());
                     tokio::time::timeout(Duration::from_secs(5), async {
                         loop {

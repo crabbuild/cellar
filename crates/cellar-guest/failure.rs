@@ -16,7 +16,8 @@ pub fn result(name: &str, result: anyhow::Result<Value>, limit: usize) -> anyhow
 }
 
 /// Preserve result limits and uncertain mutation outcomes for binary transports.
-/// The byte body is charged as base64 without constructing the encoded copy.
+/// HTTP byte bodies retain base64-equivalent charging. Typed RPC uses raw bytes
+/// because its binary bridge never constructs a base64 representation.
 pub fn result_parts(
     name: &str,
     result: anyhow::Result<(Value, Option<Vec<u8>>)>,
@@ -31,11 +32,16 @@ pub fn result_parts(
         Err(error) => (envelope(name, &error), None),
     };
     let encoded = encode(&value, limit).and_then(|encoded| {
-        anyhow::ensure!(
-            crate::values::envelope_size(encoded.len(), body.as_ref().map_or(0, Vec::len))?
-                <= limit,
-            "SDK result exceeds value limit"
-        );
+        let body_bytes = body.as_ref().map_or(0, Vec::len);
+        let charged = if name == "cell.call" {
+            encoded
+                .len()
+                .checked_add(body_bytes)
+                .ok_or_else(|| anyhow::anyhow!("RPC result size overflow"))?
+        } else {
+            crate::values::envelope_size(encoded.len(), body_bytes)?
+        };
+        anyhow::ensure!(charged <= limit, "SDK result exceeds value limit");
         Ok(encoded)
     });
     match encoded {
@@ -79,6 +85,11 @@ fn encode(value: &Value, limit: usize) -> anyhow::Result<String> {
 pub use cellar_container::Validation;
 
 pub fn envelope(name: &str, error: &Error) -> Value {
+    if let Some(failure) = error.downcast_ref::<cellar::sdk::rpc::Failure>() {
+        // This is the outcome of this child SDK operation. An enclosing RPC
+        // handler must still sanitize any escaping failure to unknown effects.
+        return json!({"ok":false,"error":failure.code(),"code":failure.code(),"outcome":failure.outcome()});
+    }
     let (code, outcome) = if error.is::<crate::storage::Conflict>() {
         ("Conflict", "not_committed")
     } else if error.is::<Validation>() {
@@ -134,6 +145,32 @@ mod tests {
             envelope("container.start", &anyhow::anyhow!("lost response"))["outcome"],
             "unknown"
         );
+    }
+
+    #[test]
+    fn rpc_binary_results_charge_raw_bytes_and_preserve_unknown_failures() {
+        let metadata = json!({"kind":"protobuf"});
+        let bytes = vec![255; 4096];
+        let envelope = serde_json::to_string(&json!({"ok":true,"value":metadata})).unwrap();
+        let exact = envelope.len() + bytes.len();
+        let (encoded, body) = result_parts(
+            "cell.call",
+            Ok((metadata.clone(), Some(bytes.clone()))),
+            exact,
+        )
+        .unwrap();
+        assert_eq!(encoded.len() + body.as_ref().unwrap().len(), exact);
+        let (encoded, body) =
+            result_parts("cell.call", Ok((metadata, Some(bytes))), exact - 1).unwrap();
+        assert!(body.is_none());
+        assert_eq!(
+            serde_json::from_str::<Value>(&encoded).unwrap()["outcome"],
+            "unknown"
+        );
+        let error = cellar::sdk::rpc::Failure::new(cellar::sdk::rpc::Code::OwnershipLost);
+        let failure = super::envelope("cell.call", &error.into());
+        assert_eq!(failure["code"], "OwnershipLost");
+        assert_eq!(failure["outcome"], "unknown");
     }
 
     #[test]

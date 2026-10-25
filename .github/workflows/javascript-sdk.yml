@@ -14,6 +14,10 @@ on:
       - 'examples/vercel-agent/**'
       - 'tools/javascript/**'
       - 'tools/sandbox/**'
+      - 'tools/rpc/**'
+      - 'tools/cellar-rpc-codegen/**'
+      - 'proto/**'
+      - 'plans/named-typed-rpc/*.proto'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - '.github/workflows/javascript-sdk.yml'
@@ -44,6 +48,7 @@ jobs:
           npm ci --prefix examples/streaming --ignore-scripts
           npm ci --prefix examples/pi-agent --ignore-scripts
           npm ci --prefix examples/vercel-agent --ignore-scripts
+          npm ci --prefix tools/rpc --ignore-scripts
           npm ci --prefix examples/vercel-agent/ui --ignore-scripts
           npm run --prefix examples/node build
           npm run --prefix examples/streaming build
@@ -57,6 +62,9 @@ jobs:
           node tools/javascript/node_modules/typescript/bin/tsc --noEmit --strict --target es2022 --module nodenext packages/cellar-sdk/test/types.ts
           npm test --prefix tools/javascript
           npm run --prefix examples/javascript build
+          npm test --prefix tools/rpc
+          npm run --prefix tools/rpc typecheck
+          npm run --prefix tools/rpc build
       - name: Published sandbox compatibility input identities
         run: |
           npm ci --ignore-scripts --prefix tools/sandbox/compat

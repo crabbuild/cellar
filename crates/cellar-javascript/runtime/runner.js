@@ -3,7 +3,7 @@
 // Shared SDK facade for embedded V8 and Node. This file is a factory expression:
 // the Rust bootstrap evaluates or embeds it, then supplies the private host call.
 // Keep the expression free of a trailing semicolon for embedding in parentheses.
-(host, synchronousHost, currentHost, encodeClone, decodeClone, scopedHost) => {
+(host, synchronousHost, currentHost, encodeClone, decodeClone, scopedHost, addAbortListener) => {
   "use strict";
 
   // Capture these builtins before importing/evaluating application code.
@@ -46,6 +46,52 @@
   const typedArrayBytes = Object.getOwnPropertyDescriptor(typedArrayPrototype, "byteLength").get;
   const typedArrayOffset = Object.getOwnPropertyDescriptor(typedArrayPrototype, "byteOffset").get;
   const typedArrayBuffer = Object.getOwnPropertyDescriptor(typedArrayPrototype, "buffer").get;
+  const budgetKeys = new WeakMap();
+  const rpcKey = Symbol.for("cellar.rpc");
+  const own = Object.getOwnPropertyDescriptor;
+  const rpcFailures = freeze({
+    InvalidArgument:'{"rpc_error":"InvalidArgument"}', MethodNotFound:'{"rpc_error":"MethodNotFound"}',
+    ContractMismatch:'{"rpc_error":"ContractMismatch"}', ResourceExhausted:'{"rpc_error":"ResourceExhausted"}',
+    ContextExpired:'{"rpc_error":"ContextExpired"}', Cancelled:'{"rpc_error":"Cancelled"}',
+    DeadlineExceeded:'{"rpc_error":"DeadlineExceeded"}', Unavailable:'{"rpc_error":"Unavailable"}',
+    OwnershipLost:'{"rpc_error":"OwnershipLost"}', DurabilityUnproven:'{"rpc_error":"DurabilityUnproven"}',
+    InvalidResponse:'{"rpc_error":"InvalidResponse"}', Internal:'{"rpc_error":"Internal"}',
+  });
+  function handlerFailure(error) {
+    try {
+      // Read a data property without invoking code/outcome/message getters.
+      const descriptor = own(error, "code");
+      const value = descriptor && own(descriptor, "value");
+      const category = value && typeof value.value === "string" && value.value.length <= 32 && own(rpcFailures, value.value);
+      if (category) return category.value;
+    } catch { /* A proxy trap cannot manufacture outcome evidence. */ }
+    return rpcFailures.Internal;
+  }
+  // Node supplies events.addAbortListener, which resists stopImmediatePropagation.
+  // Closed V8 bundles may supply a standard AbortController polyfill.
+  const dispose = Symbol.dispose;
+  const subscribe = addAbortListener ? ((signal, listener) => {
+    let subscription;
+    const onAbort = () => {
+      listener();
+      // A synthetic abort event must not consume Node's one-shot protected
+      // subscription. Native Node snapshots listeners for each dispatch.
+      if (!signal.aborted) subscription = addAbortListener(signal, onAbort);
+    };
+    subscription = addAbortListener(signal, onAbort);
+    return () => subscription[dispose]();
+  }) : ((signal, listener) => {
+    const add = signal.addEventListener, remove = signal.removeEventListener;
+    apply(add, signal, ["abort", listener]);
+    return () => apply(remove, signal, ["abort", listener]);
+  });
+
+  function rpcFailure(code, outcome) {
+    const error = new ErrorClass(code);
+    error.code = code;
+    error.outcome = outcome;
+    return error;
+  }
   const alphabet =
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
@@ -204,7 +250,7 @@
 
   // Each facade closes over one invocation ID. The backend independently checks
   // continuation identity and liveness whenever that facade calls into Rust.
-  function context(id, identity, activation) {
+  function context(id, identity, activation, contracts = {}) {
     const invoke = (name, value, synchronous) => {
       let encoded, pending;
 
@@ -277,7 +323,116 @@
       }
     };
 
-    const call = async (name, value = {}) => invoke(name, value, false);
+    const call = (name, value = {}, body, signal, budget) => track(id, (async () => {
+      let encoded, pending;
+
+      try {
+        encoded = stringify(json(value));
+      } catch {
+        const error = new ErrorClass("ValidationError");
+        error.code = "ValidationError";
+        error.outcome = "not_committed";
+        throw error;
+      }
+
+      let unsubscribe, cancel;
+      let submitted = false, cancelled = false, invalidSignal = false;
+      // Subscribe before admission. The native cancellation capability belongs
+      // only to this operation; its signal may fire in another JS continuation.
+      try {
+        if (signal !== undefined) {
+          const onAbort = () => {
+            let aborted = true;
+            try {
+              aborted = signal.aborted;
+              if (typeof aborted !== "boolean") throw new TypeError();
+            } catch { invalidSignal = true; }
+            if (aborted || invalidSignal) {
+              cancelled = true;
+              cancel?.();
+            }
+          };
+          try {
+            unsubscribe = subscribe(signal, onAbort);
+            onAbort();
+          } catch {
+            throw rpcFailure("InvalidArgument", "not_committed");
+          }
+          if (invalidSignal) throw rpcFailure("InvalidArgument", "not_committed");
+          if (cancelled) throw rpcFailure("Cancelled", "not_committed");
+        }
+
+        // Synchronous admission failures precede submission. RPC admission
+        // returns a private [promise, cancel] pair; other operations keep their
+        // existing promise shape. No cancellation authority crosses JSON.
+        try {
+          const key = budget === undefined ? undefined : budgetKeys.get(budget);
+          if (budget !== undefined && key === undefined) throw new ErrorClass("ContextMismatch");
+          const admitted = host(id, name, encoded, body, key);
+          if (name === "cell.call") [pending, cancel] = admitted;
+          else pending = admitted;
+          submitted = true;
+        } catch (error) {
+          error.code = error.message;
+          error.outcome = "not_committed";
+          throw error;
+        }
+        if (cancelled) cancel();
+
+        // Always await the original native acknowledgement. A local Promise
+        // race would release the waiter before mutation/byte admission settles.
+        const [metadata, replyBody] = await pending;
+        if (invalidSignal) throw rpcFailure("InvalidArgument", "unknown");
+        const result = parse(metadata);
+
+        if (!result.ok) {
+          throw rpcFailure(result.code, result.outcome);
+        }
+
+        if (name === "cell.call") {
+          if (replyBody instanceof Uint8Array) return replyBody;
+          throw rpcFailure("InvalidResponse", "unknown");
+        }
+
+        // A result that cannot be represented safely may follow a committed write.
+        // Refusing it must not imply that the native mutation rolled back.
+        try {
+          return json(result.value);
+        } catch {
+        const read = [
+          "clock.now",
+          "workers.crypto.random",
+          "workers.crypto.uuid",
+          "workers.identity",
+          "workers.namespace",
+          "workers.callback.begin",
+          "workers.sql.size",
+          "workers.kv.get",
+          "workers.kv.list",
+          "storage.read",
+          "alarm.get",
+          "var",
+          "kv.get",
+          "kv.list",
+          "container.capabilities",
+          "container.running",
+          "container.monitor",
+          "container.exec.read_stdout",
+          "container.exec.read_stderr",
+          "container.exec.wait",
+          "container.socket.read",
+          "container.websocket.receive",
+          "websocket.next",
+          "response.read",
+        ].includes(name);
+          throw rpcFailure(read ? "HostError" : "Ambiguous", "unknown");
+        }
+      } finally {
+        try { unsubscribe?.(); }
+        catch { throw rpcFailure("InvalidArgument", submitted ? "unknown" : "not_committed"); }
+      }
+    })());
+
     const synchronous = (name, value = {}) => invoke(name, value, true);
 
     const resource = (kind, resourceId) => {
@@ -419,6 +574,33 @@
     };
 
     return freeze({
+      [rpcKey]: freeze({
+        check: () => host(id, "$check", "{}"),
+        budget: () => {
+          const wrap = control => {
+            const budget = freeze({__proto__:null, remaining:control[1], limit:control[2], release:control[3]});
+            budgetKeys.set(budget, control[0]);
+            return budget;
+          };
+          const control = host(id, "$rpc_budget", "{}");
+          return typeof control?.then === "function" ? control.then(wrap) : wrap(control);
+        },
+        verify: method => {
+          try {
+            const contract = contracts[method.digest];
+            method.verify(contract);
+            return freeze({maxMessageBytes:contract.limits.max_message_bytes,
+              maxDepth:contract.limits.max_depth, maxElements:contract.limits.max_elements,
+              maxDecodedSlots:contract.limits.max_decoded_slots});
+          } catch {
+            const error = new ErrorClass("ContractMismatch");
+            error.code = "ContractMismatch";
+            error.outcome = "not_committed";
+            throw error;
+          }
+        },
+        call: (metadata, body, signal, budget) => call("cell.call", metadata, body, signal, budget),
+      }),
       fetchStream: async value =>
         liveResponse(await call("http.fetch_stream", { request: value })),
       acceptWebSocket: async response =>
@@ -458,7 +640,7 @@
           }
           if (invocation !== cachedId) {
             cachedId = invocation;
-            cached = context(invocation, identity, activation);
+            cached = context(invocation, identity, activation, contracts);
           }
           return cached;
         };
@@ -486,7 +668,7 @@
           try {
             const current = () => {
               if (currentHost(activation, token.id) !== id) throw new ErrorClass("ContextMismatch");
-              return context(id, identity, activation);
+              return context(id, identity, activation, contracts);
             };
             result = await scopedHost(id, token.id, () => callback(current));
             success = true;
@@ -572,7 +754,19 @@
   // JavaScript state without changing the cell's durable Rust-owned storage.
   return (app, descriptor, maximum, lifetimeLimit) => {
     const declared = parse(descriptor);
-    const objects = new MapClass();
+    const objects = new MapClass(), rpc = new MapClass();
+    const contracts = declared.rpc_contracts ?? {};
+    // Keep trusted native schema data immutable when passing it to generated
+    // codec verification. The projection is flat; type recursion uses names.
+    function lock(value) {
+      if (value && typeof value === "object") {
+        for (const child of Object.values(value)) lock(child);
+        freeze(value);
+      }
+    }
+    lock(contracts);
+
+
 
     for (const name of declared.events) {
       if (typeof app[name] !== "function") {
@@ -592,9 +786,49 @@
       }
     }
 
-    async function dispatch(id, payload) {
+    const services = declared.rpc ?? {};
+    if (Object.keys(app.rpc ?? {}).length !== Object.keys(services).length) {
+      throw new ErrorClass("RPC classes differ from native registration");
+    }
+    for (const [name, methods] of entries(services)) {
+      const registration = app.rpc?.[name]?.methods;
+      if (!registration || Object.keys(registration).length !== Object.keys(methods).length) {
+        throw new ErrorClass("RPC methods differ from native registration");
+      }
+      const table = new MapClass();
+      for (const [wire, native] of entries(methods)) {
+        const rule = registration[wire];
+        const handler = rule && own(app.cells[name].prototype, rule.handler)?.value;
+        if (!rule || rule.digest !== native.digest || rule.input !== native.input ||
+            rule.output !== native.output || typeof handler !== "function" ||
+            typeof rule.decode !== "function" || typeof rule.encode !== "function") {
+          throw new ErrorClass("RPC contract differs from native registration");
+        }
+        if (typeof rule.verify !== "function") throw new ErrorClass("Missing RPC codec verification");
+        rule.verify(contracts[native.digest]);
+        const limits = freeze({
+          maxMessageBytes: native.limits.max_message_bytes,
+          maxDepth: native.limits.max_depth,
+          maxElements: native.limits.max_elements,
+          maxDecodedSlots: native.limits.max_decoded_slots,
+        });
+        table.set(wire, freeze({handler, decode:rule.decode, encode:rule.encode, limits}));
+      }
+      rpc.set(name, table);
+    }
+
+    async function dispatch(id, payload, body) {
       const invocation = parse(payload);
-      const ctx = context(id, invocation.identity, invocation.object);
+      const ctx = context(id, invocation.identity, invocation.object, contracts);
+        let rule, argument;
+        if (invocation.kind === "rpc") {
+          rule = rpc.get(invocation.class)?.get(invocation.event.method);
+          if (!rule || !(body instanceof Uint8Array)) throw new ErrorClass("InvalidRpcInvocation");
+          argument = rule.decode(body, rule.limits);
+        } else if (body !== undefined) {
+          throw new ErrorClass("UnexpectedAttachment");
+        }
+
       let target = app;
 
       if (invocation.object !== null) {
@@ -609,6 +843,21 @@
           objects.set(invocation.object, target);
         }
       }
+
+        if (rule) {
+          let result;
+          try { result = await apply(rule.handler, target, [argument, ctx]); }
+          catch (error) { throw handlerFailure(error); }
+          try {
+            const encoded = rule.encode(result, rule.limits);
+            if (!(encoded instanceof Uint8Array)) throw new ErrorClass("InvalidResponse");
+            return encoded;
+          } catch {
+            // Missing response bytes become InvalidResponse/unknown in native
+            // code. Never forward codec text or a claimed rollback outcome.
+            return "null";
+          }
+        }
 
       let event =
         invocation.kind === "fetch"
@@ -691,14 +940,20 @@
     }
 
     return freeze({
-      async dispatch(id, payload) {
-        if (!declared.workers_lifetimes) return dispatch(id, payload);
+      failurePayload(error) {
+        if (typeof error === "string") {
+          for (const [, payload] of entries(rpcFailures)) if (payload === error) return payload;
+        }
+        return "null";
+      },
+      async dispatch(id, payload, body) {
+        if (!declared.workers_lifetimes || parse(payload).kind === "rpc") return dispatch(id, payload, body);
         let cancel;
         const cancelled = new PromiseClass(done => { cancel = done; });
         const state = { jobs: new SetClass(), reported: 0, limit: lifetimeLimit, failed: false, cancel, cancelled };
         lifetimes.set(id, state);
         let encoded = "null", failed = false;
-        try { encoded = await dispatch(id, payload); }
+        try { encoded = await dispatch(id, payload, body); }
         catch { failed = true; }
         const publish = value => context(id, null, null)._call("workers.lifetime.response", value);
         try { await publish({ value: encoded, failed }); }
