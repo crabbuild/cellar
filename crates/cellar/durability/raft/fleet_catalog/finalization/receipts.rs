@@ -49,6 +49,10 @@ pub(super) struct Basis {
 }
 
 impl Basis {
+    pub(super) fn slot(&self) -> [u8; 32] {
+        self.slot
+    }
+
     pub(super) async fn check_current(&self, catalog: &FleetCatalog) -> Result<()> {
         let current = catalog.inner.current().await?;
         self.check(catalog, &current)?;

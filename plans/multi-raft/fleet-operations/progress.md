@@ -1405,7 +1405,8 @@ The append-only namespace registry, complete inventory read, native retired-bind
 refusal, unrooted ingress refusal, catalog-scoped move trust admission,
 physical route/process revocation, rooted replica separation and typed evacuation
 exclusion, remote quorum observations, coherent publication cuts and complete-inventory
-candidate preparation with physical archive replay are implemented.
+candidate preparation with physical archive replay and a rooted no-new-boot
+Finalizing boundary are implemented.
 The evacuation adapter consumes complete inventory inside its exact root CAS.
 Capacity activation and terminal lifecycle proof still require their
 operation-specific integration; a saved count cannot authorize
@@ -1413,7 +1414,7 @@ placement or maintenance. The manifest dependencies remain unchanged.
 
 | Priority | Boundary | Required result before advancing |
 | --- | --- | --- |
-| P0 | FO-03 capacity and terminal lifecycle integration | Complete inventory gates exclusion and candidate preparation; exact fixed cuts, settled permits, RF3 survivors and physical archive replay are connected. Finish fresh terminal survivor checks, physical-work joins/fences, the atomic rooted terminal receipt/disruption-slot release, and capacity activation/readiness. Historical candidates grant no removal authority. Close `fleet_enrollment_incomplete_import` at the actual removal-certification boundary. |
+| P0 | FO-03 physical closure, terminal completion and capacity readiness | Boot claims and Finalizing now order through root CAS. Next bind accepted stop work durably to the exact operation/epoch/engine/process, join reachable owners, retain uncertain occupancy for unreachable owners, and resume safely while Finalizing. Then obtain fresh terminal survivor checks and atomically root the terminal receipt/node transition/disruption-slot release. Close `fleet_enrollment_incomplete_import` at removal certification; gate new capacity on actual process/engine and observed or explicitly attested platform limits. |
 | P1 | FO-04 placement, FO-05 load, FO-06 reconciliation | Implement bounded staged feasibility for retained/temporary costs and one-node-loss headroom, fresh load observations and a domain-owned reconciler. Restart/cancellation/lost replies must converge; release reservations only with fresh terminal quorum proof and physical-work joins. |
 | P2 | FO-07 maintenance and FO-08 operator API/CLI | Deliver exact-operation/epoch/process stop fencing, shared disruption-slot integration for restart/resize, complete evacuation/removal receipts and authenticated idempotent workflows with revision guards and typed outcomes. Cover add/remove and rolling restart. |
 | P3 | FO-09 scaling and fewer-cell shrink | Reconcile desired, effective and observed resources for horizontal and vertical changes. Require observed platform-limit checks and complete retained-state fit before shrinking; fewer cells do not establish removability. |
@@ -1421,19 +1422,23 @@ placement or maintenance. The manifest dependencies remain unchanged.
 
 The next implementation slice is **FO-03 terminal finalization**, in this order:
 
-1. Consume the historical candidate through owned fresh survivor observations
-   immediately before terminal CAS. Preserve the fixed business cut while
-   rechecking exact history, configuration, settled permits, policy and current
-   operation. Deserialized receipt flags cannot supply these proofs.
-2. Fence new boots and delayed operation/process authority before joining
-   reachable physical owners. Retain uncertain occupancy for unreachable owners;
-   an empty serving-group count supplies no physical closure or deletion proof.
+1. Complete physical closure after the rooted boot fence: durably bind accepted
+   stop work to the exact operation, node epoch, engine and boot process. Join
+   reachable owners and keep uncertain occupancy charged for unreachable owners.
+   Lost stop replies must reconcile the same request; an empty serving-group
+   count or deserialized receipt flag supplies no physical closure proof.
+2. Support restart-safe resumption and candidate refresh while Finalizing without
+   rebinding accepted stop authority. Obtain owned fresh survivor observations
+   immediately before terminal CAS, preserving the fixed business cut while
+   rechecking exact history, configuration, settled permits, policy and operation.
 3. Atomically root the terminal receipt, transition the exact node epoch and
    release the disruption slot. Reconcile lost replies through the permanent
-   journal, and cover crashes, orphan candidates and candidate replanning.
+   journal; cover crashes at each boundary, orphan candidates and replanning.
 4. Close `fleet_enrollment_incomplete_import` at removal certification. Complete
    capacity readiness against actual process/engine and observed or explicitly
-   attested platform limits before admitting new placement.
+   attested platform limits before admitting new placement. Concurrent managed
+   boot conflicts also need owned controller reconciliation; startup currently
+   fails cleanly rather than hiding a CAS retry.
 
 These steps unblock the planner and reconciler. They do not require an optional
 leader-scheduling change or a new business-write acknowledgement dependency.

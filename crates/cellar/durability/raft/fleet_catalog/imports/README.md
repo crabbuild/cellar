@@ -57,7 +57,7 @@ Group bindings now include the catalog-scope fingerprint as well as fleet and
 cell-history identity. Use `FleetCatalog::group_binding` for that descriptor.
 Constructing a descriptor grants no authority. Changing catalog prefixes cannot
 reuse a cached authorization or permit to mutate the already-enrolled group.
-The experimental protocol hard-cuts to `/fleet-quorum-1/fleet-cuts-1/empty-archives-1/archive-cuts-1`; earlier namespace,
+The experimental protocol hard-cuts to `/fleet-quorum-1/fleet-cuts-1/empty-archives-1/archive-cuts-1/fleet-finalization-1`; earlier namespace,
 fleet and group records require fresh experimental prefixes and matching binaries.
 Numeric format markers remain 1, with no migration or compatibility reader.
 

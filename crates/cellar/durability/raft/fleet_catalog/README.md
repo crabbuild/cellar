@@ -119,7 +119,7 @@ Ordinary `bootstrap_member` can only resume an already enrolled managed group;
 it refuses fresh or bare genesis before creating local group state or a member
 claim. Managed host startup and `activate_managed_initial_member` use the guarded path described below.
 
-This experimental protocol hard-cuts to `/fleet-quorum-1/fleet-cuts-1/empty-archives-1/archive-cuts-1`; use fresh fleet
+This experimental protocol hard-cuts to `/fleet-quorum-1/fleet-cuts-1/empty-archives-1/archive-cuts-1/fleet-finalization-1`; use fresh fleet
 roots, fresh namespaces and matching binaries. Fleet heads require the current
 protocol digest, and their permanent genesis pin binds it. Missing or earlier
 protocol state refuses initialization and reads; there is no compatibility reader.
@@ -366,6 +366,30 @@ authority while retaining occupancy, and atomically root the terminal receipt
 with the node transition and disruption-slot release. Business writes continue
 without calling candidate preparation or coordination storage.
 
+## No-new-boot finalization boundary
+
+`FleetEvacuationCandidate::begin_finalization` rereads complete inventory and the
+active disruption, owns an authenticated probe of the departing process, then
+atomically changes its exact Draining node to Finalizing and roots the canonical
+finalization projection. The projection binds the historical candidate, engine,
+disk, process, boot claim, operation and new enrollment epoch. The original
+deadline is checked immediately before the head CAS. A restart admitted first
+invalidates the candidate and defeats that CAS; a Finalizing winner refuses even
+an intact engine boot with an older saved host authorization.
+
+Exact committed retries reconcile through the permanent journal without a new
+probe or namespace handles, including after adapter recreation. Reusing the
+request with different inputs refuses. A legitimate Draining restart may prepare
+a new candidate only after its newer boot claim is journal-confirmed. The old
+candidate cannot authorize the newer process.
+
+`FleetFinalizationAdmission` is an opaque historical observation of this boot
+fence. It grants no physical stop, terminal removal, resource release or volume
+deletion authority. The existing process remains owned and the disruption slot
+stays claimed. Physical stop/join fencing, fresh terminal survivor verification,
+resumption while Finalizing and the atomic terminal receipt/slot release remain
+required before this boundary can complete an evacuation.
+
 ## Host API and fresh learners
 
 ### Rooted node enrollment
@@ -374,16 +398,31 @@ without calling candidate preparation or coordination storage.
 request identity and CAS reconciliation. `authorize_host` returns an opaque
 capability for that rooted node/disk, physical-host identity, endpoint name and
 compiled-capability digest. Boot refreshes it against the current root and
-refuses missing, evacuated, removed or incompatible records. Registration does
+refuses missing, Finalizing, evacuated, removed or incompatible records. Registration does
 not activate capacity or certify a complete managed inventory.
 
-An existing engine can be pinned in the registration request. A fresh engine is
-permanently pinned by a conditional node-record update during startup, after the
-ordinary namespace storage pin and before endpoint publication. Lost replies
-reconcile through that monotonic pin. Changing namespace catalog prefixes cannot
-make a replacement engine satisfy the fleet pin. The initial node-table bound is
-64 retained records, including removed identity tombstones; exhaustion refuses
+An existing engine can be pinned in the registration request. Every managed boot,
+including an intact engine restart, claims a fresh boot nonce and process through
+one rooted node CAS before endpoint publication or group startup. The claim pins
+the engine permanently, advances the enrollment epoch and retains its exact
+request/journal binding. Unknown replies retain that nonce and payload; the
+adapter does not hide CAS retries or rebind a failed request to a new revision.
+Concurrent boot conflicts fail startup cleanly and require an explicit new startup
+attempt after joined cleanup. Changing namespace catalog prefixes cannot make a
+replacement engine satisfy the fleet pin. The initial node-table bound is 64
+retained records, including removed identity tombstones; exhaustion refuses
 registration and does not collect identity history.
+
+Directory trust binds peers to the rooted boot process. Running-host refreshes
+also require their own original boot claim; another process's later claim cannot
+revive an old publisher. Ordinary lifecycle state changes retain the boot claim
+and its original journal identity even while advancing the node epoch.
+
+A boot replacement cancels old physical connections and grant owners. Verified
+new discovery recreates connection pools for retained group/query obligations
+and refreshes the same logical grants. Empty metadata-only discovery creates no
+business pool. Final Removed still revokes the logical grants and cannot be
+undone through a later advisory view.
 
 `RaftManagedHostOptions` declares a bounded namespace/class list whose canonical
 digest must match enrollment. Classes resolve against the compiled application
@@ -551,8 +590,9 @@ response alone is not a fleet completion certificate.
 Cellar-owned markers stay at 1. Membership and intent records require an explicit
 nullable `fleet` field. Birth records also require an explicit nullable
 `cancelled_by` field; the namespace protocol identity ends in
-`/catalog-trust-1/fleet-admission-1/fleet-quorum-1/fleet-cuts-1/empty-archives-1/archive-cuts-1`.
-Older namespace protocols refuse startup; there is no legacy reader or migration.
+`/catalog-trust-1/fleet-admission-1/fleet-quorum-1/fleet-cuts-1/empty-archives-1/archive-cuts-1/fleet-finalization-1`.
+Node records require an explicit nullable `boot` field; Finalizing is a boot-refusing
+state. Older namespace protocols refuse startup; there is no legacy reader or migration.
 Use a fresh experimental namespace and matching participants. Do not downgrade a
 guarded engine to an older binary or remove the guard field to regain admission.
 

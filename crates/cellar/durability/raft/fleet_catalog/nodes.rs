@@ -14,6 +14,7 @@ pub enum FleetNodeState {
     RestartPending,
     ResizePending,
     Draining,
+    Finalizing,
     Evacuated,
     Removed,
 }
@@ -35,7 +36,7 @@ impl FleetNodeState {
     }
 
     fn permits_boot(self) -> bool {
-        !matches!(self, Self::Evacuated | Self::Removed)
+        !matches!(self, Self::Finalizing | Self::Evacuated | Self::Removed)
     }
 }
 
@@ -74,13 +75,15 @@ pub(super) struct NodeRecord {
     server_name: String,
     capability_digest: [u8; 32],
     registration: [u8; 16],
-    registration_operation: [u8; 16],
+    pub(super) registration_operation: [u8; 16],
     pub(super) state: FleetNodeState,
-    epoch: u64,
+    pub(super) epoch: u64,
     #[serde(deserialize_with = "required_nullable")]
     operation: Option<[u8; 16]>,
     #[serde(deserialize_with = "required_nullable")]
     pub(super) storage_instance: Option<[u8; 16]>,
+    #[serde(deserialize_with = "required_nullable")]
+    pub(super) boot: Option<super::boots::Boot>,
 }
 
 fn required_nullable<'de, T: Deserialize<'de>, D: serde::Deserializer<'de>>(
@@ -90,6 +93,10 @@ fn required_nullable<'de, T: Deserialize<'de>, D: serde::Deserializer<'de>>(
 }
 
 impl NodeRecord {
+    pub(super) fn disk_identity(&self) -> Result<DiskLineage> {
+        DiskLineage::new(self.disk).map_err(|_| FleetCatalogError::Corrupt("node disk"))
+    }
+
     pub(super) fn validate(&self, inner: &Inner) -> Result<()> {
         let identity = || FleetCatalogError::Corrupt("node identity");
         NodeId::new(self.node).map_err(|_| identity())?;
@@ -103,11 +110,18 @@ impl NodeRecord {
         if let Some(id) = self.storage_instance {
             EngineInstanceId::new(id).map_err(|_| identity())?;
         }
+        if let Some(boot) = &self.boot {
+            boot.validate(self.epoch)?;
+            if self.storage_instance.is_none() {
+                return Err(FleetCatalogError::Corrupt("boot without engine"));
+            }
+        }
         let operating = matches!(
             self.state,
             FleetNodeState::RestartPending
                 | FleetNodeState::ResizePending
                 | FleetNodeState::Draining
+                | FleetNodeState::Finalizing
                 | FleetNodeState::Evacuated
                 | FleetNodeState::Removed
         );
@@ -141,14 +155,42 @@ impl NodeRecord {
     pub(super) fn operation(&self) -> Option<[u8; 16]> {
         self.operation
     }
+
+    pub(super) fn boot_origin_matches(&self, origin: &Self) -> bool {
+        let mut normalized = self.clone();
+        normalized.state = origin.state;
+        normalized.operation = origin.operation;
+        normalized.epoch = origin.epoch;
+        normalized == *origin
+    }
+
+    pub(super) fn draining_successor(&self, origin: &Self) -> bool {
+        let mut normalized = self.clone();
+        normalized.epoch = origin.epoch;
+        normalized.boot = origin.boot.clone();
+        normalized == *origin && self.epoch >= origin.epoch
+    }
+
+    pub(super) fn begin_finalization(&mut self, operation: [u8; 16]) -> Result<()> {
+        if self.state != FleetNodeState::Draining
+            || self.operation != Some(operation)
+            || self.boot.is_none()
+            || self.storage_instance.is_none()
+        {
+            return Err(FleetCatalogError::Conflict);
+        }
+        self.state = FleetNodeState::Finalizing;
+        self.epoch = self.epoch.checked_add(1).ok_or(FleetCatalogError::Limit)?;
+        Ok(())
+    }
 }
 
 /// Opaque authorization from a rooted node record. Host startup refreshes the
 /// record; a saved capability is not a lease or placement-ready certificate.
 #[derive(Clone)]
 pub struct FleetHostAuthorization {
-    catalog: FleetCatalog,
-    record: NodeRecord,
+    pub(super) catalog: FleetCatalog,
+    pub(super) record: NodeRecord,
     revision: u64,
     node: NodeId,
     disk: DiskLineage,
@@ -250,7 +292,7 @@ impl FleetHostAuthorization {
                     .iter()
                     .find(|node| node.node == self.node)
                     .ok_or(FleetCatalogError::Conflict)?;
-                self.require_successor(local)?;
+                self.require_running_successor(local)?;
                 Ok(FleetTrustSnapshot {
                     revision: snapshot.revision(),
                     fleet: self.fleet(),
@@ -269,6 +311,18 @@ impl FleetHostAuthorization {
     }
 
     pub(crate) fn matches_peer(&self, peer: &crate::raft::transport_options::RaftPeerNode) -> bool {
+        self.matches_registration(peer)
+            && self
+                .record
+                .boot
+                .as_ref()
+                .is_none_or(|boot| boot.process == peer.process.bytes())
+    }
+
+    pub(crate) fn matches_registration(
+        &self,
+        peer: &crate::raft::transport_options::RaftPeerNode,
+    ) -> bool {
         self.permits_transport()
             && peer.node == self.node
             && peer.disk == self.disk
@@ -354,7 +408,15 @@ impl FleetHostAuthorization {
             .domain
             .mono_ms()
             .map_err(|_| FleetCatalogError::Closed)?;
-        let snapshot = self.catalog.read(timeout).await?;
+        let snapshot = self
+            .catalog
+            .run(timeout, async {
+                let snapshot = self.catalog.inner.current().await?;
+                let current = self.catalog.host_from_record(&snapshot, self.node).await?;
+                self.require_running_successor(&current)?;
+                Ok(snapshot)
+            })
+            .await?;
         if snapshot.revision() < minimum_revision {
             return Err(FleetCatalogError::Conflict);
         }
@@ -385,7 +447,7 @@ impl FleetHostAuthorization {
             .await
     }
 
-    fn require_successor(&self, current: &Self) -> Result<()> {
+    pub(super) fn require_successor(&self, current: &Self) -> Result<()> {
         let a = &self.record;
         let b = &current.record;
         if a.node != b.node
@@ -404,63 +466,12 @@ impl FleetHostAuthorization {
         Ok(())
     }
 
-    pub(crate) async fn bind_storage(
-        &self,
-        instance: EngineInstanceId,
-        timeout: Duration,
-    ) -> Result<Self> {
-        self.catalog
-            .run(timeout, async {
-                let snapshot = self.catalog.inner.current().await?;
-                let mut current = self.catalog.host_from(&snapshot, self.node).await?;
-                self.require_successor(&current)?;
-                if let Some(pinned) = current.record.storage_instance {
-                    if pinned != instance.bytes() {
-                        return Err(FleetCatalogError::Conflict);
-                    }
-                    return Ok(current);
-                }
-                current.record.storage_instance = Some(instance.bytes());
-                current.record.epoch = current
-                    .record
-                    .epoch
-                    .checked_add(1)
-                    .ok_or(FleetCatalogError::Limit)?;
-                current.record.validate(&self.catalog.inner)?;
-                let value = encode(NODE_KIND, &current.record, 4096)?;
-                // Include the input revision. After an ambiguous reply the pinned
-                // field reconciles success; a newer unpinned root fences the old
-                // CAS and allows a distinct attempt without changing its payload.
-                let mut identity = b"cellar-fleet-host-storage-1".to_vec();
-                identity.extend_from_slice(&snapshot.revision().to_be_bytes());
-                identity.extend_from_slice(&value);
-                let digest = hash(&identity);
-                let mut id = [0; 16];
-                id.copy_from_slice(&digest[..16]);
-                let mutation = FleetMutation {
-                    id,
-                    operation: current.record.registration_operation,
-                    principal: "fleet-host-storage".into(),
-                    expected_revision: snapshot.revision(),
-                    changes: vec![FleetChange {
-                        table: FleetTable::Nodes,
-                        key: hex::encode(current.record.node),
-                        value: Some(value),
-                    }],
-                };
-                mutation.validate()?;
-                let committed = self.catalog.commit_inner(&snapshot, &mutation).await?;
-                let observed = self
-                    .catalog
-                    .host_from(&committed.snapshot, self.node)
-                    .await?;
-                self.require_successor(&observed)?;
-                if observed.storage_instance() != Some(instance) {
-                    return Err(FleetCatalogError::Conflict);
-                }
-                Ok(observed)
-            })
-            .await
+    fn require_running_successor(&self, current: &Self) -> Result<()> {
+        self.require_successor(current)?;
+        if self.record.boot.is_some() && self.record.boot != current.record.boot {
+            return Err(FleetCatalogError::Conflict);
+        }
+        Ok(())
     }
 }
 
@@ -583,6 +594,7 @@ impl FleetCatalog {
             epoch: 1,
             operation: None,
             storage_instance: spec.storage_instance.map(|id| id.bytes()),
+            boot: None,
         };
         record
             .validate(&self.inner)
@@ -673,15 +685,24 @@ impl FleetCatalog {
         snapshot: &FleetSnapshot,
         node: NodeId,
     ) -> Result<FleetHostAuthorization> {
+        let current = self.host_from_record(snapshot, node).await?;
+        if !current.state().permits_boot() {
+            return Err(FleetCatalogError::Conflict);
+        }
+        Ok(current)
+    }
+
+    pub(super) async fn host_from_record(
+        &self,
+        snapshot: &FleetSnapshot,
+        node: NodeId,
+    ) -> Result<FleetHostAuthorization> {
         let record = self
             .node_records(snapshot)
             .await?
             .into_iter()
             .find(|n| n.node == node.bytes())
             .ok_or(FleetCatalogError::Conflict)?;
-        if !record.state.permits_boot() {
-            return Err(FleetCatalogError::Conflict);
-        }
         self.host_record(snapshot, record)
     }
 

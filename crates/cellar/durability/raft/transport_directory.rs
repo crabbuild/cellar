@@ -120,7 +120,21 @@ impl RaftTransport {
         {
             return Err(TransportError::Identity);
         }
-        let physical = if registry.pools.contains_key(&peer.node) {
+        // A rooted boot change already removed the old pool. Recreate it only
+        // for retained routing/grant obligations; an empty metadata-only host
+        // must not acquire business pools merely through directory discovery.
+        let routed = peer.node != local.node
+            && (registry
+                .groups
+                .values()
+                .chain(registry.query_groups.values())
+                .any(|route| route.peers.iter().any(|old| old.replica.node == peer.node))
+                || registry
+                    .origins
+                    .values()
+                    .chain(registry.inspection_origins.values())
+                    .any(|grant| grant.peer.as_ref().is_some_and(|old| old.node == peer.node)));
+        let physical = if registry.pools.contains_key(&peer.node) || routed {
             std::slice::from_ref(peer)
         } else {
             &[]

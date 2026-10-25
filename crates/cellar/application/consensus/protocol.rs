@@ -17,7 +17,7 @@ const DIGEST_LEN: usize = 32;
 // Wire markers remain 1. The immutable namespace identity also binds member
 // metadata so incompatible binaries cannot attach to the same namespace.
 const PROTOCOL: &str =
-    "cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1/nodes-1/bundles-1/fleet-1/enrollment-1/node-probes-1/birth-admission-1/managed-genesis-1/group-reservations-1/birth-inventory-1/namespace-import-1/fleet-namespaces-1/catalog-trust-1/fleet-admission-1/fleet-quorum-1/fleet-cuts-1/empty-archives-1/archive-cuts-1";
+    "cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1/nodes-1/bundles-1/fleet-1/enrollment-1/node-probes-1/birth-admission-1/managed-genesis-1/group-reservations-1/birth-inventory-1/namespace-import-1/fleet-namespaces-1/catalog-trust-1/fleet-admission-1/fleet-quorum-1/fleet-cuts-1/empty-archives-1/archive-cuts-1/fleet-finalization-1";
 
 /// Bounds apply before decoding the header or copying any payload. The LTX
 /// decoder must additionally enforce these bounds on actual decoded pages;

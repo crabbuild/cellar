@@ -394,3 +394,127 @@ async fn rooted_removal_cancels_pools_origins_and_seed_owners() -> anyhow::Resul
     third.close().await?;
     fixture.close().await
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn rooted_boot_refresh_restores_only_retained_routes() -> anyhow::Result<()> {
+    let scope = scope(2)?;
+    let fixture = Fixture::start(
+        TransportOptions::default(),
+        vec![crate::raft::storage::GroupBootstrap {
+            scope: scope.clone(),
+            member: MemberId::new(1)?,
+            birth_digest: [10; 32],
+            voters: (1..=3).map(MemberId::new).collect::<Result<_, _>>()?,
+            learners: vec![],
+        }],
+    )
+    .await?;
+    let catalog = catalog(&fixture).await?;
+    let own = register(&catalog, &peer(1)?, fixture.log.storage_instance()?, 11).await?;
+    let mut publisher = Publisher::new(peer(2)?).await?;
+    let target = register(
+        &catalog,
+        &publisher.peer,
+        publisher.log.storage_instance()?,
+        12,
+    )
+    .await?
+    .bind_boot(
+        publisher.log.storage_instance()?,
+        publisher.peer.process,
+        cellar_logic::consensus::ProposalId::new([21; 16])?,
+        TIMEOUT,
+    )
+    .await?;
+    let third = Publisher::new(peer(3)?).await?;
+    register(&catalog, &third.peer, third.log.storage_instance()?, 13).await?;
+    fixture
+        .transport
+        .install_fleet_trust(own.trust_snapshot(TIMEOUT).await?)?;
+    let old_view = publisher.view().await?;
+    fixture
+        .transport
+        .accept_node_view(old_view.clone(), &publisher.peer)?;
+    // Discovery alone must not create a business connection pool.
+    assert!(!fixture
+        .transport
+        .handle
+        .0
+        .registry
+        .lock()
+        .unwrap()
+        .pools
+        .contains_key(&publisher.peer.node));
+    fixture
+        .transport
+        .install_group(route(&fixture, &scope, false)?)?;
+    fixture.transport.grant_query_origin(NamespaceQueryOrigin {
+        cluster: scope.cluster,
+        namespace: scope.namespace,
+        revision: 1,
+        peer: publisher.peer.clone(),
+    })?;
+    let key = (scope.cluster, scope.namespace, publisher.peer.node);
+    let state = &fixture.transport.handle.0;
+    let (old_pool, old_grant) = {
+        let registry = state.registry.lock().unwrap();
+        (
+            registry.pools[&publisher.peer.node].clone(),
+            registry.origins[&key].clone(),
+        )
+    };
+    publisher.restart().await?;
+    target
+        .bind_boot(
+            publisher.log.storage_instance()?,
+            publisher.peer.process,
+            cellar_logic::consensus::ProposalId::new([22; 16])?,
+            TIMEOUT,
+        )
+        .await?;
+    fixture
+        .transport
+        .install_fleet_trust(own.trust_snapshot(TIMEOUT).await?)?;
+    assert!(*old_pool.stop.borrow() && *old_grant.stop.borrow());
+    assert!(!state
+        .registry
+        .lock()
+        .unwrap()
+        .pools
+        .contains_key(&publisher.peer.node));
+    assert_eq!(
+        fixture
+            .transport
+            .accept_node_view(old_view.clone(), old_view.peer()),
+        Err(TransportError::Refused)
+    );
+    fixture
+        .transport
+        .accept_node_view(publisher.view().await?, &publisher.peer)?;
+    {
+        let registry = state.registry.lock().unwrap();
+        let pool = &registry.pools[&publisher.peer.node];
+        assert!(!Arc::ptr_eq(pool, &old_pool) && !*pool.stop.borrow());
+        assert_eq!(pool.peer, publisher.peer);
+        let grant = &registry.origins[&key];
+        assert!(!Arc::ptr_eq(grant, &old_grant) && !*grant.stop.borrow());
+        assert_eq!(grant.peer.as_ref(), Some(&publisher.peer));
+        assert_eq!(grant.revision, old_grant.revision);
+        let group = &registry.groups[&scope];
+        assert_eq!(group.revision, 1);
+        assert_eq!(
+            group
+                .peers
+                .iter()
+                .find(|peer| peer.replica.node == publisher.peer.node)
+                .unwrap()
+                .replica
+                .process,
+            publisher.peer.process
+        );
+        assert!(!registry.pools.contains_key(&peer(1)?.node));
+    }
+    publisher.close().await?;
+    third.close().await?;
+    fixture.close().await
+}

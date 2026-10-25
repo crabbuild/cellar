@@ -72,6 +72,6 @@ Capacity activation, terminal lifecycle proofs and runtime reconciliation remain
 in the [delivery plan](../../../../../../plans/multi-raft/fleet-operations/progress.md).
 Automatic fleet management remains default-off.
 
-The experimental protocol hard-cuts to `/fleet-quorum-1/fleet-cuts-1/empty-archives-1/archive-cuts-1`. Use fresh fleet and
+The experimental protocol hard-cuts to `/fleet-quorum-1/fleet-cuts-1/empty-archives-1/archive-cuts-1/fleet-finalization-1`. Use fresh fleet and
 data prefixes, namespaces and matching binaries. Numeric format markers remain 1;
 there is no compatibility reader or state migration.

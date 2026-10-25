@@ -1,6 +1,7 @@
 //! Bounded CAS coordination. These records never grant Raft membership or votes.
 //! A retained mutation journal resolves ambiguous writes after later revisions.
 
+mod boots;
 mod evacuation;
 mod finalization;
 mod histories;
@@ -15,6 +16,7 @@ mod records;
 pub use evacuation::FleetEvacuationAdmission;
 pub use finalization::{
     FleetEvacuationArchive, FleetEvacuationCandidate, FleetEvacuationVerification,
+    FleetFinalizationAdmission,
 };
 pub use histories::{
     FleetBirthAuthorization, FleetBirthReservation, FleetHistory, FleetHistoryState,
@@ -310,6 +312,15 @@ impl FleetCatalog {
         snapshot: &FleetSnapshot,
         mutation: &FleetMutation,
     ) -> Result<FleetCommit> {
+        self.commit_checked(snapshot, mutation, || Ok(())).await
+    }
+
+    async fn commit_checked(
+        &self,
+        snapshot: &FleetSnapshot,
+        mutation: &FleetMutation,
+        check: impl FnOnce() -> Result<()>,
+    ) -> Result<FleetCommit> {
         let bytes = encode(REQUEST_KIND, mutation, REQUEST_LIMIT)?;
         let digest = hash(&bytes);
         let key = hex::encode(mutation.id);
@@ -387,6 +398,7 @@ impl FleetCatalog {
             )
             .await?;
         let bytes = encode(HEAD_KIND, &next, ROOT_LIMIT)?;
+        check()?;
         let result = self
             .inner
             .bucket

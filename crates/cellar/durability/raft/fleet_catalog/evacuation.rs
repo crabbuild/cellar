@@ -207,6 +207,22 @@ impl Record {
 }
 
 impl FleetCatalog {
+    pub(super) async fn check_evacuation_slot(
+        &self,
+        snapshot: &FleetSnapshot,
+        operation: [u8; 16],
+        slot: [u8; 32],
+    ) -> Result<()> {
+        let record = self
+            .active_disruption(snapshot)
+            .await?
+            .ok_or(FleetCatalogError::Conflict)?;
+        if record.request.operation != operation || snapshot.head.disruption != Some(slot) {
+            return Err(FleetCatalogError::Conflict);
+        }
+        Ok(())
+    }
+
     /// Admit exclusion of an Active node. The complete rooted namespace and
     /// history inventory is reread inside this turn before one CAS records the
     /// operation, claims the disruption slot and changes Active to Draining.
@@ -446,8 +462,15 @@ impl FleetCatalog {
             .into_iter()
             .find(|node| node.node == record.node.node)
             .ok_or(FleetCatalogError::Conflict)?;
-        if current != record.node {
+        if !current.draining_successor(&record.node) {
             return Err(FleetCatalogError::Conflict);
+        }
+        if current != record.node {
+            let boot = current.boot.as_ref().ok_or(FleetCatalogError::Conflict)?;
+            if current.epoch != boot.epoch || boot.epoch <= record.node.epoch {
+                return Err(FleetCatalogError::Conflict);
+            }
+            self.confirm_boot(snapshot, &current).await?;
         }
         // active_disruption already checked this exact original journal link.
         let applied = record
@@ -455,8 +478,10 @@ impl FleetCatalog {
             .expected_revision
             .checked_add(1)
             .ok_or(FleetCatalogError::Limit)?;
+        let mut admission = record.observation(self, snapshot, applied)?;
+        admission.enrollment_epoch = current.epoch;
         Ok(ActiveEvacuation {
-            admission: record.observation(self, snapshot, applied)?,
+            admission,
             slot: snapshot
                 .head
                 .disruption

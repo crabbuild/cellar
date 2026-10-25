@@ -7,6 +7,9 @@ use cellar::application::consensus::verification::{
     FleetCatalogError, FleetEvacuationArchive, FleetEvacuationVerification,
 };
 
+#[path = "raft_finalization_fence.rs"]
+mod finalization_fence;
+
 async fn begin(s: &Started) -> Result<(NamespaceCatalog, ProposalId, FleetEvacuationVerification)> {
     s.f.state(NodeId::new([7; 16])?, FleetNodeState::Active, 190)
         .await?;

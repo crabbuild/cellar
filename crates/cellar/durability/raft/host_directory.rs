@@ -128,6 +128,13 @@ pub(super) async fn prepare(
     }
     let domain = service.log.domain();
     let deadline = domain.mono_ms()?.saturating_add(options.timeout_ms);
+    let boot = if enrollment.is_some() {
+        let mut id = [0; 16];
+        crate::asyncrt::rng("fleet-host-boot").fill_bytes(&mut id);
+        Some(cellar_logic::consensus::ProposalId::new(id)?)
+    } else {
+        None
+    };
     let mut registrations = Vec::with_capacity(namespaces.len());
     let mut own_revision = 0;
     let mut rooted = None;
@@ -137,8 +144,10 @@ pub(super) async fn prepare(
             .await?;
         if let Some(authorization) = enrollment.as_mut() {
             **authorization = authorization
-                .bind_storage(
+                .bind_boot(
                     service.log.storage_instance()?,
+                    local.process,
+                    boot.ok_or_else(|| anyhow::anyhow!("missing managed boot identity"))?,
                     remaining(&domain, deadline)?,
                 )
                 .await?;

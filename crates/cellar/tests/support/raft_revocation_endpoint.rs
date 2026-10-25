@@ -55,34 +55,24 @@ impl Drop for Endpoint {
 impl Endpoint {
     pub(super) async fn open(
         f: &Fixture,
-        path: std::path::PathBuf,
+        root: &std::path::Path,
         id: u8,
         generation: u8,
     ) -> Result<Self> {
-        let spec = f.peer_spec(id)?;
-        let process = ProcessGeneration::new([generation; 16])?;
+        let (path, peer) = f.stopped_peer_boot(root, id, generation).await?;
+        let process = peer.process;
         let log = f
             .domain
             .run(ReplicaLog::open(
-                ReplicaLogOptions::new(path, spec.node, spec.disk, process, LogOpenMode::Resume),
+                ReplicaLogOptions::new(path, peer.node, peer.disk, process, LogOpenMode::Resume),
                 Arc::new(cellar_ltx::DirectFileSystem),
             ))
             .await??;
         let listeners = [
-            TcpListener::bind("127.0.0.1:0").await?,
-            TcpListener::bind("127.0.0.1:0").await?,
-            TcpListener::bind("127.0.0.1:0").await?,
+            TcpListener::bind(peer.control_address).await?,
+            TcpListener::bind(peer.data_address).await?,
+            TcpListener::bind(peer.query_address).await?,
         ];
-        let peer = RaftPeerNode {
-            node: spec.node,
-            disk: spec.disk,
-            process,
-            label: spec.label,
-            server_name: spec.server_name,
-            control_address: listeners[0].local_addr()?,
-            data_address: listeners[1].local_addr()?,
-            query_address: listeners[2].local_addr()?,
-        };
         let namespace = Catalog::new(
             f.store.clone(),
             CatalogOptions {
@@ -97,7 +87,10 @@ impl Endpoint {
             .await?
             .publication(peer.clone(), TIMEOUT)
             .await?;
-        publication.publish(TIMEOUT).await?;
+        // The admitted boot already published this exact endpoint. Keep that
+        // view while the sink blocks IO. This later candidate remains unrooted;
+        // the final-revocation case publishes it only after deleting the view,
+        // proving that a valid advisory publication cannot undo rooted removal.
         let config = rustls::ServerConfig::builder_with_provider(Arc::new(
             rustls::crypto::ring::default_provider(),
         ))

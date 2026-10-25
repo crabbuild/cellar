@@ -2,8 +2,10 @@
 
 //! Bounded receipt material for inventory-consuming terminal verification.
 //! Stored descriptors grant no completion or disruption-release authority.
+mod fencing;
 mod receipts;
 mod survivors;
+pub use fencing::FleetFinalizationAdmission;
 
 use super::*;
 use crate::application::consensus::RaftCells;
@@ -45,6 +47,7 @@ struct FrozenLive {
 /// checks and physical reconciliation. Stored candidate bytes cannot mint this
 /// value or reconstitute the runtime's verification work after a crash.
 pub struct FleetEvacuationCandidate {
+    catalog: FleetCatalog,
     digest: [u8; 32],
     candidate: Candidate,
 }
@@ -415,6 +418,10 @@ impl FleetEvacuationVerification {
             })
             .await?;
         deadline.remaining()?;
-        Ok(FleetEvacuationCandidate { digest, candidate })
+        Ok(FleetEvacuationCandidate {
+            catalog: self.catalog.clone(),
+            digest,
+            candidate,
+        })
     }
 }

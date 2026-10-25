@@ -120,8 +120,8 @@ pub mod verification {
         FleetBirthAuthorization, FleetBirthReservation, FleetCatalog, FleetCatalogError,
         FleetChange, FleetCommit, FleetCursor, FleetEntry, FleetEvacuationAdmission,
         FleetEvacuationArchive, FleetEvacuationCandidate, FleetEvacuationVerification,
-        FleetHistory, FleetHistoryState, FleetImportPhase, FleetInventory, FleetMutation,
-        FleetNamespaceImport, FleetPage, FleetSnapshot, FleetTable,
+        FleetFinalizationAdmission, FleetHistory, FleetHistoryState, FleetImportPhase,
+        FleetInventory, FleetMutation, FleetNamespaceImport, FleetPage, FleetSnapshot, FleetTable,
     };
     pub use crate::raft::inspection::{
         CellInspection, LeaderLoad, MemberInspection, NodeInspection, RaftNodeProfile,

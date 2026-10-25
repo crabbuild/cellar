@@ -119,9 +119,9 @@ async fn fleet_enrollment_node_probe_shutdown() -> Result<()> {
     let (_peer_root, peer_node, _peer) = f.peer_host(5).await?;
     let revision = f.catalog.read(TIMEOUT).await?.revision();
     f.remote(&host, NodeId::new([5; 16])?, revision).await?;
-    let peer_log_path = peer_node.info().data_dir.join("raft");
     peer_node.shutdown(ShutdownMode::Preserve).await?;
-    let process = ProcessGeneration::new([99; 16])?;
+    let (peer_log_path, endpoint) = f.stopped_peer_boot(_peer_root.path(), 5, 99).await?;
+    let process = endpoint.process;
     let log = f
         .domain
         .run(ReplicaLog::open(
@@ -135,35 +135,11 @@ async fn fleet_enrollment_node_probe_shutdown() -> Result<()> {
             Arc::new(cellar_ltx::DirectFileSystem),
         ))
         .await??;
-    let control = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
-    let data = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
-    let query = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
-    let endpoint = RaftPeerNode {
-        node: NodeId::new([5; 16])?,
-        disk: DiskLineage::new([15; 16])?,
-        process,
-        label: "fleet-peer-5".into(),
-        server_name: "localhost".into(),
-        control_address: control.local_addr()?,
-        data_address: data.local_addr()?,
-        query_address: query.local_addr()?,
-    };
-    let namespace = Catalog::new(
-        f.store.clone(),
-        CatalogOptions {
-            prefix: "host-enrollment/".into(),
-            ..Default::default()
-        },
-    )?
-    .existing_namespace(f.declaration.namespace.clone())
-    .await?;
-    namespace
-        .register_node_storage(&log, TIMEOUT)
-        .await?
-        .publication(endpoint, TIMEOUT)
-        .await?
-        .publish(TIMEOUT)
-        .await?;
+    let control = tokio::net::TcpListener::bind(endpoint.control_address).await?;
+    let _data = tokio::net::TcpListener::bind(endpoint.data_address).await?;
+    let _query = tokio::net::TcpListener::bind(endpoint.query_address).await?;
+    // Keep the exact view published by the actual admitted boot. Reopening
+    // its engine does not authorize a second publication with the same process.
     let tls = Arc::new(
         rustls::ServerConfig::builder_with_provider(Arc::new(
             rustls::crypto::ring::default_provider(),
@@ -528,6 +504,7 @@ impl Fixture {
             FleetNodeState::RestartPending
                 | FleetNodeState::ResizePending
                 | FleetNodeState::Draining
+                | FleetNodeState::Finalizing
                 | FleetNodeState::Evacuated
                 | FleetNodeState::Removed
         );
@@ -546,9 +523,12 @@ impl Fixture {
                 },
             ),
         ] {
-            payload = payload.replace(
+            // Node fields precede the nested boot record in canonical encoding.
+            // Preserve that order and replace exactly this top-level occurrence.
+            payload = payload.replacen(
                 &format!("\"{field}\":{}", serde_json::to_string(&value[field])?),
                 &format!("\"{field}\":{}", serde_json::to_string(&replacement)?),
+                1,
             );
         }
         use sha2::{Digest, Sha256};
@@ -831,6 +811,42 @@ impl Fixture {
             .catalog
             .authorize_host(&committed.snapshot, self.spec.node, TIMEOUT)
             .await?)
+    }
+
+    // Admit an actual empty managed boot before replacing its listeners with
+    // a controlled TLS sink. A bare advisory publication cannot claim a new
+    // rooted process. The sink retains that boot's exact endpoint descriptor.
+    async fn stopped_peer_boot(
+        &self,
+        root: &std::path::Path,
+        id: u8,
+        generation: u8,
+    ) -> Result<(std::path::PathBuf, RaftPeerNode)> {
+        use anyhow::Context as _;
+
+        let spec = self.peer_spec(id)?;
+        let cut = self.catalog.read(TIMEOUT).await?;
+        let authorization = self
+            .catalog
+            .authorize_host(&cut, spec.node, TIMEOUT)
+            .await?;
+        let node =
+            public_node::node_named(root, self.definition.application.clone(), &spec.label).await?;
+        let (mut config, services) = self.config_for(&node, authorization, &spec).await?;
+        let process = ProcessGeneration::new([generation; 16])?;
+        config.infrastructure.log.mode = LogOpenMode::Resume;
+        config.infrastructure.log.process = process;
+        config.peers[0].process = process;
+        let peer = config.peers[0].clone();
+        let path = config.infrastructure.log.directory.clone();
+        let host = node.start_raft_cells(config, services).await?;
+        ensure!(host.observe_node(TIMEOUT).await?.node.identity.process == process);
+        let NodeOutcome::Stopped(report) = node.shutdown(ShutdownMode::Preserve).await? else {
+            anyhow::bail!("controlled peer boot did not stop");
+        };
+        let raft = report.raft.context("controlled boot physical shutdown")?;
+        ensure!(!raft.startup_incomplete && raft.result?.unfinished.is_empty());
+        Ok((path, peer))
     }
 
     async fn config(
@@ -1166,7 +1182,11 @@ async fn fleet_enrollment_empty_engine_resume() -> Result<()> {
     ensure!(resumed.node.groups == 0 && resumed.registered_histories == 0);
     ensure!(
         resumed.startup_enrollment.as_ref().unwrap().revision
-            == original.startup_enrollment.as_ref().unwrap().revision
+            == original.startup_enrollment.as_ref().unwrap().revision + 1
+    );
+    ensure!(
+        resumed.startup_enrollment.as_ref().unwrap().epoch
+            == original.startup_enrollment.as_ref().unwrap().epoch + 1
     );
     node.shutdown(ShutdownMode::Handoff).await?;
     f.domain.shutdown().await;

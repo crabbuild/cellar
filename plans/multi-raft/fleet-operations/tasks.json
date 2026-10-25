@@ -412,7 +412,10 @@
         "crates/cellar/durability/raft/fleet_catalog/finalization/mod.rs",
         "crates/cellar/durability/raft/fleet_catalog/finalization/receipts.rs",
         "crates/cellar/durability/raft/fleet_catalog/finalization/survivors.rs",
-        "crates/cellar/tests/support/raft_evacuation_verification.rs"
+        "crates/cellar/tests/support/raft_evacuation_verification.rs",
+        "crates/cellar/durability/raft/fleet_catalog/boots.rs",
+        "crates/cellar/durability/raft/fleet_catalog/finalization/fencing.rs",
+        "crates/cellar/tests/support/raft_finalization_fence.rs"
       ],
       "steps": [
         "Add CAS-authorized node-set revisions with bounded route and permission refresh.",
@@ -435,7 +438,8 @@
         "While a successor repair is accepted but not yet applied, retain its waiter through the previous terminal repair status. Refuse a conflicting result only after the accepted position applies; a prior Complete/Aborted plan does not prove the new proposal failed. Preserve exact quorum reconciliation of ambiguous outcomes.",
         "Persist explicit Nodes or PhysicalHosts replica separation in the fleet head and initial genesis pin. Default to PhysicalHosts. Fresh managed births and actual fresh repair admission enforce the selected rooted contract; exact committed repairs remain continuable after exclusion. Node-only colocation grants no physical failure independence. Hard-cut prior protocol/records with marker 1 and no compatibility reader.",
         "Admit Active-to-Draining evacuation intent through one exact root CAS after an internal complete-inventory scan. Atomically persist its canonical operation, excluded node epoch and the single disruption slot, with a retained root digest that refuses generic deletion/reset. Reconcile admitted exact retries through the journal, including after later incomplete namespace additions. This is exclusion admission only, with no shutdown, node-absence, terminal evacuation/removal, reservation release or completed-controller claim. Permanently bind each evacuation operation ID to its exact canonical request through conditional create before root CAS, even if that candidate loses. Admitted reads and retry reconciliation verify that immutable binding; missing request bytes refuse.",
-        "Prepare bounded digest-addressed evacuation candidates by consuming complete rooted inventory and owning actual authenticated RF3 observations plus exact physical archive replay. Retain one fixed publication cut per pending history across writes and replay retries; check stable membership, exact settled latest permits, current rooted node/disk/process/engine bindings and failure-domain separation. Reserved births block; canonical cancellations remain explicit. Recheck rooted inputs around immutable paged receipt work. Candidates leave the root and disruption slot unchanged; fresh terminal health, physical joins/fences and the atomic terminal receipt remain required."
+        "Prepare bounded digest-addressed evacuation candidates by consuming complete rooted inventory and owning actual authenticated RF3 observations plus exact physical archive replay. Retain one fixed publication cut per pending history across writes and replay retries; check stable membership, exact settled latest permits, current rooted node/disk/process/engine bindings and failure-domain separation. Reserved births block; canonical cancellations remain explicit. Recheck rooted inputs around immutable paged receipt work. Candidates leave the root and disruption slot unchanged; fresh terminal health, physical joins/fences and the atomic terminal receipt remain required.",
+        "Order every managed boot, including intact restart, against Finalizing through a permanent exact boot request and root CAS before endpoint publication. Bind trust and running-host authorization to the original boot process. Consume a complete historical candidate through fresh inventory and an owned process probe, then atomically root the Finalizing projection and higher node epoch while retaining the disruption slot. Reconcile exact committed retries without live inputs; preserve deadline checks at CAS. This boot fence grants no physical stop, terminal removal or resource release; Finalizing resumption and physical/terminal integration remain pending."
       ],
       "acceptance": [
         "Inventory includes pending births and all managed namespaces.",
@@ -1608,6 +1612,77 @@
             "F08",
             "F10"
           ]
+        },
+        {
+          "name": "fleet_boot_epoch_survives_node_state_changes",
+          "oracle": "Actual managed hosts retain the exact boot claim through Active and Draining epoch changes. Canonical node decoding and authenticated current-enrollment observations succeed without rewriting the nested original boot epoch.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F03",
+            "F07",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_finalization_boot_fence_and_retry",
+          "oracle": "Missing inventory refuses before admission. A fresh process probe and one CAS bind the exact candidate, physical process and new Finalizing epoch. Lost responses and reopened-adapter retries confirm the original journal without live inputs; changed request payloads refuse, another disruption remains blocked and S3 business writes continue.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F03",
+            "F07",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_finalization_blocks_intact_boot",
+          "oracle": "After the old actual node owner joins, a real same-directory retained-engine restart with saved authorization refuses the rooted Finalizing fence. The historical epoch remains fixed and all other owners join with scratch reclaimed.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F03",
+            "F07",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_finalization_new_boot_invalidates_candidate",
+          "oracle": "An actual retained-engine Draining restart claims a new process and epoch while retaining the engine. The previous candidate refuses; a freshly verified candidate may fence only the newer journal-confirmed boot.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F03",
+            "F07",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_finalization_inflight_boot_wins_cas",
+          "oracle": "Hold finalization after its real process probe. A separate catalog adapter admits an actual retained-engine restart first. The held finalization CAS loses, creates no rooted Finalizing projection, and cannot rebind its permanent request identity; survivor writes and joined cleanup succeed.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F03",
+            "F07",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "rooted_boot_refresh_restores_only_retained_routes",
+          "oracle": "A journal-admitted process supersession cancels old physical pools and grants. Verified new discovery recreates pools only for retained group/query obligations, refreshes logical grants without advancing membership or grant revisions, rejects the old view and creates no pool for an empty discovery or the local node.",
+          "invariants": [
+            "F02",
+            "F06",
+            "F07",
+            "F08",
+            "F10"
+          ]
         }
       ],
       "verification": [
@@ -1696,6 +1771,28 @@
           "--test",
           "native_raft_snapshot",
           "--locked",
+          "--",
+          "--test-threads=1"
+        ],
+        [
+          "cargo",
+          "test",
+          "-p",
+          "cellar",
+          "--lib",
+          "--locked",
+          "raft::",
+          "--",
+          "--list"
+        ],
+        [
+          "cargo",
+          "test",
+          "-p",
+          "cellar",
+          "--lib",
+          "--locked",
+          "raft::",
           "--",
           "--test-threads=1"
         ]

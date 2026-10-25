@@ -135,6 +135,17 @@ impl RaftTransport {
         for grant in origins.values_mut().chain(inspection_origins.values_mut()) {
             if grant.peer.as_ref().is_some_and(|peer| !allowed(peer)) {
                 grant.stop.send_replace(true);
+                // A boot supersession cancels this physical owner, but the
+                // logical grant still belongs to the same enrolled node. Keep
+                // its descriptor so a verified newer view can refresh it.
+                // Removed or changed registrations retain the explicit revoke.
+                if grant.peer.as_ref().is_some_and(|peer| {
+                    trust
+                        .node(peer.node)
+                        .is_some_and(|node| node.matches_registration(peer))
+                }) {
+                    continue;
+                }
                 let (stop, _) = watch::channel(false);
                 *grant = Arc::new(queries::OriginGrant {
                     revision: grant.revision,

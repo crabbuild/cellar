@@ -28,12 +28,16 @@ before atomically excluding an Active node and claiming its disruption slot;
 it grants no shutdown or removal certificate. Managed births and fresh repairs
 enforce the rooted replica-separation policy, defaulting to distinct physical
 hosts. Explicit node-only colocation grants no host-failure independence.
+Every managed boot claims its exact process through root CAS before endpoint
+publication. The Finalizing transition orders against those claims and refuses
+later boots; it retains the disruption slot and grants no physical-stop or
+terminal-removal authority. See the [fleet catalog contract](fleet_catalog/README.md).
 The legacy opt-in controller remains disabled for managed hosts pending the
 owned fleet reconciler and its qualification gates.
 Managed initial voters persist their enrollment with genesis before a permanent
 member claim and runtime attachment. Empty hosts can initialize them dynamically,
 and cold managed members resolve rooted peer views with only a self hint.
-The experimental namespace protocol now ends in `/fleet-quorum-1/fleet-cuts-1/empty-archives-1/archive-cuts-1`; use fresh
+The experimental namespace protocol now ends in `/fleet-quorum-1/fleet-cuts-1/empty-archives-1/archive-cuts-1/fleet-finalization-1`; use fresh
 fleet/data prefixes, namespaces and matching binaries, with numeric markers
 retained at 1 and no compatibility reader or migration.
 

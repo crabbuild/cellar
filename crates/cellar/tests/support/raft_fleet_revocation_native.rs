@@ -88,12 +88,11 @@ async fn verify_route_revocation() -> Result<()> {
         .await?
         .node
         .storage_instance;
-    let path = target_node.info().data_dir.join("raft");
     stopped(target_node).await?;
     let revision = f
         .state(NodeId::new([7; 16])?, FleetNodeState::RestartPending, 151)
         .await?;
-    let mut old = endpoint::Endpoint::open(&f, path, 7, 99).await?;
+    let mut old = endpoint::Endpoint::open(&f, target_root.path(), 7, 99).await?;
     let pending = old.block(&f, &nodes[p].host, revision).await?;
     ensure!(
         nodes[p]
@@ -205,9 +204,8 @@ async fn verify_route_revocation() -> Result<()> {
 
     let (empty_root, empty_node, empty) = f.peer_host(8).await?;
     let empty_instance = empty.observe_node(TIMEOUT).await?.node.storage_instance;
-    let path = empty_node.info().data_dir.join("raft");
     stopped(empty_node).await?;
-    let mut removed = endpoint::Endpoint::open(&f, path, 8, 129).await?;
+    let mut removed = endpoint::Endpoint::open(&f, empty_root.path(), 8, 129).await?;
     ensure!(removed.log.storage_instance()? == empty_instance);
     let revision = f.catalog.read(TIMEOUT).await?.revision();
     let mut pending = removed.block(&f, &nodes[p].host, revision).await?;
