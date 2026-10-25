@@ -320,6 +320,10 @@ npm ci --prefix examples/javascript --ignore-scripts
 npm run --prefix examples/javascript build
 cargo build --locked -p cellar-javascript --features embed --bin cellar-javascript-example
 
+# Streaming application (also compiled by crate-wide tests)
+npm ci --prefix examples/streaming --ignore-scripts
+npm run --prefix examples/streaming build
+
 # Node reference application
 npm ci --prefix examples/node --ignore-scripts
 npm run --prefix examples/node build

@@ -55,6 +55,7 @@ export function createDemoServer({
   model,
   provider,
   directory,
+  storage,
 }) {
   const tickets = ticketStore(
     directory ? join(directory, "tickets.sqlite") : ":memory:",
@@ -163,12 +164,28 @@ export function createDemoServer({
         return json(res, 202, { accepted: true });
       }
       if (path === "/api/config" && req.method === "GET")
-        return json(res, 200, { provider, model });
+        return json(res, 200, { provider, model, storage });
       if (path === "/api/restart" && req.method === "POST") {
         if (req.headers.origin !== origin)
           return json(res, 403, { error: "Origin required" });
         await restart(reset);
         return json(res, 200, { restarted: true });
+      }
+      if (path === "/api/conversations" && req.method === "GET") {
+        const target = backend();
+        if (!target)
+          return json(res, 503, {
+            error: "Conversation history is recovering",
+          });
+        const reply = await fetch(`${target}/conversations`, {
+          signal: AbortSignal.timeout(15000),
+        });
+        res.writeHead(reply.status, {
+          "content-type": "application/json",
+          "cache-control": "no-store",
+        });
+        res.end(await reply.text());
+        return;
       }
       const match = /^\/api\/tasks\/([a-zA-Z0-9_-]{1,64})(\/events)?$/.exec(
         path,
