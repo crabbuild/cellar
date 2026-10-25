@@ -126,7 +126,9 @@ fn corrupt_clone_and_ambiguous_creation_never_publish_or_refund_uncertain_capaci
     drop(db);
     let next = std::fs::read(next_path).unwrap();
     let pages: Vec<_> = next
-        .chunks_exact(4096)
+        .as_chunks::<4096>()
+        .0
+        .iter()
         .enumerate()
         .filter(|(i, p)| bytes.get(i * 4096..i * 4096 + 4096) != Some(*p))
         .map(|(i, p)| (i as u32 + 1, p.to_vec()))

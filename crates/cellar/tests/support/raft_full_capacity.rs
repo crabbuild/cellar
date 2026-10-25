@@ -59,8 +59,8 @@ fn definition(calls: Arc<AtomicUsize>) -> Result<public_node::Counter> {
             let mut output = [value.to_be_bytes(), bytes.to_be_bytes()].concat();
             if !input.is_empty() {
                 ensure!(input.len() == 24, "invalid payload sample request");
-                for id in input.chunks_exact(8) {
-                    let id = u64::from_be_bytes(id.try_into()?);
+                for id in input.as_chunks::<8>().0 {
+                    let id = u64::from_be_bytes(*id);
                     let payload: Vec<u8> =
                         context
                             .query_row("SELECT value FROM items WHERE id=?1", [id], |r| r.get(0))?;
@@ -875,7 +875,7 @@ fn make_template(directory: &Path, quota: u64, incompressible: bool) -> Result<P
     let mut payload = vec![0; 1048576];
     if incompressible {
         let mut seed = 0x6a09_e667_f3bc_c909_u64;
-        for bytes in payload.chunks_exact_mut(8) {
+        for bytes in payload.as_chunks_mut::<8>().0 {
             seed ^= seed << 13;
             seed ^= seed >> 7;
             seed ^= seed << 17;

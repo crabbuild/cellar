@@ -88,7 +88,7 @@ pub async fn check(address: &str) -> Result<()> {
         large.len() == 5 * 2048,
         "stream was limited by its total length"
     );
-    for (index, chunk) in large.chunks_exact(2048).enumerate() {
+    for (index, chunk) in large.as_chunks::<2048>().0.iter().enumerate() {
         ensure!(chunk.iter().all(|byte| *byte == index as u8));
     }
     client

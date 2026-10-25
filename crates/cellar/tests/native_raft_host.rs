@@ -236,20 +236,35 @@ async fn snapshot_capacity_refused_before_member_storage_opens() -> Result<()> {
         birth: proposal(2, "Counter:one", 5, 1),
     };
     let outcome = async {
-        for field in 0..3 {
+        for field in 0..4 {
             let mut host = RaftHostOptions::default();
-            match field {
-                0 => host.images.apply.decode.max_encoded_bytes = 64 * 1024 * 1024,
-                1 => host.images.apply.max_total_encoded_bytes = 64 * 1024 * 1024,
-                _ => host.archive.limits.max_object_bytes = 64 * 1024 * 1024,
-            }
-            let result = public_node::cells_with_host(
+            let mut transport = TransportOptions::default();
+            let expected = match field {
+                0 => {
+                    host.archive.limits.max_snapshot_bytes = 64 * 1024 * 1024;
+                    "full-LTX encoding overhead"
+                }
+                1 => {
+                    host.archive.limits.max_image_bytes = 32 * 1024 * 1024;
+                    "full-LTX encoding overhead"
+                }
+                2 => {
+                    transport.max_snapshot_bytes = 64 * 1024 * 1024;
+                    "Raft snapshot: Limit"
+                }
+                _ => {
+                    transport.max_snapshot_image_bytes = 32 * 1024 * 1024;
+                    "snapshot image exceeds configured quota"
+                }
+            };
+            let result = public_node::cells_with_transport(
                 &node,
                 definition.application.clone(),
                 store.clone(),
                 registration.clone(),
                 false,
                 host,
+                transport,
             )
             .await;
             let error = match result {
@@ -259,9 +274,30 @@ async fn snapshot_capacity_refused_before_member_storage_opens() -> Result<()> {
                     bail!("admitted an image whose full snapshot cannot fit field {field}");
                 }
             };
-            ensure!(error.to_string().contains("full-LTX encoding overhead"));
+            ensure!(
+                error.to_string().contains(expected),
+                "snapshot limit {field}: {error:#}"
+            );
             ensure!(!node.info().data_dir.join("raft").exists());
         }
+        // Streamed snapshots use their own physical allowance and bounded
+        // archive parts. Command decoding and one object need not hold a full
+        // image; retain positive coverage for the formerly rejected bounds.
+        let mut host = RaftHostOptions::default();
+        host.images.apply.decode.max_encoded_bytes = 64 * 1024 * 1024;
+        host.images.apply.max_total_encoded_bytes = 64 * 1024 * 1024;
+        host.archive.limits.max_object_bytes = 64 * 1024 * 1024;
+        let service = public_node::cells_with_host(
+            &node,
+            definition.application.clone(),
+            store.clone(),
+            registration,
+            false,
+            host,
+        )
+        .await?;
+        ensure!(node.info().data_dir.join("raft").exists());
+        ensure!(service.close().await?.unfinished.is_empty());
         Ok(())
     }
     .await;
