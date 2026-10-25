@@ -77,11 +77,12 @@ impl ExtentDownload {
             return Err(Error::Integrity);
         }
         self.file.sync_all()?;
-        verify_file(&mut self.file, self.id)?;
+        let blocks = verify_file(&mut self.file, self.id)?;
         Ok(ExtentFile {
             storage: Arc::new(Storage {
                 file: Mutex::new(self.file),
                 _reservation: self.reservation,
+                blocks,
             }),
             id: self.id,
         })
@@ -92,6 +93,9 @@ impl ExtentDownload {
 struct Storage {
     file: Mutex<HostFile>,
     _reservation: ScratchReservation,
+    // Derived from independently verified destination bytes only after their
+    // complete extent identity matched. At most 64 digests (2 KiB) per file.
+    blocks: Vec<[u8; 32]>,
 }
 
 /// Shared immutable data material verified against an authenticated manifest's
@@ -107,6 +111,8 @@ impl ExtentFile {
         self.id
     }
 
+    /// Recheck the containing 64 KiB blocks before exposing any requested byte.
+    /// An unaligned request needs at most two bounded reads; no extent rescan.
     pub fn chunk(&self, offset: u64, length: usize) -> Result<Vec<u8>, Error> {
         if length == 0
             || length > BUFFER_BYTES
@@ -116,16 +122,34 @@ impl ExtentFile {
         {
             return Err(Error::Limit);
         }
-        let bytes = self
+        let mut file = self
             .storage
             .file
             .lock()
-            .map_err(|_| Error::Invalid("poisoned extent owner"))?
-            .read_exact_at(offset, length)?;
-        if bytes.len() != length {
-            return Err(std::io::ErrorKind::UnexpectedEof.into());
+            .map_err(|_| Error::Invalid("poisoned extent owner"))?;
+        let end = offset + length as u64;
+        let mut position = offset / BUFFER_BYTES as u64 * BUFFER_BYTES as u64;
+        let mut output = Vec::with_capacity(length);
+        while position < end {
+            let count = (u64::from(self.id.length()) - position).min(BUFFER_BYTES as u64) as usize;
+            let bytes = file.read_exact_at(position, count)?;
+            if bytes.len() != count {
+                return Err(std::io::ErrorKind::UnexpectedEof.into());
+            }
+            let expected = self
+                .storage
+                .blocks
+                .get((position / BUFFER_BYTES as u64) as usize)
+                .ok_or(Error::Invalid("extent read proof coverage"))?;
+            if <[u8; 32]>::from(Sha256::digest(&bytes)) != *expected {
+                return Err(Error::Integrity);
+            }
+            let first = offset.saturating_sub(position) as usize;
+            let last = (end - position).min(count as u64) as usize;
+            output.extend_from_slice(&bytes[first..last]);
+            position += count as u64;
         }
-        Ok(bytes)
+        Ok(output)
     }
 
     pub fn verify(&self) -> Result<(), Error> {
@@ -134,15 +158,16 @@ impl ExtentFile {
             .file
             .lock()
             .map_err(|_| Error::Invalid("poisoned extent owner"))?;
-        verify_file(&mut file, self.id)
+        verify_file(&mut file, self.id).map(|_| ())
     }
 }
 
-fn verify_file(file: &mut HostFile, id: ExtentId) -> Result<(), Error> {
+fn verify_file(file: &mut HostFile, id: ExtentId) -> Result<Vec<[u8; 32]>, Error> {
     if file.file_len()? != u64::from(id.length()) {
         return Err(Error::Integrity);
     }
     let mut hash = id.stream_hasher();
+    let mut blocks = Vec::with_capacity((id.length() as usize).div_ceil(BUFFER_BYTES));
     let mut offset = 0;
     while offset < u64::from(id.length()) {
         let length = (u64::from(id.length()) - offset).min(BUFFER_BYTES as u64) as usize;
@@ -151,10 +176,11 @@ fn verify_file(file: &mut HostFile, id: ExtentId) -> Result<(), Error> {
             return Err(std::io::ErrorKind::UnexpectedEof.into());
         }
         hash.update(&bytes);
+        blocks.push(Sha256::digest(&bytes).into());
         offset += length as u64;
     }
     if <[u8; 32]>::from(hash.finalize()) != id.bytes() {
         return Err(Error::Integrity);
     }
-    Ok(())
+    Ok(blocks)
 }

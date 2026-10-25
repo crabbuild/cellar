@@ -220,3 +220,45 @@ fn creation_failure_refunds_the_complete_reservation() {
     );
     assert_idle(&files, &scratch);
 }
+
+#[test]
+fn read_faults_after_sealing_never_expose_unauthenticated_bytes() {
+    let root = tempfile::tempdir().unwrap();
+    let files = files(&root);
+    let bytes = (0..65553)
+        .map(|index| (index % 251) as u8)
+        .collect::<Vec<_>>();
+    let scratch = pool(bytes.len() as u64, 1);
+    let mut pending = download(&files, &scratch, &bytes);
+    append(&mut pending, &bytes);
+    let extent = pending.finish().unwrap();
+    for (offset, length) in [(0, 1), (1, 65536), (65535, 2), (65536, 17)] {
+        files
+            .metrics
+            .corrupt_read_countdown
+            .store(1, Ordering::Release);
+        assert!(
+            matches!(extent.chunk(offset, length), Err(Error::Integrity)),
+            "post-seal corruption escaped at {offset}/{length}"
+        );
+        files
+            .metrics
+            .corrupt_read_countdown
+            .store(0, Ordering::Release);
+        assert_eq!(
+            extent.chunk(offset, length).unwrap(),
+            bytes[offset as usize..offset as usize + length]
+        );
+    }
+    // The first block is valid but a later block is faulty. No partial output
+    // may escape after an earlier portion of the request has been validated.
+    files
+        .metrics
+        .corrupt_read_countdown
+        .store(2, Ordering::Release);
+    assert!(matches!(extent.chunk(1, 65536), Err(Error::Integrity)));
+    assert_eq!(scratch.usage().unwrap().reserved_bytes, bytes.len() as u64);
+    drop(extent);
+    assert_idle(&files, &scratch);
+    assert!(files.metrics.max_read.load(Ordering::Acquire) <= 65536);
+}

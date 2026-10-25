@@ -81,6 +81,11 @@ An incomplete owner exposes no reader.
 Finishing requires the exact incoming length and content identity, a successful
 file sync, then an independent destination length check and streamed hash. Only
 then does it return an immutable `ExtentFile`. Its reads also use at most 64 KiB.
+During independent destination verification it derives up to 64 block digests
+(2 KiB per file), retaining them only after the complete extent identity matches.
+Every later read verifies its containing blocks before returning any bytes;
+unaligned requests need at most two 64 KiB reads, rather than an extent rescan.
+These local read proofs are not a new wire format or publication capability.
 The anonymous handle closes before its disk/file reservation is refunded; clones
 share both owners until the last clone drops. Hash framing matches the typed
 `ExtentId` domain, including exact length. There is no whole-extent allocation in
@@ -192,16 +197,33 @@ writer bases, incremental checkpoint continuity and native installation gates
 still require integration. Anonymous cache files must never become the only
 copy of committed state. This component does not close R7 by itself.
 
-The current owning scope passes all 60 ordinary LTX integration cases and the
+At `eb459388`, the owning scope passes all 60 ordinary LTX integration cases and the
 49 native LTX/read regressions after sharing the VFS boundary. Three child/
 qualification entries remain ignored by these invocations. Rust 1.98.1 LTX
 all-target Clippy with warnings denied, formatting/layout (1,047 Rust files),
 the 465-package native dependency graph and local documentation checks pass.
 
-The broader native pass adds 603 host library, 60 archive, 21 execution, 32
+The broader native pass at the same revision adds 603 host library, 60 archive, 21 execution, 32
 host, four ordinary large-image and 44 snapshot cases: **873 passing cases**
 in the combined scope, with ten child/qualification entries ignored by their
 parent invocations. Native/LTX all-target Clippy and native-only/no-Python
 libraries also pass. The full-size production experiment is a separate frozen
 materialized-runtime build; these ordinary results do not qualify native
 extent-based installation or full-size recovery.
+
+## Post-seal read integrity
+
+An injected read fault exposed a gap after the initial extent seal: `chunk`
+could return an altered byte while still carrying the original content identity.
+The new regression fails before per-block verification and passes afterward,
+including a fault in the second block after the first portion was valid. An
+actual SQLite open over a previously verified cache entry also refuses a later
+faulty read. Clearing a transient test fault permits a subsequent correct read;
+the selected root and physical charge remain unchanged throughout.
+
+The follow-up changes only the extent-file data path and test fault adapter.
+The materialized native runtime remains the separately qualified baseline above.
+All 62 current LTX integration cases pass (one full-size qualification entry
+ignored), including eight extent-file and eleven extent-image cases. LTX
+all-target Rust 1.98.1 Clippy passes with warnings denied. This follow-up does
+not claim a rerun of the 813 native cases or a full-size native extent restore.

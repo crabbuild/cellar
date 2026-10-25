@@ -641,3 +641,31 @@ fn held_source_retains_physical_admission_until_joined_even_after_cache_eviction
         f.idle();
     }
 }
+
+#[test]
+fn sqlite_refuses_corruption_from_an_already_verified_cached_extent() {
+    let f = Fixture::new(8, 4096);
+    let image = f.image();
+    image.read_exact_at(0, 100).unwrap();
+    assert_eq!(f.source.calls.load(Ordering::Acquire), 1);
+    // Let the cache's SQLite header check pass, then corrupt the block returned
+    // to SQLite's actual xRead. This must not require another source download.
+    f.files
+        .metrics
+        .corrupt_read_countdown
+        .store(2, Ordering::Release);
+    assert!(open_extent_image(image.clone(), services()).is_err());
+    assert_eq!(f.source.calls.load(Ordering::Acquire), 1);
+    assert_eq!(image.manifest().root(), f.manifest.root());
+    assert_eq!(f.scratch.usage().unwrap().reserved_bytes, EXTENT_BYTES);
+    let db = open_extent_image(image.clone(), services()).unwrap();
+    assert_eq!(
+        db.connection()
+            .query_row("SELECT value FROM counter", [], |row| row.get::<_, u64>(0))
+            .unwrap(),
+        7
+    );
+    drop(db);
+    drop(image);
+    f.idle();
+}

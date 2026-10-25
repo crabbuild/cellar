@@ -216,6 +216,9 @@ the extents needed by each read. Cache byte/file limits and a shared scratch
 pool bound retained and in-flight files separately. Eviction keeps the root
 fixed; live reads retain their physical files and charges. Sources execute on
 the owning blocking domain and append through an already admitted download.
+Verified extent files retain at most 2 KiB of local block digests and check each
+later read against them before exposing bytes, including after cache insertion.
+An unaligned read needs at most two 64 KiB reads, with no complete extent rescan.
 The caller must authenticate the manifest and retain its dependency closure.
 This is a data-access component, not native recovery or publication authority;
 durable inventory and native command/archive integration remain open. See the

@@ -429,7 +429,7 @@ Real small/larger SQLite hot-set tests fetch one 4 MiB extent, while broad reads
 cache eviction/refetch and injected failures preserve the exact root and
 physical file charges.
 
-The combined owning scope passes 873 ordinary cases, including 60 LTX and 813
+The combined scope at `eb459388` passes 873 ordinary cases, including 60 LTX and 813
 native cases. Ten child/qualification entries are ignored by their parent
 invocations. Native/LTX all-target Rust 1.98.1 Clippy with warnings denied,
 native-only/no-Python libraries, formatting/layout and dependency/docs checks
@@ -437,6 +437,15 @@ pass. These components still do not supply durable native root inventory,
 archive/peer placement, an authenticated cold writer base, incremental checkpoint
 continuity or native installation authority. They do not close R7 or establish
 a fast-recovery claim.
+
+A later extent-read regression reproduces corrupt bytes escaping after a file
+was initially sealed. Extent files now retain up to 2 KiB of derived block
+digests and verify every later read, using at most two 64 KiB reads for an
+unaligned request. The regression fails before the fix; all 62 LTX integration
+cases and LTX all-target Clippy pass afterward. Actual SQLite also refuses a
+faulty read from an already verified cache entry. This changes the extent data
+path only; the 813 materialized native cases above remain prior-revision
+evidence, and full native extent installation remains unimplemented.
 
 ## Remaining work
 

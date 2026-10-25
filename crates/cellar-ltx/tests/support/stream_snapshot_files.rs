@@ -23,6 +23,7 @@ pub struct Metrics {
     pub fail_sync: AtomicBool,
     pub corrupt_output: AtomicBool,
     pub short_read: AtomicBool,
+    pub corrupt_read_countdown: AtomicUsize,
     pub clone_mode: AtomicUsize,
     pub clone_calls: AtomicUsize,
     /// 0: unsupported; 1: accepted; 2: I/O failure; 3: second file fails;
@@ -107,6 +108,18 @@ impl HostFileIo for File {
         let mut bytes = self.inner.read_exact_at(offset, len)?;
         if self.metrics.short_read.swap(false, Ordering::AcqRel) {
             bytes.pop();
+        }
+        if self
+            .metrics
+            .corrupt_read_countdown
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |remaining| {
+                remaining.checked_sub(1)
+            })
+            .is_ok_and(|before| before == 1)
+        {
+            if let Some(byte) = bytes.last_mut() {
+                *byte ^= 1;
+            }
         }
         Ok(bytes)
     }
