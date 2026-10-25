@@ -13,6 +13,7 @@ use recovery::read;
 pub(crate) use recovery::read as recovery_read;
 pub use wait::run as waits;
 pub use wait::smoke as wait_smoke;
+pub use wait::v8_repro as wait_v8_repro;
 
 // Reuse the owning SDK harness's real peer/object-store faults. Its lost-ack
 // variant is outside this suite; no runtime hooks or fake proof tickets exist.

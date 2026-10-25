@@ -37,6 +37,7 @@ pub(super) struct Trace {
     entries: Mutex<BTreeMap<Role, Entry>>,
     caller_node: Mutex<Option<String>>,
     observation_error: Mutex<Option<String>>,
+    late: Mutex<Option<Value>>,
 }
 
 pub(super) struct Frame {
@@ -45,6 +46,42 @@ pub(super) struct Frame {
 }
 
 impl Trace {
+    pub fn observe_late(&self, context: &Context) -> Result<()> {
+        // A fresh native read proves stale Python work did not change storage.
+        // This runs only in that read's installed turn, never in a coordinator.
+        let identity = context
+            .identity()
+            .context("late probe has no cell identity")?;
+        let storage = context.storage()?;
+        let count = storage.get_json("count")?;
+        let late = storage.get_json("python-late")?;
+        let mut slot = self.late.lock().unwrap();
+        let prior = match slot.as_ref() {
+            None => 0,
+            Some(value) => value["ordinal"]
+                .as_u64()
+                .context("late probe ordinal is missing")?,
+        };
+        let ordinal = prior
+            .checked_add(1)
+            .context("late probe ordinal exhausted")?;
+        *slot = Some(
+            json!({"ordinal":ordinal,"node":context.var("DOMAIN_MARKER"),
+            "class":identity.class,"scope":identity.scope,"epoch":identity.epoch,
+            "count":count,"late":late}),
+        );
+        Ok(())
+    }
+
+    pub fn late(&self) -> Result<Value> {
+        self.check_observation()?;
+        self.late
+            .lock()
+            .unwrap()
+            .clone()
+            .context("fresh native late-write probe was not observed")
+    }
+
     pub fn caller(&self, context: &Context) -> Result<()> {
         let node = context
             .var("DOMAIN_MARKER")

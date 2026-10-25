@@ -612,6 +612,18 @@ cargo run --locked -p cellar-rpc-qualification --features full -- \
 
 Its report is explicitly `qualified: false`; it cannot replace the full matrix.
 
+For the observed V8/local/sync/deadline warmup failure, repeat that exact case
+up to 16 times without changing lease or watchdog policy:
+
+```sh
+cargo run --locked -p cellar-rpc-qualification --features full -- \
+  --suite proof-wait-v8-repro --report .cellar/rpc/proof-wait-v8-repro.json
+```
+
+This diagnostic also reports `qualified: false`. If warmup fails, bounded fresh
+health/read probes and joined native shutdown outcomes distinguish a closed
+HTTP connection from node fencing. The failed mutation is never replayed.
+
 ```text
 native SQLite count + receipt committed
                   |
@@ -828,6 +840,76 @@ the earlier deadline, proof, recovery, cycle and provenance suites in `all`.
 The [lifecycle CI job](../../.github/workflows/typed-rpc.yml) builds the locked
 fixtures, checks the Rust qualifier and runs this matrix on Linux with Node 24
 and GIL CPython 3.14. It retains the report and execution log as artifacts.
+
+## Python cancellation suppression
+
+These suites keep an actual typed Python provider task alive after its native
+invocation has retired. The caller's cancellation is acknowledged before late
+SDK attempts; a Python caller shares the interpreter with the stale provider.
+
+```sh
+cargo run --locked -p cellar-rpc-qualification --features full -- \
+  --suite python-cancellation --report .cellar/rpc/python-cancellation.json
+cargo run --locked -p cellar-rpc-qualification --features full -- \
+  --suite python-supervision --report .cellar/rpc/python-supervision.json
+```
+
+The matching `-smoke` variants run one Rust/local/post-sync diagnostic.
+
+```text
+typed Python increment -> native Rust child held
+          |
+  caller cancellation OR forced owner cutoff
+          |
+  native frames retire; original weak authority expires
+          |
+  Python catches CancelledError and stays alive
+          |
+  late storage / typed RPC / raw bridge attempts refused
+          |
+  native admissions + byte reservations = 0; guest invocation = 1
+          |
+  fresh native owner -> receipt retries -> repeat stale attempts
+          |
+    +-----+------------------------------------+
+    |                                          |
+ explicit task release                  persistent suppression
+ guest joins; complete drain            typed Incomplete; exit 1
+                                               |
+                                    observed process-group exit
+                                               |
+                                    fresh-process receipt recovery
+```
+
+| Boundary | Cases | Required evidence |
+| --- | ---: | --- |
+| Caller cancellation | 16 | Original parent remains live through the first late probe and serves a fresh followup; the target's native frames and budgets have already expired. |
+| Forced owner shutdown | 16 | The report keeps its unclean cut and unknown effect. Native reservations release while the Python handler still suppresses cancellation. |
+| Persistent suppression and supervision | 16 | The runtime returns typed `Incomplete` with exactly one known pending guest invocation and zero native admissions/bytes/operations. Exit code 1 alone cannot qualify it. Both owned process groups must disappear before independent-process recovery. |
+
+Every group covers all four caller languages, local/signed-peer routing and
+before/after-sync native storage checkpoints. A before-write case recovers zero;
+an after-sync case recovers the exact committed count and receipt. Two explicit
+retries apply at most one effect. A second stale probe after reactivation must
+still fail. Fresh native reads independently inspect the late-write key and
+the late RPC target, so guest error claims cannot establish absence of writes.
+
+`bridge_report().native_invocations` counts native admission permits, while
+`interpreter_snapshot().work.active_invocations` counts managed Python handler
+registrations. During suppression the former reaches zero while the latter
+stays one. A Python caller's still-live parent is accounted for separately
+until that parent finishes. Snapshot fields are independently sampled; these
+are not heap or RSS measurements.
+
+Serialized shutdown reports require the bridge section and its native-admission
+observation. Missing observations are rejected instead of implying a clean drain.
+
+The persistent fixture configures a 200 ms guest shutdown bound. Its supervisor
+requires the structured incomplete report, the expected nonzero exit, joined
+owner/Node worker groups and cold receipts. A supervisor timeout is a failed
+case, followed by owned-process cleanup. The 48 Python cases are included in
+`all` and in the focused Linux lifecycle CI job. Broader interpreter, schema,
+resource and packaging qualification remains open.
 
 ## Abrupt owner process loss
 

@@ -74,7 +74,7 @@ impl std::fmt::Display for HttpFailure {
 
 impl std::error::Error for HttpFailure {}
 
-async fn request(
+pub(super) async fn request(
     client: &reqwest::Client,
     base: &str,
     caller: &str,
@@ -92,7 +92,7 @@ async fn request(
     Ok(serde_json::from_str(&body)?)
 }
 
-fn shutdown_reply(reply: Result<Value>, peer: bool) -> Result<Value> {
+pub(super) fn shutdown_reply(reply: Result<Value>, peer: bool) -> Result<Value> {
     match reply {
         Ok(value) => {
             ensure!(

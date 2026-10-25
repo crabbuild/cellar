@@ -4,12 +4,11 @@ use super::trace::{Role, Trace};
 use crate::application::Composite;
 use anyhow::Result;
 use cellar::sdk::*;
-use cellar_javascript::JavaScriptApplication;
 use std::sync::{atomic::Ordering, Arc};
 
 pub(super) struct Fixture {
     pub base: Arc<Composite>,
-    pub worker: Arc<JavaScriptApplication>,
+    pub worker: Arc<dyn Application>,
     pub trace: Arc<Trace>,
     pub provider_class: &'static str,
 }
@@ -20,6 +19,7 @@ struct Observed {
     control: bool,
     provider: bool,
     trigger: bool,
+    late_probe: bool,
 }
 
 impl Cell for Observed {
@@ -54,6 +54,7 @@ impl Cell for Observed {
                 self.trace.hold(&context).await?;
             }
             let observing = self.provider && self.trace.armed.load(Ordering::Acquire);
+            let observing_late = self.late_probe && method.ends_with("/GetCount");
             let mut inner = self.inner.clone().invoke(context.clone(), event);
             std::future::poll_fn(|task| {
                 let outcome = std::future::Future::poll(inner.as_mut(), task);
@@ -61,6 +62,11 @@ impl Cell for Observed {
                     if let Err(error) = self.trace.observe_provider(&context) {
                         // Observation must never complete or cancel user work.
                         // The coordinator fails its audit independently.
+                        self.trace.observation_failed(error);
+                    }
+                }
+                if observing_late && outcome.is_ready() {
+                    if let Err(error) = self.trace.observe_late(&context) {
                         self.trace.observation_failed(error);
                     }
                 }
@@ -109,6 +115,7 @@ impl Application for Fixture {
             control,
             provider,
             trigger,
+            late_probe: provider && self.provider_class == "PythonCounter",
         }))
     }
 
@@ -143,7 +150,7 @@ impl Application for Fixture {
             event => event,
         };
         if self.trace.armed.load(Ordering::Acquire)
-            && matches!(&event, Invocation::Fetch(request) if request.url.contains("/increment?"))
+            && matches!(&event, Invocation::Fetch(request) if request.url.contains("/increment?") || request.url.contains("/proof-cancel?"))
         {
             if let Err(error) = self.trace.caller(&context) {
                 return Box::pin(async { Err(error) });

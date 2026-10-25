@@ -10,6 +10,7 @@ import live
 import deadline
 import cycles
 import provenance
+import python_lifecycle
 
 constructed = 0
 retained = None
@@ -28,6 +29,7 @@ class PythonCounter:
         return GetCountResponse(count=Count(value=int(current.value) if current.present else 0))
 
     async def increment(self, request, ctx):
+        await python_lifecycle.before(ctx, request.operation_id)
         if not request.HasField("delta") or request.delta <= 0:
             return IncrementResponse(out_of_range=OutOfRange(reason="positive delta is required"))
         if not request.operation_id or len(request.operation_id.encode("utf-8")) > 128:
@@ -55,6 +57,7 @@ class PythonCounter:
                 await ctx.storage.sync()
             await cycles.after_commit(ctx, request.operation_id)
             await provenance.after_commit(ctx, request.operation_id)
+            await python_lifecycle.after(ctx, request.operation_id)
             if request.operation_id == "invalid-reply":
                 # Intentionally wrong after commit. Retry must use its receipt.
                 return GetCountResponse(count=Count(value=value))
@@ -72,6 +75,8 @@ async def fetch(request, ctx):
     global retained
     url = urlsplit(request.url)
     query = dict(parse_qsl(url.query))
+    if url.path.endswith("/python-lifecycle-control"):
+        return Response.json(python_lifecycle.control(query))
     if url.path.endswith("/cycle-control"):
         return Response.json(cycles.control(query["action"]))
     if url.path.endswith("/provenance-control"):

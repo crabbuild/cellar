@@ -590,6 +590,7 @@ dependencies = [
  "object_store",
  "reqwest",
  "rusqlite",
+ "serde",
  "serde_json",
  "tempfile",
  "tokio",

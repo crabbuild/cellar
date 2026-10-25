@@ -38,6 +38,7 @@ enum Suite {
     Proof,
     ProofWait,
     ProofWaitSmoke,
+    ProofWaitV8Repro,
     Fence,
     Recruitment,
     Recovery,
@@ -55,6 +56,10 @@ enum Suite {
     V8Shutdown,
     V8ShutdownSmoke,
     Lifecycle,
+    PythonCancellation,
+    PythonCancellationSmoke,
+    PythonSupervision,
+    PythonSupervisionSmoke,
     All,
 }
 
@@ -66,6 +71,7 @@ fn main() -> Result<()> {
     let mut server_data = None;
     let mut server_bucket = None;
     let mut server_ready = None;
+    let mut python_child = None;
     while let Some(argument) = arguments.next() {
         match argument.as_str() {
             "--report" => {
@@ -81,6 +87,7 @@ fn main() -> Result<()> {
                     Some("proof") => Suite::Proof,
                     Some("proof-wait") => Suite::ProofWait,
                     Some("proof-wait-smoke") => Suite::ProofWaitSmoke,
+                    Some("proof-wait-v8-repro") => Suite::ProofWaitV8Repro,
                     Some("fence") => Suite::Fence,
                     Some("proof-recruitment") => Suite::Recruitment,
                     Some("recovery") => Suite::Recovery,
@@ -98,16 +105,21 @@ fn main() -> Result<()> {
                     Some("v8-shutdown") => Suite::V8Shutdown,
                     Some("v8-shutdown-smoke") => Suite::V8ShutdownSmoke,
                     Some("lifecycle") => Suite::Lifecycle,
+                    Some("python-cancellation") => Suite::PythonCancellation,
+                    Some("python-cancellation-smoke") => Suite::PythonCancellationSmoke,
+                    Some("python-supervision") => Suite::PythonSupervision,
+                    Some("python-supervision-smoke") => Suite::PythonSupervisionSmoke,
                     Some("all") => Suite::All,
-                    _ => anyhow::bail!("--suite must be local, remote, deadline, cancellation, cycles, provenance, worker-failure, worker-failure-smoke, worker-shutdown, worker-shutdown-smoke, v8-termination, v8-termination-smoke, v8-shutdown, v8-shutdown-smoke, lifecycle, crash, proof, proof-wait, proof-wait-smoke, fence, proof-recruitment, recovery, recovery-probe or all"),
+                    _ => anyhow::bail!("--suite must be local, remote, deadline, cancellation, cycles, provenance, worker-failure, worker-failure-smoke, worker-shutdown, worker-shutdown-smoke, v8-termination, v8-termination-smoke, v8-shutdown, v8-shutdown-smoke, lifecycle, python-cancellation, python-cancellation-smoke, python-supervision, python-supervision-smoke, crash, proof, proof-wait, proof-wait-smoke, proof-wait-v8-repro, fence, proof-recruitment, recovery, recovery-probe or all"),
                 }
             }
+            "--python-lifecycle-child" => python_child = Some(PathBuf::from(arguments.next().context("missing Python child case file")?)),
             "--serve-name" => server_name = Some(arguments.next().context("missing server node name")?),
             "--serve-data" => server_data = Some(PathBuf::from(arguments.next().context("missing server data path")?)),
             "--serve-bucket" => server_bucket = Some(PathBuf::from(arguments.next().context("missing server bucket path")?)),
             "--serve-ready" => server_ready = Some(PathBuf::from(arguments.next().context("missing server readiness path")?)),
             _ => anyhow::bail!(
-                "usage: cellar-rpc-qualification [--suite local|remote|deadline|cancellation|cycles|provenance|worker-failure|worker-failure-smoke|worker-shutdown|worker-shutdown-smoke|v8-termination|v8-termination-smoke|v8-shutdown|v8-shutdown-smoke|lifecycle|crash|proof|proof-wait|proof-wait-smoke|fence|proof-recruitment|recovery|recovery-probe|all] [--report path.json]"
+                "usage: cellar-rpc-qualification [--suite local|remote|deadline|cancellation|cycles|provenance|worker-failure|worker-failure-smoke|worker-shutdown|worker-shutdown-smoke|v8-termination|v8-termination-smoke|v8-shutdown|v8-shutdown-smoke|lifecycle|python-cancellation|python-cancellation-smoke|python-supervision|python-supervision-smoke|crash|proof|proof-wait|proof-wait-smoke|proof-wait-v8-repro|fence|proof-recruitment|recovery|recovery-probe|all] [--report path.json]"
             ),
         }
     }
@@ -137,6 +149,11 @@ fn main() -> Result<()> {
         }
     }
     let (proof_sender, proof_receiver) = std::sync::mpsc::sync_channel(1);
+    let child_mode = python_child.is_some();
+    ensure!(
+        !child_mode || (server.is_none() && report_path.is_some()),
+        "Python child requires a report and cannot serve a crash owner"
+    );
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../..")
         .canonicalize()?;
@@ -145,6 +162,11 @@ fn main() -> Result<()> {
         rpc::Limits::default(),
     )?);
     let mut python_options = PythonOptions::default();
+    if child_mode {
+        // This private fixture deliberately leaves one task pending. The
+        // supervisor checks the failure report and actual process teardown.
+        python_options.shutdown_timeout = Duration::from_millis(200);
+    }
     python_options.module_paths.push(
         root.join("tools/rpc/fixtures/generated/python")
             .canonicalize()?,
@@ -182,7 +204,7 @@ fn main() -> Result<()> {
     };
     // SAFETY: this executable owns the process main thread and CPython. All
     // Rust workers and JS runtimes start inside its supervised host callback.
-    let report = unsafe {
+    let python_result = unsafe {
         PythonRuntime::run(python_options, python_source, move |python, _stop| {
             JavaScriptRuntime::run(options.clone(), source, |v8| {
                 NodeRuntime::run(options, node_options, node_source, |node| {
@@ -210,7 +232,7 @@ fn main() -> Result<()> {
                         )?;
                     let applications: Vec<(&str, &str, Arc<dyn Application>)> = vec![
                         ("rust", "RustCounter", Arc::new(rust)),
-                        ("python", "PythonCounter", python),
+                        ("python", "PythonCounter", python.clone()),
                         ("v8", "V8Counter", v8),
                         ("node", "NodeCounter", node),
                     ];
@@ -227,6 +249,7 @@ fn main() -> Result<()> {
                         .build()?
                         .block_on(async move {
                             if let Some(server) = server { return crash::serve(app, server).await; }
+                            if let Some(path) = python_child { return worker::python_child(app, python, path).await; }
                             match suite {
                                 Suite::Local => qualify::local(app).await,
                                 Suite::Remote => remote::run(app).await,
@@ -234,6 +257,7 @@ fn main() -> Result<()> {
                                 Suite::Proof => proof::run(app).await,
                                 Suite::ProofWait => proof::waits(app).await,
                                 Suite::ProofWaitSmoke => proof::wait_smoke(app).await,
+                                Suite::ProofWaitV8Repro => proof::wait_v8_repro(app).await,
                                 Suite::Fence => proof::fences(app).await,
                                 Suite::Recruitment => proof::recruitment(app).await,
                                 Suite::Recovery => admission::run(app).await,
@@ -251,6 +275,10 @@ fn main() -> Result<()> {
                                 Suite::V8Shutdown => worker::v8_shutdown(app).await,
                                 Suite::V8ShutdownSmoke => worker::v8_shutdown_smoke(app).await,
                                 Suite::Lifecycle => worker::lifecycle(app).await,
+                                Suite::PythonCancellation => worker::python_cancellation(app, python).await,
+                                Suite::PythonCancellationSmoke => worker::python_cancellation_smoke(app, python).await,
+                                Suite::PythonSupervision => worker::python_supervision(app, python).await,
+                                Suite::PythonSupervisionSmoke => worker::python_supervision_smoke(app, python).await,
                                 Suite::All => {
                                     let local = qualify::local(app.clone()).await?;
                                     let remote = remote::run(app.clone()).await?;
@@ -265,8 +293,10 @@ fn main() -> Result<()> {
                                     let worker_failure = worker::run(app.clone()).await?;
                                     let worker_shutdown = worker::shutdown(app.clone()).await?;
                                     let v8_termination = worker::v8_termination(app.clone()).await?;
-                                    let v8_shutdown = worker::v8_shutdown(app).await?;
-                                    Ok(serde_json::json!({"format":1,"suite":"all","local":local,"remote":remote,"deadline":deadline,"cancellation":cancellation,"cycles":cycles,"provenance":provenance,"proof_wait":proof_wait,"recovery":recovery,"crash":crash,"proof":proof,"worker_failure":worker_failure,"worker_shutdown":worker_shutdown,"v8_termination":v8_termination,"v8_shutdown":v8_shutdown}))
+                                    let v8_shutdown = worker::v8_shutdown(app.clone()).await?;
+                                    let python_cancellation = worker::python_cancellation(app.clone(), python.clone()).await?;
+                                    let python_supervision = worker::python_supervision(app, python).await?;
+                                    Ok(serde_json::json!({"format":1,"suite":"all","local":local,"remote":remote,"deadline":deadline,"cancellation":cancellation,"cycles":cycles,"provenance":provenance,"proof_wait":proof_wait,"recovery":recovery,"crash":crash,"proof":proof,"worker_failure":worker_failure,"worker_shutdown":worker_shutdown,"v8_termination":v8_termination,"v8_shutdown":v8_shutdown,"python_cancellation":python_cancellation,"python_supervision":python_supervision}))
                                 }
                             }
                         })?;
@@ -276,8 +306,12 @@ fn main() -> Result<()> {
                     Ok(())
                 })
             })
-        })?
+        })
     };
+    if child_mode {
+        return worker::python_child_finish(python_result, proof_receiver, report_path);
+    }
+    let report = python_result?;
     ensure!(
         report.complete(),
         "Python runtime did not fully drain after RPC qualification"

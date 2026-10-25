@@ -109,7 +109,7 @@ async fn case(app: Arc<Composite>, client: &reqwest::Client, case: Case) -> Resu
     )
     .await?;
     let mut baseline = 0;
-    warm(
+    let warmed = warm(
         client,
         &owner_url,
         case.provider,
@@ -117,7 +117,10 @@ async fn case(app: Arc<Composite>, client: &reqwest::Client, case: Case) -> Resu
         &mut baseline,
         1,
     )
-    .await?;
+    .await;
+    if let Err(error) = warmed {
+        return Err(warm_failure(error, owner, ingress, None, &owner_url, case.provider).await);
+    }
     let initial_members = controls.peers.members.lock().unwrap().clone();
     ensure!(
         initial_members == BTreeSet::from(["proof-ingress".into()]),
@@ -131,7 +134,7 @@ async fn case(app: Arc<Composite>, client: &reqwest::Client, case: Case) -> Resu
         Some(controls.clone()),
     )
     .await?;
-    warm(
+    let warmed = warm(
         client,
         &owner_url,
         case.provider,
@@ -139,7 +142,18 @@ async fn case(app: Arc<Composite>, client: &reqwest::Client, case: Case) -> Resu
         &mut baseline,
         2,
     )
-    .await?;
+    .await;
+    if let Err(error) = warmed {
+        return Err(warm_failure(
+            error,
+            owner,
+            ingress,
+            Some(replica),
+            &owner_url,
+            case.provider,
+        )
+        .await);
+    }
     let members = controls.peers.members.lock().unwrap().clone();
     ensure!(
         members == BTreeSet::from(["proof-ingress".into(), "proof-replica".into()]),
@@ -365,6 +379,69 @@ async fn case(app: Arc<Composite>, client: &reqwest::Client, case: Case) -> Resu
         "handler_returned":!case.sync,"live_before":live_before,"live_after":live_after,
         "parent_live_during_cleanup":true,"proof_held_through_cleanup":true,"receipt_replayed":true,
         "automatic_replays":0,"owner_scope_epoch_verified":true,"remote_fleet_qualified":false}),
+    )
+}
+
+async fn warm_failure(
+    error: anyhow::Error,
+    owner: cellar::sdk::Node,
+    ingress: cellar::sdk::Node,
+    replica: Option<cellar::sdk::Node>,
+    url: &str,
+    provider: &str,
+) -> anyhow::Error {
+    let ready = tokio::time::timeout(Duration::from_secs(2), owner.is_ready()).await;
+    let fresh = reqwest::Client::builder()
+        .timeout(Duration::from_secs(2))
+        .build();
+    let probes = match fresh {
+        Ok(client) => {
+            let health = client
+                .get(format!("{url}/.well-known/cellar/health"))
+                .send()
+                .await
+                .map(|reply| reply.status());
+            // Read only: the failed mutation is never replayed for diagnosis.
+            let read = request(&client, url, &format!("/rust/read?target={provider}")).await;
+            format!("health={health:?}, read={read:?}")
+        }
+        Err(error) => format!("fresh client failed: {error}"),
+    };
+    let owner = owner.shutdown(ShutdownMode::Preserve).await;
+    let ingress = ingress.shutdown(ShutdownMode::Preserve).await;
+    let replica = if let Some(node) = replica {
+        Some(node.shutdown(ShutdownMode::Preserve).await)
+    } else {
+        None
+    };
+    error.context(format!("proof-wait warmup failed: ready={ready:?}; fresh {probes}; owner={owner:?}; ingress={ingress:?}; replica={replica:?}"))
+}
+
+/// Repeat the exact failing topology without claiming matrix qualification.
+pub async fn v8_repro(app: Arc<Composite>) -> Result<Value> {
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(20))
+        .build()?;
+    let mut cases = Vec::new();
+    for round in 0..16 {
+        let spec = Case {
+            caller: "v8",
+            provider: "v8",
+            class: "V8Counter",
+            local: true,
+            sync: true,
+            deadline: true,
+        };
+        eprintln!("proof-wait V8 reproduction round {round}");
+        cases.push(
+            case(app.clone(), &client, spec)
+                .await
+                .with_context(|| format!("proof-wait V8 reproduction round {round}"))?,
+        );
+    }
+    Ok(
+        json!({"format":1,"diagnostic":"proof-wait-v8-repro","qualified":false,
+        "case_count":cases.len(),"cases":cases}),
     )
 }
 

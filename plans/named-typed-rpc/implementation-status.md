@@ -17,7 +17,9 @@ does not close schema, resource, packaging or performance requirements.
 
 | Priority | Remaining gap | Deliverable / completion evidence |
 | --- | --- | --- |
-| P0 — next | Remaining lifecycle and peer/admission provenance | Delivered: whole-call budgets, 55 deadline cases, 128 proof-wait cases, 80 cycle cases, 96 provenance cases and 96 Node/V8 lifecycle cases. Next slice: Python cancellation suppression during typed calls and host shutdown; require expired authority, refused late SDK work, released reservations and receipt-safe recovery. Never report clean shutdown while owned work remains; qualify bounded supervisor cleanup where an embedded task cannot be joined cooperatively. Then close forced guest peer retries and broader call-local peer/admission provenance. Retain every delivered matrix and investigate recurring timeout/domain-closure diagnostics. |
+| P0 — next | Native lease expiry in the combined qualifier | The expanded 696-case run failed during proof-wait warmup. The exact V8/local/sync/deadline diagnostic reproduced on round zero: owner and ingress both returned `NodeLeaseExpired`, and fresh health/read connections were refused. Trace lease publication, renewal and actor scheduling; establish the cause at its owning boundary, add a regression and rerun both the focused diagnostic and the original combined matrix. Preserve TTLs, fencing, proof gates and unknown outcomes; never replay the failed mutation automatically. |
+| P0 | Python streaming/RPC handler deadlines | The latest full Python regression command passes bridge/watchdog/recovery and startup, then fails `/cell/sse` with `handler exceeded 250ms budget`; the standalone typed-RPC test hits the same budget. Both use the shared native test host and finish with zero native admissions/bytes/operations. Trace handler admission, pump and sync timing at those fixtures and establish a cause before changing policy. Do not infer the same cause as native lease expiry or earlier Node watchdog failures. |
+| P0 | Remaining lifecycle and peer/admission provenance | Preserve whole-call budgets, 55 deadline cases, 128 proof-wait cases, 80 cycle cases, 96 provenance cases and 96 Node/V8 lifecycle cases. The Python follow-up covers cooperative cancellation suppression, forced host cutoff and persistent suppression with process supervision. Next close forced guest peer retries and broader call-local peer/admission evidence. Retain incomplete-shutdown failures while guest work remains, expired authority, zero native reservations and receipt-safe recovery. |
 | P0 | Resource bounds and parser correctness | Global symbol/import validation and bounded expanded-name inventories are delivered. Close remaining option/schema semantics; audit effective method/runtime/host/peer minima, retained binary copies and decoder allocations; demonstrate bounded queues, reservations and memory under saturation, flood and disconnect. |
 | P1 | Language/profile coverage | Exercise the portable Protobuf profile as real business calls across all local/remote pairs; qualify supported Python interpreter modes and remaining lifecycle/regression boundaries. |
 | P1 | Reproducible application delivery | Deliver `cellar rpc generate/check`, static binding and frozen package inventories, embedded Python source identity, a published typed-RPC example and clean-machine CI. |
@@ -72,6 +74,98 @@ pairs. Preserve the full test matrix, failures and remaining work across turns.
 
 ## Current evidence
 
+- The Python follow-up passes **48 focused cases** on the report-contract
+  implementation: 32 cancellation/forced-cutoff cases and 16 supervised
+  persistent-suppression cases. Every group covers all four caller languages,
+  local/signed-peer routing and before/after-sync checkpoints. The same managed
+  interpreter serves surviving callers and fresh native owners while the stale
+  provider task remains alive. Late storage writes/reads, a retained generated
+  client and the raw bridge must refuse `ContextExpired`. Two explicit same-ID
+  retries preserve the exact count without duplicate effects; fresh native reads
+  inspect both the late-write key and late-RPC target after reactivation.
+- Native observations capture the original scope/epoch, closed transaction and
+  actual count/receipt checkpoint before injection, then freeze. The provider
+  and held Rust child physically retire, and their weak budgets expire. Native
+  permits/bytes/operations reach zero while one managed Python invocation remains;
+  a still-live Python caller parent is counted separately until it finishes.
+  Cooperative release joins that last task. Forced cutoff retains its unclean
+  proof and unknown effects; it is never reported as graceful drain.
+- Persistent suppression returns typed `Incomplete` with exactly one known
+  guest invocation, zero other managed resources and zero native work. The
+  supervisor requires the structured report, exit code 1, verified owner/Node
+  worker identities and observed disappearance of both process groups before
+  fresh-process receipt recovery. A timeout fails the case; its owned child
+  handle authorizes cleanup, while a metadata PID never authorizes signalling.
+- Final focused reports are `.cellar/rpc/python-pr-cancellation.json`:
+  891,901 bytes, SHA-256
+  `032a43a36f270cf66f4ecd0c50b87a070ba06a1f759b4c51bf827ffc5d2195da`,
+  and `.cellar/rpc/python-pr-supervision.json`: 537,551 bytes, SHA-256
+  `2ca87c3fa496c890eb0a9de30ddccc33ae5c35475ffc871e97dc5f26d71709e4`.
+  `/tmp/cellar-rpc-python-pr-cancellation.log` and
+  `/tmp/cellar-rpc-python-pr-supervision.log` record execution. An independent
+  saved-report audit checks every Cartesian case, checkpoint, late refusal,
+  held/zero gauge, process identity/exit and explicit receipt retry. Publication
+  follows native and caller-runtime joins. Full-qualification flags stay false.
+- Both 31-test Rust unit suites and combined all-target adapter/qualifier Clippy
+  pass. Format/layout check 1,013 Rust files; the native-only dependency graph
+  remains engine-free at 465 packages. Three bridge-report, six performance-proof
+  and three baseline guard tests pass; bridge/performance guards also pass with
+  Python `-O`. The Linux lifecycle workflow now schedules 96 Node/V8 plus 48
+  Python cases and retains their reports/logs. Its latest hosted run is pending.
+- The final-source `lifecycle` rerun also passes **96 Node/V8 cases** in one
+  process, preserving worker kills, real V8 watchdog terminations and both
+  graceful/forced shutdown matrices after the shared fixture changes. Together
+  with the two Python runs, this follow-up passes **144 focused lifecycle cases**;
+  these separate commands do not establish a passing combined 696-case run.
+  `.cellar/rpc/python-pr-node-v8-lifecycle.json` contains 237,419 bytes, SHA-256
+  `60a5cbbe44bf797d0ece7f6349393aa6f83368c0249c21bbe958e08b34d278c1`.
+  `/tmp/cellar-rpc-python-pr-node-v8-lifecycle.log` records the run. Native
+  authority/checkpoint, cleanup/join and cold receipt assertions remain intact.
+- The latest full Python regression command passes all 31 library tests,
+  queue-observation tests, isolated startup and the embedded bridge executable,
+  including CPU-loop/blocked-native owner kill, disk deletion and deduplicated
+  durable-alarm recovery. It then **fails** in SSE streaming:
+  `stream /cell/sse failed: Worker failed: handler exceeded 250ms budget`.
+  `/tmp/cellar-rpc-python-pr-integration.log` preserves the failure. Its typed
+  Python incomplete-shutdown report has `host_failed=true` and zero guest/native
+  tasks, admissions, bytes, reservations and pending operations. The full
+  command is not a passing regression run. No handler budget was increased;
+  this occurrence does not establish a cause shared with earlier Node timing
+  failures or the separate native lease-expiry reproduction.
+- The separately executed Python `--test typed_rpc` also fails with
+  `500 Internal Server Error: Worker failed: handler exceeded 250ms budget`.
+  `/tmp/cellar-rpc-python-pr-typed.log` records the failed command and typed
+  final cleanup with zero native work. Both streaming and typed-RPC fixtures use
+  the existing 250 ms shared native-host handler budget. That common boundary
+  narrows the next investigation but does not establish the timing cause.
+- At prior head `53f4978f`, hosted
+  [Node/V8 lifecycle](https://github.com/crabbuild/cellar/actions/runs/40157814401),
+  [JavaScript/Node SDK](https://github.com/crabbuild/cellar/actions/runs/40157814304)
+  and [Python examples](https://github.com/crabbuild/cellar/actions/runs/40157814239)
+  workflows completed successfully. These results qualify that revision only;
+  the expanded Python follow-up still needs its own hosted run.
+- The expanded 16-suite `all` command now schedules **696 cases**. Its first run
+  failed during V8/local/sync/deadline proof-wait warmup, after the preceding
+  suites and 90 proof-wait cases had completed. A fresh success report was not
+  published. `/tmp/cellar-rpc-python-full.log` preserves the failure; this is
+  **not** a passing combined qualification run.
+- `--suite proof-wait-v8-repro` repeats that exact case up to 16 times without
+  changing lease or watchdog policy. The first diagnostic run failed at round
+  zero: both owner and ingress shutdown returned `Fenced { code: 3,
+  reason: NodeLeaseExpired }`; bounded fresh health and typed read connections
+  were refused. `/tmp/cellar-rpc-python-proof-v8-repro.log` records the evidence.
+  This rules out a stale pooled connection for that occurrence. The timing or
+  storage cause of lease expiry remains unresolved; no TTL change, automatic
+  mutation replay or causal claim about earlier intermittent failures is made.
+  Warmup diagnostics join the native nodes and retain their typed outcomes.
+- Python cleanup now independently reports native admission permits through
+  `BridgeReport::native_invocations`. Managed Python invocation registries can
+  remain nonzero after those permits have released. `Report::complete()` requires
+  both to reach zero. Published reports require the bridge section and the new
+  field; missing evidence cannot deserialize as a clean drain. The native host
+  supplies bridge observations after joining and draining its queues, independent
+  of guest claims. Red tests demonstrated both missing invariants before their
+  fixes; the report readers and performance guards enforce the same contract.
 - Implementation `d4097fa3` adds disposable V8 providers to the existing owned
   lifecycle harness. Generated TypeScript business calls reach native local or
   signed-peer owners before writes or after synced count/receipt checkpoints.
@@ -1110,38 +1204,47 @@ The implementation remains incompletely qualified until the remaining
 correctness and delivery boundaries pass. Deliver these slices in order; each slice
 must preserve the existing recovery, crash, proof and receipt evidence.
 
-1. **P0: close remaining lifecycle and peer/admission provenance gaps.** Preserve
+1. **P0: resolve native lease expiry in the combined qualifier.** Use the exact
+   `proof-wait-v8-repro` case and bounded native lease traces to distinguish late
+   storage completion, delayed renewal dispatch and actor scheduling. Reproduce
+   the cause at its owning seam, add a regression and rerun the focused case and
+   the original 696-case command. Both native nodes fenced with
+   `NodeLeaseExpired` in the diagnostic; a passing retry alone cannot close this
+   gap. Keep lease TTLs, authority checks and proof gates intact.
+2. **P0: resolve Python streaming/RPC handler deadline failures.** Reproduce the
+   standalone streaming and typed-RPC fixtures, then observe native admission,
+   Python wakeup/pump progress and storage/sync timing under the original 250 ms
+   budget. Add a regression at the demonstrated cause and rerun the original
+   Python command. A successful retry alone does not resolve the failures.
+3. **P0: close remaining lifecycle and peer/admission provenance gaps.** Preserve
    the 96 parent-write/forged-category cases, 80 self/A-to-B-to-A cleanup cases
    and 128 proof-wait cases. Qualify broader call-local peer/admission evidence.
-   Keep the 96 Node/V8 lifecycle cases green. Next, qualify Python cancellation
-   suppression during typed calls and host shutdown: require expired original
-   authority, refused late SDK work, zero owned reservations and receipt-safe
-   recovery. Never report clean shutdown while owned work remains. If a guest
-   cannot be joined cooperatively, qualify bounded supervisor cleanup and cold
-   recovery rather than relabeling incomplete embedded shutdown as success.
-   Forced guest peer retries and broader nested-provider paths also remain.
+   Keep the 96 Node/V8 lifecycle cases and the Python cancellation/supervision
+   matrices green. Persistent suppression must retain typed incomplete shutdown,
+   require observed process teardown and verify cold receipt recovery. Forced
+   guest peer retries and broader nested-provider paths remain next.
    If the unexplained Node watchdog failure recurs, use
    its observer/heartbeat/input diagnostics to establish the actual cause before
    changing policy. Trusted pre-admission refusal may establish
    `not_committed` for that call; it cannot reclassify the parent's earlier
    writes. A lost response remains unknown. Preserve the 55 deadline cases;
    remaining T14/T17 boundaries and all supported interpreter modes stay open.
-2. **P0: qualify parser and resource boundaries.** Keep global symbol/import
+4. **P0: qualify parser and resource boundaries.** Keep global symbol/import
    validation and expanded-name budgets green; close remaining option/schema
    semantics before invoking message generators. Verify effective
    method/runtime/host/peer minima, account for retained binary copies, and
    measure decoder allocations and RSS under saturation, flood and disconnect.
    Completion requires bounded queues and reservations that return to baseline
    after cleanup, while retaining graph, slot and control-budget guards.
-3. **P1: qualify the portable profile and supported runtimes.** Run real business
+5. **P1: qualify the portable profile and supported runtimes.** Run real business
    calls across every local/remote backend pair, including free-threaded Python
    where supported, and close the remaining lifecycle/regression requirements.
    Codec vectors alone do not qualify a caller/provider pair.
-4. **P1: make application delivery reproducible.** Ship `cellar rpc generate/check`,
+6. **P1: make application delivery reproducible.** Ship `cellar rpc generate/check`,
    static binding checks, frozen package inventories, complete embedded Python
    source identity, a published example and clean-machine CI. Require generation
    drift and stale package/codec identities to fail before serving traffic.
-5. **P2: add visibility, then publish performance evidence.** Add registered-method
+7. **P2: add visibility, then publish performance evidence.** Add registered-method
    spans and payload-free diagnostics with bounded labels. Measure typed versus
    untyped/native/guest latency, throughput and durable TPS, including saturation
    memory, cleanup and recovery. Record commands, environment and raw evidence
