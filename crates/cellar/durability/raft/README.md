@@ -797,10 +797,11 @@ recovery also checks `max_seed_recovery_bytes` before reading its complete set.
 Defaults retain the previous memory and disk bounds.
 
 This materialized path still copies and hashes complete images and buffers
-snapshot/archive data. It is not a 10 GiB recovery qualification. The
+snapshot/archive data. It is not a 10 GB recovery qualification. The
 [large-cell recovery plan](../../../../plans/multi-raft/large-cell-recovery.md)
 specifies incremental immutable roots, bounded transfers, warm promotion and
-verified demand loading for fast cold activation. The owning
+verified demand loading for fast cold activation, targeting Cloudflare's
+10 GB (10,000,000,000-byte) per-object SQLite storage quota. The owning
 `native_raft_large_images` test crosses 64 MiB through command execution,
 leader takeover, object-store seeding onto an empty worker and subsequent writes.
 

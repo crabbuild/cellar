@@ -11,7 +11,7 @@ coordinates execution, bounded decoding, physical snapshots, archive objects and
 sets, transfer memory, archive verification scratch space, retained generations
 and unarchived admission. It does not change the replicated command size limit.
 
-This is a bounded extension of the existing implementation, not a 10 GiB capacity
+This is a bounded extension of the existing implementation, not a 10 GB capacity
 or recovery-time qualification. The owning test is
 [`native_raft_large_images`](../../crates/cellar/tests/native_raft_large_images.rs):
 a real SQLite database grows past 64 MiB, survives leader removal and duplicate
@@ -44,6 +44,33 @@ bucket keys. Use a checkout-specific writable target directory as required by
 Both warm takeover and empty-worker recovery must be implemented and measured
 before claiming the larger target described below.
 
+## Cloudflare storage parity target
+
+Use **10 GB (10,000,000,000 bytes) of logical SQLite storage per cell** as the
+product target, matching Cloudflare's published SQLite-backed Durable Objects
+limit on Workers Paid. Its Free plan permits 1 GB per object. Cloudflare defines
+GB as decimal, rather than GiB. Its legacy key-value backend has no individual
+object storage cap and is not the SQLite parity reference. See the
+[official limits and units](https://developers.cloudflare.com/durable-objects/platform/limits/).
+
+This is a product quota, separate from per-command limits, encoded object sizes,
+working memory and physical disk used by replicas, WAL, snapshots or retention.
+Deployments may configure a lower quota. Express it in exact bytes; for a SQLite
+page size, round the admitted page count down so the image cannot exceed the
+configured quota. Include framework tables and indexes in the database allowance,
+with bounded headroom for durable receipts and housekeeping.
+
+Cloudflare documents `SQLITE_FULL` for writes that exceed capacity while reads
+and deletes remain available. Cellar's implementation must likewise preserve
+reads, cleanup and retry reconciliation at capacity, without bypassing receipt,
+quorum or publication proofs. Test cleanup and reuse of freed pages at the quota
+boundary; deletion need not shrink the SQLite file immediately.
+
+The present 256 MiB materialized ceiling remains an implementation limit until
+the larger storage path is implemented and qualified. A 4 GiB image is an
+intermediate qualification size, not the final product ceiling. A 10 GiB engine
+stress case exceeds the decimal product quota and must not silently redefine it.
+
 ## Recovery boundaries
 
 | Boundary | Existing behavior | Required large-image behavior |
@@ -65,7 +92,7 @@ Execution rebuilds a private base and computes full-image SHA-256. Immutable app
 copies, checksums and hashes the base/result. Snapshot encoding and decoding retain
 full page collections; transfer assembly retains the full encoded body. Archive
 recovery retains bounded complete objects and replay sets. Generation admission
-requires multiple maximum-image copies. Raising these dimensions to 10 GiB would
+requires multiple maximum-image copies. Raising these dimensions to 10 GB would
 reserve many GiB of memory and disk and retain linear work on the critical path.
 
 Images above 1 GiB also cross SQLite's reserved locking-page location. Existing
@@ -74,14 +101,14 @@ the reserved page from LTX records while preserving the physical image length an
 a canonical byte representation in its content proof. Do not just raise the page
 or image counters.
 
-## Implementation sequence for the 10 GiB target
+## Implementation sequence for the 10 GB target
 
 ### 1. Incremental immutable images and private writers
 
 Introduce a page-addressed immutable generation behind the existing generation
 owner. Use a persistent extent tree with content-addressed leaves (initial
-measurement candidate: 4 MiB extents) and copy-on-write index nodes. A 10 GiB
-image has about 2,560 such extents; avoid a heap entry for every SQLite page.
+measurement candidate: 4 MiB extents) and copy-on-write index nodes. A 10 GB
+image needs about 2,385 such extents; avoid a heap entry for every SQLite page.
 Publication writes changed extents and tree nodes, syncs them, then syncs an exact
 root reference. Queries pin that root. Never patch a published generation.
 
@@ -105,7 +132,7 @@ Represent a snapshot as an exact immutable root, a bounded manifest, and immutab
 extent objects. Upload only missing content and publish the manifest conditionally
 after its complete dependency closure is verified. Retain a bounded subsequent
 committed tail, rotating on measured replay bytes/time as well as entry count.
-Do not require all historical LTX files or create a single 10 GiB download buffer.
+Do not require all historical LTX files or create a single 10 GB download buffer.
 
 Stream multipart uploads and downloads through the owning execution domain. Use
 separate logical-image, encoded-transfer, working-memory, disk and concurrency
@@ -149,8 +176,11 @@ tail bytes, object fetches, bytes transferred and peak memory/disk reservations.
 Provide an inspection view linking the exact manifest, snapshot/root objects and
 ordered tail; distinguish warm promotion from cold restoration.
 
-Run both paths at 256 MiB, 1 GiB, 10 GiB and above, using compressible and
-incompressible data and sparse/hot and broad/random workloads. Include:
+Run both paths at 256 MiB, 1 GiB, 4 GiB and near the 10 GB product quota, using
+compressible and incompressible data and sparse/hot and broad/random workloads.
+Also qualify the engine at 10 GiB and above with explicit test-only bounds.
+Verify exact page-rounded quota enforcement independently of those engine stress
+tests, including rejection of growth past capacity. Include:
 
 - Kill the leader and issue the first read and write on an existing voter; retry
   an acknowledged command ID and prove its effect is not executed twice.
@@ -196,6 +226,6 @@ receipt/version, empty authorized learner seeding, further replication, and a
 historical local read after restarting the seeded worker before its peers start.
 The large-image runs stop services; the existing snapshot/execution/LTX suites
 exercise their process-kill matrices at ordinary fixture sizes. This does not
-qualify 256 MiB physical recovery, incompressible transfer throughput, 10 GiB
-images, power loss or a production recovery-time objective. Configuration and
+qualify 256 MiB physical recovery, incompressible transfer throughput, the 10 GB
+product target, power loss or a production recovery-time objective. Configuration and
 worst-case snapshot bounds are tested through the 256 MiB policy ceiling.
