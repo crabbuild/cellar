@@ -396,6 +396,44 @@ This covers a locally proven child refusal and forged exception metadata through
 real local/peer parent calls with GIL CPython. Broader peer/admission provenance,
 interpreter modes and resource/lifecycle qualification remain open.
 
+## Deadlines and cancellation during native construction
+
+```sh
+cargo test --locked -p cellar --test native_typed_rpc cold_factory:: -- --test-threads=1
+```
+
+The [cold-factory tests](../../crates/cellar/tests/support/rpc_cold_factory.rs)
+hold a real synchronous native factory until its caller has observed either
+`DeadlineExceeded/unknown` or `Cancelled/unknown`:
+
+```text
+generated caller ------> cold native factory (held)
+       |                           |
+ deadline / signal                 |
+       |                           |
+ caller receives unknown           |
+       |                     release factory
+       |                           |
+       |              new/cached SDK operations refused
+       |              generated business handler not entered
+       |                           |
+ fresh call -----------> read count 0; no late writes
+ explicit retry -------> count 1 + receipt
+ same-ID retry --------> count 1
+```
+
+The factory verifies storage works before the hold, then checks new storage,
+new child bindings, a cached write and a synchronous transaction after release.
+Both tests join the node and require exactly two explicit increment-handler
+entries. Construction has already entered, so the caller's failure cannot
+promise rollback. The deadline case uses a 200 ms child budget under a separate
+three-second parent policy; existing language-adapter tests keep their 250 ms
+host budget.
+
+These two public-node tests qualify the native construction boundary. They are
+separate from the cross-language matrices below and do not establish the cause
+of the intermittent streaming cold-start timeout.
+
 ## Peer deadlines and nested calls
 
 ```sh

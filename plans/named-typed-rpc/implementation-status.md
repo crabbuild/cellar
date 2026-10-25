@@ -74,6 +74,60 @@ pairs. Preserve the full test matrix, failures and remaining work across turns.
 
 ## Current evidence
 
+- **Native cold construction is now qualified for deadline and cancellation.**
+  Two public-node tests hold a real native factory after proving its storage
+  handle works. One generated caller observes its 200 ms deadline; the other
+  is explicitly cancelled only after the factory enters. Both callers receive
+  a fixed failure category with `unknown` effects while construction remains
+  held. After release, new storage, new child bindings, a cached write and a
+  synchronous transaction are all refused. Generated business handlers have
+  zero entries for the ended call. Fresh admission reads count zero and no
+  late marker writes; two explicit same-ID increments both return count one.
+  Exactly those two increment-handler entries remain after the node joins,
+  with ingress, application work and cells drained. The native integration
+  helper accepts an explicit policy callback for this test's three-second
+  parent; existing language-adapter defaults remain 250 ms.
+  The initial two-case run passes in 0.52 seconds after compilation. This is
+  native constructor-boundary evidence, separate from the 55-case deadline
+  matrix and 696-case cross-language report. Guest cold-constructor matrices
+  and the intermittent native streaming latency remain open.
+- Final affected checks pass: all three native typed-RPC integration tests,
+  Python streaming and typed RPC (including its slow-constructor profile),
+  and all five selected V8/Node HTTP, streaming and typed-RPC tests. Native
+  integration Clippy and all-target Python/JavaScript Clippy pass, as do
+  formatting/layout (1,021 Rust files), docs and the engine-free dependency
+  check. Stage results and raw-log hashes are retained in
+  `.cellar/rpc/cold-factory-validation-audit.json`.
+  These test/fixture changes do not change the production executable behind
+  the previous 696-case report.
+- The first selected JavaScript command fails its V8 HTTP/restart case with
+  connection refused after 2.54 seconds. Its log does not identify the phase,
+  node generation or shutdown outcome. Ten unchanged frozen-binary runs pass
+  in 0.61–0.78 seconds; those retries do not establish a cause. The fixture now
+  joins the node after request errors as well, preserving the primary failure
+  with its exact test phase, expected restart count, startup/client-build
+  timings and typed node outcome. All five selected tests pass in the final
+  retry, without budget changes or mutation retries. This is improved failure
+  evidence and teardown, not a fix for the original connection refusal.
+  `.cellar/rpc/cold-factory-v8-http-baseline-status.json` retains the baseline
+  repetitions; the audit above retains both failed and final logs.
+- **The native I/O probe did not reproduce the slow streaming path.**
+  A temporary process-scoped macOS interposer measures `open`, `mkdir`,
+  `fsync`, `read`, `pread`, `pwrite` and `close`, logging only operation,
+  descriptor, process/thread identity and durations above 5 ms. A controlled
+  delayed read verifies the probe. Ten startup/streaming pairs pass, followed
+  by the full original SDK sequence in 347 seconds; no measured streaming
+  syscall exceeds that threshold. These are passing observations, not a
+  falsification of an I/O cause in the absent failing scenario. Other syscalls,
+  CPU work and native scheduling remain unmeasured. The temporary library is
+  unloaded and removed from `/tmp`; its source/binary provenance remains only
+  in ignored `.cellar/rpc/diagnostics/cold-io/`.
+  `/tmp/cellar-python-sdk-cold-io.log` is 19,895 bytes, SHA-256
+  `3c59fb45e216d7de45adb56084350b762b6d629d25f825e9e58b6591622b0552`.
+  `.cellar/rpc/python-sdk-cold-io-{status,audit}.json` retain metadata for
+  published head `0bf59c34`. No production runtime source changed for this
+  experiment; no cause or performance fix is claimed.
+
 - **The codec decoder probe now isolates decoding from cold activation.**
   Its original 100 ms child call also had to construct a new provider. With
   controlled 120 ms Python construction, the native deadline correctly returns
@@ -1673,6 +1727,9 @@ must preserve the existing recovery, crash, proof and receipt evidence.
    Observe broker/native admission, Python wakeup/pump progress and storage/sync
    timing under the original budgets. Add a regression at each demonstrated
    cause and rerun the original commands; a successful retry alone is not a fix.
+   Native cold-factory deadline/cancellation now has public-node authority,
+   zero-late-handler and receipt-retry evidence. Keep the latency diagnosis
+   distinct from this correctness boundary; guest cold matrices remain open.
 2. **P0: observe the remaining Linux gates.** The SQLite 3.53.2 dependency, Node
    observer ordering and complete-store outage fixture pass their local
    regressions, all 696 combined cases and the affected static checks. Require
