@@ -17,7 +17,7 @@ does not narrow that objective or turn fixture passes into full compatibility.
 | SP-02 | Native-backed DO SQL/KV/clone facade, activation-bound authority, object identity, value/returned-function namespace RPC, constructor admission, native input gates/reset, sync/async transactions and retained event/background drivers execute in Node/V8; actual published constructors are exercised; Node module HTTP dispatch, namespace bindings and activation-owned env execute against native cells | Complete loader/bootstrap, embedded web globals, other binding kinds, property/target RPC and lifetimes, full versioned lifetime/deadline qualification and profile/version admission; retain native-only dependency boundary |
 | SP-03 | Actual published `@cloudflare/containers@0.3.7` constructor, state and SQL scheduling run in both engines; root-event queued lifecycle and run-bound monitors; Node runs published readiness with native HTTP ports, healthy state and start/stop hooks; unchanged pinned module named/singleton/random routes execute against the engine peer | Embedded web globals, callback-owned queue drainage, sleep/wake, complete hooks, streamed/upgrade port behavior and real-image cleanup |
 | SP-04 | Actual `@cloudflare/sandbox@0.12.9` constructor/configuration and metadata recovery run in Node; matching upstream app/Dockerfile and `linux/amd64` image digest are pinned; unchanged application exec/file/background-process assertions pass against the real image, including later process discovery, SDK destroy and drained shutdown | Complete SDK HTTP/RPC/helper coverage, streamed exec, process helper invocations, previews, persistence/restart/fencing and failure cases |
-| SP-05 | Four-language provider environment/operation/limit discovery; portable binary file read/write/stat/list; Native engine archive implementation, shared input/result bounds and unknown-outcome tests; direct file scenario passes against the real image across events | Richer operations, named configuration, durable remote bindings, fencing, expiry/reconnect, provider loss/takeover qualification and orphan reconciliation |
+| SP-05 | Four-language provider environment/operation/limit discovery; portable binary file read/write/stat/list; Native engine archive implementation, shared input/result bounds and unknown-outcome tests; direct file scenario passes against the real image across events; host-only, revisioned binding journals preserve resource intent across business clear and recovery | Provider integration of the journal, richer operations, named guest configuration/discovery, remote fencing, expiry/reconnect, provider loss/takeover qualification and orphan reconciliation |
 | SP-06 | No Vercel/E2B implementation yet | Real shared provider implementations, fixtures and real-account conformance, explicit Cloudflare profile compatibility/gaps |
 | SP-07 | Separate 1.x contract identified in the design; it is not the 0.12.9 baseline | Pin and run exact current package/helper/image, extended container API, errors, streams, cancellation and supported persistence |
 | SP-08 | No Daytona/Modal implementation yet | Provider implementations and individual process/files/storage/PTY/GPU/snapshot qualification |
@@ -661,3 +661,43 @@ with Node/V8/CPython enabled. Format/layout covers 1,061 Rust files and JS forma
 covers 52 owned sources; documentation and whitespace checks pass. Both real
 image tests pass again after the strict JS byte-input guard, with owned container
 and network cleanup. No existing assertion or deadline was weakened.
+
+
+### Protected durable binding journal
+
+Native host providers can retain a credential-free resource ID, provider and
+configuration/parameter digests, generation, stable request ID, desired lifecycle intent
+and pending/confirmed observation in `BindingJournal`. Records live in reserved
+SQLite tables rather than application KV. Application SQL cannot read or alter
+them, and business `delete_all` preserves records and format markers.
+
+| Boundary | Behavior |
+| --- | --- |
+| Invocation | Journal handles capture exact root-event authority; stateless, foreign-cell, later-event and storage-transaction use refuses |
+| Reservation | Version-checked writes await required storage durability and recheck the current revision before returning |
+| Unknown create | Keep the pending reservation and stable identity across restart; a second initial reservation conflicts instead of authorizing another create |
+| Generation | Keep provider/config/request identity stable, never replace or forget a known resource, and require confirmed retirement plus a fresh request ID before generation + 1 |
+| Bounds | 64 host-selected binding records per cell, 16 KiB per encoded record; retained tombstones count toward the limit |
+| Recovery | Validate format-1 marker/layout and retained records before schema mutation; refuse unmarked, incompatible or corrupt data |
+| SQL failure | Native autocommit and implicit batches use fixed savepoints; failed updates roll back and preserve original SQLite failures |
+
+The private journal is a persistence primitive, not a shipped remote backend or
+provider-side fence. Its activation epoch records provenance and is explicitly
+not a distributed ownership token. Providers must verify account/configuration
+identity, correlate remote request metadata, enforce their service/broker lease
+and fence, and qualify expiry/orphan cleanup. Named guest bindings and their
+four-language discovery still require integration. The full SP-05–SP-10 scope
+remains open; no live-cloud result is claimed for this change.
+
+Final-source validation passes all 44 storage unit tests, 11 shared-provider unit
+tests and both provider integrations. The native journal fixture covers three
+host lifecycles, pending-create recovery, superseded reservations, revision
+conflicts, transaction refusal, protected SQL, business clear and replacement.
+Strict all-target Clippy passes for `cellar` and `cellar-container`. Rust
+format/layout checks cover 1,065 files; docs and native-only dependency checks pass. Native-only dependencies remain 466 packages with no JS engine.
+
+The journal fixture also exhibited first-request timeouts at its existing 250 ms
+handler budget during intermediate runs. The final uninstrumented run passes
+in 0.63 seconds overall with the same per-handler budget; the timeout cause is
+not established. No assertion or deadline was relaxed. This local result does
+not complete the broader deadline/fault or live-provider qualification.

@@ -38,7 +38,8 @@ Rust documentation, run the command below from the repository root.
 | Byte streams | `streams` module and owned byte stream values | [byte streams](../crates/cellar/application/streams.rs) |
 | WebSockets | `websocket::WebSocketPair`, `WebSocket`, upgrade, hibernation, tags/attachments | [WebSocket](../crates/cellar/application/websocket.rs) |
 | TCP/TLS | `sockets::SocketAddress`, `SocketOptions`, `Socket`, reader/writer | [sockets](../crates/cellar/application/sockets.rs) |
-| Containers | `containers::Container`, `Port`, `Exec`; start/monitor/forward | [containers](../crates/cellar/application/containers.rs) |
+| Containers | `containers::Container`, `Port`, `Exec`; lifecycle, files and forwarding | [containers](../crates/cellar/application/containers.rs) |
+| Provider binding journal | `containers::BindingJournal`, `BindingRecord`, `BindingCheckpoint`; host-only durable resource intent | [journal contract](../crates/cellar-container/bindings.md) |
 | Facets | `facets::Class`, `Facets`, `Facet`, `Startup`; create/get/abort/delete | [facets](../crates/cellar/application/facets.rs) |
 | Compiled workers | `loader::WorkerCode`, `Loader`, `Worker`, `Entrypoint` | [loader](../crates/cellar/application/loader.rs) |
 | Structured values | `encode_rpc`, `decode_rpc`, `decode_rpc_result`; `clone`, `rpc`, `primitives` | [contracts](../crates/cellar/application/mod.rs), [native primitives](../crates/cellar-native/lib.rs) |

@@ -307,7 +307,8 @@ let adapter = Adapter::new(Arc::new(StatusOnly));
 ```
 
 The [provider contract](providers.md) explains each trait method, fencing,
-isolation, cleanup and uncertain outcomes. Use the [wire reference](protocol.md)
+isolation, cleanup, the [durable binding journal](bindings.md) and uncertain
+outcomes. Use the [wire reference](protocol.md)
 for operation inputs and results.
 
 ## Bridge protocol, version 1

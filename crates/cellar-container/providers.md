@@ -24,6 +24,13 @@ The shared session enforces event liveness, current turn, activation epoch and
 host ownership before and after dispatch. `Native` additionally checks local
 class/image/engine requirements; another backend need not declare a Docker image.
 
+## Durable resource identity
+
+Use the native [binding journal](bindings.md) for host-only lifecycle intent and
+provider resource IDs. It survives events, business-state clear and recovery;
+updates use revision checks and await native durability. Guest-visible metadata
+or ordinary application KV must not authorize a remote account resource.
+
 ## Backend responsibilities
 
 | Concern | Provider must supply |
