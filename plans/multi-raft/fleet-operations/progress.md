@@ -1284,6 +1284,61 @@ startup fix, TPS improvement or deployed RustFS/Colima qualification. FO-03 stay
 removal certification. The next implementation boundary remains exact archive
 verification, terminal survivor proof/receipt/slot release, then capacity readiness.
 
+## FO-03 progress: physically verified archive coverage
+
+Source `e083e6a2c58b245cd378a189351aff0c0776d488` adds
+`CellArchive::verify_published_at(reference, minimum, verifier, timeout)` and the
+opaque `VerifiedArchiveCoverage`. Exact immutable reads, payload hashes, complete
+prefix coverage and physical replay must all pass before a proof is returned.
+Canonical-empty archives use the same gate without fabricating SQL state.
+Missing selected material never substitutes a newer head. Configuration changes
+require a new attempt, and failed replay quarantines the scratch owner.
+
+Manifests now require the producer's `image_position`, independently of the
+archive applied/snapshot position. Full snapshots preserve that publication origin;
+tails cannot place it before their last data entry. Cold state uses explicit null.
+Legitimate producer/restart aliases remain comparable by full image state and
+configuration. The request's original deadline spans object IO, workspace wait,
+physical work and delayed delivery. A waiter that expires behind another replay
+refuses before touching scratch state. Blocking work retains its inputs through
+its execution owner. No business-write acknowledgement calls this verifier.
+
+Four new native cases exercise cold/first/later data, retained references,
+configuration changes, replay-capacity refusal/quarantine, full intact restart,
+held payload IO, unpolled delivery, missing selected references and exact producer
+origin preservation across protocol-only progress and recovered aliases. The
+fleet fixture supplies privileged capacity/permit inputs; this is not operator
+or controller qualification. A manifest unit adds required/bounded-origin cases.
+
+The frozen source passed **386 native Raft cases across 13
+complete targets**, **12 typed-RPC cases**, **152
+Raft unit cases**, and **4 startup cases**. Five directly
+ignored process helpers execute through passing parents. Affected-target/lib
+Clippy, formatting/layout over 1,094 Rust files, native dependencies, docs, source
+preflight, plan validation and all 10 plan-validator tests passed. The plan retains
+193 required cases and 74 reviewed source anchors. All 1166 tracked
+Rust files and captured build inputs stayed identical through qualification.
+The 35 compiled executable files were retained before the
+run; integration/unit/startup suites executed from those copies. The partial
+record is `implementation/fo03/archive-coverage-boundary.json` under ignored
+`.cellar/raft-perf/fleet-operations/`.
+
+An initial unit build failed because its direct archive fixture omitted the new
+deadline field; explicit `None` repaired that fixture. A new fleet assertion then
+incorrectly equated different producers' publication origins: the observed image
+was identical at origins 3 and 4. The failed binary and diagnostic replay are
+retained. Exact-origin assertions moved to the real capture boundary; fleet
+coverage retains strict image/configuration checks and now exercises intact
+restart aliases. Earlier timing/readiness failures remain unresolved. No startup
+fix, enforced-resource qualification, TPS gain or latency gain is claimed.
+
+The experimental protocol ends in `/empty-archives-1/archive-cuts-1`; use fresh
+fleet/data prefixes, namespaces and matching binaries. Markers stay at 1 with no
+legacy reader or migration. FO-03 remains **IN_PROGRESS**. Consume these archive
+proofs in terminal survivor verification, immutable receipts and disruption-slot
+release; close `fleet_enrollment_incomplete_import` at actual removal certification.
+Capacity readiness and FO-04 through FO-10 remain required. Automation stays off.
+
 ## Prioritized remaining delivery
 
 The append-only namespace registry, complete inventory read, native retired-binding
@@ -1297,7 +1352,7 @@ placement or maintenance. The manifest dependencies remain unchanged.
 
 | Priority | Boundary | Required result before advancing |
 | --- | --- | --- |
-| P0 | FO-03 capacity and terminal lifecycle integration | Complete inventory now gates typed evacuation exclusion under one exact root CAS; rooted physical-host policy is enforced on birth and fresh repair. Finish capacity activation/readiness and inventory-consuming terminal proof with fresh quorum/archive coverage, settled permits and physical-work joins/fences. Consume the coherent fixed data/configuration cuts in the terminal verifier; fully verify archive payloads and replay, including the new canonical-empty archive path. Exclusion is not node absence. Close `fleet_enrollment_incomplete_import` at the actual removal-certification boundary. |
+| P0 | FO-03 capacity and terminal lifecycle integration | Complete inventory now gates typed evacuation exclusion under one exact root CAS; rooted physical-host policy is enforced on birth and fresh repair. Finish capacity activation/readiness and inventory-consuming terminal proof with fresh quorum/archive coverage, settled permits and physical-work joins/fences. Consume coherent fixed data/configuration cuts and the exact physically verified archive coverage proofs in the terminal verifier, including canonical-empty histories. Exclusion is not node absence. Close `fleet_enrollment_incomplete_import` at the actual removal-certification boundary. |
 | P1 | FO-04 placement, FO-05 load, FO-06 reconciliation | Implement bounded staged feasibility for retained/temporary costs and one-node-loss headroom, fresh load observations and a domain-owned reconciler. Restart/cancellation/lost replies must converge; release reservations only with fresh terminal quorum proof and physical-work joins. |
 | P2 | FO-07 maintenance and FO-08 operator API/CLI | Deliver exact-operation/epoch/process stop fencing, shared disruption-slot integration for restart/resize, complete evacuation/removal receipts and authenticated idempotent workflows with revision guards and typed outcomes. Cover add/remove and rolling restart. |
 | P3 | FO-09 scaling and fewer-cell shrink | Reconcile desired, effective and observed resources for horizontal and vertical changes. Require observed platform-limit checks and complete retained-state fit before shrinking; fewer cells do not establish removability. |
@@ -1305,10 +1360,10 @@ placement or maintenance. The manifest dependencies remain unchanged.
 
 The next implementation slice is **FO-03 terminal verification**, in this order:
 
-1. Bind exact selected archive references to owned physical-verification proofs
-   for both populated and canonical-empty histories. The archive layer supports
-   both states; a published head alone still cannot certify removal. Compare
-   verified state/configuration coverage against the chosen fixed applied cut.
+1. Consume the new exact-reference physical archive proofs for populated and
+   canonical-empty histories in the terminal verifier. Check their fixed
+   state/configuration coverage alongside fresh survivor observations; a saved
+   historical proof alone cannot certify removal.
 2. Collect complete rooted inventory, settled exact permits and fresh stable
    quorum configurations excluding the departing node. Require three surviving
    coherent publications covering the fixed cut, then recheck the root,
