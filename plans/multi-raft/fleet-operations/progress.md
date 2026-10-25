@@ -1256,6 +1256,34 @@ absent. Capacity readiness, placement/reconciliation, maintenance/operator APIs,
 scaling and deployed RustFS/Colima/performance/soak qualification remain required.
 Fleet automation stays default-off.
 
+## Main integration: cold archive recovery
+
+Source `181d2dba679459cfe4c4b869b4366db5c0b3de85` merges main
+`906eb36a7a2ad2a8687310adcac880d8f4f0e0cc`. Archive manifest and replay conflicts
+were resolved while retaining explicit canonical-empty state and main's configured
+image/decode bounds: 64 MiB default, opt-in up to 256 MiB. These size profiles do
+not qualify capacity or recovery latency at 1-vCPU/3-GiB limits.
+
+The merged source passed **382 native cases across 13 complete Raft targets**,
+**12 cases across three typed-RPC integration targets**, **151 Raft library
+cases**, and **4 startup-confirmation cases**. Five directly ignored process
+helpers run through passing parents. Affected-target/lib Clippy with warnings
+denied, formatting and layout over 1,091 Rust files, native dependency checks,
+documentation, plan validation and all 10 plan-validator tests passed. All
+1,163 tracked Rust files and captured Cargo/configuration inputs stayed identical
+through the run. All 35 compiled executable files were copied and hash-checked
+before the test run; integration, unit and startup suites executed from retained
+copies. The partial record is
+`implementation/fo03/empty-archive-main-boundary.json` under ignored
+`.cellar/raft-perf/fleet-operations/`.
+
+Source anchors are refreshed to this merged source. Earlier failed attempts and
+their limits remain recorded above; a passing integration run establishes no
+startup fix, TPS improvement or deployed RustFS/Colima qualification. FO-03 stays
+**IN_PROGRESS**, with `fleet_enrollment_incomplete_import` still missing at actual
+removal certification. The next implementation boundary remains exact archive
+verification, terminal survivor proof/receipt/slot release, then capacity readiness.
+
 ## Prioritized remaining delivery
 
 The append-only namespace registry, complete inventory read, native retired-binding
