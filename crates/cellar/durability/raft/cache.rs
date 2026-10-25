@@ -353,6 +353,23 @@ pub(crate) struct CachedGroup {
 }
 
 impl CachedGroup {
+    /// Advance a verified image view across durable protocol-only entries. The
+    /// complete marker must remain identical; an older or uncommitted position
+    /// cannot relabel this image. The caller already owns its verified pin.
+    pub(crate) fn coherent_image_position(
+        &self,
+        image: &CommittedImage,
+        position: LogPosition,
+    ) -> Option<LogPosition> {
+        let applied = &self.applied;
+        (applied.image.as_ref() == Some(image)
+            && applied.position.index >= position.index
+            && applied.position.term >= position.term
+            && (applied.position.index != position.index || applied.position.term == position.term)
+            && applied.position.index.get() <= self.hard_state.commit)
+            .then_some(applied.position)
+    }
+
     pub fn first_index(&self) -> u64 {
         self.snapshot.get_metadata().index + 1
     }

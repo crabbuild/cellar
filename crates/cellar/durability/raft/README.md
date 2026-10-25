@@ -50,6 +50,10 @@ records authentication, bounds, ambiguous outcomes and remaining retention work.
 `RaftCellHandle.status()` reports a sampled replica role and local query
 readiness, including coherent image, registered callbacks and exact RecentSource
 age. These observations do not reserve capacity or prove a current quorum.
+Protocol-only applied entries can advance the sampled position while retaining
+the same verified image. Readiness uses the same complete marker and monotonic
+position checks as query admission; changed markers, regressing positions and
+uncommitted cuts remain ineligible.
 `RaftHostOptions.max_query_pins` bounds physical SDK query-reader reservations;
 the blocking owner retains its permit through callback/connection exit after
 waiter cancellation. `RaftCells.resource_usage()` reads actual fixed-size host

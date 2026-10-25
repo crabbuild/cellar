@@ -254,17 +254,11 @@ impl ImageApplier {
             return Ok(None);
         };
         let cache = self.group.read().map_err(ImageApplyError::Log)?;
-        let applied = &cache.applied;
-        if applied.image.as_ref() != Some(&marker(&image.pin))
-            || applied.position.index < image.position.index
-            || applied.position.term < image.position.term
-            || (applied.position.index == image.position.index
-                && applied.position.term != image.position.term)
-            || applied.position.index.get() > cache.hard_state.commit
-        {
+        let Some(position) = cache.coherent_image_position(&marker(&image.pin), image.position)
+        else {
             return Ok(None);
-        }
-        image.position = applied.position;
+        };
+        image.position = position;
         Ok(Some(image))
     }
 

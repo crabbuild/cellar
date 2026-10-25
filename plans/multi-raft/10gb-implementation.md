@@ -255,6 +255,22 @@ and the complete 96-case local lifecycle matrix pass. The corresponding
 also passes qualifier checks and the owned Node/V8/Python matrices. This is
 language lifecycle evidence, not full-size recovery qualification.
 
+The diagnostic work also reproduced an independent readiness-reporting defect:
+a healthy protocol-only apply retained its verified image but made query
+readiness false because its original publication position was older. Readiness
+now shares query admission's complete-marker and monotonic applied-position
+checks. The public three-node leadership-transfer regression fails against the
+original `552b3979` release components (6.12 seconds), and passes with the
+correction. Negative cases retain full marker binding, term/index coherence,
+committed boundaries and the sampled runtime position. No read deadline, source
+freshness policy or per-query quorum proof changes.
+
+Owning behavior checks pass 603 host library, 32 native host, 21 execution,
+23 operations and 22 read tests: 701 cases, with two ignored execution fixtures
+outside their default invocation. The read suite includes the new leadership
+transfer case without another application write. This reporting correction does
+not establish a fix for the separately observed full-size physical I/O stall.
+
 ## Remaining work
 
 The completion checklist remains open. Full native 10 GB warm takeover, exact

@@ -35,6 +35,11 @@ async fn native_readiness_distinguishes_historical_and_recent_source() -> Result
     readiness::historical_without_recent_source().await
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn native_readiness_survives_protocol_only_leadership_transfer() -> Result<()> {
+    readiness::after_protocol_only_leadership_transfer().await
+}
+
 fn counter(query: Arc<Query>) -> Result<public_node::Counter> {
     counter_query(Some(query))
 }
