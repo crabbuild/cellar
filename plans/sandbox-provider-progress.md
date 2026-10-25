@@ -748,3 +748,57 @@ pass. Rust format/layout covers 1,080 sources. Owned-source whitespace checks
 pass; the pinned process protobuf retains its upstream whitespace and is checked
 byte-for-byte instead. No existing deadline or assertion was weakened, and no
 live-cloud qualification is claimed.
+
+
+### Experimental Vercel named-sandbox/session profile
+
+The native `vercel::Vercel` provider implements portable lifecycle, bounded
+commands and file operations over the pinned named-sandbox/session REST API.
+Reviewed upstream source is `vercel/sandbox` at
+`8910e6205b1c72e1ad6ebaa2ceae236a3aa4d87f`, SDK reference `3.9.0`.
+The shared native HTTP adapter retains original invocation authority, bounded
+response collection, manual redirects and future-drop cleanup for E2B and Vercel.
+Neither provider embeds a vendor SDK or adds a JavaScript engine to native hosts.
+
+| Boundary | Behavior / evidence |
+| --- | --- |
+| Ownership | Shared host `Ownership` choice retains E2B's existing public path; direct Vercel refuses strict fencing and requires explicit `LocalChecksAndExpiry`. |
+| Identity | Durably reserve a random name and creation intent, correlate one protected ownership tag, pin the exact returned session ID, and refuse changed sessions before command/deletion effects. |
+| Lifecycle | Disable persistence and use `resume=false` inspection; lost creates reconcile the same name without another POST. Confirm retirement before replacing a generation. |
+| Deletion | Persist deletion intent, delete the verified named resource with owned orphan-snapshot cleanup requested, observe absence, and reconcile a lost reply without blindly replaying deletion. |
+| Binary execution | Image-local Python helper receives JSON over stdin and emits ASCII/base64 channel frames over Vercel's text logs; argv/cwd/env never enter a shell. Native code validates command/session identity and both framing layers. |
+| Files | Raw binary read endpoint; helper write/stat/list with existing-parent semantics, binary data, modes and bounded direct-child metadata. Lost stdin/write replies remain uncertain and observable, without replay. |
+| Local acceptance | Native protocol/restart fixture, actual CPython/Node/V8 using the same portable application fixture as E2B, and separate tests of the actual helper with owned temporary files and controlled subprocesses. |
+
+The helper is a remote image prerequisite, not an embedded Python interpreter.
+Its local acceptance checks invalid UTF-8 on both channels, child exit/cwd/env,
+concurrent 512 KiB stdout/stderr pipes, large/empty files, permissions, symlinks,
+entry/byte limits, no implicit mkdir, output overflow and joined child deadline
+cleanup. The native protocol peer covers lost create/delete/write replies,
+foreign metadata/session refusal, native recovery, exact binary files, command
+output, truncated/error/oversized streams, deadline/stream cleanup and credential
+redirect refusal. The peer executes no VM or real command.
+
+Still required: live Vercel image/account acceptance, expiry/takeover/orphan and
+remote-fencing qualification; interactive processes, signals/monitor, inactivity,
+ports/previews, PTY and snapshots; named guest binding discovery and the full
+SP-05/SP-06 profile. Fixed session timeout does not establish owner-loss cleanup.
+The manifest keeps `qualification: not_run`; Workers synchronous lifecycle remains
+unsupported. Other SP-01–SP-10 targets stay active and incomplete.
+
+
+Final-source validation passes 16 provider unit tests, 16 shared guest tests,
+all four native provider integrations and five adapter doctests. E2B and Vercel
+fixtures pass in CPython, Node and embedded V8; the existing Node/V8 native
+container regressions also pass. Strict all-target Clippy passes for the provider,
+shared guest and both language crates with all affected runtime features enabled.
+Four actual-helper tests, four E2B/Vercel pinned-input tests, all 25 JS/tool/type
+tests, format/layout (1,092 Rust sources; 57 owned JS/TS sources), documentation
+references and the 466-package engine-free native dependency guard pass. CI now
+runs the Vercel input and helper checks. No live-account acceptance is claimed.
+
+The existing journal regression again exceeded its unchanged 250 ms initial
+handler budget in an intermediate full-suite run. Three unchanged standalone
+runs and the final full-suite run pass; the latency cause remains unproven.
+No deadline or assertion was relaxed. This repeats the earlier timing caveat and
+is not evidence that the broader deadline/fault qualification is resolved.

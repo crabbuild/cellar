@@ -6,7 +6,7 @@
 The default `Native` provider uses Cellar's existing Docker/Podman integration;
 Rust hosts can supply another backend without changing the guest API.
 
-[Quick start](#quick-start) · [Capabilities](#discover-capabilities) ·
+[Quick start](#quick-start) · [Provider matrix](compatibility.md) · [Capabilities](#discover-capabilities) ·
 [Lifecycle](#two-lifecycle-interfaces) · [Files](files.md) · [Add a provider](#add-a-provider) ·
 [Wire reference](#bridge-protocol-version-1)
 
@@ -21,7 +21,8 @@ container engine. Selecting `Native` keeps the same Docker/Podman execution path
 | A backend selectable by the host across Rust, Python, JS and TS | This crate's `Adapter` / `Session` | Shared operations, capabilities, validation and bounded replies |
 | Existing Workers/Durable Object application APIs | Optional `@cellar/cloudflare` package | Experimental API compatibility above the same provider boundary |
 | A hosted E2B sandbox | Experimental [`e2b::E2b`](e2b.md) provider | Bounded commands/files and durable lifecycle reconciliation; explicit weaker ownership profile |
-| Vercel or another hosted sandbox | A dedicated Rust `Provider` implementation | Extend the same boundary; these providers remain planned |
+| A hosted Vercel sandbox | Experimental [`vercel::Vercel`](vercel.md) provider | Bounded commands/files, durable named-resource identity and pinned sessions; explicit weaker ownership |
+| Another hosted sandbox | A dedicated Rust `Provider` implementation | Extend the same boundary; additional providers remain planned |
 
 Like celld, a durable object/cell owns container controls and the node executes
 them. Cellar adds a host-selected provider shared by all four languages.
@@ -49,7 +50,8 @@ adapter does not move SDK effects onto the Python, Node or V8 runtime thread.
 | Custom container or sandbox backend | `Provider` / `ProviderSession` extension point is available; the host supplies the implementation | [Provider contract](#add-a-provider) |
 | Local Cloudflare Workers / Containers / Sandbox APIs | Experimental compatibility slices in a separate package; full application/image conformance remains pending | [Cloudflare facade](../../packages/cellar-cloudflare/README.md) |
 | E2B control API + envd | Experimental bounded execution/files; explicit weaker ownership, local protocol tests; live account qualification pending | [E2B configuration and recovery](e2b.md) |
-| Hosted Cloudflare, Vercel, Daytona and Modal | Planned | [Delivery plan](../../plans/sandbox-provider-compatibility.md) |
+| Vercel named sandbox + session API | Experimental bounded execution/files with image-local helper; local protocol/runtime tests; live VM qualification pending | [Vercel configuration and recovery](vercel.md) |
+| Hosted Cloudflare, Daytona and Modal | Planned | [Delivery plan](../../plans/sandbox-provider-compatibility.md) |
 | Dynamic Worker isolates, PTY and snapshots | Planned features; the current operation set does not implement them | [Implementation ledger](../../plans/sandbox-provider-progress.md) |
 
 **Tested Sandbox baseline:** 0.12.9 SDK + matching image; unchanged exec, file,

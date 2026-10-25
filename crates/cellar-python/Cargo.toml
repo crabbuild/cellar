@@ -116,3 +116,9 @@ required-features = ["embed"]
 name = "cellar-streaming-python"
 path = "../../examples/streaming/python.rs"
 required-features = ["embed"]
+
+[[test]]
+name = "vercel"
+path = "tests/vercel.rs"
+harness = false
+required-features = ["embed"]

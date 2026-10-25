@@ -11,7 +11,12 @@ use std::{
 #[path = "../../../cellar-javascript/tests/support/native.rs"]
 mod native;
 
-pub async fn exercise(application: Arc<dyn Application>, peer: crate::peer::Peer) -> Result<()> {
+pub async fn exercise(
+    application: Arc<dyn Application>,
+    peer: crate::peer::Peer,
+    provider: &str,
+    commands: usize,
+) -> Result<()> {
     let directory = tempfile::tempdir()?;
     let (node, address) =
         native::start_configured(directory.path(), application, |config, _, _| {
@@ -23,7 +28,10 @@ pub async fn exercise(application: Arc<dyn Application>, peer: crate::peer::Peer
             .timeout(Duration::from_secs(10))
             .build()?;
         for path in ["first", "second", "destroy"] {
-            let response = client.get(format!("{address}/{path}")).send().await?;
+            let response = client
+                .get(format!("{address}/{provider}/{path}"))
+                .send()
+                .await?;
             let status = response.status();
             let body = response.text().await?;
             ensure!(
@@ -35,7 +43,7 @@ pub async fn exercise(application: Arc<dyn Application>, peer: crate::peer::Peer
             peer.state.creates.load(Ordering::SeqCst) == 1
                 && peer.state.deletes.load(Ordering::SeqCst) == 1
         );
-        ensure!(peer.state.commands.load(Ordering::SeqCst) == 3);
+        ensure!(peer.state.commands.load(Ordering::SeqCst) == commands);
         Ok::<_, anyhow::Error>(())
     }
     .await;

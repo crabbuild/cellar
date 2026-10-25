@@ -5,7 +5,7 @@ mod config;
 mod files;
 mod lifecycle;
 mod process;
-mod transport;
+use crate::remote_http as transport;
 mod wire;
 use crate::{
     Environment, Fencing, Limits, Operation, Provider, ProviderFuture, ProviderSession, Validation,

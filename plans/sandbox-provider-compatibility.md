@@ -4,8 +4,9 @@
 
 Status: accepted architecture direction and proposed delivery contract. Native
 Docker/compatible Podman operations are implemented in `cellar-container`.
-Cloudflare API compatibility, hosted providers and the sandbox extensions below
-remain pending. Naming a target does not enable that backend or SDK profile.
+Experimental E2B/Vercel providers and local Cloudflare compatibility slices are
+implemented. Full target qualification and the sandbox extensions below remain
+pending. Naming a target does not enable that backend or SDK profile.
 
 Implementation evidence and remaining requirements are tracked in the
 [implementation ledger](sandbox-provider-progress.md).
@@ -62,11 +63,11 @@ revisions. Package drift must invalidate the corresponding compatibility result.
 | Target | Application contract | Execution path | Status |
 | --- | --- | --- | --- |
 | Docker/compatible Podman | Existing Cellar container facades | Existing local native engine | Implemented |
-| Cloudflare Workers/Durable Objects | Versioned modules, web APIs, bindings, lifecycle/storage/alarms and required RPC | Optional language runtime adapter above native Cellar | Planned |
-| Cloudflare Containers | `ctx.container` and published `@cloudflare/containers` profile | Local provider first; capable remote providers later | Planned |
-| Cloudflare Sandbox 0.12.9 | Published Sandbox class and matching control-server image | Local provider first; package requirements govern other providers | Planned baseline |
+| Cloudflare Workers/Durable Objects | Versioned modules, web APIs, bindings, lifecycle/storage/alarms and required RPC | Optional language runtime adapter above native Cellar | Partial runtime slices; full profile pending |
+| Cloudflare Containers | `ctx.container` and published `@cloudflare/containers` profile | Local provider first; capable remote providers later | Partial local package profile |
+| Cloudflare Sandbox 0.12.9 | Published Sandbox class and matching control-server image | Local provider first; package requirements govern other providers | Basic package/image routes pass; streaming, previews and fault qualification pending |
 | Cloudflare Sandbox 1.x | Direct container API plus matching package helpers/shim | Independently versioned profile | Planned next profile |
-| Vercel Sandbox / E2B | Portable Cellar sandbox operations; selected Cloudflare surface where capabilities permit | Provider adapters and durable remote bindings | Planned |
+| Vercel Sandbox / E2B | Portable Cellar sandbox operations; selected Cloudflare surface where capabilities permit | Provider adapters and durable remote bindings | Experimental bounded exec/files; live-account qualification pending |
 | Daytona / Modal | Same portable operations plus declared extensions | Provider adapters and durable remote bindings | Planned |
 | Dynamic Workers | Isolated module execution with explicit bindings and limits | Separate optional runtime capability; hosted Worker gateway if selected | Planned extension |
 | Hosted Cloudflare Containers/Sandbox | Portable operations through a configured service gateway | Worker/Durable Object gateway and Rust client | Optional later backend |

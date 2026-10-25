@@ -22,7 +22,10 @@ const sources = [
   "tools/javascript",
   "tools/sandbox",
 ];
-const upstream = resolve(root, "tools/sandbox/compat/fixtures/celld");
+const upstream = new Set([
+  resolve(root, "tools/sandbox/compat/fixtures/celld"),
+  resolve(root, "tools/sandbox/vercel/reference"),
+]);
 const factories = new Set(
   [
     "crates/cellar-javascript/runtime/runner.js",
@@ -36,7 +39,7 @@ async function* files(directory) {
   for (const entry of await readdir(directory, { withFileTypes: true })) {
     const path = resolve(directory, entry.name);
     // Generated bundles and pinned upstream inputs retain their original bytes.
-    if (["node_modules", "dist"].includes(entry.name) || path === upstream)
+    if (["node_modules", "dist"].includes(entry.name) || upstream.has(path))
       continue;
     if (entry.isDirectory()) yield* files(path);
     else if (entry.isFile() && /\.(?:[cm]?[jt]s|[jt]sx)$/.test(entry.name))

@@ -37,7 +37,7 @@ pub(super) async fn open(
     };
     cellar::asyncrt::timeout(Duration::from_millis(timeout_ms), context.fetch(request))
         .await
-        .map_err(|_| anyhow::anyhow!("E2B request timed out; outcome may be unknown"))?
+        .map_err(|_| anyhow::anyhow!("provider HTTP request timed out; outcome may be unknown"))?
 }
 
 pub(super) async fn collect(
@@ -50,11 +50,11 @@ pub(super) async fn collect(
     let read = async {
         ensure!(
             response.websocket.is_none(),
-            "unexpected E2B transport upgrade"
+            "unexpected provider HTTP transport upgrade"
         );
         ensure!(
             response.body.len() <= maximum,
-            "E2B response exceeds byte limit"
+            "provider HTTP response exceeds byte limit"
         );
         if let Some(stream) = response.stream.as_mut() {
             while let Some(chunk) = stream.next().await {
@@ -62,7 +62,7 @@ pub(super) async fn collect(
                 let chunk = chunk.map_err(anyhow::Error::msg)?;
                 ensure!(
                     chunk.len() <= maximum.saturating_sub(response.body.len()),
-                    "E2B response exceeds byte limit"
+                    "provider HTTP response exceeds byte limit"
                 );
                 response.body.extend_from_slice(&chunk);
             }
@@ -76,7 +76,7 @@ pub(super) async fn collect(
     };
     cellar::asyncrt::timeout(Duration::from_millis(timeout_ms), read)
         .await
-        .map_err(|_| anyhow::anyhow!("E2B response timed out; outcome may be unknown"))?
+        .map_err(|_| anyhow::anyhow!("provider HTTP response timed out; outcome may be unknown"))?
 }
 
 pub(super) async fn request(

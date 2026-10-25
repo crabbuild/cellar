@@ -9,11 +9,13 @@ pub mod e2b;
 mod files;
 mod native;
 mod queued;
+mod remote_http;
 mod results;
 mod values;
+pub mod vercel;
 
 use anyhow::{ensure, Context as _, Result};
-pub use capabilities::{Capabilities, Environment, Fencing};
+pub use capabilities::{Capabilities, Environment, Fencing, Ownership};
 use cellar::sdk::{containers::ProviderAuthority, Context};
 use serde_json::Value;
 use std::{

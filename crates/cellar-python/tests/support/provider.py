@@ -16,17 +16,17 @@ class Counter:
     async def fetch(self, request, ctx):
         container = ctx.container
         capabilities = await container.capabilities()
-        assert capabilities.provider == "e2b"
+        assert capabilities.provider == request.path.strip("/").split("/")[0]
         assert capabilities.fencing == "local_checks_and_expiry"
         assert capabilities.max_resources == 0
         assert not capabilities.queued_lifecycle and not capabilities.synchronous_running
         path = "/tmp/é-?.bin"
 
-        if request.path == "/destroy":
+        if request.path.endswith("/destroy"):
             await container.destroy()
             assert not await container.running()
             return Response("ok")
-        if request.path == "/second":
+        if request.path.endswith("/second"):
             await refuses(lambda: self.old.running())
             assert await container.running()
             assert await container.read_file(path, max_bytes=3) == b"\x00\xff*"

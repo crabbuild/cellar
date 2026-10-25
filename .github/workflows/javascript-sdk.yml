@@ -70,6 +70,9 @@ jobs:
         run: |
           node tools/sandbox/e2b/check.mjs
           node --test tools/sandbox/e2b/check.test.mjs
+          node tools/sandbox/vercel/check.mjs
+          node --test tools/sandbox/vercel/check.test.mjs
+          python3 tools/sandbox/vercel/helper_test.py
           npm ci --ignore-scripts --prefix tools/sandbox/compat
           npm run inventory --prefix tools/sandbox/compat
           npm test --prefix tools/sandbox/compat

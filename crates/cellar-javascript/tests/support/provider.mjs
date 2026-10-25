@@ -37,7 +37,10 @@ export class Counter {
   async inspect(request, ctx) {
     const container = ctx.container;
     const capabilities = await container.capabilities();
-    check(capabilities.provider === "e2b", "selected backend");
+    check(
+      capabilities.provider === request.url.split("/").at(-2),
+      "selected backend",
+    );
     check(
       capabilities.fencing === "local_checks_and_expiry",
       "weaker ownership",

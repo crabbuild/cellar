@@ -24,6 +24,14 @@ pub enum Fencing {
     ProviderEnforced,
 }
 
+/// Requested ownership guarantee for a direct cloud provider. Local checks
+/// cannot revoke requests already accepted by a remote service.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Ownership {
+    RequireProviderFence,
+    LocalChecksAndExpiry,
+}
+
 /// Only operations actually declared by the configured provider are advertised.
 /// Optional future features are absent until a backend implements their contract.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

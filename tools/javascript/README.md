@@ -20,7 +20,8 @@ The formatter uses two-space indentation and an 80-column print width. Private
 runtime factories omit the final expression semicolon because the native
 bootstrap embeds them inside parentheses. Generated sandbox bundles,
 `node_modules`, and the byte-pinned upstream files in
-`tools/sandbox/compat/fixtures/celld` are excluded.
+`tools/sandbox/compat/fixtures/celld` and `tools/sandbox/vercel/reference` are
+excluded.
 
 Run build-tool tests with `npm test --prefix tools/javascript`. See the
 [sandbox input guide](../sandbox/compat/README.md) for compatibility inventory

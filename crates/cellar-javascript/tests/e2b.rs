@@ -5,13 +5,13 @@
 use anyhow::Result;
 use cellar_javascript::{EventKind, Options, Source};
 use std::time::Duration;
-#[path = "../../cellar-container/tests/support/e2b_language.rs"]
+#[path = "../../cellar-container/tests/support/provider_language.rs"]
 mod acceptance;
 #[path = "../../cellar-container/tests/support/e2b.rs"]
 mod peer;
 
 fn source(peer: &peer::Peer) -> Result<Source> {
-    let code = include_str!("support/e2b.mjs").replace("export ", "");
+    let code = include_str!("support/provider.mjs").replace("export ", "");
     Ok(Source::new(
         format!("var CellarApp = (() => {{{code}; return {{cells, fetch}}; }})();"),
         "e2b.mjs",
@@ -31,7 +31,7 @@ fn node_e2b_provider() -> Result<()> {
     let source = source(&peer)?;
     let directory = tempfile::tempdir()?;
     let entry = directory.path().join("e2b.mjs");
-    std::fs::write(&entry, include_str!("support/e2b.mjs"))?;
+    std::fs::write(&entry, include_str!("support/provider.mjs"))?;
     cellar_javascript::NodeRuntime::run(
         Options {
             turn_timeout: Duration::from_secs(2),
@@ -39,7 +39,7 @@ fn node_e2b_provider() -> Result<()> {
         },
         cellar_javascript::NodeOptions::new(entry),
         source,
-        move |application| runtime.block_on(acceptance::exercise(application, peer)),
+        move |application| runtime.block_on(acceptance::exercise(application, peer, "e2b", 3)),
     )
 }
 
@@ -57,6 +57,6 @@ fn embedded_e2b_provider() -> Result<()> {
             ..Default::default()
         },
         source,
-        move |application| runtime.block_on(acceptance::exercise(application, peer)),
+        move |application| runtime.block_on(acceptance::exercise(application, peer, "e2b", 3)),
     )
 }

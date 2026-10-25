@@ -5,13 +5,7 @@ use serde_json::json;
 use sha2::{Digest, Sha256};
 use url::Url;
 
-/// Direct E2B does not validate Cellar ownership tokens on every request.
-/// Callers must explicitly select the weaker profile; strict admission refuses.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Ownership {
-    RequireProviderFence,
-    LocalChecksAndExpiry,
-}
+pub use crate::Ownership;
 
 #[derive(Clone)]
 pub struct Config {
