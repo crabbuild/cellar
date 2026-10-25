@@ -1,0 +1,12 @@
+{
+  "name": "cellar-streaming-example",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@cellar/sdk": "file:../../packages/cellar-sdk"
+  },
+  "scripts": {
+    "build": "node ../../tools/javascript/build.mjs javascript.json && node ../../tools/javascript/node_modules/typescript/bin/tsc --project tsconfig.json --noEmit false --outDir dist"
+  }
+}
