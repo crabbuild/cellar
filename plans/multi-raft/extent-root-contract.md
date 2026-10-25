@@ -69,7 +69,38 @@ The length-mismatch regression failed before `ExtentId` retained its length and
 passes with the corrected typed identity. Rust 1.98.1 Clippy passes for this
 target. Run `cargo test --locked -p cellar-ltx --test extent_tree` to reproduce.
 
-The next boundary is owned immutable extent files and a verified reader, followed
-by an independent committed SQLite/WAL observer. Execution, envelopes, generation
-markers, snapshots and archives must then switch together. A Merkle root must
-never be relabeled as the existing flat SHA-256 to avoid that coordinated change.
+## Private verified extent files
+
+`ExtentDownload` reserves its complete expected length and one file against the
+shared node scratch pool before creating an anonymous file on the supplied
+filesystem/volume. Ordered appends accept at most 64 KiB. Invalid or uncertain
+appends poison the owner; they cannot be retried over potentially written bytes.
+An incomplete owner exposes no reader.
+
+Finishing requires the exact incoming length and content identity, a successful
+file sync, then an independent destination length check and streamed hash. Only
+then does it return an immutable `ExtentFile`. Its reads also use at most 64 KiB.
+The anonymous handle closes before its disk/file reservation is refunded; clones
+share both owners until the last clone drops. Hash framing matches the typed
+`ExtentId` domain, including exact length. There is no whole-extent allocation in
+the receiver, file verifier or reader.
+
+Seven file tests cover 1-byte through 4 MiB extents, 64 KiB boundaries, read and
+append bounds, shared admission before I/O, clone/unfinished-owner lifetimes,
+truncated/extra/incorrect content, poisoned partial writes, creation failure,
+sync refusal, corrupted physical writes and short destination reads. These pass
+alongside the eight root tests and seven ordinary streamed-snapshot regressions;
+the physical 10 GB codec fixture remains an explicitly ignored qualification.
+These APIs are still exposed only through the unstable verification surface.
+Rust 1.98.1 Clippy passes for all three owning test targets with warnings denied.
+Formatting and module layout cover 925 Rust files; native dependency and local
+documentation checks also pass. Run `cargo test --locked -p cellar-ltx --test
+extent_file --test extent_tree --test stream_snapshot` for this ordinary scope.
+
+The next boundary is an independent committed SQLite/WAL observer, followed by
+resident extent admission/eviction, authenticated object-store extent placement
+and demand reads. Execution, envelopes, generation markers, snapshots and
+archives must switch together. The current anonymous file owner is disposable
+data material, not a persistent cell generation or admission proof. A Merkle root
+must never be relabeled as the existing flat SHA-256 to avoid that coordinated
+change. None of this prototype is connected to native recovery yet.

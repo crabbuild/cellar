@@ -41,6 +41,14 @@ pub struct ExtentId {
 }
 
 impl ExtentId {
+    pub(crate) fn stream_hasher(self) -> Sha256 {
+        let mut hash = hash_prefix(b"extent");
+        hash.update(4u64.to_be_bytes());
+        hash.update(self.length.to_be_bytes());
+        hash.update(u64::from(self.length).to_be_bytes());
+        hash
+    }
+
     pub fn of(bytes: &[u8]) -> Result<Self, RootError> {
         if bytes.is_empty() || bytes.len() as u64 > EXTENT_BYTES {
             return Err(RootError::Geometry);
@@ -181,15 +189,20 @@ impl Node {
 }
 
 fn hash(kind: &[u8], fields: &[&[u8]]) -> [u8; 32] {
-    let mut hash = Sha256::new();
-    hash.update(b"cellar.extent-image.v1\0");
-    hash.update((kind.len() as u32).to_be_bytes());
-    hash.update(kind);
+    let mut hash = hash_prefix(kind);
     for field in fields {
         hash.update((field.len() as u64).to_be_bytes());
         hash.update(field);
     }
     hash.finalize().into()
+}
+
+fn hash_prefix(kind: &[u8]) -> Sha256 {
+    let mut hash = Sha256::new();
+    hash.update(b"cellar.extent-image.v1\0");
+    hash.update((kind.len() as u32).to_be_bytes());
+    hash.update(kind);
+    hash
 }
 
 fn empty_nodes() -> Vec<Arc<Node>> {

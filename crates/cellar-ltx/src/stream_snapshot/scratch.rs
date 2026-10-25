@@ -77,7 +77,7 @@ impl ScratchPool {
             .map_err(|_| Error::Invalid("poisoned snapshot scratch admission"))
     }
 
-    pub(super) fn acquire(&self, bytes: u64, files: usize) -> Result<Reservation, Error> {
+    pub(crate) fn acquire(&self, bytes: u64, files: usize) -> Result<Reservation, Error> {
         if bytes == 0 || files == 0 {
             return Err(Error::Limit);
         }
@@ -108,7 +108,7 @@ impl ScratchPool {
     }
 }
 
-pub(super) struct Reservation {
+pub(crate) struct Reservation {
     pool: ScratchPool,
     bytes: u64,
     files: usize,

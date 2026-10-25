@@ -14,7 +14,7 @@ use crate::ltx::{self, Header, Trailer};
 use std::io;
 
 pub use file::{Download, SnapshotFile};
-use scratch::Reservation as ScratchReservation;
+pub(crate) use scratch::Reservation as ScratchReservation;
 pub use scratch::{ScratchLimits, ScratchPool, ScratchUsage};
 
 /// Decimal per-cell SQLite quota. Transfer and scratch budgets are independent.

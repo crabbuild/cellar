@@ -20,6 +20,7 @@ pub struct Metrics {
     pub max_write: AtomicUsize,
     pub active_handles: AtomicUsize,
     pub fail_append: AtomicBool,
+    pub fail_sync: AtomicBool,
     pub corrupt_output: AtomicBool,
     pub short_read: AtomicBool,
     pub clone_mode: AtomicUsize,
@@ -59,6 +60,10 @@ impl HostFileIo for File {
 
     fn write_all_at(&mut self, offset: u64, bytes: &[u8]) -> io::Result<()> {
         self.write_bound(bytes.len())?;
+        if self.metrics.fail_append.swap(false, Ordering::AcqRel) {
+            self.inner.write_all_at(offset, &bytes[..bytes.len() / 2])?;
+            return Err(io::Error::other("uncertain partial random write"));
+        }
         if self.metrics.corrupt_output.swap(false, Ordering::AcqRel) {
             let mut corrupt = bytes.to_vec();
             if let Some(byte) = corrupt.last_mut() {
@@ -82,6 +87,9 @@ impl HostFileIo for File {
     }
 
     fn sync_all(&mut self) -> io::Result<()> {
+        if self.metrics.fail_sync.swap(false, Ordering::AcqRel) {
+            return Err(io::Error::other("uncertain file sync"));
+        }
         self.inner.sync_all()
     }
 
