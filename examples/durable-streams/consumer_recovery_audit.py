@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Evidence for consumer inbox/effect recovery from retained follower proof."""
 import base64
 from contextlib import closing

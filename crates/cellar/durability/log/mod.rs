@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 // Copyright 2026 Deno Land Inc. Apache-2.0 license.
 // Modified for Cellar.
 
@@ -7297,9 +7299,15 @@ fn spawn_maintenance(
                     );
                 }
                 repair_interval = std::time::Duration::from_secs(1);
-                continue;
+                // One follower satisfies the serving floor. A later peer
+                // still needs recruitment to reach the requested two-follower
+                // target; otherwise it waits for the 30-second maintenance pass.
+                if watcher.ensemble_width() >= RECRUIT_FOLLOWERS {
+                    continue;
+                }
+            } else {
+                repair_since.get_or_insert_with(mono_ms);
             }
-            repair_since.get_or_insert_with(mono_ms);
             // The first repair after a degrade is immediate — that is the
             // 0.7s swap — but successive failed repairs back off to the
             // swap rate cap: a full peer partition once opened seventeen

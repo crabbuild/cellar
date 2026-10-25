@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Embedded nodes with real TLS TCP links and optional connection-cut proxies.
 #![allow(clippy::disallowed_methods)]
 use super::public_node;
@@ -274,6 +276,7 @@ pub struct Cluster {
     standby: Option<(NodeRaftListeners, RaftCellsConfig)>,
     _roots: Vec<tempfile::TempDir>,
     generation: u8,
+    materialized_image_bytes: Option<u64>,
 }
 
 impl Cluster {
@@ -428,6 +431,28 @@ impl Cluster {
         .await
     }
 
+    /// Real command, transfer and archive paths with coherent opt-in image bounds.
+    #[allow(dead_code)]
+    pub async fn start_with_materialized_images(
+        definitions: &[public_node::Counter],
+        registrations: Vec<RaftCellRegistration>,
+        bytes: u64,
+        store: Option<Arc<dyn object_store::ObjectStore>>,
+    ) -> Result<Self> {
+        let mut host = RaftHostOptions::default();
+        host.execution.max_image_bytes = bytes;
+        Self::start_layout(
+            definitions,
+            registrations,
+            100,
+            host,
+            ExtraNode::Standby(None),
+            TransportOptions::default(),
+            store,
+        )
+        .await
+    }
+
     #[allow(dead_code)] // Shared with targets that do not run seed crash matrices.
     pub async fn start_seed_crash_fixture(
         definitions: &[public_node::Counter],
@@ -500,11 +525,15 @@ impl Cluster {
             .checked_add(40)
             .filter(|generation| *generation <= 252)
             .ok_or_else(|| anyhow::anyhow!("fixture process generations exhausted"))?;
+        let mut host = RaftHostOptions::default();
+        if let Some(bytes) = self.materialized_image_bytes {
+            host.execution.max_image_bytes = bytes;
+        }
         Self::start_layout(
             definitions,
             registrations,
             20,
-            RaftHostOptions::default(),
+            host,
             ExtraNode::Resume {
                 roots,
                 placements,
@@ -731,6 +760,13 @@ impl Cluster {
                 peers: routes[i].clone(),
                 host: host.clone(),
             };
+            // Large-image fixtures use the public coupled configuration API,
+            // including on the empty replacement node retained below.
+            let config = if host.execution.max_image_bytes > 64 * 1024 * 1024 {
+                config.with_materialized_image_limit(host.execution.max_image_bytes)?
+            } else {
+                config
+            };
             if i == 3 && standby_node {
                 standby = Some((listeners, config));
                 continue;
@@ -763,6 +799,8 @@ impl Cluster {
             standby,
             _roots: roots,
             generation,
+            materialized_image_bytes: (host.execution.max_image_bytes > 64 * 1024 * 1024)
+                .then_some(host.execution.max_image_bytes),
         })
     }
 

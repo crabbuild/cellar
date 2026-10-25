@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Discover work only from the published committed image. Both adapters share
 //! one client allocator, one metadata reservation and one owned scheduler turn.
 use super::{alarm, outbox, RaftOutbox};

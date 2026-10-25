@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Bounded source dispatch through owner routing. Persisted retry deadlines
 //! survive interruption; a successful destination reply permits local cleanup.
 

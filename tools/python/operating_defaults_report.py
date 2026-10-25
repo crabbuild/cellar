@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Validate default-limit evidence before rendering workload measurements."""
 from __future__ import annotations
 
@@ -14,6 +16,8 @@ from baseline_report import require
 
 
 def bridge_settled(bridge):
+    require(type(bridge.get("native_invocations")) is int and bridge["native_invocations"] == 0,
+            "unreleased or unobserved native invocation admissions")
     require(bridge["queued_bytes"] == bridge["pending_reservations"] == 0, "unreleased bridge bytes/reservations")
     operations = bridge["operations"]
     require(all(operations[key] == 0 for key in ("pending", "queued", "running", "replies_pending")), "unsettled native operations")

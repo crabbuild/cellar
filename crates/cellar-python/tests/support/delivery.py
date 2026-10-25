@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Real broker delivery: decisions, replay, cancellation and retained authority."""
 import asyncio
 from cellar import Response, SDKError

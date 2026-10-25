@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 .DS_Store
 .cellar/
 .celld/
@@ -17,10 +19,23 @@ console-audit.sqlite*
 /examples/javascript/app.bundle.js*
 !/examples/javascript/package-lock.json
 !/tools/javascript/package-lock.json
+!/tools/rpc/package-lock.json
+/tools/rpc/dist/
 /examples/node/dist/
 !/examples/node/package-lock.json
 /examples/pi-agent/dist/
 !/examples/pi-agent/package-lock.json
+/examples/vercel-agent/dist/
+!/examples/vercel-agent/package-lock.json
+/examples/vercel-agent/ui/dist/
+!/examples/vercel-agent/ui/package-lock.json
+/examples/vercel-agent/ui/test-results/
+/examples/vercel-agent/ui/playwright-report/
 
 # Keep new local multi-Raft benchmark evidence out of commits.
 /plans/multi-raft/evidence/
+
+# Reproducible streaming example builds.
+/examples/streaming/app.bundle.js*
+/examples/streaming/dist/
+!/examples/streaming/package-lock.json

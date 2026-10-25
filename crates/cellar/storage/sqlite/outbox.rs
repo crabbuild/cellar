@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Atomic source state and outgoing obligations. The dispatcher consumes only
 //! committed rows; sequence allocation and work publication share the source
 //! transaction and its rollback behavior.

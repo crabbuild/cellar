@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # cellar-guest: shared SDK operations for language adapters
 
 `cellar-guest` translates SDK calls from Python and JavaScript applications into
@@ -148,9 +150,10 @@ classifier recognizes it, but the shared `execute` dispatcher does not handle it
 
 ## HTTP values and limits
 
-HTTP bodies are buffered and bounded. Native response streams are collected
-before returning a guest value; this layer does not expose streaming HTTP or
-WebSocket upgrades to guest code.
+The buffered `cell.fetch` operation collects bounded response bodies. The
+invocation-owned `transport::Session` also exposes live response forwarding,
+backpressured streaming HTTP/SSE and native WebSocket capabilities. See
+[streaming and WebSockets](../../docs/27-streaming-and-websockets.md).
 
 ```text
                     Same native HTTP conversion rules
@@ -175,8 +178,8 @@ base64 in the JSON envelope, so choosing the byte path does not bypass the limit
 
 | Limit | Enforced behavior |
 | --- | --- |
-| `Limits::max_body_bytes` | Bounds collected request and response bodies, including any buffered prefix of a response stream. |
-| `Limits::max_batch_operations` | Counts checks, puts, deletes, and one optional alarm change in a storage batch. |
+| `Limits::max_body_bytes` | Bounds buffered bodies, individual stream chunks/frames, and aggregate retained response prefixes. |
+| `Limits::max_batch_operations` | Counts storage batch operations; also bounds live response/socket capabilities per invocation. |
 | HTTP headers | At most 128 pairs and 32,768 total bytes across names and values. |
 | Guest response status | Must be an integer from 200 through 599. |
 | JSON nesting | Depth at most 64, with the root at depth zero. |

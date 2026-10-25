@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Durable native tool loop
 
 Checkpoint a bounded tool sequence and advance it through durable alarms.

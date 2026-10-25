@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Additive LTX compaction through a [`ReplicaClient`].
 //!
 //! This module ports the storage-independent part of Litestream v0.5.16's

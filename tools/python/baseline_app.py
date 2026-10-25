@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Equivalent echo and checked counter operations for the measured Rust host."""
 from cellar import Response
 import asyncio

@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Independent serialized reference-history checker for Fleet/bucket receipts.
 
 These are application transaction receipts, never Raft positions or tokens.

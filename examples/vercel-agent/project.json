@@ -1,0 +1,22 @@
+{
+  "cargo_manifest": "../../Cargo.toml",
+  "package": "cellar-javascript",
+  "binary": "cellar-vercel-agent-example",
+  "profile": "dev",
+  "features": ["node"],
+  "node_environment": {
+    "root": "../../.cellar/vercel-agent-runtime",
+    "executable": "bin/node",
+    "entry": "app/dist/app.js",
+    "working_directory": "app"
+  },
+  "primary": {
+    "script_name": "vercel-agent-example",
+    "application_version": "v1",
+    "cells": ["DurableAgent", "ConversationDirectory"],
+    "bindings": [
+      {"type":"durable_object_namespace","name":"AGENTS","class_name":"DurableAgent"},
+      {"type":"durable_object_namespace","name":"CONVERSATIONS","class_name":"ConversationDirectory"}
+    ]
+  }
+}

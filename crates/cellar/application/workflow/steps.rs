@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Workflow invocation values, retry configuration and typed step failures.
 use super::{CronSchedule, Duration, ErrorRecord};
 use cellar_native::clone::StructuredValue;

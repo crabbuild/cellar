@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! One configuration-owned repair plan. The enclosing durable group mapping and
 //! authenticated operation bind scope; a plan ID itself supplies no authority.
 

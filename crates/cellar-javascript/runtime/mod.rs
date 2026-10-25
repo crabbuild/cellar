@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Own and join the engine threads outside the node execution domain.
 #![allow(clippy::disallowed_methods)]
 use crate::{JavaScriptApplication, Source};
@@ -8,6 +10,11 @@ use std::sync::{
 };
 use std::time::Duration;
 use tokio::sync::{mpsc as channel, watch, OwnedSemaphorePermit, Semaphore};
+#[cfg(feature = "embed")]
+mod binary;
+mod budgets;
+#[cfg(feature = "embed")]
+mod encoding;
 #[cfg(feature = "embed")]
 mod engine;
 #[cfg(feature = "node")]
@@ -21,15 +28,18 @@ pub struct Options {
     pub max_invocations: usize,
     /// Maximum retained JavaScript cell objects across live native activations.
     pub max_objects: usize,
+    /// Embedded V8 native text-decoder handles, reclaimed with their JS owners.
+    /// Separate from cell-object admission. Node uses its own encoding globals.
+    pub max_text_decoders: usize,
     /// Maximum outstanding SDK operations per invocation.
     pub max_pending_operations: usize,
     /// Total SDK operation budget for one invocation, including completed calls.
     pub max_operations: usize,
     /// Maximum encoded value size for an invocation, operation, reply, or result.
     pub max_value_bytes: usize,
-    /// Maximum buffered HTTP body size at the guest SDK boundary.
+    /// Buffered body, individual stream chunk and WebSocket frame byte limit.
     pub max_body_bytes: usize,
-    /// Maximum operations accepted by one guest storage batch.
+    /// Maximum storage batch operations or live transport capabilities per invocation.
     pub max_batch_operations: usize,
     /// Shared budget for retained bridge payloads; also bounds Node transport queues.
     pub max_bridge_bytes: usize,
@@ -47,6 +57,7 @@ impl Default for Options {
         Self {
             max_invocations: 64,
             max_objects: 4096,
+            max_text_decoders: 4096,
             max_pending_operations: 16,
             max_operations: 1024,
             max_value_bytes: 2 * 1024 * 1024,
@@ -60,13 +71,28 @@ impl Default for Options {
     }
 }
 
+/// Native bridge reservations observed at one point in time. Fields are read
+/// independently; this is diagnostic data, not an atomic admission decision.
+/// Engine heap, process RSS and cell-object counts are outside these gauges.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+pub struct BridgeUsage {
+    /// Whether the engine has revoked admission and notified native waiters.
+    pub stopped: bool,
+    /// Native invocations still holding an admission permit.
+    pub active_invocations: usize,
+    /// Invocation, operation and reply payload bytes with an owned reservation.
+    pub retained_bytes: usize,
+}
+
 /// Revocable authority shared by the native invocation and the engine thread.
 pub(crate) type Life = Arc<AtomicBool>;
 
 /// Admission message. The byte permit follows the payload until it is dropped.
 pub(crate) struct Start {
+    pub budget_source: Option<cellar::sdk::rpc::BudgetSource>,
     pub id: u64,
     pub payload: String,
+    pub body: Option<Vec<u8>>,
     pub active: Life,
     pub owner: Life,
     pub sender: channel::Sender<Event>,
@@ -79,10 +105,14 @@ pub(crate) enum Event {
         id: u64,
         name: String,
         payload: String,
+        body: Option<Vec<u8>>,
+        signal: Option<cellar::sdk::web::AbortSignal>,
+        budget: Option<cellar::sdk::rpc::CallBudget>,
         _bytes: OwnedSemaphorePermit,
     },
     Complete {
         payload: String,
+        body: Option<Vec<u8>>,
         failed: bool,
         _bytes: OwnedSemaphorePermit,
     },
@@ -93,6 +123,7 @@ pub(crate) struct Reply {
     pub invocation: u64,
     pub id: u64,
     pub payload: String,
+    pub body: Option<Vec<u8>>,
     pub _bytes: OwnedSemaphorePermit,
 }
 
@@ -108,6 +139,14 @@ pub(crate) struct Runtime {
 }
 
 impl Runtime {
+    pub fn usage(&self) -> BridgeUsage {
+        BridgeUsage {
+            stopped: self.closed.load(Ordering::Acquire),
+            active_invocations: self.options.max_invocations - self.permits.available_permits(),
+            retained_bytes: self.options.max_bridge_bytes - self.bytes.available_permits(),
+        }
+    }
+
     pub fn id(&self) -> Result<u64> {
         // IDs cross JSON and JavaScript Number; never allocate an inexact integer.
         self.next
@@ -139,13 +178,24 @@ impl Runtime {
             .map_err(|_| anyhow::anyhow!("JavaScript admission exhausted"))
     }
 
+    #[cfg(test)]
     pub fn reply(&self, invocation: u64, id: u64, payload: String) -> Result<()> {
-        let bytes = self.reserve(payload.len())?;
+        self.reply_parts(invocation, id, (payload, None))
+    }
+
+    pub fn reply_parts(
+        &self,
+        invocation: u64,
+        id: u64,
+        (payload, body): (String, Option<Vec<u8>>),
+    ) -> Result<()> {
+        let bytes = self.reserve(value_size(&payload, body.as_deref())?)?;
         self.replies
             .try_send(Reply {
                 invocation,
                 id,
                 payload,
+                body,
                 _bytes: bytes,
             })
             .map_err(|_| anyhow::anyhow!("JavaScript reply capacity exhausted"))
@@ -197,9 +247,11 @@ fn run_with<T>(
         + Send,
 ) -> Result<T> {
     source.validate()?;
+    source.rpc.validate_bridge(options.max_value_bytes)?;
     ensure!(
         (1..=4096).contains(&options.max_invocations)
-            && (1..=1_000_000).contains(&options.max_objects),
+            && (1..=1_000_000).contains(&options.max_objects)
+            && (1..=65_536).contains(&options.max_text_decoders),
         "invalid JavaScript admission limits"
     );
     ensure!(
@@ -274,6 +326,20 @@ fn run_with<T>(
     })
 }
 
+/// Charge control metadata and exact owned bytes, with checked arithmetic.
+pub(crate) fn value_size(payload: &str, body: Option<&[u8]>) -> Result<usize> {
+    payload
+        .len()
+        .checked_add(body.map_or(0, <[u8]>::len))
+        .ok_or_else(|| anyhow::anyhow!("JavaScript value size overflow"))
+}
+
 #[cfg(all(test, feature = "embed"))]
 #[path = "../runtime_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+mod attachment_tests;
+
+#[cfg(test)]
+mod cancellation_tests;

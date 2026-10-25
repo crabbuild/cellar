@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 // Opt-in: runs a paid model task through an already running local demo.
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";

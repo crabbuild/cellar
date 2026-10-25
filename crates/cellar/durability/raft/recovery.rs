@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Engine-selected recovery references. Inventory and object storage never
 //! choose progress, votes or membership; marker validation precedes reclamation.
 
@@ -23,7 +25,18 @@ pub(crate) fn snapshot_pin(
     if snapshot.get_metadata().index == 1 && snapshot.data.is_empty() {
         return Ok(None);
     }
-    let image = snapshot_image(group, schema, &snapshot, SnapshotLimits::default())?;
+    // Retained snapshot metadata must use the destination's captured image
+    // policy, including on joined-member restart. No transfer buffer is
+    // allocated here; physical adoption still verifies the store's own bounds.
+    let apply = images.apply_limits();
+    let encoded = cellar_ltx::ltx::full_snapshot_bound(apply.decode.max_image_bytes, 512)
+        .ok_or(SnapshotError::Limit)?;
+    let limits = SnapshotLimits {
+        max_image_bytes: apply.decode.max_image_bytes,
+        max_encoded_bytes: SnapshotLimits::default().max_encoded_bytes.max(encoded),
+        ..Default::default()
+    };
+    let image = snapshot_image(group, schema, &snapshot, limits)?;
     if applied.position.index.get() == snapshot.get_metadata().index && applied.image != image {
         return Err(SnapshotError::Invalid(
             "snapshot/applied image at the same cut",

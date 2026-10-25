@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! A single owned, bounded handoff turn after public admission is sealed and
 //! the Node has drained accepted application work. Consensus still runs while
 //! each candidate is checked. Missing inspection permission means no handoff.

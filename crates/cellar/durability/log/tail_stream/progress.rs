@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Explicit per-snapshot filesystem progress, never a durability certificate.
 use super::{FileSystem, HostFile, CHUNK_BYTES};
 use cellar_ltx::{HostDirEntry, HostDirIterator, HostFileIo, HostMetadata};

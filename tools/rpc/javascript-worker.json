@@ -1,0 +1,1 @@
+{"entry":"worker-v8.ts", "output":"dist/worker.v8.js", "tsconfig":"tsconfig.json"}

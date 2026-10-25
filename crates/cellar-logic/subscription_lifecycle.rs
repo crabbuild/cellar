@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Administrative subscription transitions. Adapters authenticate the caller,
 //! compare durable incarnation identity and persist the plan with its audit.
 

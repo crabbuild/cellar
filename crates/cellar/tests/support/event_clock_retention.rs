@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Actual owner/proof paths under a caller-owned wall clock. Only time moves;
 //! source obligations, leases, retention and takeover use ordinary node paths.
 

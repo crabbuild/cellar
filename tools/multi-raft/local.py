@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Prepare an isolated Colima/RustFS backend for local multi-Raft qualification.
 
 This is environment preparation, not a passing Cellar qualification run. Node

@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 use super::{authority::Action, error::error, store, subscription_store, ErrorCode};
 use crate::application::{Context, Result};
 use serde::{Deserialize, Serialize};

@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Business cell identities and callable namespaces over existing host routing.
 use super::*;
 use cellar_native::cell_id;
@@ -146,14 +148,34 @@ impl Stub {
         method: impl Into<String>,
         args: RpcData,
     ) -> HandlerFuture<RpcData> {
+        self.rpc_with_deadline(
+            context,
+            method,
+            args,
+            context.io.rpc_deadline_ms.get().copied(),
+            None,
+        )
+    }
+
+    pub(crate) fn rpc_with_deadline(
+        &self,
+        context: &Context,
+        method: impl Into<String>,
+        args: RpcData,
+        deadline_ms: Option<u64>,
+        signal: Option<cellar_native::web::AbortSignal>,
+    ) -> HandlerFuture<RpcData> {
         if let Err(error) = self.check(context) {
             return Box::pin(async move { Err(error) });
         }
-        let call = context.rpc_cell(
+        let call = crate::native_worker::rpc_cell(
+            context,
             self.id.scope(),
             self.name.as_deref().map(str::to_string),
             method.into(),
             args,
+            deadline_ms,
+            signal,
         );
         let context = context.clone();
         let stub = self.clone();
@@ -174,7 +196,13 @@ impl Stub {
         if let Err(reason) = signal.throw_if_aborted() {
             return Box::pin(async move { Err(reason.into()) });
         }
-        let call = self.rpc(context, method, args);
+        let call = self.rpc_with_deadline(
+            context,
+            method,
+            args,
+            context.io.rpc_deadline_ms.get().copied(),
+            Some(signal.clone()),
+        );
         Box::pin(async move {
             crate::asyncrt::select_biased! { "a cell RPC abort wins an undelivered reply";
                 reason=signal.cancelled()=>Err(reason.into()), result=call=>result,

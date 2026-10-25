@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Physical LTX and immutable-image verification through ordinary public APIs.
 #![allow(clippy::disallowed_methods)]
 #[path = "support/raft_ltx_fault.rs"]

@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! KV options, conditional edit validation and structured-value codec.
 use super::error;
 use anyhow::{ensure, Result};

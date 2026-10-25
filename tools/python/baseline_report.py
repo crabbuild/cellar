@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Validate baseline receipts/raw samples and render measured comparison tables."""
 from __future__ import annotations
 
@@ -90,6 +92,7 @@ def verify(document):
                     and report["pending_tasks"] == report["pending_objects"] == report["pending_threads"] == 0
                     and report["objects_created"] == report["objects_retired"]
                     and all(value == 0 for value in report["work"].values())
+                    and type(report["bridge"].get("native_invocations")) is int and report["bridge"]["native_invocations"] == 0
                     and report["bridge"]["pending_reservations"] == report["bridge"]["queued_bytes"] == 0,
                     "incomplete Python shutdown")
     require(seen == keys, "runtime repetitions missing")

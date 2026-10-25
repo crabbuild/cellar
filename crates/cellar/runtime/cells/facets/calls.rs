@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 // Copyright 2026 Deno Land Inc. Apache-2.0 license.
 // Adapted for Cellar from Celld: crates/celld/js.rs.
 
@@ -71,6 +73,8 @@ impl LoadedFacet {
         let (reply, receive) = tokio::sync::oneshot::channel();
         let request_id = cancellation.as_ref().map(|lifetime| lifetime.request_id());
         let job = CellJob::Rpc {
+            cancellation: None,
+            deadline_ms: None,
             authority: None,
             request_id,
             scope: self.scope.clone(),

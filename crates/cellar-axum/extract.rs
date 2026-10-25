@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Extract fresh invocation authority; never put an event Context in Router State.
 
 use axum::extract::FromRequestParts;

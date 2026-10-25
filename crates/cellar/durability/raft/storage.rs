@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! One domain-owned engine worker. Every successful mutation has crossed fsync.
 
 use super::cache::{genesis, validate_conf, CachedGroup, GroupLog, GroupWrite, SnapshotChange};

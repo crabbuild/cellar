@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Bounded node-owned archive producers and one exclusive replay workspace.
 //! SQL workers capture immutable cuts; network/archive replay never occupies a
 //! cell's private execution connection or creates a task for each resident cell.
@@ -177,7 +179,7 @@ impl Owner {
                 let limits = GenerationLimits {
                     apply,
                     max_generations: 4,
-                    max_bytes: 512 * 1024 * 1024,
+                    max_bytes: (512 * 1024 * 1024).max(4 * apply.decode.max_image_bytes),
                 };
                 let images =
                     GenerationStore::open_observed(directory, filesystem, limits, &accounting)

@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Native turn ownership and durability; the connector/proof verdicts are adapters.
 #[path = "support/html.rs"]
 mod fixture;

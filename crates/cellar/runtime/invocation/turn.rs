@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 // Copyright 2026 Deno Land Inc. Apache-2.0 license.
 // Adapted for Cellar from Celld: crates/celld/js.rs.
 
@@ -71,6 +73,8 @@ pub enum CellJob {
         order: Option<CallOrder>,
     },
     Rpc {
+        cancellation: Option<Arc<crate::runtime::InvocationCancellation>>,
+        deadline_ms: Option<u64>,
         authority: Option<crate::runtime::RpcAuthority>,
         request_id: Option<RequestId>,
         scope: String,

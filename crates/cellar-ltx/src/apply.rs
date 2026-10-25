@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Physical image contracts. Only the generation owner can patch a private file;
 //! a verified image is not itself a Raft commit or query-publication proof.
 
@@ -97,7 +99,7 @@ impl ApplyLimits {
         if self.max_files == 0
             || self.max_files > 1024
             || self.max_total_encoded_bytes == 0
-            || self.max_total_encoded_bytes > 128 * 1024 * 1024
+            || self.max_total_encoded_bytes > 512 * 1024 * 1024
             || self.max_total_decoded_bytes == 0
             || self.max_total_decoded_bytes > 256 * 1024 * 1024
             || self.max_total_pages == 0

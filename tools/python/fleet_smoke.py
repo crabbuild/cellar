@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Functional S3 recovery with local hosts; timings do not qualify fleet capacity.
 
 Uses the existing fleet scenario and receipt checks, with a private, bounded

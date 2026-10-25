@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Event delivery decisions. SQLite adapters supply durable facts and apply
 //! each returned plan in a single transaction; clocks and transport stay out
 //! of this module.

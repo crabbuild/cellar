@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! SQLite produces expected bytes; the LTX fixture encodes their exact page delta.
 #![allow(clippy::disallowed_methods)]
 

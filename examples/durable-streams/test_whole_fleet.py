@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Whole-fleet evidence must prove loss and recovered state before replay."""
 import copy
 import json

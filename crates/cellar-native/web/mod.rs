@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Owned Web API values. Cloning a facade shares its live list; explicit copy
 //! constructors create independent values. UTF-16 entry points preserve DOMStrings.
 mod abort;

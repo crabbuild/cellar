@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Host-minted event RPC provenance. Application arguments cannot provide
 //! these fields; private binding adapters mint them before owner routing.
 

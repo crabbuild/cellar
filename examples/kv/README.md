@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # KV namespace
 
 Store bounded bytes with metadata, expiration and paginated listing.

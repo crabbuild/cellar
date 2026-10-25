@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Evidence gates for follower-only destination append, fetch and ack recovery."""
 import json
 import os

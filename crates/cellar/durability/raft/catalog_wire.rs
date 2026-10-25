@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Bounded marker-1 catalog records; independent domains for each immutable key.
 
 use super::catalog::{CatalogError, InitialMember, NamespaceConfig, VoterPolicy};

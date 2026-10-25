@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 // Copyright 2026 Deno Land Inc. All rights reserved.
 // Modified for Cellar.
 
@@ -50,7 +52,13 @@ pub(crate) const HANDOFF_HEADER: &str = "x-cells-capacity-handoff";
 /// The inner headers node A owns. A overwrites them on the way in and B
 /// strips them on the way out, so an application header with a reserved name
 /// is dropped rather than obeyed.
-const CONTROL_HEADERS: [&str; 4] = [SCOPE_HEADER, NAME_HEADER, REQUEST_ID_HEADER, HANDOFF_HEADER];
+const CONTROL_HEADERS: [&str; 5] = [
+    SCOPE_HEADER,
+    NAME_HEADER,
+    REQUEST_ID_HEADER,
+    HANDOFF_HEADER,
+    rpc_deadline::BUDGET_HEADER,
+];
 
 enum TunnelKind {
     Do,
@@ -473,6 +481,7 @@ async fn send_inner(
     kind: &'static str,
     build: impl FnOnce(TunnelBody) -> anyhow::Result<Request<TunnelBody>>,
     body: crate::engine_api::RequestBody,
+    deadline_ms: Option<u64>,
 ) -> anyhow::Result<Response<PooledResponseBody>> {
     let key = format!("{}#{kind}", peer.addr);
     let body = match body {
@@ -485,6 +494,7 @@ async fn send_inner(
     };
     let mut request = build(body)?;
     if let Some(sender) = checkout(&key) {
+        rpc_deadline::write(&mut request, deadline_ms)?;
         match send_on_tunnel(&key, sender, request).await {
             Ok(response) => return Ok(response),
             Err(mut error) => {
@@ -496,6 +506,7 @@ async fn send_inner(
         }
     }
     let sender = establish(peer, kind).await?;
+    rpc_deadline::write(&mut request, deadline_ms)?;
     send_on_tunnel(&key, sender, request)
         .await
         .map_err(|error| (*error).into_error().into())
@@ -570,6 +581,7 @@ pub(crate) async fn fetch(
         "do",
         |body| inner_request(control, &url, &method, &headers, body),
         body,
+        None,
     )
     .await
 }
@@ -609,6 +621,19 @@ async fn serve_rpc(upgraded: hyper::upgrade::Upgraded, app: AppHandle) {
                             )))
                         }
                     }
+                }
+            };
+            let deadline_ms = match rpc_deadline::from_headers(
+                inner.headers(),
+                crate::asyncrt::mono_ms(),
+                app.operation_deadline_ms,
+            ) {
+                Ok(deadline) if authority.is_none() || deadline.is_none() => deadline,
+                _ => {
+                    return Ok::<_, Infallible>(peer_response(response(
+                        StatusCode::BAD_REQUEST,
+                        "invalid RPC budget",
+                    )))
                 }
             };
             let Some(scope) = inner
@@ -656,11 +681,16 @@ async fn serve_rpc(upgraded: hyper::upgrade::Upgraded, app: AppHandle) {
             } else {
                 MAX_PEER_FORWARD_BODY_BYTES
             };
-            let body = match collect_limited_body(inner.into_body(), body_limit).await {
-                Ok(body) => body,
-                Err(error) => {
+            let body = match rpc_deadline::receive(deadline_ms, async {
+                Ok(collect_limited_body(inner.into_body(), body_limit).await)
+            })
+            .await
+            {
+                Ok(Ok(body)) => body,
+                Ok(Err(error)) => {
                     return Ok(peer_response(body_read_error("tunnel RPC", error)));
                 }
+                Err(_) => return Ok(rpc_deadline::response()),
             };
             let args = if structured {
                 crate::engine_api::RpcData::Structured(body)
@@ -675,8 +705,21 @@ async fn serve_rpc(upgraded: hyper::upgrade::Upgraded, app: AppHandle) {
                     }
                 }
             };
-            let reply =
-                dispatch_forwarded_rpc(app, scope, name, method, args, request_id, authority).await;
+            let reply = dispatch_forwarded_rpc(
+                app,
+                crate::runtime::RpcInvocation {
+                    parent_cancellation: None,
+                    signal: None,
+                    deadline_ms,
+                    cell: scope,
+                    name,
+                    method,
+                    args,
+                    request_id,
+                    authority,
+                },
+            )
+            .await;
             Ok(reply)
         }
     });
@@ -686,14 +729,19 @@ async fn serve_rpc(upgraded: hyper::upgrade::Upgraded, app: AppHandle) {
 }
 
 /// Node A: one RPC through the pooled rpc tunnel.
+pub(crate) struct RpcControl<'a> {
+    pub(crate) request_id: Option<crate::engine_api::RequestId>,
+    pub(crate) authority: Option<&'a crate::runtime::RpcAuthority>,
+    pub(crate) deadline_ms: Option<u64>,
+}
+
 pub(crate) async fn rpc(
     peer: &Peer<'_>,
     scope: &str,
     name: Option<&str>,
     method: &str,
     args: &crate::engine_api::RpcData,
-    request_id: Option<crate::engine_api::RequestId>,
-    authority: Option<&crate::runtime::RpcAuthority>,
+    control: RpcControl<'_>,
 ) -> anyhow::Result<Response<PooledResponseBody>> {
     let (content_type, payload) = match args {
         crate::engine_api::RpcData::Json(json) => ("application/json", Bytes::from(json.clone())),
@@ -714,7 +762,7 @@ pub(crate) async fn rpc(
             if let Some(name) = name {
                 inner = inner.header(NAME_HEADER, name);
             }
-            if let Some(authority) = authority {
+            if let Some(authority) = control.authority {
                 use base64::Engine;
                 authority.validate()?;
                 inner = inner.header(
@@ -723,7 +771,7 @@ pub(crate) async fn rpc(
                         .encode(serde_json::to_vec(authority)?),
                 );
             }
-            if let Some(request_id) = request_id {
+            if let Some(request_id) = control.request_id {
                 inner = inner.header(
                     REQUEST_ID_HEADER,
                     crate::engine_api::request_id_string(request_id),
@@ -732,6 +780,7 @@ pub(crate) async fn rpc(
             Ok(inner.body(body)?)
         },
         crate::engine_api::RequestBody::Bytes(payload),
+        control.deadline_ms,
     )
     .await
 }

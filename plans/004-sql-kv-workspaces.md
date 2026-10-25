@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # SQL and KV workspaces
 
 Status: DONE. Started against `35fc539` on 2026-10-14.
@@ -63,10 +65,10 @@ cargo check --workspace --all-targets --all-features --locked
 cargo test -p cellar --test native_kv --test native_node --test native_cli --test native_artifacts --locked
 cargo test -p cellar-admin --locked
 cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
-npm --prefix dashboard ci
-npm --prefix dashboard run build
-npm --prefix dashboard run lint
-npm --prefix dashboard run test:ui
+npm --prefix packages/console ci
+npm --prefix packages/console run build
+npm --prefix packages/console run lint
+npm --prefix packages/console run test:ui
 ```
 
 ### Completed checks — 2026-10-14

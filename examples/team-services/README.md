@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Team service boundaries
 
 Make service boundaries explicit and keep state with the service that owns it.

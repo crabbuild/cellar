@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Rust executable packaging and publication over the retained bucket protocol.
 
 // Build tools and executable inspection run outside cell execution domains.
@@ -21,6 +23,7 @@ mod filesystem;
 mod images;
 mod node_environment;
 mod python_environment;
+mod rpc;
 pub use build::{verify_native_dependencies, Project};
 pub use images::ContainerProject;
 pub use node_environment::{verify_inventory_files as verify_node_inventory_files, NodeProject};

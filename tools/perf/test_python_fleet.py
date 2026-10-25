@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """A Python fleet result needs joined reports backed by each process log."""
 
 from copy import deepcopy
@@ -36,7 +38,7 @@ def reports(mode="preserve"):
     report.update(host_failed=False, runtime_failed=False, objects_created=2, objects_retired=2,
                   work=dict.fromkeys(("active_tasks", "active_invocations", "resident_objects",
                                       "pending_retirements"), 0),
-                  bridge={"queued_bytes": 0, "pending_reservations": 0, "operations": operations},
+                  bridge={"native_invocations": 0, "queued_bytes": 0, "pending_reservations": 0, "operations": operations},
                   native_outcomes=[dict(observed, complete=True)])
     return native, {"event": "embedded_python_stopped", "complete": True, "report": report}
 
@@ -72,7 +74,7 @@ class PythonFleetProofTests(unittest.TestCase):
             ("unraisable_errors", 1), ("thread_errors", 1), ("host_failed", True),
             ("runtime_failed", True), ("objects_retired", 1), ("native_outcomes", []))]
         changes += [(("report", "work", key), 1) for key in proof["report"]["work"]]
-        changes += [(("report", "bridge", key), 1) for key in ("queued_bytes", "pending_reservations")]
+        changes += [(("report", "bridge", key), 1) for key in ("native_invocations", "queued_bytes", "pending_reservations")]
         changes += [(("report", "bridge", "operations", key), value) for key, value in (
             ("pending", 1), ("queued", 1), ("running", 1), ("replies_pending", 1),
             ("admitted", 8), ("started", 8), ("failed", -1), ("delivered", True))]

@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 name: Python application examples
 
 on:
@@ -6,6 +8,7 @@ on:
       - '.github/workflows/python-examples.yml'
       - 'examples/python-fastapi/**'
       - 'examples/python-agent/**'
+      - 'examples/streaming/**'
       - 'crates/cellar-python/**'
       - 'crates/cellar/**'
       - 'tools/python/**'
@@ -16,6 +19,7 @@ on:
       - '.github/workflows/python-examples.yml'
       - 'examples/python-fastapi/**'
       - 'examples/python-agent/**'
+      - 'examples/streaming/**'
       - 'crates/cellar-python/**'
       - 'crates/cellar/**'
       - 'tools/python/**'
@@ -83,6 +87,17 @@ jobs:
           export PYO3_PYTHON="$(UV_PYTHON_INSTALL_DIR="$RUNNER_TEMP/fastapi/environment/runtime" uv python find --managed-python '${{ matrix.runtime }}')"
           PYTHONPATH="$RUNNER_TEMP/fastapi/environment/site" \
             "$PYO3_PYTHON" -B examples/python-fastapi/test_app.py
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+      - name: Python SSE and WebSocket example with restart
+        run: |
+          export PYO3_PYTHON="$(UV_PYTHON_INSTALL_DIR="$RUNNER_TEMP/fastapi/environment/runtime" uv python find --managed-python '${{ matrix.runtime }}')"
+          # The unpackaged host has no inventory-bound RPATH. Match its libpython
+          # and smoke runner to the selected ABI, rather than setup-python's.
+          streaming_python_libdir="$("$PYO3_PYTHON" -I -S -B -c 'import sysconfig; print(sysconfig.get_config_var("LIBDIR"))')"
+          LD_LIBRARY_PATH="$streaming_python_libdir${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+            "$PYO3_PYTHON" -B examples/streaming/smoke.py --cellar "$CARGO_TARGET_DIR/debug/cellar" --backend python
       - name: Check native and Python routing failure boundaries
         run: |
           python -B examples/python-fastapi/test_ingress.py \

@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! SDK control and ownership contracts run through production native cells.
 //! A deterministic Engine API peer supplies external process outcomes.
 #![allow(clippy::disallowed_methods)]

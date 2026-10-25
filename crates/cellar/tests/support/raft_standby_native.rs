@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Real already-running standby hosts; no additional node-wide runtime is
 //! constructed by activation, and recovery does not invoke business callbacks.
 use super::*;

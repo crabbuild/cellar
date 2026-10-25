@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Public native facet API through production runtime turns, without an engine.
 //! This process uses standalone SQLite; fleet replication is a separate gate.
 

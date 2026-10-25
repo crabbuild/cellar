@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Real wire upgrade and credit/replay checks from the independent client.
 use super::*;
 use fastwebsockets::{handshake, FragmentCollector, Frame, OpCode};

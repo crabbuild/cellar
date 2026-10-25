@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! A committed queue lease survives a lost store receipt and owner recovery.
 use super::fault_gates::{Gate, Release, Store};
 use super::*;

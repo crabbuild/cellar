@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! A fresh safe ReadIndex precedes each seed capture. A cached configuration or
 //! archive is never a substitute for this request's live-quorum authorization.
 

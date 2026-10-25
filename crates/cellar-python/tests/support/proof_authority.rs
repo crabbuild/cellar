@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Revoke authority after a native commit, while sync/output proof is withheld.
 use super::fault_gates::{Gate, Peer, Release, Store};
 use super::python_control::{call as control, observe};
@@ -149,7 +151,7 @@ pub(super) fn child(kind: &str, fence: bool) -> Result<()> {
                 let before_peer = peers.entered.load(Ordering::Acquire);
                 let before_data = data.entered.load(Ordering::Acquire);
                 peers.hold();
-                data.hold();
+                data.hold_and_drain().await;
                 let held_client = client.clone();
                 let address = format!("{url}/{kind}");
                 let mut held = tokio::spawn(async move { held_client.get(address).send().await });

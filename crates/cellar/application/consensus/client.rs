@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Bounded waiters for a node-owned Raft dispatcher. Dropping a waiter never
 //! drops its submitted producer or grants another writer a private image.
 

@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """In-flight faults on real KV, shared SQL and queue producer SDK calls."""
 import asyncio
 from cellar import Response, SDKError

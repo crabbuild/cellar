@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Group-commit admission must bound bytes as well as frame count.
 use super::*;
 use cellar_ltx::{DirectFileSystem, FileSystem};

@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Two real embedded nodes with application-owned egress configuration.
 
 use super::{client, graph, inputs, ready, response, stopped, Account, Executor};

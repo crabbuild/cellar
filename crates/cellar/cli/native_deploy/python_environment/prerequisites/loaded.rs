@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Loader observations own copied paths only. Callbacks never perform I/O,
 //! enter Python or execute SDK operations, including after host admission.
 use anyhow::Result;

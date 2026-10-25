@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Committed images and confirmed archive cuts are explicit host wakeups.
 #![allow(clippy::disallowed_methods)]
 use super::public_node;

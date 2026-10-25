@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 // Copyright 2026 Deno Land Inc. Apache-2.0 license.
 // Modified for Cellar.
 
@@ -373,6 +375,9 @@ impl Generation {
             })?;
         let bytes = events::encoding::json(definition, events::MAX_DEFINITION_BYTES)?;
         Ok(crate::host_channels::RpcCallReq {
+            parent_cancellation: None,
+            signal: None,
+            deadline_ms: None,
             authority: Some(events::authority::Authority::deployment(script, definition)?.into()),
             request_id: Some(crate::engine_api::next_request_id()),
             cancel: None,

@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # cellar-axum
 
 Use Axum handlers for Cellar applications, or mount an embedded Cellar node in

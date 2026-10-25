@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 #[path = "../../cellar/tests/support/actor_lease_trace.rs"]
 // The shared fixture's renewal assertion is used by native_actor.
 #[allow(dead_code)]

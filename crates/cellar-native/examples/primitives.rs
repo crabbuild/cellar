@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 use cellar_native::compression::{transform, CompressionStream};
 use cellar_native::crypto::{DigestStream, HashAlgorithm};
 use cellar_native::encoding::{DecoderOptions, TextDecoder};

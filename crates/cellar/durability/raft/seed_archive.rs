@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Exact-reference S3 download. Only an authenticated fresh grant can reach
 //! physical initialization; the referenced bytes supply no authority by themselves.
 
@@ -109,7 +111,7 @@ impl RaftTransport {
             return Err(TransportError::Identity.into());
         }
         let set_bytes = archive.read_memory_bound();
-        if set_bytes > crate::raft::archive::MAX_RECOVERY_READ_BYTES {
+        if set_bytes > state.options.max_seed_recovery_bytes {
             return Err(TransportError::Limit.into());
         }
         let reservation = Arc::new(

@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Build-time native dependency capture. Never imports an application module.
 
 Mach-O commands are read with otool. GNU ELF resolution uses the qualified

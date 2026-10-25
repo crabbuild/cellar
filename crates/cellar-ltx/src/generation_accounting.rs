@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Scalar accounting owned by open image stores. Observers retain no directory,
 //! file, pin or store. Failed accounting stays unavailable instead of becoming zero.
 use crate::generation::{GenerationLimits, GenerationUsage};

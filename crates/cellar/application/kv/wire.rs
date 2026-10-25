@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 use anyhow::{anyhow, bail, Result};
 use cellar_native::clone::{Object, StructuredValue, Value, ViewKind};
 

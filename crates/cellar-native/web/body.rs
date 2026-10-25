@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Typed finite HTTP bodies and their inferred Content-Type.
 use super::{Blob, Error, File, FormData, SearchParams};
 

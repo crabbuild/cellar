@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Immutable namespace/birth selection and permanent initial-member claims.
 //! Discovery is not mutation authority. Start runtimes parked; only a verified
 //! local-state/claim pair may attach an initial voting member.

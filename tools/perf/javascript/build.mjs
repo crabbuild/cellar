@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 import {build} from '../../javascript/node_modules/esbuild/lib/main.js';
 import {spawnSync} from 'node:child_process';
 import {mkdir} from 'node:fs/promises';

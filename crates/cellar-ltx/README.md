@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # cellar-ltx
 
 Capture committed SQLite write-ahead log (WAL) data as LTX replication segments.

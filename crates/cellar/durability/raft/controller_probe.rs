@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Bounded observations. Dropping a probe waiter cancels its independently
 //! owned transport task; decoded values move under the controller reservation.
 use super::*;

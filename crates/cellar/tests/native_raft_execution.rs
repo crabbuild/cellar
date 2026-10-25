@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Command/apply integration uses real SQLite bytes, engines and RawNodes.
 #![allow(clippy::disallowed_methods)]
 #[path = "support/raft_storage_fault.rs"]

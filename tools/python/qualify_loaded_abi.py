@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Refuse an actual opposite-ABI libpython in a disposable unbound example host.
 
 Inventory-bound deployments independently verify library bytes before bootstrap.

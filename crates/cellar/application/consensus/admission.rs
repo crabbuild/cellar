@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Public admission and work registration share a short barrier. Sealing first
 //! prevents new callers, then waits for any prior registration to become visible
 //! before the Node samples application work. No guard crosses an await or I/O.

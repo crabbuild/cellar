@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Real native broker/consumer turns, with routing and proof adapters. No JS
 //! engine initialization; persisted SQLite and local wake-entry storage.
 

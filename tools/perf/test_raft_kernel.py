@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Kernel evidence must retain identities, limits, units and monotone counters."""
 import json
 import unittest

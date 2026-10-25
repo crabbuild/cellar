@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Node Raft effects
 
 This component owns the log engine and the raft-rs adapter. Business activation,
@@ -839,6 +841,26 @@ limits. Native snapshot recovery requires at least six generations and eight
 maximum-image copies. The explicit non-compacting profile with
 `enable_snapshots = false` retains the three-generation/four-copy admission floor;
 it cannot recover through native snapshots.
+
+The default logical image limit is 64 MiB. For a larger fully materialized
+image, configure every replica with
+`config.with_materialized_image_limit(256 * 1024 * 1024)?` before
+`Node::start_raft_cells`. The opt-in maximum is 256 MiB. This method coordinates
+execution, apply/decoder geometry, snapshot and archive sizes, generation disk
+admission, archive scratch space and transport working-memory reservations.
+It preserves the independent per-command envelope limits. Larger encoded-body
+allowances alone cannot admit images beyond `max_snapshot_image_bytes`; S3
+recovery also checks `max_seed_recovery_bytes` before reading its complete set.
+Defaults retain the previous memory and disk bounds.
+
+This materialized path still copies and hashes complete images and buffers
+snapshot/archive data. It is not a 10 GB recovery qualification. The
+[large-cell recovery plan](../../../../plans/multi-raft/large-cell-recovery.md)
+specifies incremental immutable roots, bounded transfers, warm promotion and
+verified demand loading for fast cold activation, targeting Cloudflare's
+10 GB (10,000,000,000-byte) per-object SQLite storage quota. The owning
+`native_raft_large_images` test crosses 64 MiB through command execution,
+leader takeover, object-store seeding onto an empty worker and subsequent writes.
 
 The [archive audit](../../../../plans/multi-raft/archive-audit.md) records the
 proof boundary, resource contracts and qualification scope. Run the owning

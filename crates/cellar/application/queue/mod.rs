@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Native Queue producers, consumer settlement handles and the broker cell.
 //! Broker policy and fleet dispatch remain the existing Rust implementations.
 

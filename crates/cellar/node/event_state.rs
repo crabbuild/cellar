@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Signed platform state samples enter the ordinary owning-cell RPC path.
 use super::*;
 
@@ -51,6 +53,9 @@ async fn checked(app: &AppHandle, request: Request<Incoming>) -> anyhow::Result<
     let authority = crate::runtime::rpc_authority::StateAuthority::mint(scope.clone())?;
     let (reply, receiver) = oneshot::channel();
     let call = RpcCallReq {
+        parent_cancellation: None,
+        signal: None,
+        deadline_ms: None,
         authority: Some(crate::runtime::RpcAuthority::State(authority)),
         request_id: Some(crate::engine_api::next_request_id()),
         cancel: None,

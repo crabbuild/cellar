@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Placement contracts; native controller repair is qualified separately.
 #[path = "support/raft_controller_native.rs"]
 mod automatic;

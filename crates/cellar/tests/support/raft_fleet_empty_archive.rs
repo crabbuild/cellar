@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Exact managed repair can seed a cold configuration without a user write.
 //! Privileged rooted fixture inputs do not qualify the pending reconciler.
 use super::retirement::{discover, reserve, step, stopped};

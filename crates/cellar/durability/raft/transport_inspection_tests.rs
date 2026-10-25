@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Authorization and physical ownership with real sockets and engine fences.
 use super::*;
 use crate::application::consensus::client;

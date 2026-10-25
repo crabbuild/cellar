@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Authenticated source administration enters the existing RPC owner route.
 
 use super::*;
@@ -82,6 +84,9 @@ where
     let authority = crate::runtime::SourceAuthority::mint(scope.clone(), operator)?;
     let (reply, receiver) = oneshot::channel();
     let call = RpcCallReq {
+        parent_cancellation: None,
+        signal: None,
+        deadline_ms: None,
         authority: Some(crate::runtime::RpcAuthority::Source(authority)),
         request_id: Some(crate::engine_api::next_request_id()),
         cancel: None,

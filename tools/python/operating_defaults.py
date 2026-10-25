@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Qualify actual Python defaults under mixed load, admission pressure and takeover.
 
 Uses only private compiled loopback hosts. Every mutation is attempted once;
@@ -46,7 +48,7 @@ def settled(host):
     while time.monotonic() < until:
         observation = host.observations()
         bridge = observation["runtime"]["bridge"]
-        if bridge["pending_reservations"] == bridge["queued_bytes"] == 0 and all(
+        if type(bridge.get("native_invocations")) is int and bridge["native_invocations"] == bridge["pending_reservations"] == bridge["queued_bytes"] == 0 and all(
                 bridge["operations"][key] == 0 for key in ("pending", "queued", "running", "replies_pending")):
             return observation
         time.sleep(.025)

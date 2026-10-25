@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Cellar architecture and integration plans
 
 ## Multi-Raft design and implementation
@@ -15,6 +17,7 @@ MR-13 is in progress and MR-14 through MR-17 remain open.
 | --- | --- | --- |
 | [007: Embedded CPython through PyO3](007-embedded-python-pyo3.md) | Partial; full-plan audit active | Python request and cell handlers, invocation-bound SDK access, atomic storage batches, interpreter lifecycle, packaging and qualification gates |
 | [008: Embedded JavaScript and TypeScript](008-embedded-javascript-typescript.md) | V8 and Node backends implemented; production gates open | Optional Rust-owned JS runtime, build-time TypeScript, invocation authority, component composition, deployment and qualification gates |
+| [009: Named, typed RPC across languages](009-named-typed-rpc.md) | Implementation in progress; cross-language gates open | Protobuf contracts, generated Rust/JS/TS/Python clients and handlers, native cell RPC, binary bridges, durability and cross-language qualification |
 
 The optional Python adapter is implemented above the native Rust SDK; its
 [crate guide](../crates/cellar-python/README.md) and
@@ -23,6 +26,10 @@ The optional Python adapter is implemented above the native Rust SDK; its
 [TypeScript/npm example](../examples/javascript/README.md), and
 [Node.js example](../examples/node/README.md) describe implemented
 behavior. Broader API sketches in plan 008 remain future work.
+
+Plan 009's [registration and dispatch contract](named-typed-rpc/registration-and-dispatch.md)
+details how generated services connect to cell classes and namespace bindings,
+with startup validation, per-call dispatch and language registration sketches.
 
 ## Primitive designs
 

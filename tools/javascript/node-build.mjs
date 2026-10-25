@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 // Preserve the module graph and Node's package resolution, including native
 // addons, dynamic imports, package exports and CommonJS. Do not bundle packages.
 import {spawnSync} from 'node:child_process';

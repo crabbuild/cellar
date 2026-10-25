@@ -1,0 +1,9 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
+node_modules/
+dist/
+ui/node_modules/
+ui/dist/
+ui/playwright-report/
+ui/test-results/
+ui/src/components/ui/

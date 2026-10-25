@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Python runtime internals and diagnostics
 
 This guide explains implementation invariants behind the
@@ -228,7 +230,23 @@ objects, and pending retirements. Retirement observations publish before
 application destructors run, even while SDK admission is closed.
 
 `bridge_report()` counters are sampled independently. Check conservation after
-quiescence. `Report::complete()` requires zero pending work, balanced operation
+quiescence. `native_invocations` counts admission permits held by Rust proxy
+futures; `interpreter_snapshot().work.active_invocations` counts Python handler
+registrations. They have different lifetimes:
+
+```text
+native call cancelled -> native_invocations = 0
+                              |
+               Python catches CancelledError and stays alive
+                              |
+               managed active_invocations = 1 -> incomplete shutdown
+```
+
+An expired Python task cannot use its old SDK authority. Native payload charges
+can reach zero while that task remains in the managed loop. A zero native count
+does not establish a completed Python drain.
+
+`Report::complete()` requires zero native admissions and pending work, balanced operation
 accounting, complete object retirement, no recorded runtime/host failures, and
 complete explicitly recorded native outcomes. It cannot certify arbitrary raw
 threads or private allocators.

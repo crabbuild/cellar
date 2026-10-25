@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Strict, allocation-bounded physical LTX verification for consensus inputs.
 
 use crate::ltx::{
@@ -33,7 +35,7 @@ impl Default for DecodeLimits {
 impl DecodeLimits {
     pub fn validate(&self) -> Result<(), DecodeError> {
         if self.max_encoded_bytes == 0
-            || self.max_encoded_bytes > 128 * 1024 * 1024
+            || self.max_encoded_bytes > 512 * 1024 * 1024
             || self.max_decoded_bytes == 0
             || self.max_decoded_bytes > 256 * 1024 * 1024
             || self.max_pages == 0

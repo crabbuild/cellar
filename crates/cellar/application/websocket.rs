@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Server upgrades and outbound WebSockets for Rust cells and Workers.
 
 use super::{Activation, Context, EventState, HandlerFuture};

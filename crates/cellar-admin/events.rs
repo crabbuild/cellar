@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Browser event workspaces reuse owner-routed native operator protocols.
 
 use crate::{api::ApiError, audit::Begin, Console, Permission, Principal};

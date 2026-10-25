@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! A cold group can seed from its actual archive without any dummy SQL command.
 use super::*;
 use cellar::sdk::consensus::*;

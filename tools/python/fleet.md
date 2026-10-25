@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Embedded Python fleet validation
 
 The Python counter in `fleet_app.py` uses the same S3 fleet host and load

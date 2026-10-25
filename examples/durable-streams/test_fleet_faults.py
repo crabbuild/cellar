@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Saved independent-process evidence cannot conceal loss by replay."""
 import base64
 import copy

@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! The shipped supervisor must own and reap real processes under failure.
 #![cfg(unix)]
 #![allow(clippy::disallowed_methods)]

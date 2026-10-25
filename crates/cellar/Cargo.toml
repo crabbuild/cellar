@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 # Modified for Cellar from Celld.
 [package]
 repository = "https://github.com/crabbuild/cellar"
@@ -128,6 +130,8 @@ rand.workspace = true
 raft.workspace = true
 raft-engine.workspace = true
 protobuf.workspace = true
+prost.workspace = true
+prost-types.workspace = true
 slog.workspace = true
 regex.workspace = true
 reqwest = { workspace = true, features = ["rustls-tls", "stream", "json"] }
@@ -176,3 +180,7 @@ harness = false
 [[test]]
 name = "native_raft_daemon"
 harness = false
+
+[[bin]]
+name = "cellar-streaming-example"
+path = "../../examples/streaming/main.rs"

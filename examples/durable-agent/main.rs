@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! A bounded native tool loop with persisted checkpoints and durable wakes.
 
 use crate::support;

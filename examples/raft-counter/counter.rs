@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Shared business operations and HTTP normalization for both example hosts.
 use anyhow::{ensure, Result};
 use cellar::sdk::{consensus::*, Application, Invocation, Output, RaftClass, Registry};

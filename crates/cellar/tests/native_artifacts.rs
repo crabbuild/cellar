@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Native publication, install, manifest refusal and dependency boundaries.
 #![allow(clippy::disallowed_methods)]
 

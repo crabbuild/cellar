@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 586" role="img" aria-labelledby="title desc">
 <title id="title">Owned values do not grant cell authority</title>
 <desc id="desc">Callers supply Rust values to native codecs and web primitives, which return owned values. The Cellar host separately owns event dispatch, activation authority, resource lifetimes and durability.</desc>

@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Process boundary: the caller owns Tokio, sockets, and shutdown signals.
 #![allow(clippy::disallowed_methods)] // Process-owned server tasks, clock and stop deadline.
 

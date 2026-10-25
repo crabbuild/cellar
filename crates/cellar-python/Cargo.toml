@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 [package]
 name = "cellar-python"
 version = "0.1.0"
@@ -48,6 +50,7 @@ pyo3-build-config = { workspace = true, optional = true }
 serde_json.workspace = true
 
 [dev-dependencies]
+fastwebsockets.workspace = true
 async-trait.workspace = true
 bytes.workspace = true
 object_store.workspace = true
@@ -56,6 +59,13 @@ rusqlite.workspace = true
 tempfile.workspace = true
 tikv-jemallocator.workspace = true
 tracing-subscriber.workspace = true
+url.workspace = true
+
+[[test]]
+name = "typed_rpc"
+path = "tests/typed_rpc.rs"
+harness = false
+required-features = ["embed"]
 
 [[example]]
 name = "python-baseline"
@@ -83,4 +93,15 @@ disallowed_macros = "forbid"
 name = "startup"
 path = "tests/startup.rs"
 harness = false
+required-features = ["embed"]
+
+[[test]]
+name = "streaming"
+path = "tests/streaming.rs"
+harness = false
+required-features = ["embed"]
+
+[[bin]]
+name = "cellar-streaming-python"
+path = "../../examples/streaming/python.rs"
 required-features = ["embed"]

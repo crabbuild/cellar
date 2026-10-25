@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Bounded read replies built on the original native invocation, one value at a time.
 use anyhow::{ensure, Context as _, Result};
 use serde_json::{Map, Value};

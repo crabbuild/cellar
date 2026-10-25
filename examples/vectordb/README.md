@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Per-cell vector search
 
 Keep a real vector index with its business cell and query nearest neighbors.

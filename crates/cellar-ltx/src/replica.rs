@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 // Modified for Cellar from Celld.
 //! replica.rs — single-replica sync loop + restore orchestration.
 //! Ported from litestream@v0.5.11 `replica.go`.

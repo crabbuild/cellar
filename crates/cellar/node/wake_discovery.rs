@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Resource activation precedes admitting the persisted cold-wake backlog.
 use super::{AppHandle, Bucket, BucketOwnership, Message};
 use crate::application::event_stream::readiness::Readiness;

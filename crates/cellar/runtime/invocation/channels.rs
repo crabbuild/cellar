@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 // Copyright 2026 Deno Land Inc. Apache-2.0 license.
 // Modified for Cellar.
 
@@ -371,6 +373,14 @@ pub fn set_asset_call_tx(tx: tokio::sync::mpsc::UnboundedSender<AssetCallReq>) {
 /// A native Durable Object RPC call (`stub.someMethod(...args)`).
 /// Routing/activation is identical to fetch calls.
 pub struct RpcCallReq {
+    #[doc(hidden)]
+    pub parent_cancellation: Option<std::sync::Arc<crate::runtime::InvocationCancellation>>,
+    #[doc(hidden)]
+    pub signal: Option<cellar_native::web::AbortSignal>,
+    /// Host-local monotonic deadline. Peers must receive a remaining duration,
+    /// rather than this timestamp. `None` retains ordinary/event RPC policy.
+    #[doc(hidden)]
+    pub deadline_ms: Option<u64>,
     #[doc(hidden)]
     pub authority: Option<crate::runtime::RpcAuthority>,
     /// Correlates local execution and the authenticated peer abort protocol.

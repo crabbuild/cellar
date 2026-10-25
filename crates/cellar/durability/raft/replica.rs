@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! One serialized RawNode and its ordered persistence/application protocol.
 
 use super::cache::{ConsensusStorage, DurableApply, GroupLog, GroupWrite, SnapshotChange};

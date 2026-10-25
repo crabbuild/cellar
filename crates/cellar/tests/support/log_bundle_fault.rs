@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Exclude only session-bundle publication from follower-only proof fixtures.
 //! Lease CAS, reads, retained-object injection and loss diagnostics stay real.
 

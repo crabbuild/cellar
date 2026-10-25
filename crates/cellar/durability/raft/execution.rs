@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! One private writable image and one outstanding command proposal per cell.
 //! These host mechanics do not replace ingress authorization or output gating.
 
@@ -59,7 +61,7 @@ impl ExecutionLimits {
         if let Some(maintenance) = self.receipt_maintenance {
             maintenance.validate()?;
         }
-        if !(4096..=64 * 1024 * 1024).contains(&self.max_image_bytes)
+        if !(4096..=256 * 1024 * 1024).contains(&self.max_image_bytes)
             || !(1..=1024 * 1024).contains(&self.max_result_bytes)
             || !(1..=65_536).contains(&self.max_client_identities)
             || !(1..=65_536).contains(&self.max_retained_receipts)

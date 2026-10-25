@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Qualify durable activation churn, settled resources and bucket-only recovery.
 
 Each mutation is sent once. Failed runs retain uncertain attempts and still
@@ -44,7 +46,7 @@ def settled(host, python):
                     first is None or sample["generation"] > first["generation"]):
                 work, bridge = sample["work"], runtime["bridge"]
                 if work["active_tasks"] == work["active_invocations"] == work["pending_retirements"] == 0 and (
-                        bridge["pending_reservations"] == bridge["queued_bytes"] == 0 and
+                        bridge.get("native_invocations") == bridge["pending_reservations"] == bridge["queued_bytes"] == 0 and
                         all(bridge["operations"][key] == 0 for key in ("pending", "queued", "running", "replies_pending"))):
                     bridge_settled(bridge)
                     require(work["resident_objects"] <= host.ready["max_resident"], "settled object population exceeds native residency")

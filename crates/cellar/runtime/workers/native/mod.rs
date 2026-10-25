@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 // Copyright 2026 Deno Land Inc. Apache-2.0 license.
 // Adapted for Cellar from Celld: crates/celld/js.rs.
 
@@ -45,6 +47,7 @@ pub(crate) struct NativeWorker {
     pub(crate) cells: storage::Cells,
     config: Arc<WorkerConfig>,
     application: Arc<dyn Application>,
+    rpc_catalog: Option<Arc<crate::application::rpc::Catalog>>,
     registry: Arc<ContextRegistry>,
     instances: HashMap<String, Arc<dyn Cell>>,
     activations: HashMap<String, Arc<Activation>>,
@@ -74,6 +77,8 @@ pub(crate) struct NativeFlight {
 }
 
 struct Start {
+    rpc_cancellation: Option<Arc<crate::runtime::InvocationCancellation>>,
+    rpc_deadline_ms: Option<u64>,
     authority: Option<crate::runtime::RpcAuthority>,
     invocation: Invocation,
     answer: Answer,
@@ -202,6 +207,9 @@ impl NativeWorker {
             .native_application
             .clone()
             .expect("native configuration");
+        // Snapshot once. Pre-factory admission and invocation-local codecs must
+        // consult the same immutable catalog, even for custom applications.
+        let rpc_catalog = application.rpc_catalog().cloned().map(Arc::new);
         let loader_owner = crate::application::loader::Owner::new(&config);
         let loaded_environment = config
             .loader_env
@@ -287,6 +295,7 @@ impl NativeWorker {
         Ok(Self {
             cells: storage::Cells::default(),
             application,
+            rpc_catalog,
             config,
             registry,
             vars,
@@ -413,6 +422,7 @@ impl NativeWorker {
             });
         }
         Ok(Context {
+            rpc_catalog: self.rpc_catalog.clone(),
             event_authority: None,
             catalog_authority: None,
             name_authority: None,
@@ -554,6 +564,8 @@ impl NativeWorker {
             ),
         };
         self.start(Start {
+            rpc_cancellation: None,
+            rpc_deadline_ms: None,
             authority: None,
             work: None,
             invocation,
@@ -570,6 +582,8 @@ impl NativeWorker {
     fn start(&mut self, start: Start) -> (Option<InFlight>, Vec<Op>) {
         let _clock = cellar_native::web::WallClockGuard::enter(primitive_wall_ms);
         let Start {
+            rpc_cancellation,
+            rpc_deadline_ms,
             authority,
             invocation,
             answer,
@@ -581,6 +595,25 @@ impl NativeWorker {
             limits,
             tail,
         } = start;
+        if rpc_cancellation
+            .as_ref()
+            .is_some_and(|scope| scope.is_revoked())
+        {
+            answer.fail(
+                crate::application::rpc::Failure::new(crate::application::rpc::Code::Cancelled)
+                    .into(),
+            );
+            return (None, Vec::new());
+        }
+        if rpc_deadline_ms.is_some_and(|deadline| crate::asyncrt::mono_ms() >= deadline) {
+            answer.fail(
+                crate::application::rpc::Failure::new(
+                    crate::application::rpc::Code::DeadlineExceeded,
+                )
+                .into(),
+            );
+            return (None, Vec::new());
+        }
         let _installed = self.cells.install();
         if let Some(scope) = &scope {
             if self
@@ -642,6 +675,20 @@ impl NativeWorker {
             }
         };
         let mut state_authority = None;
+        if let Some(cancellation) = rpc_cancellation {
+            context
+                .io
+                .rpc_cancellation
+                .set(cancellation)
+                .unwrap_or_else(|_| panic!("new context has no RPC cancellation"));
+        }
+        if let Some(deadline) = rpc_deadline_ms {
+            context
+                .io
+                .rpc_deadline_ms
+                .set(deadline)
+                .expect("new context has no RPC deadline");
+        }
         let mut inventory_authority = None;
         let source_authority = match authority {
             Some(crate::runtime::RpcAuthority::Inventory(authority)) => {
@@ -761,6 +808,15 @@ impl NativeWorker {
                 }
                 match &context.identity {
                     Some(identity) => {
+                        if let Invocation::CellRpc { method, args } = &invocation {
+                            if let Some(catalog) = self.rpc_catalog.as_deref() {
+                                if let Some(refusal) =
+                                    catalog.refusal(&identity.class, method, args)?
+                                {
+                                    return Ok(Box::pin(async move { Ok(Output::Rpc(refusal)) }));
+                                }
+                            }
+                        }
                         let cell = match self.instances.entry(identity.scope.clone()) {
                             std::collections::hash_map::Entry::Occupied(entry) => {
                                 entry.get().clone()
@@ -858,6 +914,8 @@ impl NativeWorker {
         let request_id = job.request_id();
         let mut alarm = None;
         let mut authority = None;
+        let mut rpc_deadline_ms = None;
+        let mut rpc_cancellation = None;
         let mut work = None;
         let (invocation, answer) = match job {
             CellJob::Fetch {
@@ -887,6 +945,8 @@ impl NativeWorker {
                 )
             }
             CellJob::Rpc {
+                cancellation,
+                deadline_ms,
                 authority: caller,
                 method,
                 args,
@@ -894,6 +954,8 @@ impl NativeWorker {
                 reply,
                 ..
             } => {
+                rpc_cancellation = cancellation;
+                rpc_deadline_ms = deadline_ms;
                 authority = caller;
                 if let Some(name) = name {
                     if let Err(error) = storage::set_actor_name(&scope, &name) {
@@ -1023,6 +1085,8 @@ impl NativeWorker {
             }
         };
         self.start(Start {
+            rpc_cancellation,
+            rpc_deadline_ms,
             authority,
             work,
             invocation,
@@ -1835,6 +1899,8 @@ pub(crate) fn rpc_cell(
     name: Option<String>,
     method: String,
     args: RpcData,
+    deadline_ms: Option<u64>,
+    signal: Option<cellar_native::web::AbortSignal>,
 ) -> HandlerFuture<RpcData> {
     if crate::application::event_stream::is_event_scope(&scope) {
         return Box::pin(async { Err(anyhow!("event stream calls require a bound capability")) });
@@ -1845,7 +1911,16 @@ pub(crate) fn rpc_cell(
     {
         return Box::pin(async move { Err(error) });
     }
-    rpc_cell_resource(context, scope, name, method, args)
+    let gate = egress_gate_request(&context.io, cellar_logic::Channel::CellRpc);
+    Box::pin(crate::host_rpc::call_scoped(
+        gate,
+        scope,
+        name,
+        method,
+        args,
+        None,
+        crate::host_rpc::CallScope::in_context(context, deadline_ms, signal),
+    ))
 }
 
 /// Continue an already-admitted workflow reader. Opening the resource is charged;
@@ -1861,7 +1936,19 @@ pub(crate) fn rpc_cell_resource(
         return Box::pin(async move { Err(error) });
     }
     let gate = egress_gate_request(&context.io, cellar_logic::Channel::CellRpc);
-    Box::pin(crate::host_rpc::call(gate, scope, name, method, args, None))
+    Box::pin(crate::host_rpc::call_scoped(
+        gate,
+        scope,
+        name,
+        method,
+        args,
+        None,
+        crate::host_rpc::CallScope::in_context(
+            context,
+            context.io.rpc_deadline_ms.get().copied(),
+            None,
+        ),
+    ))
 }
 
 pub(crate) fn event_rpc(
@@ -1880,13 +1967,14 @@ pub(crate) fn event_rpc(
         return Box::pin(async move { Err(error) });
     }
     let gate = egress_gate_request(&context.io, cellar_logic::Channel::CellRpc);
-    Box::pin(crate::host_rpc::call(
+    Box::pin(crate::host_rpc::call_scoped(
         gate,
         scope,
         name,
         method,
         args,
         Some(authority.into()),
+        crate::host_rpc::CallScope::in_context(context, None, None),
     ))
 }
 
@@ -1907,13 +1995,14 @@ pub(crate) fn catalog_rpc(
         return Box::pin(async move { Err(error) });
     }
     let gate = egress_gate_request(&context.io, cellar_logic::Channel::CellRpc);
-    Box::pin(crate::host_rpc::call(
+    Box::pin(crate::host_rpc::call_scoped(
         gate,
         scope,
         Some(name),
         method,
         args,
         Some(crate::runtime::RpcAuthority::Catalog(authority)),
+        crate::host_rpc::CallScope::in_context(context, None, None),
     ))
 }
 

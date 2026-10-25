@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Bounded, authenticated history observations. Tokens confer no authorization
 //! and contain no leader identity: a normal election preserves their meaning.
 

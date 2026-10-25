@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Each binding must preserve its own real invocation/domain authority.
 use super::*;
 

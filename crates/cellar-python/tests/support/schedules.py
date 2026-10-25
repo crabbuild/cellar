@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """The real reserved cron cell invokes Python and retains its own history."""
 import asyncio
 from cellar import Response, SDKError

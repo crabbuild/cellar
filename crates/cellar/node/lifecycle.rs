@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Outcomes and shutdown policy for the production node lifecycle.
 //!
 //! These contracts separate engine supervision from the CLI's signals and

@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Bounded query RPC frames. Their MAC domains, exporter and framing are
 //! separate from Raft messages; a read RPC can never become a consensus step.
 

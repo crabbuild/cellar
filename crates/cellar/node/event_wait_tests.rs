@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 use super::*;
 use futures_util::FutureExt as _;
 use std::sync::{atomic::AtomicUsize, Arc};
@@ -374,6 +376,9 @@ async fn real_dispatch_route_timeout_cancels_the_pending_actor_request() -> Resu
         let authority = Authority::resolution(&binding)?;
         let (reply, result) = oneshot::channel();
         let call = crate::host_channels::RpcCallReq {
+            parent_cancellation: None,
+            signal: None,
+            deadline_ms: None,
             authority: Some(authority.into()), request_id: None, cancel: None,
             scope: crate::application::event_stream::cell_scope(&binding.resource)?,
             name: None, method: "__streamResolve".into(),

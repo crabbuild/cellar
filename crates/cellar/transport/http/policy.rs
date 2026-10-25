@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Outbound HTTP policy and connection pools owned by one execution domain.
 
 use std::sync::{Arc, Mutex};

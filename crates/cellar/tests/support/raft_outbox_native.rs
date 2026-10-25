@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Two independent three-voter native clusters; real receiver transactions and
 //! TLS Raft transports, with deliberately ambiguous source-side completion.
 #![allow(clippy::disallowed_methods)]

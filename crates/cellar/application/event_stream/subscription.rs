@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Durable subscription handles and exact batch receipts. A receipt identifies
 //! processing authority; fetching a batch never advances its checkpoint.
 

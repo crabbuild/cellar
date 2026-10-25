@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Fresh version-1 schemas for internal development; no layout migrations.
 
 use super::{error::error, store, ErrorCode};

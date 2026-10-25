@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Durable Pi agents on Cellar
 
 This example runs the real `@earendil-works/pi-agent-core` 1.4.0 agent loop in

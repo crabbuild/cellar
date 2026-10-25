@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Durable source admission closure and owner-routed retirement verification.
 
 use crate::application::event_stream::{

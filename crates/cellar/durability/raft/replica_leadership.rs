@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Leadership movement is admitted by the same serialized owner as proposals.
 use super::*;
 

@@ -1,12 +1,30 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 #![allow(clippy::disallowed_methods)]
 use anyhow::Result;
 use cellar::sdk::*;
 use std::{path::Path, sync::Arc, time::Duration};
 #[path = "../../../cellar/tests/support/html.rs"]
 #[allow(dead_code)]
-mod fixture;
+pub(super) mod fixture;
 
+#[allow(dead_code)] // Shared tests select either the default or mixed-class host.
 pub async fn start(path: &Path, application: Arc<dyn Application>) -> Result<(Node, String)> {
+    start_with(
+        path,
+        application,
+        vec!["Counter".into()],
+        vec![("COUNTERS".into(), "Counter".into())],
+    )
+    .await
+}
+
+pub async fn start_with(
+    path: &Path,
+    application: Arc<dyn Application>,
+    classes: Vec<String>,
+    bindings: Vec<(String, String)>,
+) -> Result<(Node, String)> {
     let name = "javascript-test";
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     let address = listener.local_addr()?;
@@ -64,8 +82,8 @@ pub async fn start(path: &Path, application: Arc<dyn Application>) -> Result<(No
         containers: None,
         metrics: None,
     };
-    let mut graph = fixture::graph("javascript-test", "", vec!["Counter".into()]);
-    graph.primary.options.bindings = vec![("COUNTERS".into(), "Counter".into())];
+    let mut graph = fixture::graph("javascript-test", "", classes);
+    graph.primary.options.bindings = bindings;
     graph.primary.options.vars = vec![("DOMAIN_MARKER".into(), name.into())];
     let applications =
         CompiledApplications::default()

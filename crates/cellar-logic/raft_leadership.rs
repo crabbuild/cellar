@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Bounded leadership balancing. Observations select a request; only the Raft
 //! owner can admit it against current term, configuration and actual progress.
 use crate::consensus::{GroupScope, LogIndex, MemberId, Term};

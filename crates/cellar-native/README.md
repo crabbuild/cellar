@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # cellar-native
 
 Rust values, codecs and web primitives shared by Cellar's runtime adapters.

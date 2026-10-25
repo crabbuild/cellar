@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Resume evidence cannot replace real stop/expiry/fence or repair original work."""
 import copy
 import json

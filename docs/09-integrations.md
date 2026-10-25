@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Integrations and resource ownership
 
 Use SDK bindings for HTTP, Blob storage, streams, sockets and other external
@@ -19,6 +21,9 @@ consistency with each external system.
 | Containers | A cell owns the lifecycle; wait for port readiness and budget resource use | [container example](../examples/native-container/README.md) |
 | Facets | Use cell-owned facet lifecycle and properties; test parent cancellation | [facets](../crates/cellar/application/facets.rs) |
 | Compiled loader | Load registered native application objects with host quotas | [loader](../crates/cellar/application/loader.rs) |
+
+See [streaming and WebSockets across languages](27-streaming-and-websockets.md)
+for Rust, Python, JavaScript and TypeScript APIs.
 
 ## WebSockets and containers
 

@@ -1,0 +1,36 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
+name: Cellar console
+on:
+  push:
+    paths: ['packages/console/**', '.github/workflows/console.yml']
+  pull_request:
+    paths: ['packages/console/**', '.github/workflows/console.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  browser:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: packages/console
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24.13.1'
+          cache: npm
+          cache-dependency-path: packages/console/package-lock.json
+      - run: npm ci
+      - run: npm run build
+      - run: npm run lint
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:ui
+      - uses: actions/upload-artifact@v6
+        if: failure()
+        with:
+          name: console-browser-results
+          path: packages/console/test-results
+          retention-days: 7

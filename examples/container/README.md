@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Cell-owned native Rust containers
 
 Use one container per business cell for HTTP processing, readiness and named isolation.

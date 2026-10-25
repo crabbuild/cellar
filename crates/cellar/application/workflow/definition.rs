@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Bounded, declarative diagrams for compiled workflows. These do not execute code.
 use super::{set, Context, StructuredValue};
 use anyhow::{ensure, Result};

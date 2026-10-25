@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Multi-Raft node operations
 
 MR-13 is under implementation. This contract records implemented local node

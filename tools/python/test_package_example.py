@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Packaging must capture and deploy the same Cargo profile and Python ABI."""
 import contextlib
 import io

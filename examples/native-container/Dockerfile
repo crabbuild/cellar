@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 FROM rust:1.98.1-alpine AS build
 WORKDIR /build
 COPY server.rs /build/server.rs

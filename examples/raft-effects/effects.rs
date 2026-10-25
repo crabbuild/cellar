@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Explicit producer lanes and a receiver transaction; no mutable Cell factory.
 use anyhow::{ensure, Result};
 use cellar::sdk::consensus::*;

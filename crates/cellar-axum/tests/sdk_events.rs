@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Exercise the builder's SDK contracts through real broker and workflow cells.
 #![allow(clippy::disallowed_methods)] // Only the test coordinator uses a host timeout.
 mod support;

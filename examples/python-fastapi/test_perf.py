@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Check placement through the CLI/native-child boundary used by benchmarks."""
 import copy
 import json

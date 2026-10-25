@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # TypeScript cells in a Rust executable
 
 The application imports Zod from npm and implements a persistent counter with
@@ -12,6 +14,9 @@ npm ci --prefix tools/javascript --ignore-scripts
 npm ci --prefix examples/javascript --ignore-scripts
 npm run --prefix examples/javascript build
 cargo build --locked -p cellar-javascript --features embed --bin cellar-javascript-example
+# Crate-wide tests also compile the streaming example host.
+npm ci --prefix examples/streaming --ignore-scripts
+npm run --prefix examples/streaming build
 cargo test --locked -p cellar-javascript --features embed
 cargo run --locked -p cellar -- build examples/javascript/project.json --output .cellar/javascript-package
 ```

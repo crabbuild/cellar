@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Outbound WebSockets with event-owned Workers and persistent business cells.
 //! Set CELLAR_WEBSOCKET_PEER to the peer's ws:// or wss:// origin before running.
 

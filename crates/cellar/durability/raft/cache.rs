@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Durable storage views. Raft reads these bounded caches without disk I/O.
 
 use super::member_state::GroupMembership;
@@ -33,7 +35,7 @@ impl CommittedImage {
                 .name
                 .bytes()
                 .all(|byte| byte.is_ascii_alphanumeric() || b"-_.".contains(&byte))
-            || self.length > 64 * 1024 * 1024
+            || self.length > 256 * 1024 * 1024
             || self.ltx_epoch == 0
             || !cellar_ltx::ltx::is_valid_page_size(self.page_size)
         {

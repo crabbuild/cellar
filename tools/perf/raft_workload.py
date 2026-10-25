@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Bounded open-loop workload and fsynced per-run operation ledger.
 
 The scheduler keeps the original arrival schedule under load. No mutation is

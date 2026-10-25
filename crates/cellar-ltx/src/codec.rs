@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Streaming LTX v0.5.2 encoder and backward-compatible decoder.
 
 use crate::error::{Error, Result};

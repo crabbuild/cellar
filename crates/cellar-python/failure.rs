@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 pub(crate) use cellar_guest::failure::{Validation, MIN_RESULT_BYTES};
 
 pub(crate) fn result(

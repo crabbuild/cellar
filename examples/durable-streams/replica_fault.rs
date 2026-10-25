@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Opt-in process fixture: refuse real replica publication, never supply proof.
 
 use futures_util::stream::BoxStream;

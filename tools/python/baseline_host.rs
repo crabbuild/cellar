@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Same real node/fleet policy for both measured application implementations.
 use super::*;
 use cellar::sdk::*;

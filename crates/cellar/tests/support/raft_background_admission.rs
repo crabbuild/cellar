@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! A held physical SQL worker makes archive/command admission races repeatable.
 #![allow(clippy::disallowed_methods)]
 use super::{bundle_faults as faults, public_node};

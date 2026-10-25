@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Physical snapshots and native TLS catch-up over real SQLite/LTX and Raft
 //! Engine. Fresh-member authorization and automatic repair remain separate.
 #![allow(clippy::disallowed_methods)]

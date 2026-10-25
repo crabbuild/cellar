@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 use super::super::{log_to_wire, read_record, DurabilityOwner, LogState, OwnLog, RecoverMode};
 use super::*;
 use crate::{

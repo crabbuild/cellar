@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Cold destination witnesses must survive memory loss without replay repair."""
 import copy
 import json

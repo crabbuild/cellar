@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! One owned timer/client allocator for committed alarms and outbox attempts.
 use super::super::effects::RaftEffectOptions;
 use super::*;

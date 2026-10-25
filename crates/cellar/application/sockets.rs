@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Event-owned TCP/TLS sockets with leased byte endpoints and STARTTLS.
 //!
 //! An echo exchange with a peer that replies after the write side closes:

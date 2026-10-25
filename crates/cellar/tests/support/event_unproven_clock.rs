@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! A local clock commit is not a proven refusal. Hold real publication, then
 //! force closure without allowing shutdown or replay to supply missing proof.
 

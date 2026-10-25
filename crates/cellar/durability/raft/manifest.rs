@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Canonical, bounded marker-1 recovery descriptions. Object names include
 //! their content digest; the mutable head selects a complete immutable set.
 
@@ -217,6 +219,16 @@ impl Manifest {
         self.position.decode()?;
         self.snapshot.image.map(Image::decode).transpose()?;
         self.image.map(Image::decode).transpose()?;
+        if self
+            .snapshot
+            .image
+            .is_some_and(|image| image.length > limits.max_image_bytes)
+            || self
+                .image
+                .is_some_and(|image| image.length > limits.max_image_bytes)
+        {
+            return Err(ArchiveError::Limit);
+        }
         let conf = decode_conf(&self.snapshot.conf_state)?;
         self.snapshot
             .membership

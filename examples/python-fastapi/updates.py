@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """One-shot update targets and conservative recovery checks for offered load."""
 import json
 

@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Two immutable Python versions in distinct installed processes. Development
 //! bucket semantics are real; this does not emulate quorum fault qualification.
 #![allow(clippy::disallowed_methods)]

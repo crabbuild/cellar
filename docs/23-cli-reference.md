@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # CLI reference and operator boundaries
 
 Use the `cellar` command-line interface (CLI) to develop and package applications
@@ -61,6 +63,65 @@ contains flushed lifecycle records; child output goes to stderr. Process exit
 alone does not prove application drain. See the [supervisor contract and service
 template](../tools/python/README.md#process-supervision) for policy,
 supported platforms and qualification commands.
+
+## Offline typed RPC checks
+
+Check a generated contract before packaging an application:
+
+```sh
+cellar rpc check \
+  --descriptor generated/contracts.binpb \
+  --inventory generated/rpc.json
+```
+
+```text
+descriptor -> native profile validation -> canonical digest/methods/types
+                                                 |
+generated rpc.json -------------------------- exact match
+                                                 |
+optional native catalog ---------------- complete service registrations
+                                                 |
+                                         one JSON success record
+```
+
+The command uses the native validator and current generator defaults. It checks
+the exact canonical `rpc.json` produced by the generator, including its trailing
+newline. Formatting changes, duplicate keys, extra fields and altered limits or
+codec metadata count as drift: regenerate the inventory rather than editing it.
+Descriptor reads are limited to 4 MiB and each JSON input to 64 MiB. Inputs and
+unrelated files remain unchanged on both success and failure. Checking needs
+the Cellar executable and local artifacts; it works with build tools absent
+from `PATH`.
+
+To check provider registrations too, export the application's native catalog
+after its services have been registered:
+
+```rust
+fn write_rpc_catalog(catalog: &cellar::sdk::rpc::Catalog) -> anyhow::Result<()> {
+    std::fs::write(
+        "catalog.json",
+        format!("{}\n", serde_json::to_string_pretty(&catalog.inventory())?),
+    )?;
+    Ok(())
+}
+```
+
+```sh
+cellar rpc check \
+  --descriptor generated/contracts.binpb \
+  --inventory generated/rpc.json \
+  --catalog catalog.json
+```
+
+The catalog snapshot must use that descriptor bundle. The native `Catalog`
+validates class/service names and complete method sets; the checker also requires
+matching digest, input/output types and limits. Successful output includes the
+digest, method count and checked class/registration counts. Without `--catalog`,
+registration counts are `null` because registrations were not observed.
+
+This checks the supplied snapshots. Executable/package identity and consumer
+binding validation remain separate delivery requirements. See the
+[RPC ledger](../plans/named-typed-rpc/implementation-status.md) for their status.
 
 ## Compiled node storage and Raft startup
 

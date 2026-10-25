@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Fleet dashboard: product and implementation scope
 
 Status: IMPLEMENTED — v1 behavior and local qualification are recorded below.
@@ -218,7 +220,7 @@ horizontally. Never hide the fleet/target identity inside a confirmation dialog.
 
 Recommended implementation:
 
-- `dashboard/`: TypeScript/React browser application, shared resource tables,
+- `packages/console/`: TypeScript/React browser application, shared resource tables,
   routing, data-fetch lifecycle, permissions and UI tests. Browser JavaScript is
   separate from the native application execution format; introduce no JavaScript
   engine into Rust crates. Prebuilt assets are served locally without Node.js in
@@ -553,7 +555,7 @@ whitespace checks also pass.
 
 The console now has a shared neutral scale and semantic tokens for light/dark
 surfaces, text, borders, actions, focus and statuses. Spacing, typography, control
-sizes, radii and motion are documented in `dashboard/README.md`. Shared primitives
+sizes, radii and motion are documented in `packages/console/README.md`. Shared primitives
 apply them across the fleet, resource and workflow views.
 
 The shell adds an explicit light/system/dark preference, keyboard-focusable active

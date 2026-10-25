@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Refusal, arrival accounting and independent workload oracle regressions."""
 import contextlib
 import concurrent.futures

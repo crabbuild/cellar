@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Run the reference SQL workload through the native Fleet or bucket output gate.
 
 Only a fresh, disposable three-node Colima/RustFS deployment is supported.

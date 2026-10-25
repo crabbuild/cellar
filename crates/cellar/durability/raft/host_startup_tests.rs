@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! A startup error owns infrastructure until actual file-lock release.
 #![allow(clippy::disallowed_methods)]
 use super::storage_fault as fault;

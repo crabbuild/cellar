@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Caller-selected asset storage. Work belongs to the serving execution domain.
 
 use crate::bucket::Bucket;

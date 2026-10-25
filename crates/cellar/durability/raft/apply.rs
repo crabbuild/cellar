@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Physical images become public only after the matching engine marker is durable.
 //! This owner handles committed data entries; protocol no-ops/configuration changes
 //! remain in the runtime and preserve the image. It grants no leader eligibility.

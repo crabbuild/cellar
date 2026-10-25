@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Fleet topology and infrastructure contract
 
 Plan node placement around the dependencies needed for ownership and recovery:

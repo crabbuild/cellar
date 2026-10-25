@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 name: JavaScript and Node SDK
 on:
   pull_request:
@@ -6,8 +8,14 @@ on:
       - 'packages/cellar-sdk/**'
       - 'examples/javascript/**'
       - 'examples/node/**'
+      - 'examples/streaming/**'
       - 'examples/pi-agent/**'
+      - 'examples/vercel-agent/**'
       - 'tools/javascript/**'
+      - 'tools/rpc/**'
+      - 'tools/cellar-rpc-codegen/**'
+      - 'proto/**'
+      - 'plans/named-typed-rpc/*.proto'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - '.github/workflows/javascript-sdk.yml'
@@ -35,12 +43,30 @@ jobs:
           npm ci --prefix tools/javascript --ignore-scripts
           npm ci --prefix examples/javascript --ignore-scripts
           npm ci --prefix examples/node --ignore-scripts
+          npm ci --prefix examples/streaming --ignore-scripts
           npm ci --prefix examples/pi-agent --ignore-scripts
+          npm ci --prefix examples/vercel-agent --ignore-scripts
+          npm ci --prefix tools/rpc --ignore-scripts
+          npm ci --prefix examples/vercel-agent/ui --ignore-scripts
           npm run --prefix examples/node build
+          npm run --prefix examples/streaming build
           npm run --prefix examples/pi-agent build
           npm test --prefix examples/pi-agent
+          npm run --prefix examples/vercel-agent build
+          npm run --prefix examples/vercel-agent/ui build
+          npm test --prefix examples/vercel-agent
+          npm run --prefix examples/vercel-agent format:check
+          node --test packages/cellar-sdk/test/streaming.test.mjs
+          node tools/javascript/node_modules/typescript/bin/tsc --noEmit --strict --target es2022 --module nodenext packages/cellar-sdk/test/types.ts
           npm test --prefix tools/javascript
           npm run --prefix examples/javascript build
+          npm test --prefix tools/rpc
+          npm run --prefix tools/rpc typecheck
+          npm run --prefix tools/rpc build
+      - name: Chat UI desktop and mobile behavior
+        run: |
+          npm exec --prefix examples/vercel-agent/ui -- playwright install --with-deps chromium
+          npm run --prefix examples/vercel-agent/ui test:ui
       - name: Adapter and real-node tests
         run: cargo test --locked -p cellar-guest -p cellar-javascript --features cellar-javascript/embed,cellar-javascript/node
       - name: Node-only feature
@@ -56,6 +82,53 @@ jobs:
         run: |
           cargo build --locked -p cellar-javascript --no-default-features --features node --bin cellar-pi-agent-example
           CELLAR_PI_HOST="${CARGO_TARGET_DIR:-$PWD/target}/debug/cellar-pi-agent-example" npm run --prefix examples/pi-agent test:e2e
+      - name: Vercel AI SDK agent crash recovery and concurrent tasks
+        run: |
+          cargo build --locked -p cellar-javascript --no-default-features --features node --bin cellar-vercel-agent-example
+          CELLAR_AI_HOST="${CARGO_TARGET_DIR:-$PWD/target}/debug/cellar-vercel-agent-example" npm run --prefix examples/vercel-agent test:e2e
+          CELLAR_AI_HOST="${CARGO_TARGET_DIR:-$PWD/target}/debug/cellar-vercel-agent-example" npm run --prefix examples/vercel-agent test:tools
+      - name: Vercel agent cold recovery from RustFS
+        shell: bash
+        run: |
+          aws --version
+          store="cellar-ai-rustfs-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          private="$RUNNER_TEMP/cellar-ai-rustfs.env"
+          python3 - "$private" <<'PY'
+          import os, secrets, sys
+          with open(sys.argv[1], 'x', opener=lambda path, flags: os.open(path, flags, 0o600)) as output:
+              output.write('AWS_ACCESS_KEY_ID=' + secrets.token_hex(16) + '\n')
+              output.write('AWS_SECRET_ACCESS_KEY=' + secrets.token_hex(32) + '\n')
+          PY
+          set -a
+          source "$private"
+          set +a
+          trap 'docker rm -f "$store" >/dev/null 2>&1 || true; rm -f "$private"' EXIT
+          docker run --detach --name "$store" --publish 127.0.0.1::9000 --cpus 2 --memory 2g \
+            --env "RUSTFS_ACCESS_KEY=$AWS_ACCESS_KEY_ID" \
+            --env "RUSTFS_SECRET_KEY=$AWS_SECRET_ACCESS_KEY" \
+            --env RUSTFS_CONSOLE_ENABLE=false \
+            ghcr.io/rustfs/rustfs@sha256:bffcab0c9d647aab0055d1c69d340b202d0909966b385932d4ead1aeb7602858 /data
+          export S3_ENDPOINT="http://$(docker port "$store" 9000/tcp)"
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent "$S3_ENDPOINT/health" >/dev/null; then break; fi
+            sleep 1
+          done
+          curl --fail --silent "$S3_ENDPOINT/health" >/dev/null
+          export CELLAR_AI_STORE=s3 AWS_REGION=us-east-1
+          export CELLAR_AI_HOST="${CARGO_TARGET_DIR:-$PWD/target}/debug/cellar-vercel-agent-example"
+          export CELLAR_AI_TEST_REPORT="$RUNNER_TEMP/vercel-rustfs-recovery.json"
+          npm run --prefix examples/vercel-agent test:e2e
+          export CELLAR_AI_TEST_REPORT="$RUNNER_TEMP/vercel-rustfs-tools.json"
+          npm run --prefix examples/vercel-agent test:tools
+      - name: RustFS recovery evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vercel-rustfs-recovery
+          path: |
+            ${{ runner.temp }}/vercel-rustfs-recovery.json
+            ${{ runner.temp }}/vercel-rustfs-tools.json
+          if-no-files-found: ignore
       - name: Quality and engine boundaries
         run: |
           cargo clippy --locked -p cellar-guest -p cellar-javascript --features cellar-javascript/embed,cellar-javascript/node --all-targets -- -D warnings
@@ -65,6 +138,10 @@ jobs:
           python3 tools/docs/check.py
       - name: Native package
         run: cargo run --locked -p cellar -- build examples/javascript/project.json --output .cellar/javascript-package
+      - name: Runnable streaming examples and restart
+        run: |
+          python3 examples/streaming/smoke.py --cellar "${CARGO_TARGET_DIR:-$PWD/target}/debug/cellar" \
+            --backend rust --backend node-js --backend node-ts --backend v8
       - name: Node runtime delivery
         run: |
           cargo build --locked -p cellar-javascript --no-default-features --features node --bin cellar-node-example

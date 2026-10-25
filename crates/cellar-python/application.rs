@@ -1,9 +1,12 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 use crate::{
     operations::{self, State},
     runtime::{self, Event, InvocationBridge, InvocationState, Life, Lifetime, Runtime, Start},
     values,
 };
 use anyhow::{ensure, Result};
+use cellar::sdk::rpc::{Catalog, Contract, Prepared};
 use cellar::sdk::{
     queue, Application, Cell, CellIdentity, Context, HandlerFuture, Invocation, Output,
 };
@@ -25,6 +28,12 @@ pub enum EventKind {
     Alarm,
     Queue,
     Scheduled,
+    #[serde(rename = "websocket_open")]
+    WebSocketOpen,
+    #[serde(rename = "websocket_message")]
+    WebSocketMessage,
+    #[serde(rename = "websocket_close")]
+    WebSocketClose,
 }
 
 impl EventKind {
@@ -34,6 +43,9 @@ impl EventKind {
             Self::Alarm => "alarm",
             Self::Queue => "queue",
             Self::Scheduled => "scheduled",
+            Self::WebSocketOpen => "websocket_open",
+            Self::WebSocketMessage => "websocket_message",
+            Self::WebSocketClose => "websocket_close",
         }
     }
 }
@@ -41,6 +53,7 @@ impl EventKind {
 /// Python source included in the compiled host, with explicitly registered cells.
 #[derive(Clone)]
 pub struct Source {
+    pub(crate) rpc: Catalog,
     pub(crate) code: String,
     pub(crate) filename: String,
     pub(crate) classes: Vec<String>,
@@ -54,6 +67,7 @@ pub struct Source {
 impl Source {
     pub fn new(code: impl Into<String>, filename: impl Into<String>) -> Self {
         Self {
+            rpc: Catalog::new(),
             code: code.into(),
             filename: filename.into(),
             classes: Vec::new(),
@@ -69,6 +83,22 @@ impl Source {
         self
     }
 
+    /// Register unary business methods without requiring an HTTP fetch handler.
+    pub fn cell_rpc(mut self, class: &str, service: &str, contract: Arc<Contract>) -> Result<Self> {
+        self.rpc.register(class, service, contract)?;
+        if !self.classes.iter().any(|name| name == class) {
+            self.classes.push(class.into());
+            self.cell_events.insert(class.into(), Vec::new());
+        }
+        Ok(self)
+    }
+
+    /// Install an interface used by generated callers, without exposing methods.
+    pub fn rpc_contract(mut self, contract: Arc<Contract>) -> Result<Self> {
+        self.rpc.add_contract(contract)?;
+        Ok(self)
+    }
+
     pub fn events(mut self, events: impl IntoIterator<Item = EventKind>) -> Self {
         self.events = events.into_iter().collect();
         self
@@ -80,7 +110,11 @@ impl Source {
         events: impl IntoIterator<Item = EventKind>,
     ) -> Self {
         let name = name.into();
-        self.classes.push(name.clone());
+        let rpc_only = self.rpc.classes().any(|class| class == name)
+            && self.cell_events.get(&name).is_some_and(Vec::is_empty);
+        if !rpc_only {
+            self.classes.push(name.clone());
+        }
         self.cell_events.insert(name, events.into_iter().collect());
         self
     }
@@ -105,6 +139,16 @@ impl Source {
 
     pub(crate) fn descriptor(&self) -> Value {
         let mut descriptor = json!({"events":self.events, "cells":self.cell_events});
+        let contracts = self.rpc.codec_inventory();
+        if contracts
+            .as_object()
+            .is_some_and(|entries| !entries.is_empty())
+        {
+            descriptor["rpc_contracts"] = contracts;
+        }
+        if self.rpc.classes().next().is_some() {
+            descriptor["rpc"] = self.rpc.inventory();
+        }
         if !self.initial_reads.is_empty() {
             descriptor["initial_reads"] = json!(self.initial_reads);
         }
@@ -130,6 +174,9 @@ impl Source {
     }
 
     fn supports(&self, class: Option<&str>, kind: &str) -> bool {
+        if kind == "rpc" {
+            return class.is_some_and(|name| self.rpc.classes().any(|class| class == name));
+        }
         let events = match class {
             Some(class) => self.cell_events.get(class),
             None => Some(&self.events),
@@ -199,7 +246,7 @@ impl PythonApplication {
     /// A live, nonblocking snapshot of native bridge resource accounting.
     /// Does not enter Python or confer invocation authority.
     pub fn bridge_report(&self) -> crate::BridgeReport {
-        self.runtime.budget.report()
+        self.runtime.bridge_report()
     }
 
     /// Last sampled interpreter state, without acquiring the GIL or blocking.
@@ -210,6 +257,25 @@ impl PythonApplication {
     }
 
     async fn run(
+        self: &Arc<Self>,
+        context: Context,
+        event: Invocation,
+        cell: Option<(u64, String, Life)>,
+        mut state: State,
+    ) -> Result<Output> {
+        if matches!(event, Invocation::Fetch(_)) && state.queue.is_none() {
+            let app = self.clone();
+            let producer = context.clone();
+            return cellar_guest::transport::serve(&context, move |session| async move {
+                state.transport = session;
+                app.run_inner(producer, event, cell, state).await
+            })
+            .await;
+        }
+        self.run_inner(context, event, cell, state).await
+    }
+
+    async fn run_inner(
         &self,
         context: Context,
         event: Invocation,
@@ -230,6 +296,7 @@ impl PythonApplication {
                     }
                 })?;
         let mut body = Vec::new();
+        let mut rpc_prepared = None;
         let (kind, payload) = if let Some(batch) = &state.queue {
             (
                 "queue",
@@ -237,6 +304,32 @@ impl PythonApplication {
             )
         } else {
             match event {
+                Invocation::CellRpc { method, args } => {
+                    let class = &context
+                        .identity()
+                        .ok_or_else(|| anyhow::anyhow!("cell RPC requires a cell identity"))?
+                        .class;
+                    if let Some(refusal) = self
+                        .source
+                        .rpc
+                        .refusal_after_factory(class, &method, &args)?
+                    {
+                        return Ok(Output::Rpc(refusal));
+                    }
+                    let contract = self
+                        .source
+                        .rpc
+                        .provider(class, &method)
+                        .ok_or_else(|| anyhow::anyhow!("undeclared Python RPC method"))?;
+                    let (digest, bytes) = cellar::sdk::rpc::decode_envelope(
+                        &args,
+                        contract.limits().max_message_bytes,
+                    )?;
+                    let mut prepared = Prepared::new(contract, &method, digest, bytes)?;
+                    body = prepared.take_request();
+                    rpc_prepared = Some(prepared);
+                    ("rpc", json!({"method":method}))
+                }
                 Invocation::Fetch(request) => {
                     let (metadata, bytes) =
                         values::request(&context, request, self.runtime.options.max_body_bytes)
@@ -251,7 +344,9 @@ impl PythonApplication {
                     "scheduled",
                     json!({"scheduled_ms":scheduled.scheduled_ms,"cron":scheduled.cron}),
                 ),
-                _ => anyhow::bail!("unsupported Python invocation"),
+                event => {
+                    cellar_guest::transport::invocation(event, self.runtime.options.max_body_bytes)?
+                }
             }
         };
         let identity = context
@@ -288,7 +383,14 @@ impl PythonApplication {
                 .ok_or_else(|| anyhow::anyhow!("Python invocation exceeds value budget"))?;
             payload = crate::read_batch::append_initial(&context, payload, keys, maximum)?;
         }
-        let charge = values::envelope_size(payload.len(), body.len())?;
+        let charge = if kind == "rpc" {
+            payload
+                .len()
+                .checked_add(body.len())
+                .ok_or_else(|| anyhow::anyhow!("RPC invocation size overflow"))?
+        } else {
+            values::envelope_size(payload.len(), body.len())?
+        };
         ensure!(
             charge <= self.runtime.options.max_value_bytes,
             "Python invocation exceeds value budget"
@@ -310,8 +412,11 @@ impl PythonApplication {
                 owner,
                 operations: AtomicUsize::new(0),
                 mutation: Arc::new(AtomicBool::new(false)),
+                rpc_calls: Arc::default(),
+                rpc_budget_source: cellar::sdk::rpc::BudgetSource::capture(&context)?,
                 max_operations: self.runtime.options.max_operations,
                 max_bytes: self.runtime.options.max_value_bytes,
+                raw_rpc: kind == "rpc",
                 budget: self.runtime.budget.clone(),
                 event_loop: None,
                 scope: None,
@@ -328,8 +433,8 @@ impl PythonApplication {
                 _ = stopped.changed() => anyhow::bail!("Python runtime stopped"),
                 _ = cancellation.changed() => anyhow::bail!("Python invocation cancelled"),
                 result = pending.next(), if !pending.is_empty() => {
-                    let (id, encoded, observation) = result.expect("nonempty native operation set");
-                    self.runtime.reply(invocation, id, encoded?, observation)?;
+                    let (id, encoded, observation, raw) = result.expect("nonempty native operation set");
+                    self.runtime.reply(invocation, id, encoded?, observation, raw)?;
                     continue;
                 },
                 event = receive.recv() => event,
@@ -345,6 +450,8 @@ impl PythonApplication {
                     name,
                     payload,
                     body,
+                    rpc,
+                    rpc_budget,
                     mutation,
                     reservation,
                     mut observation,
@@ -360,7 +467,19 @@ impl PythonApplication {
                         // if the awaiting Python task has already been cancelled.
                         let _mutation = mutation;
                         let _reservation = reservation;
+                        let _rpc = rpc;
                         let result = match serde_json::from_str(&payload) {
+                            Ok(payload) if name == "cell.call" => {
+                                operations::call(
+                                    context,
+                                    &self.source.rpc,
+                                    payload,
+                                    body,
+                                    _rpc.as_ref().map(|call| call.signal()),
+                                    rpc_budget,
+                                )
+                                .await
+                            }
                             Ok(payload) => {
                                 operations::execute(
                                     context,
@@ -382,7 +501,7 @@ impl PythonApplication {
                             result,
                             self.runtime.options.max_value_bytes,
                         );
-                        (id, encoded, observation)
+                        (id, encoded, observation, name == "cell.call")
                     });
                     // Initiate operations in receive order. Polling once here
                     // establishes FIFO start even for futures awaiting nested
@@ -392,9 +511,9 @@ impl PythonApplication {
                     })
                     .await
                     {
-                        std::task::Poll::Ready((id, encoded, observation)) => {
-                            self.runtime.reply(invocation, id, encoded?, observation)?
-                        }
+                        std::task::Poll::Ready((id, encoded, observation, raw)) => self
+                            .runtime
+                            .reply(invocation, id, encoded?, observation, raw)?,
                         std::task::Poll::Pending => pending.push(operation),
                     }
                 }
@@ -410,6 +529,29 @@ impl PythonApplication {
                         .budget
                         .completion_handoff
                         .observe(queued_at.elapsed());
+                    if let Some(prepared) = rpc_prepared.take() {
+                        let result = if failed {
+                            let failure = match payload.as_str() {
+                                "{\"error\":\"InvalidResponse\"}" => {
+                                    cellar::sdk::rpc::Failure::new(
+                                        cellar::sdk::rpc::Code::InvalidResponse,
+                                    )
+                                }
+                                "{\"error\":\"Overloaded\"}" => cellar::sdk::rpc::Failure::new(
+                                    cellar::sdk::rpc::Code::ResourceExhausted,
+                                ),
+                                _ => cellar_guest::rpc_failure::failure(&payload),
+                            };
+                            Err(failure)
+                        } else {
+                            body.ok_or_else(|| {
+                                cellar::sdk::rpc::Failure::new(
+                                    cellar::sdk::rpc::Code::InvalidResponse,
+                                )
+                            })
+                        };
+                        return Ok(Output::Rpc(prepared.finish(result)?));
+                    }
                     if failed {
                         if payload == "{\"error\":\"Overloaded\"}" {
                             return Err(cellar::sdk::ApplicationOverloaded.into());
@@ -420,6 +562,13 @@ impl PythonApplication {
                         anyhow::anyhow!("Python handler completion decoding failed")
                     })?;
                     return if kind == "fetch" {
+                        if let Some(output) = state
+                            .transport
+                            .output(&context, &value)
+                            .map_err(|_| anyhow::anyhow!("invalid guest transport response"))?
+                        {
+                            return Ok(output);
+                        }
                         // Serde and HTTP conversion errors may quote malformed
                         // application values. Native ingress formats the full
                         // handler error chain, so replace it at this boundary.
@@ -438,6 +587,10 @@ impl PythonApplication {
 }
 
 impl Application for PythonApplication {
+    fn rpc_catalog(&self) -> Option<&Catalog> {
+        Some(&self.source.rpc)
+    }
+
     fn validate_configuration(
         &self,
         options: &cellar::engine_api::WorkerConfigOptions,
@@ -472,6 +625,7 @@ impl Application for PythonApplication {
                     Invocation::Alarm { scheduled_ms: 0 },
                     None,
                     State {
+                        transport: Default::default(),
                         queue: Some(event),
                         scheduled: None,
                     },
@@ -491,6 +645,7 @@ impl Application for PythonApplication {
                 invocation,
                 None,
                 State {
+                    transport: Default::default(),
                     queue: None,
                     scheduled,
                 },
@@ -543,6 +698,7 @@ impl Cell for PythonCell {
                     event,
                     Some((self.object, self.class.clone(), self.life.clone())),
                     State {
+                        transport: Default::default(),
                         queue: None,
                         scheduled: None,
                     },

@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Qualify a real staged Node package against the local durable bucket protocol.
 #![cfg(all(feature = "node", unix))]
 // Test process orchestration runs outside the cell execution domain.

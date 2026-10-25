@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Optional 2x PNG previews via a local agent-browser Chromium session.
 
 No Rust/application dependency. Requires agent-browser already installed.

@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Recovery audits hash actual stored bytes without entering the write lane.
 #![allow(clippy::disallowed_methods)]
 #[allow(dead_code)]

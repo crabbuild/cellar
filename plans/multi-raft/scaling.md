@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Cellar multi-Raft scaling plan
 
 Multi-Raft distributes many small consensus groups. The first release uses one

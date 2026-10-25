@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 use super::*;
 use crate::protocol::{NativeDeployment, PythonEnvironmentRef, FEATURE_EMBEDDED_PYTHON_V1};
 use std::sync::atomic::{AtomicBool, Ordering};

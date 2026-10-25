@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # SDK API map
 
 Find SDK entry points by task, then follow the implementation links for their

@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Bounded marker-1 encoding. LTX bytes retain their upstream representation.
 
 use cellar_logic::consensus::{

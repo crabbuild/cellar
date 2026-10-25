@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 // Copyright 2026 Deno Land Inc. Apache-2.0 license.
 // Adapted for Cellar from Celld: crates/celld/main.rs.
 
@@ -66,6 +68,7 @@ mod ingress;
 pub(crate) mod operations;
 mod raft_metrics;
 mod raft_startup;
+mod rpc_deadline;
 mod source_operator;
 mod stream_operator;
 mod wake_discovery;
@@ -1608,6 +1611,9 @@ async fn dispatch_do_call(app: AppHandle, call: DoCallReq) {
 
 async fn dispatch_rpc_call(app: AppHandle, call: RpcCallReq) {
     let RpcCallReq {
+        parent_cancellation,
+        signal,
+        deadline_ms,
         authority,
         request_id,
         cancel,
@@ -1618,6 +1624,9 @@ async fn dispatch_rpc_call(app: AppHandle, call: RpcCallReq) {
         reply,
     } = call;
     let event_call = authority.is_some();
+    let deadline_ms = deadline_ms.map(|deadline| {
+        deadline.min(crate::asyncrt::mono_ms().saturating_add(app.operation_deadline_ms))
+    });
     let request_id = Some(request_id.unwrap_or_else(crate::engine_api::next_request_id));
     let budget = event_call.then(|| {
         event_wait::Budget::new(crate::host_rpc::event_budget_ms(
@@ -1626,7 +1635,9 @@ async fn dispatch_rpc_call(app: AppHandle, call: RpcCallReq) {
             app.operation_deadline_ms,
         ))
     });
-    let operation = async {
+    // Poll the routed operation through one indirection instead of embedding
+    // its entire state in every enclosing deadline/cancellation wrapper.
+    let operation = Box::pin(async {
         crate::runtime::rpc_authority::validate_target(authority.as_ref(), &scope, &method)
             .map_err(|failure| {
                 if event_call {
@@ -1644,7 +1655,10 @@ async fn dispatch_rpc_call(app: AppHandle, call: RpcCallReq) {
         );
         let mut dispatcher = match budget.as_ref() {
             Some(budget) => RemoteRouteRetry::until(budget.deadline_ms()),
-            None => RemoteRouteRetry::new(app.operation_deadline_ms),
+            None => match deadline_ms {
+                Some(deadline) => RemoteRouteRetry::until(deadline),
+                None => RemoteRouteRetry::new(app.operation_deadline_ms),
+            },
         };
         loop {
             let resolving = app.request(scope.clone());
@@ -1672,6 +1686,9 @@ async fn dispatch_rpc_call(app: AppHandle, call: RpcCallReq) {
                                     .as_ref()
                                     .context("no cell runtime")?
                                     .rpc_with_authority(crate::runtime::RpcInvocation {
+                                        parent_cancellation: parent_cancellation.clone(),
+                                        signal: signal.clone(),
+                                        deadline_ms,
                                         cell: scope,
                                         name,
                                         method,
@@ -1751,8 +1768,11 @@ async fn dispatch_rpc_call(app: AppHandle, call: RpcCallReq) {
                     name.as_deref(),
                     &method,
                     &args,
-                    request_id,
-                    authority.as_ref(),
+                    peer_tunnel::RpcControl {
+                        request_id,
+                        authority: authority.as_ref(),
+                        deadline_ms,
+                    },
                 );
                 if let Some(budget) = &budget {
                     budget.submitted();
@@ -1812,6 +1832,11 @@ async fn dispatch_rpc_call(app: AppHandle, call: RpcCallReq) {
                     }
                 }
                 let response = response?;
+                if let Some(failure) =
+                    rpc_deadline::remote_failure(response.status(), response.headers())
+                {
+                    return Err(failure.into());
+                }
                 // An RPC response head confirms that execution and its output
                 // gate finished. Caller cancellation must not kill later
                 // waitUntil work while the finite result body is collected.
@@ -1872,8 +1897,16 @@ async fn dispatch_rpc_call(app: AppHandle, call: RpcCallReq) {
                 });
             }
         }
-    };
-    let result = event_wait::receive(operation, cancel, budget.as_ref()).await;
+    });
+    let result = crate::runtime::cancellation::receive(
+        parent_cancellation.as_ref(),
+        signal.as_ref(),
+        rpc_deadline::receive(
+            deadline_ms,
+            event_wait::receive(operation, cancel, budget.as_ref()),
+        ),
+    )
+    .await;
     let result = if event_call {
         result.map_err(event_failure::dispatched)
     } else {
@@ -2628,15 +2661,16 @@ async fn internal_abort(request: Request<Incoming>, app: AppHandle, path: String
 
 pub(crate) async fn dispatch_forwarded_rpc(
     app: AppHandle,
-    scope: String,
-    name: Option<String>,
-    rpc_method: String,
-    args: crate::engine_api::RpcData,
-    request_id: Option<crate::engine_api::RequestId>,
-    authority: Option<crate::runtime::RpcAuthority>,
+    mut invocation: crate::runtime::RpcInvocation,
 ) -> HttpReply {
-    if crate::runtime::rpc_authority::validate_target(authority.as_ref(), &scope, &rpc_method)
-        .is_err()
+    let scope = invocation.cell.clone();
+    let deadline_ms = invocation.deadline_ms;
+    if crate::runtime::rpc_authority::validate_target(
+        invocation.authority.as_ref(),
+        &scope,
+        &invocation.method,
+    )
+    .is_err()
     {
         return peer_response(response(
             StatusCode::FORBIDDEN,
@@ -2652,7 +2686,9 @@ pub(crate) async fn dispatch_forwarded_rpc(
         );
         return refusal;
     };
-    let request_id = local_dispatch_request_id(request_id).expect("RPC dispatch has an id");
+    let request_id =
+        local_dispatch_request_id(invocation.request_id).expect("RPC dispatch has an id");
+    invocation.request_id = Some(request_id);
     let (cancel, _reply_wait) = runtime.begin_rpc_reply_wait(request_id);
     let dispatch = async {
         let result = match app.request(scope.clone()).await {
@@ -2668,16 +2704,7 @@ pub(crate) async fn dispatch_forwarded_rpc(
                         "no cell runtime",
                     ));
                 };
-                let completed = local
-                    .run(runtime.rpc_with_authority(crate::runtime::RpcInvocation {
-                        cell: scope,
-                        name,
-                        method: rpc_method,
-                        args,
-                        request_id: local_request_id,
-                        authority,
-                    }))
-                    .await;
+                let completed = local.run(runtime.rpc_with_authority(invocation)).await;
                 match completed.result {
                     Ok(outcome) => Ok(outcome.data),
                     Err(LocalRequestFailure::Handler(error)) => {
@@ -2745,8 +2772,22 @@ pub(crate) async fn dispatch_forwarded_rpc(
     };
     // The cancellation endpoint must also release an actor output-gate wait
     // after the runtime already returned its handler's committed result.
-    match crate::cell_dispatch::receive_rpc(async { Ok(dispatch.await) }, Some(cancel)).await {
+    match rpc_deadline::receive(
+        deadline_ms,
+        crate::cell_dispatch::receive_rpc(async { Ok(dispatch.await) }, Some(cancel)),
+    )
+    .await
+    {
         Ok(response) => response,
+        Err(error)
+            if error
+                .downcast_ref::<crate::application::rpc::Failure>()
+                .is_some_and(|failure| {
+                    failure.code() == crate::application::rpc::Code::DeadlineExceeded
+                }) =>
+        {
+            rpc_deadline::response()
+        }
         Err(error) => peer_response(response(
             StatusCode::INTERNAL_SERVER_ERROR,
             error.to_string(),

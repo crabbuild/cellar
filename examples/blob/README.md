@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Blob objects
 
 Write, stream and delete objects through a native Blob binding.

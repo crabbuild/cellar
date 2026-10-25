@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Owned graph composition without projecting through JSON. References are
 //! remapped as one table, preserving cycles, views, errors and shared identity.
 

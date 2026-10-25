@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Exercise a restored FastAPI executable with empty-environment native hosts."""
 import argparse
 from concurrent.futures import ThreadPoolExecutor

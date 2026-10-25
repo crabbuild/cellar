@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Owned reconciliation. Inspection supplies hints; ordinary revision-bound
 //! host/runtime operations retain every quorum, seeding and progress check.
 use super::*;

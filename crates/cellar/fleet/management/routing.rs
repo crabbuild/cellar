@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Bounded entrance discovery. A known owner is preferred; any current fleet
 //! member can forward. Exhausting the sample is an unavailable observation.
 use super::*;

@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Native cancellation uses the production event driver and routed call guard.
 #[path = "support/html.rs"]
 mod fixture;

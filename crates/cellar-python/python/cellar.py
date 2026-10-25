@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Async, invocation-scoped Cellar SDK. Installed by the native embedding host."""
 from __future__ import annotations
 import asyncio
@@ -204,6 +206,8 @@ class Response:
                     body=base64.b64encode(self.body).decode())
 
     def _completion(self):
+        if hasattr(self, "_forward"):
+            return {"forward": self._forward}, b""
         body = self.body
         if not isinstance(body, bytes):
             body = memoryview(body).tobytes()
@@ -212,6 +216,83 @@ class Response:
     @classmethod
     def _from_parts(cls, value, body):
         return cls(body, value["status"], value["headers"])
+
+
+class StreamingResponse(Response):
+    """An async iterable of text/bytes, pulled one chunk at a time by the host."""
+    def __init__(self, chunks, status=200, headers=()):
+        super().__init__(b"", status, headers)
+        self.chunks = chunks
+
+    @classmethod
+    def sse(cls, events, headers=()):
+        return cls(events, headers=[("content-type", "text/event-stream"), ("cache-control", "no-cache"), *headers])
+
+
+def sse_event(data: str, *, event: str | None = None, id: str | None = None, retry: int | None = None) -> str:
+    result = ""
+    for key, value in (("event", event), ("id", id)):
+        if value is not None:
+            if not isinstance(value, str) or any(c in value for c in "\r\n\0"):
+                raise ValueError("Invalid SSE field")
+            result += f"{key}: {value}\n"
+    if retry is not None:
+        if type(retry) is not int or retry < 0:
+            raise ValueError("Invalid SSE retry")
+        result += f"retry: {retry}\n"
+    return result + "".join(f"data: {line}\n" for line in str(data).replace("\r\n", "\n").replace("\r", "\n").split("\n")) + "\n"
+
+
+class WebSocket:
+    """Invocation-bound facade; obtain a fresh facade in each cell event."""
+    def __init__(self, context, id):
+        self._context, self.id = context, id
+
+    async def accept(self, *, hibernating=False, tags=()):
+        await self._context._call("websocket.accept", id=self.id, hibernating=hibernating, tags=list(tags))
+
+    async def send(self, data: Body):
+        if isinstance(data, str):
+            await self._context._call("websocket.send", id=self.id, text=data)
+        elif isinstance(data, (bytes, bytearray, memoryview)):
+            await self._context._call("websocket.send", id=self.id, body=base64.b64encode(bytes(data)).decode())
+        else:
+            raise TypeError("WebSocket data must be text or bytes")
+
+    async def close(self, code=1000, reason=""):
+        await self._context._call("websocket.close", id=self.id, code=code, reason=reason)
+
+    async def next(self):
+        value = await self._context._call("websocket.next", id=self.id)
+        if "body" in value:
+            value["data"] = base64.b64decode(value["body"])
+        elif "text" in value:
+            value["data"] = value["text"]
+        return value
+
+    async def set_attachment(self, value):
+        await self._context._call("websocket.attachment.set", id=self.id, value=value)
+
+    async def get_attachment(self):
+        return await self._context._call("websocket.attachment.get", id=self.id)
+
+    async def tags(self):
+        return await self._context._call("websocket.tags", id=self.id)
+
+    async def auto_response_timestamp(self):
+        return await self._context._call("websocket.auto_response_timestamp", id=self.id)
+
+    async def info(self):
+        return await self._context._call("websocket.info", id=self.id)
+
+
+class WebSocketResponse(Response):
+    def __init__(self, socket: WebSocket, headers=(), run=None):
+        super().__init__(b"", 101, headers)
+        self.socket, self.run = socket, run
+
+    def _completion(self):
+        return {"websocket": self.socket.id, "headers": self.headers}, b""
 
 
 class Storage:
@@ -266,6 +347,10 @@ class Storage:
 class _Cell:
     def __init__(self, context: Context, binding: str, name: str) -> None:
         self._context, self._binding, self._name = context, binding, name
+
+    async def fetch_stream(self, request: Request) -> Response:
+        value = await self._context._call("cell.fetch_stream", binding=self._binding, name=self._name, request=request._wire())
+        return self._context._live_response(value)
 
     async def fetch(self, request: Request) -> Response:
         metadata, body = request._parts()
@@ -357,6 +442,7 @@ class Context:
         self._loop = asyncio.get_running_loop()
         self._pending = {}
         self._sequence = 0
+        self._rpc_codecs = None
         self.identity: CellIdentity | None = CellIdentity(identity["name"], identity["class"], identity["scope"], identity["epoch"]) if identity else None
         self.initial_storage: Mapping[str, Snapshot] = (MappingProxyType({
             key: Snapshot(row["present"], row["value"]) for key, row in initial_storage.items()
@@ -368,13 +454,36 @@ class Context:
         # the handle: that cycle otherwise delays every request's reclamation.
         return Storage(self)
 
-    async def _call(self, operation: str, *, _body: bytes | None = None, **payload: Any) -> Any:
+    def _check(self):
         if asyncio.get_running_loop() is not self._loop:
             raise SDKError("Cellar SDK calls must use the invocation's asyncio loop", "NotSubmitted")
         if not self._bridge.active():
             raise SDKError("ContextExpired", "ContextExpired")
         if _current_invocation.get() is not self._bridge:
             raise ContextMismatch()
+
+    def _verify_rpc(self, method):
+        try:
+            if self._rpc_codecs is None:
+                raise TypeError("No native RPC contract catalog")
+            return self._rpc_codecs.verify(method)
+        except Exception:
+            raise ValidationError("ContractMismatch", "ContractMismatch", "not_committed") from None
+
+    def _rpc_budget(self):
+        self._check()
+        try:
+            return self._bridge.rpc_budget()
+        except RuntimeError as error:
+            code = str(error)
+            if code == "ContextMismatch":
+                raise ContextMismatch() from None
+            if code not in ("ContextExpired", "DeadlineExceeded", "Unavailable"):
+                code = "Unavailable"
+            raise SDKError(code, code, "not_committed") from None
+
+    async def _call(self, operation: str, *, _body: bytes | None = None, _rpc_budget=None, **payload: Any) -> Any:
+        self._check()
         self._sequence += 1
         sequence = self._sequence
         future = asyncio.get_running_loop().create_future()
@@ -382,7 +491,9 @@ class Context:
         try:
             encoded = _encode(payload)
             try:
-                if _body is None:
+                if _rpc_budget is not None:
+                    self._bridge.submit(sequence, operation, encoded, _body, rpc_budget=_rpc_budget)
+                elif _body is None:
                     self._bridge.submit(sequence, operation, encoded)
                 else:
                     self._bridge.submit(sequence, operation, encoded, _body)
@@ -391,8 +502,41 @@ class Context:
             except ValueError as error:
                 raise ValidationError() from error
             except RuntimeError as error:
+                if str(error) == "ContextMismatch":
+                    raise ContextMismatch() from None
                 raise SDKError("Cellar operation was not submitted", "NotSubmitted") from error
-            return await future
+            if operation != "cell.call":
+                return await future
+            # A task's cancellation must reach the original native call. Keep
+            # its reply future alive until native cleanup releases admission;
+            # cancelling a local Future alone would leave the mutation running.
+            try:
+                await asyncio.wait((future,))
+                return future.result()
+            except asyncio.CancelledError as cancelled:
+                if not self._bridge.active():
+                    future.cancel()
+                    raise
+                try:
+                    self._bridge.cancel_operation(sequence)
+                except RuntimeError:
+                    # Native retirement can race the active check. It already
+                    # owns revocation and no longer promises another reply.
+                    future.cancel()
+                    raise cancelled from None
+                while not future.done():
+                    try:
+                        await asyncio.wait((future,))
+                    except asyncio.CancelledError:
+                        # Repeated Task.cancel() must not abandon owned native
+                        # cleanup. Whole-invocation retirement is authoritative.
+                        if not self._bridge.active():
+                            future.cancel()
+                if not future.cancelled():
+                    # Retrieve even an already-ready failure. The Python task
+                    # still reports cancellation, which makes no rollback claim.
+                    future.exception()
+                raise
         finally:
             self._pending.pop(sequence, None)
 
@@ -425,6 +569,53 @@ class Context:
         self._pending.clear()
         if finished:
             self._bridge.expire(True)
+
+    async def fetch_stream(self, request: Request) -> Response:
+        return self._live_response(await self._call("http.fetch_stream", request=request._wire()))
+
+    async def accept_websocket(self, response: Response) -> WebSocket:
+        value = await self._call("websocket.from_response", response=response._forward)
+        return self.websocket(value["id"])
+
+    def _live_response(self, value):
+        response = Response(base64.b64decode(value["body"]), value["status"], value["headers"])
+        response._forward = value["forward"]
+        async def chunks():
+            try:
+                if response.body:
+                    yield response.body
+                while value["stream"]:
+                    chunk = await self._call("response.read", id=value["forward"])
+                    if chunk["done"]:
+                        break
+                    yield base64.b64decode(chunk["body"])
+            finally:
+                await self._call("response.cancel", id=value["forward"])
+        response.chunks = chunks
+        async def cancel():
+            await self._call("response.cancel", id=value["forward"])
+        response.cancel = cancel
+        return response
+
+    async def websocket_pair(self) -> WebSocket:
+        value = await self._call("websocket.pair")
+        return self.websocket(value["id"])
+
+    def websocket(self, id: str) -> WebSocket:
+        return WebSocket(self, id)
+
+    async def connect_websocket(self, url: str, protocols=()) -> WebSocket:
+        value = await self._call("websocket.connect", url=url, protocols=list(protocols))
+        return self.websocket(value["id"])
+
+    async def websockets(self, tag=None) -> list[WebSocket]:
+        return [self.websocket(id) for id in await self._call("websocket.list", tag=tag)]
+
+    async def get_websocket_auto_response(self):
+        return await self._call("websocket.auto_response.get")
+
+    async def set_websocket_auto_response(self, pair):
+        await self._call("websocket.auto_response", pair=pair)
 
     async def now_ms(self) -> int:
         return await self._call("clock.now")

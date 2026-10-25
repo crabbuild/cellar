@@ -1,0 +1,10 @@
+{
+  "application": ".",
+  "entry": "dist/app.js",
+  "files": [
+    "dist",
+    "package.json",
+    "package-lock.json",
+    "node_modules"
+  ]
+}

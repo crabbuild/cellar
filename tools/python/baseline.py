@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Measure equivalent real-node Rust/Python operations and bucket-only takeover.
 
 All mutations are sent once. Errors fail the run, retain raw attempt evidence,
@@ -143,6 +145,7 @@ class Host:
             require(not python["host_failed"] and not python["runtime_failed"] and
                     python["pending_tasks"] == python["pending_objects"] == python["pending_threads"] == 0 and
                     python["objects_created"] == python["objects_retired"] and
+                    type(python["bridge"].get("native_invocations")) is int and python["bridge"]["native_invocations"] == 0 and
                     python["bridge"]["pending_reservations"] == python["bridge"]["queued_bytes"] == 0,
                     "missing joined Python cleanup")
         return report

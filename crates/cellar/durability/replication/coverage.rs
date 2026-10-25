@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Bounded remembered coverage; eviction never removes durable state.
 use std::collections::{BTreeMap, VecDeque};
 

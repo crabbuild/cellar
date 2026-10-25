@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Raft Engine host integration
 
 Status: implemented for MR-02, with [storage verification evidence](evidence/MR-02.json).

@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Real TLS regression for independent groups queued on one physical peer lane.
 use super::*;
 use crate::raft::storage::GroupBootstrap;

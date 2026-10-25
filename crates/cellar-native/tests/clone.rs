@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 use cellar_native::clone::{
     decode, decode_with_limits, encode, encode_with_limits, Limits, Object, StructuredValue, Value,
     ViewKind,

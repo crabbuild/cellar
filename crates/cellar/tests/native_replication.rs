@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Caller-configured production storage, paging, and credential providers.
 #![allow(clippy::disallowed_methods)]
 use anyhow::{ensure, Context as _, Result};

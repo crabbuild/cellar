@@ -1,3 +1,5 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Embed a Node in a Rust application
 
 Own executors, listeners, clients and limits from a Rust application, then

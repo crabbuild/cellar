@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Public resume inputs must preserve typed errors and full-range positions.
 
 use base64::Engine;

@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! A compiled business-cell application using the production node host.
 
 use anyhow::{bail, Result};

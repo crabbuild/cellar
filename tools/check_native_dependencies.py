@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Verify the native SDK's resolved build graph excludes JavaScript engines."""
 
 import json
@@ -13,8 +15,22 @@ def main():
     ], text=True))
     packages = {package["id"]: package for package in metadata["packages"]}
     nodes = {node["id"]: node for node in metadata["resolve"]["nodes"]}
+    # These roots explicitly select optional JavaScript runtimes. The
+    # qualification executable deliberately hosts every backend together; it is
+    # not a native-only application. Do not filter traversal edges: any native
+    # root that depends on either package must still fail this check.
+    runtime_roots = {"cellar-javascript", "cellar-rpc-qualification"}
+    for package in packages.values():
+        if package["name"] != "cellar-rpc-qualification":
+            continue
+        if package["features"].get("default") != []:
+            sys.exit("RPC qualification must not enable runtimes by default")
+        adapters = [dependency for dependency in package["dependencies"]
+                    if dependency["name"] in {"cellar-javascript", "cellar-python"}]
+        if len(adapters) != 2 or any(not dependency["optional"] for dependency in adapters):
+            sys.exit("RPC qualification adapters must require an explicit feature")
     roots = [root for root in metadata["workspace_members"]
-             if packages[root]["name"] != "cellar-javascript"]
+             if packages[root]["name"] not in runtime_roots]
     reachable = set()
     pending = list(roots)
     while pending:

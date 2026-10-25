@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Settled routing history must not retain every business identity ever seen.
 
 use cellar_logic::{

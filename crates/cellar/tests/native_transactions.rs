@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Async savepoints and input gates through production native turns. No engine init.
 
 use anyhow::{anyhow, Result};

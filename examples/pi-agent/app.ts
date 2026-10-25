@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 import {application} from './application.js';
 import {configuredProvider} from './provider.js';
 import {configuredObserver} from './preview.js';

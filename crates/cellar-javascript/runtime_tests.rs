@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 use super::*;
 use crate::EventKind;
 use serde_json::json;
@@ -8,9 +10,11 @@ fn start(runtime: &Runtime, id: u64, active: Life) -> channel::Receiver<Event> {
     let payload = json!({"kind":"fetch","event":{"url":"http://test/","method":"GET","headers":[],"body":""},"identity":null,"object":null,"class":null}).to_string();
     runtime
         .start(Start {
+            budget_source: None,
             id,
             _bytes: runtime.reserve(payload.len()).unwrap(),
             payload,
+            body: None,
             active,
             owner: Arc::new(AtomicBool::new(true)),
             sender,
@@ -129,6 +133,140 @@ fn cancellation_revokes_continuations_and_releases_capacity() {
 }
 
 #[test]
+fn cancellation_settles_pending_operations_before_cleanup_loses_authority() -> Result<()> {
+    // Observe cleanup through a separate live invocation. The cancelled handler
+    // deliberately keeps running JavaScript after its native receiver is gone.
+    let code = r#"
+      const state = globalThis.cancellation ??= {started:false};
+      if (!state.started) {
+        state.started = true;
+        try {
+          await ctx.storage.sync();
+          state.unexpectedSuccess = true;
+        } catch (error) {
+          state.cancelled = true;
+          state.code = error.code;
+          state.outcome = error.outcome;
+          await new Promise(resolve => {state.release = resolve});
+          for (const [name, operation] of [
+            ['read', () => ctx.storage.read('count')],
+            ['write', () => ctx.storage.apply({puts:{late:true}})],
+            ['variable', () => ctx.variable('forbidden')],
+          ]) {
+            try { await operation(); state[name] = false; }
+            catch (expired) {
+              state[name] = expired.code === 'ContextExpired'
+                && expired.outcome === 'not_committed';
+            }
+          }
+          state.done = true;
+        }
+        return null;
+      }
+      if (state.cancelled && !state.released) {
+        state.released = true;
+        state.release();
+      }
+      return {cancelled:!!state.cancelled, code:state.code ?? null,
+        outcome:state.outcome ?? null, done:!!state.done,
+        read:!!state.read, write:!!state.write, variable:!!state.variable,
+        unexpectedSuccess:!!state.unexpectedSuccess};
+    "#;
+    for cancel_owner in [false, true] {
+        for queued_reply in [false, true] {
+            JavaScriptRuntime::run(Options::default(), source(code), |app| {
+                let runtime = &app.runtime;
+                let active = Arc::new(AtomicBool::new(true));
+                let owner = Arc::new(AtomicBool::new(true));
+                let id = runtime.id()?;
+                let (sender, mut receiver) = channel::channel(2);
+                let payload = json!({"kind":"fetch","event":{"url":"http://test/","method":"GET","headers":[],"body":""},"identity":null,"object":null,"class":null}).to_string();
+                runtime.start(Start {
+                    budget_source: None,
+                    id,
+                    _bytes: runtime.reserve(payload.len())?,
+                    payload,
+                    body: None,
+                    active: active.clone(),
+                    owner: owner.clone(),
+                    sender,
+                })?;
+                let Event::Operation {
+                    id: operation,
+                    name,
+                    ..
+                } = event(&mut receiver)
+                else {
+                    panic!("handler did not await its original operation")
+                };
+                assert_eq!(name, "storage.sync");
+                if cancel_owner {
+                    owner.store(false, Ordering::Release);
+                } else {
+                    active.store(false, Ordering::Release);
+                }
+                if queued_reply {
+                    runtime.reply(id, operation, "{\"ok\":true,\"value\":null}".into())?;
+                }
+                let until = Instant::now() + Duration::from_secs(3);
+                loop {
+                    let mut probe = start(runtime, runtime.id()?, Arc::new(AtomicBool::new(true)));
+                    let Event::Complete {
+                        payload, failed, ..
+                    } = event(&mut probe)
+                    else {
+                        panic!("probe admitted an unexpected SDK operation")
+                    };
+                    assert!(!failed);
+                    let value: serde_json::Value = serde_json::from_str(&payload)?;
+                    assert_eq!(value["unexpectedSuccess"], false);
+                    if value["done"] == true {
+                        assert_eq!(value["code"], "ContextExpired");
+                        assert_eq!(value["outcome"], "unknown");
+                        for field in ["cancelled", "read", "write", "variable"] {
+                            assert_eq!(value[field], true, "cleanup did not refuse {field}");
+                        }
+                        break;
+                    }
+                    assert!(Instant::now() < until, "pending operation never cancelled: owner={cancel_owner}, queued_reply={queued_reply}, probe={value}");
+                    std::thread::sleep(Duration::from_millis(1));
+                }
+                assert!(receiver.is_closed());
+                assert!(
+                    receiver.try_recv().is_err(),
+                    "cancelled invocation emitted native work"
+                );
+                // A reply arriving after revocation must not revive its handler.
+                if !queued_reply {
+                    runtime.reply(id, operation, "{\"ok\":true,\"value\":null}".into())?;
+                }
+                let mut probe = start(runtime, runtime.id()?, Arc::new(AtomicBool::new(true)));
+                let Event::Complete {
+                    payload, failed, ..
+                } = event(&mut probe)
+                else {
+                    panic!("late reply revived native work")
+                };
+                assert!(!failed);
+                let value: serde_json::Value = serde_json::from_str(&payload)?;
+                assert_eq!(value["done"], true);
+                assert_eq!(value["unexpectedSuccess"], false);
+                let until = Instant::now() + Duration::from_secs(2);
+                while runtime.bytes.available_permits() != runtime.options.max_bridge_bytes {
+                    assert!(
+                        Instant::now() < until,
+                        "cancelled bridge reservations leaked"
+                    );
+                    std::thread::sleep(Duration::from_millis(1));
+                }
+                Ok(())
+            })?;
+        }
+    }
+    Ok(())
+}
+
+#[test]
 fn concurrent_mutations_are_refused_before_second_effect() {
     JavaScriptRuntime::run(Options::default(), source("const first = ctx.storage.apply({puts:{x:1}}); let refused=false; try {await ctx.storage.apply({puts:{x:2}})} catch {refused=true} await first; return {refused};"), |app| {
         let id = app.runtime.id()?;
@@ -188,7 +326,7 @@ fn activation_objects_are_bounded_and_retired() {
         let invoke = |object, owner: Life| -> Result<(bool, serde_json::Value)> {
             let payload = json!({"kind":"fetch","event":{"url":"http://test/","method":"GET","headers":[],"body":""},"identity":null,"object":object,"class":"Counter"}).to_string();
             let (sender, mut receiver) = channel::channel(2);
-            runtime.start(Start {id:runtime.id()?, _bytes:runtime.reserve(payload.len())?, payload, active:Arc::new(AtomicBool::new(true)), owner, sender})?;
+            runtime.start(Start { budget_source: None,id:runtime.id()?, _bytes:runtime.reserve(payload.len())?, payload, body:None, active:Arc::new(AtomicBool::new(true)), owner, sender})?;
             let Event::Complete {payload, failed, ..} = event(&mut receiver) else {panic!()};
             Ok((failed, serde_json::from_str(&payload)?))
         };
@@ -234,7 +372,7 @@ fn unsafe_queue_integer_is_rejected_before_native_effects() {
         let runtime = &app.runtime;
         let payload = json!({"kind":"queue","event":{"queue":"jobs","messages":[{"body":9_007_199_254_740_992_u64}]},"identity":null,"object":null,"class":null}).to_string();
         let (sender, mut receiver) = channel::channel(2);
-        runtime.start(Start {id:runtime.id()?, _bytes:runtime.reserve(payload.len())?, payload, active:Arc::new(AtomicBool::new(true)), owner:Arc::new(AtomicBool::new(true)), sender})?;
+        runtime.start(Start { budget_source: None,id:runtime.id()?, _bytes:runtime.reserve(payload.len())?, payload, body:None, active:Arc::new(AtomicBool::new(true)), owner:Arc::new(AtomicBool::new(true)), sender})?;
         let Event::Complete {failed,..} = event(&mut receiver) else {panic!("unsafe queue value entered native operation")};
         assert!(failed);
         Ok(())

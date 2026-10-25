@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Cell RPC waits own their cancellation across gates, routing and execution.
 use crate::engine_api::RpcData;
 use crate::host_channels::{begin_call_cancellation, RpcCallReq, RPC_CALL_TX};
@@ -8,6 +10,27 @@ use std::sync::atomic::{AtomicBool, Ordering};
 #[path = "rpc_budget.rs"]
 mod budget;
 
+#[derive(Default)]
+pub(crate) struct CallScope {
+    pub deadline_ms: Option<u64>,
+    pub parent_cancellation: Option<std::sync::Arc<crate::runtime::InvocationCancellation>>,
+    pub signal: Option<cellar_native::web::AbortSignal>,
+}
+
+impl CallScope {
+    pub(crate) fn in_context(
+        context: &crate::application::Context,
+        deadline_ms: Option<u64>,
+        signal: Option<cellar_native::web::AbortSignal>,
+    ) -> Self {
+        Self {
+            deadline_ms,
+            parent_cancellation: context.io.rpc_cancellation.get().cloned(),
+            signal,
+        }
+    }
+}
+
 pub(crate) fn event_budget_ms(method: &str, args: &RpcData, transport_ms: u64) -> u64 {
     budget::duration(
         method,
@@ -17,6 +40,7 @@ pub(crate) fn event_budget_ms(method: &str, args: &RpcData, transport_ms: u64) -
     )
 }
 
+#[cfg(test)]
 pub(crate) async fn call(
     gate: EgressGate,
     scope: String,
@@ -24,6 +48,29 @@ pub(crate) async fn call(
     method: String,
     args: RpcData,
     authority: Option<crate::runtime::RpcAuthority>,
+) -> Result<RpcData> {
+    call_scoped(
+        gate,
+        scope,
+        name,
+        method,
+        args,
+        authority,
+        CallScope::default(),
+    )
+    .await
+}
+
+/// Typed calls retain the originating deadline through local admission. The
+/// source client owns its timer and cancellation registration throughout.
+pub(crate) async fn call_scoped(
+    gate: EgressGate,
+    scope: String,
+    name: Option<String>,
+    method: String,
+    args: RpcData,
+    authority: Option<crate::runtime::RpcAuthority>,
+    call_scope: CallScope,
 ) -> Result<RpcData> {
     let event_call = authority.is_some();
     let deadline_ms = if event_call {
@@ -40,6 +87,9 @@ pub(crate) async fn call(
         let (request_id, cancel, mut cancellation) = begin_call_cancellation();
         let (reply, receive) = tokio::sync::oneshot::channel();
         let call = RpcCallReq {
+            parent_cancellation: call_scope.parent_cancellation,
+            signal: call_scope.signal,
+            deadline_ms: call_scope.deadline_ms,
             authority,
             request_id: Some(request_id),
             cancel: Some(cancel),

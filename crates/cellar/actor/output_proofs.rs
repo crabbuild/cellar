@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Observations of real adapter barriers. These are not acknowledgement counts
 //! or authority: the serial core still validates position, epoch and ownership.
 use std::sync::atomic::{AtomicU64, Ordering};

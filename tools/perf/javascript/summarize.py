@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Summarize preserved JS bridge trials without discarding failed trials."""
 import json
 import math

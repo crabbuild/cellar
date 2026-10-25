@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Member-only snapshot pulls on dedicated data connections. A lease pins one
 //! exact immutable cut; no transfer response grants install or voting authority.
 
@@ -13,9 +15,9 @@ const RESPONSE_MAGIC: &[u8; 4] = b"CLSA";
 const REQUEST_PURPOSE: &[u8] = b"cellar-snapshot-pull-1";
 const RESPONSE_PURPOSE: &[u8] = b"cellar-snapshot-chunk-1";
 
-pub(super) fn memory_bound(options: &TransportOptions) -> usize {
+pub(in crate::raft) fn memory_bound(options: &TransportOptions) -> usize {
     // Encoded image and conservative room for source/decoder/prepare copies.
-    options.max_snapshot_bytes + 4 * 64 * 1024 * 1024
+    options.max_snapshot_bytes + 4 * options.max_snapshot_image_bytes as usize
 }
 
 pub(crate) struct SourceReservation {

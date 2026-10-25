@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Configuration-owned physical bindings. Birth members retain their immutable
 //! catalog identity; new IDs must first commit a node/disk-bound learner entry.
 

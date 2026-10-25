@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Cellar's Rust application SDK.
 //!
 //! Import cell and service contracts, binding APIs, and owned primitive values
@@ -236,7 +238,7 @@ pub use cellar_ltx::{
     DirectFileSystem, FileSystem, HostDirEntry, HostDirIterator, HostFile, HostFileIo, HostMetadata,
 };
 pub use cellar_native as primitives;
-pub use cellar_native::{clone, compression, crypto, encoding, json, rpc, web};
+pub use cellar_native::{clone, compression, crypto, encoding, json, web};
 
 pub use cellar_logic::pressure::PressureConfig;
 /// Policy types consumed by the embedded actor.

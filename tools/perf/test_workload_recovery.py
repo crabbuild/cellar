@@ -1,3 +1,5 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """An unknown outcome can be resolved only with unchanged identity and proof."""
 import copy
 import hashlib

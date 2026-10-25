@@ -1,0 +1,5 @@
+{
+  "entry": "app.ts",
+  "output": "app.bundle.js",
+  "tsconfig": "tsconfig.json"
+}

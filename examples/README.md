@@ -1,9 +1,15 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
 # Native Rust application examples
 
 Start with a focused recipe, then combine the building blocks into business
 cells. Application handlers compile to native Rust. Recipes use the production
 SDK, routing, SQLite, alarms and output gates, with a private local store under
 `dev`.
+
+The [streaming walkthrough](streaming/README.md) implements the same SSE progress
+feed and worker/cell WebSocket echo in Rust, Python, JavaScript and TypeScript.
+It includes a Node client and a restart check for the durable message count.
 
 The [Axum counter](axum-counter/README.md) is a separate shared-builder example
 with native Cellar and Axum hosts, OpenAPI export and a generated client.
@@ -13,6 +19,11 @@ The [FastAPI order API](python-fastapi/README.md) adds validated HTTP routes,
 OpenAPI, durable order receipts and a runnable runtime/package deployment drill.
 The [PydanticAI durable agent](python-agent/README.md) checkpoints model history,
 local tool effects and recovery alarms, with credential-free and OpenAI modes.
+The [Vercel AI SDK agent](vercel-agent/README.md) runs TypeScript `ToolLoopAgent`
+through the JavaScript bridge with durable decisions, atomic tool receipts,
+alarm-driven cold recovery, and concurrent task qualification.
+Its React/shadcn chat UI renders live Markdown with Streamdown and includes
+GPT-6 Luna qualification for local and external tool recovery.
 [FleetCare](fleetcare/README.md) is a field-service application with embedded and
 daemon hosts, a local console and a repeatable fleet performance suite.
 

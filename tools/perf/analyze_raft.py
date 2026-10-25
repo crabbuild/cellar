@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 """Independently check native Raft run receipts, replica counts and TPS/quantiles."""
 import argparse
 import collections

@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Real SQLite failure observations, independent of the embedded interpreter.
 // This disposable fixture observes files outside the execution boundary.
 #![allow(clippy::disallowed_methods)]

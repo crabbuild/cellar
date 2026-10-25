@@ -1,3 +1,5 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
 //! Reference workload hosted by the existing Fleet/bucket native output gate.
 use anyhow::Result;
 use cellar::sdk::Application;
