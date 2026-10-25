@@ -6,6 +6,7 @@ mod fault;
 use anyhow::{ensure, Result};
 use cellar::application::consensus::verification::*;
 use cellar::bucket::{Bucket, StorageBackend};
+use cellar::sdk::consensus::FleetReplicaSeparation;
 use cellar::sdk::ExecutionDomain;
 use cellar_logic::consensus::{ClusterId, IncarnationId};
 use futures_util::TryStreamExt;
@@ -211,6 +212,10 @@ async fn fleet_root_rejects_invalid_records() -> Result<()> {
         "missing-page",
         "missing-protocol",
         "foreign-protocol",
+        "missing-separation",
+        "unknown-separation",
+        "missing-disruption",
+        "disruption-without-policy",
     ] {
         let f = Fixture::new().await?;
         let key = Fixture::key("head");
@@ -251,6 +256,26 @@ async fn fleet_root_rejects_invalid_records() -> Result<()> {
                     1,
                 )
                 .into_bytes(),
+            "missing-separation" => String::from_utf8(payload.to_vec())?
+                .replacen("\"replica_separation\":\"PhysicalHosts\",", "", 1)
+                .into_bytes(),
+            "unknown-separation" => String::from_utf8(payload.to_vec())?
+                .replacen(
+                    "\"replica_separation\":\"PhysicalHosts\"",
+                    "\"replica_separation\":\"Unknown\"",
+                    1,
+                )
+                .into_bytes(),
+            "missing-disruption" => String::from_utf8(payload.to_vec())?
+                .replacen(",\"disruption\":null", "", 1)
+                .into_bytes(),
+            "disruption-without-policy" => String::from_utf8(payload.to_vec())?
+                .replacen(
+                    "\"disruption\":null",
+                    &format!("\"disruption\":{}", serde_json::to_string(&[9u8; 32])?),
+                    1,
+                )
+                .into_bytes(),
             _ => vec![0; 1024 * 1024 + 1],
         };
         let mut bytes = original[..9].to_vec();
@@ -267,7 +292,15 @@ async fn fleet_root_rejects_invalid_records() -> Result<()> {
                 .is_err());
         } else {
             ensure!(f.catalog.read(TIMEOUT).await.is_err());
-            if matches!(invalid, "missing-protocol" | "foreign-protocol") {
+            if matches!(
+                invalid,
+                "missing-protocol"
+                    | "foreign-protocol"
+                    | "missing-separation"
+                    | "unknown-separation"
+                    | "missing-disruption"
+                    | "disruption-without-policy"
+            ) {
                 ensure!(f.catalog.initialize(TIMEOUT).await.is_err());
             }
         }
@@ -529,6 +562,73 @@ async fn fleet_catalog_closed_domain_refuses_new_io() -> Result<()> {
     ensure!(matches!(
         f.catalog.read(TIMEOUT).await,
         Err(FleetCatalogError::Closed)
+    ));
+    f.close().await;
+    Ok(())
+}
+
+#[tokio::test]
+async fn fleet_root_replica_separation() -> Result<()> {
+    use sha2::{Digest, Sha256};
+    let f = Fixture::new().await?;
+    ensure!(
+        f.catalog.read(TIMEOUT).await?.replica_separation()
+            == FleetReplicaSeparation::PhysicalHosts
+    );
+    ensure!(matches!(
+        f.catalog
+            .initialize_with_replica_separation(FleetReplicaSeparation::Nodes, TIMEOUT)
+            .await,
+        Err(FleetCatalogError::Conflict)
+    ));
+    let catalog = FleetCatalog::new(
+        &f.domain,
+        f.bucket.clone(),
+        ClusterId::new([1; 16])?,
+        IncarnationId::new([2; 16])?,
+        "colocated/",
+    )?;
+    let root = catalog
+        .initialize_with_replica_separation(FleetReplicaSeparation::Nodes, TIMEOUT)
+        .await?;
+    ensure!(root.replica_separation() == FleetReplicaSeparation::Nodes);
+    let reopened = FleetCatalog::new(
+        &f.domain,
+        f.bucket.clone(),
+        ClusterId::new([1; 16])?,
+        IncarnationId::new([2; 16])?,
+        "colocated/",
+    )?;
+    ensure!(reopened.read(TIMEOUT).await?.replica_separation() == FleetReplicaSeparation::Nodes);
+    ensure!(matches!(
+        reopened.initialize(TIMEOUT).await,
+        Err(FleetCatalogError::Conflict)
+    ));
+    let pin = Path::from(format!(
+        "tenant/colocated/raft/{}/fleet/pin",
+        hex::encode([1; 16])
+    ));
+    let original = f.store.inner.get(&pin).await?.bytes().await?;
+    let payload = std::str::from_utf8(&original[13..original.len() - 32])?;
+    let changed = payload.replacen("\"initial_replica_separation\":\"Nodes\",", "", 1);
+    ensure!(changed != payload);
+    let mut bytes = original[..9].to_vec();
+    bytes.extend_from_slice(&(changed.len() as u32).to_be_bytes());
+    bytes.extend_from_slice(changed.as_bytes());
+    bytes.extend_from_slice(&Sha256::digest(&bytes));
+    f.store.inner.put(&pin, bytes.into()).await?;
+    ensure!(reopened.read(TIMEOUT).await.is_err());
+    f.store.inner.put(&pin, original.into()).await?;
+    let head = Path::from(format!(
+        "tenant/colocated/raft/{}/fleet/head",
+        hex::encode([1; 16])
+    ));
+    f.store.inner.delete(&head).await?;
+    ensure!(matches!(
+        reopened
+            .initialize_with_replica_separation(FleetReplicaSeparation::Nodes, TIMEOUT)
+            .await,
+        Err(FleetCatalogError::MissingRoot)
     ));
     f.close().await;
     Ok(())

@@ -27,7 +27,7 @@ impl FleetCatalog {
         .await
     }
 
-    async fn check_inventory_inner(
+    pub(in super::super) async fn check_inventory_inner(
         &self,
         snapshot: &FleetSnapshot,
         namespaces: &[NamespaceCatalog],
@@ -80,7 +80,11 @@ impl FleetCatalog {
                                 .key()
                                 .map_err(|_| FleetCatalogError::Corrupt("inventory binding"))?,
                         )
-                        .await?;
+                        .await
+                        .map_err(|error| match error {
+                            FleetCatalogError::Conflict => FleetCatalogError::InventoryIncomplete,
+                            error => error,
+                        })?;
                     let initial = history.initial_placement()?;
                     if history.birth_digest != entry.expected_digest()
                         || initial.scope != entry.proposal().scope

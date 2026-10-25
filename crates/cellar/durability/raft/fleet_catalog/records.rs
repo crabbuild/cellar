@@ -1,4 +1,4 @@
-use super::{FleetCatalogError, Result};
+use super::{FleetCatalogError, FleetReplicaSeparation, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
@@ -82,27 +82,42 @@ pub(super) struct Head {
     pub cluster: [u8; 16],
     pub incarnation: [u8; 16],
     pub protocol_digest: [u8; 32],
+    pub replica_separation: FleetReplicaSeparation,
     pub revision: u64,
     pub tables: [Option<[u8; 32]>; 5],
     pub journal: Option<[u8; 32]>,
     pub history_count: u64,
     pub namespace_count: u64,
+    #[serde(deserialize_with = "required_nullable")]
+    pub disruption: Option<[u8; 32]>,
 }
 
 impl Head {
-    pub fn new(cluster: [u8; 16], incarnation: [u8; 16]) -> Self {
+    pub fn new(
+        cluster: [u8; 16],
+        incarnation: [u8; 16],
+        replica_separation: FleetReplicaSeparation,
+    ) -> Self {
         Self {
             format: 1,
             cluster,
             incarnation,
             protocol_digest: crate::application::consensus::protocol::protocol_identity(),
+            replica_separation,
             revision: 1,
             tables: [None; 5],
             journal: None,
             history_count: 0,
             namespace_count: 0,
+            disruption: None,
         }
     }
+}
+
+fn required_nullable<'de, T: Deserialize<'de>, D: serde::Deserializer<'de>>(
+    decoder: D,
+) -> std::result::Result<Option<T>, D::Error> {
+    Option::<T>::deserialize(decoder)
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -110,6 +125,7 @@ impl Head {
 pub(super) struct Pin {
     pub cluster: [u8; 16],
     pub incarnation: [u8; 16],
+    pub initial_replica_separation: FleetReplicaSeparation,
     pub genesis: [u8; 32],
 }
 

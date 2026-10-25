@@ -40,7 +40,7 @@ pub use cellar_logic::raft_placement::PlacementPolicy;
 
 pub use crate::raft::fleet_catalog::{
     FleetGroupAuthorization, FleetHostAuthorization, FleetNodeEligibility, FleetNodeSpec,
-    FleetNodeState, FleetPermitAuthorization, FleetRequestIdentity,
+    FleetNodeState, FleetPermitAuthorization, FleetReplicaSeparation, FleetRequestIdentity,
 };
 pub use crate::raft::host::{
     FleetMembershipConfiguration, FleetMembershipObservation, RaftArchiveOptions,
@@ -114,9 +114,9 @@ pub mod verification {
     };
     pub use crate::raft::fleet_catalog::{
         FleetBirthAuthorization, FleetBirthReservation, FleetCatalog, FleetCatalogError,
-        FleetChange, FleetCommit, FleetCursor, FleetEntry, FleetHistory, FleetHistoryState,
-        FleetImportPhase, FleetInventory, FleetMutation, FleetNamespaceImport, FleetPage,
-        FleetSnapshot, FleetTable,
+        FleetChange, FleetCommit, FleetCursor, FleetEntry, FleetEvacuationAdmission, FleetHistory,
+        FleetHistoryState, FleetImportPhase, FleetInventory, FleetMutation, FleetNamespaceImport,
+        FleetPage, FleetSnapshot, FleetTable,
     };
     pub use crate::raft::inspection::{
         CellInspection, LeaderLoad, MemberInspection, NodeInspection, RaftNodeProfile,

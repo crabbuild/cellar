@@ -1,14 +1,17 @@
 //! Bounded CAS coordination. These records never grant Raft membership or votes.
 //! A retained mutation journal resolves ambiguous writes after later revisions.
 
+mod evacuation;
 mod histories;
 mod imports;
 mod index;
 mod namespaces;
 mod nodes;
 mod permits;
+mod placement;
 mod records;
 
+pub use evacuation::FleetEvacuationAdmission;
 pub use histories::{
     FleetBirthAuthorization, FleetBirthReservation, FleetHistory, FleetHistoryState,
 };
@@ -20,6 +23,7 @@ pub use nodes::{
 };
 pub(crate) use nodes::{FleetTrustReader, FleetTrustSnapshot};
 pub use permits::{FleetGroupAuthorization, FleetPermitAuthorization};
+pub use placement::FleetReplicaSeparation;
 
 use records::{CommitRecord, Head, Pin};
 pub use records::{FleetChange, FleetMutation, FleetTable};
@@ -48,6 +52,7 @@ pub enum FleetCatalogError {
     PayloadConflict,
     MissingRoot,
     InventoryIncomplete,
+    DisruptionInProgress { operation: [u8; 16] },
     Limit,
     Overloaded,
     Unconfirmed,
@@ -104,6 +109,10 @@ impl FleetSnapshot {
     pub fn revision(&self) -> u64 {
         self.head.revision
     }
+
+    pub fn replica_separation(&self) -> FleetReplicaSeparation {
+        self.head.replica_separation
+    }
 }
 
 pub use crate::raft::coordination_index::{
@@ -146,6 +155,17 @@ impl FleetCatalog {
 
     /// Explicit bootstrap only. A surviving pin forbids recreating a lost root.
     pub async fn initialize(&self, timeout: Duration) -> Result<FleetSnapshot> {
+        self.initialize_with_replica_separation(FleetReplicaSeparation::PhysicalHosts, timeout)
+            .await
+    }
+
+    /// Bootstrap an explicitly selected failure-domain contract. Existing fleet
+    /// roots must match; this operation never changes an established policy.
+    pub async fn initialize_with_replica_separation(
+        &self,
+        separation: FleetReplicaSeparation,
+        timeout: Duration,
+    ) -> Result<FleetSnapshot> {
         self.run(timeout, async {
             let pin = self.inner.read::<Pin>("pin", PIN_KIND, PAGE_LIMIT).await?;
             let found = self.inner.read_head().await?;
@@ -155,9 +175,12 @@ impl FleetCatalog {
             if let Some((pin, _)) = pin {
                 self.inner.validate_pin(&pin)?;
             }
-            let genesis = Head::new(self.inner.cluster, self.inner.incarnation);
+            let genesis = Head::new(self.inner.cluster, self.inner.incarnation, separation);
             let head = if let Some((head, token)) = found {
                 self.inner.validate_head(&head)?;
+                if head.replica_separation != separation {
+                    return Err(FleetCatalogError::Conflict);
+                }
                 (head, token)
             } else {
                 let bytes = encode(HEAD_KIND, &genesis, ROOT_LIMIT)?;
@@ -177,7 +200,7 @@ impl FleetCatalog {
                 if head.0 != genesis {
                     return Err(FleetCatalogError::Corrupt("missing non-genesis pin"));
                 }
-                let bytes = encode(PIN_KIND, &self.inner.pin()?, PAGE_LIMIT)?;
+                let bytes = encode(PIN_KIND, &self.inner.pin(separation)?, PAGE_LIMIT)?;
                 self.inner.create_exact("pin", &bytes, PAGE_LIMIT).await?;
             }
             self.inner.snapshot(head.0, head.1)
@@ -305,6 +328,14 @@ impl FleetCatalog {
             .ok_or(FleetCatalogError::Limit)?;
         for change in &mutation.changes {
             let slot = change.table.slot();
+            if change.table == FleetTable::Policy && change.key == evacuation::SLOT_KEY {
+                next.disruption = Some(self.next_disruption(
+                    snapshot,
+                    mutation,
+                    next.disruption,
+                    change.value.as_deref(),
+                )?);
+            }
             if change.table == FleetTable::Policy && change.key == namespaces::KEY {
                 next.namespace_count = namespaces::next_namespace_count(
                     next.namespace_count,
@@ -378,20 +409,21 @@ impl Inner {
         format!("{}{tail}", self.prefix)
     }
 
-    fn pin(&self) -> Result<Pin> {
+    fn pin(&self, separation: FleetReplicaSeparation) -> Result<Pin> {
         Ok(Pin {
             cluster: self.cluster,
             incarnation: self.incarnation,
+            initial_replica_separation: separation,
             genesis: hash(&encode(
                 HEAD_KIND,
-                &Head::new(self.cluster, self.incarnation),
+                &Head::new(self.cluster, self.incarnation, separation),
                 ROOT_LIMIT,
             )?),
         })
     }
 
     fn validate_pin(&self, pin: &Pin) -> Result<()> {
-        if pin != &self.pin()? {
+        if pin != &self.pin(pin.initial_replica_separation)? {
             return Err(FleetCatalogError::Corrupt("fleet pin"));
         }
         Ok(())
@@ -407,6 +439,7 @@ impl Inner {
             || head.namespace_count > 64
             || head.tables[FleetTable::Policy.slot()].is_none() && head.namespace_count != 0
             || head.tables[FleetTable::Histories.slot()].is_none() && head.history_count != 0
+            || head.tables[FleetTable::Policy.slot()].is_none() && head.disruption.is_some()
         {
             return Err(FleetCatalogError::Corrupt("fleet identity/revision"));
         }

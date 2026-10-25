@@ -453,6 +453,14 @@ impl Fixture {
 
     async fn peer_host(&self, id: u8) -> Result<(tempfile::TempDir, cellar::sdk::Node, RaftCells)> {
         let spec = self.peer_spec(id)?;
+        self.peer_host_with_spec(spec).await
+    }
+
+    async fn peer_host_with_spec(
+        &self,
+        spec: FleetNodeSpec,
+    ) -> Result<(tempfile::TempDir, cellar::sdk::Node, RaftCells)> {
+        let id = spec.node.bytes()[0];
         let snapshot = self.catalog.read(TIMEOUT).await?;
         let commit = self
             .catalog
@@ -688,8 +696,29 @@ impl Fixture {
     }
 
     async fn with_domains(managed: bool, distinct_hosts: bool) -> Result<Self> {
+        Self::with_separation(
+            managed,
+            distinct_hosts,
+            FleetReplicaSeparation::PhysicalHosts,
+        )
+        .await
+    }
+
+    async fn with_separation(
+        managed: bool,
+        distinct_hosts: bool,
+        separation: FleetReplicaSeparation,
+    ) -> Result<Self> {
         let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
         let store = Arc::new(fault::Store::default());
+        let catalog = Self::open_catalog(&domain, store.clone())?;
+        catalog
+            .initialize_with_replica_separation(separation, TIMEOUT)
+            .await?;
+        Self::prepared(domain, store, catalog, managed, distinct_hosts).await
+    }
+
+    fn open_catalog(domain: &ExecutionDomain, store: Arc<fault::Store>) -> Result<FleetCatalog> {
         let bucket = Bucket::from_clients(
             store.clone(),
             store.clone(),
@@ -698,14 +727,22 @@ impl Fixture {
             "enrollment".into(),
             "tenant/".into(),
         )?;
-        let catalog = FleetCatalog::new(
-            &domain,
+        Ok(FleetCatalog::new(
+            domain,
             bucket,
             ClusterId::new([1; 16])?,
             IncarnationId::new([80; 16])?,
             "hosts/",
-        )?;
-        catalog.initialize(TIMEOUT).await?;
+        )?)
+    }
+
+    async fn prepared(
+        domain: ExecutionDomain,
+        store: Arc<fault::Store>,
+        catalog: FleetCatalog,
+        managed: bool,
+        distinct_hosts: bool,
+    ) -> Result<Self> {
         let (gate, entered) = public_node::Gate::new();
         gate.release();
         let calls = Arc::new(AtomicUsize::new(0));

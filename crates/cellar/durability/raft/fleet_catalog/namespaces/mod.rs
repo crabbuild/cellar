@@ -13,7 +13,7 @@ use records::{Declaration, Registry};
 pub(super) const KEY: &str = "compiled-namespaces";
 const REGISTRY_KIND: u8 = 51;
 const DECLARATION_KIND: u8 = 52;
-const MAX_NAMESPACES: usize = 64;
+pub(super) const MAX_NAMESPACES: usize = 64;
 
 pub(super) fn next_namespace_count(previous: u64, bytes: Option<&[u8]>) -> Result<u64> {
     let registry =

@@ -1,7 +1,8 @@
 //! A rooted fleet cut fences every physical endpoint before advisory discovery.
 //! It never changes committed membership or treats placement exclusion as revoke.
 use super::*;
-use crate::raft::fleet_catalog::FleetTrustSnapshot;
+use crate::raft::fleet_catalog::{FleetReplicaSeparation, FleetTrustSnapshot};
+use crate::raft::member_state::JoiningMember;
 
 impl Registry {
     pub(super) fn check_fleet_peer(&self, peer: &RaftPeerNode) -> Result<(), TransportError> {
@@ -17,6 +18,54 @@ impl Registry {
 }
 
 impl RaftTransport {
+    /// Check a fresh learner against the installed rooted contract and actual
+    /// durable configuration. Exclusions preserve old voters' transport and
+    /// quorum obligations; only the proposed target must accept new placement.
+    pub(crate) fn check_fleet_placement(
+        &self,
+        route: &GroupRoute,
+        target: &JoiningMember,
+        minimum_revision: u64,
+    ) -> Result<(), TransportError> {
+        let state = &self.handle.0;
+        let registry = state.registry.lock().map_err(|_| TransportError::Closed)?;
+        state.admit(&registry)?;
+        let trust = registry
+            .fleet_trust
+            .as_ref()
+            .ok_or(TransportError::Refused)?;
+        if trust.revision() < minimum_revision {
+            return Err(TransportError::StalePeer);
+        }
+        if route.scope.cluster != trust.cluster() {
+            return Err(TransportError::Refused);
+        }
+        let destination = trust.node(target.node).ok_or(TransportError::Refused)?;
+        if !destination.eligibility().receive_replicas || destination.storage_instance().is_none() {
+            return Err(TransportError::StalePeer);
+        }
+        if destination.disk() != target.disk {
+            return Err(TransportError::Identity);
+        }
+        let mut nodes = BTreeSet::new();
+        let mut hosts = BTreeSet::new();
+        for node in route
+            .peers
+            .iter()
+            .map(|peer| peer.replica.node)
+            .chain(std::iter::once(target.node))
+        {
+            let enrolled = trust.node(node).ok_or(TransportError::Refused)?;
+            if !nodes.insert(node)
+                || trust.replica_separation() == FleetReplicaSeparation::PhysicalHosts
+                    && !hosts.insert(enrolled.physical_host())
+            {
+                return Err(TransportError::Identity);
+            }
+        }
+        Ok(())
+    }
+
     /// Install one complete current-root cut atomically. Revoked task owners
     /// retain physical reservations until they exit through their stop signals.
     pub(crate) fn install_fleet_trust(

@@ -16,6 +16,45 @@ pub(super) struct Completed {
 }
 
 impl Driver {
+    fn check_fleet_placement(
+        &self,
+        scope: &GroupScope,
+        plan: &RepairPlan,
+        minimum_revision: u64,
+    ) -> Result<(), CommandFailure> {
+        let cell = self.cells.get(scope).ok_or(CommandFailure::Unavailable)?;
+        // A concurrent caller may have completed this exact admission while
+        // its physical trust read was in flight. Continue committed work even
+        // after placement exclusion; the ordinary guard is checked again.
+        if cell
+            .group
+            .membership()
+            .map_err(|_| CommandFailure::CorruptState)?
+            .repair_status()
+            .map_err(|_| CommandFailure::CorruptState)?
+            .is_some_and(|status| status.plan == *plan)
+        {
+            return Ok(());
+        }
+        let route = super::membership::route(
+            &cell.group,
+            &cell.birth,
+            &self.peers,
+            cell.schema_digest,
+            &self.label,
+            &self.transport,
+        )?;
+        self.transport
+            .check_fleet_placement(&route, &plan.replacement, minimum_revision)
+            .map_err(|error| match error {
+                super::super::transport::TransportError::Identity
+                | super::super::transport::TransportError::Refused => {
+                    CommandFailure::CommandConflict
+                }
+                _ => CommandFailure::Unavailable,
+            })
+    }
+
     pub(super) fn start_fleet_admission(
         &mut self,
         mut request: Request,
@@ -141,7 +180,14 @@ impl Driver {
             Ok(())
         });
         match checked {
-            Ok(()) => self.begin_repair(*request, plan, Some(authorization)),
+            Ok(()) => match self.check_fleet_placement(
+                &request.scope,
+                &plan,
+                authorization.minimum_trust_revision(),
+            ) {
+                Ok(()) => self.begin_repair(*request, plan, Some(authorization)),
+                Err(error) => reply(&mut request, Err(error)),
+            },
             Err(error) => reply(
                 &mut request,
                 Err(if error == InspectionError::Overloaded {

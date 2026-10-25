@@ -20,12 +20,20 @@ activation or removal proof. The [fleet catalog contract](fleet_catalog/README.m
 describes identity, response bounds, cancellation and remaining management work.
 Fresh managed namespace roots require rooted birth reservations before creation;
 their histories retain exact birth/schema identity and pending node references.
-Import completeness and removal proof remain separate delivery work.
+Complete namespace import and inventory remain separate from capacity activation
+and terminal removal proof. Typed `begin_evacuation` consumes complete inventory
+before atomically excluding an Active node and claiming its disruption slot;
+it grants no shutdown or removal certificate. Managed births and fresh repairs
+enforce the rooted replica-separation policy, defaulting to distinct physical
+hosts. Explicit node-only colocation grants no host-failure independence.
+The legacy opt-in controller remains disabled for managed hosts pending the
+owned fleet reconciler and its qualification gates.
 Managed initial voters persist their enrollment with genesis before a permanent
 member claim and runtime attachment. Empty hosts can initialize them dynamically,
 and cold managed members resolve rooted peer views with only a self hint.
-The experimental namespace protocol now ends in `/managed-genesis-1`; use fresh
-namespaces and matching binaries, with numeric markers retained at 1.
+The experimental namespace protocol now ends in `/fleet-admission-1`; use fresh
+fleet/data prefixes, namespaces and matching binaries, with numeric markers
+retained at 1 and no compatibility reader or migration.
 
 `RaftClass::immutable_blobs(RaftBlobLimits)` enables bounded immutable values and
 changes the class identity. Commands use `put_blob` and `blob`; queries use `blob`

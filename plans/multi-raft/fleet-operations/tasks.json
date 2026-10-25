@@ -383,7 +383,11 @@
         "crates/cellar/tests/support/raft_fleet_trust_store.rs",
         "crates/cellar/tests/support/raft_fleet_ingress_native.rs",
         "crates/cellar/tests/support/raft_fleet_revocation_native.rs",
-        "crates/cellar/tests/support/raft_revocation_endpoint.rs"
+        "crates/cellar/tests/support/raft_revocation_endpoint.rs",
+        "crates/cellar/durability/raft/fleet_catalog/placement.rs",
+        "crates/cellar/durability/raft/fleet_catalog/evacuation.rs",
+        "crates/cellar/tests/support/raft_fleet_placement_native.rs",
+        "crates/cellar/tests/support/raft_evacuation_native.rs"
       ],
       "steps": [
         "Add CAS-authorized node-set revisions with bounded route and permission refresh.",
@@ -403,7 +407,9 @@
         "Stamp opaque membership authorizations with their rooted minimum trust revision. On managed hosts, gate only fresh repair starts on actual source/target process acknowledgements through the existing authenticated metadata RPC; retain exact committed-plan continuation, original deadlines, memory bounds, cancellation, drain and joined shutdown. Bucket pins, published views and correctly authenticated unsolicited frames do not create node trust or local group state.",
         "Bind complete trust cuts, successor checks and authenticated node metadata routes to the exact catalog fingerprint. Refuse cross-catalog acknowledgements even with the same fleet ID, physical pins, epochs and revision numbers. Hard-cut the experimental protocol with mandatory catalog-scoped routes and marker 1; retain no compatibility reader.",
         "Qualify complete process and node-set revocation over real blocked TLS connections. Resume an already seeded learner on the same engine under a new process during restart exclusion; require all original peers to install its new view, old sockets to close, old publishers to refuse revival, verified SQL catch-up and joint completion. Preserve pending transport through exclusion modes, then require final Removed to cancel and join it before a valid late advisory publication is refused.",
-        "While a successor repair is accepted but not yet applied, retain its waiter through the previous terminal repair status. Refuse a conflicting result only after the accepted position applies; a prior Complete/Aborted plan does not prove the new proposal failed. Preserve exact quorum reconciliation of ambiguous outcomes."
+        "While a successor repair is accepted but not yet applied, retain its waiter through the previous terminal repair status. Refuse a conflicting result only after the accepted position applies; a prior Complete/Aborted plan does not prove the new proposal failed. Preserve exact quorum reconciliation of ambiguous outcomes.",
+        "Persist explicit Nodes or PhysicalHosts replica separation in the fleet head and initial genesis pin. Default to PhysicalHosts. Fresh managed births and actual fresh repair admission enforce the selected rooted contract; exact committed repairs remain continuable after exclusion. Node-only colocation grants no physical failure independence. Hard-cut prior protocol/records with marker 1 and no compatibility reader.",
+        "Admit Active-to-Draining evacuation intent through one exact root CAS after an internal complete-inventory scan. Atomically persist its canonical operation, excluded node epoch and the single disruption slot, with a retained root digest that refuses generic deletion/reset. Reconcile admitted exact retries through the journal, including after later incomplete namespace additions. This is exclusion admission only, with no shutdown, node-absence, terminal evacuation/removal, reservation release or completed-controller claim. Permanently bind each evacuation operation ID to its exact canonical request through conditional create before root CAS, even if that candidate loses. Admitted reads and retry reconciliation verify that immutable binding; missing request bytes refuse."
       ],
       "acceptance": [
         "Inventory includes pending births and all managed namespaces.",
@@ -489,7 +495,7 @@
         },
         {
           "name": "fleet_enrollment_physical_host",
-          "oracle": "Two node processes on one declared physical host cannot satisfy a host-distinct replication policy.",
+          "oracle": "Default PhysicalHosts policy refuses a real colocated learner after actual participant trust acknowledgements, without consuming membership or releasing its root reservation. Fence the unused permit, then seed/promote a distinct-host replacement and verify native S3 SQL. Explicit Nodes policy permits actual colocated RF3 birth and repair, without claiming physical-host failure independence.",
           "invariants": [
             "F02",
             "F09"
@@ -1226,6 +1232,92 @@
             "F02",
             "F04",
             "F07",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_root_replica_separation",
+          "oracle": "Persist and reopen the selected separation policy; an incompatible initialize request conflicts. Missing pin policy/root fields and unknown separation refuse; an existing pin refuses root recreation.",
+          "invariants": [
+            "F02",
+            "F09"
+          ]
+        },
+        {
+          "name": "fleet_evacuation_inventory_admission",
+          "oracle": "Complete inventory, operation identity, one disruption slot and a pinned node Active-to-Draining epoch commit atomically. Authenticated observation confirms exclusion; a fresh learner admission to that node refuses without consumption. Native S3 writes continue. No stop/removal proof is granted.",
+          "invariants": [
+            "F02",
+            "F03",
+            "F05",
+            "F06",
+            "F07",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_evacuation_inventory_gate",
+          "oracle": "An empty actual spare cannot bypass omitted namespaces, incomplete adopted import or a missing canonical history. No exclusion/operation is published on refusal. Completing the empty import and restoring injected history coverage allows typed exclusion admission; it does not certify removal.",
+          "invariants": [
+            "F02",
+            "F03",
+            "F05",
+            "F06",
+            "F07",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_evacuation_stale_inventory_cas",
+          "oracle": "Hold exclusion at the actual root CAS while native writes and a separate adapter add a namespace. The old CAS loses; no operation/node exclusion becomes rooted. The original stale request remains fenced. Complete new coverage and use a distinct immutable request to admit. The losing operation ID remains permanently bound; a different canonical request under that ID must fail with PayloadConflict before inventory checking.",
+          "invariants": [
+            "F02",
+            "F03",
+            "F05",
+            "F06",
+            "F07",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_evacuation_lost_reply_and_retained_slot",
+          "oracle": "Lose a committed root reply, reopen the adapter, and add a later incomplete namespace. Exact original retry reconciles its original revision without another epoch or new inventory obligation. Changed node/principal conflicts; another disruption remains blocked and generic slot deletion refuses. Missing canonical operation-request bytes refuse both admission inspection and further disruption, and are never treated as a free slot.",
+          "invariants": [
+            "F02",
+            "F03",
+            "F05",
+            "F06",
+            "F07",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_evacuation_one_disruption_slot",
+          "oracle": "Two independent adapters race exclusions at one root. Exactly one node/operation/slot commits; the loser stays Active. A fresh later submission observes the retained winning disruption. Existing native SQL remains available.",
+          "invariants": [
+            "F02",
+            "F03",
+            "F05",
+            "F06",
+            "F07",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_evacuation_cancellation_and_deadline",
+          "oracle": "Hold a real CAS before mutation. Caller cancellation and the original deadline drop owned metadata work and release the turn. No late write appears after releasing the fixture gate; exact retry freshly revalidates and admits. This controlled gate does not assert cancellation of an arbitrary remote committed PUT.",
+          "invariants": [
+            "F02",
+            "F03",
+            "F05",
+            "F06",
+            "F07",
+            "F08",
             "F10"
           ]
         }

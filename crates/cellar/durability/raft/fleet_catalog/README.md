@@ -7,7 +7,8 @@ business writes. No business acknowledgement calls the fleet catalog.
 
 The adapter and its verification export are available for integration work.
 The [namespace registry and inventory check](namespaces/README.md) enumerate every
-declared namespace and retained birth/history. Typed capacity/lifecycle admission,
+declared namespace and retained birth/history. Typed evacuation exclusion now
+consumes that complete inventory. Capacity activation, terminal lifecycle proof,
 automatic reconciliation and operator workflows remain separate packages in the
 [fleet operations plan](../../../../../plans/multi-raft/fleet-operations/README.md).
 Do not interpret successful generic metadata writes as proof that a placement
@@ -39,6 +40,26 @@ CAS contract. Strong exact-key consistency and actual conditional-write behavior
 must be verified on the deployed backend. Prefixes and fleet incarnation are
 explicit constructor inputs; missing/corrupt state is never an empty inventory.
 
+## Rooted replica separation
+
+`initialize` selects `FleetReplicaSeparation::PhysicalHosts`. The explicit
+`initialize_with_replica_separation` alternative accepts `Nodes` for a deliberately
+colocated fleet. The head stores the current contract and the genesis pin retains
+its initial choice. Reopening reads the persisted choice; initializing with a
+different choice conflicts. There is no in-place policy-edit API in this increment.
+Missing or unknown policy fields refuse decoding rather than choosing a default.
+
+Both modes require distinct durable node identities. `PhysicalHosts` additionally
+requires distinct rooted physical-host identities for birth voters and every
+currently participating copy plus a fresh learner. The fresh managed repair path
+checks the actual durable configuration after participant trust acknowledgements.
+Advisory profile zones, process labels or node counts cannot supply physical-host
+separation. Exact already-committed repairs can still reconcile after exclusion.
+
+`Nodes` permits a multi-container development fleet on one host. It grants no
+independence from loss of that host. This selection does not create capacity,
+change RF3, loosen quorum requirements or qualify deployed resource limits.
+
 ## History and birth admission
 
 Declare the exact namespace/class with `declare_namespace` before managed host
@@ -60,8 +81,8 @@ namespace catalogs sharing the same data prefix. An existing conflicting claim
 refuses admission before adding a history. A claim left by a cancelled or losing
 root turn grants no birth or membership authority; retain it permanently and
 reconcile the original request. Never delete it to retry or reclaim its ID.
-Initial RF3 placement
-requires three active, engine-pinned nodes on distinct declared physical hosts.
+Initial RF3 placement requires three active, engine-pinned nodes satisfying the
+rooted separation contract; the default requires three distinct physical hosts.
 The same root CAS orders admission against node-state changes. A delayed writer
 can finish after drain begins only if its history reference was already admitted.
 Capacity feasibility, readiness acknowledgement and legal node-state transitions
@@ -98,11 +119,48 @@ Ordinary `bootstrap_member` can only resume an already enrolled managed group;
 it refuses fresh or bare genesis before creating local group state or a member
 claim. Managed host startup and `activate_managed_initial_member` use the guarded path described below.
 
-This experimental protocol hard-cuts to `/catalog-trust-1`; use fresh fleet
+This experimental protocol hard-cuts to `/fleet-admission-1`; use fresh fleet
 roots, fresh namespaces and matching binaries. Fleet heads require the current
 protocol digest, and their permanent genesis pin binds it. Missing or earlier
 protocol state refuses initialization and reads; there is no compatibility reader.
 Numeric format markers remain 1.
+
+## Inventory-consuming evacuation admission
+
+`begin_evacuation` admits exclusion of one Active, engine-pinned node. It scans the
+complete rooted namespace and history inventory within the same bounded catalog
+turn. One root CAS then records the immutable operation projection, changes the
+node to Draining with a higher enrollment epoch, and claims the fleet's single
+disruption slot. A saved `FleetInventory` count does not authorize this transition.
+Missing imports, omitted namespaces and missing canonical histories refuse before
+publication. Native group serving and business-write acknowledgement continue.
+
+The head retains the slot's digest. Missing slot data or a mismatched operation
+projection refuses admission; generic deletion/reset cannot make another
+disruption appear available. The operation, node and slot projections change
+atomically within the ordinary sixteen-change and 4-KiB record bounds.
+
+Persist the exact request identity, expected revision, principal and node. An
+immutable, catalog-scoped `operation-requests/<id>` record binds those inputs
+before the root CAS. A losing candidate retains that identity permanently and
+cannot reuse its operation ID for another preview or request. Its existence
+alone grants no exclusion authority. Admission reads also verify this record;
+missing canonical request data refuses rather than appearing empty.
+An unknown reply must reconcile that identity through the mutation journal. An
+already admitted retry retains its original applied revision even after another
+namespace is declared; it performs no second exclusion and grants no fresh
+inventory assessment. An unadmitted stale candidate remains fenced by its old
+root. Replanning uses a new canonical request rather than rewriting that revision.
+The original deadline, execution-domain admission and cancellation cover the
+scan and conditional write; an expired or cancelled remote PUT can be ambiguous.
+
+`evacuation_admission` reads the rooted original admission and verifies its exact
+request and journal linkage. Its inventory revision, counts and node epoch are
+historical inputs, not a lease. This increment does not move memberships, stop a
+process, declare a node empty/Evacuated/Removed, release a disruption or reclaim
+any storage. Those transitions need fresh group/archive proofs, consumed-permit
+fences, physical joins and terminal controller reconciliation. Automatic fleet
+management remains disabled until the remaining delivery and deployment gates.
 
 ## Opaque capabilities and committed consumption
 
@@ -376,7 +434,7 @@ response alone is not a fleet completion certificate.
 Cellar-owned markers stay at 1. Membership and intent records require an explicit
 nullable `fleet` field. Birth records also require an explicit nullable
 `cancelled_by` field; the namespace protocol identity ends in
-`/fleet-1/enrollment-1/node-probes-1`.
+`/catalog-trust-1/fleet-admission-1`.
 Older namespace protocols refuse startup; there is no legacy reader or migration.
 Use a fresh experimental namespace and matching participants. Do not downgrade a
 guarded engine to an older binary or remove the guard field to regain admission.

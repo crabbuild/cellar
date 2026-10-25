@@ -628,7 +628,10 @@ impl FleetCatalog {
                         .ok_or(FleetCatalogError::Conflict)?;
                     if !node.state.eligibility().receive_replicas
                         || node.storage_instance.is_none()
-                        || !hosts.insert(node.physical_host)
+                        || !hosts.insert(match snapshot.replica_separation() {
+                            FleetReplicaSeparation::Nodes => node.node,
+                            FleetReplicaSeparation::PhysicalHosts => node.physical_host,
+                        })
                     {
                         return Err(FleetCatalogError::Conflict);
                     }

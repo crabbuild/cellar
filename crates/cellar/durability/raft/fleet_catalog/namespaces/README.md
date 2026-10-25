@@ -63,10 +63,15 @@ subset, even if that new namespace has no serving cells.
 `FleetInventory` reports one checked revision and its counts. It is not a capacity,
 archive, current-membership, empty-node or removal receipt. Capacity and maintenance
 must still revalidate the exact root in their own admitted operations, establish
-their separate live proofs and join physical work. Those runtime workflows remain
+their separate live proofs and join physical work. `begin_evacuation` now reruns
+this complete scan inside one exclusion-admission turn: node epoch, operation
+projection and the single disruption slot commit under the exact checked root.
+Omitted namespaces, incomplete imports and lost history references cannot be
+treated as an empty target. Its admission is not a shutdown or removal receipt.
+Capacity activation, terminal lifecycle proofs and runtime reconciliation remain
 in the [delivery plan](../../../../../../plans/multi-raft/fleet-operations/progress.md).
 Automatic fleet management remains default-off.
 
-The experimental protocol hard-cuts to `/catalog-trust-1`. Use fresh fleet and
+The experimental protocol hard-cuts to `/fleet-admission-1`. Use fresh fleet and
 data prefixes, namespaces and matching binaries. Numeric format markers remain 1;
 there is no compatibility reader or state migration.

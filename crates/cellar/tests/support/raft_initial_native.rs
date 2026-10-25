@@ -15,6 +15,12 @@ mod trust;
 #[path = "raft_fleet_revocation_native.rs"]
 mod revocation;
 
+#[path = "raft_fleet_placement_native.rs"]
+mod placement;
+
+#[path = "raft_evacuation_native.rs"]
+mod evacuation;
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn fleet_genesis_imported_namespace() -> Result<()> {
     let f = Fixture::with_domains(false, true).await?;

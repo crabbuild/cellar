@@ -3,7 +3,7 @@ use super::*;
 use cellar_logic::consensus::{DiskLineage, EngineInstanceId, NodeId, ProposalId};
 use serde::Deserialize;
 
-const NODE_KIND: u8 = 47;
+pub(super) const NODE_KIND: u8 = 47;
 const MAX_NODES: usize = 64;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -53,7 +53,8 @@ pub struct FleetNodeSpec {
     pub storage_instance: Option<EngineInstanceId>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct FleetRequestIdentity {
     pub id: [u8; 16],
     pub operation: [u8; 16],
@@ -89,7 +90,7 @@ fn required_nullable<'de, T: Deserialize<'de>, D: serde::Deserializer<'de>>(
 }
 
 impl NodeRecord {
-    fn validate(&self, inner: &Inner) -> Result<()> {
+    pub(super) fn validate(&self, inner: &Inner) -> Result<()> {
         let identity = || FleetCatalogError::Corrupt("node identity");
         NodeId::new(self.node).map_err(|_| identity())?;
         DiskLineage::new(self.disk).map_err(|_| identity())?;
@@ -125,6 +126,20 @@ impl NodeRecord {
             return Err(FleetCatalogError::Corrupt("node descriptor"));
         }
         Ok(())
+    }
+
+    pub(super) fn begin_evacuation(&mut self, operation: [u8; 16]) -> Result<()> {
+        if self.state != FleetNodeState::Active || self.storage_instance.is_none() {
+            return Err(FleetCatalogError::Conflict);
+        }
+        self.state = FleetNodeState::Draining;
+        self.operation = Some(operation);
+        self.epoch = self.epoch.checked_add(1).ok_or(FleetCatalogError::Limit)?;
+        Ok(())
+    }
+
+    pub(super) fn operation(&self) -> Option<[u8; 16]> {
+        self.operation
     }
 }
 
@@ -241,6 +256,7 @@ impl FleetHostAuthorization {
                     fleet: self.fleet(),
                     catalog,
                     cluster: self.cluster(),
+                    replica_separation: snapshot.replica_separation(),
                     root_digest,
                     nodes: nodes.into(),
                 })
@@ -461,11 +477,16 @@ pub(crate) struct FleetTrustSnapshot {
     fleet: [u8; 16],
     catalog: [u8; 32],
     cluster: ClusterId,
+    replica_separation: FleetReplicaSeparation,
     root_digest: [u8; 32],
     nodes: Arc<[FleetHostAuthorization]>,
 }
 
 impl FleetTrustSnapshot {
+    pub(crate) fn replica_separation(&self) -> FleetReplicaSeparation {
+        self.replica_separation
+    }
+
     pub(crate) fn catalog(&self) -> [u8; 32] {
         self.catalog
     }
