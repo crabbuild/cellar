@@ -19,6 +19,7 @@ import type { Model } from "./provider.js";
 import type { ToolServices } from "./tools.js";
 import type { ModelMessage } from "ai";
 import { fingerprint } from "./tools.js";
+import { ConversationDirectory, indexConversation } from "./conversations.js";
 
 function publicMessages(messages: ModelMessage[]) {
   // Keep replay metadata in the journal, while exposing only public content.
@@ -123,6 +124,7 @@ export function application(
             { status: 409 },
           );
         await hook?.("accepted");
+        await indexConversation(ctx, run);
         return jsonResponse(
           { status: run.status },
           { status: run.status === "pending" ? 202 : 200 },
@@ -134,6 +136,9 @@ export function application(
       const run = await readRun(ctx);
       if (!run)
         return jsonResponse({ error: "task not found" }, { status: 404 });
+
+      // Opening a saved URL also makes the turn discoverable in this workspace.
+      const updatedAt = await indexConversation(ctx, run);
 
       // Read count from the same journal snapshot so status and receipt agree.
       const order = run.models.flatMap((entry) =>
@@ -150,6 +155,7 @@ export function application(
         prompt: run.prompt,
         attempts: run.attempts,
         previous: run.previous,
+        updatedAt,
         modelSteps: run.models.length,
         toolReceipts: Object.keys(run.tools).length,
         count:
@@ -170,6 +176,10 @@ export function application(
 
     // Acceptance schedules durable work; alarms drive execution and retries.
     async alarm(_alarm: unknown, ctx: Context) {
+      // Acceptance and directory writes span two cells. The already durable
+      // alarm repairs a crash between them before doing any provider work.
+      const run = await readRun(ctx);
+      if (run) await indexConversation(ctx, run);
       await execute(
         ctx,
         model,
@@ -181,12 +191,26 @@ export function application(
           : undefined,
         services,
       );
+      const completed = await readRun(ctx);
+      if (completed) await indexConversation(ctx, completed);
     }
   }
 
   return {
-    cells: { DurableAgent },
+    cells: { DurableAgent, ConversationDirectory },
     async fetch(req, ctx) {
+      if (
+        new URL(req.url).pathname === "/conversations" &&
+        req.method === "GET"
+      ) {
+        const listed = await ctx
+          .cell("CONVERSATIONS", "workspace")
+          .fetch(request("http://directory/"));
+        return response(listed.body, {
+          status: listed.status,
+          headers: listed.headers,
+        });
+      }
       const match = /^\/agents\/([a-zA-Z0-9_-]{1,64})$/.exec(
         new URL(req.url).pathname,
       );

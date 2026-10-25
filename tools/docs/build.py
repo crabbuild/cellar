@@ -41,6 +41,7 @@ GUIDES = [
     ("glossary", "Shared glossary", "Precise language for authority, durability and lifecycle.", "builder platform operations team"),
     ("documentation-maintenance", "Maintain the documentation library", "Source provenance, generated visuals and integrity checks.", "team"),
     ("event-delivery", "Outbox, streams and subscriptions", "Atomic publication, resumable consumption, typed outcomes and operations.", "builder platform operations"),
+    ("streaming-and-websockets", "Streaming HTTP, SSE and WebSockets", "Native transport, language APIs, forwarding, backpressure and lifetime rules.", "builder platform"),
 ]
 
 # Six steps per flow keep diagrams readable. Failure edges are simplified

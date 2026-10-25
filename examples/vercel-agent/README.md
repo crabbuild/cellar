@@ -47,6 +47,31 @@ send, Shift+Enter for a line break, and IME composition. Mobile navigation and
 saved-work panels use accessible shadcn Sheets. The conversation and Markdown
 tables have keyboard access; motion respects reduced-motion preferences.
 
+The sidebar reads `/api/conversations`, backed by a cell-owned durable
+`ConversationDirectory` in the same bucket as the turns. Browser local storage
+is only a display cache: an empty browser can discover saved conversations
+without a turn URL. Follow-ups replace their parent in the list, while keeping
+the conversation's original title. Conversations sort by the timestamp saved
+atomically with their latest checkpoint; opening a chat or polling its status
+does not change that timestamp. Equal timestamps use task ID order. Turns with
+no recorded activity time sort after dated turns, also by task ID; opening an
+older saved link does not invent an update time. Activity metadata lives in the
+same durable cells and bucket as the journal and directory.
+The directory returns 20 recent conversation
+leaves and retains up to 128 turn references, with prompts bounded to 8,000
+characters each.
+
+Turn acceptance and directory registration are separate cell writes. The
+already persisted turn alarm repairs a crash between them before provider work
+starts. Opening an existing saved link also registers it in the directory;
+links saved before this directory existed become discoverable when opened.
+This directory belongs to the loopback workspace, rather than a browser or an
+authenticated tenant.
+
+The example configures 128 bridge invocation slots to accommodate concurrent
+ingress, turn, alarm and directory calls. The 16-turn recovery test exercises
+that bounded call graph; it is not a maximum-capacity qualification.
+
 **Restart worker** sends SIGKILL to this launcher's host and starts a replacement
 with a new node identity and empty local storage. It keeps the development
 bucket and independent ticket service. Pending work resumes through alarms.
@@ -63,6 +88,76 @@ concurrent use and joins its child on SIGINT/SIGTERM.
 For frontend iteration, run the gateway on port 4318 and use
 `npm run --prefix examples/vercel-agent/ui dev`. Vite proxies `/api` to the local
 gateway; the built UI is served by the gateway itself.
+
+## Use RustFS instead of the development store
+
+The default launcher uses Cellar's SQLite-backed development object store at
+`<CELLAR_AI_DEMO_DATA>/bucket.sqlite`. To exercise the real S3 client, run a
+separate RustFS server and select `CELLAR_AI_STORE=s3`. S3 mode removes any
+inherited `CELLAR_INTERNAL_DEV_STORE` override and refuses incomplete
+configuration instead of falling back to a local store.
+
+Start RustFS with its own empty object directory and credentials, following the
+[RustFS macOS guide](https://docs.rustfs.com/en/installation/macos) or
+[Docker guide](https://docs.rustfs.com/en/installation/container/docker).
+Keep the S3 endpoint on loopback for this local example. Put the matching client
+configuration in a private environment file outside the repository:
+
+```dotenv
+CELLAR_AI_STORE=s3
+S3_ENDPOINT=http://127.0.0.1:19000
+CELLAR_BUCKET=cellar-agent-demo
+AWS_REGION=us-east-1
+AWS_ACCESS_KEY_ID=your-rustfs-access-key
+AWS_SECRET_ACCESS_KEY=your-rustfs-secret-key
+```
+
+Create the demo bucket with the AWS CLI, then start the chat. These commands
+assume the RustFS endpoint above is already running:
+
+```sh
+set -a
+. /path/to/rustfs-client.env
+set +a
+aws --endpoint-url="$S3_ENDPOINT" s3api create-bucket --bucket "$CELLAR_BUCKET"
+
+CELLAR_AI_HOST="$CARGO_TARGET_DIR/debug/cellar-vercel-agent-example" \
+CELLAR_AI_DEMO_DATA=.cellar/vercel-rustfs-chat \
+  node --env-file="$HOME/.openai.env" examples/vercel-agent/script/launch.mjs
+
+aws --endpoint-url="$S3_ENDPOINT" s3api list-objects-v2 --bucket "$CELLAR_BUCKET" \
+  --query 'Contents[].{Key:Key,Bytes:Size}'
+```
+
+The bucket contains cell `ltx/` database segments, `own.json` ownership records,
+and fleet/wakeup metadata. Notes, transcripts, model checkpoints and tool
+receipts are inside the replicated cell database, rather than separate JSON
+objects. The gateway's `tickets.sqlite` remains the independent downstream
+service's database; it is not worker state or a Cellar recovery source.
+
+With the same S3 environment exported, run the recovery suites:
+
+```sh
+CELLAR_AI_HOST="$CARGO_TARGET_DIR/debug/cellar-vercel-agent-example" \
+CELLAR_AI_TEST_REPORT=/tmp/vercel-rustfs-recovery.json \
+  npm run --prefix examples/vercel-agent test:e2e
+
+CELLAR_AI_HOST="$CARGO_TARGET_DIR/debug/cellar-vercel-agent-example" \
+CELLAR_AI_PROVIDER=openai CELLAR_AI_MODEL=gpt-6-luna CELLAR_AI_TEST_LIVE=1 \
+CELLAR_AI_TEST_REPORT=/tmp/vercel-rustfs-tools.json \
+  node --env-file="$HOME/.openai.env" examples/vercel-agent/test/tool-process.mjs
+```
+
+These suites require the AWS CLI in S3 mode and create a fresh bucket per
+scenario, leaving those buckets for inspection. They SIGKILL the worker,
+physically delete its nonempty data directory, assert that the replacement
+starts empty, and wait for pending work to complete through alarms before any
+task HTTP request. They also download real S3 LTX objects, record SHA-256
+digests, verify a new ownership epoch, and assert that no local `bucket.sqlite`
+exists. Duplicate submissions must preserve receipts and provider-call counts.
+The deterministic suite also verifies 16 concurrent turns and 32 duplicates.
+The [RustFS qualification](../../plans/vercel-agent-rustfs-qualification.md)
+records the live results and their limits.
 
 ## Tool contracts
 
@@ -155,7 +250,7 @@ CELLAR_AI_HOST="$CARGO_TARGET_DIR/debug/cellar-vercel-agent-example" \
   npm run --prefix examples/vercel-agent test:tools
 ```
 
-These commands require no credentials. The unit suite covers storage ambiguity,
+These default local commands require no credentials. The unit suite covers storage ambiguity,
 replay divergence, journal and retry limits, parent validation, reasoning
 redaction, real stream consumption, incomplete output refusal, SSE reconnect,
 worker-token fencing, and downstream reconciliation. Six Playwright cases run

@@ -68,6 +68,7 @@ pub async fn call_bytes_in_budget(
 }
 
 pub struct State {
+    pub transport: std::sync::Arc<crate::transport::Session>,
     pub queue: Option<queue::Event>,
     pub scheduled: Option<cellar::sdk::cron::Scheduled>,
 }
@@ -85,6 +86,8 @@ pub fn is_read(name: &str) -> bool {
             | "var"
             | "kv.get"
             | "kv.list"
+            | "websocket.next"
+            | "response.read"
     )
 }
 
@@ -120,6 +123,13 @@ pub async fn execute(
     value: Value,
     options: &Limits,
 ) -> Result<Value> {
+    if name == "cell.fetch_stream"
+        || name == "http.fetch_stream"
+        || name.starts_with("response.")
+        || name.starts_with("websocket.")
+    {
+        return state.transport.execute(context, name, value, options).await;
+    }
     validate(name, &value).context(crate::failure::Validation)?;
     match name {
         "clock.now" => Ok(json!(cellar::asyncrt::wall_ms())),

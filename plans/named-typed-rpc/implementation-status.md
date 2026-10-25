@@ -72,6 +72,29 @@ pairs. Preserve the full test matrix, failures and remaining work across turns.
 
 ## Current evidence
 
+- Main is integrated through `e2273a91` (#114/#116), retaining the incoming
+  RustFS conversation/history changes and native SSE/WebSocket SDK support.
+  Node keeps the RPC binary framing, cancellation controls and fixed failure
+  categories; both runners retain streaming and WebSocket dispatch. The new
+  streaming unit fixture uses the current metadata/body reply pair and races
+  first-write readiness against dispatch completion instead of polling forever.
+  Its backpressure/chunk assertions remain intact. The shared native streaming
+  fixture uses the Rust 1.98 chunk API without changing its assertions.
+- After integration, 13 shared-guest, 30 JS runtime and 29 Python library tests
+  pass. Real V8/Node streaming/WebSockets, Node npm/native-addon compatibility,
+  restart and both JS typed-RPC tests pass. Python's full process-level
+  bridge/watchdog/recovery, startup, streaming and typed-RPC executables pass.
+  All 25 qualifier unit tests, 42 native RPC unit tests, eight native integration
+  tests and ten generator tests pass. Combined adapter/qualifier all-target
+  Clippy and Node-only/V8-only Clippy pass with warnings denied. Format/layout
+  check 995 Rust files; docs validate 744 local references; the native graph
+  remains engine-free at 465 packages. The 65 RPC SDK tests, three streaming
+  SDK tests, 34 Python codec/cancellation/failure tests, 24 runner tests,
+  12 encoding tests, three build-identity tests, strict TS checks and fixture
+  build pass. The agent app build and all 36 agent unit tests pass; agent sources
+  match main exactly. Browser/RustFS live-store checks were not rerun here.
+  A fresh combined ten-suite run is pending after this integration; the earlier
+  ten-suite evidence remains recorded below. Full-qualification flags stay false.
 - Descriptor admission now validates one global namespace, including packages,
   enum values in their enclosing scope, fields, oneofs and service methods.
   Every message/enum reference requires the defining file to be visible through
@@ -91,13 +114,14 @@ pairs. Preserve the full test matrix, failures and remaining work across turns.
   verify exact descriptor bytes, digests and codec inventories after file-order
   changes. A separate three-file public-import example generates Rust, Python,
   TypeScript and JavaScript; strict TypeScript checks and real Node/Python
-  message-descriptor/codec checks pass with `9_007_199_254_740_993`. This does not
-  claim new public-import fleet calls or a fresh ten-suite run. Local raw evidence
+  message-descriptor/codec checks pass with `9_007_199_254_740_993`. These are
+  generation/codec checks; public-import fleet calls remain open. Local raw evidence
   is under `.cellar/rpc/descriptor-admission-67284/` (`generation.log`, inputs,
   outputs and `summary.json`); native/codegen check logs are
   `/tmp/cellar-rpc-descriptor-*.log`. All full-qualification flags remain false;
   option/schema semantics, runtime allocation/RSS and lifecycle work remain.
-- Main is integrated through `2133d124` (#115). Its copyright notices are
+- The earlier main integration through `2133d124` (#115) preserves copyright
+  notices,
   preserved, including the one Node transport comment conflict. At the notice
   merge, all 974 checked runtime, SDK and fixture source files matched the
   ten-suite-tested `73a62b5a` after removing only notice text. New sources receive
@@ -108,7 +132,7 @@ pairs. Preserve the full test matrix, failures and remaining work across turns.
   and workflow parsing pass after the merge. Ten-suite runtime evidence is
   from the implementation before the notice merge; it is not a fresh
   package/release qualification or a resolution of the transient failures.
-- The final normal-stack serial run passes all ten suites and publishes
+- The earlier normal-stack serial run at `73a62b5a` passes all ten suites and publishes
   `.cellar/rpc/provenance-full-matrix.json` after native and guest drains:
   16 local pairs, 16 remote/handoff pairs, 55 deadlines, 17 cancellations,
   80 cycles, 96 provenance cases, 128 proof waits, 32 recovery cases, 48

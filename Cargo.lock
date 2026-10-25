@@ -442,6 +442,7 @@ dependencies = [
  "futures-util",
  "serde",
  "serde_json",
+ "tokio",
 ]
 
 [[package]]
@@ -451,6 +452,7 @@ dependencies = [
  "anyhow",
  "cellar",
  "cellar-guest",
+ "fastwebsockets",
  "futures-util",
  "getrandom 0.3.4",
  "libc",
@@ -540,6 +542,7 @@ dependencies = [
  "cellar",
  "cellar-guest",
  "cellar-logic",
+ "fastwebsockets",
  "futures-util",
  "libc",
  "object_store",

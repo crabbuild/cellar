@@ -50,6 +50,7 @@ pyo3-build-config = { workspace = true, optional = true }
 serde_json.workspace = true
 
 [dev-dependencies]
+fastwebsockets.workspace = true
 async-trait.workspace = true
 bytes.workspace = true
 object_store.workspace = true
@@ -91,5 +92,11 @@ disallowed_macros = "forbid"
 [[test]]
 name = "startup"
 path = "tests/startup.rs"
+harness = false
+required-features = ["embed"]
+
+[[test]]
+name = "streaming"
+path = "tests/streaming.rs"
 harness = false
 required-features = ["embed"]

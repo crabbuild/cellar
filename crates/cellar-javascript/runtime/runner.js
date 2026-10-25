@@ -2,6 +2,7 @@
 
 // Shared SDK facade for embedded V8 and Node. This file is a factory expression:
 // the Rust bootstrap evaluates or embeds it, then supplies the private host call.
+// Keep the expression free of a trailing semicolon for embedding in parentheses.
 (host, addAbortListener) => {
   "use strict";
 
@@ -112,14 +113,18 @@
   // runs in embedded V8, where those host APIs are not available.
   function decode(text) {
     const bytes = [];
-    let bits = 0,
-      count = 0;
+    let bits = 0;
+    let count = 0;
 
     for (const c of text) {
-      if (c === "=") break;
+      if (c === "=") {
+        break;
+      }
 
       const n = alphabet.indexOf(c);
-      if (n < 0) throw new ErrorClass("InvalidBase64");
+      if (n < 0) {
+        throw new ErrorClass("InvalidBase64");
+      }
 
       bits = (bits << 6) | n;
       count += 6;
@@ -131,6 +136,47 @@
     }
 
     return new Uint8Array(bytes);
+  }
+
+  // Encode each bounded body or socket frame for the JSON bridge.
+  function encode(bytes) {
+    let result = "";
+
+    for (let i = 0; i < bytes.length; i += 3) {
+      const n =
+        (bytes[i] << 16) | ((bytes[i + 1] ?? 0) << 8) | (bytes[i + 2] ?? 0);
+      result +=
+        alphabet[n >>> 18] +
+        alphabet[(n >>> 12) & 63] +
+        (i + 1 < bytes.length ? alphabet[(n >>> 6) & 63] : "=") +
+        (i + 2 < bytes.length ? alphabet[n & 63] : "=");
+    }
+    return result;
+  }
+
+  // UTF-8 encoding must also work in V8 without Node or browser text encoders.
+  function bytes(value) {
+    if (typeof value === "string") {
+      const encoded = encodeURIComponent(value.toWellFormed());
+      const output = [];
+
+      for (let i = 0; i < encoded.length; i++) {
+        if (encoded[i] === "%") {
+          output.push(parseInt(encoded.slice(i + 1, i + 3), 16));
+          i += 2;
+        } else {
+          output.push(encoded.charCodeAt(i));
+        }
+      }
+
+      return new Uint8Array(output);
+    }
+
+    if (!(value instanceof Uint8Array)) {
+      throw new TypeError("Expected text or Uint8Array");
+    }
+
+    return value;
   }
 
   // Both incoming requests and nested-cell responses use this decoded view.
@@ -226,6 +272,7 @@
         } catch {
           const read = [
             "clock.now", "storage.read", "alarm.get", "var", "kv.get", "kv.list",
+            "websocket.next", "response.read",
           ].includes(name);
           throw rpcFailure(read ? "HostError" : "Ambiguous", "unknown");
         }
@@ -235,8 +282,81 @@
       }
     };
 
-    // These objects contain bridge calls, never native storage handles. Binding
-    // lookup and effect execution remain in the original Rust invocation.
+    // Socket facades carry opaque IDs, never native handles. Each operation
+    // resolves its authority through the current Rust invocation.
+    const socket = id =>
+      freeze({
+        id,
+        accept: (options = {}) =>
+          call("websocket.accept", {
+            id,
+            hibernating: false,
+            tags: [],
+            ...options,
+          }),
+        send: data =>
+          call(
+            "websocket.send",
+            typeof data === "string"
+              ? { id, text: data }
+              : { id, body: encode(bytes(data)) },
+          ),
+        close: (code = 1000, reason = "") =>
+          call("websocket.close", { id, code, reason }),
+        next: async () => {
+          const event = await call("websocket.next", { id });
+
+          return freeze(
+            event.type !== "message"
+              ? event
+              : {
+                  ...event,
+                  data:
+                    event.body === undefined ? event.text : decode(event.body),
+                },
+          );
+        },
+        setAttachment: value => call("websocket.attachment.set", { id, value }),
+        getAttachment: () => call("websocket.attachment.get", { id }),
+        tags: () => call("websocket.tags", { id }),
+        autoResponseTimestamp: () =>
+          call("websocket.auto_response_timestamp", { id }),
+        info: () => call("websocket.info", { id }),
+      });
+
+    // Keep the native response capability intact so callers can either forward
+    // it directly or pull chunks without buffering the complete response.
+    const liveResponse = result => {
+      const id = result.forward;
+
+      return freeze({
+        ...result,
+        body: decode(result.body),
+        async *chunks() {
+          try {
+            // A buffered prefix precedes any chunks from the native stream.
+            if (result.body) {
+              yield decode(result.body);
+            }
+
+            while (result.stream) {
+              const chunk = await call("response.read", { id });
+
+              if (chunk.done) {
+                break;
+              }
+
+              yield decode(chunk.body);
+            }
+          } finally {
+            // Release the native consumer even if iteration stops early.
+            await call("response.cancel", { id });
+          }
+        },
+        cancel: () => call("response.cancel", { id }),
+      });
+    };
+
     return freeze({
       [rpcKey]: freeze({
         check: () => host(id, "$check", "{}"),
@@ -265,6 +385,30 @@
         },
         call: (metadata, body, signal, budget) => call("cell.call", metadata, body, signal, budget),
       }),
+      fetchStream: async value =>
+        liveResponse(await call("http.fetch_stream", { request: value })),
+      acceptWebSocket: async response =>
+        socket(
+          (
+            await call("websocket.from_response", {
+              response: response.forward,
+            })
+          ).id,
+        ),
+      // Private hooks used by dispatch while retaining this invocation.
+      _call: call,
+      _encode: data => encode(bytes(data)),
+
+      websocket: socket,
+      websocketPair: async () => socket((await call("websocket.pair")).id),
+      connectWebSocket: async (url, protocols = []) =>
+        socket((await call("websocket.connect", { url, protocols })).id),
+      websockets: async (tag = null) =>
+        (await call("websocket.list", { tag })).map(socket),
+      getWebSocketAutoResponse: () => call("websocket.auto_response.get"),
+      setWebSocketAutoResponse: pair =>
+        call("websocket.auto_response", { pair }),
+
       identity: identity && freeze(identity),
       now: () => call("clock.now"),
       variable: name => call("var", { name }),
@@ -280,7 +424,17 @@
       cell: (binding, name) =>
         freeze({
           fetch: async value =>
-            request(await call("cell.fetch", { binding, name, request: value })),
+            request(
+              await call("cell.fetch", { binding, name, request: value }),
+            ),
+          fetchStream: async value =>
+            liveResponse(
+              await call("cell.fetch_stream", {
+                binding,
+                name,
+                request: value,
+              }),
+            ),
         }),
 
       kv: binding =>
@@ -401,7 +555,9 @@
           target = objects.get(invocation.object);
 
           if (!target) {
-            if (objects.size >= maximum) throw new ErrorClass("ObjectLimit");
+            if (objects.size >= maximum) {
+              throw new ErrorClass("ObjectLimit");
+            }
 
             target = new app.cells[invocation.class]();
             objects.set(invocation.object, target);
@@ -423,11 +579,58 @@
           }
         }
 
-        const event =
+        let event =
           invocation.kind === "fetch"
             ? request(invocation.event)
             : json(invocation.event);
-        const result = await target[invocation.kind](event, ctx);
+
+        if (invocation.kind === "websocket_message") {
+          event = freeze({
+            ...event,
+            data: event.body === undefined ? event.text : decode(event.body),
+          });
+        }
+
+        let result = await target[invocation.kind](event, ctx);
+
+        // Forward the native capability without consuming its body or upgrade.
+        if (invocation.kind === "fetch" && result?.forward !== undefined) {
+          return stringify({ forward: result.forward });
+        }
+
+        if (invocation.kind === "fetch" && result?.chunks !== undefined) {
+          // Publish headers before pulling the producer. Each awaited write
+          // preserves native backpressure and keeps invocation authority alive.
+          await ctx._call("response.start", {
+            status: result.status,
+            headers: result.headers,
+            body: "",
+          });
+
+          for await (const chunk of result.chunks) {
+            await ctx._call("response.write", { body: ctx._encode(chunk) });
+          }
+
+          result = { streamed: true };
+        } else if (
+          invocation.kind === "fetch" &&
+          result?.websocket !== undefined
+        ) {
+          const response = {
+            websocket: result.websocket,
+            headers: result.headers ?? [],
+          };
+
+          if (result.run) {
+            // Workers consume events in this retained invocation. Hibernating
+            // cells omit run and receive separate native WebSocket callbacks.
+            await ctx._call("response.upgrade", response);
+            await result.run(ctx.websocket(result.websocket), ctx);
+            result = { streamed: true };
+          } else {
+            result = response;
+          }
+        }
 
         // Non-HTTP handlers complete without an application return value.
         return stringify(json(invocation.kind === "fetch" ? result : null));
