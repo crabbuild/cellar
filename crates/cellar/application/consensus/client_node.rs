@@ -9,9 +9,20 @@ pub(crate) enum NodeKind {
         node: cellar_logic::consensus::NodeId,
         minimum_revision: u64,
     },
+    InspectPeerFleet(Box<PeerFleetRequest>),
+    ObserveFleet {
+        history: Box<crate::raft::fleet_inspection_wire::History>,
+        minimum_revision: u64,
+    },
     RegisterHistory(Box<crate::raft::fleet_catalog::FleetGroupAuthorization>),
     ControllerStatus,
     SetControllerEnabled(bool),
+}
+
+pub(crate) struct PeerFleetRequest {
+    pub node: cellar_logic::consensus::NodeId,
+    pub minimum_revision: u64,
+    pub authorization: crate::raft::fleet_catalog::FleetGroupAuthorization,
 }
 
 pub(crate) enum ControlRequest {
@@ -29,6 +40,98 @@ pub(crate) struct NodeRequest {
 }
 
 impl RaftCells {
+    /// Obtain a fresh safe-ReadIndex observation from an enrolled remote group.
+    /// The origin may have zero local groups. Both endpoints must install the
+    /// requested catalog cut; the target independently authorizes this exact
+    /// history. This creates no query, seeding or membership-mutation grant.
+    /// Retaining a response does not establish current absence or removal proof.
+    pub fn observe_peer_fleet_membership(
+        &self,
+        node: cellar_logic::consensus::NodeId,
+        authorization: crate::raft::fleet_catalog::FleetGroupAuthorization,
+        minimum_revision: u64,
+        timeout: Duration,
+    ) -> Pin<
+        Box<
+            dyn Future<
+                    Output = Result<
+                        super::super::RaftPeerFleetMembershipObservation,
+                        super::super::InspectionError,
+                    >,
+                > + Send,
+        >,
+    > {
+        use super::super::InspectionError;
+        if minimum_revision == 0
+            || minimum_revision >= u64::MAX - 2
+            || timeout.is_zero()
+            || timeout > Duration::from_secs(60)
+        {
+            return Box::pin(async { Err(InspectionError::Refused) });
+        }
+        let domain = self.handle.domain.clone();
+        let started = match domain.mono_ms() {
+            Ok(started) => started,
+            Err(_) => return Box::pin(async { Err(InspectionError::Unavailable) }),
+        };
+        let call = self.node_call(
+            NodeKind::InspectPeerFleet(Box::new(PeerFleetRequest {
+                node,
+                minimum_revision,
+                authorization,
+            })),
+            timeout,
+        );
+        Box::pin(async move {
+            let response = call.await.map_err(|error| match error {
+                CommandFailure::Overloaded => InspectionError::Overloaded,
+                CommandFailure::UnsupportedCapability => InspectionError::Refused,
+                _ => InspectionError::Unavailable,
+            })?;
+            let Response::PeerFleetObservation(result) = response else {
+                return Err(InspectionError::Unavailable);
+            };
+            let mut observed = result?;
+            let age = domain
+                .mono_ms()
+                .ok()
+                .and_then(|now| now.checked_sub(started))
+                .ok_or(InspectionError::Unavailable)?;
+            observed.record_delivery_age(age)?;
+            Ok(*observed)
+        })
+    }
+
+    pub(crate) fn observe_local_fleet_membership(
+        &self,
+        history: crate::raft::fleet_inspection_wire::History,
+        minimum_revision: u64,
+        timeout: Duration,
+    ) -> Pin<
+        Box<
+            dyn Future<
+                    Output = Result<
+                        Box<crate::raft::fleet_inspection_wire::LocalObservation>,
+                        CommandFailure,
+                    >,
+                > + Send,
+        >,
+    > {
+        let call = self.node_call(
+            NodeKind::ObserveFleet {
+                history: Box::new(history),
+                minimum_revision,
+            },
+            timeout,
+        );
+        Box::pin(async move {
+            match call.await? {
+                Response::LocalFleetObservation(result) => Ok(result),
+                _ => Err(CommandFailure::CorruptState),
+            }
+        })
+    }
+
     /// Inspect an enrolled remote process without a cell. Both endpoints must
     /// acknowledge at least this trust revision; stale or missing metadata is
     /// not evidence of node failure. No placement or membership is activated.

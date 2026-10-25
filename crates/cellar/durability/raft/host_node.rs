@@ -72,6 +72,11 @@ impl Driver {
             return;
         }
         match std::mem::replace(&mut request.kind, NodeKind::ControllerStatus) {
+            NodeKind::InspectPeerFleet(call) => self.start_peer_fleet_inspection(request, *call),
+            NodeKind::ObserveFleet {
+                history,
+                minimum_revision,
+            } => self.start_local_fleet_inspection(request, *history, minimum_revision),
             NodeKind::InspectPeer {
                 node,
                 minimum_revision,
@@ -91,7 +96,7 @@ impl Driver {
         }
     }
 
-    fn node_observation(&self) -> Result<RaftHostObservation, CommandFailure> {
+    pub(super) fn node_observation(&self) -> Result<RaftHostObservation, CommandFailure> {
         let node = self.capture_node_profile()?;
         let physical = self
             .log

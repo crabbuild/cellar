@@ -387,7 +387,13 @@
         "crates/cellar/durability/raft/fleet_catalog/placement.rs",
         "crates/cellar/durability/raft/fleet_catalog/evacuation.rs",
         "crates/cellar/tests/support/raft_fleet_placement_native.rs",
-        "crates/cellar/tests/support/raft_evacuation_native.rs"
+        "crates/cellar/tests/support/raft_evacuation_native.rs",
+        "crates/cellar/durability/raft/fleet_inspection_transport.rs",
+        "crates/cellar/durability/raft/fleet_inspection_wire.rs",
+        "crates/cellar/durability/raft/host_fleet_inspection.rs",
+        "crates/cellar/tests/support/raft_peer_fleet_observation.rs",
+        "crates/cellar/durability/raft/fleet_inspection_auth_tests.rs",
+        "crates/cellar/durability/raft/fleet_inspection_wire_tests.rs"
       ],
       "steps": [
         "Add CAS-authorized node-set revisions with bounded route and permission refresh.",
@@ -1315,6 +1321,67 @@
             "F02",
             "F03",
             "F05",
+            "F06",
+            "F07",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_peer_observation_empty_coordinator",
+          "oracle": "An empty coordinator obtains authenticated safe-ReadIndex observations from each actual RF3 member before any SQL image. Whole-call age includes retained SDK replies; later native S3 SQL is covered without creating local groups or query-reader pins.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F06",
+            "F07",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_peer_observation_requires_resident_history",
+          "oracle": "Rooted history and node trust do not activate dormant target metadata or grant fresh quorum. Dormant targets and invalid revision/timeout inputs refuse with zero local groups and no application callback.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F06",
+            "F07",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_peer_observation_minority_cancel_and_shutdown",
+          "oracle": "A directly reachable minority cannot mint a new remote quorum observation. Original deadline, disconnected caller and joined shutdown cancel nested catalog/quorum work and release bounded control resources, including unpolled SDK waiters.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F06",
+            "F07",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_peer_observation_fresh_catalog_and_owned_io",
+          "oracle": "After both endpoints acknowledge a newer trust cut, an injected older catalog root cannot mint a remote quorum observation. A held actual target catalog read is cancelled on disconnect with physical IO joined, while native S3 writes continue under cached Raft authority.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F06",
+            "F07",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_peer_observation_repair_roles",
+          "oracle": "Authenticated remote safe-ReadIndex retains a joined learner node/disk binding, both joint voter sets and the exact consumed permit through stable completion. Native S3 SQL survives replacement; the observing coordinator retains zero local groups.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F04",
             "F06",
             "F07",
             "F08",

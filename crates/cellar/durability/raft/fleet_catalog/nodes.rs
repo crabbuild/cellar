@@ -339,6 +339,15 @@ impl FleetHostAuthorization {
         scope: &cellar_logic::consensus::GroupScope,
         timeout: Duration,
     ) -> Result<FleetGroupAuthorization> {
+        self.group_authorization_at_least(scope, 0, timeout).await
+    }
+
+    pub(crate) async fn group_authorization_at_least(
+        &self,
+        scope: &cellar_logic::consensus::GroupScope,
+        minimum_revision: u64,
+        timeout: Duration,
+    ) -> Result<FleetGroupAuthorization> {
         let start = self
             .catalog
             .inner
@@ -346,6 +355,9 @@ impl FleetHostAuthorization {
             .mono_ms()
             .map_err(|_| FleetCatalogError::Closed)?;
         let snapshot = self.catalog.read(timeout).await?;
+        if snapshot.revision() < minimum_revision {
+            return Err(FleetCatalogError::Conflict);
+        }
         let elapsed = self
             .catalog
             .inner

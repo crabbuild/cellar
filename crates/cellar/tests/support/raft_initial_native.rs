@@ -20,6 +20,8 @@ mod placement;
 
 #[path = "raft_evacuation_native.rs"]
 mod evacuation;
+#[path = "raft_peer_fleet_observation.rs"]
+mod peer_observation;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn fleet_genesis_imported_namespace() -> Result<()> {

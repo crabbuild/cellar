@@ -12,6 +12,32 @@ pub struct FleetGroupAuthorization {
 }
 
 impl FleetGroupAuthorization {
+    pub(crate) fn matches_replica(
+        &self,
+        replica: &cellar_logic::consensus::ReplicaIdentity,
+        membership: &crate::raft::member_state::GroupMembership,
+    ) -> bool {
+        if !self.matches_scope(&replica.scope) || !membership.permits(replica) {
+            return false;
+        }
+        match membership.joined(replica.member) {
+            Ok(Some((joined, _))) => joined.node == replica.node && joined.disk == replica.disk,
+            Ok(None) => self
+                .history
+                .voters
+                .iter()
+                .chain(&self.history.learners)
+                .any(|initial| {
+                    initial.member == replica.member.get() && initial.node == replica.node.bytes()
+                }),
+            Err(_) => false,
+        }
+    }
+
+    pub(crate) fn history_digests(&self) -> ([u8; 32], [u8; 32]) {
+        (self.history.birth_digest(), self.history.schema_digest())
+    }
+
     pub(crate) fn allows_managed_genesis(&self) -> bool {
         self.history.allows_managed_genesis()
     }

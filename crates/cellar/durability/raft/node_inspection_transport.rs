@@ -77,46 +77,7 @@ impl RaftTransport {
         if deadline <= now || deadline - now > 60_000 {
             return Err(TransportError::Timeout);
         }
-        let (peer, route, peer_budget) = {
-            let mut registry = state.registry.lock().map_err(|_| TransportError::Closed)?;
-            state.admit(&registry)?;
-            let trust = registry
-                .fleet_trust
-                .as_ref()
-                .ok_or(TransportError::Refused)?;
-            if minimum_revision == 0 || trust.revision() < minimum_revision {
-                return Err(TransportError::StalePeer);
-            }
-            let view = registry
-                .node_views
-                .get(&node)
-                .ok_or(TransportError::Refused)?;
-            let peer = view.peer().clone();
-            registry.check_node_view(&peer)?;
-            if trust
-                .node(node)
-                .is_none_or(|n| n.storage_instance() != Some(view.storage_instance()))
-            {
-                return Err(TransportError::Identity);
-            }
-            let route = NodeRoute::new(
-                trust,
-                minimum_revision,
-                &state.local_physical()?,
-                state.auth.source(),
-                &PhysicalNode {
-                    identity: NodeIdentity {
-                        node: peer.node,
-                        disk: peer.disk,
-                        process: peer.process,
-                    },
-                    storage_instance: view.storage_instance(),
-                },
-                &peer.label,
-            )?;
-            let budget = registry.inspection_peer_budget(node, state.options.max_peers)?;
-            (peer, route, budget)
-        };
+        let (peer, route, peer_budget) = state.node_metadata_route(node, minimum_revision)?;
         let epoch = state.seed_peer_epoch(&peer)?;
         let node = state
             .inspection_metadata
@@ -175,7 +136,52 @@ impl RaftTransport {
 }
 
 impl State {
-    fn local_physical(&self) -> Result<PhysicalNode, TransportError> {
+    pub(super) fn node_metadata_route(
+        &self,
+        node: NodeId,
+        minimum_revision: u64,
+    ) -> Result<(RaftPeerNode, NodeRoute, Arc<Budget>), TransportError> {
+        let mut registry = self.registry.lock().map_err(|_| TransportError::Closed)?;
+        self.admit(&registry)?;
+        let trust = registry
+            .fleet_trust
+            .as_ref()
+            .ok_or(TransportError::Refused)?;
+        if minimum_revision == 0 || trust.revision() < minimum_revision {
+            return Err(TransportError::StalePeer);
+        }
+        let view = registry
+            .node_views
+            .get(&node)
+            .ok_or(TransportError::Refused)?;
+        let peer = view.peer().clone();
+        registry.check_node_view(&peer)?;
+        if trust
+            .node(node)
+            .is_none_or(|n| n.storage_instance() != Some(view.storage_instance()))
+        {
+            return Err(TransportError::Identity);
+        }
+        let route = NodeRoute::new(
+            trust,
+            minimum_revision,
+            &self.local_physical()?,
+            self.auth.source(),
+            &PhysicalNode {
+                identity: NodeIdentity {
+                    node: peer.node,
+                    disk: peer.disk,
+                    process: peer.process,
+                },
+                storage_instance: view.storage_instance(),
+            },
+            &peer.label,
+        )?;
+        let budget = registry.inspection_peer_budget(node, self.options.max_peers)?;
+        Ok((peer, route, budget))
+    }
+
+    pub(super) fn local_physical(&self) -> Result<PhysicalNode, TransportError> {
         let local = self.runtime.log().limits();
         Ok(PhysicalNode {
             identity: NodeIdentity {
@@ -191,7 +197,7 @@ impl State {
         })
     }
 
-    fn validate_node_observation(
+    pub(super) fn validate_node_observation(
         &self,
         view: &RaftHostObservation,
         minimum_revision: u64,
@@ -316,7 +322,7 @@ impl State {
         Ok(view)
     }
 
-    fn authorize_node_inspection(
+    pub(super) fn authorize_node_inspection(
         &self,
         route: &NodeRoute,
     ) -> Result<(RaftPeerNode, Arc<Budget>), TransportError> {

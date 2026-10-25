@@ -71,6 +71,9 @@ mod fleet_control;
 #[path = "host_fleet_observation.rs"]
 mod fleet_observation;
 pub use fleet_observation::{FleetMembershipConfiguration, FleetMembershipObservation};
+#[path = "host_fleet_inspection.rs"]
+mod fleet_inspection;
+pub use super::fleet_inspection_wire::RaftPeerFleetMembershipObservation;
 #[path = "host_initial.rs"]
 mod initial;
 #[path = "host_node.rs"]
@@ -1160,6 +1163,8 @@ enum SqlPurpose {
 }
 
 enum Job {
+    PeerFleetInspection(Box<fleet_inspection::PeerCompleted>),
+    LocalFleetInspection(Box<fleet_inspection::LocalCompleted>),
     FleetAdmission(Box<fleet_admission::Completed>),
     NodeInspection(Box<node_inspection::Completed>),
     HistoryRegistered(Box<registration::Completed>),
@@ -3096,6 +3101,8 @@ impl Driver {
             Job::Inspection(completed) => self.finish_inspection(*completed),
             Job::PeerInspection(completed) => self.finish_peer_inspection(*completed),
             Job::NodeInspection(completed) => self.finish_node_inspection(*completed),
+            Job::PeerFleetInspection(completed) => self.finish_peer_fleet_inspection(*completed),
+            Job::LocalFleetInspection(completed) => self.finish_local_fleet_inspection(*completed),
             Job::Directory(observation) => self.on_directory(*observation),
             Job::Standby(completed) => self.on_standby_job(*completed),
             Job::Leadership {

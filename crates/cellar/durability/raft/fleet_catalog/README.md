@@ -119,7 +119,7 @@ Ordinary `bootstrap_member` can only resume an already enrolled managed group;
 it refuses fresh or bare genesis before creating local group state or a member
 claim. Managed host startup and `activate_managed_initial_member` use the guarded path described below.
 
-This experimental protocol hard-cuts to `/fleet-admission-1`; use fresh fleet
+This experimental protocol hard-cuts to `/fleet-quorum-1`; use fresh fleet
 roots, fresh namespaces and matching binaries. Fleet heads require the current
 protocol digest, and their permanent genesis pin binds it. Missing or earlier
 protocol state refuses initialization and reads; there is no compatibility reader.
@@ -240,6 +240,23 @@ delivery, including an unpolled SDK waiter. Pressure refuses immediately rather
 than adding an unbounded queue. Cancellation, the original deadline and shutdown
 release the pending read; barrier retries do not extend that deadline. Business
 write acknowledgement does not call this API or the fleet catalog.
+
+`RaftCells::observe_peer_fleet_membership(node, authorization, minimum_revision,
+timeout)` obtains this barrier from an exact enrolled remote process. An empty
+origin needs no dormant registration. A separate purpose and TLS exporter bind
+the rooted history, catalog fingerprint, nonce and both physical endpoints. The
+target independently reads its current catalog, authorizes the resident history,
+performs safe ReadIndex and returns a coherent durable configuration plus local
+publication progress. A signed status sample cannot satisfy this RPC. Dormant,
+retired, unenrolled or mismatched histories refuse without activation or SQL.
+
+The opaque response includes the installed node enrollment and whole invocation
+age through SDK delivery. Per-node and per-peer 1 MiB transport reservations cover
+bounded decoding; both hosts reserve 128 KiB for retained control responses,
+with separate bounded admission for nested quorum/status calls. The original
+remaining deadline bounds catalog reads, ReadIndex and response IO. Disconnect,
+caller cancellation, process revocation and host shutdown cancel and join owned
+work. This grants no business-query, seed or membership-mutation permission.
 
 `fleet_membership_status` and idempotent enrollment replies remain local synced
 observations. Neither supplies this invocation's quorum barrier. Likewise, saving
@@ -434,7 +451,7 @@ response alone is not a fleet completion certificate.
 Cellar-owned markers stay at 1. Membership and intent records require an explicit
 nullable `fleet` field. Birth records also require an explicit nullable
 `cancelled_by` field; the namespace protocol identity ends in
-`/catalog-trust-1/fleet-admission-1`.
+`/catalog-trust-1/fleet-admission-1/fleet-quorum-1`.
 Older namespace protocols refuse startup; there is no legacy reader or migration.
 Use a fresh experimental namespace and matching participants. Do not downgrade a
 guarded engine to an older binary or remove the guard field to regain admission.

@@ -77,6 +77,72 @@ pub struct FleetMembershipObservation {
 }
 
 impl FleetMembershipObservation {
+    pub(crate) fn matches_snapshot(
+        &self,
+        snapshot: &crate::raft::inspection::InspectionSnapshot,
+    ) -> bool {
+        snapshot.membership.as_ref() == Some(&self.membership)
+            && snapshot.configuration.as_ref().is_some_and(|conf| {
+                FleetMembershipConfiguration::capture(conf).as_ref() == Ok(&self.configuration)
+            })
+            && snapshot
+                .view
+                .member
+                .as_ref()
+                .is_some_and(|m| m.applied.index >= self.barrier)
+    }
+
+    // Only the purpose-specific authenticated quorum RPC calls this decoder.
+    // An ordinary inspection snapshot alone cannot establish a read barrier.
+    pub(crate) fn from_quorum_snapshot(
+        snapshot: &crate::raft::inspection::InspectionSnapshot,
+        authorization: &FleetGroupAuthorization,
+        barrier: LogIndex,
+    ) -> Result<Self, CommandFailure> {
+        snapshot.validate()?;
+        let view = &snapshot.view;
+        let member = view.member.as_ref().ok_or(CommandFailure::Unavailable)?;
+        let membership = snapshot
+            .membership
+            .as_ref()
+            .ok_or(CommandFailure::Unavailable)?;
+        let configuration = snapshot
+            .configuration
+            .as_ref()
+            .ok_or(CommandFailure::Unavailable)?;
+        let status = membership
+            .fleet_status()
+            .ok_or(CommandFailure::UnsupportedCapability)?;
+        if member.applied.index < barrier
+            || barrier.get() == 0
+            || &status.binding != authorization.binding()
+            || !authorization.matches_scope(&view.scope)
+            || authorization.history_digests() != (view.birth_digest, view.schema_digest)
+        {
+            return Err(CommandFailure::CommandConflict);
+        }
+        let replica = ReplicaIdentity {
+            scope: view.scope.clone(),
+            member: member.member,
+            node: view.node.identity.node,
+            disk: view.node.identity.disk,
+            process: view.node.identity.process,
+        };
+        if !authorization.matches_replica(&replica, membership) {
+            return Err(CommandFailure::CommandConflict);
+        }
+        Ok(Self {
+            replica,
+            birth_digest: view.birth_digest,
+            schema_digest: view.schema_digest,
+            barrier,
+            applied: member.applied,
+            membership: membership.clone(),
+            configuration: FleetMembershipConfiguration::capture(configuration)?,
+            status,
+        })
+    }
+
     pub fn replica(&self) -> &ReplicaIdentity {
         &self.replica
     }
