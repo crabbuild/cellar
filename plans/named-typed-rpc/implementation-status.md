@@ -17,7 +17,7 @@ does not close schema, resource, packaging or performance requirements.
 
 | Priority | Remaining gap | Deliverable / completion evidence |
 | --- | --- | --- |
-| P0 — next | Remaining lifecycle and peer/admission provenance | Delivered: whole-call budgets, 55 deadline cases, 128 proof-wait cases, 80 cycle cases, 96 provenance cases and 48 owned Node worker/shutdown cases. Next slice: terminate V8 during active typed calls before/after sync; require joined children, expired authority, zero bridge reservations and fresh-runtime receipt recovery for local/signed-peer callers. Then qualify Python cancellation suppression, forced guest peer retries and broader call-local peer/admission provenance. Retain every delivered matrix and investigate recurring timeout/domain-closure diagnostics. |
+| P0 — next | Remaining lifecycle and peer/admission provenance | Delivered: whole-call budgets, 55 deadline cases, 128 proof-wait cases, 80 cycle cases, 96 provenance cases and 96 Node/V8 lifecycle cases. Next slice: Python cancellation suppression during typed calls and host shutdown; require expired authority, refused late SDK work, released reservations and receipt-safe recovery. Never report clean shutdown while owned work remains; qualify bounded supervisor cleanup where an embedded task cannot be joined cooperatively. Then close forced guest peer retries and broader call-local peer/admission provenance. Retain every delivered matrix and investigate recurring timeout/domain-closure diagnostics. |
 | P0 | Resource bounds and parser correctness | Global symbol/import validation and bounded expanded-name inventories are delivered. Close remaining option/schema semantics; audit effective method/runtime/host/peer minima, retained binary copies and decoder allocations; demonstrate bounded queues, reservations and memory under saturation, flood and disconnect. |
 | P1 | Language/profile coverage | Exercise the portable Protobuf profile as real business calls across all local/remote pairs; qualify supported Python interpreter modes and remaining lifecycle/regression boundaries. |
 | P1 | Reproducible application delivery | Deliver `cellar rpc generate/check`, static binding and frozen package inventories, embedded Python source identity, a published typed-RPC example and clean-machine CI. |
@@ -72,6 +72,49 @@ pairs. Preserve the full test matrix, failures and remaining work across turns.
 
 ## Current evidence
 
+- Implementation `d4097fa3` adds disposable V8 providers to the existing owned
+  lifecycle harness. Generated TypeScript business calls reach native local or
+  signed-peer owners before writes or after synced count/receipt checkpoints.
+  A separate invocation first reaches a distinct real Rust child, then enters a
+  CPU loop. The existing two-second V8 pump watchdog must terminate the isolate;
+  the bootstrap must report the exact execution-budget engine failure. No test
+  API closes the runtime. The provider, held child and trigger child have
+  distinct native scope/budget authority; all three frames must retire and their
+  weak sources must refuse with exact `ContextExpired`. Both native owner and
+  original caller must still serve fresh typed business methods after failure.
+- The focused `lifecycle` run passes **96 cases** in one process with the same
+  four surviving caller runtimes: 16 Node kills, 16 graceful and 16 forced Node
+  shutdowns, 16 V8 watchdog terminations, and 16 graceful and 16 forced V8
+  shutdowns. Each group covers Rust/Python/V8/Node callers, local/signed-peer
+  routing and before/after-sync checkpoints. The generalized harness retains
+  every Node assertion and adds a fresh-method check for surviving callers.
+  Graceful shutdown requires the normal drain proof; forced cutoff remains
+  unclean with unknown effects, followed by physical cleanup. Native observation
+  still freezes before injection and cannot complete or cancel business work.
+- V8 engine and watchdog joins follow the owning bootstrap's return. Retained
+  applications must then have zero invocation and byte reservations. V8 makes
+  no process-group claim; Node still requires observed ESRCH after joining.
+  Fresh isolates/workers and native owners recover exact prior state and verify
+  two explicit same-ID retries without duplicate effects. The saved-report audit
+  checks all four Cartesian matrices, actual authority/checkpoint snapshots,
+  held/zero gauges, joined resources and cold receipts. It preserves the exact
+  `9_007_199_254_740_993` value and every unknown-effect boundary.
+- `.cellar/rpc/v8-lifecycle-matrix.json` contains 237,413 bytes, SHA-256
+  `f491583159257eda806ac52251cc0a7ecc50f96e9e75ac99cc745b4a0cc8a487`;
+  `/tmp/cellar-rpc-v8-lifecycle.log` records the run. Publication follows all
+  native and caller-runtime joins, including Python's complete-drain check.
+  Separate V8 watchdog and forced-shutdown smoke runs also pass. All 29 qualifier
+  unit tests, all-target qualifier Clippy, strict fixture compilation/bundling,
+  format/layout for 1,006 Rust files and docs with 747 local references pass.
+  The native-only dependency graph remains engine-free at 465 packages.
+- `.github/workflows/typed-rpc.yml` adds a focused Linux CI gate using locked
+  fixtures, Rust 1.98.1, Node 24, GIL CPython 3.14 and protobuf 7.34.2. It checks
+  the qualifier, runs the 96-case matrix and retains report/log artifacts. YAML
+  parses locally; hosted execution is pending. Full-qualification flags remain
+  false. The earlier complete 600-case report below remains tied to `e27ba6dd`;
+  the expanded 14-suite `all` run was not repeated for these qualification-only
+  changes. Python cancellation suppression, resource/schema bounds, remaining
+  language/profile modes, packaging and performance qualification stay open.
 - Main's streaming-example commit `9f8de83e` (#118) is integrated at `7f6d66ed`.
   It adds examples, documentation and binary registrations; RPC source, SDK code
   and lockfile inputs are unchanged from the 600-case implementation below.
@@ -1070,12 +1113,12 @@ must preserve the existing recovery, crash, proof and receipt evidence.
 1. **P0: close remaining lifecycle and peer/admission provenance gaps.** Preserve
    the 96 parent-write/forged-category cases, 80 self/A-to-B-to-A cleanup cases
    and 128 proof-wait cases. Qualify broader call-local peer/admission evidence.
-   Keep the 48 owned Node worker/shutdown cases green. Next, terminate an owned
-   V8 isolate during active typed calls before and after sync: require joined
-   native children, expired original authority, zero bridge reservations and
-   receipt-safe recovery with a fresh runtime for local/signed-peer callers.
-   Then qualify Python cancellation suppression during typed calls and host
-   shutdown, including refusal to report clean shutdown while owned work remains.
+   Keep the 96 Node/V8 lifecycle cases green. Next, qualify Python cancellation
+   suppression during typed calls and host shutdown: require expired original
+   authority, refused late SDK work, zero owned reservations and receipt-safe
+   recovery. Never report clean shutdown while owned work remains. If a guest
+   cannot be joined cooperatively, qualify bounded supervisor cleanup and cold
+   recovery rather than relabeling incomplete embedded shutdown as success.
    Forced guest peer retries and broader nested-provider paths also remain.
    If the unexplained Node watchdog failure recurs, use
    its observer/heartbeat/input diagnostics to establish the actual cause before
