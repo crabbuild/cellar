@@ -7,6 +7,11 @@ The optional Python and JavaScript adapters use the same transport through
 invocation-scoped capabilities. TypeScript compiles to JavaScript and uses the
 same runtime and the `@cellar/sdk` declarations.
 
+Try the [runnable streaming examples](../examples/streaming/README.md) in Rust,
+Python, JavaScript or TypeScript. All backends expose the same SSE progress feed,
+worker echo socket and hibernating room with durable message counts, with a shared
+network client and restart check.
+
 ## What differs from celld
 
 [celld](https://github.com/denoland/celld) embeds V8 and runs Workers applications:

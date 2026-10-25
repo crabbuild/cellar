@@ -7,6 +7,10 @@ cells. Application handlers compile to native Rust. Recipes use the production
 SDK, routing, SQLite, alarms and output gates, with a private local store under
 `dev`.
 
+The [streaming walkthrough](streaming/README.md) implements the same SSE progress
+feed and worker/cell WebSocket echo in Rust, Python, JavaScript and TypeScript.
+It includes a Node client and a restart check for the durable message count.
+
 The [Axum counter](axum-counter/README.md) is a separate shared-builder example
 with native Cellar and Axum hosts, OpenAPI export and a generated client.
 The [Python example](python/README.md) uses an optional PyO3 adapter in a native
