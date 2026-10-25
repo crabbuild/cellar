@@ -155,7 +155,8 @@ also required rebuilding its ignored output before the wider run. Hosted CI,
 real provider accounts and actual Cloudflare package/image conformance remain
 separate qualification; none is claimed here.
 
-The new slice passes 611 Rust harness cases across the native core and affected
+The new slice passes 615 Rust harness cases after merging main's Raft image
+limit update (`7b38f670`) without conflicts. The checks run across the native core and affected
 container/guest/JS/Python libraries and selected integrations, plus standalone
 CPython streaming and isolated container programs. This includes five real-node
 Worker/constructor tests (Sandbox constructor in Node), 23 JS runtime tests,
@@ -164,7 +165,7 @@ the five runtime fixtures after clone-brand changes also passes. Node-only
 qualification passes 14 library cases and three runtime fixtures.
 
 Strict native/affected-crate all-target Clippy and Node-only Clippy pass. Rust
-formatting/layout checks cover 924 files. Published input tests (four), JS/build/
+formatting/layout checks cover 927 files. Published input tests (four), JS/build/
 type tests (eight), documentation/fixture links and whitespace checks pass. The
 native-only all-feature dependency guard still reports 455 packages with no JS
 engine. Hosted CI and all remaining SDK/image/cloud qualification remain separate.
