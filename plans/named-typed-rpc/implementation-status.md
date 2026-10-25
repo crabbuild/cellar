@@ -18,7 +18,7 @@ does not close schema, resource, packaging or performance requirements.
 | Priority | Remaining gap | Deliverable / completion evidence |
 | --- | --- | --- |
 | P0 — hosted verification | SQLite and Node observer follow-ups | The current source passes the full 696-case command, 64 standalone proof cases, 160 storage/replication/qualifier tests, both coverage tests, 31 JS library tests and four JS/Node integrations. Saved-report audits verify all 144 lifecycle cases and all 32 forced native retirements before RPC expiry. Observe the updated Linux gates; the prior broad SDK run still has an unexplained Python delivery deadline failure. |
-| P0 | Python deadline and regression timing | The latest normal-CPython hosted bridge times out waiting for a held queue consumer. Earlier streaming and typed-RPC fixtures have recorded 250 ms handler failures. The current 55-case deadline matrix passes, but does not resolve those separate regression failures. Establish causes at broker/native admission, codec/pump and storage/sync boundaries under original budgets; preserve phase-entry, late-work and cleanup assertions. |
+| P0 | Python deadline and regression timing | The held-consumer fixture now awaits its Python event directly under the original one-second limit. A controlled reporting-delay regression fails the old SQL-polling waiter and passes the new path; the complete bridge command passes. Observe current Linux SDK results; the historical CI cause lacks phase evidence. Earlier streaming and typed-RPC 250 ms handler failures still need causal regressions. |
 | P0 | Remaining lifecycle and peer/admission provenance | Preserve whole-call budgets, 55 deadline cases, 128 proof-wait cases, 80 cycle cases, 96 provenance cases and 96 Node/V8 lifecycle cases. The Python follow-up covers cooperative cancellation suppression, forced host cutoff and persistent suppression with process supervision. Next close forced guest peer retries and broader call-local peer/admission evidence. Retain incomplete-shutdown failures while guest work remains, expired authority, zero native reservations and receipt-safe recovery. |
 | P0 | Resource bounds and parser correctness | Global symbol/import validation and bounded expanded-name inventories are delivered. Generator input is now bounded before allocation and refuses non-files. Close remaining option/schema semantics; audit effective method/runtime/host/peer minima, retained binary copies and decoder allocations; demonstrate bounded queues, reservations and memory under saturation, flood and disconnect. |
 | P1 | Language/profile coverage | Exercise the portable Protobuf profile as real business calls across all local/remote pairs; qualify supported Python interpreter modes and remaining lifecycle/regression boundaries. |
@@ -73,6 +73,41 @@ Do not mark the goal complete from native unit tests or a subset of backend
 pairs. Preserve the full test matrix, failures and remaining work across turns.
 
 ## Current evidence
+
+- **Python queue admission now uses a direct condition wait.** Linked SDK
+  job `121210984291` on `27977f2f` fails the one-second held-consumer waiter,
+  with no surviving tasks/objects or bridge reservations in the final report.
+  Twenty fresh-process runs of the unchanged fixture pass locally; those
+  retries do not establish the historical CI cause. The old waiter repeatedly
+  calls `/state`, which performs two native SQL queries before reading the
+  holding flag. A controlled profile adds 1.1 seconds to that reporting route
+  while preserving the consumer and two-second handler budget. The original
+  waiter fails with the same admission-deadline error.
+- The replacement issues one `/holding` request that awaits the existing Python
+  event under the original one-second timeout. It performs no SQL polling.
+  The normal and slow-reporting profiles pass, including the original live
+  cross-context refusal, release, expired-context refusal, exact delivery and
+  business-effect counts, restart and zero-work checks. Both profiles run in
+  the normal bridge executable. Failure-only snapshots retain native bridge
+  counters, interpreter observation age and bounded read-only queue/lease/
+  alarm/wake state without calling Python or submitting SDK SQL. The original
+  hosted trace lacks these observations; its exact cause remains unproven.
+- The exact broader bridge command passes in 333 seconds, alongside all-target
+  Python Clippy, with GIL CPython 3.14.6 and Rust 1.98.1:
+
+  ```sh
+  cargo test --locked -p cellar-python --features embed --test bridge -- --test-threads=1
+  cargo clippy --locked -p cellar-python --features embed --all-targets -- -D warnings
+  ```
+
+  `.cellar/rpc/python-delivery-final-status.json` records the stages; raw logs
+  use `/tmp/cellar-python-delivery-`. The controlled red log has SHA-256
+  `4c5f90f0b0a2e5e26d6121a767da3592ca7c0cf0f1fee875d019f6256e7352f5`; the full
+  bridge log has SHA-256
+  `f031522889142fee1c58804d08592b1b860a1155f8928d42963b27a22eaf6d2e`.
+  This is a queue-test-only follow-up to `6b532bf8`; production bridge/core
+  code and its 696-case report below remain unchanged. Updated Linux SDK
+  results and the earlier streaming/typed-RPC timing failures remain open.
 
 - **The SQLite and Node follow-ups pass the complete local command.** The
   frozen executable exits 0 for all **696 cases** in 1,747 seconds, after all
@@ -1565,8 +1600,10 @@ correctness and delivery boundaries pass. Deliver these slices in order; each sl
 must preserve the existing recovery, crash, proof and receipt evidence.
 
 1. **P0: resolve remaining Python delivery/streaming/RPC timing failures.**
-   Reproduce the held-consumer admission failure from SDK run `40207338981`
-   and the earlier standalone streaming/typed-RPC 250 ms handler failures.
+   Observe the direct-admission waiter and slow-reporting regression on Linux.
+   The controlled failure proves the old waiter depends on reporting latency;
+   it does not establish the original SDK run's exact cause. Reproduce the
+   earlier standalone streaming/typed-RPC 250 ms handler failures.
    Observe broker/native admission, Python wakeup/pump progress and storage/sync
    timing under the original budgets. Add a regression at each demonstrated
    cause and rerun the original commands; a successful retry alone is not a fix.
