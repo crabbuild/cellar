@@ -1114,6 +1114,63 @@ not complete inventory, archive coverage, physical-work joins or terminal
 Evacuated/Removed receipts. Capacity activation, automatic placement, the
 reconciler, operator workflows, scaling and deployed qualification remain open.
 
+## FO-03 progress: coherent publication cuts
+
+Source `ef6cca13d15864e25235f66c5f0fe04f84447c54` adds opaque `FleetPublishedCut` and
+`FleetPublishedImage` values to authenticated remote quorum observations. A
+single cache read captures the durable apply marker, exact published image,
+configuration and physical member. A pending publication yields no cut; a cut
+with no image proves canonical empty state. Ordinary status inspection cannot
+transport this stronger statement.
+
+Fixed-cut comparison covers configuration-only progress without requiring a
+new SQL image. Intact restore may publish the same image at a later protocol-only
+position. Equal image state can cover that alias; changed data must follow the
+entire minimum applied cut. Different catalog/history or membership revisions
+refuse comparison. A name-only snapshot handoff remains pending until the exact
+durable and published markers match.
+
+The final source matrix passed **376 native cases across 13 complete targets**,
+including 74 enrollment, 12 catalog and 25 permit/import cases. Another **145 Raft
+library tests and four startup-confirmation cases passed**. Five directly ignored
+process helpers execute through passing parents. Affected-target/lib Clippy with
+warnings denied, format/layout over 965 Rust files, native dependencies,
+documentation, source preflight and all 10 plan-validator tests passed. The plan
+retains 183 required cases and 71 reviewed source anchors.
+
+Two new native cases verify configuration-only permit fencing, all three
+survivors' coverage, full intact-cluster restart and later S3 writes, plus a held
+real private-SQL callback whose uncommitted image never enters the cut. After
+release, S3 acknowledgement, publication position and the actual native SQL
+result agree. Four new cut units and one wire unit cover prefix conflicts,
+canonical empty versus pending, exact markers, restore aliases, strict bounded
+encoding and ordinary inspection's inability to supply a cut.
+
+The first private-SQL fixture waited for sequence 1, but the existing gate holds
+sequence 2. It timed out before reaching the observation. The corrected fixture
+performs its initial sequence-1 write and then holds sequence 2. No production
+guard, assertion or deadline was weakened. Earlier startup/readiness failures
+remain unexplained; this increment claims no startup fix.
+
+Sixteen changed Rust files stayed byte-identical through final qualification and
+match the committed source. The **partial** record
+`implementation/fo03/published-cut-boundary.json` under ignored
+`.cellar/raft-perf/fleet-operations/` retains source/log/executable hashes and the
+failed initial fixture log. Mutable build-cache hashes do not archive executable
+bytes. No raw files are tracked under `plans/multi-raft/evidence/`.
+
+The experimental protocol now ends in `/fleet-quorum-1/fleet-cuts-1`; use fresh
+fleet/data prefixes, namespaces and matching binaries. Numeric markers remain 1,
+with no compatibility reader or migration.
+
+FO-03 remains **IN_PROGRESS**. These historical cuts certify neither current
+health nor archive payload/replay coverage. Canonical-empty archive proof and
+the actual terminal verifier remain required; the missing mandatory case is
+still `fleet_enrollment_incomplete_import` at removal certification. Capacity
+readiness, automatic placement/reconciliation, maintenance/operator commands,
+scaling and deployed RustFS/Colima/performance/soak gates remain open. Fleet
+automation stays default-off, with no performance improvement claim.
+
 ## Prioritized remaining delivery
 
 The append-only namespace registry, complete inventory read, native retired-binding
