@@ -34,9 +34,9 @@ ownership, epoch, operation/byte budgets and durability/output gates.
 
 | Fixture path | Actual package behavior to exercise | Current execution evidence |
 | --- | --- | --- |
-| Container `/container/<name>` and `/singleton` | `getContainer`, class construction, `onStart` / `onStop` / `onError`, port 8080 fetch | Inputs bundle; not executed |
-| Container `/lb` | `getRandom` namespace routing to three named objects | Inputs bundle; not executed |
-| Container `sleepAfter = "2m"` | SQL schedule table, activity renewal, alarm delivery, stop and wake | Constructor SQL requirement audited; no package lifecycle test yet |
+| Container `/container/<name>` and `/singleton` | `getContainer`, class construction, `onStart` / `onStop` / `onError`, port 8080 fetch | Node native module test passes against an engine protocol peer; image execution remains pending |
+| Container `/lb` | `getRandom` namespace routing to three named objects | Node native module test passes against an engine protocol peer; image execution remains pending |
+| Container `sleepAfter = "2m"` | SQL schedule table, activity renewal, alarm delivery, stop and wake | Constructor/scheduling and explicit start/stop peer tests pass; two-minute sleep/wake qualification remains pending |
 | Sandbox `/exec` | `getSandbox`, direct RPC, control-server startup, shell command result | Inputs bundle; no package/image command run yet |
 | Sandbox `/write` | Real SDK `writeFile` / `readFile` and image filesystem | Inputs bundle; no package/image file round trip yet |
 | Sandbox `/serve` | Real `startProcess` with a persistent Node HTTP process | Inputs bundle; no background process lifetime qualification yet |

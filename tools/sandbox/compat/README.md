@@ -66,6 +66,9 @@ and submitted startup failures without replay. The Node port facade adds bounded
 buffered HTTP with native cancellation; embedded web globals, streaming/upgrades
 and callback-owned queued lifecycle remain incomplete. These tests qualify
 those paths only. The
-unchanged upstream applications, actual image, HTTP/RPC, monitor hooks and cloud
-providers remain required. The source inventory continues to report
+unchanged Container module now runs in the separate Node `workers_module`
+target: named/singleton/random routing, separate native container ownership,
+delayed destroy acknowledgement and explicit cleanup use an engine protocol
+peer. Actual image execution, complete sleep/wake/hooks, Sandbox HTTP/RPC and
+cloud providers remain required. The source inventory continues to report
 `conformance: not_run` for that complete baseline.

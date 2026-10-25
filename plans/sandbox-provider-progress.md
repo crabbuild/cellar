@@ -14,8 +14,8 @@ does not narrow that objective or turn fixture passes into full compatibility.
 | Slice | Current evidence | Remaining work / completion evidence |
 | --- | --- | --- |
 | SP-01 | Exact celld reference commit/files/license, npm packages/lock/integrities, imported runtime bytes and immutable Sandbox image manifest are in `tools/sandbox/compat`; drift/refusal tests pass; API/fixture inventory lists native mappings and explicit gaps | Input inventory implemented; runtime conformance remains in SP-02–SP-04 and later profiles |
-| SP-02 | Native-backed DO SQL/KV/clone facade, activation-bound authority, object identity, value-only namespace/cell RPC, constructor admission, native input gates/reset, sync/async transactions and retained event/background drivers execute in Node/V8; actual published constructors are exercised | Complete module/bootstrap/web globals, automatic activation-owned environment bindings, property/target RPC and lifetimes, full versioned lifetime/deadline qualification and profile/version admission; retain native-only dependency boundary |
-| SP-03 | Actual published `@cloudflare/containers@0.3.7` constructor, state and SQL scheduling run in both engines; root-event queued lifecycle and run-bound monitors; Node runs published readiness with native HTTP ports, healthy state and start/stop hooks | Embedded web globals, callback-owned queue drainage, unchanged app, routing, sleep/wake, streamed/upgrade port behavior and real-image cleanup |
+| SP-02 | Native-backed DO SQL/KV/clone facade, activation-bound authority, object identity, value-only namespace/cell RPC, constructor admission, native input gates/reset, sync/async transactions and retained event/background drivers execute in Node/V8; actual published constructors are exercised; Node module HTTP dispatch, namespace bindings and activation-owned env execute against native cells | Complete loader/bootstrap, embedded web globals, other binding kinds, property/target RPC and lifetimes, full versioned lifetime/deadline qualification and profile/version admission; retain native-only dependency boundary |
+| SP-03 | Actual published `@cloudflare/containers@0.3.7` constructor, state and SQL scheduling run in both engines; root-event queued lifecycle and run-bound monitors; Node runs published readiness with native HTTP ports, healthy state and start/stop hooks; unchanged pinned module named/singleton/random routes execute against the engine peer | Embedded web globals, callback-owned queue drainage, sleep/wake, complete hooks, streamed/upgrade port behavior and real-image cleanup |
 | SP-04 | Actual `@cloudflare/sandbox@0.12.9` constructor/configuration and metadata recovery run in Node; matching upstream app/Dockerfile and `linux/amd64` image digest are pinned | Run the unchanged app and SDK/image end to end over HTTP and RPC; files, streamed exec, background records, previews, teardown and failure cases |
 | SP-05 | Provider environment/operation/limit discovery is implemented in Rust, Python, JS and TS; native and restricted provider dispatch tests cover it | Portable files and richer operations, named configuration, durable remote bindings, fencing, expiry/reconnect, loss/unknown outcomes and orphan reconciliation |
 | SP-06 | No Vercel/E2B implementation yet | Real shared provider implementations, fixtures and real-account conformance, explicit Cloudflare profile compatibility/gaps |
@@ -442,3 +442,44 @@ budget under host build load. It passed an isolated rerun and the later complete
 transport rerun with all deadlines and assertions unchanged. These are local
 results. Full Workers/SDK/image/provider and hosted CI qualification remain open;
 the complete SP-01–SP-10 objective stays active.
+
+### Node module HTTP and activation-owned environment
+
+`workersApplication` now adapts an application's default fetch handler and
+exported DO classes without rewriting their source. The native host separately
+declares each class, namespace, event kind, variable and container image. Node
+uses standard Request/Response with bounded buffered conversion, separate
+Set-Cookie headers, native namespace routing and per-operation cancellation.
+Embedded V8 explicitly refuses this module HTTP profile before host startup
+because its web bootstrap remains absent.
+
+Module-provided DO environment namespaces and saved stubs resolve the current
+event of the same activation; another object's continuation is refused. Native
+tests cover named/opaque IDs, binary HTTP, variables, restart recovery and a
+write whose oversized reply fails while the earlier effect remains observable.
+The public event-owned namespace helper retains its original lifetime.
+
+The actual pinned celld Container module with Containers 0.3.7 now executes its
+named, singleton and random routes against native cells and the engine protocol
+peer. Four distinct objects own four native container records. Cleanup uses
+the package's inherited destroy method, waits for delayed engine acknowledgement
+and requires zero remaining containers plus joined native shutdown. Full monitor
+wrapper promises are retained under the original event's bounded job quota.
+This is peer evidence, not real-image conformance or complete package lifecycle.
+
+The web extension slice supplies ordinary `Response.webSocket: null` and a
+byte-only IdentityTransformStream with BYOB reads, backpressure, cancellation
+and preserved caller buffers. JavaScript tests exercise those behaviors and
+HTTP size/header bounds; this does not implement upgrade transport or streamed
+HTTP across the native bridge. The complete pinned baseline remains `not_run`.
+
+Module follow-up validation on Rust 1.98.1: 34 JS runtime unit tests, 16 Workers
+integrations, 2 portable container integrations, 2 typed RPC integrations and
+2 module integrations pass. The module target passes again after its test-helper
+readability refactor. Provider/guest checks pass (8 + 16 unit tests and 1 native
+provider contract), as do the isolated CPython container scenario and 2 provider
+documentation tests. All 19 JavaScript build/type/package/HTTP/stream tests and
+4 pinned-input tests pass; package dry-run includes all 18 declared files.
+Strict affected-crate all-target Clippy, Rust format/layout (1047 sources), JS
+formatting (48 owned sources), documentation references and the 466-package
+native-only engine guard pass. No live cloud-provider result is claimed.

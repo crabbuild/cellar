@@ -109,6 +109,18 @@ boundary; Python returns `bytes`, and JS/TS returns `Uint8Array`.
 
 ### 3. Choose the operation you need
 
+```mermaid
+flowchart TD
+    Task[What does the application need?] --> State[Manage container lifetime]
+    Task --> Command[Run a command]
+    Task --> Service[Call a service]
+    State --> Lifecycle[running / start / monitor / destroy]
+    Command --> Small[Bounded result: exec_output / execOutput]
+    Command --> Interactive[Interactive streams: exec]
+    Service --> HTTP[HTTP: port.fetch]
+    Service --> Socket[TCP or WebSocket: port.connect variants]
+```
+
 | Task | Python | JavaScript / TypeScript |
 | --- | --- | --- |
 | Discover operations and limits | `await c.capabilities()` | `await c.capabilities()` |
@@ -190,9 +202,11 @@ uncertain startup needs explicit reconciliation or cleanup.
 
 The Workers path requires `Source::workers_lifetimes()` and both provider opt-ins.
 It currently refuses queued lifecycle calls inside transaction and
-`blockConcurrencyWhile` callbacks before effects. Port forwarding, unchanged
-published applications and real-image conformance remain pending; see the
-[Cloudflare execution evidence](../../packages/cellar-cloudflare/README.md#current-execution-evidence).
+`blockConcurrencyWhile` callbacks before effects. Node supports buffered port
+forwarding, and the unchanged pinned Container example runs against an engine
+protocol peer. Streaming/upgrades, complete package lifecycle and real-image
+conformance remain pending; see the
+[Cloudflare execution evidence](../../packages/cellar-cloudflare/README.md#execution-evidence).
 
 ## Understand lifetime and failure outcomes
 

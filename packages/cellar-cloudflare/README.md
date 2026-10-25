@@ -2,196 +2,200 @@
 
 # Optional Cloudflare compatibility runtime
 
-This package is the Workers/DO runtime implementation under development for the
-[sandbox delivery plan](../../plans/sandbox-provider-compatibility.md). It is
-not yet a complete Workers profile or a runnable replacement for Wrangler.
-The [implementation ledger](../../plans/sandbox-provider-progress.md) tracks
-required runtime, SDK/image and provider acceptance separately.
+Run selected Workers and Durable Object APIs above Cellar's native ownership,
+SQLite and durability boundaries. This package is **experimental**; complete
+Workers profiles, published Sandbox/image execution and remote providers remain
+under development in the [delivery plan](../../plans/sandbox-provider-compatibility.md).
 
-The current slice implements an activation-owned DO storage facade and
-constructor admission above the original native Cellar invocation:
+[Module example](#adapt-a-workers-module) · [API coverage](#api-coverage) ·
+[Lifetime](#which-context-can-be-retained) · [Tests](#execution-evidence)
 
-- Real lazy SQLite cursors: `exec`, iteration/raw iteration, `toArray`, `one`,
-  column names, read/write counters and database size. Statements and handles
-  stay in native SQLite. Cursors are bounded and owned by their opening event;
-  retained Rust column/row/error payloads share a byte quota. This excludes
-  SQLite VM/page-cache allocations and is not a process memory limit.
-- Synchronous KV and async KV wrappers, multi-key operations, lists, alarm
-  reads/writes and native storage synchronization. Stored values use Cellar's
-  engine-free structured-clone codec; Node/V8 serialize only inside the optional
-  language runtime. Cycles, binary buffers, maps, dates and bigint retain value
-  semantics. Transfer/delegate objects and stored RPC targets require their own
-  capabilities and fail explicitly.
-- A state facade that can be retained across events of one native activation.
-  Another cell, cancelled event or retired activation cannot borrow its storage
-  authority. Ordinary saved Cellar contexts remain invocation-owned.
-- Native object identity and optional random-values/UUID primitives for V8
-  scheduling paths. Crypto resolves the current event, with integer-array brand
-  checks and the 64 KiB random-values quota; full Web Crypto and bootstrap
-  globals remain separate work.
-- Constructor `blockConcurrencyWhile` admission: await initialization before
-  invoking application methods, acquire the real native input gate and reset
-  the actual activation on callback failure. Callbacks remain attached to their
-  original native event.
-- Async `storage.transaction`: native savepoints, nested transactions, explicit
-  rollback and callback return/throw values. SQL and KV share the same native
-  transaction view across Node/V8 awaits. Unrelated promises cannot borrow it;
-  escaped transaction views and closed callback continuations refuse effects.
-  Completion waits for the native commit/rollback, preserving output gates.
-- `storage.transactionSync`: native synchronous SQL/KV transactions, nested
-  savepoints and inline return/throw values. Its bounded callback loop accepts
-  only synchronous calls from the current callback, refusing async SDK effects
-  and native Promise results. The SQLite transaction stays on the original
-  native host thread until commit/rollback; no writes are replayed from JS.
-- `Source::workers_lifetimes()` opts the native host into retained event drivers.
-  `ctx.waitUntil(promise)`, async transaction callbacks and outstanding SDK calls
-  retain their original invocation after a response or client disconnect. HTTP
-  and value-only RPC results publish before background drainage; native deadlines,
-  retirement and joined shutdown still govern that work. Explicit `waitUntil`
-  registrations are bounded by the host's batch limit. This switch
-  selects lifetime behavior, not a complete versioned Workers API profile.
-  A once-only response publication has a reserved slot and does not consume the
-  ordinary SDK operation/pending budgets; ordinary effects remain bounded.
-- Native namespace ID derivation/validation and event-owned stubs for value-only
-  cell RPC. Actual native `Invocation::CellRpc` / `Output::Rpc` carry clone graphs;
-  calls retain native routing, ownership, durability and cancellation behavior.
-  Prototype methods (including inherited methods) are callable; instance fields,
-  arrow properties, getters, system handlers and base-object methods are refused.
-  Remote thrown values and error properties/causes survive; error stacks are
-  removed. Encoding/size failures after execution remain unknown outcomes.
-- TypeScript declarations for this implemented slice, including typed method
-  arguments/results and storage. Synchronous callbacks returning Promises are
-  refused by the declarations as well as at runtime.
+## How it works
 
-`activateDurableObject` owns activation storage and exposes `rpc(method, args)`
-for prototype-method dispatch. The `workers` entry supplies the imported base classes and
-an explicitly disabled tracing export used by the pinned Sandbox fallback.
-Defining `RpcTarget` does not implement RPC transport or remote object lifetime.
-
-The complete Worker module loader, HTTP/web globals, automatic activation-owned
-namespace environment bindings, property RPC, RPC targets,
-PITR, full lifetime/profile deadline qualification, abort/reconstruction,
-container lifecycle and Sandbox control-server integration remain required.
-Unavailable APIs throw; they must not silently succeed or lose transaction,
-network policy or cancellation guarantees. Current storage list/batch operations
-are bounded by the host batch limit, and cloned values/results by the host body
-limit. Keys must be nonempty, well-formed Unicode strings up to 2048 UTF-8 bytes.
-Direct access to `__sys_` keys is refused and lists omit that range without
-charging it against the visible result limit. Native `deleteAll` semantics apply
-to application SQL/KV state; host/runtime metadata belongs in protected system
-tables. This is an explicit partial runtime
-slice, not a full Cloudflare SDK conformance claim.
-
-## Current execution evidence
-
-`node tools/sandbox/compat/build.mjs` verifies the pinned upstream input inventory
-and builds genuine SDK constructor/storage fixtures. `cargo test --locked -p
-cellar-javascript --features embed,node --test workers` executes them through real
-native nodes, temporary cell databases and configured provider observation. The
-container view uses `durableObjectContainer(ctx)`: its synchronous `running`
-getter reads the native provider on every access under the current event's
-activation authority. Providers must opt in with `synchronous_running`; an
-async-only provider refuses instead of returning a guessed or cached state.
-The facade also supplies queued lifecycle controls for root events with
-`Source::workers_lifetimes()` enabled:
-
-| API | Current behavior |
-| --- | --- |
-| `start(options)` | Synchronous validation and bounded native admission; returns `void` before provider I/O |
-| `signal(signal)` | Admits an ordered control and returns `void` |
-| `monitor()` | Returns `Promise<void>`; nonzero exits reject with `exitCode` |
-| `destroy(reason?)` | Acknowledges native cleanup; monitors resolve normally or reject with the explicit reason |
-| `getTcpPort(port).fetch(input, init?)` | Bounded buffered HTTP using standard Request/Response globals; manual redirects and native abort propagation |
-
-Providers must declare `queued_lifecycle` and implement effect-free preflight.
-Native tickets are invocation-owned, one-shot and bounded by both command count
-and aggregate input bytes. Startup does not occupy the ordinary JS storage
-mutation slot; provider effects still await native durability/output gates.
-Uncertain failures are retained without automatic replay. Explicit destroy can
-clean up after failed startup. Queued calls inside native transactions and
-`blockConcurrencyWhile` callbacks currently refuse before effects.
-
-The fixtures exercise startup/teardown against the engine protocol peer,
-including a blocked startup, storage progress, monitor outcomes, restart and a
-submitted startup failure. They do not execute an actual container image or
-certify a full SDK profile. Buffered HTTP is available in Node's web runtime;
-embedded V8 explicitly refuses until its web globals are installed. Streaming
-responses, TCP streams, upgrades, callback-owned lifecycle drainage,
-published class hooks and full stopped-state/lifetime behavior remain required.
-
-The storage fixture exercises structured graphs, SQL blobs/numeric conversion,
-private data boundaries, cursor/byte quotas, failed admission, stale contexts,
-idled/replaced activations and fresh-runtime recovery. Native gate fixtures
-observe the Rust cell callback boundary while another request is queued, then
-verify real activation reconstruction and failed-constructor refusal. Native
-SDK tests also verify escaped scope tokens release the gate and refuse reuse.
-Synchronous tests cover SQL/KV rollback together, nested sync/async savepoints,
-return identity, thrown `undefined`, masked Promise rejection, refused async
-mutations, escaped continuations and the nesting bound. Runaway callbacks also
-prove refused output, joined shutdown and rollback after a fresh-runtime restart.
-
-The bridge uses an opaque native callback scope, installed only while each SDK
-future is polled in the original invocation/facet. Node AsyncLocalStorage and
-V8 continuation metadata carry its token across awaits. At most the configured
-batch limit of callback boundaries can be retained by one invocation. Expired
-native tokens hold weak block references, so retaining one cannot retain the
-input gate. Callback completion control does not occupy a JS mutation slot;
-native transaction queues/guards serialize effects and result loss stays unknown.
-
-Ordinary Cellar handlers still close the bridge on completion/cancellation and
-require awaited SDK work. Compatibility hosts opt into `Source::workers_lifetimes()`
-to retain a native-owned driver. It tracks explicit background promises, whole
-transaction callbacks and outstanding SDK calls, including repeated registrations
-by completing jobs. Before final revocation, each backend observes a full
-microtask checkpoint and rechecks owned jobs/native operations, so derived I/O
-continuations can register further work. Background rejection is reported through native work without
-replacing an already published response. Cancelled/retired drivers remove private
-JS job registries and revoke effects; they cannot extend native authority.
-
-Full Cloudflare compatibility dates/flags, eviction/deadline profiles, timers,
-RPC targets, container monitoring and the complete published package/image paths
-still require qualification. Native-only hosts remain engine-free.
-
-## Native value-only RPC integration
-
-The Rust source must declare `EventKind::CellRpc` for each participating cell.
-The Cellar handler receives `{ method, args }` with decoded arguments, and its
-return value is encoded by the optional runtime. A wrapper can reuse the DO
-owner across native events:
-
-```js
-import { activateDurableObject, durableObjectNamespace } from "@cellar/cloudflare";
-import { DurableObject } from "@cellar/cloudflare/workers";
-
-class Counter extends DurableObject {
-  async increment(by) {
-    const next = (await this.ctx.storage.get("count") ?? 0) + by;
-    await this.ctx.storage.put("count", next);
-    return next;
-  }
-}
-class CounterCell {
-  cell_rpc({ method, args }, context) {
-    this.owner ??= activateDurableObject(Counter, context);
-    return this.owner.rpc(method, args);
-  }
-}
-export const cells = { Counter: CounterCell };
-
-// Inside a Cellar handler, with this invocation's native context:
-export async function increment(context) {
-  return durableObjectNamespace(context, "COUNTERS").getByName("alice").increment(1);
-}
+```mermaid
+flowchart TD
+    App[Worker module and published packages] --> Facade[Optional JS compatibility facade]
+    Facade --> Bridge[Bounded native invocation bridge]
+    Bridge --> Storage[Cell-owned SQLite and alarms]
+    Bridge --> Routing[Native object routing and RPC]
+    Bridge --> Provider[Selected container provider]
+    Provider --> Engine[Docker / compatible Podman]
 ```
 
-The namespace facade and its stubs belong to the supplied event; retaining one
-does not grant a later event authority. IDs preserve UTF-16 naming inputs and
-are validated against the configured native namespace. Placement/jurisdiction
-options, HTTP `fetch`, property access, promise pipelining, cross-event stub
-failure state and returned `RpcTarget` capabilities need further implementation.
-The bridge's operation/value quotas apply in addition to clone graph/body
-limits. The native `Stub::call_with_limits` bounds successful and error replies
-before decoding; a reply that cannot be represented may follow committed effects.
-The RPC fixtures cover native JSON interoperability, restart recovery, namespace
-isolation, cycles/binary/bigint/undefined and visibility/error boundaries in
-both Node and embedded V8. This is not full Workers RPC conformance.
+The JS runtime serializes values and runs application callbacks. Native Cellar
+executes SDK effects in their original invocation, including ownership/epoch
+checks and durability/output gates. Native-only hosts remain engine-free.
+
+## Adapt a Workers module
+
+Keep application exports in their own module. A small Cellar entry declares the
+bindings and classes that the native host makes available:
+
+```js
+// cellar-entry.js
+import * as worker from "./worker.js";
+import { workersApplication } from "@cellar/cloudflare";
+
+const app = workersApplication(worker, {
+  namespaces: { COUNTERS: "Counter" },
+  variables: ["GREETING"],
+});
+export const { cells, fetch } = app;
+```
+
+```js
+// worker.js
+import { DurableObject } from "cloudflare:workers";
+
+export class Counter extends DurableObject {
+  async fetch() {
+    const count = (await this.ctx.storage.get("count") ?? 0) + 1;
+    await this.ctx.storage.put("count", count);
+    return Response.json({ greeting: this.env.GREETING, count });
+  }
+}
+
+export default {
+  fetch(request, env) {
+    return env.COUNTERS.getByName("alice").fetch(request);
+  },
+};
+```
+
+The current fixture bundler maps `cloudflare:workers` to this package's `workers`
+entry. The wrapper requires standard web globals at startup: Node supplies them;
+embedded V8 refuses this HTTP module profile before the host starts.
+
+| Native host declaration | Required value for this example |
+| --- | --- |
+| Source mode | `Source::module().workers_lifetimes()` |
+| Root events | `EventKind::Fetch` |
+| Class registration | `Counter` |
+| Class events | `Fetch`, `Alarm`, `CellRpc`, as used by the application |
+| Namespace binding | `COUNTERS` → `Counter` |
+| Variable | `GREETING` configured in native host variables |
+
+The wrapper declares adapters, not host permissions. Native configuration must
+independently register matching classes, namespaces, variables and container
+images. See the [native module tests](../../crates/cellar-javascript/tests/workers_module.rs)
+for complete host wiring.
+
+For a published Container class, add its exported class name to `containers`:
+
+```js
+const app = workersApplication(worker, {
+  namespaces: { MY_CONTAINER: "MyContainer" },
+  containers: ["MyContainer"],
+});
+```
+
+## API coverage
+
+| Surface | Implemented slice | Still required |
+| --- | --- | --- |
+| Module dispatch | Default `fetch`; exported DO `fetch`, prototype RPC and `alarm`; named namespace and variable bindings | Complete loader, compatibility dates/flags and other binding kinds |
+| HTTP | Node Request/Response conversion, bounded binary bodies, separate Set-Cookie headers, manual redirects, abortable namespace/port calls | Streaming bridge, WebSocket upgrades and embedded web bootstrap |
+| Streams | Byte-only `IdentityTransformStream`, BYOB reads, backpressure and cancellation; ordinary responses expose `webSocket: null` | Full Workers stream/upgrade conformance |
+| SQL | Real lazy SQLite cursors, iteration/raw iteration, `toArray`, `one`, column names, counters and database size | Broader SQLite/runtime profile qualification |
+| KV | Sync `storage.kv`, async KV, batches, lists, alarm access and `sync` | PITR and full profile limits |
+| Values | Native structured clone: cycles, binary, maps/sets, dates, bigint, undefined and errors | Transfer/delegate capabilities and persisted RPC targets |
+| Constructor admission | `blockConcurrencyWhile`, real native input gate, activation reset on failure | Full abort/reconstruction qualification |
+| Transactions | Native sync/async savepoints, nesting, rollback and callback return/throw identity | Full lifetime/deadline profile qualification |
+| Object RPC | Native IDs/routing; inherited public prototype methods; clone values and remote error properties | Property RPC, pipelining, returned `RpcTarget` capabilities and cross-event failure state |
+| Event lifetime | Retained native drivers for `waitUntil`, transaction callbacks, outstanding SDK work and complete container monitors | Complete compatibility eviction/deadline policy |
+
+`WorkerEntrypoint` and `RpcTarget` base classes are importable. Defining these
+classes does not implement remote target transport. The tracing export used by
+the pinned Sandbox fallback is explicitly disabled.
+
+The stream extension follows the documented byte-forwarding and BYOB contract
+for [IdentityTransformStream](https://developers.cloudflare.com/workers/runtime-apis/streams/transformstream/).
+This API slice does not establish full Workers stream conformance.
+
+### Container API
+
+| API | Behavior |
+| --- | --- |
+| `running` | Synchronous authoritative provider observation under the current event |
+| `start(options)` | Validates and admits a bounded native ticket; returns `void` before provider I/O |
+| `signal(signal)` | Admits an ordered control; returns `void` |
+| `monitor()` | `Promise<void>`; nonzero exits reject with `exitCode` |
+| `destroy(reason?)` | Acknowledges cleanup; monitors resolve or receive the explicit reason |
+| `getTcpPort(port).fetch(input, init?)` | Bounded buffered HTTP after admitted startup; native cancellation |
+
+Providers must opt into `synchronous_running` and `queued_lifecycle`. Native
+admission permits at most 64 tickets, with aggregate JSON inputs bounded by the
+host body limit. Tickets are invocation-owned and consumed once. Queued lifecycle
+inside transactions and `blockConcurrencyWhile` currently refuses before effects.
+
+## Which context can be retained?
+
+| Value | Valid lifetime |
+| --- | --- |
+| `activateDurableObject` owner, its storage and module-provided `env` | Same live native activation; each call resolves that continuation's current event |
+| `durableObjectNamespace(context, binding)` and its stubs | Supplied event only |
+| Namespace/stub saved from module-provided DO `env` | Same activation; cannot be borrowed by another object |
+| SQL cursor | Opening event, with bounded handles and retained payload bytes |
+| Ordinary Cellar context | Original invocation only |
+
+```mermaid
+sequenceDiagram
+    participant App as Application
+    participant Driver as Native event driver
+    participant Work as Background work
+    App->>Driver: publish HTTP / value RPC result once
+    Driver-->>App: response may finish
+    Driver->>Work: retain original event for owned jobs
+    Work-->>Driver: settle / fail / cancel
+    Driver->>Driver: microtask checkpoint and recheck
+    Driver->>Driver: revoke when drained or native deadline ends
+```
+
+`workers_lifetimes()` keeps authority attached to original native work after a
+response or client disconnect. It never extends native deadlines or permits a
+retired activation to submit effects. Explicit jobs and callback boundaries
+share bounded admission; joined shutdown waits for owned work.
+
+## Bounds and failure behavior
+
+| Boundary | Contract |
+| --- | --- |
+| HTTP bodies / clone values | Host body limit; oversize streamed input is cancelled before dispatch |
+| HTTP headers | At most 128 fields and 32 KiB of UTF-8 names/values |
+| Storage batches / callbacks / background registration | Host batch limit |
+| KV keys | Nonempty, well-formed Unicode; at most 2048 UTF-8 bytes |
+| Private keys | Direct `__sys_` access refused; lists omit the reserved range |
+| Lost or unrepresentable response after execution | Outcome may be unknown; earlier effects may have committed |
+| Cancel after native submission | Stops waiting through native acknowledgement; does not prove remote rollback |
+
+SQL retained-payload quotas exclude SQLite VM/page-cache allocations; they are
+not process RSS limits. Unsupported capabilities throw explicitly. Native
+transaction completion waits for commit/rollback acknowledgement; a lost response
+cannot be reported as successful rollback.
+
+## Execution evidence
+
+| Test boundary | What it proves |
+| --- | --- |
+| Node and V8 native Workers fixtures | Real SQLite/clone storage, native input gates, sync/async transactions, constructor refusal, value RPC, retained events and restart recovery |
+| Node module fixture | HTTP object routing by named/opaque ID, activation-owned env, binary/cookie preservation, cross-object refusal and effects surviving an oversized response |
+| Unchanged celld Container module + Containers 0.3.7 | Named, singleton and random routing through native cells and an engine protocol peer; separate container ownership and explicit joined cleanup |
+| Published constructor fixtures | Containers 0.3.7 construction/scheduling in both engines; Sandbox 0.12.9 configuration/metadata recovery in Node |
+| Pinned Sandbox image startup | Image boots and answers its own `/api/ping`; published SDK calls through Cellar remain pending |
+
+The engine peer is a test server, not a running container image. The complete
+published SDK/image baseline retains `conformance: not_run` in the input manifest.
+Sleep/wake, complete hooks/timeouts, streaming/upgrades, Sandbox exec/files/
+processes/previews and hosted provider qualification remain required.
+
+```sh
+node tools/sandbox/compat/build.mjs
+npm test --prefix tools/javascript
+cargo test --locked -p cellar-javascript --features embed,node \
+  --test workers --test workers_module
+```
+
+See the [API inventory](../../tools/sandbox/compat/api-inventory.md),
+[provider guide](../../crates/cellar-container/README.md) and
+[implementation ledger](../../plans/sandbox-provider-progress.md) for precise
+requirements and remaining work.
