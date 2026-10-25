@@ -111,7 +111,7 @@ impl RaftTransport {
             return Err(TransportError::Identity.into());
         }
         let set_bytes = archive.read_memory_bound();
-        if set_bytes > crate::raft::archive::MAX_RECOVERY_READ_BYTES {
+        if set_bytes > state.options.max_seed_recovery_bytes {
             return Err(TransportError::Limit.into());
         }
         let reservation = Arc::new(

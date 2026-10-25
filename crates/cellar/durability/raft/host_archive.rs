@@ -179,7 +179,7 @@ impl Owner {
                 let limits = GenerationLimits {
                     apply,
                     max_generations: 4,
-                    max_bytes: 512 * 1024 * 1024,
+                    max_bytes: (512 * 1024 * 1024).max(4 * apply.decode.max_image_bytes),
                 };
                 let images =
                     GenerationStore::open_observed(directory, filesystem, limits, &accounting)
