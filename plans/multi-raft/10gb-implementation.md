@@ -193,6 +193,22 @@ command without another callback. Both small peer/S3-route drills pass with thes
 assertions (24.38 seconds total). The strengthened full-size runs remain pending;
 this small-fixture result does not qualify 10 GB restart serving or fast recovery.
 
+The strengthened native RustFS run at `f18f1c11` failed on the first linearizable
+read with `VersionUnavailable`. It reached a 9,999,998,976-byte image and native
+readiness at 508.43 seconds, but did not reach a successful first read/write,
+owner erasure or empty-worker recovery. Total elapsed time was 990.79 seconds;
+maximum process RSS was 44,417,024 bytes. All simulated workers used the workspace
+volume and RustFS used the main volume. The runner stopped on this failure, so
+the peer drill did not run. Logs, executable/source identities, a unique retained
+object prefix and resource samples are preserved privately.
+
+Investigation found full snapshot encoding inside the serialized SQL worker's
+checkpoint/source capture. A blocked capture can therefore delay reads; this
+needs a deterministic gated regression and a separate bounded encoding owner,
+without relaxing read deadlines or checkpoint/publication proofs. This is a
+working diagnosis, not a qualified fix. The extent-root contract is being built
+in an isolated checkout while the existing native path is repaired.
+
 ## Remaining work
 
 The completion checklist remains open. Full native 10 GB warm takeover, exact
