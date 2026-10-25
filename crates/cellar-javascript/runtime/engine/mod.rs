@@ -3,6 +3,7 @@
 //! Embedded V8 pump. Isolate handles and promise resolvers stay on this thread;
 //! native SDK work crosses bounded channels back to its owning invocation.
 use super::*;
+mod codec;
 use anyhow::Context as _;
 use std::{
     cell::RefCell,
@@ -14,6 +15,7 @@ use std::{
 
 struct InvocationState {
     start: Start,
+    activation: Option<u64>,
     promise: Option<v8::Global<v8::Promise>>,
     operations: usize,
     pending: usize,
@@ -52,6 +54,45 @@ fn unknown(scope: &v8::PinScope, rv: &mut v8::ReturnValue) {
     ) {
         rv.set(payload.into());
     }
+}
+
+// A Workers Durable Object state lives across events, while its SDK authority
+// does not. Reacquire only the current continuation's own native activation.
+fn current_activation(
+    scope: &mut v8::PinScope,
+    args: v8::FunctionCallbackArguments,
+    mut rv: v8::ReturnValue,
+) {
+    let current = scope.get_continuation_preserved_embedder_data();
+    let Ok(current) = v8::Local::<v8::Number>::try_from(current) else {
+        return refuse(scope, "ContextExpired");
+    };
+    let requested = if args.length() == 0 {
+        None
+    } else {
+        let Ok(requested) = v8::Local::<v8::Number>::try_from(args.get(0)) else {
+            return refuse(scope, "ContextMismatch");
+        };
+        Some(requested.value())
+    };
+    let Some(shared) = scope.get_slot::<Shared>().cloned() else {
+        return;
+    };
+    let state = shared.borrow();
+    let invocation = current.value() as u64;
+    let Some(active) = state.invocations.get(&invocation) else {
+        return refuse(scope, "ContextExpired");
+    };
+    if state.runtime.closed.load(Ordering::Acquire)
+        || !active.start.active.load(Ordering::Acquire)
+        || !active.start.owner.load(Ordering::Acquire)
+    {
+        return refuse(scope, "ContextExpired");
+    }
+    if requested.is_some_and(|requested| active.activation.map(|id| id as f64) != Some(requested)) {
+        return refuse(scope, "ContextMismatch");
+    }
+    rv.set(current.into());
 }
 
 fn operation(
@@ -310,12 +351,28 @@ pub(super) fn run(
         v8::Function::new(scope, operation).context("JavaScript bridge initialization failed")?;
     let synchronous = v8::Function::new(scope, synchronous)
         .context("JavaScript synchronous bridge initialization failed")?;
-    let factory = script(scope, include_str!("runner.js"))?;
+    let current = v8::Function::new(scope, current_activation)
+        .context("JavaScript activation bridge initialization failed")?;
+    let encode = v8::Function::new(scope, codec::encode)
+        .context("JavaScript clone encoder initialization failed")?;
+    let decode = v8::Function::new(scope, codec::decode)
+        .context("JavaScript clone decoder initialization failed")?;
+    let factory = script(scope, include_str!("../runner.js"))?;
     let factory = v8::Local::<v8::Function>::try_from(factory)?;
     let undefined = v8::undefined(scope);
     // Capture pristine builtins before application initialization can change them.
     let factory = factory
-        .call(scope, undefined.into(), &[host.into(), synchronous.into()])
+        .call(
+            scope,
+            undefined.into(),
+            &[
+                host.into(),
+                synchronous.into(),
+                current.into(),
+                encode.into(),
+                decode.into(),
+            ],
+        )
         .context("JavaScript facade initialization failed")?;
     let factory = v8::Local::<v8::Function>::try_from(factory)?;
     script(scope, &source.code)?;
@@ -406,6 +463,7 @@ pub(super) fn run(
             state.borrow_mut().invocations.insert(
                 id,
                 InvocationState {
+                    activation: payload["object"].as_u64(),
                     start,
                     promise: None,
                     operations: 0,

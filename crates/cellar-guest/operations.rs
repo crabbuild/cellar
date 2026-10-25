@@ -10,6 +10,7 @@ use serde_json::{json, Value};
 
 #[derive(Default)]
 pub struct State {
+    pub workers: crate::workers::State,
     pub containers: crate::containers::Session,
     pub transport: std::sync::Arc<crate::transport::Session>,
     pub queue: Option<queue::Event>,
@@ -20,6 +21,9 @@ pub struct State {
 /// Arbitrary SQL and nested fetches are conservatively mutation-class operations.
 /// Python's bounded reply adapter implements `storage.read_many` separately.
 pub fn is_read(name: &str) -> bool {
+    if name.starts_with("workers.") {
+        return crate::workers::is_read(name);
+    }
     if let Ok(operation) = crate::containers::Operation::parse(name) {
         return operation.is_read();
     }
@@ -69,6 +73,9 @@ pub async fn execute(
     value: Value,
     options: &Limits,
 ) -> Result<Value> {
+    if name.starts_with("workers.") {
+        return state.workers.execute(context, name, value, options);
+    }
     if name.starts_with("container.") {
         values::check_depth(&value).context(crate::failure::Validation)?;
         ensure!(value.is_object(), crate::failure::Validation);

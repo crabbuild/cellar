@@ -47,3 +47,19 @@ it is not evidence about RPC, storage durability, command execution or isolation
 See the [delivery plan](../../../plans/sandbox-provider-compatibility.md) and
 [implementation ledger](../../../plans/sandbox-provider-progress.md) for the full
 objective and current evidence.
+
+## Native constructor/storage execution fixtures
+
+`node tools/sandbox/compat/build.mjs` verifies the original inventory and builds
+separate runtime fixtures against `packages/cellar-cloudflare`. The Rust
+`cellar-javascript` `workers` integration target rebuilds these inputs itself
+before running, preventing reuse of stale executable fixtures. The original
+`fixtures/celld` files remain unchanged.
+
+These tests execute actual published Container construction/scheduling in Node
+and V8, and Sandbox construction/configuration in Node, through real native
+SQLite and a configured stopped-provider observation. They qualify those paths
+only. The stopped-state container view has no lifecycle or port methods. The
+unchanged upstream applications, actual image, HTTP/RPC, monitor hooks and cloud
+providers remain required. The source inventory continues to report
+`conformance: not_run` for that complete baseline.

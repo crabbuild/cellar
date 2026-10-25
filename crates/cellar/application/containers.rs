@@ -3,7 +3,7 @@
 //! Cell-owned containers. Handles may be retained by a cell; every operation
 //! requires its current executing context. Mutations wait for durability.
 
-use super::{http, sockets, websocket, Context, HandlerFuture};
+use super::{http, sockets, websocket, Context, HandlerFuture, InvocationAuthority};
 use crate::{container as host, host_gates};
 use anyhow::{anyhow, Result};
 use std::{
@@ -16,13 +16,13 @@ use std::{
 /// It belongs to one root-cell event; providers must enforce their own remote
 /// instance fencing and isolation in addition to this local authority.
 pub struct ProviderAuthority {
-    context: Context,
+    authority: InvocationAuthority,
 }
 
 impl Context {
     /// Obtain event authority without requiring a local Docker deployment.
     pub fn container_provider_authority(&self) -> Result<ProviderAuthority> {
-        self.check_turn()?;
+        let authority = self.invocation_authority()?;
         anyhow::ensure!(
             self.identity().is_some(),
             "stateless handlers have no container"
@@ -31,21 +31,13 @@ impl Context {
             self.facet().is_none(),
             "containers must be controlled by their root cell"
         );
-        Ok(ProviderAuthority {
-            context: self.clone(),
-        })
+        Ok(ProviderAuthority { authority })
     }
 }
 
 impl ProviderAuthority {
     pub fn check(&self, context: &Context) -> Result<()> {
-        context.check_turn()?;
-        self.context.check_turn()?;
-        anyhow::ensure!(
-            Arc::ptr_eq(&self.context.io, &context.io),
-            "container provider session belongs to another invocation"
-        );
-        Ok(())
+        self.authority.check(context)
     }
 
     /// Await the native container durability/output gate before a provider effect.

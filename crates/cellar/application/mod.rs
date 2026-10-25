@@ -9,7 +9,9 @@ use std::future::Future;
 use std::sync::{Arc, Mutex};
 
 mod admission;
+mod authority;
 pub use admission::ApplicationOverloaded;
+pub use authority::InvocationAuthority;
 pub mod assets;
 pub mod blob;
 pub mod cache;

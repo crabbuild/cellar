@@ -179,10 +179,11 @@ impl Runtime {
 /// this allowlist local and finite: waiting on network/container I/O would block
 /// the language event loop and could deadlock application-to-application calls.
 pub(crate) fn supports_synchronous(name: &str) -> bool {
-    matches!(
-        name,
-        "clock.now" | "storage.read" | "storage.apply" | "storage.sql" | "alarm.get"
-    )
+    cellar_guest::workers::supports_synchronous(name)
+        || matches!(
+            name,
+            "clock.now" | "storage.read" | "storage.apply" | "storage.sql" | "alarm.get"
+        )
 }
 
 /// Process bootstrap. Every call owns a joined engine and watchdog. V8's global

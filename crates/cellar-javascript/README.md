@@ -86,6 +86,18 @@ for deployment declarations, examples, byte limits, runtime prerequisites and
 the comparison with celld. This API does not implement the Cloudflare Sandbox
 SDK. The application engine and the container's own runtime remain separate.
 
+## Optional Cloudflare runtime work
+
+The experimental [Cloudflare runtime package](../../packages/cellar-cloudflare/README.md)
+now provides activation-owned DO storage and constructor admission above the
+native operation boundary. Published Containers 0.3.7 constructor/scheduling
+methods execute against native SQLite in both engines; Sandbox 0.12.9 constructor
+and metadata recovery execute in Node. These are constructor/storage fixtures
+using a stopped-provider view. They do not qualify the unchanged upstream HTTP/
+RPC applications, container startup/monitor/hooks, the Sandbox image or a cloud
+provider. Full native input-gate/reset semantics and remaining runtime APIs stay
+in the [delivery ledger](../../plans/sandbox-provider-progress.md).
+
 ## Write an application
 
 Export application-level handlers and a `cells` map of named classes. The Rust
@@ -478,7 +490,8 @@ production multi-node fault or performance qualification.
 | [application.rs](application.rs) | `Source` registration, native `Application`/`Cell` proxies, and SDK execution within each invocation. |
 | [runtime/mod.rs](runtime/mod.rs) | Options, bounded channels, byte reservations, and joined bootstrap. |
 | [runtime/runner.js](runtime/runner.js) | Shared SDK facade, export validation, and activation-local objects. |
-| [runtime/engine.rs](runtime/engine.rs) | V8 isolate, continuation identity, promises, and watchdog. |
+| [runtime/engine/mod.rs](runtime/engine/mod.rs) | V8 isolate, continuation/activation identity, promises, and watchdog. |
+| [runtime/engine/codec.rs](runtime/engine/codec.rs) | Bounded structured-clone conversion inside the optional V8 engine. |
 | [runtime/node/mod.rs](runtime/node/mod.rs) | Node startup, authentication, liveness checks, and process ownership. |
 | [runtime/node/worker.mjs](runtime/node/worker.mjs) | Node module loading, async context, and synchronous reply admission. |
 | [runtime/node/io.mjs](runtime/node/io.mjs) | Private socket worker, bounded frames/queues and synchronous reply wakeups. |

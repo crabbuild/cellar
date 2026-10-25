@@ -35,12 +35,12 @@ fn run<T>(
             let entry = directory.path().join("sync.mjs");
             std::fs::write(
                 &entry,
-                format!("export function fetch(req, ctx) {{ {body} }}"),
+                format!("export function fetch(req, ctx) {{ {body} }}; export const cells = {{ Counter: class {{ fetch(req, ctx) {{ {body} }} }} }};"),
             )?;
             node::NodeRuntime::run(
                 options,
                 node::NodeOptions::new(entry),
-                Source::module().events([EventKind::Fetch]),
+                Source::module().events([EventKind::Fetch]).cell("Counter"),
                 host,
             )
         }
@@ -48,26 +48,37 @@ fn run<T>(
         Backend::Embedded => JavaScriptRuntime::run(
             options,
             Source::new(
-                format!("var CellarApp = {{fetch(req, ctx) {{ {body} }} }}"),
+                format!("var CellarApp = {{fetch(req, ctx) {{ {body} }}, cells: {{Counter: class {{fetch(req, ctx) {{ {body} }} }} }} }}"),
                 "sync.js",
             )
-            .events([EventKind::Fetch]),
+            .events([EventKind::Fetch]).cell("Counter"),
             host,
         ),
     }
 }
 
 fn start(runtime: &Runtime, active: Life) -> (u64, channel::Receiver<Event>) {
+    start_scope(runtime, active, Arc::new(AtomicBool::new(true)), None)
+}
+
+fn start_scope(
+    runtime: &Runtime,
+    active: Life,
+    owner: Life,
+    object: Option<u64>,
+) -> (u64, channel::Receiver<Event>) {
     let id = runtime.id().unwrap();
     let (sender, receiver) = channel::channel(runtime.options.max_pending_operations + 1);
-    let payload = json!({"kind":"fetch","event":{"url":"http://test/","method":"GET","headers":[],"body":""},"identity":null,"object":null,"class":null}).to_string();
+    let payload = json!({"kind":"fetch","event":{"url":"http://test/","method":"GET","headers":[],"body":""},
+        "identity":object.map(|_| json!({"scope":"Counter:test","name":"test","class":"Counter","epoch":"7"})),
+        "object":object,"class":object.map(|_| "Counter")}).to_string();
     runtime
         .start(Start {
             id,
             _bytes: runtime.reserve(payload.len()).unwrap(),
             payload,
             active,
-            owner: Arc::new(AtomicBool::new(true)),
+            owner,
             sender,
         })
         .unwrap();
@@ -218,6 +229,82 @@ fn synchronous_shutdown_joins_without_a_host_reply() -> Result<()> {
             },
         )?;
         assert!(before.elapsed() < Duration::from_secs(5));
+    }
+    Ok(())
+}
+
+#[test]
+fn activation_facades_cannot_rebind_after_same_epoch_instance_reset() -> Result<()> {
+    for backend in modes() {
+        run(
+            backend,
+            Options {
+                turn_timeout: Duration::from_secs(2),
+                ..Default::default()
+            },
+            r#"
+            if (!globalThis.savedActivation) { globalThis.savedActivation = ctx._activation(); return {first: true}; }
+            let refused = false;
+            try { globalThis.savedActivation(); } catch(error) { refused = error.code === 'ContextMismatch' && error.outcome === 'not_committed'; }
+            const value = ctx._activation()()._sync('storage.read', {key:'value'});
+            return {refused, value};
+        "#,
+            |app| {
+                let runtime = &app.runtime;
+                let first_owner = Arc::new(AtomicBool::new(true));
+                let (_, mut receive) = start_scope(
+                    runtime,
+                    Arc::new(AtomicBool::new(true)),
+                    first_owner.clone(),
+                    Some(100),
+                );
+                let Event::Complete {
+                    payload, failed, ..
+                } = event(&mut receive)
+                else {
+                    panic!("initial facade made an effect")
+                };
+                assert!(!failed);
+                assert_eq!(serde_json::from_str::<Value>(&payload)?["first"], true);
+                first_owner.store(false, Ordering::Release);
+                // A native reset can replace an instance on the same resident DB
+                // and ownership epoch. Scope/epoch equality cannot authorize reuse.
+                let (invocation, mut receive) = start_scope(
+                    runtime,
+                    Arc::new(AtomicBool::new(true)),
+                    Arc::new(AtomicBool::new(true)),
+                    Some(101),
+                );
+                let Event::Operation {
+                    id,
+                    name,
+                    synchronous,
+                    ..
+                } = event(&mut receive)
+                else {
+                    panic!("fresh activation did not run")
+                };
+                assert_eq!(name, "storage.read");
+                runtime.respond(
+                    invocation,
+                    id,
+                    json!({"ok":true,"value":42}).to_string(),
+                    synchronous,
+                )?;
+                let Event::Complete {
+                    payload, failed, ..
+                } = event(&mut receive)
+                else {
+                    panic!("retired facade made an effect")
+                };
+                assert!(!failed);
+                assert_eq!(
+                    serde_json::from_str::<Value>(&payload)?,
+                    json!({"refused":true,"value":42})
+                );
+                Ok(())
+            },
+        )?;
     }
     Ok(())
 }

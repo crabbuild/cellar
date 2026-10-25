@@ -204,6 +204,7 @@ fn run(
         "descriptor": source.descriptor().to_string(),
         "maximum": runtime.options.max_objects,
         "valueLimit": runtime.options.max_value_bytes,
+        "cloneLimit": runtime.options.max_body_bytes.min(runtime.options.max_value_bytes),
         "bridgeLimit": runtime.options.max_bridge_bytes,
         "pendingLimit": runtime.options.max_pending_operations,
         "operationLimit": runtime.options.max_operations,

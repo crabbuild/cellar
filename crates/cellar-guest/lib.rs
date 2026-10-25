@@ -9,6 +9,8 @@ pub mod operations;
 mod storage;
 pub mod transport;
 pub mod values;
+#[doc(hidden)]
+pub mod workers;
 
 /// Limits enforced before entering native effects.
 #[derive(Clone, Debug)]

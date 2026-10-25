@@ -4,6 +4,7 @@
 // transport and context factory have captured their dependencies.
 import { readFileSync } from "node:fs";
 import { Worker } from "node:worker_threads";
+import { Serializer, Deserializer } from "node:v8";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { pathToFileURL } from "node:url";
 
@@ -64,7 +65,9 @@ function operation(invocation, name, payload, synchronous = false) {
     reject("ContextExpired");
   }
 
-  if (synchronous && !["clock.now", "storage.read", "storage.apply", "storage.sql", "alarm.get"].includes(name)) {
+  if (synchronous && !["clock.now", "storage.read", "storage.apply", "storage.sql", "alarm.get",
+      "workers.crypto.random", "workers.crypto.uuid", "workers.identity", "workers.sql.exec", "workers.sql.next", "workers.sql.close", "workers.sql.size",
+      "workers.kv.get", "workers.kv.put", "workers.kv.delete", "workers.kv.list", "workers.kv.delete_all"].includes(name)) {
     reject("UnsupportedOperation");
   }
 
@@ -83,6 +86,12 @@ function operation(invocation, name, payload, synchronous = false) {
   // conservatively treated as mutations, even when a caller expects a read.
   const mutation = ![
     "clock.now",
+    "workers.crypto.random",
+    "workers.crypto.uuid",
+    "workers.identity",
+    "workers.sql.size",
+    "workers.kv.get",
+    "workers.kv.list",
     "storage.read",
     "alarm.get",
     "var",
@@ -135,7 +144,25 @@ function operation(invocation, name, payload, synchronous = false) {
     send({ type: "operation", invocation, id, name, payload });
   });
 }
-const factory = makeRunner(operation, (invocation, name, payload) => operation(invocation, name, payload, true));
+const factory = makeRunner(operation, (invocation, name, payload) => operation(invocation, name, payload, true), (...requested) => {
+  const invocation = scope.getStore();
+  const state = active.get(invocation);
+  if (!state) reject("ContextExpired");
+  if (requested.length && (requested[0] === null || state.activation !== requested[0])) reject("ContextMismatch");
+  return invocation;
+}, value => {
+  const serializer = new Serializer();
+  serializer.writeHeader();
+  serializer.writeValue(value);
+  const bytes = serializer.releaseBuffer();
+  if (bytes.length > config.cloneLimit) reject("ValueLimit");
+  return bytes;
+}, bytes => {
+  if (!(bytes instanceof Uint8Array) || bytes.length > config.cloneLimit) reject("ValueLimit");
+  const deserializer = new Deserializer(bytes);
+  if (!deserializer.readHeader()) reject("DataCloneError");
+  return deserializer.readValue();
+});
 
 // Revocation prevents new Cellar calls. It cannot undo effects already submitted
 // to Rust, or stop arbitrary application work using Node's own OS capabilities.
@@ -163,7 +190,7 @@ function receive(message) {
         exit(70);
       }
 
-      const state = { count: 0, pending: 0, mutation: false };
+      const state = { count: 0, pending: 0, mutation: false, activation: parse(message.payload).object };
       active.set(message.id, state);
 
       scope

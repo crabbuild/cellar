@@ -3,7 +3,7 @@
 // Shared SDK facade for embedded V8 and Node. This file is a factory expression:
 // the Rust bootstrap evaluates or embeds it, then supplies the private host call.
 // Keep the expression free of a trailing semicolon for embedding in parentheses.
-(host, synchronousHost) => {
+(host, synchronousHost, currentHost, encodeClone, decodeClone) => {
   "use strict";
 
   // Capture these builtins before importing/evaluating application code.
@@ -14,6 +14,12 @@
   const isArray = Array.isArray;
   const MapClass = Map;
   const ErrorClass = Error;
+  const apply = Reflect.apply;
+  const typedArrayPrototype = Object.getPrototypeOf(Uint8Array.prototype);
+  const typedArrayTag = Object.getOwnPropertyDescriptor(typedArrayPrototype, Symbol.toStringTag).get;
+  const typedArrayBytes = Object.getOwnPropertyDescriptor(typedArrayPrototype, "byteLength").get;
+  const typedArrayOffset = Object.getOwnPropertyDescriptor(typedArrayPrototype, "byteOffset").get;
+  const typedArrayBuffer = Object.getOwnPropertyDescriptor(typedArrayPrototype, "buffer").get;
   const alphabet =
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
@@ -150,9 +156,29 @@
     return freeze({ ...value, body, text, json: () => json(parse(text())) });
   }
 
+  // Optional Workers crypto resolves the current event rather than capturing
+  // the cell that first installed the global. Only these pure-value operations
+  // have this global lifetime; ordinary saved SDK contexts still expire.
+  const crypto = freeze({
+    getRandomValues(array) {
+      const type = apply(typedArrayTag, array, []);
+      if (!["Int8Array", "Uint8Array", "Uint8ClampedArray", "Int16Array", "Uint16Array", "Int32Array", "Uint32Array", "BigInt64Array", "BigUint64Array"].includes(type)) {
+        const error = new ErrorClass("Expected an integer typed array"); error.name = "TypeMismatchError"; throw error;
+      }
+      const length = apply(typedArrayBytes, array, []);
+      if (length > 65536) { const error = new ErrorClass("Random-values quota exceeded"); error.name = "QuotaExceededError"; throw error; }
+      const invocation = context(currentHost(), null, null);
+      const bytes = decode(invocation._sync("workers.crypto.random", { length }));
+      new Uint8Array(apply(typedArrayBuffer, array, []), apply(typedArrayOffset, array, []), length).set(bytes);
+      return array;
+    },
+    randomUUID: () => context(currentHost(), null, null)._sync("workers.crypto.uuid"),
+    get subtle() { throw new ErrorClass("Unsupported Workers API: crypto.subtle"); },
+  });
+
   // Each facade closes over one invocation ID. The backend independently checks
   // continuation identity and liveness whenever that facade calls into Rust.
-  function context(id, identity) {
+  function context(id, identity, activation) {
     const invoke = (name, value, synchronous) => {
       let encoded, pending;
 
@@ -194,6 +220,12 @@
       } catch {
         const read = [
           "clock.now",
+          "workers.crypto.random",
+          "workers.crypto.uuid",
+          "workers.identity",
+          "workers.sql.size",
+          "workers.kv.get",
+          "workers.kv.list",
           "storage.read",
           "alarm.get",
           "var",
@@ -370,8 +402,34 @@
           ).id,
         ),
       // Private hooks used by dispatch while retaining this invocation.
+      _crypto: crypto,
       _call: call,
+      // Optional Workers state has activation lifetime. This getter deliberately
+      // grants no authority to a foreign cell, retired activation, cancelled
+      // event, or ambient code outside an admitted native continuation.
+      _activation: () => {
+        let cachedId, cached;
+        const current = () => {
+          let invocation;
+          try { invocation = currentHost(activation); }
+          catch (error) {
+            error.code = error.message;
+            error.outcome = "not_committed";
+            throw error;
+          }
+          if (invocation !== cachedId) {
+            cachedId = invocation;
+            cached = context(invocation, identity, activation);
+          }
+          return cached;
+        };
+        current();
+        return current;
+      },
       _sync: synchronous,
+      _serialize: value => encode(encodeClone(value)),
+      _deserialize: value => decodeClone(decode(value)),
+      _decode: decode,
       _encode: data => encode(bytes(data)),
 
       websocket: socket,
@@ -468,7 +526,7 @@
     return freeze({
       async dispatch(id, payload) {
         const invocation = parse(payload);
-        const ctx = context(id, invocation.identity);
+        const ctx = context(id, invocation.identity, invocation.object);
         let target = app;
 
         if (invocation.object !== null) {
