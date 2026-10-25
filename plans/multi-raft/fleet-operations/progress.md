@@ -837,17 +837,100 @@ explicit failure-domain policy remain required. FO-04 through FO-10 remain
 pending. Automatic fleet management stays default-off; no deployed RustFS/Colima,
 resource-enforcement, TPS/p99 or soak qualification is claimed.
 
+## FO-03 progress: catalog-scoped move admission
+
+Source `b5d25b4b0425d2db673f043fe68585ea990c29b5` gates a fresh managed repair on authenticated trust
+acknowledgements from its actual source and target processes. The opaque
+membership authorization retains its source root revision. The existing metadata
+RPC requires both processes to install at least that cut; the source revalidates
+the target process, disk, engine and epoch before running the configuration and
+committed-guard checks again. Already committed exact plans continue without a
+new acknowledgement, including when the target is unreachable.
+
+The preflight uses the original deadline and a 64 KiB control reservation.
+Retries follow directory polling, capped at 250 ms between attempts. Cancellation,
+expiry, local drain and shutdown refuse an unsubmitted action. Physical RPC work
+is joined before releasing its reservations; an unpolled SDK waiter retains its
+separate 4 KiB request reservation until delivery. Refusal does not consume the
+permit or release the root reservation. Business-write acknowledgement adds no
+catalog or observation call.
+
+A deterministic per-host catalog gate reproduced the missing admission boundary:
+the prior path returned Seeding while the target still had the older trust cut.
+The native regression checks no learner/sequence consumption while blocked,
+continued native SQL, cancellation, expiry, rejection above the existing
+60-second SDK bound, eventual admission, idempotent continuation and abort with
+a stopped target, and joined shutdown of an unpolled
+60-second attempt while its unresolved root reservation remains retained.
+
+Further review found actual cross-catalog acknowledgement confusion. Two hosts
+using distinct coordination prefixes could share a fleet ID, namespace storage,
+capability digest, physical records, epochs and sufficient revision numbers.
+A counted TCP proxy reproduced an accepted reply from the other catalog. Trust
+snapshots, reuse/successor checks and authenticated node routes now bind the exact
+catalog fingerprint. The regression requires an actual connection to the foreign
+process and a signed refusal; missing discovery cannot satisfy it. Unit checks
+also reject foreign trust installation/reuse and absent or zero route scope.
+
+`fleet_enrollment_unknown_node` publishes a real unrooted storage pin/process
+view, then sends correctly authenticated metadata and Control/Data frames for
+unknown and dormant histories. Signed refusals arrive before body admission;
+rooted nodes, engine groups, dormant metadata and application callbacks remain
+unchanged. No listing is used to expand trust.
+
+The experimental protocol hard-cuts to `/catalog-trust-1`. The catalog fingerprint
+is mandatory in node metadata routes. Use fresh experimental fleet/data prefixes,
+namespaces and matching binaries. Numeric format markers remain 1; no migration
+or compatibility reader is provided.
+
+**360 native cases passed across 13 complete targets**, including 59 enrollment
+and 25 permit/import cases. Five direct-list process helpers run through their
+passing parent cases. **136 Raft library units** and **four startup-confirmation
+cases** passed. Clippy with warnings denied, format/layout over 949 Rust files,
+native dependency checks (454 packages, no JavaScript engine), documentation,
+source preflight, plan validation and all 10 validator tests passed. The manifest
+retains 169 required cases and 71 reviewed source anchors; no package status
+advances in this substep.
+
+Initial fixture compile failures, the reproduced early-consumption and accepted
+foreign-catalog replies, and intermediate failed fixture checks remain retained.
+The shutdown fixture was corrected to distinguish the SDK's intentional 4 KiB
+waiter retention from joined physical work; raw Raft probes now use the separate
+transport protocol digest. No guard, membership, refusal or timeout assertion was
+weakened. No stack override or debug instrumentation remains. The first cohort
+was deliberately interrupted after Clippy and its two focused cases to add exact
+catalog scoping; its partial native run is not counted as qualified. A second
+attempt was stopped after Clippy to test a suspected deadline mismatch; that hypothesis was disproved
+by the existing SDK rejection of managed timeouts above 60 seconds. The final
+case retains that boundary check; no production timeout behavior was changed.
+Earlier readiness/setup timing instability remains unresolved.
+
+The **partial** record `implementation/fo03/catalog-trust-boundary.json` under
+ignored `.cellar/raft-perf/fleet-operations/` retains exact source/log/executable
+hashes and run provenance. Mutable build-cache paths do not archive executable
+bytes. No raw evidence is tracked under `plans/multi-raft/evidence/`.
+
+FO-03 remains **IN_PROGRESS**. Its three absent mandatory cases remain
+`fleet_enrollment_route_revocation`, `fleet_enrollment_incomplete_import` and
+`fleet_enrollment_physical_host`. Fresh-move trust acknowledgement is implemented;
+complete route/process revocation with physical joins, typed inventory-consuming
+lifecycle admission and rooted failure-domain policy still require delivery and
+qualification. FO-04 through FO-10 remain pending. Automatic fleet management
+stays default-off; no deployed RustFS/Colima, resource-enforcement, TPS/p99 or soak
+qualification is claimed.
+
 ## Prioritized remaining delivery
 
-The append-only namespace registry, complete inventory read and native
-retired-binding refusal are implemented. Next, consume a revalidated exact root
-inside typed capacity and lifecycle admissions; a saved count cannot authorize
+The append-only namespace registry, complete inventory read, native retired-binding
+refusal, unrooted ingress refusal and catalog-scoped move trust admission are
+implemented. Next, consume a revalidated exact root inside typed capacity and
+lifecycle admissions; a saved count cannot authorize
 placement or maintenance. The manifest dependencies remain unchanged.
 
 | Priority | Boundary | Required result before advancing |
 | --- | --- | --- |
 | P0, first | FO-03 complete inventory admission | The rooted registry and full canonical/history checker supply the inventory input; native retired-binding refusal is covered. Connect an exact revalidated root to typed capacity and maintenance admission, including offline and pending references, operation-specific live proofs and physical-work joins. Checked inventory does not prove node absence. Close `fleet_enrollment_incomplete_import`. |
-| P0, next | FO-03 trust and failure-domain policy | Qualify unsolicited-node ingress refusal, require installed trust-revision acknowledgements from actual move participants, and enforce rooted node-versus-physical-host placement policy. Pass all four remaining mandatory cases and the full FO-03 behavior suite. Close `fleet_enrollment_unknown_node`, `fleet_enrollment_route_revocation`, `fleet_enrollment_physical_host`. |
+| P0, next | FO-03 complete revocation and failure-domain policy | Unknown-node ingress and actual source/target trust acknowledgements are covered. Complete route/process revocation with physical-work joins, and enforce rooted node-versus-physical-host placement policy. Pass all three remaining mandatory cases and the full FO-03 behavior suite. Close `fleet_enrollment_route_revocation`, `fleet_enrollment_physical_host`. |
 | P1 | FO-04 placement, FO-05 load, FO-06 reconciliation | Implement bounded staged feasibility for retained/temporary costs and one-node-loss headroom, fresh load observations and a domain-owned reconciler. Restart/cancellation/lost replies must converge; release reservations only with fresh terminal quorum proof and physical-work joins. |
 | P2 | FO-07 maintenance and FO-08 operator API/CLI | Deliver exact-operation/epoch/process stop fencing, one disruption slot, complete evacuation/removal receipts and authenticated idempotent workflows with revision guards and typed outcomes. Cover add/remove and rolling restart. |
 | P3 | FO-09 scaling and fewer-cell shrink | Reconcile desired, effective and observed resources for horizontal and vertical changes. Require observed platform-limit checks and complete retained-state fit before shrinking; fewer cells do not establish removability. |
