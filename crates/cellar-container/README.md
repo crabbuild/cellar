@@ -2,151 +2,302 @@
 
 # cellar-container
 
-Container and sandbox provider adapters for native Cellar applications and the
-Python, JavaScript and TypeScript facades. The default `Native` provider delegates
-to `cellar::sdk::containers`, using the node's Docker or compatible Podman Engine.
-It preserves native image loading, network isolation, inactivity policies,
-ownership cleanup, exec streams and port capabilities.
+**One provider boundary for Rust, Python, JavaScript and TypeScript container APIs.**
+The default `Native` provider uses Cellar's existing Docker/Podman integration;
+Rust hosts can supply another backend without changing the guest API.
 
-The adapter is a host extension point. It does not implement Cloudflare Workers,
-Cloudflare Containers or the Cloudflare Sandbox SDK. A remote provider can be
-implemented without changing the existing guest container facade, but must
-satisfy the lifecycle and isolation contract below. No additional cloud provider
-ships in this crate.
+[Quick start](#quick-start) · [Capabilities](#discover-capabilities) ·
+[Add a provider](#add-a-provider) · [Wire reference](#bridge-protocol-version-1)
 
-Cloudflare Workers, Containers and Sandbox are explicit targets alongside Vercel,
-E2B, Daytona and Modal in the
-[provider and compatibility delivery plan](../../plans/sandbox-provider-compatibility.md).
-The primary pattern follows celld: expose compatible application APIs on Cellar
-and execute through the local engine or another declared provider. Local
-Cloudflare package compatibility comes first; hosted Cloudflare services are an
-optional backend. The plan includes versioned Workers/Containers/Sandbox
-profiles, Dynamic Worker isolates and four-language qualification. Those
-extensions and remote backends remain pending; the existing provider interface
-is the starting point, not a complete sandbox or Workers implementation.
-Track delivered slices and outstanding qualification in the
-[implementation ledger](../../plans/sandbox-provider-progress.md).
+## How it fits together
 
-## Select a provider
+![Rust and language facades call a shared session inside the original native invocation. The host selects Native for Docker/Podman or supplies a custom provider.](diagram/provider-flow.svg)
 
-Rust hosts select a trusted `Arc<dyn Provider>`. A provider declares its supported
-`Operation`s and opens a fresh `ProviderSession` for each invocation. The shared
-`Session` validates input and checks capabilities before dispatch. Binary results
-and combined buffered exec output are checked against the same byte limits
-after dispatch; a result failure cannot establish that effects were rolled back. Unsupported
-operations return a proven pre-effect validation refusal. Failed submitted
-mutations retain an unknown outcome; callers must not retry them blindly.
+| Layer | Owns |
+| --- | --- |
+| Language facade | `ctx.container`, typed options and byte conversion |
+| `Adapter` / `Session` | Provider selection, validation, invocation authority and bounded replies |
+| Provider | Backend effects, process/socket handles, isolation and cleanup |
+| Native Cellar host | Cell ownership, activation epoch and required durability/output gates |
+
+**The provider future runs inside the original native SDK invocation.** The
+adapter does not move SDK effects onto the Python, Node or V8 runtime thread.
+
+### What ships today?
+
+| Path | Status | Where to look |
+| --- | --- | --- |
+| Local Docker / compatible Podman Engine | Implemented by the default `Native` provider | [Runnable native walkthrough](../../examples/native-container/README.md) |
+| Custom container or sandbox backend | `Provider` / `ProviderSession` extension point is available; the host supplies the implementation | [Provider contract](#add-a-provider) |
+| Local Cloudflare Workers / Containers / Sandbox APIs | Experimental compatibility slices in a separate package; full application/image conformance remains pending | [Cloudflare facade](../../packages/cellar-cloudflare/README.md) |
+| Hosted Cloudflare, Vercel, E2B, Daytona and Modal | Planned; no remote provider ships in this crate | [Delivery plan](../../plans/sandbox-provider-compatibility.md) |
+| Dynamic Worker isolates, PTY and snapshots | Planned features; the current operation set does not implement them | [Implementation ledger](../../plans/sandbox-provider-progress.md) |
+
+The primary compatibility pattern follows celld: run compatible application APIs
+on Cellar, backed by a declared execution provider. Hosted services are a separate
+backend choice. A provider name alone does not establish SDK compatibility.
+
+## Quick start
+
+### 1. Configure the host
+
+For the default backend, configure the cell's container image and the node's
+Docker/Podman engine using the [native walkthrough](../../examples/native-container/README.md).
+`Native` preserves that engine's image loading, network isolation, inactivity
+policies and ownership cleanup.
+
+| Host | Provider selection |
+| --- | --- |
+| Rust | `Adapter::default()` or `Adapter::new(Arc<dyn Provider>)` |
+| Python adapter | `cellar_python::Source::container_provider(provider)` before runtime startup |
+| JavaScript / TypeScript adapter | `cellar_javascript::Source::container_provider(provider)` before runtime startup |
+
+Omitting `container_provider` selects `Native`. Selection applies to the
+application's container calls; a custom provider can route using the context's
+class or cell identity. Credentials and routing configuration stay in the host.
+
+### 2. Call from a root-cell event
+
+A session belongs to **one invocation**. Create it once for that event and retain
+it for the event's later calls; reacquire it for the next event.
+
+**Rust — dispatch through the selected provider:**
 
 ```rust,no_run
-use cellar_container::{Adapter, Limits, Native, Operation};
 use cellar::sdk::Context;
+use cellar_container::{Adapter, Limits, Operation};
 use serde_json::json;
-use std::sync::Arc;
 
-async fn running(context: &Context) -> anyhow::Result<bool> {
-    let adapter = Adapter::new(Arc::new(Native));
-    let session = adapter.session(); // retain for this invocation's later calls
-    let value = session.execute(context, Operation::Running, json!({}),
-        &Limits { max_body_bytes: 1024 * 1024 }).await?;
-    Ok(value.as_bool().unwrap_or(false))
+async fn running(adapter: &Adapter, ctx: &Context) -> anyhow::Result<bool> {
+    let session = adapter.session();
+    let limits = Limits { max_body_bytes: 1024 * 1024 };
+    let value = session
+        .execute(ctx, Operation::Running, json!({}), &limits)
+        .await?;
+    Ok(serde_json::from_value(value)?)
 }
 ```
 
-Python and JS/TS hosts use `Source::container_provider(provider)` before starting
-their runtime. Omission selects `Native`. Selection applies to the application's
-container operations; a provider can route by the context's class or cell identity.
-The guest's `ctx.container` API and error envelope stay the same. Provider names,
-credentials and routing configuration belong to the host, never to guest input.
+For typed Rust calls directly against the native engine, use
+`ctx.container()?`; see the [integration guide](../../docs/09-integrations.md).
 
-## Implement a provider
+**Python — collect bounded output from an already-running container:**
 
-Implement `Provider::{name, operations, open}` and
-`ProviderSession::execute`. The future is polled within the original native SDK
-invocation, so providers can use SDK networking and the host's execution-domain
-services. The adapter binds a session to exactly one root-cell event and checks
-current turn, event liveness, activation epoch and host ownership before and after
-dispatch. Every mutation awaits the native container durability/output gate.
-Native-only class and engine requirements are checked by `Native`; a remote
-provider need not declare a local Docker image.
+```python
+async def run_tool(ctx):
+    output = await ctx.container.exec_output(
+        ["/app/tool"], max_bytes=4096
+    )
+    return output.exit_code, output.stdout, output.stderr
+```
 
-Provider requirements:
+**JavaScript / TypeScript — the same operation and combined byte budget:**
 
-- Use stable cell identity plus ownership epoch and a provider-side fencing token
-  to prevent an old node from changing an instance after takeover. Local checks
-  cannot cancel a remote mutation that has already been accepted.
-- Define image, CPU/memory, runtime, filesystem and network isolation policies.
-  Reject unsupported security settings before creating resources. Native bridge
-  fences and resource accounting do not apply automatically to a remote backend.
-- Keep handles private to the provider session and invalidate process handles
-  when a container run changes. Bound live resources, stdout/stderr, binary frames
-  and HTTP bodies using `Limits::max_body_bytes`; collect both exec streams
-  concurrently. Do not follow redirects through a container port capability.
-- Drop must cancel pending work and release invocation streams. Keep container
-  lifetime separate from stream lifetime. Reconcile or destroy remote instances
-  on ownership loss, host shutdown and explicit destroy; provide provider-side
-  leases/expiry for node crashes. Opening a provider session must perform no I/O.
-- Declare an operation only when its full semantics are implemented. Report
-  uncertain mutations as ordinary errors. Attach `Validation` only when no
-  provider effect could have occurred. Gate completion does not provide exactly
-  once execution, and returning an error does not roll back external effects.
+```ts
+import type { Context } from "@cellar/sdk";
 
-A provider may support a subset, such as lifecycle plus buffered exec, while
-refusing raw TCP or WebSockets. Hosts can query `Adapter::capabilities(&limits)`
-without allocating resources. Root-cell guests can query
-`ctx.container.capabilities()` (Python: `await ctx.container.capabilities()`).
-The version-1 descriptor reports `provider`, `environment` (`linux`,
-`worker_isolate` or `unspecified`), `operations`, `max_body_bytes` and
-`max_resources` (null means undeclared, not unlimited). Querying metadata does
-not start a sandbox or call the provider's effect dispatcher. Native reports
-Linux and its enforced 64-handle limit. No snapshot/PTY feature is implied by a
-provider name. JS and Python return immutable descriptor values.
+async function runTool(ctx: Context) {
+  const output = await ctx.container.execOutput({ cmd: ["/app/tool"] }, 4096);
+  return { code: output.exit_code, stdout: output.stdout, stderr: output.stderr };
+}
+```
+
+`/app/tool` must exist in your configured image. Remove the type import and
+annotation for plain JavaScript. Both language facades use the same Rust provider
+boundary; Python returns `bytes`, and JS/TS returns `Uint8Array`.
+
+### 3. Choose the operation you need
+
+| Task | Python | JavaScript / TypeScript |
+| --- | --- | --- |
+| Discover operations and limits | `await c.capabilities()` | `await c.capabilities()` |
+| Check / start / wait for exit | `running`, `start`, `monitor` | Same async names |
+| Stop or signal | `destroy`, `signal` | Same async names |
+| Set idle timeout | `set_inactivity_timeout(ms)` | `setInactivityTimeout(ms)` |
+| Interactive process I/O | `exec(cmd)` | `exec({ cmd })` |
+| Bounded stdout + stderr | `exec_output(cmd, max_bytes=n)` | `execOutput({ cmd }, n)` |
+| Port readiness / buffered HTTP | `port(n).wait_ready` / `.fetch` | `port(n).waitReady` / `.fetch` |
+| Raw TCP / WebSocket | `port(n).connect` / `.connect_websocket` | `port(n).connect` / `.connectWebSocket` |
+
+Here `c = ctx.container`. Lifecycle, port and streaming examples are in the
+[integration guide](../../docs/09-integrations.md#apis-in-each-language).
+
+## Discover capabilities
+
+Hosts can inspect configuration **without opening a session or contacting the
+backend**:
+
+```rust
+use cellar_container::{Adapter, Environment, Limits};
+
+let limits = Limits { max_body_bytes: 1024 * 1024 };
+let capabilities = Adapter::default().capabilities(&limits);
+assert_eq!(capabilities.provider, "native");
+assert_eq!(capabilities.environment, Environment::Linux);
+assert_eq!(capabilities.max_resources, Some(64));
+```
+
+Root-cell guests use `await ctx.container.capabilities()`. This checks invocation
+authority, but does not start a container or call the provider's effect dispatcher.
+
+| Descriptor field | Meaning |
+| --- | --- |
+| `format` | Descriptor version; currently `1` |
+| `provider` | Host-selected backend name |
+| `environment` | `linux`, `worker_isolate` or `unspecified`; the last means undeclared |
+| `operations` | Actually declared bridge operations, plus shared capability discovery |
+| `max_body_bytes` | Host limit for binary bodies and bounded results |
+| `max_resources` | Provider-declared live-handle cap; `null` means unknown, not unlimited |
+
+`Native` declares Linux and enforces 64 live handles per invocation. JS and Python
+return immutable metadata. The `worker_isolate` enum value describes a possible
+environment; it does not mean an isolate provider is implemented.
+
+## Understand lifetime and failure outcomes
+
+| Resource | Lifetime / cleanup |
+| --- | --- |
+| Provider `Adapter` | Reusable host configuration |
+| `Session`, context and process/socket handles | One root-cell invocation; drop cancels pending work and releases streams |
+| Exec handle | Bound to its container run; `release` closes streams without killing the process |
+| TCP / WebSocket handle | Event-owned transport; `release` closes it |
+| Container instance | Separate from stream lifetime; follows the provider's inactivity, ownership and destroy policies |
+
+For the native engine, an idle eviction can leave the container running during
+its inactivity window. Ownership transfer, reset, node restart or shutdown can
+destroy it. Persist job progress in cell state and expect a fresh process after
+takeover.
+
+**Dispatch order:** validate input/capability → check event authority → await the
+output gate for mutations → execute provider → recheck authority → validate reply.
+
+| Failure point | What callers can conclude |
+| --- | --- |
+| Unsupported operation or invalid input, before dispatch | `Validation`: provider effects did not occur |
+| Submitted mutation fails or its reply is lost | Outcome may be unknown; reconcile before retrying |
+| Reply fails size/type validation after execution | Effects may already have occurred; failure does not prove rollback |
+
+The native gate orders external effects after the required durability proof of
+earlier cell writes. It does not make commands transactional or exactly once.
+
+## Add a provider
+
+Implement these traits in the Rust host, then select the provider before runtime
+startup. See the [trait definitions](lib.rs) and
+[provider integration tests](tests/providers.rs) for concrete code.
+
+| Method | Responsibility |
+| --- | --- |
+| `Provider::name` | Stable backend name for discovery |
+| `Provider::operations` | Advertise only fully implemented operations; subsets are supported |
+| `Provider::environment` / `max_resources` | Declare the execution environment and enforced handle cap; defaults mean unknown |
+| `Provider::open` | Allocate an invocation-local `ProviderSession`; perform no I/O |
+| `ProviderSession::execute` | Run the operation using the original native context and the supplied limits |
+
+The shared session enforces event liveness, current turn, activation epoch and
+host ownership before and after dispatch. `Native` additionally checks local
+class/image/engine requirements; another backend need not declare a Docker image.
+
+### Provider checklist
+
+| Concern | Provider must supply |
+| --- | --- |
+| Ownership / fencing | Stable cell identity, ownership epoch and provider-side fencing; local checks cannot revoke an already-accepted remote mutation |
+| Isolation | Explicit image, CPU/memory, runtime, filesystem and network policies; refuse unsupported security settings before allocation |
+| Bounded I/O | Private invocation handles, run invalidation, bounded frames/bodies and concurrent stdout/stderr collection |
+| Port authority | Forward only to the granted port; return redirects without following them |
+| Cleanup | Cancel/join pending work, release invocation streams, and reconcile or destroy instances on ownership loss, shutdown and explicit destroy |
+| Crash recovery | Provider-side leases/expiry and orphan reconciliation for node crashes |
+| Outcome reporting | Ordinary errors for uncertain mutations; attach `Validation` only when provider effects provably did not occur |
+
+Native bridge fences and resource accounting do not automatically protect a
+remote service. A lifecycle/exec-only provider may refuse TCP or WebSockets;
+capability discovery must make that subset explicit.
 
 ## Bridge protocol, version 1
 
-`Operation::name()` is the stable JSON bridge name. Inputs and results are owned
-JSON values. Binary data uses standard padded base64. Options use snake case,
-including from the JavaScript facade; the facade translates its public API.
-Successful void operations return JSON null. IDs and run tokens are opaque strings.
+Applications normally use the language facade. Provider implementers use
+`Operation::name()` and the owned JSON contract below.
+
+| Convention | Encoding / bound |
+| --- | --- |
+| Binary data | Standard padded base64 |
+| Option keys | `snake_case`, including the JS facade's internal wire values |
+| Environment, labels, headers | Arrays of string pairs |
+| Void result / IDs | JSON `null` / opaque strings |
+| Port / signal / timeout | `1–65535` / `1–64` / integer milliseconds `0–86400000` |
+| Buffered exec | Required `max_bytes`, bounded by the host limit; one combined stdout/stderr budget |
+| End of stream | Empty stdout/stderr or TCP chunk |
+
+<details>
+<summary><strong>Operation reference: lifecycle, process I/O and ports</strong></summary>
+
+### Lifecycle and discovery
 
 | Operations | Input | Result |
 | --- | --- | --- |
-| `container.capabilities` | `{}` | versioned provider/environment/operation/limit descriptor |
-| `container.running`, `container.monitor`, `container.destroy` | `{}` | boolean, integer exit code, null |
-| `container.start` | `{options:{entrypoint?,env?,enable_internet?,labels?}}` | run token |
-| `container.signal` | `{signal}` | null |
-| `container.set_inactivity_timeout` | `{timeout_ms}` | null |
-| `container.exec`, `container.exec_output` | `{options:{cmd,env?,cwd?,user?,combined?},max_bytes?}` | process ID; or `{exit_code,stdout,stderr}` |
-| `container.exec.read_stdout`, `.read_stderr`, `.wait`, `.close_stdin` | `{id}` | base64 chunk; exit code; null |
-| `container.exec.write`, `.kill` | `{id,data}`; `{id,signal}` | null |
-| `container.port.wait_ready` | `{port,timeout_ms}` | null |
+| `container.capabilities` | `{}` | Versioned capability descriptor |
+| `container.running` / `.monitor` / `.destroy` | `{}` | Boolean / integer exit code / `null` |
+| `container.start` | `{options:{entrypoint?,env?,enable_internet?,labels?}}` | Run token |
+| `container.signal` | `{signal}` | `null` |
+| `container.set_inactivity_timeout` | `{timeout_ms}` | `null` |
+
+### Process I/O
+
+| Operations | Input | Result |
+| --- | --- | --- |
+| `container.exec` | `{options:{cmd,env?,cwd?,user?,combined?}}` | Process ID |
+| `container.exec_output` | `{options:{cmd,env?,cwd?,user?,combined?},max_bytes}` | `{exit_code,stdout,stderr}` |
+| `container.exec.read_stdout` / `.read_stderr` | `{id}` | Base64 chunk; empty means EOF |
+| `container.exec.wait` | `{id}` | Integer exit code |
+| `container.exec.close_stdin` | `{id}` | `null` |
+| `container.exec.write` / `.kill` | `{id,data}` / `{id,signal}` | `null` |
+| `container.release` | `{id}` | `null`; releases the resource according to its kind |
+
+Buffered exec closes stdin and drains both output streams concurrently. For
+interactive exec, write input, close stdin as appropriate, and drain both streams
+while awaiting `wait`. Issue control operations sequentially; observations and
+stream reads can overlap a control operation.
+
+### Ports and sockets
+
+| Operations | Input | Result |
+| --- | --- | --- |
+| `container.port.wait_ready` | `{port,timeout_ms}` | `null` |
 | `container.port.fetch` | `{port,request:{url,method,headers,body}}` | `{status,headers,body}` |
-| `container.port.connect` | `{port}` | socket ID |
+| `container.port.connect` | `{port}` | Socket ID |
 | `container.port.connect_websocket` | `{port,url,headers}` | `{upgraded:true,id,protocol}` or `{upgraded:false,response}` |
-| `container.socket.read`, `.write`, `.close_write`, `.close` | `{id}`; write adds `data` | base64 chunk or null |
-| `container.websocket.receive` | `{id}` | event described below |
-| `container.websocket.send_text`, `.send_binary`, `.close` | `{id,text}`; `{id,data}`; `{id,code,reason}` | null |
-| `container.release` | `{id}` | null |
+| `container.socket.read` / `.write` / `.close_write` / `.close` | `{id}`; write adds `data` | Base64 chunk or `null` |
+| `container.websocket.receive` | `{id}` | One event from the table below |
+| `container.websocket.send_text` / `.send_binary` / `.close` | `{id,text}` / `{id,data}` / `{id,code,reason}` | `null` |
 
-Environment variables, labels and headers are arrays of string pairs. `max_bytes`
-is required for `exec_output`, is a combined stdout/stderr budget and cannot
-exceed the host limit. Buffered exec closes stdin. Empty stdout/stderr or TCP
-chunks signal EOF. WebSocket events are `{type:"open",protocol}`,
-`{type:"text",text}`, `{type:"binary",data}`, or
-`{type:"close",code,reason,clean}`. Close events retain clean/unclean provenance.
-`release` drops exec streams without killing the process, and closes sockets.
+Container port HTTP is buffered. Redirects are returned without following them;
+arbitrary HTTP streaming and server-side 101 passthrough use the separate
+[language transport API](../../docs/27-streaming-and-websockets.md).
 
-Ports are integers 1–65535, signals 1–64 and timeout milliseconds 0–86400000.
-The native provider allows at most 64 live handles per invocation. All providers
-must observe the same input validation and wire contract; providers may impose
-stricter resource limits.
+| WebSocket event | Wire value |
+| --- | --- |
+| Open | `{type:"open",protocol}` |
+| Text | `{type:"text",text}` |
+| Binary | `{type:"binary",data}` |
+| Close | `{type:"close",code,reason,clean}`; retains clean/unclean provenance |
 
-See the [integration guide](../../docs/09-integrations.md) for native engine
-configuration, language examples and the celld comparison.
+</details>
 
-## Validation
+## Validate changes
 
-Run `cargo test --locked -p cellar-container -p cellar-guest --lib` and the
-container integration tests in `cellar-javascript` and `cellar-python`. Their
-host-selected audit provider delegates to native while recording actual dispatch,
-covering provider selection, binary streams, cancellation, timeout cleanup and
-ownership rejection through CPython, Node and embedded V8.
+```sh
+cargo test --locked -p cellar-container -p cellar-guest --lib
+cargo test --locked -p cellar-container --test providers
+cargo test --locked -p cellar-container --doc
+python3 tools/docs/check.py
+```
+
+The provider tests cover supported subsets and invocation boundaries. Language
+container integration tests in `cellar-javascript` and `cellar-python` use a
+host-selected audit provider that delegates to native, covering selection,
+binary streams, cancellation, timeout cleanup and ownership rejection through
+CPython, Node and embedded V8.
+
+For exact delivered slices and remaining live/fault qualification, consult the
+[implementation ledger](../../plans/sandbox-provider-progress.md).

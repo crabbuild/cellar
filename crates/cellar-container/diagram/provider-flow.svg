@@ -1,0 +1,85 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 710" role="img" aria-labelledby="title description">
+  <title id="title">Cellar container provider architecture</title>
+  <desc id="description">Rust, Python, JavaScript and TypeScript calls execute through a shared Session inside their original native invocation. The host selects the default Native provider for Docker or Podman, or supplies a custom Provider and ProviderSession. Remote backends require their own implementation.</desc>
+  <defs>
+    <style>
+      text { font-family: 'SF Mono', 'Cascadia Code', monospace; fill: #f1f5f9; }
+      .heading { font-size: 23px; font-weight: 700; }
+      .name { font-size: 17px; font-weight: 600; text-anchor: middle; }
+      .detail { font-size: 15px; fill: #cbd5e1; text-anchor: middle; }
+      .note { font-size: 14px; fill: #94a3b8; }
+      .line { fill: none; stroke: #64748b; stroke-width: 2; }
+      .extension { stroke: #fbbf24; stroke-dasharray: 7 5; }
+    </style>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.5"/>
+    </pattern>
+    <marker id="arrow" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#64748b"/>
+    </marker>
+    <marker id="arrow-amber" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#fbbf24"/>
+    </marker>
+  </defs>
+  <rect width="100%" height="100%" fill="#0f172a"/>
+  <rect width="100%" height="100%" fill="url(#grid)"/>
+
+  <!-- Connectors precede opaque boxes so lines cannot show through nodes. -->
+  <path class="line" d="M 145 170 V 200 H 855 V 170 M 380 170 V 200 M 620 170 V 200 M 500 200 V 240" marker-end="url(#arrow)"/>
+  <path class="line" d="M 500 360 V 395 H 275 V 430" marker-end="url(#arrow)"/>
+  <path class="line extension" d="M 500 395 H 725 V 430" marker-end="url(#arrow-amber)"/>
+  <path class="line" d="M 275 500 V 550" marker-end="url(#arrow)"/>
+  <path class="line extension" d="M 725 500 V 550" marker-end="url(#arrow-amber)"/>
+
+  <g>
+    <rect x="40" y="105" width="210" height="65" rx="8" fill="#0f172a"/>
+    <rect x="40" y="105" width="210" height="65" rx="8" fill="#083344" fill-opacity="0.6" stroke="#22d3ee"/>
+    <text class="name" x="145" y="133">Rust</text>
+    <text class="detail" x="145" y="154">Adapter / Session</text>
+    <rect x="280" y="105" width="200" height="65" rx="8" fill="#0f172a"/>
+    <rect x="280" y="105" width="200" height="65" rx="8" fill="#083344" fill-opacity="0.6" stroke="#22d3ee"/>
+    <text class="name" x="380" y="133">Python</text>
+    <text class="detail" x="380" y="154">ctx.container</text>
+    <rect x="520" y="105" width="200" height="65" rx="8" fill="#0f172a"/>
+    <rect x="520" y="105" width="200" height="65" rx="8" fill="#083344" fill-opacity="0.6" stroke="#22d3ee"/>
+    <text class="name" x="620" y="133">JavaScript</text>
+    <text class="detail" x="620" y="154">ctx.container</text>
+    <rect x="750" y="105" width="210" height="65" rx="8" fill="#0f172a"/>
+    <rect x="750" y="105" width="210" height="65" rx="8" fill="#083344" fill-opacity="0.6" stroke="#22d3ee"/>
+    <text class="name" x="855" y="133">TypeScript</text>
+    <text class="detail" x="855" y="154">ctx.container</text>
+  </g>
+
+  <rect x="165" y="240" width="670" height="120" rx="10" fill="#0f172a"/>
+  <rect x="165" y="240" width="670" height="120" rx="10" fill="#064e3b" fill-opacity="0.4" stroke="#34d399" stroke-width="1.5"/>
+  <text class="name" x="500" y="271">Original native invocation + shared Session</text>
+  <text class="detail" x="500" y="300">Validate input + capabilities · check event / owner / epoch</text>
+  <text class="detail" x="500" y="326">Gate mutations · execute provider · validate bounded replies</text>
+  <text class="note" x="525" y="384">Host selects one provider</text>
+
+  <rect x="85" y="430" width="380" height="70" rx="8" fill="#0f172a"/>
+  <rect x="85" y="430" width="380" height="70" rx="8" fill="#064e3b" fill-opacity="0.4" stroke="#34d399"/>
+  <text class="name" x="275" y="458">Native (default)</text>
+  <text class="detail" x="275" y="481">cellar::sdk::containers</text>
+  <rect x="535" y="430" width="380" height="70" rx="8" fill="#0f172a"/>
+  <rect x="535" y="430" width="380" height="70" rx="8" fill="#78350f" fill-opacity="0.3" stroke="#fbbf24" stroke-dasharray="7 5"/>
+  <text class="name" x="725" y="458">Host-supplied provider</text>
+  <text class="detail" x="725" y="481">Your Provider + ProviderSession</text>
+
+  <rect x="85" y="550" width="380" height="70" rx="8" fill="#0f172a"/>
+  <rect x="85" y="550" width="380" height="70" rx="8" fill="#4c1d95" fill-opacity="0.4" stroke="#a78bfa"/>
+  <text class="name" x="275" y="578">Docker / compatible Podman</text>
+  <text class="detail" x="275" y="601">Cell-owned container on the node</text>
+  <rect x="535" y="550" width="380" height="70" rx="8" fill="#0f172a"/>
+  <rect x="535" y="550" width="380" height="70" rx="8" fill="#78350f" fill-opacity="0.3" stroke="#fbbf24" stroke-dasharray="7 5"/>
+  <text class="name" x="725" y="578">Other runtime / remote service</text>
+  <text class="detail" x="725" y="601">Requires a backend implementation</text>
+
+  <path class="line" d="M 85 665 H 125"/>
+  <text class="note" x="140" y="670">Implemented native path</text>
+  <path class="line extension" d="M 495 665 H 535"/>
+  <text class="note" x="550" y="670">Extension point; no remote backend ships</text>
+  <text class="heading" x="32" y="39">One container API, host-selected providers</text>
+  <text class="note" x="32" y="65">SDK effects stay inside native invocation authority in every language.</text>
+</svg>
