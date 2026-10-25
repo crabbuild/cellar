@@ -709,15 +709,88 @@ Remote/controller integration and lifecycle gates remain required. FO-04 through
 FO-10 stay pending; automatic fleet management remains default-off. These local
 checks make no RustFS/Colima/resource-limit, TPS/p99 or soak qualification claim.
 
+## FO-03 progress: fleet namespace registry and inventory
+
+Source `d98ca0fe98f0755006b565e197548c6092280341` adds an append-only paged registry of exact namespace,
+class, schema and data-root identities. Managed startup checks actual prepared
+catalogs and compiled classes against it before pinning the engine or publishing
+an endpoint. History enrollment, import and new managed-birth admission require
+the same declaration. Distinct hosts can support different declared subsets;
+capability digests do not bypass the registry.
+
+The fleet head permanently retains the namespace count. Missing registry/index
+state, deletion and count regression refuse admission rather than creating an
+empty replacement set. At most 64 namespaces are declared. Original immutable
+candidates reconcile lost replies after adapter recreation and later additions;
+changed identities, classes or data roots cannot replace a declaration.
+
+`check_inventory` reads every rooted declaration and verifies the exact supplied
+catalog handles. Each imported namespace must have completed handoff and retain
+its witness pages and permanent claims. Historical node tombstones remain valid
+references; this is not a new health observation. The checker then streams the
+current canonical birth indexes, including post-import births, and all fleet
+histories in both directions. It checks exact counts, identity indexes, initial
+node references, permanent group claims and immutable decisions. Reservations
+before intent publication and pending confirmations retain their references.
+Offline endpoints and cancelled births cannot disappear from inventory.
+
+The experimental protocol now ends in `/fleet-namespaces-1`; the fleet head's
+namespace count is mandatory. Use fresh experimental fleet/data prefixes,
+namespaces and matching binaries, without a compatibility reader or migration.
+Numeric markers remain 1. Existing business write acknowledgement adds no registry
+or inventory call. See the [registry contract](../../../crates/cellar/durability/raft/fleet_catalog/namespaces/README.md).
+
+**356 distinct native cases passed across 13 targets**: the first eleven complete
+targets passed 295 cases; a complete snapshot/storage rerun passed another 61
+(snapshot 44, storage 17). Enrollment has 55 passing cases and permits/import has
+25. Five process helpers remain ignored in direct listings and run through their
+passing parent cases. **136 Raft library units** and **four startup-confirmation
+cases** also passed. Clippy with warnings denied, format/layout over 944 Rust
+files, native dependency checks (454 packages, no JavaScript engine), documentation,
+plan validation and all 10 validator tests passed. The manifest retains 167
+required cases and 71 reviewed anchors; this substep advances no task status.
+
+Seven new cases cover complete namespace coverage, declaration retries/scope,
+exactly full canonical pages with offline/cancelled histories, the 64-namespace
+bound, registry no-reset behavior, compiled-host refusal/intact resume and pending
+birth confirmations. Existing post-import genesis/restart and 141-intent cases
+also use the global checker. Missing retained coverage is tested again after
+import completion. Fixture node ownership and cloned-reference lint errors were
+corrected without weakened assertions or suppression. A pre-fence run was
+intentionally interrupted after Clippy so review could add the permanent count
+and no-reset test; that native run is not counted as qualification.
+
+The initial full native cohort had one failure: `missing_quorum_restore_refused`
+returned `Ambiguous` on its first setup write, before quorum removal. It passed
+isolated unchanged in 2.72 seconds and then in the full 44-case snapshot rerun.
+The timing root cause remains unestablished. The failed cohort is retained; the
+successful target scopes are reported separately rather than relabeling the
+initial cohort as passed. Earlier enrollment readiness instability is not claimed
+resolved by these checks. No qualified Rust bytes changed after the final snapshot.
+
+The **partial** record `implementation/fo03/fleet-registry-boundary.json` under
+ignored `.cellar/raft-perf/fleet-operations/` retains exact source, log and executable
+hashes, run provenance, failures and interrupted attempts. Mutable build-cache
+paths do not archive binary bytes. No raw evidence is tracked under
+`plans/multi-raft/evidence/`.
+
+FO-03 remains **IN_PROGRESS**. This checked inventory is not a capacity, current
+quorum, archive, empty-node or removal receipt. Typed capacity and maintenance
+operations must still consume a revalidated exact root and establish their own
+proofs and physical-work joins. The same five mandatory FO-03 cases remain absent;
+FO-04 through FO-10 remain pending and automatic fleet management stays default-off.
+No RustFS/Colima/resource-enforcement, TPS/p99 or soak claim is made.
+
 ## Prioritized remaining delivery
 
-Per-namespace import and ownership handoff are implemented. Next, close the
-fleet-wide completeness and lifecycle gates before admitting automatic placement
-or maintenance. The manifest dependencies remain unchanged.
+The append-only namespace registry and complete inventory read are implemented.
+Next, consume a revalidated exact root inside typed capacity and lifecycle
+admissions; a saved count cannot authorize placement or maintenance. The manifest
+dependencies remain unchanged.
 
 | Priority | Boundary | Required result before advancing |
 | --- | --- | --- |
-| P0, first | FO-03 fleet-wide completeness and retired bindings | Root the compiled namespace set; gate capacity activation and maintenance on complete coverage of every namespace and history, including offline/pending/cancelled references. Integrate actual retired-binding refusal. Per-namespace import is implemented but does not prove node absence. Close `fleet_enrollment_incomplete_import`, `fleet_enrollment_retired_binding`. |
+| P0, first | FO-03 fleet-wide completeness and retired bindings | The rooted registry and full canonical/history checker now supply the inventory input. Connect that exact revalidated root to typed capacity and maintenance admission; establish operation-specific live proofs and physical-work joins. Integrate actual retired-binding refusal. Checked inventory does not prove node absence. Close `fleet_enrollment_incomplete_import`, `fleet_enrollment_retired_binding`. |
 | P0, next | FO-03 trust and failure-domain policy | Refuse unsolicited node ingress, require installed trust-revision acknowledgements from actual move participants, and enforce explicit rooted node-versus-physical-host placement policy. Pass all five missing cases and the full FO-03 behavior suite. Close `fleet_enrollment_unknown_node`, `fleet_enrollment_route_revocation`, `fleet_enrollment_physical_host`. |
 | P1 | FO-04 placement, FO-05 load, FO-06 reconciliation | Implement bounded staged feasibility for retained/temporary costs and one-node-loss headroom, fresh load observations and a domain-owned reconciler. Restart/cancellation/lost replies must converge; release reservations only with fresh terminal quorum proof and physical-work joins. |
 | P2 | FO-07 maintenance, FO-08 operator API/CLI, FO-09 scaling | Deliver exact-operation/epoch/process stop fencing, one disruption slot, complete evacuation/removal receipts, authenticated idempotent workflows and observed resource-limit checks. Cover add/remove, rolling restart, horizontal and vertical resizing, and fewer-cell shrink. |
