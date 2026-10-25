@@ -9,6 +9,7 @@ use prost_types::{
     field_descriptor_proto::{Label, Type},
     DescriptorProto, EnumDescriptorProto, EnumValueDescriptorProto, FieldDescriptorProto,
     FileDescriptorProto, FileDescriptorSet, MethodDescriptorProto, ServiceDescriptorProto,
+    UninterpretedOption,
 };
 use std::{
     path::{Path, PathBuf},
@@ -164,17 +165,69 @@ fn invalid_contracts_never_create_or_overwrite_generated_output() {
         ..Default::default()
     });
 
-    for (descriptor, expected) in [
+    let mut message_set = descriptor();
+    message_set.file[0].message_type[0]
+        .options
+        .get_or_insert_default()
+        .message_set_wire_format = Some(true);
+    let mut lazy = descriptor();
+    lazy.file[0].message_type[0]
+        .field
+        .push(FieldDescriptorProto {
+            name: Some("text".into()),
+            number: Some(1),
+            label: Some(Label::Optional as i32),
+            r#type: Some(Type::String as i32),
+            options: Some(prost_types::FieldOptions {
+                lazy: Some(true),
+                ..Default::default()
+            }),
+            ..Default::default()
+        });
+    let mut unresolved = descriptor();
+    unresolved.file[0]
+        .options
+        .get_or_insert_default()
+        .uninterpreted_option
+        .push(UninterpretedOption::default());
+    let mut deep = descriptor();
+    let mut nested = &mut deep.file[0].message_type[0];
+    for _ in 1..32 {
+        nested.nested_type.push(DescriptorProto {
+            name: Some("Child".into()),
+            ..Default::default()
+        });
+        nested = &mut nested.nested_type[0];
+    }
+
+    let mut inputs = vec![
         (collision, "duplicate RPC descriptor symbol: test.Value"),
         (
             invisible,
             "RPC type requires a visible descriptor import: other.Value",
         ),
-    ] {
+        (message_set, "RPC MessageSet"),
+        (lazy, "lazy RPC option"),
+        (unresolved, "unresolved RPC descriptor options"),
+        (deep, "RPC descriptor nesting exceeds limit"),
+    ]
+    .into_iter()
+    .map(|(set, error)| (set.encode_to_vec(), error))
+    .collect::<Vec<_>>();
+    let mut future_file = descriptor().file[0].encode_to_vec();
+    prost::encoding::encode_key(14, prost::encoding::WireType::Varint, &mut future_file);
+    prost::encoding::encode_varint(1000, &mut future_file);
+    let mut future = Vec::new();
+    prost::encoding::encode_key(1, prost::encoding::WireType::LengthDelimited, &mut future);
+    prost::encoding::encode_varint(future_file.len() as u64, &mut future);
+    future.extend(future_file);
+    inputs.push((future, "unsupported RPC descriptor field"));
+
+    for (descriptor, expected) in inputs {
         let scratch = Scratch::new();
         let input = scratch.0.join("input.binpb");
         let output = scratch.0.join("generated");
-        std::fs::write(&input, descriptor.encode_to_vec()).unwrap();
+        std::fs::write(&input, descriptor).unwrap();
         for exists in [false, true] {
             if exists {
                 std::fs::create_dir(&output).unwrap();

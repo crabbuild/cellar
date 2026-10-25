@@ -17,10 +17,10 @@ does not close schema, resource, packaging or performance requirements.
 
 | Priority | Remaining gap | Deliverable / completion evidence |
 | --- | --- | --- |
-| P0 — hosted verification | Remaining broad SDK gates | On `91bd2675`, Linux lifecycle CI passes all 144 cases, JS/Node and all Python examples pass, and both GIL/free-threaded SDK jobs pass embedded-adapter, ABI and packaging steps. Broad SDK checks remain in progress. The full local 696-case report and storage/observer regressions below remain valid for the unchanged production code. |
+| P0 — hosted verification | Remaining broad SDK gates | On `cca43191`, Linux lifecycle and JS/Node CI pass. Both GIL/free-threaded durable-agent examples and the GIL FastAPI job pass; free-threaded FastAPI remains in progress. Both SDK jobs pass embedded-adapter, baseline and loaded-ABI checks; packaging and broad checks remain in progress. The descriptor admission follow-up requires fresh hosted verification. The earlier 696-case report is historical evidence, not a rerun of the changed validator. |
 | P0 | Python deadline and regression timing | Direct queue admission has a controlled reporting-delay regression. The codec decoder probe now has a separate read-only activation and a slow-constructor regression under unchanged budgets. A fresh full SDK run still reproduces the streaming 250 ms failure; live counters point to the native cold-cell path. Passing traced retries do not close that intermittent failure or establish the historical CI cause. |
 | P0 | Remaining lifecycle and peer/admission provenance | Preserve whole-call budgets, 55 deadline cases, 128 proof-wait cases, 80 cycle cases, 96 provenance cases and 96 Node/V8 lifecycle cases. The Python follow-up covers cooperative cancellation suppression, forced host cutoff and persistent suppression with process supervision. Next close forced guest peer retries and broader call-local peer/admission evidence. Retain incomplete-shutdown failures while guest work remains, expired authority, zero native reservations and receipt-safe recovery. |
-| P0 | Resource bounds and parser correctness | Global symbol/import validation and bounded expanded-name inventories are delivered. Generator input is now bounded before allocation and refuses non-files. Close remaining option/schema semantics; audit effective method/runtime/host/peer minima, retained binary copies and decoder allocations; demonstrate bounded queues, reservations and memory under saturation, flood and disconnect. |
+| P0 | Resource bounds and parser correctness | Raw descriptor admission now bounds allocations/work before decoding, rejects unresolved/unknown attributes and enforces the pinned declaration depth. Message definitions borrow the decoded tree instead of cloning nested subtrees. Canonical artifacts and real runtime checks pass. Close remaining semantic conformance; audit effective method/runtime/host/peer minima, retained binary copies and decoder allocations; demonstrate bounded queues, reservations and memory under saturation, flood and disconnect. |
 | P1 | Language/profile coverage | Exercise the portable Protobuf profile as real business calls across all local/remote pairs; qualify supported Python interpreter modes and remaining lifecycle/regression boundaries. |
 | P1 | Reproducible application delivery | Offline `cellar rpc check` now validates descriptors, exact canonical inventories and optional native catalog snapshots. Deliver unified generation, verified consumer binding/frozen package inventories, embedded Python source identity, a published typed-RPC example and clean-machine CI. |
 | P2 | Operation visibility | Add registered-method spans, bounded labels and payload-free diagnostics for failures, deadlines and proof waits. |
@@ -73,6 +73,57 @@ Do not mark the goal complete from native unit tests or a subset of backend
 pairs. Preserve the full test matrix, failures and remaining work across turns.
 
 ## Current evidence
+
+- **Descriptor admission now precedes allocating decoder collections.**
+  Six new tests fail on the old implementation: file/field/source-metadata
+  bounds are checked only after decoding, unknown attributes disappear during
+  normalization, unresolved options remain, and invalid MessageSet/lazy
+  settings are accepted. The new borrowed-slice walk checks the pinned schema
+  and bounds before `FileDescriptorSet::decode`: 256 files, 4,096 message/enum
+  types, 65,536 fields, 200,000 descriptor/option/metadata records and 1,000,000
+  wire-field occurrences. The independent symbol/name budgets remain intact.
+  Poisoned later records prove resource refusal occurs before decoding the
+  remainder. Malformed keys, lengths, fixed-width bodies and groups fail
+  recoverably. Unknown attributes and unresolved options at all eight option
+  scopes are refused rather than erased or reinterpreted by a later compiler.
+- Pinned `protoc` 34.0 rejects proto3 MessageSet, scalar lazy hints and unknown
+  uninterpreted options. It accepts 31 declaration levels and rejects 32;
+  the shared validator now enforces that boundary. The business-message
+  recursion budget remains 64. Metadata and valid message lazy hints retain
+  their descriptor identity and eager native wire validation. Compiler
+  comparisons retain legal/default metadata instead of inferring restrictions
+  from option names. The old build tool accepts all four tested invalid inputs
+  (MessageSet, scalar lazy, unresolved options and 32 levels), creates output
+  directories and overwrites existing contract metadata before a missing-tool
+  failure. The new build tool refuses all eight absent/existing-output cases
+  without changing output. The codegen integration suite covers these and
+  unknown future attributes with no compilers on PATH.
+- Native message definitions now borrow the single decoded tree; the old
+  validator cloned each enclosing subtree. A pinned-compiler-valid 171,007-byte
+  descriptor with 16 message levels and 8,192 leaf fields measures
+  48,939,008 / 49,545,216 / 48,955,392 bytes peak RSS before the change versus
+  21,102,592 / 19,382,272 / 19,349,504 afterward. Each observation is a fresh
+  macOS arm64 process measured with `/usr/bin/time -l`; the intentionally
+  unsupported language is checked only after validation/name checks, so no
+  output or language compiler runs. This is an isolated descriptor-validation
+  diagnostic, not an RPC throughput result or a global RSS qualification.
+  Exact input/binary hashes and raw results are under ignored
+  `.cellar/rpc/descriptor-admission/`, including `baseline.json`, `final.json`,
+  `old-output-refusals.json`, `new-output-refusals.json` and compiler comparisons.
+- All **53 core RPC unit tests**, nine codegen unit tests, three generator
+  filesystem/admission tests and all 14 selected native typed-RPC, offline-check
+  and portable-profile integration tests pass. All 24 Counter/profile artifacts
+  reproduce byte-for-byte across Rust, Python, TypeScript and JavaScript.
+  V8/Node and Python library/typed-RPC/streaming checks pass, including Node
+  runtime lifecycle and existing HTTP/restart cases. Core/codegen Clippy and
+  both adapters' all-target Clippy pass. Format, module layout (1,023 Rust files),
+  documentation (749 local references) and the native dependency guard
+  (465 packages, no JavaScript engine) pass. Stage reports use
+  `.cellar/rpc/descriptor-admission-{validation,adapters}-status.json`; logs use
+  `/tmp/cellar-rpc-descriptor-admission-`. These changes do not close remaining
+  semantic conformance, runtime saturation/copy accounting, supported runtime
+  modes, packaging, observability or performance requirements. The earlier
+  intermittent startup and connection failures remain unexplained.
 
 - **Native cold construction is now qualified for deadline and cancellation.**
   Two public-node tests hold a real native factory after proving its storage

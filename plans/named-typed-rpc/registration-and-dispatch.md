@@ -175,6 +175,16 @@ the native catalog.
 6. Freeze the catalogs and dispatch tables for the application generation.
    A reload builds and validates a new generation before admitting its work.
 
+Descriptor admission walks borrowed wire slices before allocating descriptor
+collections. It bounds file/type/field counts, total submessage records and
+wire-field occurrences, including source metadata and duplicate occurrences.
+The pinned descriptor model must recognize every attribute; unresolved options
+and unknown attributes fail before normalization can discard their meaning.
+The [generator admission guide](../../tools/cellar-rpc-codegen/README.md#descriptor-admission)
+lists the budgets and distinguishes declaration nesting from value recursion.
+Decoded message definitions are borrowed for validation rather than copied
+once per enclosing message.
+
 Compare codec shapes using a documented structural projection with bounded,
 memoized traversal of recursive types. Do not reserialize runtime-specific
 descriptors and assume they hash to the common artifact. The artifact digest

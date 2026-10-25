@@ -10,9 +10,16 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use super::contract::valid_identifier;
 
-pub(super) fn messages(messages: &BTreeMap<String, DescriptorProto>) -> Result<()> {
+pub(super) fn messages(messages: &BTreeMap<String, &DescriptorProto>) -> Result<()> {
     let mut map_uses = BTreeSet::new();
     for (name, message) in messages {
+        ensure!(
+            !message
+                .options
+                .as_ref()
+                .is_some_and(|options| options.message_set_wire_format()),
+            "RPC MessageSet wire format is unsupported in proto3"
+        );
         oneofs(message).with_context(|| format!("invalid RPC oneofs in {name}"))?;
         reserved_fields(message).with_context(|| format!("invalid RPC reservations in {name}"))?;
         for field in &message.field {
