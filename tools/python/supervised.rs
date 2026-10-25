@@ -286,6 +286,7 @@ pub(super) async fn qualify(package: &Path, scratch: &Path, cellar: &Path) -> Re
             && report["pending_tasks"] == 0
             && report["pending_objects"] == 0
             && report["pending_threads"] == 0
+            && report["bridge"]["native_invocations"] == 0
             && report["bridge"]["pending_reservations"] == 0
             && report["native_outcomes"].as_array().is_some_and(
                 |rows| !rows.is_empty() && rows.iter().all(|row| row["complete"] == true)

@@ -1,0 +1,98 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
+// Portable RPC profile fixture, shared by descriptor and codec qualification.
+syntax = "proto3";
+package cellar.rpc.conformance.v1;
+
+import "google/protobuf/empty.proto";
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/duration.proto";
+import "google/protobuf/wrappers.proto";
+import "google/protobuf/struct.proto";
+
+service Profile {
+  rpc Echo(AllTypes) returns (AllTypes);
+  rpc Ping(google.protobuf.Empty) returns (google.protobuf.Empty);
+  rpc EchoChild(AllTypes.Child) returns (AllTypes.Child);
+  rpc EchoTimestamp(google.protobuf.Timestamp) returns (google.protobuf.Timestamp);
+  rpc EchoDuration(google.protobuf.Duration) returns (google.protobuf.Duration);
+  rpc EchoMappings(RuntimeMappings) returns (RuntimeMappings);
+}
+
+message AllTypes {
+  enum State {
+    STATE_UNSPECIFIED = 0;
+    STATE_READY = 1;
+    STATE_FAILED = -1;
+  }
+
+  message Child {
+    string name = 1;
+    AllTypes recursive = 2;
+  }
+
+  int32 signed32 = 1;
+  uint32 unsigned32 = 2;
+  sint32 zigzag32 = 3;
+  fixed32 fixed_unsigned32 = 4;
+  sfixed32 fixed_signed32 = 5;
+  int64 signed64 = 6;
+  uint64 unsigned64 = 7;
+  sint64 zigzag64 = 8;
+  fixed64 fixed_unsigned64 = 9;
+  sfixed64 fixed_signed64 = 10;
+  float float32 = 11;
+  double float64 = 12;
+  bool enabled = 13;
+  string text = 14;
+  bytes data = 15;
+  State state = 16;
+  optional int64 present = 17;
+
+  oneof choice {
+    string selected_text = 18;
+    Child selected_child = 19;
+  }
+
+  repeated int32 packed = 20;
+  repeated int32 unpacked = 21 [packed = false];
+  repeated Child children = 22;
+  map<string, Child> by_name = 23;
+  map<int64, bool> by_ID = 24;
+  google.protobuf.Timestamp timestamp = 25;
+  google.protobuf.Duration duration = 26;
+}
+
+// Exercise the message mappings used by the pinned JavaScript codec. These are
+// ordinary Protobuf messages on the wire, even when a JS field uses a scalar
+// wrapper or JsonObject instead of a generated message object.
+message RuntimeMappings {
+  google.protobuf.Int64Value wrapped64 = 1;
+  google.protobuf.BytesValue wrapped_bytes = 2;
+  google.protobuf.DoubleValue wrapped_double = 3;
+  repeated google.protobuf.Int64Value wrapper_list = 4;
+  map<bool, google.protobuf.Int64Value> wrapper_map = 5;
+  google.protobuf.Struct object = 6;
+  repeated google.protobuf.Struct objects = 7;
+  map<string, google.protobuf.Struct> objects_by_name = 8;
+  oneof choice {
+    google.protobuf.Int64Value wrapped_choice = 9;
+    google.protobuf.Struct object_choice = 10;
+  }
+  google.protobuf.Value explicit_value = 11;
+  google.protobuf.ListValue explicit_list = 12;
+  google.protobuf.FloatValue wrapped_float = 13;
+  google.protobuf.UInt64Value wrapped_unsigned64 = 14;
+  google.protobuf.Int32Value wrapped32 = 15;
+  google.protobuf.UInt32Value wrapped_unsigned32 = 16;
+  google.protobuf.BoolValue wrapped_bool = 17;
+  google.protobuf.StringValue wrapped_string = 18;
+}
+
+// Numeric/boolean oneofs do not retain any recursive cleanup children.
+message ScalarChoice {
+  oneof result {
+    int64 number = 1;
+    bool flag = 2;
+  }
+}

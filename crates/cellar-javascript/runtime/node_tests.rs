@@ -24,9 +24,11 @@ fn start(runtime: &Runtime, active: Life) -> (u64, channel::Receiver<Event>) {
     let payload = json!({"kind":"fetch","event":{"url":"http://test/","method":"GET","headers":[],"body":""},"identity":null,"object":null,"class":null}).to_string();
     runtime
         .start(Start {
+            budget_source: None,
             id,
             _bytes: runtime.reserve(payload.len()).unwrap(),
             payload,
+            body: None,
             active,
             owner: Arc::new(AtomicBool::new(true)),
             sender,

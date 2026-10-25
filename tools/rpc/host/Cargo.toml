@@ -1,0 +1,37 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
+[package]
+name = "cellar-rpc-qualification"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.94.1"
+license = "Apache-2.0"
+publish = false
+
+[features]
+default = []
+full = ["dep:cellar-javascript", "dep:cellar-python"]
+
+[[bin]]
+name = "cellar-rpc-qualification"
+path = "main.rs"
+required-features = ["full"]
+
+[dependencies]
+anyhow.workspace = true
+async-trait.workspace = true
+bytes.workspace = true
+cellar.workspace = true
+cellar-javascript = { workspace = true, optional = true, features = ["embed", "node"] }
+cellar-python = { workspace = true, optional = true, features = ["embed"] }
+libc.workspace = true
+futures-util.workspace = true
+object_store.workspace = true
+reqwest.workspace = true
+rusqlite.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true

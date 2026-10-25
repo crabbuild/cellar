@@ -1,0 +1,144 @@
+{
+  "digest": "a506226b206963f95181e56f97c92c77f5c0c559e074dda43e351c8506c1ca79",
+  "limits": {
+    "max_decoded_slots": 1000000,
+    "max_depth": 64,
+    "max_elements": 100000,
+    "max_message_bytes": 1048576
+  },
+  "methods": [
+    {
+      "input": "example.counter.v1.GetCountRequest",
+      "name": "example.counter.v1.Counter/GetCount",
+      "output": "example.counter.v1.GetCountResponse"
+    },
+    {
+      "input": "example.counter.v1.IncrementRequest",
+      "name": "example.counter.v1.Counter/Increment",
+      "output": "example.counter.v1.IncrementResponse"
+    }
+  ],
+  "types": {
+    "example.counter.v1.Count": [
+      "message",
+      [
+        [
+          1,
+          "value",
+          3,
+          0,
+          false,
+          "",
+          false,
+          "",
+          0
+        ]
+      ]
+    ],
+    "example.counter.v1.GetCountRequest": [
+      "message",
+      []
+    ],
+    "example.counter.v1.GetCountResponse": [
+      "message",
+      [
+        [
+          1,
+          "count",
+          11,
+          0,
+          true,
+          "",
+          false,
+          "example.counter.v1.Count",
+          0
+        ]
+      ]
+    ],
+    "example.counter.v1.IncrementRequest": [
+      "message",
+      [
+        [
+          1,
+          "delta",
+          3,
+          0,
+          true,
+          "",
+          false,
+          "",
+          0
+        ],
+        [
+          2,
+          "operation_id",
+          9,
+          0,
+          false,
+          "",
+          false,
+          "",
+          0
+        ]
+      ]
+    ],
+    "example.counter.v1.IncrementResponse": [
+      "message",
+      [
+        [
+          1,
+          "count",
+          11,
+          0,
+          true,
+          "result",
+          false,
+          "example.counter.v1.Count",
+          0
+        ],
+        [
+          2,
+          "out_of_range",
+          11,
+          0,
+          true,
+          "result",
+          false,
+          "example.counter.v1.OutOfRange",
+          0
+        ],
+        [
+          3,
+          "operation_conflict",
+          11,
+          0,
+          true,
+          "result",
+          false,
+          "example.counter.v1.OperationConflict",
+          0
+        ]
+      ]
+    ],
+    "example.counter.v1.OperationConflict": [
+      "message",
+      []
+    ],
+    "example.counter.v1.OutOfRange": [
+      "message",
+      [
+        [
+          1,
+          "reason",
+          9,
+          0,
+          false,
+          "",
+          false,
+          "",
+          0
+        ]
+      ]
+    ]
+  }
+}
