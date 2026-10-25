@@ -52,9 +52,14 @@ impl FleetGroupAuthorization {
 #[derive(Clone, Debug)]
 pub struct FleetPermitAuthorization {
     permit: FleetMembershipPermit,
+    minimum_trust_revision: u64,
 }
 
 impl FleetPermitAuthorization {
+    pub(crate) fn minimum_trust_revision(&self) -> u64 {
+        self.minimum_trust_revision
+    }
+
     pub(crate) fn permit(&self) -> &FleetMembershipPermit {
         &self.permit
     }
@@ -134,7 +139,10 @@ impl FleetCatalog {
             if permit.binding() != &expected {
                 return Err(FleetCatalogError::Conflict);
             }
-            Ok(FleetPermitAuthorization { permit })
+            Ok(FleetPermitAuthorization {
+                permit,
+                minimum_trust_revision: snapshot.revision(),
+            })
         })
         .await
     }

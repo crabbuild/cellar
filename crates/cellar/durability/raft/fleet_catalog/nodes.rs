@@ -210,9 +210,13 @@ impl FleetHostAuthorization {
         self.catalog
             .run(timeout, async {
                 let snapshot = self.catalog.inner.current().await?;
+                let catalog = self.catalog.birth_owner()?.catalog;
                 let root_digest = hash(&encode(HEAD_KIND, &snapshot.head, ROOT_LIMIT)?);
                 if let Some(previous) = previous {
-                    if previous.fleet != self.fleet() || previous.cluster != self.cluster() {
+                    if previous.fleet != self.fleet()
+                        || previous.cluster != self.cluster()
+                        || previous.catalog != catalog
+                    {
                         return Err(FleetCatalogError::Conflict);
                     }
                     if previous.revision == snapshot.revision() {
@@ -235,6 +239,7 @@ impl FleetHostAuthorization {
                 Ok(FleetTrustSnapshot {
                     revision: snapshot.revision(),
                     fleet: self.fleet(),
+                    catalog,
                     cluster: self.cluster(),
                     root_digest,
                     nodes: nodes.into(),
@@ -454,12 +459,17 @@ impl FleetTrustReader {
 pub(crate) struct FleetTrustSnapshot {
     revision: u64,
     fleet: [u8; 16],
+    catalog: [u8; 32],
     cluster: ClusterId,
     root_digest: [u8; 32],
     nodes: Arc<[FleetHostAuthorization]>,
 }
 
 impl FleetTrustSnapshot {
+    pub(crate) fn catalog(&self) -> [u8; 32] {
+        self.catalog
+    }
+
     pub(crate) fn fleet(&self) -> [u8; 16] {
         self.fleet
     }
@@ -482,6 +492,7 @@ impl FleetTrustSnapshot {
 
     pub(crate) fn check_successor(&self, previous: &Self) -> Result<()> {
         if self.fleet != previous.fleet
+            || self.catalog != previous.catalog
             || self.cluster != previous.cluster
             || self.revision < previous.revision
         {

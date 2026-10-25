@@ -6,7 +6,12 @@ use cellar::application::consensus::verification::LogError;
 use object_store::{path::Path, ObjectStore};
 use sha2::{Digest, Sha256};
 
-async fn admission(f: &Fixture, scope: &GroupScope, id: u8, value: Option<Vec<u8>>) -> Result<()> {
+pub(super) async fn admission(
+    f: &Fixture,
+    scope: &GroupScope,
+    id: u8,
+    value: Option<Vec<u8>>,
+) -> Result<()> {
     let root = f.catalog.read(TIMEOUT).await?;
     f.catalog
         .commit(
@@ -28,7 +33,7 @@ async fn admission(f: &Fixture, scope: &GroupScope, id: u8, value: Option<Vec<u8
     Ok(())
 }
 
-async fn reserve(
+pub(super) async fn reserve(
     f: &Fixture,
     source: &RaftCellHandle,
     scope: &GroupScope,
@@ -60,7 +65,7 @@ async fn reserve(
     Ok((plan, authorization))
 }
 
-async fn step(
+pub(super) async fn step(
     f: &Fixture,
     source: &RaftCellHandle,
     permit: &FleetPermitAuthorization,
@@ -91,7 +96,7 @@ async fn step(
         .context("managed retirement step timed out")?
 }
 
-async fn discover(f: &Fixture, hosts: &[&RaftCells]) -> Result<()> {
+pub(super) async fn discover(f: &Fixture, hosts: &[&RaftCells]) -> Result<()> {
     let revision = f.catalog.read(TIMEOUT).await?.revision();
     for origin in hosts {
         let own = origin.observe_node(TIMEOUT).await?.node.identity.node;
@@ -105,7 +110,7 @@ async fn discover(f: &Fixture, hosts: &[&RaftCells]) -> Result<()> {
     Ok(())
 }
 
-async fn stopped(node: cellar::sdk::Node) -> Result<()> {
+pub(super) async fn stopped(node: cellar::sdk::Node) -> Result<()> {
     let NodeOutcome::Stopped(report) = node.shutdown(ShutdownMode::Preserve).await? else {
         anyhow::bail!("managed retirement fixture did not stop");
     };

@@ -146,6 +146,11 @@ impl RaftCellHandle {
     }
 
     /// Consume the next catalog permit with the committed learner change.
+    /// Timeouts above 60 seconds are refused before queueing.
+    /// A fresh move on a managed host first waits for both processes to install
+    /// the authorization's trust revision. This bounded, cancellable preflight
+    /// proposes nothing; exact already committed plans can still resume while
+    /// the target is unavailable. Refusal never releases the root reservation.
     /// An unavailable response can follow commitment; retry the same permit.
     pub fn begin_managed_repair(
         &self,

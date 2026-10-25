@@ -3,7 +3,7 @@ use super::*;
 fn request() -> RequestHead {
     let endpoint = |id: u8| serde_json::json!({ "node":vec![id;16], "disk":vec![id+10;16], "process":vec![id+20;16], "storage_instance":vec![id+30;16], "label":format!("node-{id}") });
     let route:NodeRoute = serde_json::from_value(serde_json::json!({
-        "fleet":vec![80;16], "cluster":vec![1;16], "protocol":crate::application::consensus::protocol::protocol_identity(),
+        "fleet":vec![80;16], "catalog":vec![81;32], "cluster":vec![1;16], "protocol":crate::application::consensus::protocol::protocol_identity(),
         "minimum_revision":"3", "source":endpoint(4), "target":endpoint(5),
     })).unwrap();
     route.identities().unwrap();
@@ -77,6 +77,15 @@ fn node_metadata_mac_is_bound_to_purpose_channel_and_request() {
 fn node_route_requires_valid_fleet_processes_and_revision() {
     let original = serde_json::to_value(request().route).unwrap();
     assert!(original.get("scope").is_none());
+    let mut missing = original.clone();
+    missing.as_object_mut().unwrap().remove("catalog");
+    assert!(serde_json::from_value::<NodeRoute>(missing).is_err());
+    let mut zero = original.clone();
+    zero["catalog"] = serde_json::json!(vec![0; 32]);
+    assert!(serde_json::from_value::<NodeRoute>(zero)
+        .unwrap()
+        .identities()
+        .is_err());
     for path in [
         ["source", "node"],
         ["source", "disk"],

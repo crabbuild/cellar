@@ -51,7 +51,7 @@ impl Driver {
                 authorization,
                 plan,
             } => {
-                self.begin_repair(request, plan, Some(authorization));
+                self.start_fleet_admission(request, plan, authorization);
                 return;
             }
             client::FleetRequest::Advance {

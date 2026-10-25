@@ -64,6 +64,8 @@ mod load;
 mod readiness;
 pub(crate) use load::GroupResourceObserver;
 pub use load::RaftInspectionScanOptions;
+#[path = "host_fleet_admission.rs"]
+mod fleet_admission;
 #[path = "host_fleet.rs"]
 mod fleet_control;
 #[path = "host_fleet_observation.rs"]
@@ -1158,6 +1160,7 @@ enum SqlPurpose {
 }
 
 enum Job {
+    FleetAdmission(Box<fleet_admission::Completed>),
     NodeInspection(Box<node_inspection::Completed>),
     HistoryRegistered(Box<registration::Completed>),
     Drained(Box<drain::Completed>),
@@ -3084,6 +3087,7 @@ impl Driver {
 
     fn on_job(&mut self, job: Job) {
         match job {
+            Job::FleetAdmission(completed) => self.finish_fleet_admission(*completed),
             Job::HistoryRegistered(completed) => self.finish_history_registration(*completed),
             Job::Drained(completed) => self.finish_node_drain(*completed),
             Job::Controller(completed) => self.finish_controller(*completed),

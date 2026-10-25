@@ -98,7 +98,7 @@ Ordinary `bootstrap_member` can only resume an already enrolled managed group;
 it refuses fresh or bare genesis before creating local group state or a member
 claim. Managed host startup and `activate_managed_initial_member` use the guarded path described below.
 
-This experimental protocol hard-cuts to `/fleet-namespaces-1`; use fresh fleet
+This experimental protocol hard-cuts to `/catalog-trust-1`; use fresh fleet
 roots, fresh namespaces and matching binaries. Fleet heads require the current
 protocol digest, and their permanent genesis pin binds it. Missing or earlier
 protocol state refuses initialization and reads; there is no compatibility reader.
@@ -124,6 +124,23 @@ These methods validate record identity and framing. They do not implement the
 future typed planner's capacity policy or mutation legality. The owning controller
 must atomically admit a legal reservation before asking for its capability.
 Low-level metadata mutation is a privileged embedding/verification surface.
+
+Membership authorizations also retain their source root revision in memory.
+Before a fresh repair starts on a managed host, its actual source and target
+processes must acknowledge at least that trust revision through the authenticated
+node metadata RPC. The source revalidates the target's process, engine, disk and
+rooted epoch immediately before proposing the configuration; the ordinary guard
+and configuration checks then run again. This is an admission check, not a lease
+or a capacity/removal receipt. Existing committed plans continue under their
+exact permit without requiring a new participant acknowledgement.
+
+The preflight holds a 64 KiB control reservation and shares the original request
+deadline. Pressure refuses with overload, while stale or missing trust waits at
+the directory polling cadence, capped at 250 ms between attempts. Caller
+cancellation, local drain and shutdown refuse an unsubmitted fresh action;
+shutdown joins its physical RPC owner before releasing resources. Refusal never
+clears the root reservation or consumes a permit sequence. Business-write
+acknowledgement adds no catalog read or observation call.
 
 Capabilities can outlive their source snapshot. Safety therefore does not depend
 on a TTL, a live controller, or rereading the root just before an RPC. Enrollment
@@ -213,8 +230,12 @@ capacity activation, quorum or removal proof.
 without a business cell or member identity. Both endpoints must have installed at
 least the requested trust revision. The request and response bind fleet, cluster,
 protocol, physical node/disk/process/engine identities, labels, nonce and channel.
-Rooted transport trust permits only this node metadata operation; it does not
-create namespace inspection/query grants or group authority.
+The exact catalog fingerprint is mandatory on the authenticated metadata route.
+An independently initialized catalog with the same fleet ID, physical records
+and revision numbers cannot acknowledge this catalog's trust cut. Trust snapshot
+reuse and successor installation also reject another catalog scope. Rooted
+transport trust permits only this node metadata operation; it does not create
+namespace inspection/query grants or group authority.
 
 The response distinguishes startup enrollment from the installed current state
 and epoch. Restart/resize exclusion and full evacuation remain different modes.

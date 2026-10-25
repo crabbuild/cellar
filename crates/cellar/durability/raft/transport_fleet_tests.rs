@@ -24,6 +24,10 @@ impl PaginatedListStore for NoListing {
 }
 
 async fn catalog(fixture: &Fixture) -> anyhow::Result<FleetCatalog> {
+    catalog_at(fixture, "fleet/").await
+}
+
+async fn catalog_at(fixture: &Fixture, prefix: &str) -> anyhow::Result<FleetCatalog> {
     let store = Arc::new(object_store::memory::InMemory::new());
     let bucket = Bucket::from_clients(
         store.clone(),
@@ -38,7 +42,7 @@ async fn catalog(fixture: &Fixture) -> anyhow::Result<FleetCatalog> {
         bucket,
         ClusterId::new([1; 16])?,
         IncarnationId::new([80; 16])?,
-        "fleet/",
+        prefix,
     )?;
     catalog.initialize(TIMEOUT).await?;
     Ok(catalog)
@@ -136,6 +140,20 @@ async fn rooted_trust_rejects_unenrolled_views_and_changed_pins() -> anyhow::Res
     let authorization = register(&catalog, &own, fixture.log.storage_instance()?, 11).await?;
     let first = authorization.trust_snapshot(TIMEOUT).await?;
     fixture.transport.install_fleet_trust(first.clone())?;
+    let foreign = catalog_at(&fixture, "foreign/").await?;
+    let other = register(&foreign, &own, fixture.log.storage_instance()?, 11)
+        .await?
+        .trust_snapshot(TIMEOUT)
+        .await?;
+    assert_ne!(first.catalog(), other.catalog());
+    assert!(authorization
+        .refresh_trust(Some(&other), TIMEOUT)
+        .await
+        .is_err());
+    assert_eq!(
+        fixture.transport.install_fleet_trust(other),
+        Err(TransportError::StalePeer)
+    );
     let publisher = Publisher::new(peer(2)?).await?;
     let view = publisher.view().await?;
     assert_eq!(

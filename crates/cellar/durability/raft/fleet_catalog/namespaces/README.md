@@ -67,6 +67,6 @@ their separate live proofs and join physical work. Those runtime workflows remai
 in the [delivery plan](../../../../../../plans/multi-raft/fleet-operations/progress.md).
 Automatic fleet management remains default-off.
 
-The experimental protocol hard-cuts to `/fleet-namespaces-1`. Use fresh fleet and
+The experimental protocol hard-cuts to `/catalog-trust-1`. Use fresh fleet and
 data prefixes, namespaces and matching binaries. Numeric format markers remain 1;
 there is no compatibility reader or state migration.

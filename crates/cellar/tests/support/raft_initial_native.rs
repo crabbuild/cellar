@@ -9,6 +9,9 @@ use cellar::application::consensus::verification::{
 #[path = "raft_retirement_native.rs"]
 mod retirement;
 
+#[path = "raft_fleet_trust_native.rs"]
+mod trust;
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn fleet_genesis_imported_namespace() -> Result<()> {
     let f = Fixture::with_domains(false, true).await?;

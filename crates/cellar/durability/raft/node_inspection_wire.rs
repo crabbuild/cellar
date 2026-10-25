@@ -22,6 +22,7 @@ mod tests;
 #[serde(deny_unknown_fields)]
 pub(crate) struct NodeRoute {
     fleet: [u8; 16],
+    catalog: [u8; 32],
     cluster: [u8; 16],
     protocol: [u8; 32],
     minimum_revision: String,
@@ -40,6 +41,7 @@ impl NodeRoute {
     ) -> Result<Self, TransportError> {
         let route = Self {
             fleet: trust.fleet(),
+            catalog: trust.catalog(),
             cluster: trust.cluster().bytes(),
             protocol: crate::application::consensus::protocol::protocol_identity(),
             minimum_revision: minimum_revision.to_string(),
@@ -56,7 +58,8 @@ impl NodeRoute {
         let minimum = self.minimum_revision()?;
         let source = self.source.decode()?;
         let target = self.target.decode()?;
-        if minimum == 0
+        if self.catalog == [0; 32]
+            || minimum == 0
             || minimum >= u64::MAX - 2
             || source.identity.node == target.identity.node
             || self.protocol != crate::application::consensus::protocol::protocol_identity()
@@ -72,6 +75,10 @@ impl NodeRoute {
 
     pub(crate) fn fleet(&self) -> [u8; 16] {
         self.fleet
+    }
+
+    pub(crate) fn catalog(&self) -> [u8; 32] {
+        self.catalog
     }
 
     pub(crate) fn cluster(&self) -> [u8; 16] {

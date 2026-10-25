@@ -330,7 +330,10 @@ impl State {
             .fleet_trust
             .as_ref()
             .ok_or(TransportError::Refused)?;
-        if trust.fleet() != route.fleet() || trust.cluster().bytes() != route.cluster() {
+        if trust.fleet() != route.fleet()
+            || trust.catalog() != route.catalog()
+            || trust.cluster().bytes() != route.cluster()
+        {
             return Err(TransportError::Refused);
         }
         if trust.revision() < route.minimum_revision()? {

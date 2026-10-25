@@ -330,7 +330,8 @@
         "crates/cellar/tests/native_raft_host.rs",
         "crates/cellar/tests/native_raft_archive.rs",
         "crates/cellar/tests/native_raft_directory.rs",
-        "crates/cellar/durability/raft/query.rs"
+        "crates/cellar/durability/raft/query.rs",
+        "crates/cellar/durability/raft/host_fleet.rs"
       ],
       "creates": [
         "crates/cellar/tests/native_raft_fleet_enrollment.rs",
@@ -375,7 +376,11 @@
         "crates/cellar/durability/raft/fleet_catalog/namespaces/README.md",
         "crates/cellar/tests/support/raft_fleet_inventory.rs",
         "crates/cellar/tests/support/raft_namespace_registry_hosts.rs",
-        "crates/cellar/tests/support/raft_retirement_native.rs"
+        "crates/cellar/tests/support/raft_retirement_native.rs",
+        "crates/cellar/durability/raft/host_fleet_admission.rs",
+        "crates/cellar/tests/support/raft_fleet_trust_native.rs",
+        "crates/cellar/tests/support/raft_fleet_trust_store.rs",
+        "crates/cellar/tests/support/raft_fleet_ingress_native.rs"
       ],
       "steps": [
         "Add CAS-authorized node-set revisions with bounded route and permission refresh.",
@@ -391,7 +396,9 @@
         "Bind committed group guards and permits to the exact catalog fingerprint. Store managed ownership in each new canonical birth so an adopted immutable-unmanaged namespace can initialize later births with guards in the first sync while old histories replay their committed enrollment.",
         "Root an append-only paged namespace/class registry before managed host startup, history/import admission and new managed birth reservation. Pin schema and physical data-root identity; preserve every earlier declaration when adding capacity.",
         "Check all rooted namespace declarations against exact catalog handles, original retained import coverage, current canonical admission indexes and every fleet history. Include unpublished/reserved/cancelled births and offline histories; this bounded read is not a capacity or removal receipt.",
-        "Qualify actual managed retirement through peer seed/joint membership, outgoing-voter shutdown and fresh-quorum completion; reopen the stale intact engine and refuse metadata/engine rebinding under a fresh member ID. Abort the unusable learner and verify a newer member on a distinct engine through archive seed and native writes. Fresh learner admission must refresh current rooted host/history authorization within the original seed deadline and metadata budget rather than using startup eligibility."
+        "Qualify actual managed retirement through peer seed/joint membership, outgoing-voter shutdown and fresh-quorum completion; reopen the stale intact engine and refuse metadata/engine rebinding under a fresh member ID. Abort the unusable learner and verify a newer member on a distinct engine through archive seed and native writes. Fresh learner admission must refresh current rooted host/history authorization within the original seed deadline and metadata budget rather than using startup eligibility.",
+        "Stamp opaque membership authorizations with their rooted minimum trust revision. On managed hosts, gate only fresh repair starts on actual source/target process acknowledgements through the existing authenticated metadata RPC; retain exact committed-plan continuation, original deadlines, memory bounds, cancellation, drain and joined shutdown. Bucket pins, published views and correctly authenticated unsolicited frames do not create node trust or local group state.",
+        "Bind complete trust cuts, successor checks and authenticated node metadata routes to the exact catalog fingerprint. Refuse cross-catalog acknowledgements even with the same fleet ID, physical pins, epochs and revision numbers. Hard-cut the experimental protocol with mandatory catalog-scoped routes and marker 1; retain no compatibility reader."
       ],
       "acceptance": [
         "Inventory includes pending births and all managed namespaces.",
@@ -405,11 +412,14 @@
       "test_cases": [
         {
           "name": "fleet_enrollment_unknown_node",
-          "oracle": "Bucket objects and unsolicited traffic cannot enroll or activate an untrusted node.",
+          "oracle": "An actual valid bucket storage pin/process view cannot enroll an unrooted node. Authenticated native node-metadata requests and unsolicited Control/Data frames for unknown or dormant histories refuse before body admission, leaving rooted node entries, engine groups, dormant metadata and application callbacks unchanged. Directory discovery uses exact rooted entries without listing.",
           "invariants": [
             "F01",
             "F02",
-            "F07"
+            "F05",
+            "F06",
+            "F07",
+            "F10"
           ]
         },
         {
@@ -1183,6 +1193,30 @@
             "F05",
             "F06",
             "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_enrollment_move_trust_acknowledgements",
+          "oracle": "With one target catalog read held, a fresh managed Begin cannot consume its permit or create a learner before the actual source and target processes acknowledge the authorization revision; native SQL continues. Cancellation and expiry leave consumption unchanged. Releasing the read admits the same plan. Exact committed-plan retries and abort still work with an unreachable target and a newer rooted capability. Shutdown joins an unpolled 60-second fresh-admission waiter within the existing bound and retains its unresolved root reservation. This does not qualify complete route revocation or node removal.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F04",
+            "F06",
+            "F07",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_enrollment_catalog_scoped_node_trust",
+          "oracle": "Two actual hosts use separate coordination catalogs with the same fleet ID, shared namespace storage, identical declared capabilities and matching rooted physical records/epochs. Both install at least the requested revision. A counted TCP proxy proves the metadata RPC reached the other process; its signed response must refuse cross-catalog trust acknowledgement. Both engines and application callbacks remain unchanged. Unit checks also reject foreign-scope trust reuse/successor installation and missing/zero route scope.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F04",
+            "F07",
             "F10"
           ]
         }
