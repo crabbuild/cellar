@@ -271,6 +271,17 @@ outside their default invocation. The read suite includes the new leadership
 transfer case without another application write. This reporting correction does
 not establish a fix for the separately observed full-size physical I/O stall.
 
+At `9946d022`, the JavaScript/Node, Python examples and typed-RPC lifecycle
+workflows pass. The SDK's free-threaded Python job instead fails the native
+`automatic_plan_recovers_controller_and_leader_loss` test while waiting for a
+command-ready leader after repair. This is distinct from the originally
+reported event-owner outage. The same membership case passes in 20 additional
+fresh local processes, and the complete membership suite passes 27 cases with
+one ignored process fixture. Its leader wait now retains the existing status
+samples for failure output, without additional probes or a longer deadline.
+The Linux timeout remains unresolved; local repetitions do not establish its
+cause or a fix. Membership-target Rust 1.98.1 Clippy and formatting pass.
+
 ## Remaining work
 
 The completion checklist remains open. Full native 10 GB warm takeover, exact
