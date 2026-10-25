@@ -82,6 +82,7 @@ pub(crate) enum Event {
         name: String,
         payload: String,
         callback_scope: Option<u64>,
+        blocking: bool,
         // Embedded synchronous calls have a private reply slot. Node routes
         // its replies through the existing authenticated transport.
         synchronous: Option<mpsc::SyncSender<Reply>>,
@@ -183,7 +184,13 @@ pub(crate) fn supports_synchronous(name: &str) -> bool {
     cellar_guest::workers::supports_synchronous(name)
         || matches!(
             name,
-            "clock.now" | "storage.read" | "storage.apply" | "storage.sql" | "alarm.get"
+            "clock.now"
+                | "storage.read"
+                | "storage.apply"
+                | "storage.sql"
+                | "alarm.get"
+                | "workers.callback.start_sync"
+                | "workers.callback.finish_sync"
         )
 }
 
@@ -192,7 +199,10 @@ pub(crate) fn supports_synchronous(name: &str) -> bool {
 // not occupy the JS mutation slot. Failure classification still treats finish
 // as a mutation because its commit acknowledgement can be lost.
 pub(crate) fn requires_mutation_slot(name: &str) -> bool {
-    name != "workers.callback.finish" && !cellar_guest::operations::is_read(name)
+    !matches!(
+        name,
+        "workers.callback.finish" | "workers.callback.finish_sync"
+    ) && !cellar_guest::operations::is_read(name)
 }
 
 /// Process bootstrap. Every call owns a joined engine and watchdog. V8's global

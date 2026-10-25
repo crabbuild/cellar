@@ -450,6 +450,7 @@ fn run(
                             name: name.into(),
                             payload: payload.into(),
                             callback_scope,
+                            blocking: synchronous,
                             synchronous: None,
                             _bytes: bytes,
                         })

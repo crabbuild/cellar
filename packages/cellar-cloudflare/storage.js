@@ -79,6 +79,6 @@ export function durableStorage(current, transaction = false) {
       if (typeof callback !== "function") throw new TypeError("transaction requires a callback");
       return current()._callback("transaction", scope => callback(durableStorage(scope, true)));
     },
-    transactionSync() { throw new Error("Workers storage transactions are not implemented yet"); },
+    transactionSync(callback) { return current()._callbackSync(callback); },
   });
 }

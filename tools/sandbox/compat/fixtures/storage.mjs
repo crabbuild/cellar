@@ -21,6 +21,59 @@ class Probe extends DurableObject {
     const { sql, kv } = storage;
     switch (command) {
       case "identity": return { ok: true, id: this.ctx.id.toString() };
+      case "sync-timeout": {
+        storage.transactionSync(() => { kv.put("sync-timeout", true); for (;;) {} });
+        throw new Error("runaway synchronous callback returned");
+      }
+      case "sync-recovered": return { ok: kv.get("sync-timeout") === undefined };
+      case "sync-transactions": {
+        sql.exec("CREATE TABLE IF NOT EXISTS sync_probe (value INTEGER); DELETE FROM sync_probe").toArray();
+        kv.put("sync-value", 0);
+        const result = { value: 7n }; result.self = result;
+        check(storage.transactionSync(() => {
+          kv.put("sync-value", 1);
+          sql.exec("INSERT INTO sync_probe VALUES(1)").toArray();
+          check(storage.transactionSync(() => { kv.put("sync-value", 2); return 42n; }) === 42n, "nested sync result");
+          try { storage.transactionSync(() => { kv.put("sync-value", 3); sql.exec("INSERT INTO sync_probe VALUES(2)").toArray(); throw undefined; }); }
+          catch (error) { check(error === undefined, "sync throw changed"); }
+          check(kv.get("sync-value") === 2 && sql.exec("SELECT count(*) AS n FROM sync_probe").one().n === 1, "nested sync rollback");
+          return result;
+        }) === result, "synchronous callback return identity");
+        let threw = false;
+        try { storage.transactionSync(() => { kv.put("sync-value", 8); sql.exec("INSERT INTO sync_probe VALUES(3)").toArray(); throw undefined; }); }
+        catch (error) { threw = true; check(error === undefined, "undefined synchronous throw changed"); }
+        check(threw && kv.get("sync-value") === 2 && sql.exec("SELECT count(*) AS n FROM sync_probe").one().n === 1, "sync rollback did not cover SQL and KV");
+        await refuses(() => storage.transaction(async tx => {
+          tx.kv.put("sync-value", 9);
+          storage.transactionSync(() => { kv.put("sync-value", 10); sql.exec("INSERT INTO sync_probe VALUES(4)").toArray(); });
+          throw new Error("outer rollback");
+        }));
+        check(kv.get("sync-value") === 2 && sql.exec("SELECT count(*) AS n FROM sync_probe").one().n === 1, "sync child escaped outer rollback");
+        const thenable = { get then() { throw new Error("thenable getter was read"); } };
+        check(storage.transactionSync(() => thenable) === thenable, "non-Promise result was assimilated");
+        const masked = Promise.resolve(1); Object.setPrototypeOf(masked, null);
+        check((await refuses(() => storage.transactionSync(() => masked))).name === "TypeError", "native Promise brand was not checked");
+        let late;
+        const error = await refuses(() => storage.transactionSync(() => {
+          late = (async () => { kv.put("sync-value", 11); await Promise.resolve(); kv.put("sync-value", 12); })();
+          late.catch(() => {});
+          return late;
+        }));
+        check(error.name === "TypeError", "async callback result was accepted");
+        await refuses(() => late, "ValidationError");
+        check(kv.get("sync-value") === 2, "async callback wrote after synchronous rollback");
+        let rejected;
+        storage.transactionSync(() => {
+          rejected = nativeContext.storage.apply({ puts: { "async-in-sync": true } });
+          rejected.catch(() => {});
+        });
+        const blocked = await refuses(() => rejected, "UnsupportedOperation");
+        check(blocked.outcome === "not_committed" && kv.get("async-in-sync") === undefined, "asynchronous mutation was submitted inside transactionSync");
+        const depth = level => storage.transactionSync(() => level ? depth(level - 1) : true);
+        await refuses(() => depth(64), "ValidationError");
+        check(storage.transactionSync(() => true) === true, "sync boundaries did not release after nesting refusal");
+        return { ok: true };
+      }
       case "callback-quota": {
         const held = [];
         try {
@@ -35,6 +88,7 @@ class Probe extends DurableObject {
           }
           let invoked = false;
           await refuses(() => nativeContext._callback("block", () => { invoked = true; }), "ValidationError");
+          await refuses(() => storage.transactionSync(() => { invoked = true; }), "ValidationError");
           check(!invoked, "callback quota ran user code");
         } finally {
           for (const work of held) { work.release(); await work.done; }

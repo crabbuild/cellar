@@ -63,6 +63,25 @@ pub struct CallbackScope {
 }
 
 impl CallbackScope {
+    /// Execute an inline FFI callback with this boundary's native guards.
+    pub fn run_sync<T>(
+        &self,
+        context: &Context,
+        callback: impl FnOnce() -> Result<T>,
+    ) -> Result<T> {
+        self.check(context)?;
+        let block = self
+            .block
+            .upgrade()
+            .ok_or_else(|| anyhow!("native callback boundary is closed"))?;
+        let _block = Current::enter(&self.context.state.blocks, block);
+        let _transaction = self
+            .transaction
+            .as_ref()
+            .map(storage::TransactionCurrent::enter);
+        callback()
+    }
+
     /// Roll back this callback's transaction view; subsequent operations refuse.
     pub fn rollback(&self, context: &Context) -> Result<()> {
         self.check(context)?;

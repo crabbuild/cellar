@@ -13,6 +13,8 @@ use std::{
     },
 };
 use tokio::sync::oneshot;
+mod synchronous;
+pub(crate) use synchronous::Pump;
 
 #[derive(Debug)]
 struct GuestFailure;
@@ -98,6 +100,7 @@ impl Callbacks {
                 .done
                 .await
                 .context("native callback completion was abandoned")?;
+            context.invocation_authority()?;
             if let Err(error) = result {
                 if input.success || !error.is::<GuestFailure>() {
                     return Err(error);

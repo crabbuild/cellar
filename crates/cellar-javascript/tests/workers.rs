@@ -96,10 +96,19 @@ fn run(
     fixture: &str,
     host: impl FnOnce(Arc<dyn Application>) -> Result<()>,
 ) -> Result<()> {
+    run_with_budget(backend, fixture, Duration::from_secs(10), host)
+}
+
+fn run_with_budget(
+    backend: Backend,
+    fixture: &str,
+    budget: Duration,
+    host: impl FnOnce(Arc<dyn Application>) -> Result<()>,
+) -> Result<()> {
     let root = fixtures()?;
     let source = source(&root, fixture)?;
     let options = Options {
-        turn_timeout: Duration::from_secs(10),
+        turn_timeout: budget,
         ..Default::default()
     };
     match backend {
@@ -110,7 +119,7 @@ fn run(
         #[cfg(feature = "node")]
         Backend::Node => {
             let mut node = cellar_javascript::NodeOptions::new(root.join(format!("{fixture}.mjs")));
-            node.heartbeat_timeout = Duration::from_secs(10);
+            node.heartbeat_timeout = budget;
             cellar_javascript::NodeRuntime::run(options, node, source, |app| host(app))
         }
     }
@@ -213,7 +222,7 @@ fn exercise(
                     ensure!(request(&client, &address, "bob/tick").await?["count"] == first.div_ceil(2));
                     ensure!(request(&client, &address, "alice/tick").await?["count"] == first + 1);
                     if restart { ensure!(request(&client, &address, "alice/read-types").await?["ok"] == true); }
-                    for operation in ["types", "sql", "save", "borrow", "bounds", "buffers", "refuse", "crypto", "transactions", "callback-quota"] {
+                    for operation in ["types", "sql", "save", "borrow", "bounds", "buffers", "refuse", "crypto", "transactions", "sync-transactions", "callback-quota"] {
                         ensure!(request(&client, &address, &format!("alice/{operation}")).await?["ok"] == true);
                     }
                     let before = request(&client, &address, "alice/identity").await?;
@@ -316,4 +325,55 @@ fn embedded_workers_native_callback_gates_and_reset() -> Result<()> {
 #[test]
 fn node_workers_native_callback_gates_and_reset() -> Result<()> {
     qualify(Backend::Node, "callbacks")
+}
+
+fn synchronous_timeout(backend: Backend) -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    let completed = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let observation = completed.clone();
+    let failed = run_with_budget(backend, "storage", Duration::from_millis(500), |app| {
+        tokio::runtime::Builder::new_multi_thread().enable_all().build()?.block_on(async {
+            let (node, address) = native::start_configured(directory.path(), app, |config, _, _| {
+                config.runtime.handler_budget = Duration::from_secs(5);
+            }).await?;
+            let client = reqwest::Client::builder().timeout(Duration::from_secs(5)).build()?;
+            let reply = client.get(format!("{address}/alice/sync-timeout")).send().await?;
+            ensure!(!reply.status().is_success(), "runaway callback reported success");
+            let _ = reply.bytes().await?;
+            let outcome = node.shutdown(ShutdownMode::Preserve).await?;
+            ensure!(matches!(outcome, NodeOutcome::Stopped(report) if report.cells_drained && report.application_work_drained && !report.drain_timed_out));
+            observation.store(true, std::sync::atomic::Ordering::SeqCst);
+            Ok(())
+        })
+    });
+    // V8 termination and Node process loss are valid supervisor outcomes. The
+    // authoritative checks are the refused response, joined native shutdown,
+    // and a fresh runtime observing rollback rather than a partial write.
+    ensure!(
+        completed.load(std::sync::atomic::Ordering::SeqCst),
+        "synchronous fault checks did not finish: {failed:?}"
+    );
+    run(backend, "storage", |app| {
+        tokio::runtime::Builder::new_multi_thread().enable_all().build()?.block_on(async {
+            let (node, address) = native::start_configured(directory.path(), app, |config, _, _| {
+                config.runtime.handler_budget = Duration::from_secs(5);
+            }).await?;
+            ensure!(request(&reqwest::Client::new(), &address, "alice/sync-recovered").await?["ok"] == true, "synchronous callback write survived rollback");
+            let outcome = node.shutdown(ShutdownMode::Preserve).await?;
+            ensure!(matches!(outcome, NodeOutcome::Stopped(report) if report.cells_drained && report.application_work_drained && !report.drain_timed_out));
+            Ok(())
+        })
+    })
+}
+
+#[cfg(feature = "embed")]
+#[test]
+fn embedded_sync_callback_timeout_rolls_back_and_joins() -> Result<()> {
+    synchronous_timeout(Backend::Embedded)
+}
+
+#[cfg(feature = "node")]
+#[test]
+fn node_sync_callback_timeout_rolls_back_and_joins() -> Result<()> {
+    synchronous_timeout(Backend::Node)
 }

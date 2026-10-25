@@ -52,8 +52,8 @@ export interface DurableObjectStorage {
   deleteAll(options?: WriteOptions): Promise<void>;
   sync(): Promise<null>;
   transaction<T>(callback: (transaction: DurableObjectTransaction) => T | Promise<T>): Promise<T>;
-  /** Unsupported: this method throws before invoking a callback. */
-  transactionSync(): never;
+  /** Native synchronous transaction; callbacks returning Promises are refused. */
+  transactionSync<T>(callback: () => T extends Promise<unknown> ? never : T): T;
 }
 export interface DurableObjectTransaction extends DurableObjectStorage { rollback(): void }
 export interface DurableObjectState {

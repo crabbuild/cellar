@@ -85,6 +85,11 @@ impl Cell for Counter {
                         Ok(())
                     });
                     let scope = receive.await?;
+                    scope.run_sync(&context, || {
+                        context.storage()?.put_json("scoped-inline", &true.into())?;
+                        assert!(context.callback_scope().is_ok());
+                        Ok(())
+                    })?;
                     let callback_context = context.clone();
                     scope
                         .run(&context, async move {
@@ -104,6 +109,7 @@ impl Cell for Counter {
                     let _ = finish.send(());
                     work.await?;
                     assert!(scope.run(&context, async { Ok(()) }).await.is_err());
+                    assert!(scope.run_sync(&context, || Ok(())).is_err());
                     *self.signals.old_callback.lock().unwrap() = Some(scope);
                     Ok(response("callback scope checked"))
                 }

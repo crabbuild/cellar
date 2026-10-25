@@ -5,6 +5,7 @@
 import { readFileSync } from "node:fs";
 import { Worker } from "node:worker_threads";
 import { Serializer, Deserializer } from "node:v8";
+import { types } from "node:util";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { pathToFileURL } from "node:url";
 
@@ -17,6 +18,7 @@ if (Number(process.versions.node.split(".")[0]) < 24) {
 const config = JSON.parse(readFileSync(0, "utf8"));
 const parse = JSON.parse;
 const stringify = JSON.stringify;
+const isPromise = types.isPromise;
 const scope = new AsyncLocalStorage();
 // Track invocation authority separately from operations waiting for Rust replies.
 const active = new Map();
@@ -59,6 +61,7 @@ function operation(invocation, name, payload, synchronous = false) {
   if (continuation?.invocation !== invocation) {
     reject("ContextMismatch");
   }
+  if (continuation.synchronous && !synchronous) reject("UnsupportedOperation");
 
   const state = active.get(invocation);
 
@@ -67,6 +70,7 @@ function operation(invocation, name, payload, synchronous = false) {
   }
 
   if (synchronous && !["clock.now", "storage.read", "storage.apply", "storage.sql", "alarm.get",
+      "workers.callback.start_sync", "workers.callback.finish_sync",
       "workers.callback.rollback", "workers.crypto.random", "workers.crypto.uuid", "workers.identity", "workers.namespace", "workers.sql.exec", "workers.sql.next", "workers.sql.close", "workers.sql.size",
       "workers.kv.get", "workers.kv.put", "workers.kv.delete", "workers.kv.list", "workers.kv.delete_all"].includes(name)) {
     reject("UnsupportedOperation");
@@ -93,6 +97,7 @@ function operation(invocation, name, payload, synchronous = false) {
     "workers.namespace",
     "workers.callback.begin",
     "workers.callback.finish",
+    "workers.callback.finish_sync",
     "workers.sql.size",
     "workers.kv.get",
     "workers.kv.list",
@@ -167,10 +172,14 @@ const factory = makeRunner(operation, (invocation, name, payload) => operation(i
   const deserializer = new Deserializer(bytes);
   if (!deserializer.readHeader()) reject("DataCloneError");
   return deserializer.readValue();
-}, (invocation, callback_scope, callback) => {
+}, (invocation, callback_scope, callback, synchronous = false) => {
   if (scope.getStore()?.invocation !== invocation) reject("ContextMismatch");
   if (!Number.isSafeInteger(callback_scope) || callback_scope < 1 || typeof callback !== "function") reject("ValidationError");
-  return scope.run({ invocation, callback_scope }, callback);
+  return scope.run({ invocation, callback_scope, synchronous }, () => {
+    const result = callback();
+    if (synchronous && isPromise(result)) throw new TypeError("transactionSync callback must not return a Promise");
+    return result;
+  });
 });
 
 // Revocation prevents new Cellar calls. It cannot undo effects already submitted

@@ -28,6 +28,7 @@ const transaction: Promise<bigint> = storage.transaction(async tx => {
   tx.rollback();
   return 4n;
 });
-// @ts-expect-error: synchronous transactions still require implementation
-storage.transactionSync(() => {});
-void [result, local, cell, count, counters, row, transaction];
+const synchronous: bigint = storage.transactionSync(() => 9n);
+// @ts-expect-error: synchronous transactions cannot return a Promise
+storage.transactionSync(async () => 1);
+void [result, local, cell, count, counters, row, transaction, synchronous];

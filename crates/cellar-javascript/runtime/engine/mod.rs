@@ -39,17 +39,19 @@ struct State {
 // across application JavaScript, including property access or value conversion.
 type Shared = Rc<RefCell<State>>;
 
-fn continuation(scope: &mut v8::PinScope) -> Option<(u64, Option<u64>)> {
+fn continuation(scope: &mut v8::PinScope) -> Option<(u64, Option<u64>, bool)> {
     let current = scope.get_continuation_preserved_embedder_data();
     if let Ok(number) = v8::Local::<v8::Number>::try_from(current) {
-        return Some((number.value() as u64, None));
+        return Some((number.value() as u64, None, false));
     }
     let frame = v8::Local::<v8::Array>::try_from(current).ok()?;
     let invocation = frame.get_index(scope, 0)?;
     let callback = frame.get_index(scope, 1)?;
+    let synchronous = frame.get_index(scope, 2)?.is_true();
     Some((
         v8::Local::<v8::Number>::try_from(invocation).ok()?.value() as u64,
         Some(v8::Local::<v8::Number>::try_from(callback).ok()?.value() as u64),
+        synchronous,
     ))
 }
 
@@ -58,7 +60,7 @@ fn scoped_callback(
     args: v8::FunctionCallbackArguments,
     mut rv: v8::ReturnValue,
 ) {
-    let Some((invocation, _)) = continuation(scope) else {
+    let Some((invocation, _, _)) = continuation(scope) else {
         return refuse(scope, "ContextExpired");
     };
     let Ok(requested) = v8::Local::<v8::Number>::try_from(args.get(0)) else {
@@ -80,12 +82,25 @@ fn scoped_callback(
     };
     let previous = scope.get_continuation_preserved_embedder_data();
     let invocation = v8::Number::new(scope, invocation as f64);
-    let frame = v8::Array::new_with_elements(scope, &[invocation.into(), callback_scope.into()]);
+    let synchronous = v8::Boolean::new(scope, args.get(3).is_true());
+    let frame = v8::Array::new_with_elements(
+        scope,
+        &[invocation.into(), callback_scope.into(), synchronous.into()],
+    );
     scope.set_continuation_preserved_embedder_data(frame.into());
     let undefined = v8::undefined(scope);
     let result = callback.call(scope, undefined.into(), &[]);
     scope.set_continuation_preserved_embedder_data(previous);
     if let Some(result) = result {
+        if synchronous.is_true() && result.is_promise() {
+            if let Some(text) =
+                v8::String::new(scope, "transactionSync callback must not return a Promise")
+            {
+                let error = v8::Exception::type_error(scope, text);
+                scope.throw_exception(error);
+            }
+            return;
+        }
         rv.set(result);
     }
 }
@@ -114,7 +129,7 @@ fn current_activation(
     args: v8::FunctionCallbackArguments,
     mut rv: v8::ReturnValue,
 ) {
-    let Some((invocation, callback_scope)) = continuation(scope) else {
+    let Some((invocation, callback_scope, _)) = continuation(scope) else {
         return refuse(scope, "ContextExpired");
     };
     let requested = if args.length() == 0 {
@@ -179,7 +194,7 @@ fn dispatch_operation(
     };
     // Promise continuations carry their invocation ID. A facade saved by another
     // invocation must not borrow the currently executing call's authority.
-    let Some((invocation, callback_scope)) = continuation(scope) else {
+    let Some((invocation, callback_scope, synchronous_callback)) = continuation(scope) else {
         return refuse(scope, "ContextExpired");
     };
     let Some(requested) = args.get(0).number_value(scope) else {
@@ -187,6 +202,9 @@ fn dispatch_operation(
     };
     if invocation as f64 != requested {
         return refuse(scope, "ContextMismatch");
+    }
+    if synchronous_callback && !synchronous {
+        return refuse(scope, "UnsupportedOperation");
     }
 
     // Require primitive strings: no user conversion while native state is borrowed.
@@ -251,6 +269,7 @@ fn dispatch_operation(
             name,
             payload,
             callback_scope,
+            blocking: synchronous,
             synchronous: synchronous_sender,
             _bytes: bytes,
         })

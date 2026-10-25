@@ -429,6 +429,18 @@
         return current;
       },
       _sync: synchronous,
+      _callbackSync(callback) {
+        if (typeof callback !== "function") throw new TypeError("Expected a callback");
+        const token = synchronous("workers.callback.start_sync", {});
+        let success = false;
+        try {
+          const result = scopedHost(id, token.id, callback, true);
+          success = true;
+          return result;
+        } finally {
+          synchronous("workers.callback.finish_sync", { id: token.id, success });
+        }
+      },
       async _callback(kind, callback) {
         if (typeof callback !== "function") throw new TypeError("Expected a callback");
         const token = await call("workers.callback.begin", { kind });

@@ -90,7 +90,7 @@ SDK. The application engine and the container's own runtime remain separate.
 ## Optional Cloudflare runtime work
 
 The experimental [Cloudflare runtime package](../../packages/cellar-cloudflare/README.md)
-now provides activation-owned DO storage, native asynchronous transaction and
+now provides activation-owned DO storage, native sync/async transaction and
 critical-section callbacks, constructor admission and event-owned
 namespace/method RPC above the native operation boundary. Native CellRpc calls
 retain structured graphs and typed remote errors in both engines, with explicit

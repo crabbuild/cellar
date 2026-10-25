@@ -38,6 +38,11 @@ constructor admission above the original native Cellar invocation:
   transaction view across Node/V8 awaits. Unrelated promises cannot borrow it;
   escaped transaction views and closed callback continuations refuse effects.
   Completion waits for the native commit/rollback, preserving output gates.
+- `storage.transactionSync`: native synchronous SQL/KV transactions, nested
+  savepoints and inline return/throw values. Its bounded callback loop accepts
+  only synchronous calls from the current callback, refusing async SDK effects
+  and native Promise results. The SQLite transaction stays on the original
+  native host thread until commit/rollback; no writes are replayed from JS.
 - Native namespace ID derivation/validation and event-owned stubs for value-only
   cell RPC. Actual native `Invocation::CellRpc` / `Output::Rpc` carry clone graphs;
   calls retain native routing, ownership, durability and cancellation behavior.
@@ -46,8 +51,8 @@ constructor admission above the original native Cellar invocation:
   Remote thrown values and error properties/causes survive; error stacks are
   removed. Encoding/size failures after execution remain unknown outcomes.
 - TypeScript declarations for this implemented slice, including typed method
-  arguments/results and storage. Unavailable transaction callbacks are refused
-  by the declarations as well as at runtime.
+  arguments/results and storage. Synchronous callbacks returning Promises are
+  refused by the declarations as well as at runtime.
 
 `activateDurableObject` owns activation storage and exposes `rpc(method, args)`
 for prototype-method dispatch. The `workers` entry supplies the imported base classes and
@@ -55,7 +60,7 @@ an explicitly disabled tracing export used by the pinned Sandbox fallback.
 Defining `RpcTarget` does not implement RPC transport or remote object lifetime.
 
 The complete Worker module loader, HTTP/web globals, automatic activation-owned
-namespace environment bindings, property RPC, RPC targets, synchronous transactions,
+namespace environment bindings, property RPC, RPC targets,
 PITR, complete callback/response/disconnect lifetime semantics, `waitUntil`, abort/reconstruction,
 container lifecycle and Sandbox control-server integration remain required.
 Unavailable APIs throw; they must not silently succeed or lose transaction,
@@ -84,7 +89,10 @@ idled/replaced activations and fresh-runtime recovery. Native gate fixtures
 observe the Rust cell callback boundary while another request is queued, then
 verify real activation reconstruction and failed-constructor refusal. Native
 SDK tests also verify escaped scope tokens release the gate and refuse reuse.
-Synchronous transactions still refuse before invoking application callbacks.
+Synchronous tests cover SQL/KV rollback together, nested sync/async savepoints,
+return identity, thrown `undefined`, masked Promise rejection, refused async
+mutations, escaped continuations and the nesting bound. Runaway callbacks also
+prove refused output, joined shutdown and rollback after a fresh-runtime restart.
 
 The bridge uses an opaque native callback scope, installed only while each SDK
 future is polled in the original invocation/facet. Node AsyncLocalStorage and
@@ -97,8 +105,8 @@ native transaction queues/guards serialize effects and result loss stays unknown
 The adapter still closes its bridge on event completion/cancellation. Full
 Workers response/background retention, dropped transaction results and ordinary
 client-disconnect survival remain required. Native SDK lifetime/deadline tests
-do not establish those JS profile guarantees. `waitUntil`, synchronous callbacks
-and the complete published package/image paths are not qualified here.
+do not establish those JS profile guarantees. `waitUntil` and the complete
+published package/image paths are not qualified here.
 
 ## Native value-only RPC integration
 

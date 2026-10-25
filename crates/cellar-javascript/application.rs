@@ -317,7 +317,7 @@ impl JavaScriptApplication {
             payload,
             sender,
             active: active.clone(),
-            owner,
+            owner: owner.clone(),
         })?;
 
         let mut stopped = self.runtime.stopped.subscribe();
@@ -341,11 +341,26 @@ impl JavaScriptApplication {
                 "JavaScript runtime is closed"
             );
             match event {
+                event if matches!(&event, Event::Operation { name, .. } if name == "workers.callback.start_sync") =>
+                {
+                    crate::callbacks::Pump {
+                        runtime: &self.runtime,
+                        context: &context,
+                        state: &state,
+                        callbacks: &callbacks,
+                        receive: &mut receive,
+                        active: &active,
+                        owner: &owner,
+                        invocation,
+                    }
+                    .serve(event)?;
+                }
                 Event::Operation {
                     id,
                     name,
                     payload,
                     callback_scope,
+                    blocking: _,
                     synchronous,
                     _bytes,
                 } => {

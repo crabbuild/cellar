@@ -14,7 +14,7 @@ does not narrow that objective or turn fixture passes into full compatibility.
 | Slice | Current evidence | Remaining work / completion evidence |
 | --- | --- | --- |
 | SP-01 | Exact celld reference commit/files/license, npm packages/lock/integrities, imported runtime bytes and immutable Sandbox image manifest are in `tools/sandbox/compat`; drift/refusal tests pass; API/fixture inventory lists native mappings and explicit gaps | Input inventory implemented; runtime conformance remains in SP-02–SP-04 and later profiles |
-| SP-02 | Native-backed DO SQL/KV/clone facade, activation-bound authority, object identity, value-only namespace/cell RPC, constructor admission, native input gates/reset and asynchronous transactions execute in Node/V8; actual published constructors are exercised | Complete module/bootstrap/web globals, automatic activation-owned environment bindings, property/target RPC and lifetimes, full background/response/disconnect behavior, synchronous transactions and profile/version admission; retain native-only dependency boundary |
+| SP-02 | Native-backed DO SQL/KV/clone facade, activation-bound authority, object identity, value-only namespace/cell RPC, constructor admission, native input gates/reset and sync/async transactions execute in Node/V8; actual published constructors are exercised | Complete module/bootstrap/web globals, automatic activation-owned environment bindings, property/target RPC and lifetimes, full background/response/disconnect behavior and profile/version admission; retain native-only dependency boundary |
 | SP-03 | Actual published `@cloudflare/containers@0.3.7` constructor, state and SQL scheduling run in both engines with native storage and a stopped-provider view; unchanged upstream example is pinned | Execute the unchanged app, class hooks, routing, sleep/wake, process/port behavior and cleanup against the native engine |
 | SP-04 | Actual `@cloudflare/sandbox@0.12.9` constructor/configuration and metadata recovery run in Node; matching upstream app/Dockerfile and `linux/amd64` image digest are pinned | Run the unchanged app and SDK/image end to end over HTTP and RPC; files, streamed exec, background records, previews, teardown and failure cases |
 | SP-05 | Provider environment/operation/limit discovery is implemented in Rust, Python, JS and TS; native and restricted provider dispatch tests cover it | Portable files and richer operations, named configuration, durable remote bindings, fencing, expiry/reconnect, loss/unknown outcomes and orphan reconciliation |
@@ -105,9 +105,9 @@ alarm and fetch cannot construct duplicate objects for one activation.
 Constructor callbacks remain attached to their original event and admission
 refuses failed initialization, including rejection with `undefined`. The
 follow-up below now uses the actual native gate/reset and async transaction
-paths. Complete response/background/disconnect lifetimes and synchronous
-transactions remain required. Do not replace native contracts with detached JS
-work, guessed rollback or an HTTP-only RPC substitute. Module/bootstrap globals,
+paths. Complete response/background/disconnect lifetimes remain required. Do not
+replace native contracts with detached JS work, guessed rollback or an HTTP-only
+RPC substitute. Module/bootstrap globals,
 automatic environment bindings, RPC objects and full container lifecycle remain
 SP-02/SP-03 work.
 
@@ -140,10 +140,35 @@ and zero application method invocations after failed constructor admission.
 
 This is still partial SP-02 delivery: the bridge closes on event completion or
 cancellation. Full Workers response/background retention, unawaited transaction
-work and ordinary client-disconnect survival remain required. Synchronous
-transactions, `waitUntil`, abort/reconstruction and full profile/deadline
-qualification are unfinished. Native SDK lifetime tests do not prove those JS
+work and ordinary client-disconnect survival remain required. `waitUntil`, abort/reconstruction and
+full profile/deadline qualification are unfinished. Native SDK lifetime tests do not prove those JS
 profile guarantees. The complete delivery objective is unchanged.
+
+### Native synchronous transactions
+
+`storage.transactionSync` now enters the real `Storage::transaction_sync` on the
+original native execution domain. A bounded inline callback loop replies to
+Node/V8 synchronous requests while keeping that SQLite stack frame installed.
+It uses a finite synchronous allowlist, exact callback tokens, current invocation/
+activation checks, one deadline across nested callbacks and the shared callback
+quota. An optional native `CallbackScope::run_sync` reinstalls an outer async
+callback's guards when a synchronous child starts.
+
+Both engines carry a synchronous-continuation bit and refuse async SDK submission
+before effects. Native Promise brand checks reject returned Promises even when
+their prototypes are masked, without reading a plain object's `then` getter.
+Completion is acknowledged only after native commit/rollback and a renewed
+invocation check; rollback poisoning or result loss cannot masquerade as a
+successful rollback. Ordinary return values and thrown values remain in JS,
+retaining identity and `undefined`. Continuations captured inside a closed sync
+boundary cannot fall back to root storage authority.
+
+Tests execute actual SQL/KV commit and rollback, nested sync/async savepoints,
+escaped continuations, refused async mutations and nesting refusal/release in
+Node and V8. Runaway callback tests require refused HTTP output, joined native
+shutdown and a new runtime observing the write absent. These do not complete
+background/response/disconnect lifetime support or the full SDK/image/provider
+qualification. The entire delivery objective remains active.
 
 ### Native namespace and value-only cell RPC
 
@@ -261,3 +286,20 @@ addon and transport checks pass in serial/isolated reruns with every deadline
 and assertion unchanged. These are local results, not hosted CI or a complete
 Workers/SDK/image/provider conformance claim. Full response/background/disconnect
 lifetimes, synchronous transactions and the remaining SP-01–SP-10 work stay open.
+
+
+The synchronous transaction checkpoint passes 23 JavaScript runtime library
+cases and 11 real-node Workers fixtures, including two runaway callback rollback/
+restart faults. The owning native concurrency/transaction suites pass both cases
+with live/closed synchronous scope checks. Node-only qualification passes 14
+library cases and six Workers fixtures. Five additional Node runtime, live SSE/
+WebSocket and synchronous restart integration cases pass. The shared callback
+quota fixture also refuses synchronous admission while 128 async boundaries
+remain open, then permits reuse after they close.
+
+Strict native and affected-crate all-target Clippy and Node-only Clippy pass.
+Formatting/layout cover 932 Rust files; documentation links, whitespace, nine
+JS/build/type checks, four pinned-input checks and the native-only all-feature
+dependency guard (455 packages, no engine) pass. This is focused qualification
+of the new boundary and transports, not a repeat of all 627 earlier harness
+cases or completion of the remaining SP-01–SP-10 acceptance scope.
