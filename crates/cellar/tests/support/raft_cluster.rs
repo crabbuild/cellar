@@ -4,7 +4,9 @@
 #![allow(clippy::disallowed_methods)]
 use super::public_node;
 use anyhow::{ensure, Result};
-use cellar::sdk::{consensus::*, Node, NodeRaftConfig, NodeRaftListeners, ShutdownMode};
+use cellar::sdk::{
+    consensus::*, Node, NodeOutcome, NodeRaftConfig, NodeRaftListeners, ShutdownMode,
+};
 use cellar_logic::consensus::{DiskLineage, NodeId, ProcessGeneration};
 use std::{
     net::SocketAddr,
@@ -274,6 +276,7 @@ enum ExtraNode<'a> {
         check: JoinedResumeCheck,
         generation: u8,
         target_first: bool,
+        retired_owner: Option<usize>,
     },
 }
 
@@ -290,6 +293,7 @@ pub struct Cluster {
     generation: u8,
     materialized_image_bytes: Option<u64>,
     restart_host: RaftHostOptions,
+    retired_owner: Option<usize>,
 }
 
 impl Cluster {
@@ -539,6 +543,7 @@ impl Cluster {
                 check: check.unwrap_or_else(|| Box::new(|_| Box::pin(async { Ok(()) }))),
                 generation: 60,
                 target_first,
+                retired_owner: None,
             },
             TransportOptions::default(),
             Some(store),
@@ -555,7 +560,7 @@ impl Cluster {
         check: JoinedResumeCheck,
     ) -> Result<Self> {
         ensure!(
-            self.nodes.len() == 4 && self.services.len() >= 3,
+            self._roots.len() == 4 && self.services.len() >= 3,
             "restart requires three voters and the replacement directory"
         );
         self.stop_owned().await?;
@@ -580,6 +585,7 @@ impl Cluster {
                 check,
                 generation,
                 target_first: true,
+                retired_owner: self.retired_owner,
             },
             TransportOptions {
                 snapshot_chunk_bytes: 64,
@@ -603,7 +609,10 @@ impl Cluster {
         for registration in &mut config.cells {
             registration.placement = placement;
         }
-        let service = self.nodes[3]
+        let service = self
+            .nodes
+            .last()
+            .ok_or_else(|| anyhow::anyhow!("missing standby node"))?
             .start_raft_cells(
                 config,
                 RaftCellsServices {
@@ -642,10 +651,18 @@ impl Cluster {
                 check,
                 generation,
                 target_first,
+                retired_owner,
             } => (
                 None,
                 false,
-                Some((roots, placements, check, generation, target_first)),
+                Some((
+                    roots,
+                    placements,
+                    check,
+                    generation,
+                    target_first,
+                    retired_owner,
+                )),
                 None,
                 None,
             ),
@@ -655,7 +672,10 @@ impl Cluster {
         let mut prepare_template = None;
         let target_first = resume
             .as_ref()
-            .is_some_and(|(_, _, _, _, target_first)| *target_first);
+            .is_some_and(|(_, _, _, _, target_first, _)| *target_first);
+        let retired_owner = resume
+            .as_ref()
+            .and_then(|(_, _, _, _, _, retired)| *retired);
         let count =
             if namespaces.is_some() || standby_node || resuming || initial_learner || preloaded {
                 4
@@ -664,7 +684,7 @@ impl Cluster {
             };
         ensure!(definitions.len() == count, "incorrect fixture node count");
         let (roots, placements, mut resume_check, generation) =
-            if let Some((roots, placements, check, generation, _)) = resume {
+            if let Some((roots, placements, check, generation, _, _)) = resume {
                 ensure!(
                     roots.len() == count && placements.len() == count,
                     "incorrect restart roots/placements"
@@ -768,6 +788,11 @@ impl Cluster {
             (0..count).collect()
         };
         for i in order {
+            // A crashed owner whose disk was erased never resumes its old
+            // member identity. Only the quorum-authorized replacement starts.
+            if retired_owner == Some(i) {
+                continue;
+            }
             let listeners = listeners[i]
                 .take()
                 .ok_or_else(|| anyhow::anyhow!("duplicate listener start"))?;
@@ -865,6 +890,7 @@ impl Cluster {
             _roots: roots,
             generation,
             restart_host: host.clone(),
+            retired_owner,
             materialized_image_bytes: (host.execution.max_image_bytes > 64 * 1024 * 1024)
                 .then_some(host.execution.max_image_bytes),
         })
@@ -1016,6 +1042,28 @@ impl Cluster {
             .filter(|(s, t, lane, _)| *s == source && *t == target && *lane == Link::Query)
             .map(|(_, _, _, proxy)| proxy.held_response_bytes.load(Ordering::SeqCst))
             .sum()
+    }
+
+    /// Force the complete owner domain down, join it, and stop retaining its
+    /// service. The caller may then erase this fixture-owned data directory.
+    #[allow(dead_code)]
+    pub async fn crash_owner(&mut self, index: usize) -> Result<std::path::PathBuf> {
+        ensure!(
+            self.retired_owner.is_none()
+                && index < 3
+                && self.nodes.len() == 4
+                && self.services.len() == 3,
+            "owner crash requires the original three-voter layout"
+        );
+        let node = self.nodes.remove(index);
+        let directory = node.info().data_dir.clone();
+        self.services.remove(index);
+        ensure!(
+            node.cancel().await? == NodeOutcome::Cancelled,
+            "owner domain did not cancel and join"
+        );
+        self.retired_owner = Some(index);
+        Ok(directory)
     }
 
     pub async fn close(mut self) -> Result<()> {

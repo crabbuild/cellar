@@ -680,7 +680,7 @@ fn authorize_sql(context: rusqlite::hooks::AuthContext<'_>) -> rusqlite::hooks::
                 && pragma_value.is_none()
                 && matches!(
                     pragma_name.to_ascii_lowercase().as_str(),
-                    "page_count" | "freelist_count" | "page_size"
+                    "page_count" | "freelist_count" | "page_size" | "auto_vacuum"
                 );
             !observation && !allowed_sql_pragma(pragma_name, pragma_value)
         }

@@ -115,6 +115,19 @@ impl Working {
                 ..Default::default()
             },
         )?;
+        if options.limits.receipt_reserve_bytes != 0 {
+            let usage = self
+                .database
+                .frozen_capacity(options.limits.max_image_bytes)?;
+            options
+                .limits
+                .check_capacity(
+                    usage.application_bytes,
+                    usage.receipt_bytes,
+                    usage.structural_reserve_bytes,
+                )
+                .map_err(anyhow::Error::new)?;
+        }
         let result_position = self.capture.pos()?;
         let base_state = base
             .map(|b| b.pin().state())

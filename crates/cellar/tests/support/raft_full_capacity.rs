@@ -28,10 +28,12 @@ fn definition(calls: Arc<AtomicUsize>) -> Result<public_node::Counter> {
             calls.fetch_add(1, Ordering::SeqCst);
             match u64::from_be_bytes(input.try_into()?) {
                 0 => (),
-                1 => {
-                    context
-                        .sql()
-                        .execute("INSERT INTO items(value) VALUES(zeroblob(1048576))", [])?;
+                action @ (1 | 3) => {
+                    for _ in 0..if action == 3 { 2 } else { 1 } {
+                        context
+                            .sql()
+                            .execute("INSERT INTO items(value) VALUES(zeroblob(1048576))", [])?;
+                    }
                 }
                 2 => {
                     context
@@ -48,13 +50,24 @@ fn definition(calls: Arc<AtomicUsize>) -> Result<public_node::Counter> {
                 .query_row("SELECT value FROM counter", [], |r| r.get(0))?;
             Ok(value.to_be_bytes().to_vec())
         })?
-        .query("Read", [93; 32], |context, _| {
+        .query("Read", [93; 32], |context, input| {
             let (value, bytes): (u64, u64) = context.query_row(
                 "SELECT (SELECT value FROM counter),coalesce(sum(length(value)),0) FROM items",
                 [],
                 |r| Ok((r.get(0)?, r.get(1)?)),
             )?;
-            Ok([value.to_be_bytes(), bytes.to_be_bytes()].concat())
+            let mut output = [value.to_be_bytes(), bytes.to_be_bytes()].concat();
+            if !input.is_empty() {
+                ensure!(input.len() == 24, "invalid payload sample request");
+                for id in input.chunks_exact(8) {
+                    let id = u64::from_be_bytes(id.try_into()?);
+                    let payload: Vec<u8> =
+                        context
+                            .query_row("SELECT value FROM items WHERE id=?1", [id], |r| r.get(0))?;
+                    output.extend_from_slice(&Sha256::digest(payload));
+                }
+            }
+            Ok(output)
         })?;
     Ok(public_node::Counter {
         schema: class.schema_digest(),
@@ -88,11 +101,25 @@ fn image_state(path: &Path) -> Result<ImageState> {
     })
 }
 
+#[derive(Clone)]
+struct PayloadSamples {
+    ids: [u64; 3],
+    hashes: [[u8; 32]; 3],
+}
+
+impl PayloadSamples {
+    fn reused_tail(mut self) -> Self {
+        self.hashes[2] = Sha256::digest(vec![0; 1048576]).into();
+        self
+    }
+}
+
 fn prepared_template(
     source: &Path,
     directory: &Path,
     quota: u64,
-) -> Result<(PathBuf, ImageState, u64)> {
+    receipt_reserve: u64,
+) -> Result<(PathBuf, ImageState, u64, PayloadSamples)> {
     let path = directory.join("template.sqlite");
     match DirectFileSystem.clone_read_write(source, &path)? {
         Some(file) => drop(file),
@@ -101,11 +128,51 @@ fn prepared_template(
         }
     }
     let db = rusqlite::Connection::open(&path)?;
-    // The input fixture is full. Release only its sub-megabyte tail, keeping
-    // room for framework setup/receipts while an ordinary 1 MiB growth fails.
+    // Retain the exact physical high-water size, but leave the configured
+    // virtual receipt allowance and a small schema margin unused by payloads.
     db.execute_batch(
         "DELETE FROM quota_tail;CREATE TABLE counter(value INTEGER);INSERT INTO counter VALUES(7);",
     )?;
+    let application_ceiling = quota
+        .checked_sub(receipt_reserve + 65536)
+        .context("fixture quota")?;
+    loop {
+        let allocated: u64 = db.query_row("PRAGMA page_count", [], |r| r.get(0))?;
+        let free: u64 = db.query_row("PRAGMA freelist_count", [], |r| r.get(0))?;
+        if (allocated - free) * 4096 <= application_ceiling {
+            break;
+        }
+        ensure!(
+            db.execute("DELETE FROM items WHERE id=(SELECT max(id) FROM items)", [])? == 1,
+            "cannot leave receipt headroom in template"
+        );
+    }
+    let count: u64 = db.query_row("SELECT count(*) FROM items", [], |r| r.get(0))?;
+    ensure!(count >= 3, "template requires separated payload samples");
+    let first: u64 = db.query_row("SELECT min(id) FROM items", [], |r| r.get(0))?;
+    let middle: u64 = db.query_row(
+        "SELECT id FROM items ORDER BY id LIMIT 1 OFFSET ?1",
+        [count / 2],
+        |r| r.get(0),
+    )?;
+    let last: u64 = db.query_row("SELECT max(id) FROM items", [], |r| r.get(0))?;
+    let mut samples = PayloadSamples {
+        ids: [first, middle, last],
+        hashes: [[0; 32]; 3],
+    };
+    for (index, id) in samples.ids.iter().enumerate() {
+        let mut value: Vec<u8> =
+            db.query_row("SELECT value FROM items WHERE id=?1", [id], |r| r.get(0))?;
+        ensure!(value.len() == 1048576, "fixture values must be 1 MiB");
+        // Distinct tags detect wrong-page/row reads even when most fixture
+        // values share the same incompressible source payload.
+        value[..8].copy_from_slice(&id.to_be_bytes());
+        samples.hashes[index] = Sha256::digest(&value).into();
+        db.execute(
+            "UPDATE items SET value=?1 WHERE id=?2",
+            rusqlite::params![value, id],
+        )?;
+    }
     let bytes: u64 = db.query_row("SELECT sum(length(value)) FROM items", [], |r| r.get(0))?;
     drop(db);
     let state = image_state(&path)?;
@@ -113,7 +180,7 @@ fn prepared_template(
         state.length == quota / 4096 * 4096,
         "template must reach the page-rounded quota"
     );
-    Ok((path, state, bytes))
+    Ok((path, state, bytes, samples))
 }
 
 fn preload(
@@ -237,7 +304,7 @@ async fn read(
     value: u64,
     bytes: u64,
     consistency: QueryConsistency,
-) -> Result<()> {
+) -> Result<QueryResult> {
     let stale_policy = if matches!(&consistency, QueryConsistency::Stale) {
         StaleReadPolicy::DisconnectedHistorical
     } else {
@@ -256,6 +323,67 @@ async fn read(
         )
         .await?;
     ensure!(result.result == [value.to_be_bytes(), bytes.to_be_bytes()].concat());
+    Ok(result)
+}
+
+async fn repair_step(
+    handle: &RaftCellHandle,
+    id: cellar_logic::consensus::ProposalId,
+    step: RepairStep,
+) -> Result<RepairStatus> {
+    tokio::time::timeout(Duration::from_secs(1800), async {
+        loop {
+            let revision = handle.status().await?.membership_revision;
+            match handle
+                .advance_repair(id, step, revision, Duration::from_secs(30))
+                .await
+            {
+                Ok(status) => return Ok(status),
+                Err(CommandFailure::Unavailable | CommandFailure::Overloaded) => {
+                    tokio::time::sleep(Duration::from_millis(100)).await
+                }
+                Err(error) => return Err(error.into()),
+            }
+        }
+    })
+    .await?
+}
+
+async fn verify_payloads(
+    handle: &RaftCellHandle,
+    contract: OperationContract,
+    value: u64,
+    bytes: u64,
+    samples: &PayloadSamples,
+    consistency: QueryConsistency,
+    member: MemberId,
+) -> Result<()> {
+    let stale_policy = if consistency == QueryConsistency::Stale {
+        StaleReadPolicy::DisconnectedHistorical
+    } else {
+        StaleReadPolicy::RecentSource
+    };
+    let input = samples.ids.iter().flat_map(|id| id.to_be_bytes()).collect();
+    let result = handle
+        .query(
+            contract,
+            input,
+            QueryOptions {
+                consistency,
+                stale_policy,
+                timeout: Duration::from_secs(60),
+                ..Default::default()
+            },
+        )
+        .await?;
+    let mut expected = [value.to_be_bytes(), bytes.to_be_bytes()].concat();
+    for hash in &samples.hashes {
+        expected.extend_from_slice(hash);
+    }
+    ensure!(
+        result.result == expected && result.served_by == member,
+        "payload content or serving member differs"
+    );
     Ok(())
 }
 
@@ -271,8 +399,9 @@ async fn drill(
     let source_root = tempfile::tempdir_in(&workdir)?;
     let path = source_root.path().to_path_buf();
     let preparation = ExecutionDomain::new(tokio::runtime::Handle::current());
-    let (template, state, payload_bytes) = preparation
-        .blocking(move || prepared_template(&source, &path, quota))?
+    let receipt_reserve = (quota / 16).min(32 * 1024 * 1024) / 512 * 512;
+    let (template, state, payload_bytes, samples) = preparation
+        .blocking(move || prepared_template(&source, &path, quota, receipt_reserve))?
         .await??;
     preparation.shutdown().await;
     eprintln!(
@@ -325,6 +454,7 @@ async fn drill(
         .collect::<std::io::Result<Vec<_>>>()?;
     let mut host = RaftHostOptions::default();
     host.execution.max_image_bytes = quota;
+    host.execution.receipt_reserve_bytes = receipt_reserve;
     host.execution.max_retry_window_ms = 86_400_000;
     let mut cluster = cluster::Cluster::start_with_preloaded_images(
         &definitions,
@@ -345,6 +475,7 @@ async fn drill(
         "full-native stage=ready elapsed_s={:.3}",
         started.elapsed().as_secs_f64()
     );
+    let first_read = std::time::Instant::now();
     read(
         &handles[primary],
         definitions[primary].get.clone(),
@@ -353,7 +484,22 @@ async fn drill(
         QueryConsistency::Linearizable,
     )
     .await?;
+    eprintln!(
+        "full-native stage=first-read duration_s={:.3}",
+        first_read.elapsed().as_secs_f64()
+    );
+    verify_payloads(
+        &handles[primary],
+        definitions[primary].get.clone(),
+        7,
+        payload_bytes,
+        &samples,
+        QueryConsistency::Linearizable,
+        MemberId::new(primary as u64 + 1)?,
+    )
+    .await?;
     let first_options = command_options(1, 1)?;
+    let first_write = std::time::Instant::now();
     let first = handles[primary]
         .command(
             definitions[primary].increment.clone(),
@@ -362,8 +508,46 @@ async fn drill(
         )
         .await?;
     ensure!(first.result == 8_u64.to_be_bytes());
-    cluster.services[primary].close().await?;
-    let replacement = ready(&handles, Some(primary)).await?;
+    eprintln!(
+        "full-native stage=first-write duration_s={:.3} elapsed_s={:.3}",
+        first_write.elapsed().as_secs_f64(),
+        started.elapsed().as_secs_f64()
+    );
+    let crashed_at = std::time::Instant::now();
+    let (lost_data, replacement) = tokio::try_join!(cluster.crash_owner(primary), async {
+        let replacement = ready(&handles, Some(primary)).await?;
+        eprintln!(
+            "full-native stage=warm-leader-ready duration_s={:.3}",
+            crashed_at.elapsed().as_secs_f64()
+        );
+        let read_at = std::time::Instant::now();
+        read(
+            &handles[replacement],
+            definitions[replacement].get.clone(),
+            8,
+            payload_bytes,
+            QueryConsistency::Linearizable,
+        )
+        .await?;
+        eprintln!(
+            "full-native stage=warm-first-read duration_s={:.3}",
+            read_at.elapsed().as_secs_f64()
+        );
+        Ok::<_, anyhow::Error>(replacement)
+    })?;
+    let erasure = ExecutionDomain::new(tokio::runtime::Handle::current());
+    erasure
+        .blocking(move || {
+            std::fs::remove_dir_all(&lost_data)?;
+            ensure!(!lost_data.exists(), "owner local state survived erasure");
+            Ok::<_, anyhow::Error>(())
+        })?
+        .await??;
+    erasure.shutdown().await;
+    eprintln!(
+        "full-native stage=owner-state-erased elapsed_s={:.3}",
+        started.elapsed().as_secs_f64()
+    );
     let retry = handles[replacement]
         .command(
             definitions[replacement].increment.clone(),
@@ -373,6 +557,7 @@ async fn drill(
         .await?;
     ensure!(retry.result == first.result && retry.version == first.version);
     let second_options = command_options(1, 2)?;
+    let warm_write = std::time::Instant::now();
     let second = handles[replacement]
         .command(
             definitions[replacement].increment.clone(),
@@ -382,13 +567,17 @@ async fn drill(
         .await?;
     ensure!(second.result == 9_u64.to_be_bytes());
     eprintln!(
+        "full-native stage=warm-first-write duration_s={:.3}",
+        warm_write.elapsed().as_secs_f64()
+    );
+    eprintln!(
         "full-native stage=takeover-and-retry elapsed_s={:.3}",
         started.elapsed().as_secs_f64()
     );
     let full = handles[replacement]
         .command(
             definitions[replacement].increment.clone(),
-            1_u64.to_be_bytes().to_vec(),
+            3_u64.to_be_bytes().to_vec(),
             command_options(1, 3)?,
         )
         .await;
@@ -420,6 +609,7 @@ async fn drill(
         )
         .await?;
     ensure!(reused.result == 11_u64.to_be_bytes());
+    let samples = samples.reused_tail();
     ensure!(
         calls
             .iter()
@@ -437,16 +627,18 @@ async fn drill(
         node: NodeId::new([4; 16])?,
         disk: DiskLineage::new([13; 16])?,
     };
+    let plan = RepairPlan {
+        id: cellar_logic::consensus::ProposalId::new([85; 16])?,
+        policy_revision: 1,
+        expected_revision: handles[replacement].status().await?.membership_revision,
+        obsolete: MemberId::new(primary as u64 + 1)?,
+        replacement: target.clone(),
+    };
     let admitted = handles[replacement]
-        .add_learner(
-            target.clone(),
-            LearnerOptions {
-                expected_revision: handles[replacement].status().await?.membership_revision,
-                timeout: Duration::from_secs(1800),
-            },
-        )
+        .begin_repair(plan.clone(), Duration::from_secs(1800))
         .await?;
     if from_s3 {
+        let archive_started = std::time::Instant::now();
         let selected = Catalog::new(
             cluster.store.clone(),
             CatalogOptions {
@@ -474,7 +666,7 @@ async fn drill(
                 if archive
                     .recovery_metadata()
                     .await?
-                    .is_some_and(|m| m.position().index >= admitted.joined_at)
+                    .is_some_and(|m| m.position().index >= admitted.started_at)
                 {
                     return Ok::<_, anyhow::Error>(());
                 }
@@ -482,9 +674,20 @@ async fn drill(
             }
         })
         .await??;
+        eprintln!(
+            "full-native stage=archive-ready duration_s={:.3}",
+            archive_started.elapsed().as_secs_f64()
+        );
     }
     ensure!(
-        !cluster.nodes[3].info().data_dir.join("raft").exists(),
+        !cluster
+            .nodes
+            .last()
+            .context("standby")?
+            .info()
+            .data_dir
+            .join("raft")
+            .exists(),
         "replacement must have no local Raft state"
     );
     let placement = if from_s3 {
@@ -500,10 +703,50 @@ async fn drill(
             source_node: NodeId::new([replacement as u8 + 1; 16])?,
         }
     };
+    let cold_started = std::time::Instant::now();
     let joined = cluster
         .join_standby(definitions[3].application.clone(), placement)
         .await?;
     let learner = joined.cell(namespace.namespace, &registration.birth.scope.cell)?;
+    let local = read(
+        &learner,
+        definitions[3].get.clone(),
+        11,
+        payload_bytes,
+        QueryConsistency::Stale,
+    )
+    .await?;
+    ensure!(
+        local.served_by == target.member,
+        "restored bytes were not served locally"
+    );
+    eprintln!(
+        "full-native stage=cold-local-read duration_s={:.3}",
+        cold_started.elapsed().as_secs_f64()
+    );
+    ensure!(calls[3].load(Ordering::SeqCst) == 0);
+    verify_payloads(
+        &learner,
+        definitions[3].get.clone(),
+        11,
+        payload_bytes,
+        &samples,
+        QueryConsistency::Stale,
+        target.member,
+    )
+    .await?;
+    ensure!(
+        repair_step(&handles[replacement], plan.id, RepairStep::PromoteAndRemove)
+            .await?
+            .phase
+            == RepairPhase::Joint
+    );
+    ensure!(
+        repair_step(&handles[replacement], plan.id, RepairStep::FinishJoint)
+            .await?
+            .phase
+            == RepairPhase::Complete
+    );
     read(
         &learner,
         definitions[3].get.clone(),
@@ -512,10 +755,47 @@ async fn drill(
         QueryConsistency::Linearizable,
     )
     .await?;
-    ensure!(calls[3].load(Ordering::SeqCst) == 0);
-    let duplicate = handles[replacement]
+    let status = handles[replacement].status().await?;
+    handles[replacement]
+        .transfer_leadership(
+            LeadershipTransfer {
+                target: target.member,
+                expected_term: status.term,
+                expected_revision: status.membership_revision,
+            },
+            Duration::from_secs(60),
+        )
+        .await?;
+    ready(std::slice::from_ref(&learner), None).await?;
+    let cold_write = std::time::Instant::now();
+    let resumed = learner
         .command(
-            definitions[replacement].increment.clone(),
+            definitions[3].increment.clone(),
+            0_u64.to_be_bytes().to_vec(),
+            command_options(2, 3)?,
+        )
+        .await?;
+    ensure!(resumed.result == 12_u64.to_be_bytes());
+    ensure!(
+        calls[3].load(Ordering::SeqCst) == 1,
+        "restored owner did not execute exactly one new callback"
+    );
+    let local = read(
+        &learner,
+        definitions[3].get.clone(),
+        12,
+        payload_bytes,
+        QueryConsistency::AtLeast(resumed.version_token),
+    )
+    .await?;
+    ensure!(local.served_by == target.member);
+    eprintln!(
+        "full-native stage=cold-owner-first-write duration_s={:.3}",
+        cold_write.elapsed().as_secs_f64()
+    );
+    let duplicate = learner
+        .command(
+            definitions[3].increment.clone(),
             0_u64.to_be_bytes().to_vec(),
             second_options,
         )
@@ -533,7 +813,7 @@ async fn drill(
             .iter()
             .map(|c| c.load(Ordering::SeqCst))
             .sum::<usize>()
-            == 5
+            == 6
     );
     eprintln!(
         "full-native stage=empty-worker-recovered elapsed_s={:.3}",
@@ -542,6 +822,7 @@ async fn drill(
     let contract = definitions[3].get.clone();
     let namespace_id = namespace.namespace;
     let cell = registration.birth.scope.cell.clone();
+    let verify_contract = definitions[3].get.clone();
     cluster = cluster
         .restart(
             &definitions,
@@ -555,14 +836,26 @@ async fn drill(
             Box::new(move |service| {
                 Box::pin(async move {
                     let handle = service.cell(namespace_id, &cell)?;
-                    read(
+                    let local = read(
                         &handle,
                         contract,
-                        11,
+                        12,
                         payload_bytes,
                         QueryConsistency::Stale,
                     )
-                    .await
+                    .await?;
+                    ensure!(local.served_by == MemberId::new(4)?);
+                    verify_payloads(
+                        &handle,
+                        verify_contract,
+                        12,
+                        payload_bytes,
+                        &samples,
+                        QueryConsistency::Stale,
+                        MemberId::new(4)?,
+                    )
+                    .await?;
+                    Ok(())
                 })
             }),
         )

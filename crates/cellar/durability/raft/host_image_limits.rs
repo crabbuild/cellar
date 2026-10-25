@@ -24,6 +24,14 @@ impl RaftCellsConfig {
         scratch.max_bytes = scratch.max_bytes.max(4 * encoded as u64);
         scratch.validate()?;
         self.host.execution.max_image_bytes = bytes;
+        // Leave room for receipts/sequence floors without preallocating pages.
+        // A physical file may stay at its high-water mark after cleanup; policy
+        // accounts live btree pages so freed pages remain usable at capacity.
+        self.host.execution.receipt_reserve_bytes = self
+            .host
+            .execution
+            .receipt_reserve_bytes
+            .max((bytes / 16).min(32 * 1024 * 1024) / 512 * 512);
         let apply = &mut self.host.images.apply;
         apply.decode.max_image_bytes = bytes;
 

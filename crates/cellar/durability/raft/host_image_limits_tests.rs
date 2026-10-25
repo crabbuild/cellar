@@ -47,6 +47,8 @@ fn materialized_profiles_cover_worst_case_physical_snapshots() {
         assert!(config.host.images.apply.decode.max_decoded_bytes <= 64 * 1024 * 1024);
         assert!(config.host.archive.limits.max_object_bytes <= 128 * 1024 * 1024);
         assert!(config.host.images.max_bytes >= 8 * bytes);
+        assert!(config.host.execution.receipt_reserve_bytes > 0);
+        assert!(config.host.execution.receipt_reserve_bytes <= bytes / 16);
         assert!(
             transport.max_seed_recovery_bytes
                 >= config.host.archive.limits.max_set_bytes

@@ -98,6 +98,15 @@ page size, round the admitted page count down so the image cannot exceed the
 configured quota. Include framework tables and indexes in the database allowance,
 with bounded headroom for durable receipts and housekeeping.
 
+The materialized profile now supplies a virtual receipt/control allowance of
+one sixteenth of the quota, capped at 32 MiB, inside the total image limit. It
+does not preallocate a large empty database. Live application btrees, including
+Blob/outbox data, cannot consume that allowance; free pages can be reused after
+cleanup. Accounting includes the reserved tables' indexes and separately budgets
+SQLite pointer maps and the lock page. Receipt capacity remains bounded and
+may refuse new commands with overload; this is not unlimited retry retention.
+The default execution configuration leaves this optional policy disabled.
+
 Cloudflare documents `SQLITE_FULL` for writes that exceed capacity while reads
 and deletes remain available. Cellar's implementation must likewise preserve
 reads, cleanup and retry reconciliation at capacity, without bypassing receipt,

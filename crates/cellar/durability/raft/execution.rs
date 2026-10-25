@@ -34,6 +34,10 @@ pub struct ExecutionLimits {
     pub max_client_identities: usize,
     pub max_retained_receipts: usize,
     pub max_retry_window_ms: u64,
+    /// Virtual space within max_image_bytes reserved for durable receipts,
+    /// client sequence floors and LTX control tables. Zero disables this policy.
+    /// Application Blob/outbox data still uses the application allowance.
+    pub receipt_reserve_bytes: u64,
     /// Bounded maintenance in the same replicated transaction as a new command.
     /// Latest receipts and all client sequence floors remain protected.
     pub receipt_maintenance: Option<super::receipt_maintenance::ReceiptMaintenanceLimits>,
@@ -48,6 +52,7 @@ impl Default for ExecutionLimits {
             max_client_identities: 1024,
             max_retained_receipts: 4096,
             max_retry_window_ms: 600_000,
+            receipt_reserve_bytes: 0,
             receipt_maintenance: Some(
                 super::receipt_maintenance::ReceiptMaintenanceLimits::default(),
             ),
@@ -56,6 +61,29 @@ impl Default for ExecutionLimits {
 }
 
 impl ExecutionLimits {
+    pub(super) fn check_capacity(
+        &self,
+        application: u64,
+        receipts: u64,
+        structural: u64,
+    ) -> Result<(), CommandFailure> {
+        if self.receipt_reserve_bytes == 0 {
+            return Ok(());
+        }
+        if receipts > self.receipt_reserve_bytes {
+            return Err(CommandFailure::Overloaded);
+        }
+        let available = self
+            .max_image_bytes
+            .checked_sub(self.receipt_reserve_bytes)
+            .and_then(|n| n.checked_sub(structural))
+            .ok_or(CommandFailure::StorageFull)?;
+        if application > available {
+            return Err(CommandFailure::StorageFull);
+        }
+        Ok(())
+    }
+
     pub(crate) fn validate(&self) -> Result<(), ExecutionError> {
         self.envelope.validate().map_err(ExecutionError::Protocol)?;
         if let Some(maintenance) = self.receipt_maintenance {
@@ -66,6 +94,8 @@ impl ExecutionLimits {
             || !(1..=65_536).contains(&self.max_client_identities)
             || !(1..=65_536).contains(&self.max_retained_receipts)
             || !(1..=90 * 24 * 60 * 60 * 1000).contains(&self.max_retry_window_ms)
+            || self.receipt_reserve_bytes > self.max_image_bytes / 4
+            || !self.receipt_reserve_bytes.is_multiple_of(512)
         {
             return Err(ExecutionError::Invalid("execution limits"));
         }
@@ -772,9 +802,23 @@ impl PrivateExecutor {
                     return Err(anyhow::Error::new(CommandFailure::Overloaded));
                 }
                 receipts::record(connection, &attempt.request, result)?;
+                let limits = &self.options.limits;
+                if limits.receipt_reserve_bytes != 0 {
+                    let usage = crate::storage::CommandDatabase::capacity(
+                        connection,
+                        limits.max_image_bytes,
+                    )?;
+                    limits
+                        .check_capacity(
+                            usage.application_bytes,
+                            usage.receipt_bytes,
+                            usage.structural_reserve_bytes,
+                        )
+                        .map_err(anyhow::Error::new)?;
+                }
                 Ok(())
             })
-            .map_err(transaction_failure)?;
+            .map_err(private_failure)?;
         let prepared = self.freeze(
             attempt.proposal,
             attempt.preview,
@@ -805,7 +849,7 @@ impl PrivateExecutor {
                 receipts::prune(connection, client, through, inputs.now_unix_millis)
                     .map_err(anyhow::Error::new)
             })
-            .map_err(transaction_failure)?;
+            .map_err(private_failure)?;
         self.freeze(proposal, preview, Kind::Prune { client, through })
     }
 
@@ -825,7 +869,7 @@ impl PrivateExecutor {
                 proposal,
                 self.base.as_ref(),
             )
-            .map_err(ExecutionError::Storage)?;
+            .map_err(private_failure)?;
         let bytes = update
             .encode(self.options.limits.envelope)
             .map_err(ExecutionError::Protocol)?;
@@ -1022,7 +1066,7 @@ pub(super) fn storage(error: impl Into<anyhow::Error>) -> ExecutionError {
     }
 }
 
-fn transaction_failure(error: anyhow::Error) -> ExecutionError {
+fn private_failure(error: anyhow::Error) -> ExecutionError {
     // This is still private execution: no proposal or output proof exists.
     // Preserve rebuild_required even for SQLITE_FULL. SQLite may have rolled
     // back automatically, and an error does not prove the connection reusable.

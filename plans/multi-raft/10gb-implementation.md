@@ -87,6 +87,14 @@ work. The architecture and product policy are in
   The disposable writer still requires rebuilding; an error alone does not
   prove rollback or permit reuse. Reads and durable receipts retain their normal
   committed-image proof boundaries.
+- The materialized profile reserves virtual receipt/control headroom within the
+  image quota (one sixteenth, capped at 32 MiB). Transactional accounting visits
+  only the reserved btrees and their indexes; application Blob/outbox data uses
+  the application allowance. Freelist pages remain reusable. Pointer maps and
+  the reserved lock page have a separate, quota-sized structural allowance.
+  Admission runs before commit and again after capture's control writes. A
+  refusal never publishes private writes and requires rebuilding that writer.
+  Receipt-space exhaustion reports overload independently of application quota.
 
 ## Validation so far
 
@@ -124,9 +132,30 @@ work. The architecture and product policy are in
   errors. After native pool integration, 537 host library tests, four ordinary
   native recovery drills and 18 focused LTX tests pass. Clippy for both crates'
   libraries/tests with warnings denied, formatting, layout, native dependencies
-  and documentation checks pass. The rebuilt full-size RustFS run completed
-  native initialization at 263.28 seconds; its serving/recovery checks are still
-  running. This remains incomplete full-size qualification.
+  and documentation checks pass.
+- The rebuilt full-size native RustFS baseline at commit `e46b0577` passed in
+  2,197.01 seconds with 119,308,288-byte maximum process RSS. Its real SQLite
+  image was 9,999,998,976 bytes. It covered owner service stop, warm takeover,
+  retained-receipt retry, quota refusal, cleanup/page reuse, an empty S3-seeded
+  replacement and local historical reads after restarting that replacement
+  before peers. Stages completed at 263.28 seconds (native ready), 1,135.94
+  (takeover/retry), 1,409.41 (quota/cleanup/reuse), 1,855.72 (empty-worker read)
+  and 2,136.24 (restart read). This baseline did not erase the original owner's
+  disk, promote the replacement or execute a new command on it. A strengthened
+  harness adds those checks, distinct first/middle/last payload hashes and
+  separate first-read/first-write timings. Both strengthened 12 MiB peer/S3
+  drills pass (23.34 seconds total); the full-size reruns remain pending.
+- The receipt/control accounting tests pass across 18 page-size, auto-vacuum
+  and reserved-byte combinations, including index and freelist accounting. A
+  protected temporary native dbstat table prevents application schema names
+  from substituting allocation data. The native execution suite passes 21
+  tests, including no-page-free cleanup at capacity, page reuse, duplicate
+  receipt reconciliation and receipt-space refusal before publication.
+- After the receipt policy and strengthened harness changes, all 540 host
+  library tests pass serially. Clippy for both crates' libraries/tests with
+  warnings denied, module layout, native dependency and documentation checks
+  pass. Formatting and the CI native-only/no-Python library feature check also
+  pass. This does not replace the remaining full-size and fault qualification.
 
 ## Remaining work
 
@@ -136,5 +165,6 @@ quota housekeeping headroom, full qualification of aggregate scratch admission, 
 identity/lazy restoration still require implementation or qualification. COW
 avoids full copies on supported filesystems, but full-image SHA-256 scans and
 portable materialized copies remain on important paths; no
-large-cell recovery-time objective is claimed yet. PR #119 has merged; this
-uncommitted implementation requires a new follow-up PR from updated `main`.
+large-cell recovery-time objective is claimed yet. PR #119 has merged; follow-up
+[PR #120](https://github.com/crabbuild/cellar/pull/120) contains the bounded
+snapshot foundation and remains open for this work.
