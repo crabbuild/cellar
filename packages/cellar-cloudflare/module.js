@@ -75,11 +75,33 @@ export function workersApplication(
         return this.owner(context).rpc(method, args);
       }
       async alarm(_event, context) {
-        return this.owner(context).invoke((target) => {
-          if (typeof target.alarm !== "function")
-            throw new TypeError("Durable Object has no alarm handler");
-          return target.alarm();
+        const previous = this.alarmTail;
+        let release;
+        const completed = new Promise((resolve) => {
+          release = resolve;
         });
+        const tail = previous ? previous.then(() => completed) : completed;
+        this.alarmTail = tail;
+        tail.then(() => {
+          if (this.alarmTail === tail) this.alarmTail = undefined;
+        });
+        try {
+          // Native alarms may be rearmed while an earlier handler is pending.
+          // Workers permits one alarm callback per object at a time. Each
+          // waiter keeps its own native invocation and rechecks authority.
+          const revoked = context._revoked();
+          await Promise.race([previous, revoked]);
+          return await Promise.race([
+            this.owner(context).invoke((target) => {
+              if (typeof target.alarm !== "function")
+                throw new TypeError("Durable Object has no alarm handler");
+              return target.alarm();
+            }),
+            revoked,
+          ]);
+        } finally {
+          release();
+        }
       }
     };
   }

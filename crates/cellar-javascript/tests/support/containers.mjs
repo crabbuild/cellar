@@ -59,6 +59,15 @@ export class Counter {
       return ok();
     }
     const c = ctx.container;
+    const profile = await rejects(
+      () =>
+        ctx._call("workers.container.fetch", {
+          port: 8080,
+          request: request("http://container/profile-refused"),
+        }),
+      "not_committed",
+    );
+    check(profile.code === "ValidationError", "Workers profile required");
     const capabilities = await c.capabilities();
     check(capabilities.synchronous_running, "declared synchronous observation");
     check(capabilities.queued_lifecycle, "declared queued lifecycle");

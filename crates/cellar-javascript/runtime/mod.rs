@@ -259,16 +259,26 @@ pub(crate) fn supports_synchronous(name: &str) -> bool {
 // Completion may wake the next native transaction before its reply is observed
 // by JS. Native callback guards/queues serialize effects; this control wait must
 // not occupy the JS mutation slot. Failure classification still treats finish
-// as a mutation because its commit acknowledgement can be lost.
+// as a mutation because its commit acknowledgement can be lost. Workers routed
+// calls also have independent native futures/output gates. They may overlap,
+// without being classified as reads or taking the local storage mutation slot.
 pub(crate) fn requires_mutation_slot(name: &str) -> bool {
     !matches!(
         name,
-        "workers.callback.finish" | "workers.callback.finish_sync" | "workers.container.perform"
+        "workers.callback.finish"
+            | "workers.callback.finish_sync"
+            | "workers.container.perform"
+            | "workers.rpc"
+            | "workers.fetch"
+            | "workers.container.fetch"
     ) && !cellar_guest::operations::is_read(name)
 }
 
 pub(crate) fn supports_operation_cancellation(name: &str) -> bool {
-    matches!(name, "cell.call" | "container.port.fetch" | "workers.fetch")
+    matches!(
+        name,
+        "cell.call" | "container.port.fetch" | "workers.fetch" | "workers.container.fetch"
+    )
 }
 
 /// Process bootstrap. Every call owns a joined engine and watchdog. V8's global

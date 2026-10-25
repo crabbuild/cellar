@@ -97,6 +97,14 @@ async fn module_round(
         .await?;
     ensure!(value["count"] == if restart { 3 } else { 1 });
     ensure!(value["marker"] == "javascript-test");
+    let parallel: serde_json::Value = client
+        .get(format!("{address}/parallel-http"))
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    ensure!(parallel == serde_json::json!(["left", "right"]));
     let response = client
         .get(format!("{address}/alice/retained"))
         .send()
@@ -277,4 +285,97 @@ async fn container_routes(path: &Path, application: Arc<dyn Application>) -> Res
     );
     ensure!(peer.engine.containers.lock().unwrap().is_empty());
     Ok(())
+}
+
+async fn qualify_alarm_queue(client: &reqwest::Client, address: &str) -> Result<()> {
+    client
+        .get(format!("{address}/timer/alarms/start"))
+        .send()
+        .await?
+        .error_for_status()?;
+    let first = tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            let state: serde_json::Value = client
+                .get(format!("{address}/timer/alarms/state"))
+                .send()
+                .await?
+                .error_for_status()?
+                .json()
+                .await?;
+            if state["deliveries"].as_u64().unwrap_or(0) >= 2 {
+                return Ok::<_, anyhow::Error>(state);
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await??;
+    ensure!(
+        first["started"] == 1 && first["active"] == 1 && first["peak"] == 1,
+        "rearmed alarm overlapped its predecessor: {first}"
+    );
+    client
+        .get(format!("{address}/timer/alarms/release"))
+        .send()
+        .await?
+        .error_for_status()?;
+    tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            let state: serde_json::Value = client
+                .get(format!("{address}/timer/alarms/state"))
+                .send()
+                .await?
+                .error_for_status()?
+                .json()
+                .await?;
+            if state["started"] == 2 && state["active"] == 0 {
+                ensure!(state["peak"] == 1, "alarm callbacks overlapped: {state}");
+                return Ok::<_, anyhow::Error>(());
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await??;
+    Ok(())
+}
+
+#[test]
+fn rearmed_alarm_waits_for_the_active_handler_and_drains() -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    let source = Source::module()
+        .workers_lifetimes()
+        .events([EventKind::Fetch])
+        .cell_events(
+            "Counter",
+            [EventKind::Fetch, EventKind::Alarm, EventKind::CellRpc],
+        );
+    NodeRuntime::run(
+        Options::default(),
+        NodeOptions::new(fixture("module")?),
+        source,
+        |application| {
+            tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()?
+                .block_on(alarm_queue_node(directory.path(), application))
+        },
+    )
+}
+
+async fn alarm_queue_node(path: &Path, application: Arc<dyn Application>) -> Result<()> {
+    let (node, address) = native::start_configured(path, application, |config, _, _| {
+        // This new probe deliberately holds an alarm until another delivery is
+        // observed. Keep its observation window below its own handler deadline.
+        config.runtime.handler_budget = Duration::from_secs(5);
+        config.actor.core.operation_deadline_ms = Some(250);
+    })
+    .await?;
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(5))
+        .build()?;
+    let result = qualify_alarm_queue(&client, &address).await;
+    let outcome = node.shutdown(ShutdownMode::Preserve).await?;
+    ensure!(
+        matches!(outcome, NodeOutcome::Stopped(report) if report.cells_drained && report.application_work_drained && !report.drain_timed_out)
+    );
+    result
 }

@@ -419,6 +419,12 @@ mutations. Returning with outstanding operations fails the handler. Do not save
 contexts or binding handles for later calls or issue concurrent mutations with
 `Promise.all()`.
 
+The optional Workers surface has separate admission for routed object RPC/HTTP
+and container port requests. These independent native futures may overlap while
+local storage progresses. They retain operation/byte quotas, native output gates
+and mutation failure provenance; they are not classified as reads. Portable
+Cellar storage still permits only one outstanding mutation.
+
 ```text
 Activation A                    Retire / restart               Activation B
   new Counter()                       |                        new Counter()

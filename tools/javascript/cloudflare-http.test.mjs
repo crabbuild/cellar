@@ -126,3 +126,73 @@ test("cancelling identity output rejects blocked writers with the same reason", 
   await readable.cancel(reason);
   await refused;
 });
+
+function deferred() {
+  let resolve, reject;
+  const promise = new Promise((done, fail) => {
+    resolve = done;
+    reject = fail;
+  });
+  return { promise, resolve, reject };
+}
+
+function alarmCell(invoke) {
+  const app = workersApplication(
+    { Counter: class {}, default: { fetch: () => new Response() } },
+    { namespaces: { COUNTERS: "Counter" } },
+  );
+  const cell = new app.cells.Counter();
+  cell.owner = () => ({ invoke: (call) => call({ alarm: invoke }) });
+  return cell;
+}
+
+test("cancelling a queued alarm cannot let its successor overtake the active alarm", async () => {
+  const entered = deferred();
+  const release = deferred();
+  let calls = 0;
+  const cell = alarmCell(async () => {
+    calls++;
+    if (calls === 1) {
+      entered.resolve();
+      await release.promise;
+    }
+  });
+  const alive = { _revoked: () => new Promise(() => {}) };
+  const first = cell.alarm(null, alive);
+  await entered.promise;
+  const cancelled = deferred();
+  const second = cell.alarm(null, { _revoked: () => cancelled.promise });
+  const third = cell.alarm(null, alive);
+  const reason = new Error("queued event revoked");
+  cancelled.reject(reason);
+  await assert.rejects(second, (error) => error === reason);
+  assert.equal(calls, 1);
+  release.resolve();
+  await Promise.all([first, third]);
+  assert.equal(calls, 2);
+});
+
+test("revoking an active alarm releases its queue without reporting success", async () => {
+  const entered = deferred();
+  const release = deferred();
+  const revoked = deferred();
+  let calls = 0;
+  const cell = alarmCell(async () => {
+    calls++;
+    if (calls === 1) {
+      entered.resolve();
+      await release.promise;
+    }
+  });
+  const first = cell.alarm(null, { _revoked: () => revoked.promise });
+  await entered.promise;
+  const reason = Object.assign(new Error("event revoked"), {
+    code: "ContextExpired",
+    outcome: "unknown",
+  });
+  revoked.reject(reason);
+  await assert.rejects(first, (error) => error === reason);
+  await cell.alarm(null, { _revoked: () => new Promise(() => {}) });
+  assert.equal(calls, 2);
+  release.resolve();
+});

@@ -13,18 +13,16 @@ function fixture(limit = 4) {
       return { max_body_bytes: limit };
     },
     _encode: (body) => Buffer.from(body).toString("base64"),
-    container: {
-      capabilities: async () => ({ max_body_bytes: limit }),
-      port: (port) => ({
-        fetch: async (request) => {
-          requests.push({ port, ...request });
-          return {
-            status: 302,
-            headers: [["location", "https://unrelated.invalid"]],
-            body: Uint8Array.of(0, 255),
-          };
-        },
-      }),
+    _call: async (name, { port, request }, body, signal) => {
+      assert.equal(name, "workers.container.fetch");
+      assert.equal(body, undefined);
+      assert.ok(signal instanceof AbortSignal);
+      requests.push({ port, ...request });
+      return {
+        status: 302,
+        headers: [["location", "https://unrelated.invalid"]],
+        body: Uint8Array.of(0, 255),
+      };
     },
   };
   const current = () => {

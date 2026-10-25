@@ -16,7 +16,12 @@ export function containerPort(current, port, beforeFetch) {
         init,
         context,
         (request, signal) =>
-          context.container.port(port).fetch(request, { signal }),
+          context._call(
+            "workers.container.fetch",
+            { port, request },
+            undefined,
+            signal,
+          ),
         () => beforeFetch(context),
       );
     },

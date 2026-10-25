@@ -169,9 +169,16 @@ function operation(
 
   // Queued controls serialize in the native provider, and must not occupy the
   // storage mutation slot while startup awaits I/O. All retain effect provenance.
-  // SQL and nested fetches remain conservative mutations.
+  // Workers routed calls own independent native futures/output gates. Keep
+  // their mutation failure provenance, without the local storage mutation slot.
+  // Ordinary SQL and fetch operations remain conservative mutations.
   const mutation =
-    name !== "workers.container.perform" &&
+    ![
+      "workers.container.perform",
+      "workers.rpc",
+      "workers.fetch",
+      "workers.container.fetch",
+    ].includes(name) &&
     ![
       "clock.now",
       "workers.crypto.random",
@@ -269,7 +276,14 @@ function operation(
       body,
     );
   });
-  if (!["cell.call", "container.port.fetch", "workers.fetch"].includes(name))
+  if (
+    ![
+      "cell.call",
+      "container.port.fetch",
+      "workers.fetch",
+      "workers.container.fetch",
+    ].includes(name)
+  )
     return promise;
   let cancelled = false;
   const cancel = () => {

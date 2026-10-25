@@ -143,6 +143,14 @@ export async function fetch(req, ctx) {
         "RPC structured graph",
       );
       check((await stub.echo(undefined)) === undefined, "undefined result");
+      const parallel = await Promise.all([
+        stub.echo("first"),
+        stub.echo("second"),
+      ]);
+      check(
+        parallel[0] === "first" && parallel[1] === "second",
+        "independently routed RPC calls may overlap",
+      );
       const error = await refuses(() => stub.fail());
       check(
         error.name === "TypeError" &&

@@ -461,9 +461,12 @@
                 throw new ErrorClass("ContextMismatch");
               const admitted = host(id, name, encoded, body, key);
               if (
-                ["cell.call", "container.port.fetch", "workers.fetch"].includes(
-                  name,
-                )
+                [
+                  "cell.call",
+                  "container.port.fetch",
+                  "workers.fetch",
+                  "workers.container.fetch",
+                ].includes(name)
               )
                 [pending, cancel] = admitted;
               else pending = admitted;
@@ -807,6 +810,17 @@
           throw error;
         }
         return synchronous("workers.container.admit", { operation, input });
+      },
+      _revoked() {
+        if (
+          (activation === null ? currentHost() : currentHost(activation)) !== id
+        )
+          throw rpcFailure("ContextMismatch", "not_committed");
+        const state = lifetimes.get(id);
+        if (!state) throw rpcFailure("UnsupportedOperation", "not_committed");
+        return state.cancelled.then(() => {
+          throw rpcFailure("ContextExpired", "unknown");
+        });
       },
       _containerMonitor(make) {
         if (

@@ -93,7 +93,10 @@ pub async fn execute_with_signal(
             .execute_with_signal(context, name, value, options, signal)
             .await;
     }
-    if name == "container.port.fetch" {
+    if matches!(name, "container.port.fetch" | "workers.container.fetch") {
+        if name == "workers.container.fetch" {
+            ensure!(state.workers_lifetimes, crate::failure::Validation);
+        }
         return state
             .containers
             .execute_with_signal(
