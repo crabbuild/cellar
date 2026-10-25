@@ -58,6 +58,9 @@ pub async fn run(arguments: Vec<String>) -> Result<()> {
     if command == "dev" {
         return super::dev::run(arguments.collect()).await;
     }
+    if command == "rpc" {
+        return super::rpc::run(arguments.collect());
+    }
     if command == "supervise" {
         #[cfg(unix)]
         return crate::supervise::run(arguments.collect()).await;
@@ -71,6 +74,7 @@ pub async fn run(arguments: Vec<String>) -> Result<()> {
              cellar supervise --health-url URL [OPTIONS] -- PROGRAM [ARG...]\n\
              cellar deploy DIRECTORY --bucket NAME [--endpoint URL] [--region REGION]\n\
              cellar install DIRECTORY --bucket NAME --output EXECUTABLE [--target TRIPLE] [--python-root PREFIX] [--node-root PREFIX]\n\n\
+             cellar rpc check --descriptor FILE --inventory FILE [--catalog FILE]\n\n\
              Build compiles Rust with explicitly selected runtime adapters. Deploy publishes\n\
              verified executables, assets and configuration. Install verifies downloaded code and\n\
              writes a new executable path; use your process supervisor to activate it.\n\n\

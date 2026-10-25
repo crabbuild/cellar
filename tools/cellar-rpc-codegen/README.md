@@ -29,6 +29,22 @@ retaining producer comments. Regeneration preserves this preamble; descriptor
 and inventory artifacts remain binary/JSON without comment headers, following
 [NOTICE](../../NOTICE).
 
+Verify the resulting bundle with the shipped offline CLI:
+
+```sh
+cargo run --locked -p cellar --bin cellar -- rpc check \
+  --descriptor /tmp/counter-generated/contracts.binpb \
+  --inventory /tmp/counter-generated/rpc.json
+```
+
+The checker validates the descriptor and compares its exact canonical inventory.
+Regenerate `rpc.json` when it drifts, including formatting or metadata changes.
+Use `--catalog catalog.json` to also check an exported native provider table.
+The [CLI reference](../../docs/23-cli-reference.md#offline-typed-rpc-checks)
+shows the export API, input bounds and registration-check scope. Generation
+still uses this dedicated build tool; `cellar rpc generate` and frozen package
+inventories remain delivery work.
+
 ## Descriptor admission
 
 Generation and native startup use the same `Contract::from_descriptor` validator.

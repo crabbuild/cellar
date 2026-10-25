@@ -222,9 +222,11 @@ buf generate
 cellar rpc check --descriptor build/contracts.binpb --inventory build/rpc.json
 ```
 
-`cellar rpc check` is new work. It validates descriptor/profile compliance,
-duplicate names, generated artifacts and registrations; it does not contact a
-live cell. The generator must advertise proto3 optional support and emit
+`cellar rpc check` now validates descriptor/profile compliance, exact canonical
+inventory and an optional native `Catalog::inventory()` registration snapshot
+offline. Frozen language/package files and consumer binding validation remain
+delivery work; see the [CLI contract](../docs/23-cli-reference.md#offline-typed-rpc-checks).
+The generator must advertise proto3 optional support and emit
 actionable errors for unsupported schemas and language identifier collisions.
 Use standard language name conversion (`GetCount` to `getCount` or `get_count`)
 while preserving the exact wire method. Reserve SDK/client helper names; reject

@@ -78,6 +78,17 @@ async fn caller_settled(
 }
 
 async fn case(app: Arc<Composite>, client: &reqwest::Client, case: Case) -> Result<Value> {
+    case_inner(app, client, case).await.with_context(|| {
+        format!(
+            "proof-wait lease observations: {:?}",
+            lease_trace::install().snapshot()
+        )
+    })
+}
+
+async fn case_inner(app: Arc<Composite>, client: &reqwest::Client, case: Case) -> Result<Value> {
+    let lease_trace = lease_trace::install();
+    lease_trace.mark("proof-wait case start");
     app.audit.reset_after_node_drain();
     let directory = tempfile::tempdir()?;
     let bucket = Bucket::open_dev(&directory.path().join("fleet.sqlite"))?;
@@ -90,6 +101,7 @@ async fn case(app: Arc<Composite>, client: &reqwest::Client, case: Case) -> Resu
         Some(controls.clone()),
     )
     .await?;
+    lease_trace.mark("proof-wait owner started");
     ensure!(
         request(
             client,
@@ -100,6 +112,7 @@ async fn case(app: Arc<Composite>, client: &reqwest::Client, case: Case) -> Resu
             == json!({"value":"0"}),
         "proof wait owner not empty"
     );
+    lease_trace.mark("proof-wait provider read completed");
     let (ingress, ingress_url) = fleet::start_controlled(
         &directory.path().join("ingress"),
         app.clone(),
@@ -108,6 +121,7 @@ async fn case(app: Arc<Composite>, client: &reqwest::Client, case: Case) -> Resu
         Some(controls.clone()),
     )
     .await?;
+    lease_trace.mark("proof-wait ingress started");
     let mut baseline = 0;
     let warmed = warm(
         client,
@@ -419,30 +433,53 @@ async fn warm_failure(
 
 /// Repeat the exact failing topology without claiming matrix qualification.
 pub async fn v8_repro(app: Arc<Composite>) -> Result<Value> {
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(20))
-        .build()?;
-    let mut cases = Vec::new();
-    for round in 0..16 {
-        let spec = Case {
+    repeat(
+        app,
+        "proof-wait-v8-repro",
+        Case {
             caller: "v8",
             provider: "v8",
             class: "V8Counter",
             local: true,
             sync: true,
             deadline: true,
-        };
-        eprintln!("proof-wait V8 reproduction round {round}");
+        },
+    )
+    .await
+}
+
+/// Repeat the peer deadline-cleanup path that failed in the combined run.
+pub async fn node_repro(app: Arc<Composite>) -> Result<Value> {
+    repeat(
+        app,
+        "proof-wait-node-repro",
+        Case {
+            caller: "node",
+            provider: "rust",
+            class: "RustCounter",
+            local: false,
+            sync: true,
+            deadline: true,
+        },
+    )
+    .await
+}
+
+async fn repeat(app: Arc<Composite>, diagnostic: &str, spec: Case) -> Result<Value> {
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(20))
+        .build()?;
+    let mut cases = Vec::new();
+    for round in 0..16 {
+        eprintln!("{diagnostic} round {round}");
         cases.push(
             case(app.clone(), &client, spec)
                 .await
-                .with_context(|| format!("proof-wait V8 reproduction round {round}"))?,
+                .with_context(|| format!("{diagnostic} round {round}"))?,
         );
     }
-    Ok(
-        json!({"format":1,"diagnostic":"proof-wait-v8-repro","qualified":false,
-        "case_count":cases.len(),"cases":cases}),
-    )
+    Ok(json!({"format":1,"diagnostic":diagnostic,"qualified":false,
+        "case_count":cases.len(),"cases":cases}))
 }
 
 pub async fn run(app: Arc<Composite>) -> Result<Value> {

@@ -8,9 +8,15 @@ mod native_live;
 mod recovery;
 mod wait;
 mod wait_evidence;
+
+// Reuse the owning actor fixtures' bounded, in-memory renewal observations.
+#[allow(dead_code)]
+#[path = "../../../../crates/cellar/tests/support/actor_lease_trace.rs"]
+mod lease_trace;
 pub use native_live::Live;
 use recovery::read;
 pub(crate) use recovery::read as recovery_read;
+pub use wait::node_repro as wait_node_repro;
 pub use wait::run as waits;
 pub use wait::smoke as wait_smoke;
 pub use wait::v8_repro as wait_v8_repro;

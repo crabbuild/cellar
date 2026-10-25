@@ -17,12 +17,12 @@ does not close schema, resource, packaging or performance requirements.
 
 | Priority | Remaining gap | Deliverable / completion evidence |
 | --- | --- | --- |
-| P0 — next | Native lease expiry in the combined qualifier | The expanded 696-case run failed during proof-wait warmup. The exact V8/local/sync/deadline diagnostic reproduced on round zero: owner and ingress both returned `NodeLeaseExpired`, and fresh health/read connections were refused. Trace lease publication, renewal and actor scheduling; establish the cause at its owning boundary, add a regression and rerun both the focused diagnostic and the original combined matrix. Preserve TTLs, fencing, proof gates and unknown outcomes; never replay the failed mutation automatically. |
+| P0 — next | Native lease expiry in the combined qualifier | The expanded 696-case run fails in proof-wait cases. Exact V8/local and Node-to-Rust/peer diagnostics both reproduced `NodeLeaseExpired`. The Node trace shows timely renewals with about 665 ms of validity, then ambiguous storage completion about 333 ms later and fencing at expiry. Locate the stalled storage/readback phase, add a regression at its owning boundary and rerun the focused diagnostic and original combined matrix. Passing retries do not establish a causal fix. Preserve TTLs, fencing, proof gates and unknown outcomes; never replay the failed mutation automatically. |
 | P0 | Python streaming/RPC handler deadlines | The latest full Python regression command passes bridge/watchdog/recovery and startup, then fails `/cell/sse` with `handler exceeded 250ms budget`; the standalone typed-RPC test hits the same budget. Both use the shared native test host and finish with zero native admissions/bytes/operations. Trace handler admission, pump and sync timing at those fixtures and establish a cause before changing policy. Do not infer the same cause as native lease expiry or earlier Node watchdog failures. |
 | P0 | Remaining lifecycle and peer/admission provenance | Preserve whole-call budgets, 55 deadline cases, 128 proof-wait cases, 80 cycle cases, 96 provenance cases and 96 Node/V8 lifecycle cases. The Python follow-up covers cooperative cancellation suppression, forced host cutoff and persistent suppression with process supervision. Next close forced guest peer retries and broader call-local peer/admission evidence. Retain incomplete-shutdown failures while guest work remains, expired authority, zero native reservations and receipt-safe recovery. |
 | P0 | Resource bounds and parser correctness | Global symbol/import validation and bounded expanded-name inventories are delivered. Close remaining option/schema semantics; audit effective method/runtime/host/peer minima, retained binary copies and decoder allocations; demonstrate bounded queues, reservations and memory under saturation, flood and disconnect. |
 | P1 | Language/profile coverage | Exercise the portable Protobuf profile as real business calls across all local/remote pairs; qualify supported Python interpreter modes and remaining lifecycle/regression boundaries. |
-| P1 | Reproducible application delivery | Deliver `cellar rpc generate/check`, static binding and frozen package inventories, embedded Python source identity, a published typed-RPC example and clean-machine CI. |
+| P1 | Reproducible application delivery | Offline `cellar rpc check` now validates descriptors, exact canonical inventories and optional native catalog snapshots. Deliver unified generation, verified consumer binding/frozen package inventories, embedded Python source identity, a published typed-RPC example and clean-machine CI. |
 | P2 | Operation visibility | Add registered-method spans, bounded labels and payload-free diagnostics for failures, deadlines and proof waits. |
 | P2 | Measured performance | Publish reproducible typed/untyped/native/guest latency, throughput and durable TPS, plus saturation memory, cleanup and recovery results. |
 
@@ -40,7 +40,7 @@ Counter fixture alone is not the highest-priority deliverable now.
 | RPC-04: JS/TS services | In progress | Generated clients/handlers, binary dispatch and live descriptor checks work in V8/Node; real startup refuses stale codecs; typed AbortSignal options and native-owned whole-call codec budgets work with bounded cleanup; full schema/resource/deadline qualification remains |
 | RPC-05: Python services | In progress | Generated async APIs, live codec checks and dispatch work with receipts/restart; stale providers/clients are refused; task cancellation reaches native/peer calls and joins cleanup; native-owned budgets cover validation, encoding, transport and decoding; packaging and free-threaded qualification remain |
 | RPC-06: Fleet/durability | In progress | Local/remote/handoff, 32 failed-recovery admission, 48 SIGKILL and 64 proof cases pass together; further interpreter modes and broader qualification remain |
-| RPC-07: Packaging/performance | Pending | Reproducible generation, clean-machine packaging, CI and measured performance report |
+| RPC-07: Packaging/performance | In progress | Offline descriptor/inventory/native-catalog checking implemented; unified generation, frozen package/static-binding inventories, clean-machine packaging and performance report remain |
 
 ## Required evidence
 
@@ -56,7 +56,7 @@ Counter fixture alone is not the highest-priority deliverable now.
 | Decoder layout/default-field allocation and effective limit plumbing | Shared decoded-slot estimate implemented in native wire and Rust/JS/Python encoders; default map layouts, fixed control budgets and native/guest catalog plumbing tested; exact allocation/RSS, saturation and method/runtime/host/peer minimum audit remain |
 | Invocation authority, cancellation, deadlines and nested-call provenance | Owner fencing and retained-client refusal cover all 16 pairs; 55 deadline cases cover guest nesting/codec costs; 128 proof-wait cases cover signal/deadline × local/peer × output/sync × all 16 pairs with fresh admission and original-authority checks; 80 self/A-to-B-to-A cases cover bounded cycle cleanup; 96 parent-write/forged-category cases pass with unknown outcomes; broader peer/admission/lifecycle qualification remains |
 | Pre-factory contract validation and trusted refusal provenance | Native/Python cold-constructor tests pass through the host catalog; custom wrappers without a forwarded catalog remain conservative; peer/admission provenance remains |
-| `cellar rpc check`, pinned Buf workflow and static binding inventory validation | Pending |
+| `cellar rpc check`, pinned Buf workflow and static binding inventory validation | Offline descriptor/inventory and optional native catalog check implemented; pinned Buf integration, verified executable/package identity and consumer binding validation remain |
 | Registered-method spans, bounded metric labels and payload-free diagnostics | Pending |
 | Business errors separated from infrastructure errors | All backends preserve business variants and post-write invalid-response/unknown locally; entered-handler fixed categories survive with unknown effects in all runtimes; broader host-code mapping and peer/admission provenance remain |
 | Output proof after a handler returns without explicit sync | All 16 pairs pass real peer/bucket hold then release, and hold then failure; typed result/local commit, no early response, unknown failures and explicit receipt retries verified with GIL CPython |
@@ -65,7 +65,7 @@ Counter fixture alone is not the highest-priority deliverable now.
 | Atomic Counter receipts, exact 64-bit state and retry window | All 16 pairs pass local/remote/handoff, receipt races, owner fences and separate-process kills before handlers, inside count/receipt transactions and after synced handlers; broader recovery and interpreter modes remain |
 | Existing HTTP/lifecycle/untyped RPC regressions | V8/Node real-host HTTP restart and runtime lifecycle tests pass; full T19 remains open |
 | T01-T19 from plan 009 | All remain open until their actual boundary is verified |
-| Standard format/layout/dependency/docs checks and affected tests/Clippy | Current local checks pass; clean-machine/CI qualification remains |
+| Standard format/layout/dependency/docs checks and affected tests/Clippy | Guard and targeted checks pass; combined, regression and hosted lifecycle gates remain open |
 | Generated output reproducibility and frozen dependency inventories | Counter/profile reproduce 24 artifacts; tool versions locked; clean-machine/CI inventory verification remains |
 | Throughput, latency, durable TPS, memory and recovery report | Pending |
 
@@ -74,6 +74,87 @@ pairs. Preserve the full test matrix, failures and remaining work across turns.
 
 ## Current evidence
 
+- The shipped CLI adds `cellar rpc check --descriptor FILE --inventory FILE`
+  with optional `--catalog FILE`. It uses the runtime's portable-profile
+  validator and the generator's exact canonical inventory. Native catalog
+  reconstruction requires complete service registration with matching method
+  types, digest and limits. Canonical byte comparison rejects duplicate keys,
+  extra fields and formatting drift. Input reads are bounded to 4 MiB for the
+  descriptor and 64 MiB per JSON artifact; no compiler, guest runtime or node
+  participates. Missing catalog observations are reported as `null`, not zero.
+- Four executable tests pass using the real Counter/portable-profile artifacts
+  with build tools absent from `PATH`. They cover valid native catalog export,
+  stale digest/type/limit metadata, partial/unknown registrations, invalid class
+  names, ambiguous JSON, malformed descriptors, bounded sparse oversized files
+  and duplicate/unknown flags. Successful and failed checks preserve every input
+  and unrelated user file. The focused Linux RPC job now runs this CLI gate.
+  This checks supplied snapshots; compiled executable/package identity and
+  consumer binding verification remain open.
+- Final-source checks pass: the four executable CLI tests, both affected
+  CLI/qualifier Clippy commands, all 31 qualifier unit tests, format/layout for
+  1,015 Rust files, the engine-free native dependency guard (465 packages), and
+  documentation validation (749 local references). Earlier in this follow-up,
+  all 49 RPC-related library tests and the native typed-RPC integration test
+  also pass. Existing vendored Raft warnings remain.
+- The final-source combined rerun passes all 128 proof-wait cases and all 32
+  failed-recovery admission cases. It completes 34 process-crash cases, then
+  stops at `after_count_before_receipt rust->v8`: spawning the next crash owner
+  returns `No such file or directory`. Inspection confirms that the qualifier
+  executable was removed from its checkout-specific target during the run;
+  the whole target directory subsequently disappears. This is an interrupted
+  qualification run, not evidence of a new RPC failure or a passing combined
+  matrix. No `.cellar/rpc/delivery-final-matrix.json` is published, so no saved
+  success-report audit runs. The completed checks predate artifact removal;
+  production code and imported fixtures stayed frozen throughout execution.
+- `.cellar/rpc/cellar-rpc-delivery-final-matrix.log` preserves that interrupted
+  run: 60,793 bytes, SHA-256
+  `42da87a72562bfb8c346ff24a3da3ff688ebfefdc9fa59a9bdf59f2c7f2a345c`.
+  The native lease reproduction is preserved separately as
+  `.cellar/rpc/cellar-rpc-delivery-node-repro.log`: 19,643 bytes, SHA-256
+  `0c92bd2be3afa192030e44a438901f07e58da595f161ceeedb858b7df67a343d`.
+  Targeted-check logs are copied beside them before any rebuild. A fresh complete
+  run still requires retained executable artifacts and a stable build directory.
+- At prior head `27d3f978`, hosted
+  [JavaScript/Node SDK](https://github.com/crabbuild/cellar/actions/runs/40166912163)
+  and [Python examples](https://github.com/crabbuild/cellar/actions/runs/40166912149)
+  pass. The expanded
+  [lifecycle job](https://github.com/crabbuild/cellar/actions/runs/40166912140)
+  fails during the Python-caller/Node-provider/peer/before-sync startup read:
+  `/rust/read?target=rust`, connection closed before the response completed.
+  Its final native/managed work counts are zero with `host_failed=true`. No
+  successful lifecycle report is published, and the subsequent Python groups
+  do not run. Its cause remains unestablished; this is separate evidence from
+  the local native lease trace and later executable removal.
+- The unchanged exact V8/local/sync/deadline reproduction passes 16 rounds in
+  `.cellar/rpc/delivery-lease-before.json`. Four instrumented runs then pass
+  another **64 rounds**, saved as `.cellar/rpc/delivery-lease-trace-{1..4}.json`.
+  The original native lease-expiry failure remains unresolved: a passing retry
+  is not a causal fix. Proof-wait failures now retain the latest 64 bounded,
+  memory-only actor lease observations, including attempt start/completion,
+  validity headroom and setup phases. This distinguishes delayed renewal dispatch
+  from a slow storage CAS on the next failure without changing TTLs or replaying
+  the failed mutation. Temporary debug tags were removed.
+- A fresh expanded `all` run fails later in Node-to-Rust/peer/sync/deadline
+  proof-wait, during the explicit receipt retry after cancellation. No success
+  report was published. `/tmp/cellar-rpc-delivery-full.log` records the failure.
+  `--suite proof-wait-node-repro` repeats that topology and fails at round 10
+  during warmup, before the third replica starts. Owner and ingress both fence
+  with `NodeLeaseExpired`; the bounded trace distinguishes timely renewal start
+  from delayed storage completion. Attempts start with approximately 665 ms
+  of prior validity, become ambiguous after about 333 ms and fail to restore
+  authority before expiry. `/tmp/cellar-rpc-delivery-node-repro.log` preserves
+  this evidence. The precise storage/readback phase remains unresolved.
+- Temporary LocalStore phase instrumentation was removed after three subsequent
+  Node diagnostic commands each passed 16 rounds (48 total, including two
+  concurrent processes). Their `.cellar/rpc/delivery-store-{repro,a,b}.json`
+  reports retain `qualified: false`. These passes do not fix the earlier failure.
+  The retained diagnostic uses only the existing bounded actor lease trace;
+  production storage, lease TTLs, deadlines and durability policy are unchanged.
+- Three unchanged standalone Python typed-RPC runs also pass in
+  `/tmp/cellar-rpc-delivery-python-before-{1..3}.log`. Their earlier 250 ms
+  failures and the streaming failure remain recorded below; no handler budget,
+  polling policy or runtime behavior was changed, so these retries do not close
+  the timing gap.
 - The Python follow-up passes **48 focused cases** on the report-contract
   implementation: 32 cancellation/forced-cutoff cases and 16 supervised
   persistent-suppression cases. Every group covers all four caller languages,
@@ -111,7 +192,7 @@ pairs. Preserve the full test matrix, failures and remaining work across turns.
   remains engine-free at 465 packages. Three bridge-report, six performance-proof
   and three baseline guard tests pass; bridge/performance guards also pass with
   Python `-O`. The Linux lifecycle workflow now schedules 96 Node/V8 plus 48
-  Python cases and retains their reports/logs. Its latest hosted run is pending.
+  Python cases and retains their reports/logs. At that revision its hosted run was pending; the later result is recorded above.
 - The final-source `lifecycle` rerun also passes **96 Node/V8 cases** in one
   process, preserving worker kills, real V8 watchdog terminations and both
   graceful/forced shutdown matrices after the shared fixture changes. Together
@@ -1240,8 +1321,10 @@ must preserve the existing recovery, crash, proof and receipt evidence.
    calls across every local/remote backend pair, including free-threaded Python
    where supported, and close the remaining lifecycle/regression requirements.
    Codec vectors alone do not qualify a caller/provider pair.
-6. **P1: make application delivery reproducible.** Ship `cellar rpc generate/check`,
-   static binding checks, frozen package inventories, complete embedded Python
+6. **P1: make application delivery reproducible.** Retain offline `cellar rpc
+   check` for descriptors, canonical inventories and native catalog snapshots.
+   Ship unified generation, verified static consumer bindings, frozen package
+   inventories, complete embedded Python
    source identity, a published example and clean-machine CI. Require generation
    drift and stale package/codec identities to fail before serving traffic.
 7. **P2: add visibility, then publish performance evidence.** Add registered-method

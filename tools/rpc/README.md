@@ -26,6 +26,18 @@ services, Python messages/stubs/services, TS messages/services and plain JS
 messages/services with declarations. The [generator guide](../cellar-rpc-codegen/README.md)
 explains tool/runtime pins and the `--javascript-tools` option.
 
+Check the generated artifact before compiling a provider:
+
+```sh
+cargo run --locked -p cellar --bin cellar -- rpc check \
+  --descriptor tools/rpc/fixtures/generated/contracts.binpb \
+  --inventory tools/rpc/fixtures/generated/rpc.json
+```
+
+This reads local artifacts and needs no compiler or live node. Add `--catalog`
+to validate a native registration snapshot, as shown in the
+[CLI reference](../../docs/23-cli-reference.md#offline-typed-rpc-checks).
+
 ## Build and run real named methods
 
 ```text
@@ -620,9 +632,19 @@ cargo run --locked -p cellar-rpc-qualification --features full -- \
   --suite proof-wait-v8-repro --report .cellar/rpc/proof-wait-v8-repro.json
 ```
 
-This diagnostic also reports `qualified: false`. If warmup fails, bounded fresh
+The later Node-to-Rust/peer/sync/deadline failure has its own exact diagnostic:
+
+```sh
+cargo run --locked -p cellar-rpc-qualification --features full -- \
+  --suite proof-wait-node-repro --report .cellar/rpc/proof-wait-node-repro.json
+```
+
+Both diagnostics report `qualified: false`. If warmup fails, bounded fresh
 health/read probes and joined native shutdown outcomes distinguish a closed
 HTTP connection from node fencing. The failed mutation is never replayed.
+Every proof-wait error retains the most recent 64 in-memory native lease observations:
+attempt start/completion, remaining validity and the proof-wait setup phases.
+Those observations distinguish delayed dispatch from a slow storage attempt.
 
 ```text
 native SQLite count + receipt committed

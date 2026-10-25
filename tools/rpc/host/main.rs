@@ -39,6 +39,7 @@ enum Suite {
     ProofWait,
     ProofWaitSmoke,
     ProofWaitV8Repro,
+    ProofWaitNodeRepro,
     Fence,
     Recruitment,
     Recovery,
@@ -88,6 +89,7 @@ fn main() -> Result<()> {
                     Some("proof-wait") => Suite::ProofWait,
                     Some("proof-wait-smoke") => Suite::ProofWaitSmoke,
                     Some("proof-wait-v8-repro") => Suite::ProofWaitV8Repro,
+                    Some("proof-wait-node-repro") => Suite::ProofWaitNodeRepro,
                     Some("fence") => Suite::Fence,
                     Some("proof-recruitment") => Suite::Recruitment,
                     Some("recovery") => Suite::Recovery,
@@ -110,7 +112,7 @@ fn main() -> Result<()> {
                     Some("python-supervision") => Suite::PythonSupervision,
                     Some("python-supervision-smoke") => Suite::PythonSupervisionSmoke,
                     Some("all") => Suite::All,
-                    _ => anyhow::bail!("--suite must be local, remote, deadline, cancellation, cycles, provenance, worker-failure, worker-failure-smoke, worker-shutdown, worker-shutdown-smoke, v8-termination, v8-termination-smoke, v8-shutdown, v8-shutdown-smoke, lifecycle, python-cancellation, python-cancellation-smoke, python-supervision, python-supervision-smoke, crash, proof, proof-wait, proof-wait-smoke, proof-wait-v8-repro, fence, proof-recruitment, recovery, recovery-probe or all"),
+                    _ => anyhow::bail!("--suite must be local, remote, deadline, cancellation, cycles, provenance, worker-failure, worker-failure-smoke, worker-shutdown, worker-shutdown-smoke, v8-termination, v8-termination-smoke, v8-shutdown, v8-shutdown-smoke, lifecycle, python-cancellation, python-cancellation-smoke, python-supervision, python-supervision-smoke, crash, proof, proof-wait, proof-wait-smoke, proof-wait-v8-repro, proof-wait-node-repro, fence, proof-recruitment, recovery, recovery-probe or all"),
                 }
             }
             "--python-lifecycle-child" => python_child = Some(PathBuf::from(arguments.next().context("missing Python child case file")?)),
@@ -119,7 +121,7 @@ fn main() -> Result<()> {
             "--serve-bucket" => server_bucket = Some(PathBuf::from(arguments.next().context("missing server bucket path")?)),
             "--serve-ready" => server_ready = Some(PathBuf::from(arguments.next().context("missing server readiness path")?)),
             _ => anyhow::bail!(
-                "usage: cellar-rpc-qualification [--suite local|remote|deadline|cancellation|cycles|provenance|worker-failure|worker-failure-smoke|worker-shutdown|worker-shutdown-smoke|v8-termination|v8-termination-smoke|v8-shutdown|v8-shutdown-smoke|lifecycle|python-cancellation|python-cancellation-smoke|python-supervision|python-supervision-smoke|crash|proof|proof-wait|proof-wait-smoke|proof-wait-v8-repro|fence|proof-recruitment|recovery|recovery-probe|all] [--report path.json]"
+                "usage: cellar-rpc-qualification [--suite local|remote|deadline|cancellation|cycles|provenance|worker-failure|worker-failure-smoke|worker-shutdown|worker-shutdown-smoke|v8-termination|v8-termination-smoke|v8-shutdown|v8-shutdown-smoke|lifecycle|python-cancellation|python-cancellation-smoke|python-supervision|python-supervision-smoke|crash|proof|proof-wait|proof-wait-smoke|proof-wait-v8-repro|proof-wait-node-repro|fence|proof-recruitment|recovery|recovery-probe|all] [--report path.json]"
             ),
         }
     }
@@ -258,6 +260,7 @@ fn main() -> Result<()> {
                                 Suite::ProofWait => proof::waits(app).await,
                                 Suite::ProofWaitSmoke => proof::wait_smoke(app).await,
                                 Suite::ProofWaitV8Repro => proof::wait_v8_repro(app).await,
+                                Suite::ProofWaitNodeRepro => proof::wait_node_repro(app).await,
                                 Suite::Fence => proof::fences(app).await,
                                 Suite::Recruitment => proof::recruitment(app).await,
                                 Suite::Recovery => admission::run(app).await,

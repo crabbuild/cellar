@@ -56,6 +56,7 @@ jobs:
           npm run --prefix tools/rpc build
       - name: Qualifier checks
         run: |
+          cargo test --locked -p cellar --bin cellar --test native_rpc_check
           python3 tools/python/test_bridge_report.py
           python3 -m unittest discover -s tools/perf -p test_python_fleet.py
           cargo clippy --locked -p cellar-rpc-qualification --all-targets --features full -- -D warnings

@@ -11,8 +11,6 @@ use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 
-const MAX_DESCRIPTOR_BYTES: usize = 4 * 1024 * 1024;
-
 /// Explicit per-message validation budgets, shared by all language backends.
 #[derive(Clone, Copy, Debug, Serialize, serde::Deserialize, PartialEq, Eq)]
 pub struct Limits {
@@ -90,6 +88,9 @@ pub struct Contract {
 }
 
 impl Contract {
+    // Build-time artifact readers apply this before allocating descriptor input.
+    pub(crate) const MAX_DESCRIPTOR_BYTES: usize = 4 * 1024 * 1024;
+
     /// Load an application descriptor set at startup, with no I/O or runtime
     /// schema lookup. Unsupported features and unresolved imports are refused.
     /// Cross-file symbol collisions, undeclared type references and cyclic
@@ -97,7 +98,7 @@ impl Contract {
     pub fn from_descriptor(bytes: &[u8], limits: Limits) -> Result<Self> {
         let limits = limits.validate()?;
         ensure!(
-            bytes.len() <= MAX_DESCRIPTOR_BYTES,
+            bytes.len() <= Self::MAX_DESCRIPTOR_BYTES,
             "RPC descriptor exceeds limit"
         );
         let mut set = FileDescriptorSet::decode(bytes).context("invalid RPC descriptor")?;

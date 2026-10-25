@@ -51,11 +51,24 @@ policy. Cancellation-aware variants are available on cell and service calls.
 
 The [named, typed RPC design](../plans/009-named-typed-rpc.md) defines Protobuf
 contracts and generated cell clients/handlers for Rust, JavaScript/TypeScript
-and Python over this native path. Named unary APIs now run across all four
-local backends; [runnable fixtures and qualification commands](../tools/rpc/README.md)
+and Python over this native path. Named unary APIs run across all four backends
+through local and authenticated-peer routes;
+[runnable fixtures and qualification commands](../tools/rpc/README.md)
 show generation, explicit registration and receipt recovery. Remote routing,
 failure, schema and packaging qualification remain open in the
 [implementation ledger](../plans/named-typed-rpc/implementation-status.md).
+
+Check generated metadata before starting a node:
+
+```sh
+cellar rpc check --descriptor generated/contracts.binpb --inventory generated/rpc.json
+```
+
+The [offline checker](23-cli-reference.md#offline-typed-rpc-checks) validates the
+descriptor and exact generated digest, methods, limits and codec types. Add a
+native catalog snapshot with `--catalog` to check complete service registrations.
+This checks local metadata; the runtime still validates live codecs, invocation
+authority and output proof on actual calls.
 
 Typed Rust calls start their timeout budget before request encoding. Native
 local dispatch carries that deadline into the target invocation. Peer dispatch
