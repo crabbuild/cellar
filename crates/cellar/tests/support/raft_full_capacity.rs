@@ -659,9 +659,21 @@ async fn drill(
         obsolete: MemberId::new(primary as u64 + 1)?,
         replacement: target.clone(),
     };
+    let repair_started = std::time::Instant::now();
+    eprintln!(
+        "full-native stage=repair-start expected_revision={:?} elapsed_s={:.3}",
+        plan.expected_revision,
+        started.elapsed().as_secs_f64()
+    );
     let admitted = handles[replacement]
         .begin_repair(plan.clone(), Duration::from_secs(1800))
         .await?;
+    eprintln!(
+        "full-native stage=repair-admitted index={:?} duration_s={:.3} elapsed_s={:.3}",
+        admitted.started_at,
+        repair_started.elapsed().as_secs_f64(),
+        started.elapsed().as_secs_f64()
+    );
     if from_s3 {
         let archive_started = std::time::Instant::now();
         let selected = Catalog::new(
@@ -686,13 +698,23 @@ async fn drill(
                 ..Default::default()
             },
         )?;
+        eprintln!(
+            "full-native stage=archive-wait-start required_index={:?} elapsed_s={:.3}",
+            admitted.started_at,
+            started.elapsed().as_secs_f64()
+        );
         tokio::time::timeout(Duration::from_secs(1800), async {
+            let mut previous = None;
             loop {
-                if archive
-                    .recovery_metadata()
-                    .await?
-                    .is_some_and(|m| m.position().index >= admitted.started_at)
-                {
+                let position = archive.recovery_metadata().await?.map(|m| m.position());
+                if previous != Some(position) {
+                    eprintln!(
+                        "full-native stage=archive-head-observed position={position:?} elapsed_s={:.3}",
+                        started.elapsed().as_secs_f64()
+                    );
+                    previous = Some(position);
+                }
+                if position.is_some_and(|p| p.index >= admitted.started_at) {
                     return Ok::<_, anyhow::Error>(());
                 }
                 tokio::time::sleep(Duration::from_millis(500)).await;

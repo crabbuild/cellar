@@ -391,6 +391,32 @@ bounded OS cache footprint or qualify production 10 GB recovery. The unchanged
 full-size archive diagnostic remains live under its separate filesystem variant;
 the checked-in production filesystem still needs its own full-size run.
 
+## Full-size archive diagnostic after confirmation reuse
+
+The frozen `3c3e68e5` runtime was rerun with the controlled diagnostic9
+filesystem policy and the same independently hashed, incompressible
+9,999,998,976-byte input. This diagnostic again failed with a deadline error;
+the process returned 101 after 2,875.96 seconds with 79,151,104-byte maximum RSS.
+It passed first read (10.173 seconds), first write (101.773 seconds), owner-state
+erasure, warm first read/write (9.226/83.109 seconds), receipt retry and quota
+cleanup/reuse. It did not reach cold local read, replacement promotion/write or
+restart, so it does not qualify those full-size paths.
+
+The retained test prefix contains 4,797 snapshot parts totaling 20,115,602,176
+bytes, two snapshot indexes, two manifests and one head. The selected head still
+binds index/term 2/2; an unselected manifest binds 9/4. Diagnostic inspection
+verified metadata framing/SHA-256 and the selected head's exact manifest digest
+and length. Uploaded bytes or a newer immutable manifest do not establish a
+published recovery head. The separate production cache policy at `ce65404e`
+was not part of this frozen executable.
+
+The original generic deadline message did not identify its precise pending
+phase. The full-capacity fixture now prints repair start/admission, the required
+archive index and each observed head-position change. It issues the same
+metadata requests and retains the same checks, polling interval and deadlines.
+The ordinary peer/S3 preflights pass with these observations; the new full-size
+production run must distinguish admission delay from archive publication delay.
+
 ## Remaining work
 
 The completion checklist remains open. Full native 10 GB warm takeover, exact
