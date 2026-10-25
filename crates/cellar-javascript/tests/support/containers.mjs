@@ -10,7 +10,7 @@ async function rejects(action, outcome) {
     await action();
   } catch (error) {
     check(error.outcome === outcome, "failure outcome: " + error.code);
-    return;
+    return error;
   }
   throw new Error("expected rejection");
 }
@@ -31,6 +31,29 @@ async function receive(socket) {
 }
 export class Counter {
   async fetch(req, ctx) {
+    try {
+      return await this.inspect(req, ctx);
+    } catch (error) {
+      return {
+        status: 500,
+        headers: [],
+        body: ctx._encode(
+          JSON.stringify({
+            message: error.message,
+            code: error.code,
+            outcome: error.outcome,
+            stack: error.stack,
+          }),
+        ),
+      };
+    }
+  }
+  async inspect(req, ctx) {
+    if (req.url.endsWith("/abort-port")) {
+      this.portSignal.aborted = true;
+      this.portSignal.listener?.();
+      return ok();
+    }
     if (req.url.endsWith("/borrow")) {
       await rejects(() => this.old.running(), "not_committed");
       return ok();
@@ -60,6 +83,54 @@ export class Counter {
       });
     check(ctx._sync("workers.container.running"), "native provider snapshot");
     const http = c.port(Number(await ctx.variable("HTTP_PORT")));
+    if (
+      req.url.endsWith("/cancel-port-head") ||
+      req.url.endsWith("/cancel-port-body")
+    ) {
+      const pendingUrl = req.url.endsWith("/cancel-port-body")
+        ? "http://container/pending-body"
+        : "http://container/pending-head";
+      const signal = {
+        aborted: true,
+        addEventListener(_name, listener) {
+          this.listener = listener;
+        },
+        removeEventListener(_name, listener) {
+          if (this.listener === listener) this.listener = undefined;
+        },
+      };
+      const refused = await rejects(
+        () => http.fetch(request(pendingUrl), { signal }),
+        "not_committed",
+      );
+      check(refused.code === "Cancelled", "pre-abort keeps cancellation code");
+      signal.aborted = false;
+      this.portSignal = signal;
+      const cancelled = await rejects(
+        () => http.fetch(request(pendingUrl), { signal }),
+        "unknown",
+      );
+      check(
+        cancelled.code === "Cancelled",
+        "native abort keeps cancellation code",
+      );
+      check(!signal.listener, "port abort unsubscribes");
+      await ctx.storage.apply({ puts: { "port-cancelled": true } });
+      check(
+        (await ctx.storage.read("port-cancelled")).value === true,
+        "native storage usable after abort",
+      );
+      const response = await http.fetch(
+        request("http://container/after-abort"),
+      );
+      check(response.status === 302, "port mutation slot released after abort");
+      check(
+        await c.running(),
+        "aborting a request does not destroy its container",
+      );
+      await c.destroy();
+      return ok();
+    }
     if (req.url.endsWith("/leak") || req.url.endsWith("/cancel")) {
       const result = await http.connectWebSocket("http://container/ws");
       check(result.upgraded, "leaked socket opened");
@@ -162,6 +233,8 @@ export const cells = { Counter };
 export async function fetch(req, ctx) {
   await rejects(() => ctx.container.running(), "unknown");
   const value = await ctx.cell("COUNTERS", "alice").fetch(request(req.url));
+  if (value.status !== 200)
+    return { status: value.status, headers: [], body: ctx._encode(value.body) };
   check(value.text() === "ok", "cell response");
   return ok();
 }

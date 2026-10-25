@@ -94,7 +94,7 @@ export interface DurableObjectState {
   waitUntil(promise: Promise<unknown>): void;
   abort(): never;
 }
-/** Experimental root-event controls; ports and full callback lifetimes are pending. */
+/** Experimental root-event controls; full callback and streaming profiles are pending. */
 export interface DurableObjectContainer {
   readonly running: boolean;
   start(options?: {
@@ -106,6 +106,10 @@ export interface DurableObjectContainer {
   signal(signal: number): void;
   monitor(): Promise<void>;
   destroy(error?: unknown): Promise<void>;
+  /** Buffered HTTP in a runtime with standard Request/Response globals. */
+  getTcpPort(port: number): {
+    fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response>;
+  };
 }
 /** Activation-bound, authoritative provider state; never performs backend I/O. */
 export function durableObjectContainer(

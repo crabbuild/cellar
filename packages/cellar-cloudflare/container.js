@@ -1,5 +1,7 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
+import { containerPort } from "./port.js";
+
 function startOptions(options) {
   if (options === undefined) return {};
   if (!options || typeof options !== "object" || Array.isArray(options)) {
@@ -76,6 +78,12 @@ export function durableObjectContainer(nativeContext) {
   }
 
   const container = {
+    getTcpPort(port) {
+      return containerPort(current, port, async (context) => {
+        const pending = event(context).tail;
+        if (pending) await pending;
+      });
+    },
     get running() {
       return current()._sync("workers.container.running");
     },

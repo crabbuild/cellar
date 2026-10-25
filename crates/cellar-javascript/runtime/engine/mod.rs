@@ -361,7 +361,8 @@ fn dispatch_operation(
     } else {
         (None, None)
     };
-    let cancellation = (name == "cell.call").then(cellar::sdk::web::AbortController::new);
+    let cancellation =
+        super::supports_operation_cancellation(&name).then(cellar::sdk::web::AbortController::new);
     let cancel = if cancellation.is_some() {
         let data = v8::Number::new(scope, id as f64);
         let Some(cancel) = v8::Function::builder(cancel_operation)

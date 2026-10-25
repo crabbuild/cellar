@@ -639,7 +639,7 @@ impl JavaScriptApplication {
                                                     .await
                                                     .map(|value| (value, None))
                                             } else {
-                                                operations::execute(
+                                                operations::execute_with_signal(
                                                     &scoped_context,
                                                     &state,
                                                     &operation_name,
@@ -649,6 +649,7 @@ impl JavaScriptApplication {
                                                         max_batch_operations: options
                                                             .max_batch_operations,
                                                     },
+                                                    signal,
                                                 )
                                                 .await
                                                 .map(|value| (value, None))

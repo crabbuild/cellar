@@ -177,8 +177,8 @@ export interface Container {
   execOutput(options: ContainerExecOptions, max_bytes?: number): Promise<ContainerExecOutput>;
   port(port: number): {
     waitReady(timeout_ms?: number): Promise<null>;
-    /** Forward buffered HTTP; redirects are returned without following them. */
-    fetch(request: RequestData): Promise<Response>;
+    /** Abort stops waiting; submitted HTTP effects may already have occurred. */
+    fetch(request: RequestData, options?: { signal?: AbortSignal }): Promise<Response>;
     connect(): Promise<ContainerSocket>;
     connectWebSocket(url: string, headers?: Headers): Promise<
       | { upgraded: true; protocol: string; socket: ContainerWebSocket }

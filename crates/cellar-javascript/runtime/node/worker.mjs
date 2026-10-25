@@ -265,7 +265,7 @@ function operation(
       body,
     );
   });
-  if (name !== "cell.call") return promise;
+  if (!["cell.call", "container.port.fetch"].includes(name)) return promise;
   let cancelled = false;
   const cancel = () => {
     if (cancelled || active.get(invocation) !== state || !pending.has(id))

@@ -17,6 +17,7 @@
     "id.js",
     "namespace.js",
     "container.js",
+    "port.js",
     "index.d.ts",
     "workers.d.ts",
     "storage.d.ts",

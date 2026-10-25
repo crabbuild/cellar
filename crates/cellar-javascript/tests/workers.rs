@@ -206,6 +206,7 @@ fn exercise(
     application: Arc<dyn Application>,
     fixture: &str,
     restart: bool,
+    _backend: Backend,
 ) -> Result<()> {
     tokio::runtime::Builder::new_multi_thread().enable_all().build()?.block_on(async {
         tokio::time::timeout(Duration::from_secs(75), async {
@@ -325,6 +326,11 @@ fn exercise(
                     ensure!(queued.await??["queued"] == true);
                     peer.engine.fail_next_start.store(true, std::sync::atomic::Ordering::SeqCst);
                     ensure!(request(&client, &address, "alice/queued-failure").await?["failure"] == true);
+                    #[cfg(feature = "node")]
+                    let http_profile = matches!(_backend, Backend::Node);
+                    #[cfg(not(feature = "node"))]
+                    let http_profile = false;
+                    ensure!(request(&client, &address, "alice/ports").await?["ports"] == http_profile);
                     ensure!(request(&client, &address, "bob/read").await?["configuration"].is_null());
                 }
                 "sandbox" => {
@@ -349,7 +355,7 @@ fn qualify(backend: Backend, fixture: &str) -> Result<()> {
     let directory = tempfile::tempdir()?;
     for restart in [false, true] {
         run(backend, fixture, |app| {
-            exercise(directory.path(), app, fixture, restart)
+            exercise(directory.path(), app, fixture, restart, backend)
         })?;
     }
     Ok(())

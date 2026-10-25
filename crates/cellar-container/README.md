@@ -223,9 +223,19 @@ flowchart LR
 | Unsupported operation or invalid input, before dispatch | `Validation`: provider effects did not occur |
 | Submitted mutation fails or its reply is lost | Outcome may be unknown; reconcile before retrying |
 | Reply fails size/type validation after execution | Effects may already have occurred; failure does not prove rollback |
+| Explicit cancellation before dispatch | `Cancelled` / `not_committed`; provider was not called |
+| Cancellation after admission | `Cancelled` / `unknown`; waiting stops and the provider future is dropped |
 
 The native gate orders external effects after the required durability proof of
 earlier cell writes. It does not make commands transactional or exactly once.
+
+Rust hosts can pass a native abort signal to `Session::execute_with_signal`.
+JavaScript/TypeScript buffered port fetches accept `{ signal }` as a second
+argument. The runtime retains the operation slot and byte reservation until the
+native cancellation response arrives; it does not race away from native work.
+Dropping the native HTTP future cancels the outstanding connection/body work.
+Other provider implementations must honor their future-drop cleanup contract;
+cancellation does not prove that a remote command stopped or rolled back.
 
 ## Add a provider
 

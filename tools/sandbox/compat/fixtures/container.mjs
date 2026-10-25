@@ -8,6 +8,59 @@ class Probe extends Container {
     check(state.status === "stopped", "published Container state");
     const alarm = await this.ctx.storage.getAlarm();
     check(typeof alarm === "number", "published constructor alarm");
+    if (command === "ports") {
+      const port = Number(await nativeContext.variable("HTTP_PORT"));
+      for (const invalid of [0, -1, 65536, 1.5, NaN]) {
+        await refuses(() => this.container.getTcpPort(invalid));
+      }
+      const tcp = this.container.getTcpPort(port);
+      if (typeof Request !== "function") {
+        const failure = await refuses(() => tcp.fetch("http://container/"));
+        check(
+          failure.message.includes("web runtime profile"),
+          "missing HTTP profile refuses explicitly",
+        );
+        return { ports: false };
+      }
+      try {
+        await this.startAndWaitForPorts(port, {
+          instanceGetTimeoutMS: 1000,
+          portReadyTimeoutMS: 1000,
+          waitInterval: 25,
+        });
+        check(
+          (await this.getState()).status === "healthy",
+          "published readiness persists healthy state",
+        );
+        check(this.started === 1, "published onStart hook");
+        const response = await tcp.fetch(
+          "https://untrusted.invalid/path?query=yes",
+        );
+        check(
+          response.status === 302 &&
+            response.headers.get("location") === "https://unrelated.invalid",
+          "port capability returns redirect without following it",
+        );
+        check(
+          (await response.text()) === "container response",
+          "standard response body",
+        );
+        return { ports: true };
+      } finally {
+        const monitor = this.monitor;
+        await this.container.destroy();
+        await monitor;
+        // Join the published monitor's native state callback before asking its
+        // own stop-event synchronizer to finish the class lifecycle.
+        await this.ctx.blockConcurrencyWhile(async () => {});
+        await this.syncPendingStoppedEvents();
+        check(
+          (await this.getState()).status === "stopped",
+          "published stop state",
+        );
+        check(this.stopped === 1, "published onStop hook");
+      }
+    }
     if (command === "queued-failure") {
       check(
         this.container.start() === undefined,
@@ -132,6 +185,12 @@ class Probe extends Container {
     };
   }
   callback() {}
+  onStart() {
+    this.started = (this.started ?? 0) + 1;
+  }
+  onStop() {
+    this.stopped = (this.stopped ?? 0) + 1;
+  }
 }
 const app = application(Probe, true);
 export const { cells, fetch } = app;

@@ -49,6 +49,23 @@ fn exercise(application: Arc<dyn Application>, provider: Arc<peer::AuditedProvid
                     while peer.websockets.load(Ordering::SeqCst) != 0 { tokio::time::sleep(Duration::from_millis(10)).await; }
                 }).await?;
             }
+            for part in ["head", "body"] {
+            let pending_client = client.clone();
+            let pending_address = address.clone();
+            let pending = tokio::spawn(async move { pending_client.get(format!("{pending_address}/cancel-port-{part}")).send().await });
+            tokio::time::timeout(Duration::from_secs(3), async {
+                while peer.pending_http.load(Ordering::SeqCst) == 0 { tokio::task::yield_now().await; }
+            }).await?;
+            ensure!(!pending.is_finished(), "HTTP abort returned before native cancellation");
+            ensure!(client.get(format!("{address}/abort-port")).send().await?.status().is_success());
+            let response = pending.await??;
+            let status = response.status();
+            let body = response.text().await?;
+            ensure!(status.is_success() && body == "ok", "port cancellation: {status}: {body}");
+            tokio::time::timeout(Duration::from_secs(3), async {
+                while peer.pending_http.load(Ordering::SeqCst) != 0 { tokio::task::yield_now().await; }
+            }).await?;
+            }
             let outcome = node.shutdown(ShutdownMode::Preserve).await?;
             ensure!(matches!(outcome, NodeOutcome::Stopped(report) if report.cells_drained && report.application_work_drained && !report.drain_timed_out));
             peer.check_options();

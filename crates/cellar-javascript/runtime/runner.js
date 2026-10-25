@@ -449,16 +449,17 @@
               if (cancelled) throw rpcFailure("Cancelled", "not_committed");
             }
 
-            // Synchronous admission failures precede submission. RPC admission
-            // returns a private [promise, cancel] pair; other operations keep their
-            // existing promise shape. No cancellation authority crosses JSON.
+            // Synchronous admission failures precede submission. Qualified
+            // cancellable operations return a private [promise, cancel] pair;
+            // no cancellation authority crosses JSON.
             try {
               const key =
                 budget === undefined ? undefined : budgetKeys.get(budget);
               if (budget !== undefined && key === undefined)
                 throw new ErrorClass("ContextMismatch");
               const admitted = host(id, name, encoded, body, key);
-              if (name === "cell.call") [pending, cancel] = admitted;
+              if (["cell.call", "container.port.fetch"].includes(name))
+                [pending, cancel] = admitted;
               else pending = admitted;
               submitted = true;
             } catch (error) {
@@ -607,9 +608,14 @@
         freeze({
           waitReady: (timeout_ms = 10000) =>
             call("container.port.wait_ready", { port, timeout_ms }),
-          fetch: async (value) =>
+          fetch: async (value, options = {}) =>
             request(
-              await call("container.port.fetch", { port, request: value }),
+              await call(
+                "container.port.fetch",
+                { port, request: value },
+                undefined,
+                options.signal,
+              ),
             ),
           connect: async () =>
             resource("socket", await call("container.port.connect", { port })),

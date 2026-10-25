@@ -90,7 +90,18 @@ pub fn envelope(name: &str, error: &Error) -> Value {
         // handler must still sanitize any escaping failure to unknown effects.
         return json!({"ok":false,"error":failure.code(),"code":failure.code(),"outcome":failure.outcome()});
     }
-    let (code, outcome) = if error.is::<crate::storage::Conflict>() {
+    let (code, outcome) = if let Some(cancelled) =
+        error.downcast_ref::<cellar_container::Cancelled>()
+    {
+        (
+            "Cancelled",
+            if cancelled.before_dispatch() {
+                "not_committed"
+            } else {
+                "unknown"
+            },
+        )
+    } else if error.is::<crate::storage::Conflict>() {
         ("Conflict", "not_committed")
     } else if error.is::<Validation>() {
         ("ValidationError", "not_committed")

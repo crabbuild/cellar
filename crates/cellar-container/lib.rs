@@ -38,6 +38,26 @@ impl std::fmt::Display for Validation {
 
 impl std::error::Error for Validation {}
 
+/// Cancellation stops waiting; a submitted provider mutation may have committed.
+#[derive(Debug)]
+pub struct Cancelled {
+    before_dispatch: bool,
+}
+
+impl Cancelled {
+    pub fn before_dispatch(&self) -> bool {
+        self.before_dispatch
+    }
+}
+
+impl std::fmt::Display for Cancelled {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("container operation cancelled")
+    }
+}
+
+impl std::error::Error for Cancelled {}
+
 /// Closed operation vocabulary of the container bridge, version 1.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Operation {
@@ -364,6 +384,31 @@ impl Default for Session {
 }
 
 impl Session {
+    /// Cancel an invocation-owned operation by dropping its provider future.
+    /// After dispatch this proves neither rollback nor termination of remote work.
+    pub async fn execute_with_signal(
+        &self,
+        context: &Context,
+        operation: Operation,
+        input: Value,
+        limits: &Limits,
+        signal: Option<&cellar::sdk::web::AbortSignal>,
+    ) -> Result<Value> {
+        let Some(signal) = signal else {
+            return self.execute(context, operation, input, limits).await;
+        };
+        if signal.aborted() {
+            return Err(Cancelled {
+                before_dispatch: true,
+            }
+            .into());
+        }
+        cellar::asyncrt::select_biased! { "preserve an available provider acknowledgement before cancellation";
+            result = self.execute(context, operation, input, limits) => result,
+            _ = signal.cancelled() => Err(Cancelled { before_dispatch: false }.into()),
+        }
+    }
+
     /// Accept immutable lifecycle inputs without starting provider work.
     /// The returned event-owned ticket can be consumed exactly once.
     pub fn admit_queued(

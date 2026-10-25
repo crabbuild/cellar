@@ -556,8 +556,8 @@ fn run(
                         reject(&mut transport, invocation, id, "BridgeLimit")?;
                         continue;
                     };
-                    let cancellation =
-                        (name == "cell.call").then(cellar::sdk::web::AbortController::new);
+                    let cancellation = super::supports_operation_cancellation(name)
+                        .then(cellar::sdk::web::AbortController::new);
                     if state
                         .start
                         .sender

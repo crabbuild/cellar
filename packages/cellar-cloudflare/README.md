@@ -101,6 +101,7 @@ The facade also supplies queued lifecycle controls for root events with
 | `signal(signal)` | Admits an ordered control and returns `void` |
 | `monitor()` | Returns `Promise<void>`; nonzero exits reject with `exitCode` |
 | `destroy(reason?)` | Acknowledges native cleanup; monitors resolve normally or reject with the explicit reason |
+| `getTcpPort(port).fetch(input, init?)` | Bounded buffered HTTP using standard Request/Response globals; manual redirects and native abort propagation |
 
 Providers must declare `queued_lifecycle` and implement effect-free preflight.
 Native tickets are invocation-owned, one-shot and bounded by both command count
@@ -113,7 +114,9 @@ clean up after failed startup. Queued calls inside native transactions and
 The fixtures exercise startup/teardown against the engine protocol peer,
 including a blocked startup, storage progress, monitor outcomes, restart and a
 submitted startup failure. They do not execute an actual container image or
-certify a full SDK profile. Port methods, callback-owned lifecycle drainage,
+certify a full SDK profile. Buffered HTTP is available in Node's web runtime;
+embedded V8 explicitly refuses until its web globals are installed. Streaming
+responses, TCP streams, upgrades, callback-owned lifecycle drainage,
 published class hooks and full stopped-state/lifetime behavior remain required.
 
 The storage fixture exercises structured graphs, SQL blobs/numeric conversion,

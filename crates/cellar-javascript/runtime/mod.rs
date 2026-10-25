@@ -267,6 +267,10 @@ pub(crate) fn requires_mutation_slot(name: &str) -> bool {
     ) && !cellar_guest::operations::is_read(name)
 }
 
+pub(crate) fn supports_operation_cancellation(name: &str) -> bool {
+    matches!(name, "cell.call" | "container.port.fetch")
+}
+
 /// Process bootstrap. Every call owns a joined engine and watchdog. V8's global
 /// platform is initialized once and retained for process lifetime.
 #[cfg(feature = "embed")]

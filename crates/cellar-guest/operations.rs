@@ -78,6 +78,33 @@ pub struct State {
     pub scheduled: Option<cellar::sdk::cron::Scheduled>,
 }
 
+/// Only explicitly qualified operations receive a private cancellation signal.
+pub async fn execute_with_signal(
+    context: &Context,
+    state: &State,
+    name: &str,
+    value: Value,
+    options: &Limits,
+    signal: Option<cellar::sdk::web::AbortSignal>,
+) -> Result<Value> {
+    if name == "container.port.fetch" {
+        return state
+            .containers
+            .execute_with_signal(
+                context,
+                crate::containers::Operation::Fetch,
+                value,
+                &crate::containers::Limits {
+                    max_body_bytes: options.max_body_bytes,
+                },
+                signal.as_ref(),
+            )
+            .await;
+    }
+    ensure!(signal.is_none(), crate::failure::Validation);
+    execute(context, state, name, value, options).await
+}
+
 /// Only operations known to have no business effects may overlap a mutation.
 /// Arbitrary SQL and nested fetches are conservatively mutation-class operations.
 /// Python's bounded reply adapter implements `storage.read_many` separately.

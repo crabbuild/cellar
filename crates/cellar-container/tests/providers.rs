@@ -20,6 +20,16 @@ struct Probe {
     calls: AtomicUsize,
     dropped: AtomicUsize,
     retained: Mutex<Option<Arc<Session>>>,
+    cancel: Mutex<Option<web::AbortController>>,
+    pending_dropped: AtomicUsize,
+}
+
+struct Pending(Arc<Probe>);
+
+impl Drop for Pending {
+    fn drop(&mut self) {
+        self.0.pending_dropped.fetch_add(1, Ordering::SeqCst);
+    }
 }
 
 struct Backend(Arc<Probe>);
@@ -60,6 +70,27 @@ impl ProviderSession for Backend {
             }
             ensure!(context.storage()?.get_json("before-provider")? == Some(json!(true)));
             match input["options"]["entrypoint"][0].as_str() {
+                Some("cancel-completed") => {
+                    self.0
+                        .cancel
+                        .lock()
+                        .unwrap()
+                        .as_ref()
+                        .unwrap()
+                        .abort(None)?;
+                    Ok(json!("completed-run"))
+                }
+                Some("cancel") => {
+                    let _pending = Pending(self.0.clone());
+                    self.0
+                        .cancel
+                        .lock()
+                        .unwrap()
+                        .as_ref()
+                        .unwrap()
+                        .abort(None)?;
+                    std::future::pending().await
+                }
                 Some("uncertain") => anyhow::bail!("response lost after submission"),
                 Some("deep") => {
                     let mut value = Value::Null;
@@ -142,6 +173,51 @@ impl Cell for Root {
                     .execute(&context, Operation::Running, json!({}), &limits)
                     .await
                     .is_err()
+            } else if request.url.ends_with("/cancel-completed") {
+                let controller = web::AbortController::new();
+                *self.probe.cancel.lock().unwrap() = Some(controller.clone());
+                context
+                    .storage()?
+                    .put_json("before-provider", &json!(true))?;
+                let value = session
+                    .execute_with_signal(
+                        &context,
+                        Operation::Start,
+                        json!({"options":{"entrypoint":["cancel-completed"]}}),
+                        &limits,
+                        Some(&controller.signal()),
+                    )
+                    .await?;
+                ensure!(controller.signal().aborted());
+                value == json!("completed-run")
+            } else if request.url.ends_with("/pre-cancel")
+                || request.url.ends_with("/cancel-pending")
+            {
+                let pre_cancel = request.url.ends_with("/pre-cancel");
+                let controller = web::AbortController::new();
+                if pre_cancel {
+                    controller.abort(None)?;
+                }
+                *self.probe.cancel.lock().unwrap() = Some(controller.clone());
+                context
+                    .storage()?
+                    .put_json("before-provider", &json!(true))?;
+                let error = session
+                    .execute_with_signal(
+                        &context,
+                        Operation::Start,
+                        json!({"options":{"entrypoint":["cancel"]}}),
+                        &limits,
+                        Some(&controller.signal()),
+                    )
+                    .await
+                    .unwrap_err();
+                let cancelled = error.downcast_ref::<cellar_container::Cancelled>().unwrap();
+                ensure!(cancelled.before_dispatch() == pre_cancel);
+                ensure!(
+                    self.probe.pending_dropped.load(Ordering::SeqCst) == usize::from(!pre_cancel)
+                );
+                true
             } else {
                 let (op, input, refusal) = if request.url.ends_with("/unsupported") {
                     (Operation::Signal, json!({"signal":15}), true)
@@ -207,7 +283,7 @@ fn custom_provider_preserves_authority_capabilities_and_failure_provenance() -> 
         let root = Arc::new(Root { adapter: Adapter::new(Arc::new(Backend(probe.clone()))), probe: probe.clone() });
         let (node, address) = native::start(directory.path(), Arc::new(App(root))).await?;
         let client = reqwest::Client::builder().timeout(std::time::Duration::from_secs(5)).build()?;
-        for (path, calls) in [("snapshot",0), ("queued",0), ("open",2), ("retained",2), ("unsupported",2), ("invalid",2), ("uncertain",3), ("deep",4)] {
+        for (path, calls) in [("snapshot",0), ("queued",0), ("open",2), ("retained",2), ("unsupported",2), ("invalid",2), ("uncertain",3), ("deep",4), ("pre-cancel",4), ("cancel-pending",5), ("cancel-completed",6)] {
             let response = client.get(format!("{address}/{path}")).send().await?;
             ensure!(response.status().is_success());
             ensure!(response.text().await? == "true", "{path}");

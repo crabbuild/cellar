@@ -49,6 +49,9 @@ async function control(ctx: Context) {
   const port = container.port(8080);
   await port.waitReady(1000);
   const response = await port.fetch(request("http://container/hello"));
+  await port.fetch(request("http://container/hello"), {
+    signal: new AbortController().signal,
+  });
   const text: string = response.text();
   void text;
   const socket = await port.connect();

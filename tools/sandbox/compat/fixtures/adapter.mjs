@@ -24,7 +24,7 @@ export function application(Target, usesContainer = false) {
     async initialize(ctx) {
       this.initialization ??= (async () => {
         // This fixture qualifies constructors/storage and the live running
-        // property. Queued lifecycle and forwarding remain separate work.
+        // property, queued lifecycle and the available HTTP runtime profile.
         const container = usesContainer
           ? durableObjectContainer(ctx)
           : undefined;

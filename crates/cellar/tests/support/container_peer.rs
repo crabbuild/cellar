@@ -7,7 +7,7 @@ mod engine;
 use anyhow::Result;
 use engine::Engine;
 use fastwebsockets::{Frame, OpCode};
-use http_body_util::Full;
+use http_body_util::{BodyExt, Full, StreamBody};
 use hyper::{
     body::{Bytes, Incoming},
     Request, Response,
@@ -29,6 +29,7 @@ pub struct Peer {
     pub engine: Arc<Engine>,
     pub socket: PathBuf,
     pub websockets: Arc<AtomicUsize>,
+    pub pending_http: Arc<AtomicUsize>,
     tasks: Vec<JoinHandle<()>>,
     _directory: tempfile::TempDir,
 }
@@ -80,16 +81,39 @@ impl Peer {
             }
         });
         let websockets = Arc::new(AtomicUsize::new(0));
+        let pending_http = Arc::new(AtomicUsize::new(0));
+        let pending_requests = pending_http.clone();
         let active = websockets.clone();
         let http = tokio::spawn(async move {
             let mut connections = JoinSet::new();
             while let Ok((stream, _)) = http.accept().await {
                 let active = active.clone();
+                let pending_requests = pending_requests.clone();
                 connections.spawn(async move {
                     let service =
                         hyper::service::service_fn(move |mut request: Request<Incoming>| {
                             let active = active.clone();
+                            let pending_requests = pending_requests.clone();
                             async move {
+                                if request.uri().path() == "/pending-head" {
+                                    pending_requests.fetch_add(1, Ordering::SeqCst);
+                                    let _request = Connected(pending_requests);
+                                    return std::future::pending().await;
+                                }
+                                if request.uri().path() == "/pending-body" {
+                                    pending_requests.fetch_add(1, Ordering::SeqCst);
+                                    let connected = Connected(pending_requests);
+                                    let body =
+                                        StreamBody::new(futures_util::stream::once(async move {
+                                            let _connected = connected;
+                                            std::future::pending::<
+                                                Result<hyper::body::Frame<Bytes>, std::io::Error>,
+                                            >()
+                                            .await
+                                        }))
+                                        .boxed();
+                                    return Ok(Response::builder().status(200).body(body)?);
+                                }
                                 if request.uri().path() == "/ws" {
                                     let (response, upgrade) =
                                         fastwebsockets::upgrade::upgrade(&mut request)?;
@@ -113,14 +137,20 @@ impl Peer {
                                             }
                                         }
                                     });
-                                    return Ok::<_, anyhow::Error>(
-                                        response.map(|_| Full::new(Bytes::new())),
-                                    );
+                                    return Ok::<_, anyhow::Error>(response.map(|_| {
+                                        Full::new(Bytes::new())
+                                            .map_err(|never| match never {})
+                                            .boxed()
+                                    }));
                                 }
                                 Ok(Response::builder()
                                     .status(302)
                                     .header("location", "https://unrelated.invalid")
-                                    .body(Full::new(Bytes::from_static(b"container response")))?)
+                                    .body(
+                                        Full::new(Bytes::from_static(b"container response"))
+                                            .map_err(|never| match never {})
+                                            .boxed(),
+                                    )?)
                             }
                         });
                     let _ = hyper::server::conn::http1::Builder::new()
@@ -146,6 +176,7 @@ impl Peer {
             engine,
             socket,
             websockets,
+            pending_http,
             tasks: vec![engines, http, tcp],
             _directory: directory,
         })

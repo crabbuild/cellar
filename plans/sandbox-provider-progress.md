@@ -15,7 +15,7 @@ does not narrow that objective or turn fixture passes into full compatibility.
 | --- | --- | --- |
 | SP-01 | Exact celld reference commit/files/license, npm packages/lock/integrities, imported runtime bytes and immutable Sandbox image manifest are in `tools/sandbox/compat`; drift/refusal tests pass; API/fixture inventory lists native mappings and explicit gaps | Input inventory implemented; runtime conformance remains in SP-02–SP-04 and later profiles |
 | SP-02 | Native-backed DO SQL/KV/clone facade, activation-bound authority, object identity, value-only namespace/cell RPC, constructor admission, native input gates/reset, sync/async transactions and retained event/background drivers execute in Node/V8; actual published constructors are exercised | Complete module/bootstrap/web globals, automatic activation-owned environment bindings, property/target RPC and lifetimes, full versioned lifetime/deadline qualification and profile/version admission; retain native-only dependency boundary |
-| SP-03 | Actual published `@cloudflare/containers@0.3.7` constructor, state and SQL scheduling run in both engines with native storage; authoritative running property and bounded root-event queued lifecycle; native monitors retain their original run across restart; unchanged upstream example is pinned | Callback-owned queue drainage, unchanged app, class hooks, routing, sleep/wake, process/port behavior and cleanup against the native engine |
+| SP-03 | Actual published `@cloudflare/containers@0.3.7` constructor, state and SQL scheduling run in both engines; root-event queued lifecycle and run-bound monitors; Node runs published readiness with native HTTP ports, healthy state and start/stop hooks | Embedded web globals, callback-owned queue drainage, unchanged app, routing, sleep/wake, streamed/upgrade port behavior and real-image cleanup |
 | SP-04 | Actual `@cloudflare/sandbox@0.12.9` constructor/configuration and metadata recovery run in Node; matching upstream app/Dockerfile and `linux/amd64` image digest are pinned | Run the unchanged app and SDK/image end to end over HTTP and RPC; files, streamed exec, background records, previews, teardown and failure cases |
 | SP-05 | Provider environment/operation/limit discovery is implemented in Rust, Python, JS and TS; native and restricted provider dispatch tests cover it | Portable files and richer operations, named configuration, durable remote bindings, fencing, expiry/reconnect, loss/unknown outcomes and orphan reconciliation |
 | SP-06 | No Vercel/E2B implementation yet | Real shared provider implementations, fixtures and real-account conformance, explicit Cloudflare profile compatibility/gaps |
@@ -141,6 +141,42 @@ The blocked-start probe observes engine entry before issuing its same-cell
 progress request. An earlier probe issued that synchronous request while the
 fixture was still exercising callback gates and timed out in Node. Arbitrary
 interleaving around callback admission remains unqualified by this test.
+
+### Abortable container HTTP and buffered Workers ports
+
+The shared provider session accepts an optional native abort signal. An
+already-aborted signal refuses before dispatch; cancellation after admission
+drops the invocation-owned provider future and reports an unknown outcome.
+An available provider acknowledgement wins a simultaneous abort. Guest failure
+mapping preserves these outcomes without treating cancellation as rollback.
+
+Node and V8 issue private per-operation cancellation capabilities for portable
+`container.port.fetch`, using the same bounded native acknowledgement path as
+typed RPC. The operation slot and byte quota remain held until Rust responds.
+Other container operations do not acquire that guest cancellation capability.
+
+The Workers port facade waits for admitted startup, bounds request-body
+consumption before dispatch, forwards through the selected native port and
+constructs a standard buffered response. Redirects stay manual. Aborted body
+reads cancel their JS stream source; native cancellation maps to the caller's
+abort reason. The facade requires standard Request/Response globals, available
+in Node; embedded V8 explicitly refuses until its web runtime is implemented.
+
+Thirteen JavaScript build/type/package/port tests pass, including binary data,
+redirect preservation, oversize streamed input refusal, aborted pending body
+reads and retired authority. Native provider tests cover pre-dispatch refusal,
+dropping pending work and completion winning a simultaneous abort. Node executes
+the real published `startAndWaitForPorts`, persists healthy state, invokes
+`onStart`, forwards HTTP, and recovers stopped state through the package's own
+monitor/stop synchronizer and `onStop`. Both fresh-runtime rounds pass; V8 checks
+the explicit missing-web-profile refusal. Native Node/V8 integration tests also
+cancel pending-head and pending-body endpoints, assert the `Cancelled` code and
+unknown submitted outcome, observe peer cleanup, and perform storage/fetch work
+afterward while the container remains running. The pre-aborted calls keep
+`not_committed`. All 34 JS runtime unit tests and 15 Workers integrations pass.
+Streaming responses, TCP streams,
+WebSocket upgrades, complete timeout semantics and unchanged applications/images
+remain required. This does not change the pinned inventory's `not_run` status.
 
 Constructor callbacks remain attached to their original event and admission
 refuses failed initialization, including rejection with `undefined`. The
