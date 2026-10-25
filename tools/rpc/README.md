@@ -228,6 +228,12 @@ without an installed execution domain. The V8/Node budget evidence is described
 above; the signed two-node deadline suite below also exercises Python callers
 and nested providers alongside V8 and Node.
 
+The decode probe first activates its provider through a separate read-only
+invocation, so cold startup cannot consume its 100 ms child budget before the
+decoder runs. The test also runs in a fresh process with 120 ms Python
+constructors. Both profiles retain the 250 ms host handler budget, exact
+receipt checks and original expiry outcomes.
+
 ## Portable Protobuf profile
 
 The [profile fixture](fixtures/profile.proto) covers all scalar wire types,

@@ -1,5 +1,8 @@
 # Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
+import json
+import sys
+import time
 from urllib.parse import urlsplit, parse_qsl
 from cellar import Conflict, Overloaded, Response, SDKError
 from counter_pb2 import (
@@ -7,12 +10,12 @@ from counter_pb2 import (
     IncrementResponse, OperationConflict, OutOfRange,
 )
 from counter_cellar import CounterClient, CounterRegistration
-import time
 import cellar_rpc
 
 constructed = 0
 saved_client = None
 saved_budget = None
+constructor_delay = 0.0
 
 
 async def codec_budget(ctx, target, phase):
@@ -58,6 +61,12 @@ async def codec_budget(ctx, target, phase):
         cellar_rpc.encode_message = encode
         IncrementResponse.FromString = decode
 
+    if entered != [phase]:
+        # Synthetic fixture metadata only; the runtime keeps arbitrary Python
+        # exception text private. Preserve which codec checkpoint was reached.
+        print("codec-budget observation: " + json.dumps({
+            "target": target, "phase": phase, "entered": entered, "failure": failure,
+        }), file=sys.stderr)
     assert entered == [phase]
     saved = await counter.get_count(GetCountRequest())
     assert saved.count.value == int(phase == "decode")
@@ -72,6 +81,8 @@ async def codec_budget(ctx, target, phase):
 class Counter:
     def __init__(self):
         global constructed
+        if constructor_delay:
+            time.sleep(constructor_delay)
         constructed += 1
 
     async def get_count(self, request, ctx):
@@ -131,6 +142,10 @@ async def fetch(request, ctx):
     if url.path.endswith("/constructors"):
         return Response.json({"constructed": constructed})
     target = "RUST" if query.get("target") == "rust" else "COUNTERS"
+    if url.path.endswith("/codec-warmup"):
+        counter = CounterClient.bind(ctx, target, "codec-budget-decode")
+        saved = await counter.get_count(GetCountRequest())
+        return Response.json({"count": str(saved.count.value)})
     if url.path.endswith("/codec-budget"):
         return await codec_budget(ctx, target, query["phase"])
     if url.path.endswith("/budget-capture"):

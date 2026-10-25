@@ -17,8 +17,8 @@ does not close schema, resource, packaging or performance requirements.
 
 | Priority | Remaining gap | Deliverable / completion evidence |
 | --- | --- | --- |
-| P0 — hosted verification | SQLite and Node observer follow-ups | The current source passes the full 696-case command, 64 standalone proof cases, 160 storage/replication/qualifier tests, both coverage tests, 31 JS library tests and four JS/Node integrations. Saved-report audits verify all 144 lifecycle cases and all 32 forced native retirements before RPC expiry. Observe the updated Linux gates; the prior broad SDK run still has an unexplained Python delivery deadline failure. |
-| P0 | Python deadline and regression timing | The held-consumer fixture now awaits its Python event directly under the original one-second limit. A controlled reporting-delay regression fails the old SQL-polling waiter and passes the new path; the complete bridge command passes. Observe current Linux SDK results; the historical CI cause lacks phase evidence. Earlier streaming and typed-RPC 250 ms handler failures still need causal regressions. |
+| P0 — hosted verification | Remaining broad SDK gates | On `91bd2675`, Linux lifecycle CI passes all 144 cases, JS/Node and all Python examples pass, and both GIL/free-threaded SDK jobs pass embedded-adapter, ABI and packaging steps. Broad SDK checks remain in progress. The full local 696-case report and storage/observer regressions below remain valid for the unchanged production code. |
+| P0 | Python deadline and regression timing | Direct queue admission has a controlled reporting-delay regression. The codec decoder probe now has a separate read-only activation and a slow-constructor regression under unchanged budgets. A fresh full SDK run still reproduces the streaming 250 ms failure; live counters point to the native cold-cell path. Passing traced retries do not close that intermittent failure or establish the historical CI cause. |
 | P0 | Remaining lifecycle and peer/admission provenance | Preserve whole-call budgets, 55 deadline cases, 128 proof-wait cases, 80 cycle cases, 96 provenance cases and 96 Node/V8 lifecycle cases. The Python follow-up covers cooperative cancellation suppression, forced host cutoff and persistent suppression with process supervision. Next close forced guest peer retries and broader call-local peer/admission evidence. Retain incomplete-shutdown failures while guest work remains, expired authority, zero native reservations and receipt-safe recovery. |
 | P0 | Resource bounds and parser correctness | Global symbol/import validation and bounded expanded-name inventories are delivered. Generator input is now bounded before allocation and refuses non-files. Close remaining option/schema semantics; audit effective method/runtime/host/peer minima, retained binary copies and decoder allocations; demonstrate bounded queues, reservations and memory under saturation, flood and disconnect. |
 | P1 | Language/profile coverage | Exercise the portable Protobuf profile as real business calls across all local/remote pairs; qualify supported Python interpreter modes and remaining lifecycle/regression boundaries. |
@@ -73,6 +73,71 @@ Do not mark the goal complete from native unit tests or a subset of backend
 pairs. Preserve the full test matrix, failures and remaining work across turns.
 
 ## Current evidence
+
+- **The codec decoder probe now isolates decoding from cold activation.**
+  Its original 100 ms child call also had to construct a new provider. With
+  controlled 120 ms Python construction, the native deadline correctly returns
+  `DeadlineExceeded/unknown` before decoding; the old fixture incorrectly fails
+  its decoder-entry assertion. A separate read-only `GetCount` now activates
+  that same provider before the probe. The 100 ms child/250 ms host budgets,
+  120 ms decoder delay, committed count and explicit same-ID receipt retry
+  remain unchanged. The default test launches an owned fresh-process
+  slow-constructor profile with a 60-second kill/join bound before running the
+  normal profile. Both profiles pass. Request failures now identify the fixed
+  fixture path; checkpoint diagnostics contain only synthetic phase/category
+  data. The controlled red log is `/tmp/cellar-python-cold-codec-red.log`,
+  SHA-256 `443b2ca362a3f2730151e2683a493810ae2c561cfd5d41e6fdd75a66814bb517`.
+  This proves a separate fixture assumption, not the historical 250 ms failure.
+- **Streaming remains intermittently slow before native cell dispatch.**
+  The full original SDK command fails again after the bridge/startup tests in
+  `/tmp/cellar-python-sdk-cold-codec-failed-01.log` (371 seconds). The smaller
+  `--test startup --test streaming -- --test-threads=1` command reproduces
+  the same `/cell/sse` 250 ms failure in 14 seconds. A new failure-only snapshot
+  is captured before node shutdown without entering Python or calling SDK
+  storage. Live dispatch handoff peaks at 0.4 ms; a native SDK operation takes
+  259 ms and is abandoned on expiry. No child Python invocation has been
+  admitted in the live bridge counters. The interpreter sample is 167 ms old
+  and reports zero resident objects, so it is not an instantaneous guest stack.
+  The smaller failure log is `/tmp/cellar-python-stream-startup-replay-01.log`,
+  SHA-256 `0af72531997e48149a16bbbe7a86d0d9609e4778038ef642c67c1cb0b3d1c2ed`.
+- Repeated isolated/interleaved tests pass, as do five startup/streaming pairs
+  with temporary native phase tracing. A traced full SDK retry passes in 364
+  seconds (`/tmp/cellar-python-sdk-stream-trace.log`): cold routing takes 85 ms,
+  including 42 ms restore and 40 ms isolate startup, versus about 5 ms routing
+  in an isolated run. Temporary tracing is removed. These passing retries and
+  timing differences do not establish why the failing native path exceeded
+  its original budget. Changing working directory alone does not reproduce
+  the failure consistently. Native cold-start/storage/scheduling diagnosis
+  remains the highest local timing-qualification gap.
+- With temporary tracing removed, the original full SDK command passes in
+  383 seconds, including its 66-second build, the lifecycle/streaming tests
+  and both typed-RPC profiles. All-target Python Clippy, formatting, layout
+  (1,020 Rust files), docs (749 references) and the native-only graph check
+  (465 packages, no JavaScript engine) pass. Production code is unchanged.
+  The SDK log `/tmp/cellar-python-sdk-codec-final.log` is 19,539 bytes,
+  SHA-256 `cc73b2331234433a765bc18acd995e45c66b287b7e46e10cbb2649fb75eae4bc`;
+  `.cellar/rpc/python-sdk-codec-final-{status,audit}.json` retain metadata.
+  This successful retry does not establish the intermittent timeout's cause.
+
+  ```sh
+  RUSTC_WRAPPER= cargo test --locked -p cellar-python --features embed -- --test-threads=1
+  ```
+
+  The per-command wrapper override follows an intentionally stopped build:
+  two owned compiler/cache-client processes stayed asleep with under one CPU
+  second each for 260 seconds, before tests began. Only those owned processes
+  were stopped; the shared compiler-cache server was unchanged. The retry
+  compiles successfully. The aborted build is recorded separately in
+  `.cellar/rpc/python-sdk-cold-codec-build-abort.json`; it is not a runtime
+  test failure or evidence for the earlier streaming timeout.
+- **Linux follow-ups have current-head evidence on `91bd2675`.**
+  Lifecycle run `40221009824` passes its 144-case matrix and JS/Node run
+  `40221009873` passes. SDK run `40221009821` passes embedded-adapter tests,
+  baseline verification, loaded-threading-ABI and packaging checks in both
+  3.14 and 3.14t jobs; broad test/lint checks are still in progress at this
+  observation. All four GIL/free-threaded FastAPI and durable-agent jobs in
+  Python-example run `40221009862` pass. These are results for the published
+  queue/SQLite/observer follow-ups, not the newer local codec-fixture change.
 
 - **Python queue admission now uses a direct condition wait.** Linked SDK
   job `121210984291` on `27977f2f` fails the one-second held-consumer waiter,
@@ -1599,19 +1664,21 @@ The implementation remains incompletely qualified until the remaining
 correctness and delivery boundaries pass. Deliver these slices in order; each slice
 must preserve the existing recovery, crash, proof and receipt evidence.
 
-1. **P0: resolve remaining Python delivery/streaming/RPC timing failures.**
-   Observe the direct-admission waiter and slow-reporting regression on Linux.
+1. **P0: resolve remaining Python streaming/RPC timing failures.**
+   Preserve Linux's passing direct-admission/slow-reporting adapter checks.
    The controlled failure proves the old waiter depends on reporting latency;
    it does not establish the original SDK run's exact cause. Reproduce the
-   earlier standalone streaming/typed-RPC 250 ms handler failures.
+   remaining streaming/typed-RPC 250 ms handler failures; the decoder probe's
+   independently proven cold-constructor assumption is corrected separately.
    Observe broker/native admission, Python wakeup/pump progress and storage/sync
    timing under the original budgets. Add a regression at each demonstrated
    cause and rerun the original commands; a successful retry alone is not a fix.
-2. **P0: observe the updated Linux gates.** The SQLite 3.53.2 dependency, Node
+2. **P0: observe the remaining Linux gates.** The SQLite 3.53.2 dependency, Node
    observer ordering and complete-store outage fixture pass their local
    regressions, all 696 combined cases and the affected static checks. Require
-   current-head SDK, JS/Node and lifecycle results. Previous Linux lifecycle
-   success on `27977f2f` predates these follow-ups. The upstream SQLite fix and
+   final broad SDK and example results. On `91bd2675`, JS/Node and all 144
+   lifecycle cases pass; both SDK variants pass the embedded-adapter step.
+   The upstream SQLite fix and
    measured connection-setup stalls are distinct; no corruption was observed.
 3. **P0: close remaining lifecycle and peer/admission provenance gaps.** Preserve
    the 96 parent-write/forged-category cases, 80 self/A-to-B-to-A cleanup cases

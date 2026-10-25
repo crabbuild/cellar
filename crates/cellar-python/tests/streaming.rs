@@ -1,6 +1,6 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
-use anyhow::Result;
+use anyhow::{Context as _, Result};
 use cellar::sdk::{NodeOutcome, ShutdownMode};
 use cellar_python::{EventKind, Options, PythonRuntime, Source};
 #[path = "../../cellar-javascript/tests/support/native.rs"]
@@ -34,8 +34,17 @@ fn main() -> Result<()> {
                     .build()?
                     .block_on(async {
                         let directory = tempfile::tempdir()?;
-                        let (node, address) = native::start(directory.path(), application).await?;
-                        let result = streaming::check(&address).await;
+                        let (node, address) =
+                            native::start(directory.path(), application.clone()).await?;
+                        let result = streaming::check(&address).await.with_context(|| {
+                            format!(
+                                "streaming observations={}",
+                                serde_json::json!({
+                                    "bridge": application.bridge_report(),
+                                    "interpreter": application.interpreter_snapshot(),
+                                })
+                            )
+                        });
                         let outcome = node.shutdown(ShutdownMode::Preserve).await?;
                         monitor.record_node(outcome.clone());
                         let NodeOutcome::Stopped(report) = outcome else {
