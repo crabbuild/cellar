@@ -131,7 +131,7 @@ impl NodeExtentStore {
                 return Err(StoreError::Integrity);
             }
             file.sync_all()?;
-            crate::extent_file::verify_file(&mut file, id)?;
+            crate::extent::file::verify_file(&mut file, id)?;
             self.inner.filesystem.sync_all(&self.inner.directory)?;
             Ok(())
         })();

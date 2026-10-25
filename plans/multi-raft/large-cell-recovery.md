@@ -22,7 +22,7 @@ See the [active implementation and qualification record](10gb-implementation.md)
 The implementation is not yet a complete native 10 GB capacity or recovery-time
 qualification. Full-image hashing and portable materialized copies still limit takeover
 and cold restoration. The owning test is
-[`native_raft_large_images`](../../crates/cellar/tests/native_raft_large_images.rs):
+[`native_raft_large_images`](https://github.com/crabbuild/cellar/blob/bbdc6b2a1ad95fad793a3dc611de6dacae1be2e9/crates/cellar/tests/native_raft_large_images.rs):
 a real SQLite database grows past 64 MiB, survives leader removal and duplicate
 retry, seeds an empty learner from a peer or object-store archive, receives further
 replicated writes, and restarts the seeded worker before any peer is available.
@@ -48,13 +48,13 @@ cargo test --locked -p cellar --test native_raft_large_images rustfs_image_above
 Each explicit run retains its test objects under a distinct
 `large-image-qualification/` prefix for inspection; it does not delete unrelated
 bucket keys. Use a checkout-specific writable target directory as required by
-[AGENTS.md](../../AGENTS.md).
+[AGENTS.md](https://github.com/crabbuild/cellar/blob/bbdc6b2a1ad95fad793a3dc611de6dacae1be2e9/AGENTS.md).
 
 Both warm takeover and empty-worker recovery must be implemented and measured
 before claiming the larger target described below.
 
 The full-capacity fixture is in
-[`raft_full_capacity`](../../crates/cellar/tests/support/raft_full_capacity.rs).
+[`raft_full_capacity`](https://github.com/crabbuild/cellar/blob/bbdc6b2a1ad95fad793a3dc611de6dacae1be2e9/crates/cellar/tests/support/raft_full_capacity.rs).
 It installs an identical verified initial template on three permanently claimed
 replicas before starting their runtimes. Subsequent SDK commands, quorum apply,
 receipts and learner recovery use the native paths and ordinary delta bounds.

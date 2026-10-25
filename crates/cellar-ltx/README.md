@@ -18,7 +18,7 @@ see [write durability](../../docs/06-storage-transactions.md#durability-and-exte
 
 | Task | Entry point | Source |
 | --- | --- | --- |
-| Capture WAL commits | `Db` | [Database capture](src/db.rs) |
+| Capture WAL commits | `Db` | [Database capture](src/db/mod.rs) |
 | Drive replication | `Replica` | [Replication loop](src/replica.rs) |
 | Implement a storage backend | `ReplicaClient` | [Client trait](src/client/mod.rs) |
 | Store local replicas | `FileReplicaClient` | [Filesystem client](src/client/file.rs) |
@@ -29,6 +29,13 @@ see [write durability](../../docs/06-storage-transactions.md#durability-and-exte
 | Materialize and retain immutable images | `GenerationStore` | [Apply contracts](src/apply.rs), [Generation owner](src/generation.rs) |
 | Query an immutable image | `generation::open_immutable` | [Read-only virtual filesystem](src/generation_vfs.rs) |
 | Supply host tasks and files | `LtxHost`, `FileSystem` | [Host contract](src/host.rs) |
+
+The database implementation lives in `src/db/`: lifecycle and capture in
+`mod.rs`, committed image/extent observations in `image.rs` and `extents.rs`,
+and WAL inspection in `overlay.rs` and `wal_index.rs`. Immutable extent
+identities, files, cached images and persistent storage live together in
+[`src/extent/`](src/extent/mod.rs), with the node inventory in `store/`.
+Public `Db`/`db` paths and the `internal` verification facade remain unchanged.
 
 L0 segments capture commits before higher-level compaction. The paged SQLite
 virtual filesystem loads each page on first use through indexes in retained

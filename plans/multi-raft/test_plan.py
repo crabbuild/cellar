@@ -2,6 +2,7 @@
 
 """Negative tests for package checks; these do not exercise a Raft runtime."""
 import copy
+import hashlib
 import json
 from pathlib import Path
 import tempfile
@@ -93,6 +94,24 @@ class PackageTests(unittest.TestCase):
             baseline = {"files": [{"path": "source.rs", "sha256": "0" * 64}]}
             with self.assertRaisesRegex(plan.PlanError, "Source drift"):
                 plan.preflight(baseline, root)
+
+    def test_relocated_source_still_requires_its_pinned_hash(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            relocated = root / "db" / "mod.rs"
+            relocated.parent.mkdir()
+            relocated.write_bytes(b"pinned source")
+            baseline = {"files": [{"path": "db.rs", "current_path": "db/mod.rs",
+                                   "sha256": hashlib.sha256(b"pinned source").hexdigest()}]}
+            self.assertEqual(plan.preflight(baseline, root), 1)
+            relocated.write_bytes(b"changed source")
+            with self.assertRaisesRegex(plan.PlanError, "Source drift"):
+                plan.preflight(baseline, root)
+
+    def test_relocated_source_cannot_escape_the_checkout(self):
+        self.baseline["files"][0]["current_path"] = "../outside.rs"
+        with self.assertRaisesRegex(plan.PlanError, "escapes"):
+            self.validate()
 
     def test_broken_link_rejected(self):
         with tempfile.TemporaryDirectory() as directory:

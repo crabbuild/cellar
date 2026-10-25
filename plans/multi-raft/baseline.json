@@ -94,6 +94,7 @@
     },
     {
       "path": "crates/cellar-ltx/src/db.rs",
+      "current_path": "crates/cellar-ltx/src/db/mod.rs",
       "sha256": "2b96d8c8b640130eefb3b8a138da035ac5e0aff8b98b7eb1ad654ecb1d203e20"
     },
     {

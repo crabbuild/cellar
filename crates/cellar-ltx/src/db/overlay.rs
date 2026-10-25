@@ -143,7 +143,7 @@ impl CommittedOverlay {
         self.pages.iter().filter_map(move |(page, offset)| {
             (*offset >= since).then_some(
                 ((u64::from(*page) - 1) * u64::from(self.page_size)
-                    / crate::extent_tree::EXTENT_BYTES) as u32,
+                    / crate::extent::tree::EXTENT_BYTES) as u32,
             )
         })
     }

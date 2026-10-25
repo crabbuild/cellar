@@ -1,7 +1,7 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 // Modified for Cellar from Celld.
-//! db.rs — SQLite database lifecycle: WAL-mode setup, the long-running read-lock
+//! SQLite database lifecycle: WAL-mode setup, the long-running read-lock
 //! checkpoint takeover, the WAL→LTX capture loop, and manual checkpointing.
 //! Ported from litestream@v0.5.11 `db.go`.
 //!
@@ -64,13 +64,9 @@ use std::ffi::c_int;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-#[path = "db_extents.rs"]
 mod extents;
-#[path = "db_image.rs"]
 mod image;
-#[path = "db_overlay.rs"]
 mod overlay;
-#[path = "db_wal_index.rs"]
 mod wal_index;
 
 /// Maps a `rusqlite::Error` into the crate error type.

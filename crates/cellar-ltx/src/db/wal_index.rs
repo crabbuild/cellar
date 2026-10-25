@@ -133,5 +133,5 @@ impl WalIndexCut {
 }
 
 #[cfg(test)]
-#[path = "db_wal_index_tests.rs"]
+#[path = "wal_index_tests.rs"]
 mod tests;

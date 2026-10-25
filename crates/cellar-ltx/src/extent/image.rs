@@ -3,9 +3,11 @@
 //! Verified demand reads over an immutable extent manifest. Cached anonymous
 //! files are disposable bytes, never durable inventory or admission authority.
 
+use super::{
+    file::{ExtentDownload, ExtentFile},
+    tree::{ExtentId, ExtentManifest, EXTENT_BYTES},
+};
 use crate::{
-    extent_file::{ExtentDownload, ExtentFile},
-    extent_tree::{ExtentId, ExtentManifest, EXTENT_BYTES},
     generation_vfs::{self, ImmutableDatabase, ImmutableImage, ImmutableReader, ReadServices},
     stream_snapshot::{Error, ScratchPool, MAX_IMAGE_BYTES},
     FileSystem,

@@ -235,7 +235,18 @@ def main():
         (config/'load.json').write_text(json.dumps({'token':token,'cells':total,'primary_only':args.primary_only}))
         docker=lambda *a:command('docker','--context',args.context,*a)
         report={'source':command('git','rev-parse','HEAD'),'working_diff_sha256':hashlib.sha256(command('git','diff').encode()).hexdigest(),
-            'source_files':{str(p):hashlib.sha256(p.read_bytes()).hexdigest() for p in [Path('Cargo.toml'), Path('Cargo.lock'), Path('tools/perf/raft_node.rs'),Path('tools/perf/raft.py'),Path('tools/perf/raft.Dockerfile'),Path('examples/raft-counter/counter.rs'),Path('crates/cellar/Cargo.toml'),Path('crates/cellar/storage/sqlite/command.rs'),Path('crates/cellar-ltx/src/db.rs'),Path('crates/cellar-ltx/src/apply.rs'),Path('crates/cellar-ltx/src/generation.rs'), *sorted(Path('crates/cellar/durability/raft').rglob('*.rs'))]},
+            'source_files':{str(p):hashlib.sha256(p.read_bytes()).hexdigest() for p in [
+                Path('Cargo.toml'), Path('Cargo.lock'), Path('tools/perf/raft_node.rs'),
+                Path('tools/perf/raft.py'), Path('tools/perf/raft.Dockerfile'),
+                Path('examples/raft-counter/counter.rs'), Path('crates/cellar/Cargo.toml'),
+                Path('crates/cellar/storage/sqlite/command.rs'),
+                Path('crates/cellar-ltx/src/lib.rs'),
+                *sorted(Path('crates/cellar-ltx/src/db').rglob('*.rs')),
+                *sorted(Path('crates/cellar-ltx/src/extent').rglob('*.rs')),
+                Path('crates/cellar-ltx/src/apply.rs'),
+                Path('crates/cellar-ltx/src/generation.rs'),
+                *sorted(Path('crates/cellar/durability/raft').rglob('*.rs')),
+            ]},
             'image':docker('image','inspect',args.image,'--format','{{.Id}}'),
             'binary_sha256':docker('run','--rm','--entrypoint','sha256sum',args.image,'/usr/local/bin/cellar-perf-raft').split()[0],
             'context':args.context,'port_base':args.port_base,'prefix':tag,'cells':total,'voters':3,

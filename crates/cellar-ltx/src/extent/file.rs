@@ -3,7 +3,7 @@
 //! Private extent receive ownership. An extent proves bytes, never a published
 //! generation or permission to serve a cell. Callers run I/O on their own domain.
 
-use crate::extent_tree::ExtentId;
+use super::tree::ExtentId;
 use crate::host::{FileSystem, HostFile};
 use crate::stream_snapshot::{Error, ScratchPool, ScratchReservation, BUFFER_BYTES};
 use sha2::{Digest, Sha256};

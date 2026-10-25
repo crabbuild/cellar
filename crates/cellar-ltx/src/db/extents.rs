@@ -3,7 +3,7 @@
 //! Incremental physical observations, independent of proposed LTX data.
 
 use super::{overlay::CommittedOverlay, Db, Error, Result};
-use crate::extent_tree::{ExtentId, ExtentManifest, Geometry, ImageBinding, EXTENT_BYTES};
+use crate::extent::tree::{ExtentId, ExtentManifest, Geometry, ImageBinding, EXTENT_BYTES};
 use sha2::Digest;
 use std::{collections::BTreeSet, sync::Arc};
 
@@ -143,6 +143,6 @@ pub fn observe_extents(
     })
 }
 
-fn root_error(error: crate::extent_tree::RootError) -> Error {
+fn root_error(error: crate::extent::tree::RootError) -> Error {
     Error::Other(Box::new(error))
 }

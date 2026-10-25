@@ -8,10 +8,12 @@ mod inventory;
 mod publication;
 mod reclaim;
 
+use super::{
+    file::ExtentDownload,
+    image::{CacheLimits, ExtentImage, ExtentSource},
+    tree::{ExtentId, ExtentManifest, ImageRoot, RootError, MAX_MANIFEST_BYTES},
+};
 use crate::{
-    extent_file::ExtentDownload,
-    extent_image::{CacheLimits, ExtentImage, ExtentSource},
-    extent_tree::{ExtentId, ExtentManifest, ImageRoot, RootError, MAX_MANIFEST_BYTES},
     host::{FileSystem, HostFile, HostFileLock},
     stream_snapshot::{self, ScratchPool},
 };
