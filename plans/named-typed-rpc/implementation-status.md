@@ -18,7 +18,8 @@ does not close schema, resource, packaging or performance requirements.
 | Priority | Remaining gap | Deliverable / completion evidence |
 | --- | --- | --- |
 | P0 — hosted gate | Forced-shutdown fixture deadline ordering | A controlled reproduction proves that the original five-second stall could outlive the held RPC: physical frames retire at their original deadline and the healthy engine reaches zero reservations, so the clean report is legitimate. The fixture now forces at 250 ms while retaining eight seconds for cleanup, checks live-call headroom and requires physical retirement before RPC expiry. The near-deadline case is in the normal matrix; 144 focused lifecycle cases pass with independent audits. Qualify the updated hosted job; historical CI logs lack timing observations, so not every earlier failure has a proven cause. |
-| P0 — next | Native lease expiry in the combined qualifier | The expanded 696-case run fails in proof-wait cases. Exact V8/local and Node-to-Rust/peer diagnostics both reproduced `NodeLeaseExpired`. The Node trace shows timely renewals with about 665 ms of validity, then ambiguous storage completion about 333 ms later and fencing at expiry. Locate the stalled storage/readback phase, add a regression at its owning boundary and rerun the focused diagnostic and original combined matrix. Passing retries do not establish a causal fix. Preserve TTLs, fencing, proof gates and unknown outcomes; never replay the failed mutation automatically. |
+| P0 — hosted verification | Native lease expiry in the combined qualifier | A concurrent V8 proof-wait run reproduces expiry: its renewal spends 559 ms connecting/configuring SQLite, 104 ms waiting for the writer and completes in 715 ms after authority expires. A pinned-engine comparison isolates last-close checkpoint churn. Development-store operation connections now leave WAL commits for normal automatic checkpoints, retaining FULL sync and the original TTL/fencing policy. The public bucket regression fails before the fix and passes afterward. The complete 696-case command and both concurrent 16-round probes pass. Verify the updated Linux gate; historical hosted warmup failure lacks phase evidence. |
+| P0 | Bundled SQLite WAL-reset fix | The locked `rusqlite 0.31` / `libsqlite3-sys 0.28` bundle contains SQLite 3.45.0. SQLite documents a rare concurrent WAL-reset corruption bug fixed in 3.51.3 and selected backports. Upgrade the centralized dependency, audit affected APIs and run storage/crash qualification. No corruption was observed here; this is separate from the measured connection latency. [Upstream conditions and fixed releases](https://www.sqlite.org/wal.html#the_wal_reset_bug). |
 | P0 | Guest deadline and regression timing | The restored full command fails in the remote Node-to-Node verify-budget probe; the separate deadline suite fails waiting for late SDK work. Python streaming and typed RPC also have recorded 250 ms handler failures. Establish causes at each admission/codec/pump/sync boundary before changing policy; do not assume a shared cause with lease expiry. Preserve phase-entry, late-work and cleanup assertions. |
 | P0 | Remaining lifecycle and peer/admission provenance | Preserve whole-call budgets, 55 deadline cases, 128 proof-wait cases, 80 cycle cases, 96 provenance cases and 96 Node/V8 lifecycle cases. The Python follow-up covers cooperative cancellation suppression, forced host cutoff and persistent suppression with process supervision. Next close forced guest peer retries and broader call-local peer/admission evidence. Retain incomplete-shutdown failures while guest work remains, expired authority, zero native reservations and receipt-safe recovery. |
 | P0 | Resource bounds and parser correctness | Global symbol/import validation and bounded expanded-name inventories are delivered. Generator input is now bounded before allocation and refuses non-files. Close remaining option/schema semantics; audit effective method/runtime/host/peer minima, retained binary copies and decoder allocations; demonstrate bounded queues, reservations and memory under saturation, flood and disconnect. |
@@ -66,7 +67,7 @@ Counter fixture alone is not the highest-priority deliverable now.
 | Atomic Counter receipts, exact 64-bit state and retry window | All 16 pairs pass local/remote/handoff, receipt races, owner fences and separate-process kills before handlers, inside count/receipt transactions and after synced handlers; broader recovery and interpreter modes remain |
 | Existing HTTP/lifecycle/untyped RPC regressions | V8/Node real-host HTTP restart and runtime lifecycle tests pass; full T19 remains open |
 | T01-T19 from plan 009 | All remain open until their actual boundary is verified |
-| Standard format/layout/dependency/docs checks and affected tests/Clippy | Guard and targeted checks pass; combined, regression and hosted lifecycle gates remain open |
+| Standard format/layout/dependency/docs checks and affected tests/Clippy | The current storage change passes its public Cargo regression, targeted Clippy, format/layout, docs and engine-free dependency checks. All 696 combined cases and 32 concurrent diagnostic rounds pass; hosted and broader regression qualification remain open |
 | Generated output reproducibility and frozen dependency inventories | Counter/profile reproduce 24 artifacts; tool versions locked; clean-machine/CI inventory verification remains |
 | Throughput, latency, durable TPS, memory and recovery report | Pending |
 
@@ -74,6 +75,60 @@ Do not mark the goal complete from native unit tests or a subset of backend
 pairs. Preserve the full test matrix, failures and remaining work across turns.
 
 ## Current evidence
+
+- The native lease probe reproduces under two concurrent, separate processes:
+  Node completes all 16 rounds, while V8 fences in round 5. Its renewal enters
+  the blocking worker immediately, spends 559 ms connecting/configuring SQLite,
+  then 104 ms waiting for writer admission; commit/close finishes at 715 ms.
+  The actor starts with 665 ms of authority and correctly fences at expiry.
+  Temporary per-write phase traces are removed from production and fixtures;
+  raw diagnostic sources and observations remain only in ignored `.cellar/rpc`.
+- A four-thread, 600-operation probe links the same bundled SQLite and changes
+  only `SQLITE_DBCONFIG_NO_CKPT_ON_CLOSE`. Default-close runs have maximum setup
+  waits of 927/152 ms and complete in 2,286/1,285 ms; no-close-checkpoint runs
+  have 48/16 ms maxima and complete in 828/575 ms. This is a local mechanism
+  comparison, not JS/TS TPS or a worst-case latency guarantee.
+- The public bucket regression first fails with
+  `operation close removed the committed WAL`. Its frozen pre-fix production
+  library is used by the actual integration-test source. The normal Cargo red
+  build is stopped to avoid a redundant feature-graph rebuild. The new behavior
+  retains committed WAL frames across real gets/heads and reopen, while testing
+  new and stale CAS tokens. The source is also selected by hosted RPC checks.
+- Development-store connections disable only last-close checkpoints. FULL WAL
+  commit synchronization, automatic checkpoints, CAS, native I/O reservation
+  ownership, writer serialization and drop order are preserved. Local state
+  documentation now requires preserving the database with its WAL sidecar.
+  The public integration test passes through normal locked Cargo execution;
+  its targeted Clippy check passes. Format/layout cover 1,020 Rust files, docs
+  validate 749 local references and the native dependency graph remains
+  engine-free at 465 packages.
+- The original combined command finishes all **696 cases**, including the full
+  128-case proof wait, 32 failed-recovery, 48 abrupt process-crash, 64 proof/fence,
+  96 Node/V8 lifecycle and 48 Python lifecycle/supervision cases. Its report is
+  published only after every native/guest runtime drains. The tool handle is
+  gone after the conversation interruption, but the complete valid report,
+  terminal log, absence of child processes and publication invariant establish
+  completion. `.cellar/rpc/local-checkpoint-full.json` is 2,744,096 bytes, SHA-256
+  `00e34319fc338d5bc25da97d5ec4f9514d2b4db08d3580151b970ee1c725b20e`.
+- Saved-report audits verify all 16 suite counts total 696 and retain every
+  broader qualification flag as false. Existing independent audits check all
+  144 lifecycle cases, original Cartesian coverage, native authority, process
+  exits, cleanup and receipt recovery. Added checks establish physical native
+  retirement before original RPC expiry in all 32 forced Node/V8 cases.
+  `.cellar/rpc/local-checkpoint-audit-summary.json` records the scope.
+- The exact concurrent reproducer also passes after the fix: Node-to-Rust/peer
+  and V8/local each finish 16 fresh-owner rounds, both process exit codes are 0.
+  Reports `local-checkpoint-stress-node.json` and
+  `local-checkpoint-stress-v8.json` retain `qualified: false`; their SHA-256
+  hashes are `dce1da8daa7954a4e3bc79f0dc98e98532fffde091d47f52105c2331172f17a4`
+  and `02d050e2188861b49bd0416af9b5ad8ca04a84b23e3eed32b90a06edbcd2b35e`.
+  No TTL, handler/RPC budget, watchdog, proof, shutdown or outcome assertion is
+  relaxed. Broader design qualification remains incomplete.
+- Hosted lifecycle run `40179795015` on previous head `c99138ff` completes its
+  checks but fails warming `worker-control` in Python-to-Node graceful shutdown:
+  the HTTP connection closes before the message completes. It has no native
+  storage-phase evidence. Do not assign the last-close mechanism to this hosted
+  occurrence without evidence. The updated head still needs a passing Linux run.
 
 - The unchanged V8 shutdown matrix first passes 32 cases, and an exact
   Node-caller/V8-provider/peer/before-sync diagnostic then passes 16 fresh-owner
@@ -1430,19 +1485,23 @@ The implementation remains incompletely qualified until the remaining
 correctness and delivery boundaries pass. Deliver these slices in order; each slice
 must preserve the existing recovery, crash, proof and receipt evidence.
 
-1. **P0: resolve native lease expiry in the combined qualifier.** Use the exact
-   `proof-wait-v8-repro` case and bounded native lease traces to distinguish late
-   storage completion, delayed renewal dispatch and actor scheduling. Reproduce
-   the cause at its owning seam, add a regression and rerun the focused case and
-   the original 696-case command. Both native nodes fenced with
-   `NodeLeaseExpired` in the diagnostic; a passing retry alone cannot close this
-   gap. Keep lease TTLs, authority checks and proof gates intact.
-2. **P0: resolve Python streaming/RPC handler deadline failures.** Reproduce the
+1. **P0: upgrade the bundled SQLite past the WAL-reset fix.** The locked
+   SQLite 3.45.0 predates the upstream corruption fix. Upgrade the centralized
+   dependency, adapt real API changes, verify the linked engine and qualify
+   transactions, WAL capture, vector extensions, CAS and crash recovery. Do not
+   confuse this upstream race with the measured connection-setup stalls.
+2. **P0: qualify the updated Linux lifecycle gate.** The last-close checkpoint
+   change has a failing-then-passing public bucket regression, a complete
+   696-case run and two concurrent 16-round probes. The previous Linux head
+   fails a control read during warmup and lacks matching native phase evidence.
+   Observe its actual cause if it recurs; preserve original TTLs, fencing,
+   proof gates, typed outcomes and cleanup assertions.
+3. **P0: resolve Python streaming/RPC handler deadline failures.** Reproduce the
    standalone streaming and typed-RPC fixtures, then observe native admission,
    Python wakeup/pump progress and storage/sync timing under the original 250 ms
    budget. Add a regression at the demonstrated cause and rerun the original
    Python command. A successful retry alone does not resolve the failures.
-3. **P0: close remaining lifecycle and peer/admission provenance gaps.** Preserve
+4. **P0: close remaining lifecycle and peer/admission provenance gaps.** Preserve
    the 96 parent-write/forged-category cases, 80 self/A-to-B-to-A cleanup cases
    and 128 proof-wait cases. Qualify broader call-local peer/admission evidence.
    Keep the 96 Node/V8 lifecycle cases and the Python cancellation/supervision
@@ -1455,24 +1514,24 @@ must preserve the existing recovery, crash, proof and receipt evidence.
    `not_committed` for that call; it cannot reclassify the parent's earlier
    writes. A lost response remains unknown. Preserve the 55 deadline cases;
    remaining T14/T17 boundaries and all supported interpreter modes stay open.
-4. **P0: qualify parser and resource boundaries.** Keep global symbol/import
+5. **P0: qualify parser and resource boundaries.** Keep global symbol/import
    validation and expanded-name budgets green; close remaining option/schema
    semantics before invoking message generators. Verify effective
    method/runtime/host/peer minima, account for retained binary copies, and
    measure decoder allocations and RSS under saturation, flood and disconnect.
    Completion requires bounded queues and reservations that return to baseline
    after cleanup, while retaining graph, slot and control-budget guards.
-5. **P1: qualify the portable profile and supported runtimes.** Run real business
+6. **P1: qualify the portable profile and supported runtimes.** Run real business
    calls across every local/remote backend pair, including free-threaded Python
    where supported, and close the remaining lifecycle/regression requirements.
    Codec vectors alone do not qualify a caller/provider pair.
-6. **P1: make application delivery reproducible.** Retain offline `cellar rpc
+7. **P1: make application delivery reproducible.** Retain offline `cellar rpc
    check` for descriptors, canonical inventories and native catalog snapshots.
    Ship unified generation, verified static consumer bindings, frozen package
    inventories, complete embedded Python
    source identity, a published example and clean-machine CI. Require generation
    drift and stale package/codec identities to fail before serving traffic.
-7. **P2: add visibility, then publish performance evidence.** Add registered-method
+8. **P2: add visibility, then publish performance evidence.** Add registered-method
    spans and payload-free diagnostics with bounded labels. Measure typed versus
    untyped/native/guest latency, throughput and durable TPS, including saturation
    memory, cleanup and recovery. Record commands, environment and raw evidence

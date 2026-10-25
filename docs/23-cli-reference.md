@@ -37,6 +37,12 @@ resolve relative to the project file. Use the checked-in counter project for
 the full native configuration shape. Build's default project profile is release;
 the counter project explicitly chooses dev.
 
+The development object store keeps FULL-synchronous commits in SQLite's WAL
+between requests. Preserve the entire local state directory, including `-wal`
+sidecars; copying only a `.sqlite` file can omit committed state. SQLite's normal
+automatic checkpoints remain enabled. A request connection closing does not
+force an extra checkpoint that could block lease renewal.
+
 `deploy` publishes a verified package to a bucket, including executable/assets
 and configuration. `install` reads `package.json` from the supplied directory,
 fetches and verifies the target executable, and writes a new output path. It
