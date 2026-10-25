@@ -806,6 +806,40 @@ For a Rust/local/post-sync diagnostic, use `v8-termination-smoke` or
 `v8-shutdown-smoke`. The shutdown smoke keeps native work held until the owner
 cuts its drain.
 
+The Node/V8 forced-owner fixtures use a 250 ms no-progress window while keeping
+the full eight-second shutdown budget for durability cleanup. Both original
+native call budgets must have more than 1,250 ms remaining at injection. Their
+physical frames must retire before their original RPC deadlines; a natural
+deadline response cannot qualify as a forced cutoff. RPC/handler budgets, lease
+TTLs, the execution watchdog and the normal graceful-drain policy are unchanged.
+
+```text
+original provider + child still live (3,500 ms remaining)
+                    |
+      forced drain stalls for 250 ms
+                    |
+      unclean cutoff proof, then native retirement
+                    |
+   retire before original RPC expiry -> joined engine -> receipt recovery
+```
+
+The Node-caller/V8-provider/peer/before-sync case deliberately waits until that
+near-deadline window in the normal matrix. With the old five-second stall
+window, the call could expire first and legitimately produce a clean drain.
+Bounded `shutdown_observation` fields retain original/current budget headroom,
+frame retirement ages, shutdown duration and guest reservation gauges.
+
+Run the same peer topology 16 times, or just its near-deadline regression:
+
+```sh
+cargo run --locked -p cellar-rpc-qualification --features full -- \
+  --suite v8-forced-peer-repro --report .cellar/rpc/v8-forced-peer.json
+cargo run --locked -p cellar-rpc-qualification --features full -- \
+  --suite v8-forced-peer-deadline-repro --report .cellar/rpc/v8-forced-peer-deadline.json
+```
+
+These diagnostic reports keep `qualified: false` and do not replace the matrix.
+
 ```text
 surviving Rust / Python / V8 / Node caller
                     |

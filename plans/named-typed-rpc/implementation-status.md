@@ -17,8 +17,8 @@ does not close schema, resource, packaging or performance requirements.
 
 | Priority | Remaining gap | Deliverable / completion evidence |
 | --- | --- | --- |
-| P0 — next | Forced-shutdown proof and lifecycle qualification | Hosted lifecycle at `3605c5d8` fails Node-caller/V8-provider/peer/before-sync forced shutdown: the test expects a timed forced cut but receives a drained report with zero pending events/dispatches and no timeout. Establish whether work legitimately retired before the cut or guest work escaped accounting. Capture the live native/guest state at the cutoff, add a cause-specific regression and pass the original lifecycle command without weakening the forced-cut assertions. |
-| P0 | Native lease expiry in the combined qualifier | The expanded 696-case run fails in proof-wait cases. Exact V8/local and Node-to-Rust/peer diagnostics both reproduced `NodeLeaseExpired`. The Node trace shows timely renewals with about 665 ms of validity, then ambiguous storage completion about 333 ms later and fencing at expiry. Locate the stalled storage/readback phase, add a regression at its owning boundary and rerun the focused diagnostic and original combined matrix. Passing retries do not establish a causal fix. Preserve TTLs, fencing, proof gates and unknown outcomes; never replay the failed mutation automatically. |
+| P0 — hosted gate | Forced-shutdown fixture deadline ordering | A controlled reproduction proves that the original five-second stall could outlive the held RPC: physical frames retire at their original deadline and the healthy engine reaches zero reservations, so the clean report is legitimate. The fixture now forces at 250 ms while retaining eight seconds for cleanup, checks live-call headroom and requires physical retirement before RPC expiry. The near-deadline case is in the normal matrix; 144 focused lifecycle cases pass with independent audits. Qualify the updated hosted job; historical CI logs lack timing observations, so not every earlier failure has a proven cause. |
+| P0 — next | Native lease expiry in the combined qualifier | The expanded 696-case run fails in proof-wait cases. Exact V8/local and Node-to-Rust/peer diagnostics both reproduced `NodeLeaseExpired`. The Node trace shows timely renewals with about 665 ms of validity, then ambiguous storage completion about 333 ms later and fencing at expiry. Locate the stalled storage/readback phase, add a regression at its owning boundary and rerun the focused diagnostic and original combined matrix. Passing retries do not establish a causal fix. Preserve TTLs, fencing, proof gates and unknown outcomes; never replay the failed mutation automatically. |
 | P0 | Guest deadline and regression timing | The restored full command fails in the remote Node-to-Node verify-budget probe; the separate deadline suite fails waiting for late SDK work. Python streaming and typed RPC also have recorded 250 ms handler failures. Establish causes at each admission/codec/pump/sync boundary before changing policy; do not assume a shared cause with lease expiry. Preserve phase-entry, late-work and cleanup assertions. |
 | P0 | Remaining lifecycle and peer/admission provenance | Preserve whole-call budgets, 55 deadline cases, 128 proof-wait cases, 80 cycle cases, 96 provenance cases and 96 Node/V8 lifecycle cases. The Python follow-up covers cooperative cancellation suppression, forced host cutoff and persistent suppression with process supervision. Next close forced guest peer retries and broader call-local peer/admission evidence. Retain incomplete-shutdown failures while guest work remains, expired authority, zero native reservations and receipt-safe recovery. |
 | P0 | Resource bounds and parser correctness | Global symbol/import validation and bounded expanded-name inventories are delivered. Generator input is now bounded before allocation and refuses non-files. Close remaining option/schema semantics; audit effective method/runtime/host/peer minima, retained binary copies and decoder allocations; demonstrate bounded queues, reservations and memory under saturation, flood and disconnect. |
@@ -74,6 +74,66 @@ Do not mark the goal complete from native unit tests or a subset of backend
 pairs. Preserve the full test matrix, failures and remaining work across turns.
 
 ## Current evidence
+
+- The unchanged V8 shutdown matrix first passes 32 cases, and an exact
+  Node-caller/V8-provider/peer/before-sync diagnostic then passes 16 fresh-owner
+  rounds. Passing retries alone do not resolve the hosted failure.
+- A controlled regression at that same real SDK/fleet seam waits until both
+  original weak native budgets have about 3,500 ms left. The old 5,000 ms drain
+  stall then fails the existing forced-cut assertion. Native observations show
+  both physical frames retiring at about their original 10,000 ms RPC expiry;
+  the engine remains healthy, reservations reach zero and the caller returns
+  `DeadlineExceeded`. Shutdown finishes in 3,539 ms with a legitimate
+  clean drain. This proves a fixture deadline-ordering race without inferring
+  missing work from the report. The archived hosted occurrence has no matching
+  timeline, so a shared cause is not asserted for every historical failure.
+- Only Node/V8 forced-owner fixtures now select a 250 ms no-progress window.
+  The complete eight-second shutdown budget remains available for durability
+  cleanup. Normal graceful drain, RPC/handler budgets, lease TTLs and the V8
+  watchdog stay unchanged. Injection requires over 1,250 ms of original native
+  budget headroom, and both physical frames must retire before their original
+  RPC deadlines. Existing unclean proof, pending-work, scope/epoch, revoked
+  budget, zero-reservation, engine/process join and receipt assertions remain.
+- The Node-to-V8 peer/before-sync case in the ordinary 32-case V8 shutdown
+  matrix deliberately consumes setup time to reach that near-deadline window.
+  Diagnostics also expose `v8-forced-peer-repro` (16 fresh rounds) and
+  `v8-forced-peer-deadline-repro` (one near-deadline case), both explicitly
+  `qualified: false`. Bounded observations store original/current headroom,
+  physical retirement ages, shutdown duration, guest gauges and a fixed reply
+  code; observations never release the held business future.
+- The regression passes after the fix: the final 96-case run cuts in 256 ms
+  with 3,498 ms still available. Both native frames retire before RPC expiry,
+  scope probes refuse `ContextExpired`, the report retains two pending events
+  and one pending dispatch at the forced cut, and cold receipt recovery passes.
+  The earlier standalone green reproduction cuts in 416 ms with 3,500 ms left.
+- Final-source qualification passes all **96 Node/V8 lifecycle cases**, **32
+  Python cancellation/shutdown cases** and **16 Python supervision cases**.
+  Independent saved-report audits retain every original Cartesian case,
+  authority/checkpoint, cleanup, process identity/exit and receipt assertion.
+  An added audit verifies original deadline ordering for all 32 forced Node/V8
+  cases. A separate 32-case V8 shutdown run, 16 exact peer rounds and the single
+  near-deadline regression also pass. These separate commands do not establish
+  a passing full 696-case run or close broader T01-T19 qualification.
+- Final reports and raw execution logs are under `.cellar/rpc/`, with log
+  prefix `cellar-rpc-shutdown-final-`. Report hashes:
+
+  | Report | Cases | Bytes | SHA-256 |
+  | --- | ---: | ---: | --- |
+  | `shutdown-final-lifecycle.json` | 96 | 286,374 | `92ed34a2499032d2e36398874da4b5daa71028019b12cc24fd7470920bad1cb9` |
+  | `shutdown-final-python-cancellation.json` | 32 | 890,939 | `a354f62b76d39f1dd963a640aa7d4027f7fb6ed4c98edd89277def5ec0906d2d` |
+  | `shutdown-final-python-supervision.json` | 16 | 537,451 | `eeffa5eda49b8b114995b5237e9852673ee1b8ec16ad474eb84445ead8ef01aa` |
+  | `shutdown-final-v8.json` | 32 | 96,434 | `228201f19a7c94ae6e3b34138ffb69cb5ca3858de5d983394995413f930598e0` |
+  | `shutdown-final-peer.json` | 16 | 59,701 | `711e49b23ce5023c2d5a1dd86111adbbf5b827bbda49b864efefeceb4f0ce4a2` |
+  | `shutdown-final-near-deadline.json` | 1 | 3,859 | `9300e6628d38fbeec72d46255dc4454ac0c021e69f18a92f6a5778c9ca0b2132` |
+
+- The red log `.cellar/rpc/cellar-rpc-shutdown-v8-peer-deadline-before.log`
+  is 1,441 bytes, SHA-256
+  `58bea7c2e4ec4ebfa485707c865ad5371666f9f8ed869f6e1b3352044a90e3dc`.
+  Final all-target qualifier Clippy, all 31 unit tests and format/layout for
+  1,019 Rust files pass. The native-only dependency graph remains engine-free at
+  465 packages; docs validation covers 749 local references. Temporary debug
+  tags are removed. The new diagnostic returns a boxed future to keep its type
+  out of the main suite's already large native host future.
 
 - PR #110 merges at `906eb36a`, including the named RPC implementation, offline
   checker and bounded proof-wait lease diagnostics. The generator-read follow-up

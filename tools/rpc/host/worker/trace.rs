@@ -9,6 +9,7 @@ use std::{
         atomic::{AtomicBool, Ordering},
         Arc, Mutex,
     },
+    time::Instant,
 };
 use tokio::sync::Notify;
 
@@ -25,6 +26,8 @@ struct Entry {
     view: Value,
     checkpoint: Option<Value>,
     retired: bool,
+    entered: Instant,
+    retired_after_ms: Option<u128>,
 }
 
 #[derive(Default)]
@@ -108,6 +111,8 @@ impl Trace {
                 "scope":identity.scope,"epoch":identity.epoch,"initial_remaining_ms":remaining}),
             checkpoint: None,
             retired: false,
+            entered: Instant::now(),
+            retired_after_ms: None,
         };
         ensure!(
             self.entries.lock().unwrap().insert(role, entry).is_none(),
@@ -258,6 +263,58 @@ impl Trace {
         entries.len() == frames && entries.values().all(|entry| entry.retired)
     }
 
+    pub fn minimum_remaining_ms(&self) -> Result<u64> {
+        let entries = self.entries.lock().unwrap();
+        ensure!(
+            entries.len() == 2 && entries.values().all(|entry| !entry.retired),
+            "shutdown probe no longer has two live native frames"
+        );
+        entries.values().try_fold(u64::MAX, |minimum, entry| {
+            Ok(minimum.min(entry.budget.remaining_ms()?))
+        })
+    }
+
+    /// Read only the original weak budgets and physical frame retirement.
+    pub fn snapshot(&self) -> Value {
+        self.entries
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(role, entry)| {
+                let remaining = match entry.budget.remaining_ms() {
+                    Ok(ms) => json!({"remaining_ms":ms}),
+                    Err(error) => json!({"refused":format!("{:?}", error.code())}),
+                };
+                (
+                    format!("{role:?}"),
+                    json!({"initial_remaining_ms":entry.view["initial_remaining_ms"],
+                "age_ms":entry.entered.elapsed().as_millis(),"budget":remaining,
+                "retired":entry.retired,"retired_after_ms":entry.retired_after_ms}),
+                )
+            })
+            .collect::<serde_json::Map<_, _>>()
+            .into()
+    }
+
+    pub fn assert_retired_before_deadline(&self, frames: usize) -> Result<()> {
+        let entries = self.entries.lock().unwrap();
+        ensure!(
+            entries.len() == frames,
+            "forced shutdown lost a native frame"
+        );
+        for entry in entries.values() {
+            let retired = entry
+                .retired_after_ms
+                .context("forced shutdown left a native frame live")?;
+            let original = entry.view["initial_remaining_ms"]
+                .as_u64()
+                .context("forced shutdown has no original native deadline")?;
+            ensure!(retired < u128::from(original),
+                "native frame reached its RPC deadline before shutdown retired it: {retired}ms >= {original}ms");
+        }
+        Ok(())
+    }
+
     pub fn assert_revoked(&self, frames: usize) -> Result<()> {
         let entries = self.entries.lock().unwrap();
         ensure!(
@@ -292,6 +349,7 @@ impl Drop for Frame {
     fn drop(&mut self) {
         if let Some(entry) = self.trace.entries.lock().unwrap().get_mut(&self.role) {
             entry.retired = true;
+            entry.retired_after_ms = Some(entry.entered.elapsed().as_millis());
         }
     }
 }
