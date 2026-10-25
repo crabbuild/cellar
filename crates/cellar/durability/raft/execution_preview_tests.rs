@@ -5,6 +5,16 @@
 use super::*;
 
 #[test]
+fn configured_images_can_exceed_the_default_64_mib() {
+    let limits = ExecutionLimits {
+        max_image_bytes: 128 * 1024 * 1024,
+        ..Default::default()
+    };
+    assert!(limits.validate().is_ok());
+    assert_eq!(ExecutionLimits::default().max_image_bytes, 64 * 1024 * 1024);
+}
+
+#[test]
 fn preview_transfer_requires_submission_exact_bytes_states_and_store() -> anyhow::Result<()> {
     let root = tempfile::tempdir()?;
     let source = root.path().join("source.sqlite");

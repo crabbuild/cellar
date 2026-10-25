@@ -32,8 +32,8 @@ const READ_WINDOW: usize = 4;
 
 // Logical recovery limits exclude the containing bundles. Retain an additional
 // full bundle for every concurrent extraction, including cancelled workers.
-pub(crate) const MAX_RECOVERY_READ_BYTES: usize =
-    256 * 1024 * 1024 + READ_WINDOW * bundle::MAX_BYTES;
+pub(crate) const RECOVERY_BUNDLE_READ_BYTES: usize = READ_WINDOW * bundle::MAX_BYTES;
+pub(crate) const MAX_RECOVERY_READ_BYTES: usize = 1024 * 1024 * 1024 + RECOVERY_BUNDLE_READ_BYTES;
 
 #[derive(Debug)]
 pub enum ArchiveError {
@@ -61,6 +61,8 @@ impl std::error::Error for ArchiveError {}
 #[derive(Clone, Copy, Debug)]
 pub struct ArchiveLimits {
     pub envelope: EnvelopeLimits,
+    /// Logical SQLite image bound, independent of compressed object length.
+    pub max_image_bytes: u64,
     pub io_timeout_ms: u64,
     pub max_capture_bytes: usize,
     pub max_manifest_bytes: usize,
@@ -80,6 +82,7 @@ impl Default for ArchiveLimits {
     fn default() -> Self {
         Self {
             envelope: EnvelopeLimits::default(),
+            max_image_bytes: 64 * 1024 * 1024,
             io_timeout_ms: 10_000,
             max_capture_bytes: 4 * 1024 * 1024,
             max_manifest_bytes: 256 * 1024,
@@ -99,12 +102,13 @@ impl ArchiveLimits {
             .validate()
             .map_err(|_| ArchiveError::Invalid("archive envelope limits"))?;
         if !(1024..=1024 * 1024).contains(&self.max_manifest_bytes)
+            || !(512..=256 * 1024 * 1024).contains(&self.max_image_bytes)
             || !(1..=60_000).contains(&self.io_timeout_ms)
             || !(1024..=self.max_object_bytes).contains(&self.max_capture_bytes)
             || self.max_manifest_bytes > self.max_object_bytes
-            || !(1024..=128 * 1024 * 1024).contains(&self.max_object_bytes)
+            || !(1024..=512 * 1024 * 1024).contains(&self.max_object_bytes)
             || self.max_set_bytes < self.max_object_bytes
-            || self.max_set_bytes > 256 * 1024 * 1024
+            || self.max_set_bytes > 1024 * 1024 * 1024
             || !(1..=4096).contains(&self.max_entries)
             || !(1..=128).contains(&self.max_tails)
             || !(1..=128).contains(&self.max_tail_image_ratio)
@@ -302,7 +306,7 @@ impl CommittedArchiveCut {
         let pin = self.image.pin();
         let state = pin.state();
         Image::from(state).decode()?;
-        if state.length > limits.max_object_bytes as u64 {
+        if state.length > limits.max_image_bytes || state.length > limits.max_object_bytes as u64 {
             return Err(ArchiveError::Limit);
         }
         let mut reader = pin.open_reader().map_err(ArchiveError::Images)?;
@@ -443,6 +447,7 @@ pub struct ArchiveRecoverySet {
     entries: Vec<Entry>,
     dependencies: Vec<(ObjectRef, Vec<u8>)>,
     envelope: EnvelopeLimits,
+    max_image_bytes: u64,
 }
 
 impl CellArchive {
@@ -1033,6 +1038,7 @@ impl CellArchive {
                     entries,
                     dependencies,
                     envelope: limits.envelope,
+                    max_image_bytes: limits.max_image_bytes,
                 };
                 set.validate_payloads()?;
                 Ok(set)
@@ -1274,6 +1280,9 @@ impl ArchiveRecoverySet {
             if !entry.data.is_empty() {
                 let update = self.update(entry, state)?;
                 state = result_state(&update)?;
+                if state.length > self.max_image_bytes {
+                    return Err(ArchiveError::Limit);
+                }
             }
             position = Position {
                 index: entry.index,
@@ -1318,11 +1327,22 @@ fn result_state(update: &CellUpdate) -> Result<ImageState, ArchiveError> {
 }
 
 pub(crate) fn apply_limits() -> ApplyLimits {
-    super::snapshot::SnapshotLimits::default().apply()
+    super::snapshot::SnapshotLimits {
+        max_image_bytes: 256 * 1024 * 1024,
+        max_encoded_bytes: 512 * 1024 * 1024,
+        ..Default::default()
+    }
+    .apply()
 }
 
 fn verify_snapshot(bytes: &[u8], state: ImageState) -> Result<(), ArchiveError> {
-    let file = ltx::decode_file_bounded(bytes, apply_limits().decode)
+    let mut limits = apply_limits().decode;
+    // A compressed object cannot expand beyond its manifest-bound image even
+    // when the reader implementation supports larger configured profiles.
+    limits.max_image_bytes = state.length;
+    limits.max_decoded_bytes = state.length;
+    limits.max_pages = state.length.div_ceil(512) as usize;
+    let file = ltx::decode_file_bounded(bytes, limits)
         .map_err(|_| ArchiveError::Corrupt("archive snapshot LTX"))?;
     let header = file.header();
     if !header.is_snapshot()

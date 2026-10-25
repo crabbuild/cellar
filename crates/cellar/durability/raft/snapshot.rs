@@ -74,8 +74,8 @@ impl Default for SnapshotLimits {
 
 impl SnapshotLimits {
     pub fn validate(self) -> Result<(), SnapshotError> {
-        if !(512..=64 * 1024 * 1024).contains(&self.max_image_bytes)
-            || !(512..=128 * 1024 * 1024).contains(&self.max_encoded_bytes)
+        if !(512..=256 * 1024 * 1024).contains(&self.max_image_bytes)
+            || !(512..=512 * 1024 * 1024).contains(&self.max_encoded_bytes)
             || !(1..=1024 * 1024).contains(&self.max_chunk_bytes)
             || self.max_chunk_bytes > self.max_encoded_bytes
             || ltx::full_snapshot_bound(self.max_image_bytes, 512)
@@ -90,7 +90,11 @@ impl SnapshotLimits {
         let mut limits = ApplyLimits::default();
         limits.decode.max_image_bytes = self.max_image_bytes;
         limits.decode.max_encoded_bytes = self.max_encoded_bytes;
+        limits.decode.max_decoded_bytes = self.max_image_bytes;
+        limits.decode.max_pages = self.max_image_bytes.div_ceil(512) as usize;
         limits.max_total_encoded_bytes = self.max_encoded_bytes;
+        limits.max_total_decoded_bytes = self.max_image_bytes;
+        limits.max_total_pages = limits.decode.max_pages;
         limits
     }
 }

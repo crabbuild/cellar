@@ -217,6 +217,11 @@ impl Manifest {
         self.position.decode()?;
         self.snapshot.image.decode()?;
         self.image.decode()?;
+        if self.snapshot.image.length > limits.max_image_bytes
+            || self.image.length > limits.max_image_bytes
+        {
+            return Err(ArchiveError::Limit);
+        }
         let conf = decode_conf(&self.snapshot.conf_state)?;
         self.snapshot
             .membership

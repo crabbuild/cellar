@@ -407,6 +407,7 @@ impl RaftTransport {
         let claim = runtime.claim_transport()?;
         let (stop, _) = watch::channel(false);
         let snapshot_memory = snapshots::memory_bound(&options);
+        let seed_recovery_memory = options.max_seed_recovery_bytes;
         let state = Arc::new(State {
             performance: runtime.log().performance(),
             domain,
@@ -461,10 +462,7 @@ impl RaftTransport {
             claim: Mutex::new(Some(claim)),
             snapshot_source: Mutex::new(None),
             snapshot_source_budget: Budget::new(snapshot_memory, 1),
-            snapshot_receive_budget: Budget::new(
-                snapshot_memory + super::archive::MAX_RECOVERY_READ_BYTES,
-                1,
-            ),
+            snapshot_receive_budget: Budget::new(snapshot_memory + seed_recovery_memory, 1),
             snapshot_connections: Arc::new(Semaphore::new(1)),
             seed_metadata: Budget::new(seeds::META_BYTES, 1),
         });
