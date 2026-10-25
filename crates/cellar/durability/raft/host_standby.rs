@@ -2,6 +2,9 @@
 //! host, engine and SQL pool. Waiter lifetime never owns a submitted initializer.
 use super::*;
 use crate::raft::transport::seeds::SeedOptions;
+use std::time::Duration;
+
+const MANAGED_METADATA_BYTES: usize = 4 * 1024 * 1024;
 
 #[derive(Clone)]
 pub(super) struct Dormant {
@@ -50,6 +53,8 @@ struct Initializer {
     dormant: Dormant,
     activation: client::LearnerActivation,
     authorization: Option<crate::raft::fleet_catalog::FleetPermitAuthorization>,
+    host: Option<crate::raft::fleet_catalog::FleetHostAuthorization>,
+    metadata: Option<Permit>,
     source: Option<RaftPeerNode>,
     log: super::super::storage::ReplicaLog,
     transport: RaftTransport,
@@ -98,6 +103,8 @@ impl Initializer {
             dormant,
             activation,
             authorization,
+            host,
+            metadata,
             source,
             log,
             transport,
@@ -116,6 +123,57 @@ impl Initializer {
                     .await)
             })
             .await??;
+        if let Some(host) = host {
+            transport
+                .seed_control_until(deadline, async {
+                    let result = async {
+                        let remaining = || -> anyhow::Result<Duration> {
+                            let now = log.domain().mono_ms()?;
+                            let ms = deadline.checked_sub(now).filter(|ms| *ms > 0).ok_or_else(
+                                || anyhow::anyhow!("managed learner deadline expired"),
+                            )?;
+                            Ok(Duration::from_millis(ms.min(60_000)))
+                        };
+                        let current = host.refresh(remaining()?).await?;
+                        current.check_namespace(dormant.namespace.config())?;
+                        let local = log.limits();
+                        if current.node() != local.node
+                            || current.disk() != local.disk
+                            || !current.instance_matches(log.storage_instance()?)
+                        {
+                            return Err(CatalogError::Conflict(
+                                "learner physical identity changed",
+                            )
+                            .into());
+                        }
+                        let fresh = current
+                            .group_authorization(dormant.birth.scope(), remaining()?)
+                            .await?;
+                        if authorization
+                            .as_ref()
+                            .is_none_or(|permit| fresh.binding() != permit.permit().binding())
+                            || !fresh.check_birth(&dormant.namespace, &dormant.birth)
+                        {
+                            return Err(CatalogError::Conflict(
+                                "learner history authorization changed",
+                            )
+                            .into());
+                        }
+                        // Startup enrollment is not current placement admission.
+                        // An existing synced member may resume to settle its exact
+                        // permit after exclusion; a fresh slot requires eligibility
+                        // from this invocation's bounded root read.
+                        if existing.is_none() && !current.eligibility().receive_replicas {
+                            return Err(CommandFailure::Unavailable.into());
+                        }
+                        Ok::<_, anyhow::Error>(())
+                    }
+                    .await;
+                    Ok(result)
+                })
+                .await??;
+        }
+        drop(metadata);
         if let Some(permit) = existing {
             check_seed_guard(
                 &log.group(dormant.birth.scope())?.membership()?,
@@ -319,15 +377,6 @@ impl Driver {
                 reply(&mut request, Err(CommandFailure::CommandConflict));
                 return;
             }
-            if !managed.authorization.eligibility().receive_replicas
-                && matches!(
-                    self.log.group(&scope),
-                    Err(super::super::storage::LogError::NotFound)
-                )
-            {
-                reply(&mut request, Err(CommandFailure::Unavailable));
-                return;
-            }
         }
         let Some(dormant) = self.standbys.get(&scope).cloned() else {
             reply(&mut request, Err(CommandFailure::UnsupportedCapability));
@@ -368,6 +417,17 @@ impl Driver {
             reply(&mut request, Err(error));
             return;
         }
+        let metadata = if self.options.managed.is_some() {
+            match self.control_budget.acquire(MANAGED_METADATA_BYTES) {
+                Some(memory) => Some(memory),
+                None => {
+                    reply(&mut request, Err(CommandFailure::Overloaded));
+                    return;
+                }
+            }
+        } else {
+            None
+        };
         let setup = (|| -> anyhow::Result<Initializer> {
             Ok(Initializer {
                 worker: self.pool.worker(dormant.worker)?,
@@ -375,6 +435,12 @@ impl Driver {
                 source: self.peers.get(&activation.source_node).cloned(),
                 activation: activation.clone(),
                 authorization,
+                host: self
+                    .options
+                    .managed
+                    .as_ref()
+                    .map(|managed| managed.authorization.clone()),
+                metadata,
                 log: self.log.clone(),
                 transport: self.transport.clone(),
                 limits: self.snapshot_limits,

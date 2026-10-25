@@ -6,6 +6,9 @@ use cellar::application::consensus::verification::{
     FleetBirthAuthorization, FleetHistoryState, FleetImportPhase, NamespaceCatalog,
 };
 
+#[path = "raft_retirement_native.rs"]
+mod retirement;
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn fleet_genesis_imported_namespace() -> Result<()> {
     let f = Fixture::with_domains(false, true).await?;

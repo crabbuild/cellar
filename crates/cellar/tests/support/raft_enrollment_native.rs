@@ -493,12 +493,12 @@ impl Fixture {
                         Err(
                             InspectionError::Refused
                             | InspectionError::Unavailable
+                            | InspectionError::Unreachable
                             | InspectionError::StalePeer
                             | InspectionError::Overloaded,
                         ) => {
                             cellar::asyncrt::sleep(Duration::from_millis(10)).await;
                         }
-                        Err(error) => return Err(error.into()),
                     }
                 }
             }))

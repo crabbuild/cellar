@@ -374,7 +374,8 @@
         "crates/cellar/durability/raft/fleet_catalog/namespaces/inventory.rs",
         "crates/cellar/durability/raft/fleet_catalog/namespaces/README.md",
         "crates/cellar/tests/support/raft_fleet_inventory.rs",
-        "crates/cellar/tests/support/raft_namespace_registry_hosts.rs"
+        "crates/cellar/tests/support/raft_namespace_registry_hosts.rs",
+        "crates/cellar/tests/support/raft_retirement_native.rs"
       ],
       "steps": [
         "Add CAS-authorized node-set revisions with bounded route and permission refresh.",
@@ -389,7 +390,8 @@
         "Verify every live group through opaque safe-ReadIndex observations, complete retained witness/history/member-claim reads, and unresolved-admission refusal before exact catalog-scoped namespace handoff. This does not certify fleet-wide compiled namespace coverage or node absence.",
         "Bind committed group guards and permits to the exact catalog fingerprint. Store managed ownership in each new canonical birth so an adopted immutable-unmanaged namespace can initialize later births with guards in the first sync while old histories replay their committed enrollment.",
         "Root an append-only paged namespace/class registry before managed host startup, history/import admission and new managed birth reservation. Pin schema and physical data-root identity; preserve every earlier declaration when adding capacity.",
-        "Check all rooted namespace declarations against exact catalog handles, original retained import coverage, current canonical admission indexes and every fleet history. Include unpublished/reserved/cancelled births and offline histories; this bounded read is not a capacity or removal receipt."
+        "Check all rooted namespace declarations against exact catalog handles, original retained import coverage, current canonical admission indexes and every fleet history. Include unpublished/reserved/cancelled births and offline histories; this bounded read is not a capacity or removal receipt.",
+        "Qualify actual managed retirement through peer seed/joint membership, outgoing-voter shutdown and fresh-quorum completion; reopen the stale intact engine and refuse metadata/engine rebinding under a fresh member ID. Abort the unusable learner and verify a newer member on a distinct engine through archive seed and native writes. Fresh learner admission must refresh current rooted host/history authorization within the original seed deadline and metadata budget rather than using startup eligibility."
       ],
       "acceptance": [
         "Inventory includes pending births and all managed namespaces.",
@@ -430,9 +432,15 @@
         },
         {
           "name": "fleet_enrollment_retired_binding",
-          "oracle": "An evacuated local binding cannot attach under a fresh member ID; fresh engine registration succeeds.",
+          "oracle": "A quorum-retired local binding cannot register or bootstrap under a fresh member ID, including an intact engine stopped in joint state before final removal and reopened without a cell registration. Its old ledger and physical slot remain retained; failed learner IDs stay consumed. A different enrolled engine registers, seeds through the managed archive path and serves verified native SQL writes. Registered-to-Active admission needs no restart; startup Active cannot bypass current Draining exclusion. Catalog lifecycle edits in this native fixture grant no evacuation/removal certificate.",
           "invariants": [
-            "F02"
+            "F01",
+            "F02",
+            "F04",
+            "F05",
+            "F06",
+            "F08",
+            "F10"
           ]
         },
         {

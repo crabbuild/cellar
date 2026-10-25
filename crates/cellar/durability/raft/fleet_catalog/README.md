@@ -281,6 +281,17 @@ histories still uses the existing startup recovery registrations; dynamic
 metadata registration cannot reset their engine state. Local observations also
 report pending registration work so later readiness/removal checks cannot omit it.
 
+Managed learner activation refreshes host and history authorization under the
+original seed deadline before initializing a fresh member. It checks the actual
+engine pin, namespace and history binding, and current replica-receiving
+eligibility. Startup enrollment remains a historical observation: Registered to
+Active can admit a learner without restarting, while Active to Draining refuses
+a fresh slot. The read holds a separate 4 MiB control reservation and returns
+overload when that reservation is unavailable; it releases the reservation before
+bulk peer or archive seeding. An already synced matching member can resume its
+exact committed permit after exclusion. This check grants no capacity activation
+or stop/removal certificate.
+
 ### Guarded initial voters
 
 A confirmed birth in a fresh managed namespace can initialize its original RF3
