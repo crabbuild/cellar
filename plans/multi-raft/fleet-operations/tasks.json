@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "baseline_revision": "43bcd17ab9c8d750fa2a2c6d76d8d18a102a6093",
+  "baseline_revision": "489a47cdc2f175e0ad874449b3cb552da2805524",
   "invariants": {
     "F01": "Quorum authority",
     "F02": "Stable identities",
@@ -433,7 +433,10 @@
         "crates/cellar/durability/raft/host_fleet_stop.rs",
         "crates/cellar/durability/raft/fleet_stop_transport.rs",
         "crates/cellar/durability/raft/fleet_stop_transport_tests.rs",
-        "crates/cellar/tests/support/raft_fleet_stop_rpc.rs"
+        "crates/cellar/tests/support/raft_fleet_stop_rpc.rs",
+        "crates/cellar/durability/raft/fleet_catalog/capacity.rs",
+        "crates/cellar/durability/raft/fleet_catalog/deadline.rs",
+        "crates/cellar/tests/support/raft_capacity_native.rs"
       ],
       "steps": [
         "Add CAS-authorized node-set revisions with bounded route and permission refresh.",
@@ -459,7 +462,8 @@
         "Prepare bounded digest-addressed evacuation candidates by consuming complete rooted inventory and owning actual authenticated RF3 observations plus exact physical archive replay. Retain one fixed publication cut per pending history across writes and replay retries; check stable membership, exact settled latest permits, current rooted node/disk/process/engine bindings and failure-domain separation. Reserved births block; canonical cancellations remain explicit. Recheck rooted inputs around immutable paged receipt work. Candidates leave the root and disruption slot unchanged; fresh terminal health, physical joins/fences and the atomic terminal receipt remain required.",
         "Order every managed boot, including intact restart, against Finalizing through a permanent exact boot request and root CAS before endpoint publication. Bind trust and running-host authorization to the original boot process. Consume a complete historical candidate through fresh inventory and an owned process probe, then atomically root the Finalizing projection and higher node epoch while retaining the disruption slot. Reconcile exact committed retries without live inputs; preserve deadline checks at CAS. This boot fence grants no physical stop, terminal removal or resource release; Finalizing resumption and physical/terminal integration remain pending.",
         "Pin the closure verification key at rooted boot and fsync an exact boot/process/engine lifecycle guard before endpoint publication. Admit scoped stop/fence work through the Node-owned bounded task and real engine worker with original deadlines. Sign immutable bounded closure only after actual Node/engine owners join; reconcile lost publication replies. Keep local acceptance, physical closure and future terminal removal/slot release distinct. Finalizing resumption, fresh terminal health, atomic completion and capacity readiness remain pending.",
-        "Expose exact stop/fence work over authenticated, purpose-separated Raft control with rooted node routes, both boot/process/engine identities and body-digest binding. Recheck current origin boot for new receiver admissions. Preserve the original origin budget and the TLS-admission receiver deadline through header/body reading, bounded queueing and engine sync. Lost callers/transport replies remain unconfirmed and do not cancel receiver-owned admitted work. Both endpoints may be empty; no Actor lease or dummy cell is required. Compose a real voter replacement, concurrent survivor writes, scoped stop and signed joined closure; terminal CAS and slot release remain pending."
+        "Expose exact stop/fence work over authenticated, purpose-separated Raft control with rooted node routes, both boot/process/engine identities and body-digest binding. Recheck current origin boot for new receiver admissions. Preserve the original origin budget and the TLS-admission receiver deadline through header/body reading, bounded queueing and engine sync. Lost callers/transport replies remain unconfirmed and do not cancel receiver-owned admitted work. Both endpoints may be empty; no Actor lease or dummy cell is required. Compose a real voter replacement, concurrent survivor writes, scoped stop and signed joined closure; terminal CAS and slot release remain pending.",
+        "Admit Ready/Active capacity through an owned complete-inventory scan, authenticated exact-boot probe and one request-journaled root CAS. Record explicit deployment attestation separately from installed startup bounds; refuse profile-version rebinding, stale boots, unfit limits and concurrent exclusion. Current opaque capacity authorization requires the exact rooted epoch/boot and journal; historical acceptance and raw Active metadata supply no new placement reservation. Fresh occupancy and resource/movement reservations remain the planner boundary; measured platform probes and operator workflows remain pending."
       ],
       "acceptance": [
         "Inventory includes pending births and all managed namespaces.",
@@ -1907,6 +1911,104 @@
             "F01",
             "F02",
             "F03",
+            "F06",
+            "F07",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_capacity_empty_node_qualify_and_activate",
+          "oracle": "Two actual empty managed nodes install the current trust cut. Qualify an excluded spare, activate through a fresh authenticated probe and verify current rooted capacity without a dummy cell. Reusing a profile revision with changed limits refuses; an already qualified Active process cannot change limits through this admission path.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F03",
+            "F05",
+            "F06",
+            "F07",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_capacity_lost_reply_reconciles_after_reopen",
+          "oracle": "Lose the successful fleet-head CAS response and confirmation. Stop the target, exclude it, recreate the catalog adapter and reconcile the original historical acceptance without live inputs. Changed request payload refuses and historical acceptance cannot authorize current capacity.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F03",
+            "F05",
+            "F06",
+            "F07",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_capacity_reboot_invalidates_authorization",
+          "oracle": "Qualify a real node and join it. An attempted intact restart reusing its process hint admits a new rooted boot nonce/key and correctly refuses directory publication; join that failed startup and refuse the old capacity and stale attestation. Preserve historical request retry. Reopen with a fresh process generation, qualify through fresh TLS and regain capacity authority; the successful reopen also proves physical ownership was released.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F03",
+            "F05",
+            "F06",
+            "F07",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_capacity_refuses_incomplete_inventory_and_unfit_attestation",
+          "oracle": "Missing declared namespace inventory, insufficient memory/disk/slots, allowed swap, a wrong boot and mismatched running-profile digest all refuse without a node transition or root revision advance.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F03",
+            "F05",
+            "F06",
+            "F07",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_capacity_raw_active_is_not_quantified_capacity",
+          "oracle": "Privileged fixture metadata may say Active, but a missing typed readiness record and journal link cannot mint quantified placement capacity.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F03",
+            "F05",
+            "F06",
+            "F07",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_capacity_expired_inventory_read_cannot_activate",
+          "oracle": "Hold real fleet-head reads past the original budget. Timeout leaves no activated node or capacity authority; after releasing reads, the same unadmitted identity can qualify normally.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F03",
+            "F05",
+            "F06",
+            "F07",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_capacity_concurrent_exclusion_defeats_activation",
+          "oracle": "Hold the actual activation head CAS after readiness verification. Another adapter excludes the node first; the held CAS loses and orphan receipt/index material grants no capacity. Actual Node owners join cleanly.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F03",
+            "F05",
             "F06",
             "F07",
             "F08",

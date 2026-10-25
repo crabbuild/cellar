@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "revision": "43bcd17ab9c8d750fa2a2c6d76d8d18a102a6093",
+  "revision": "489a47cdc2f175e0ad874449b3cb552da2805524",
   "files": [
     {
       "path": ".github/workflows/native-sdk.yml",
@@ -52,11 +52,11 @@
     },
     {
       "path": "crates/cellar/application/consensus/mod.rs",
-      "sha256": "32a35c3e0181aac8adc546490bd9547e67a8352f3c572e579b0fa41103a4af35"
+      "sha256": "0f4d45b79093555b7bb0274a9f9bc23aaea66c88e3149ad53fade44577e6cda3"
     },
     {
       "path": "crates/cellar/application/consensus/protocol.rs",
-      "sha256": "ac81661aa3241e5bd1ee327a64215c84a4626e388805049d08a7964305639a70"
+      "sha256": "9fbf146d898f35188e7a5cb0bf19f245bb90912f50d25c723a00d17d7a3ad62a"
     },
     {
       "path": "crates/cellar/application/consensus/resources.rs",
@@ -92,7 +92,7 @@
     },
     {
       "path": "crates/cellar/durability/raft/catalog_wire.rs",
-      "sha256": "e5851a3962ec6516133ad82a4d14b62326810f86f18664df75f0a56ef23a6bde"
+      "sha256": "23d00c445aaaec38e797bcf96b5eca373aaba197c175289aad20094566e58e05"
     },
     {
       "path": "crates/cellar/durability/raft/controller_action.rs",
@@ -108,7 +108,7 @@
     },
     {
       "path": "crates/cellar/durability/raft/host.rs",
-      "sha256": "db20dd0f837647f4d104baf84679a1845fba36103568259209ca58ee12f4fd43"
+      "sha256": "e2f779194c37d64a5f967bc905d8011d695e166e9b983ad8a9a69b1121275bd5"
     },
     {
       "path": "crates/cellar/durability/raft/host_controller.rs",
@@ -208,7 +208,7 @@
     },
     {
       "path": "crates/cellar/durability/raft/runtime.rs",
-      "sha256": "2db7e247128dd7bdf27e6ba631d768a6d84835ae12909b53f163aa3135e5a0a0"
+      "sha256": "fa40dba9accd332a19231035331bd124f40267eee6d20a0bd9ed42cac190fc0c"
     },
     {
       "path": "crates/cellar/durability/raft/snapshot.rs",
@@ -324,5 +324,5 @@
     }
   ],
   "reviewed_from_revision": "900a677fb6481a259d1e24073d9dc1aacf785507",
-  "review_note": "FO-03 partial successor: authenticated exact-boot Raft-control stop/fence RPC for empty managed nodes, original deadlines through TLS-header residence and receiver-owned physical work. A real S3-seeded voter replacement now composes survivor writes, Raft-control stop, retained-history join and signed closure. Final source passes 404 native Raft cases across 13 targets, 162 Raft units, 12 RPC, four startup and 19 admin cases in 58 stages. Finalizing resumption, fresh terminal checks, atomic removal receipt/slot release and capacity readiness remain pending. No deployed RustFS/Colima, TPS/p99 or soak qualification."
+  "review_note": "FO-03 partial successor: typed deployment-attested node readiness and Ready/Active admission through owned complete inventory and authenticated exact-boot inspection. Current capacity authorization checks the exact epoch/boot and journal; raw Active state and historical acceptance grant no quantified reservation. Seven new capacity cases pass, along with 103 enrollment, 16 directory and 162 Raft units, focused metadata/stop RPC and warnings-denied Clippy. Other native targets retain earlier-source qualification. Terminal resumption/removal/slot release remain pending; use current readiness as the prerequisite for FO-04 resource/movement reservations. No measured kernel/container limits, deployed RustFS/Colima, TPS/p99 or soak qualification."
 }

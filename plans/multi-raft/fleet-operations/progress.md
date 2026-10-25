@@ -1617,6 +1617,48 @@ prefixes, namespaces, engine directories and matching binaries; markers remain
 actual capacity readiness, deployed RustFS/Colima, performance and soak remain
 unqualified. Automatic fleet management stays default-off.
 
+## FO-03 progress: attested capacity readiness
+
+Source `489a47cdc2f175e0ad874449b3cb552da2805524` implements typed Ready/Active
+admission. The adapter owns complete current inventory and an authenticated node
+probe, verifies the exact synced boot and installed host/consensus/engine bounds,
+then commits the state transition and readiness record together. Ready remains
+excluded. Platform CPU/memory/storage limits and retained usage are explicitly
+trusted deployment attestation with an evidence reference/digest, not independently
+measured kernel limits. Installed buffer totals are not process RSS.
+
+Current capacity authorization checks the exact node epoch/boot and permanent
+journal. A bare Active descriptor supplies no quantified capacity, and historical
+acceptance after shutdown/exclusion supplies no current authority. Profile
+revisions cannot change limits, an already qualified Active boot requires
+maintenance before limit changes, and intact new boots must qualify again.
+The directory's process-generation reuse refusal remains enforced; the new
+restart case covers the refused attempt, joined cleanup and a valid fresh
+process generation. Concurrent exclusion defeats an activation held at CAS.
+Expired reads and incomplete/unfit evidence cause no activation.
+
+Seven new native capacity cases pass. Current-source regressions pass **103
+enrollment cases**, **16 directory cases** and **162 Raft units**, including the
+focused metadata and four stop-RPC cases. Library/enrollment/directory Clippy with
+warnings denied, formatting/layout, native dependencies, documentation, plan
+validation and ten validator tests pass. All 1,186 Rust files and 21 Cargo/config
+inputs match this implementation commit; retained actual executables and logs
+are audited. The other native targets, legacy Node, admin and general RPC suites
+remain attributed to their earlier-source cohorts rather than a current rerun.
+
+The plan inventories 228 cases and 80 source anchors. The ignored partial record
+`implementation/fo03/capacity-boundary.json` retains successful and failed attempts.
+FO-03 remains IN_PROGRESS: terminal resumption, fresh final proofs, atomic
+removal/slot release and the actual terminal incomplete-import case remain open.
+FO-04 must combine current capacity authorization with fresh occupancy,
+per-history eligibility and resource/movement reservations. Automatic management,
+measured platform limits, deployed RustFS/Colima, TPS/latency and soak remain
+unqualified. No raw evidence is tracked under `plans/multi-raft/evidence/`.
+
+The current experimental protocol ends in
+`/fleet-stop-rpc-1/capacity-readiness-1`. Use fresh coordination/data prefixes,
+namespaces, engine directories and matching binaries; numeric markers remain 1.
+
 ## Prioritized remaining delivery
 
 The append-only namespace registry, complete inventory read, native retired-binding
@@ -1629,19 +1671,21 @@ Raft control, and signed post-join closure are implemented at their documented
 boundaries. Native coverage now composes real voter replacement and survivor
 writes with Raft-control stop and joined closure of retained physical history.
 The evacuation adapter consumes complete inventory inside its exact root CAS.
-Capacity activation and terminal lifecycle proof still require their
-operation-specific integration; a saved count cannot authorize
-placement or maintenance. The manifest dependencies remain unchanged.
+Typed attested capacity activation is now implemented. Placement must still
+combine its current authorization with fresh occupancy and reservations; terminal
+lifecycle proof remains pending. A saved count cannot authorize maintenance. The manifest dependencies remain unchanged.
 
 | Priority | Boundary | Required result before advancing |
 | --- | --- | --- |
-| P0 | FO-03 terminal completion and capacity readiness | Resume or refresh candidates while Finalizing without rebinding accepted stop authority; retain uncertain occupancy for unreachable owners. Obtain fresh terminal survivor/inventory/archive checks and atomically root the terminal receipt/node transition/disruption-slot release. Close `fleet_enrollment_incomplete_import` at removal certification; gate new capacity on actual process/engine and observed or explicitly attested platform limits. |
-| P1 | FO-04 placement, FO-05 load, FO-06 reconciliation | Implement bounded staged feasibility for retained/temporary costs and one-node-loss headroom, fresh load observations and a domain-owned reconciler. Restart/cancellation/lost replies must converge; release reservations only with fresh terminal quorum proof and physical-work joins. |
+| P0 | FO-03 terminal completion | Resume or refresh candidates while Finalizing without rebinding accepted stop authority; retain uncertain occupancy for unreachable owners. Obtain fresh terminal survivor/inventory/archive checks and atomically root the terminal receipt/node transition/disruption-slot release. Close `fleet_enrollment_incomplete_import` at removal certification. Attested capacity readiness is implemented at its local boundary; deployed measurements remain a qualification gate. |
+| P1 | FO-04 placement, FO-05 load, FO-06 reconciliation | Consume current typed capacity and fresh occupancy in bounded staged feasibility for retained/temporary costs and one-node-loss headroom, then add fresh load observations and a domain-owned reconciler. Restart/cancellation/lost replies must converge; release reservations only with fresh terminal quorum proof and physical-work joins. |
 | P2 | FO-07 maintenance and FO-08 operator API/CLI | Integrate local stop/fence admission and verified closure with the shared disruption slot for restart/resize, complete evacuation/removal receipts and authenticated idempotent workflows with revision guards and typed outcomes. Deliver typed remote overload/unknown outcomes, add/remove, rolling restart and cancellation/resume. |
 | P3 | FO-09 scaling and fewer-cell shrink | Reconcile desired, effective and observed resources for horizontal and vertical changes. Require observed platform-limit checks and complete retained-state fit before shrinking; fewer cells do not establish removability. |
 | Release gate | FO-10 deployed qualification and performance | Qualify actual five/six/four-node RustFS/Colima operations and faults with enforced 1-vCPU/3-GiB limits and a 24-hour soak. Measure successful TPS, p50/p95/p99, archive catch-up and controller idle/movement overhead. Prefer p99 below 200 ms; 500 ms is the hard ceiling. Keep optional performance changes only with matched evidence of higher throughput or lower latency. |
 
-The next implementation slice is **FO-03 terminal finalization**, in this order:
+Implementation now advances to **FO-04's placement and reservation consumer**
+using the readiness boundary above. FO-03's remaining terminal finalization work
+still gates removal and maintenance, in this order:
 
 1. Support restart-safe resumption and candidate refresh while Finalizing without
    rebinding accepted stop authority. Keep uncertain occupancy charged for
@@ -1652,10 +1696,10 @@ The next implementation slice is **FO-03 terminal finalization**, in this order:
    Atomically root the terminal receipt, transition the exact node epoch and
    release the disruption slot. Reconcile lost replies through the permanent
    journal; cover crashes at each boundary, orphan candidates and replanning.
-3. Close `fleet_enrollment_incomplete_import` at removal certification. Complete
-   capacity readiness against actual process/engine and observed or explicitly
-   attested platform limits before admitting new placement. Concurrent managed
-   boot conflicts also need owned controller reconciliation; startup currently
+3. Close `fleet_enrollment_incomplete_import` at removal certification. Capacity
+   readiness now provides current attested boot/profile authorization; FO-04
+   must consume it with fresh physical occupancy and reservations. Concurrent
+   managed boot conflicts still need owned controller reconciliation; startup
    fails cleanly rather than hiding a CAS retry.
 
 These steps unblock the planner and reconciler. They do not require an optional
