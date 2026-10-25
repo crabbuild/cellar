@@ -44,6 +44,9 @@ pub use crate::raft::fleet_catalog::{
     FleetGroupAuthorization, FleetHostAuthorization, FleetNodeEligibility, FleetNodeSpec,
     FleetNodeState, FleetPermitAuthorization, FleetReplicaSeparation, FleetRequestIdentity,
 };
+pub use crate::raft::fleet_stop::{
+    FleetStopAcceptance, FleetStopAction, FleetStopRequest, VerifiedFleetClosure,
+};
 pub use crate::raft::host::{
     FleetMembershipConfiguration, FleetMembershipObservation, FleetPublishedCut,
     FleetPublishedImage, RaftArchiveOptions, RaftCellPlacement, RaftCellRegistration,

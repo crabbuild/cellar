@@ -12,6 +12,7 @@ pub(super) struct Boot {
     pub(super) id: [u8; 16],
     pub(super) process: [u8; 16],
     pub(super) epoch: u64,
+    pub(super) join_key: [u8; 32],
 }
 
 impl Boot {
@@ -19,6 +20,11 @@ impl Boot {
         ProposalId::new(self.id).map_err(|_| FleetCatalogError::Corrupt("boot request"))?;
         ProcessGeneration::new(self.process)
             .map_err(|_| FleetCatalogError::Corrupt("boot process"))?;
+        let key = ed25519_dalek::VerifyingKey::from_bytes(&self.join_key)
+            .map_err(|_| FleetCatalogError::Corrupt("boot join key"))?;
+        if key.is_weak() {
+            return Err(FleetCatalogError::Corrupt("weak boot join key"));
+        }
         if self.epoch == 0 || self.epoch > epoch || self.epoch >= u64::MAX - 2 {
             return Err(FleetCatalogError::Corrupt("boot epoch"));
         }
@@ -36,6 +42,7 @@ impl FleetHostAuthorization {
         instance: EngineInstanceId,
         process: ProcessGeneration,
         id: ProposalId,
+        join_key: [u8; 32],
         timeout: Duration,
     ) -> Result<Self> {
         self.catalog
@@ -52,6 +59,7 @@ impl FleetHostAuthorization {
                 if let Some(boot) = &current.record.boot {
                     if boot.id == id.bytes() {
                         if boot.process != process.bytes()
+                            || boot.join_key != join_key
                             || current.storage_instance() != Some(instance)
                         {
                             return Err(FleetCatalogError::PayloadConflict);
@@ -87,6 +95,7 @@ impl FleetHostAuthorization {
                     id: id.bytes(),
                     process: process.bytes(),
                     epoch: current.record.epoch,
+                    join_key,
                 });
                 current.record.validate(&self.catalog.inner)?;
                 let mutation = FleetMutation {

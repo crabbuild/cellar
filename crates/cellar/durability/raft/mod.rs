@@ -14,6 +14,7 @@ pub(crate) mod effects;
 pub(crate) mod execution;
 mod filesystem;
 pub(crate) mod fleet_catalog;
+pub(crate) mod fleet_stop;
 pub(crate) mod host;
 mod host_archive;
 mod host_sql;

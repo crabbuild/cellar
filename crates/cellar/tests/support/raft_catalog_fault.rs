@@ -10,6 +10,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 #[derive(Debug, Default)]
 pub struct Store {
+    pub fail_closure_after: AtomicBool,
     pub fail_fleet_after: AtomicBool,
     pub fail_fleet_confirmation: AtomicBool,
     pub fail_fleet_read: AtomicBool,
@@ -260,6 +261,11 @@ impl ObjectStore for Store {
         let fleet_cas =
             path.as_ref().ends_with("/fleet/head") && matches!(options.mode, PutMode::Update(_));
         let result = self.inner.put_opts(path, payload, options).await?;
+        if path.as_ref().contains("/closures/")
+            && self.fail_closure_after.swap(false, Ordering::AcqRel)
+        {
+            return Err(failure());
+        }
         if fleet_cas && self.fail_fleet_confirmation.swap(false, Ordering::AcqRel) {
             self.fail_fleet_read.store(true, Ordering::Release);
             return Err(failure());

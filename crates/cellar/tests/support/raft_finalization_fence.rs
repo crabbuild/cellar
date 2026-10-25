@@ -2,6 +2,9 @@
 
 //! Root boot fencing uses actual managed processes, engine ownership and CAS.
 //! The resulting admission supplies no physical-stop or terminal certificate.
+#[path = "raft_finalization_stop.rs"]
+mod stops;
+
 use super::super::super::retirement::stopped;
 use super::*;
 use cellar::application::consensus::verification::FleetEvacuationCandidate;

@@ -44,6 +44,13 @@ pub(crate) async fn action(
             return Err(anyhow::anyhow!("stop operation IDs must match").into());
         }
     }
+    if let NodeAction::FleetStop { request: stop } = &request.action {
+        if stop.request_id() != request.operation_id {
+            return Err(
+                anyhow::anyhow!("fleet stop guard and audit request IDs must match").into(),
+            );
+        }
+    }
     let mut operation = if readonly {
         None
     } else {
@@ -63,10 +70,13 @@ pub(crate) async fn action(
             &fleet,
             &principal.id,
             &target,
-            if matches!(&request.action, NodeAction::Stop { .. }) {
-                "stop"
-            } else {
-                label.as_str().unwrap_or("evict")
+            match &request.action {
+                NodeAction::Stop { .. } => "stop",
+                NodeAction::FleetStop { request } => match request.action() {
+                    cellar::sdk::consensus::FleetStopAction::Stop => "fleet_stop",
+                    cellar::sdk::consensus::FleetStopAction::Fence => "fleet_stop_fence",
+                },
+                _ => label.as_str().unwrap_or("evict"),
             },
             &fingerprint,
         )? {

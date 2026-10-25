@@ -93,6 +93,33 @@ fn required_nullable<'de, T: Deserialize<'de>, D: serde::Deserializer<'de>>(
 }
 
 impl NodeRecord {
+    pub(super) fn boot_binding(
+        &self,
+        catalog: [u8; 32],
+    ) -> Result<crate::raft::fleet_stop::BootBinding> {
+        let boot = self
+            .boot
+            .as_ref()
+            .ok_or(FleetCatalogError::Corrupt("missing boot binding"))?;
+        let binding = crate::raft::fleet_stop::BootBinding {
+            catalog,
+            fleet: self.fleet,
+            node: self.node,
+            disk: self.disk,
+            engine: self
+                .storage_instance
+                .ok_or(FleetCatalogError::Corrupt("missing boot engine"))?,
+            boot: boot.id,
+            process: boot.process,
+            epoch: boot.epoch,
+            join_key: boot.join_key,
+        };
+        binding
+            .validate()
+            .map_err(|_| FleetCatalogError::Corrupt("invalid boot binding"))?;
+        Ok(binding)
+    }
+
     pub(super) fn disk_identity(&self) -> Result<DiskLineage> {
         DiskLineage::new(self.disk).map_err(|_| FleetCatalogError::Corrupt("node disk"))
     }
@@ -210,6 +237,15 @@ impl fmt::Debug for FleetHostAuthorization {
 }
 
 impl FleetHostAuthorization {
+    pub(crate) fn boot_binding(&self) -> Result<crate::raft::fleet_stop::BootBinding> {
+        self.record
+            .boot_binding(self.catalog.birth_owner()?.catalog)
+    }
+
+    pub(crate) fn stop_catalog(&self) -> FleetCatalog {
+        self.catalog.clone()
+    }
+
     pub(crate) async fn check_declared_namespaces(
         &self,
         entries: &[crate::raft::host::NamespaceRegistration],

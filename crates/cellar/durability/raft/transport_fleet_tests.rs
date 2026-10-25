@@ -397,6 +397,7 @@ async fn rooted_removal_cancels_pools_origins_and_seed_owners() -> anyhow::Resul
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn rooted_boot_refresh_restores_only_retained_routes() -> anyhow::Result<()> {
+    let join_key = crate::peer_probe::PeerProbeSigner::generate().public_key_bytes();
     let scope = scope(2)?;
     let fixture = Fixture::start(
         TransportOptions::default(),
@@ -423,6 +424,7 @@ async fn rooted_boot_refresh_restores_only_retained_routes() -> anyhow::Result<(
         publisher.log.storage_instance()?,
         publisher.peer.process,
         cellar_logic::consensus::ProposalId::new([21; 16])?,
+        join_key,
         TIMEOUT,
     )
     .await?;
@@ -469,6 +471,7 @@ async fn rooted_boot_refresh_restores_only_retained_routes() -> anyhow::Result<(
             publisher.log.storage_instance()?,
             publisher.peer.process,
             cellar_logic::consensus::ProposalId::new([22; 16])?,
+            join_key,
             TIMEOUT,
         )
         .await?;

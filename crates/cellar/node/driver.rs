@@ -213,6 +213,9 @@ where
     } = channels;
     let mut stop = std::pin::pin!(stop);
     let (shutdown_tx, mut shutdown_rx) = mpsc::unbounded_channel();
+    crate::asyncrt::services()
+        .raft_lifecycle()
+        .configure_shutdown(shutdown_tx.clone());
     #[cfg(all(test, cellar_internal_tests))]
     if shutdown_accept_failure_test_active {
         let _ = shutdown_tx.send(ShutdownMode::Handoff);

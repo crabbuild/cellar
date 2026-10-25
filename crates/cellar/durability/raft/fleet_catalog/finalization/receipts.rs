@@ -135,13 +135,41 @@ impl Basis {
     /// Own progress may advance Operations/journal. None of the inputs that
     /// established inventory, placement eligibility or permits may change.
     pub(super) fn check(&self, catalog: &FleetCatalog, snapshot: &FleetSnapshot) -> Result<()> {
+        self.check_scope_and_inventory(catalog, snapshot)?;
+        if self.tables != BASIS_TABLES.map(|table| snapshot.head.tables[table.slot()]) {
+            return Err(FleetCatalogError::Conflict);
+        }
+        Ok(())
+    }
+
+    /// Finalizing changed the target node row. Other boots do not restore a
+    /// retired target's votes, but new inventory, policy or permits require
+    /// replanning before a fresh stop can be admitted.
+    pub(super) fn check_stop_inputs(
+        &self,
+        catalog: &FleetCatalog,
+        snapshot: &FleetSnapshot,
+    ) -> Result<()> {
+        self.check_scope_and_inventory(catalog, snapshot)?;
+        for index in [0, 2, 3] {
+            if self.tables[index] != snapshot.head.tables[BASIS_TABLES[index].slot()] {
+                return Err(FleetCatalogError::Conflict);
+            }
+        }
+        Ok(())
+    }
+
+    fn check_scope_and_inventory(
+        &self,
+        catalog: &FleetCatalog,
+        snapshot: &FleetSnapshot,
+    ) -> Result<()> {
         catalog.check_snapshot(snapshot)?;
         self.validate()?;
         if self.catalog != catalog.birth_owner()?.catalog
             || self.cluster != snapshot.head.cluster
             || self.fleet != snapshot.head.incarnation
             || self.revision > snapshot.revision()
-            || self.tables != BASIS_TABLES.map(|table| snapshot.head.tables[table.slot()])
             || snapshot.head.disruption != Some(self.slot)
             || self.histories != snapshot.head.history_count
             || self.namespaces != snapshot.head.namespace_count

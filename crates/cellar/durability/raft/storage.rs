@@ -4,6 +4,7 @@
 
 use super::cache::{genesis, validate_conf, CachedGroup, GroupLog, GroupWrite, SnapshotChange};
 use super::filesystem::EngineFileSystem;
+use super::fleet_stop::{Guard, LifecycleRecord, LifecycleUpdate};
 use super::options::{LogOpenMode, ReplicaLogOptions};
 use super::performance::{
     Counter as MeasuredCounter, Operation as Measured, Registry as Performance,
@@ -26,6 +27,18 @@ use tokio::sync::{oneshot, Notify};
 #[cfg(test)]
 #[path = "storage_genesis_tests.rs"]
 mod genesis_tests;
+
+#[cfg(test)]
+#[path = "storage_lifecycle_tests.rs"]
+mod lifecycle_tests;
+
+const LIFECYCLE_KEY: &[u8] = b"cellar-node-lifecycle";
+
+#[derive(Clone)]
+struct EngineCaches {
+    usage: Arc<AtomicUsize>,
+    lifecycle: Arc<Mutex<LifecycleRecord>>,
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum LogError {
@@ -123,6 +136,7 @@ struct LogHandle {
     groups: Catalog,
     pending: Arc<AtomicUsize>,
     cache_usage: Arc<AtomicUsize>,
+    lifecycle_cache: Arc<Mutex<LifecycleRecord>>,
     options: ReplicaLogOptions,
     closing: Arc<AtomicBool>,
     runtime_claimed: AtomicBool,
@@ -191,6 +205,7 @@ struct Request {
 
 enum Work {
     NodeFence(Reply<u64>),
+    Lifecycle(Box<LifecycleUpdate>, Reply<Guard>),
     Create(
         GroupBootstrap,
         Option<Box<super::member_state::FleetGroupBinding>>,
@@ -231,6 +246,26 @@ impl ReplicaLog {
     /// synced root fence. This cannot settle a Raft group persistence ticket.
     pub async fn reserve_node_revision(&self) -> Result<u64, LogError> {
         self.request(1024, Work::NodeFence).await
+    }
+
+    pub(crate) async fn update_lifecycle(
+        &self,
+        update: LifecycleUpdate,
+    ) -> Result<Guard, LogError> {
+        self.request(8192, |reply| Work::Lifecycle(Box::new(update), reply))
+            .await
+    }
+
+    /// Last fsynced local lifecycle state, retained after the engine joins.
+    /// This observation alone supplies no physical closure proof.
+    pub(crate) fn lifecycle_guard(&self) -> Result<Option<Guard>, LogError> {
+        Ok(self
+            .inner
+            .lifecycle_cache
+            .lock()
+            .map_err(|_| LogError::Closed)?
+            .guard
+            .clone())
     }
 
     pub(crate) fn claim_runtime(&self) -> Result<RuntimeLease, LogError> {
@@ -289,6 +324,7 @@ impl ReplicaLog {
         let closing = Arc::new(AtomicBool::new(false));
         let owner = Arc::new(());
         let cache_usage = Arc::new(AtomicUsize::new(0));
+        let lifecycle_cache = Arc::new(Mutex::new(LifecycleRecord::empty()));
         let handle = Self {
             inner: Arc::new(LogHandle {
                 performance: performance.clone(),
@@ -299,6 +335,7 @@ impl ReplicaLog {
                 groups: groups.clone(),
                 pending: Arc::new(AtomicUsize::new(0)),
                 cache_usage: cache_usage.clone(),
+                lifecycle_cache: lifecycle_cache.clone(),
                 options: options.clone(),
                 closing: closing.clone(),
                 runtime_claimed: AtomicBool::new(false),
@@ -338,7 +375,10 @@ impl ReplicaLog {
                     groups,
                     owner,
                     closed.clone(),
-                    cache_usage,
+                    EngineCaches {
+                        usage: cache_usage,
+                        lifecycle: lifecycle_cache,
+                    },
                     performance,
                 );
                 let mut worker = match result {
@@ -552,6 +592,8 @@ struct Worker {
     closed: Arc<AtomicBool>,
     cache_bytes: usize,
     cache_usage: Arc<AtomicUsize>,
+    lifecycle: LifecycleRecord,
+    lifecycle_cache: Arc<Mutex<LifecycleRecord>>,
 }
 
 impl Worker {
@@ -561,7 +603,7 @@ impl Worker {
         groups: Catalog,
         owner: Arc<()>,
         closed: Arc<AtomicBool>,
-        cache_usage: Arc<AtomicUsize>,
+        caches: EngineCaches,
         performance: Arc<Performance>,
     ) -> Result<Self, LogError> {
         match options.mode {
@@ -646,6 +688,13 @@ impl Worker {
                 batch
                     .put(0, ROOT_KEY.to_vec(), records::encode(&root)?)
                     .map_err(engine_error)?;
+                batch
+                    .put(
+                        0,
+                        LIFECYCLE_KEY.to_vec(),
+                        records::encode(&LifecycleRecord::empty())?,
+                    )
+                    .map_err(engine_error)?;
                 engine.write(&mut batch, true).map_err(engine_error)?;
                 fs.sync_all(&log_directory)?;
                 fs.sync_all(&options.directory)?;
@@ -660,6 +709,24 @@ impl Worker {
                 root
             }
         };
+        let bytes = engine
+            .get(0, LIFECYCLE_KEY)
+            .ok_or(LogError::LostStableState)?;
+        if bytes.len() > 4096 {
+            return Err(LogError::Corrupt("oversized node lifecycle record".into()));
+        }
+        let lifecycle: LifecycleRecord = records::decode(&bytes)?;
+        lifecycle.validate().map_err(|error| {
+            LogError::Corrupt(format!("invalid node lifecycle record: {error}"))
+        })?;
+        if lifecycle.guard.as_ref().is_some_and(|guard| {
+            guard.boot.node != options.node.bytes()
+                || guard.boot.disk != options.disk.bytes()
+                || guard.boot.engine != root.identity.storage_instance
+        }) {
+            return Err(LogError::WrongIdentity);
+        }
+        *caches.lifecycle.lock().map_err(|_| LogError::Closed)? = lifecycle.clone();
         let mut worker = Self {
             performance,
             engine,
@@ -671,7 +738,9 @@ impl Worker {
             owner,
             closed,
             cache_bytes: 0,
-            cache_usage,
+            cache_usage: caches.usage,
+            lifecycle,
+            lifecycle_cache: caches.lifecycle,
         };
         worker.recover()?;
         worker
@@ -834,6 +903,34 @@ impl Worker {
         self.engine.write(batch, true).map_err(engine_error)?;
         self.root = root;
         Ok(sequence)
+    }
+
+    fn change_lifecycle(&mut self, update: LifecycleUpdate) -> Result<Guard, LogError> {
+        let boot = update.boot();
+        if boot.node != self.options.node.bytes()
+            || boot.disk != self.options.disk.bytes()
+            || boot.process != self.options.process.bytes()
+            || boot.engine != self.root.identity.storage_instance
+        {
+            return Err(LogError::WrongIdentity);
+        }
+        let next = self.lifecycle.change(update)?;
+        let guard = next.guard.clone().ok_or(LogError::WrongIdentity)?;
+        if next == self.lifecycle {
+            return Ok(guard);
+        }
+        let bytes = records::encode(&next)?;
+        if bytes.len() > 4096 {
+            return Err(LogError::Overloaded);
+        }
+        let mut batch = LogBatch::default();
+        batch
+            .put(0, LIFECYCLE_KEY.to_vec(), bytes)
+            .map_err(engine_error)?;
+        self.fence(&mut batch)?;
+        self.lifecycle = next;
+        *self.lifecycle_cache.lock().map_err(|_| LogError::Closed)? = self.lifecycle.clone();
+        Ok(guard)
     }
 
     fn create(
@@ -1097,6 +1194,19 @@ impl Worker {
             let fatal = match request.work {
                 Work::NodeFence(reply) => {
                     let result = self.fence(&mut LogBatch::default());
+                    let fatal = result.as_ref().err().filter(|error| error.fatal()).cloned();
+                    if fatal.is_some() {
+                        self.closed.store(true, Ordering::Release);
+                    }
+                    let _ = reply.send(result);
+                    fatal
+                }
+                Work::Lifecycle(update, reply) => {
+                    let result = match domain.mono_ms() {
+                        Ok(now) if now < update.deadline() => self.change_lifecycle(*update),
+                        Ok(_) => Err(LogError::Invalid("expired node lifecycle command".into())),
+                        Err(_) => Err(LogError::Closed),
+                    };
                     let fatal = result.as_ref().err().filter(|error| error.fatal()).cloned();
                     if fatal.is_some() {
                         self.closed.store(true, Ordering::Release);

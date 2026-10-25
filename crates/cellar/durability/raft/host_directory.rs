@@ -148,9 +148,22 @@ pub(super) async fn prepare(
                     service.log.storage_instance()?,
                     local.process,
                     boot.ok_or_else(|| anyhow::anyhow!("missing managed boot identity"))?,
+                    crate::asyncrt::services()
+                        .peer_probe_signer()?
+                        .public_key_bytes(),
                     remaining(&domain, deadline)?,
                 )
                 .await?;
+            crate::asyncrt::timeout(
+                remaining(&domain, deadline)?,
+                service
+                    .log
+                    .update_lifecycle(crate::raft::fleet_stop::LifecycleUpdate::Boot {
+                        boot: authorization.boot_binding()?,
+                        deadline,
+                    }),
+            )
+            .await??;
             let trust = authorization
                 .trust_snapshot(remaining(&domain, deadline)?)
                 .await?;

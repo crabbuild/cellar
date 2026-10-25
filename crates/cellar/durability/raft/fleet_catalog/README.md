@@ -119,8 +119,8 @@ Ordinary `bootstrap_member` can only resume an already enrolled managed group;
 it refuses fresh or bare genesis before creating local group state or a member
 claim. Managed host startup and `activate_managed_initial_member` use the guarded path described below.
 
-This experimental protocol hard-cuts to `/fleet-quorum-1/fleet-cuts-1/empty-archives-1/archive-cuts-1/fleet-finalization-1`; use fresh fleet
-roots, fresh namespaces and matching binaries. Fleet heads require the current
+This experimental protocol hard-cuts to `/fleet-quorum-1/fleet-cuts-1/empty-archives-1/archive-cuts-1/fleet-finalization-1/fleet-stop-1`; use fresh fleet
+roots, fresh namespaces, fresh engine directories and matching binaries. Fleet heads require the current
 protocol digest, and their permanent genesis pin binds it. Missing or earlier
 protocol state refuses initialization and reads; there is no compatibility reader.
 Numeric format markers remain 1.
@@ -386,9 +386,63 @@ candidate cannot authorize the newer process.
 `FleetFinalizationAdmission` is an opaque historical observation of this boot
 fence. It grants no physical stop, terminal removal, resource release or volume
 deletion authority. The existing process remains owned and the disruption slot
-stays claimed. Physical stop/join fencing, fresh terminal survivor verification,
-resumption while Finalizing and the atomic terminal receipt/slot release remain
+stays claimed. Fresh terminal survivor verification, resumption while Finalizing
+and the atomic terminal receipt/slot release remain
 required before this boundary can complete an evacuation.
+
+## Scoped physical stop and joined closure
+
+`FleetFinalizationAdmission::stop_request` produces untrusted request data for
+one operation, finalization request, stop request, node epoch and exact boot,
+process, disk and engine. `Node::request_fleet_stop` submits it to the actual
+Node's bounded lifecycle task. The receiving host verifies the canonical active
+Finalizing projection, permanent journal, disruption slot and target row against
+the current root. New stops also require unchanged policy, history, admission
+and complete-inventory inputs. A changed inventory refuses new stop work.
+
+Every managed boot pins its per-generation closure verification key at the root,
+then fsyncs its exact boot binding in a separate bounded engine record before
+endpoint publication. The same serialized engine worker fsyncs stop acceptance
+before the Node-owned task signals Preserve shutdown. A disconnected caller or
+lost acceptance response cannot cancel accepted work. Expired queued work cannot
+start an effect; a started sync can still commit after its response deadline.
+Reconcile the original request rather than assuming a timeout means no effect.
+Accepted retries retain one remembered shutdown-signal delivery outcome. They
+cannot accumulate duplicate signals while the driver waits for physical joins.
+
+`stop_fence_request` narrows local authority at the same epoch. Its synced guard
+defeats a delayed stop; an already accepted stop refuses cancellation, even with
+a higher local epoch. Exact retries retain the original meaning. A newer rooted
+boot requires a fresh nonce and a higher epoch; reusing a nonce with different
+fields refuses. The local fence does not cancel the root operation, restore
+eligibility or release its disruption slot. Finalizing resumption remains work
+for the controller and terminal protocol.
+
+The outer embedded/CLI host publishes an immutable signed closure only after
+joining the full Node execution domain, Raft engine and physical owners. CLI
+also joins its core thread first. A separate bounded reporting domain owns the
+conditional publication and exact readback, including a lost PUT response.
+The private signature domain differs from peer-probe responses; editing bucket
+bytes or a deserialized completion flag cannot mint a verified closure.
+`verify_physical_closure` binds the signature to the boot-pinned key and exact
+rooted stop selector and returns an opaque `VerifiedFleetClosure`. This assumes
+trusted Cellar host code and trusted coordination credentials; it is not an
+attestation against a malicious host holding its private key.
+
+This evidence establishes joined Raft/Node ownership for that boot. It does not
+establish current survivor health, archive catch-up, application completion,
+legacy graceful-reload proof, terminal removal or permission to delete a volume.
+An unplanned shutdown or a fence without an accepted stop produces no closure.
+Failed publication or an unreachable process remains unconfirmed and retains
+occupancy. Root terminal transitions and slot release are not implemented here.
+
+The existing authenticated, generation-bound private management endpoint accepts
+`NodeAction::FleetStop`; its acceptance is explicitly `physical_closure:
+unconfirmed`. Generic management Stop refuses managed Raft hosts. The admin
+adapter requires Operate permission and identical guard/audit request IDs, and
+records acceptance rather than terminal success. Its discovery still depends on
+the legacy Actor lease. A standalone authenticated Raft-control-lane stop/fence
+RPC and complete operator workflows remain required for Raft-only fleet control.
 
 ## Host API and fresh learners
 
@@ -404,7 +458,7 @@ not activate capacity or certify a complete managed inventory.
 An existing engine can be pinned in the registration request. Every managed boot,
 including an intact engine restart, claims a fresh boot nonce and process through
 one rooted node CAS before endpoint publication or group startup. The claim pins
-the engine permanently, advances the enrollment epoch and retains its exact
+the engine and closure verification key, advances the enrollment epoch and retains its exact
 request/journal binding. Unknown replies retain that nonce and payload; the
 adapter does not hide CAS retries or rebind a failed request to a new revision.
 Concurrent boot conflicts fail startup cleanly and require an explicit new startup
@@ -590,10 +644,12 @@ response alone is not a fleet completion certificate.
 Cellar-owned markers stay at 1. Membership and intent records require an explicit
 nullable `fleet` field. Birth records also require an explicit nullable
 `cancelled_by` field; the namespace protocol identity ends in
-`/catalog-trust-1/fleet-admission-1/fleet-quorum-1/fleet-cuts-1/empty-archives-1/archive-cuts-1/fleet-finalization-1`.
+`/catalog-trust-1/fleet-admission-1/fleet-quorum-1/fleet-cuts-1/empty-archives-1/archive-cuts-1/fleet-finalization-1/fleet-stop-1`.
 Node records require an explicit nullable `boot` field; Finalizing is a boot-refusing
-state. Older namespace protocols refuse startup; there is no legacy reader or migration.
-Use a fresh experimental namespace and matching participants. Do not downgrade a
+state. The engine requires a separate `cellar-node-lifecycle` record, initialized
+atomically with a new engine root. Resume refuses a missing record rather than
+recreating it. Older namespace protocols refuse startup; there is no legacy reader or migration.
+Use fresh coordination/data prefixes, namespaces and engine directories with matching participants. Do not downgrade a
 guarded engine to an older binary or remove the guard field to regain admission.
 
 `native_raft_fleet_catalog` verifies the bounded conditional adapter.

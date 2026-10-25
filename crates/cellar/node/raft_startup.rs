@@ -19,9 +19,11 @@ impl Startup<'_> {
         config: RaftCellsConfig,
         services: RaftCellsServices,
     ) -> anyhow::Result<RaftCells> {
-        let starting = crate::asyncrt::services().raft_lifecycle().begin()?;
+        let starting = crate::asyncrt::services()
+            .raft_lifecycle()
+            .begin(config.host.managed.is_some())?;
         match self.inner(config, services).await {
-            Ok(service) => match starting.install(service.clone()) {
+            Ok((service, stop)) => match starting.install(service.clone(), stop) {
                 Ok(()) => Ok(service),
                 Err(error) => {
                     let _ = service.close().await;
@@ -39,7 +41,10 @@ impl Startup<'_> {
         &self,
         mut config: crate::application::consensus::RaftCellsConfig,
         services: crate::application::consensus::RaftCellsServices,
-    ) -> anyhow::Result<crate::application::consensus::RaftCells> {
+    ) -> anyhow::Result<(
+        crate::application::consensus::RaftCells,
+        Option<crate::raft::fleet_stop::Services>,
+    )> {
         use crate::application::consensus::{RaftCellPlacement, RegistrationError};
         anyhow::ensure!(
             config.infrastructure.log.directory == self.data_dir.join("raft"),
@@ -197,6 +202,18 @@ impl Startup<'_> {
         let log = service.log.clone();
         let runtime = service.runtime.clone();
         let transport = service.transport.clone();
+        let stop = config
+            .host
+            .managed
+            .as_ref()
+            .map(|managed| {
+                Ok::<_, anyhow::Error>(crate::raft::fleet_stop::Services {
+                    authorization: managed.authorization.clone(),
+                    log: log.clone(),
+                    signer: crate::asyncrt::services().peer_probe_signer()?,
+                })
+            })
+            .transpose()?;
         let result = self
             .domain
             .run(crate::raft::host::start(
@@ -224,7 +241,7 @@ impl Startup<'_> {
             transport.close().await;
             let _ = log.close().await;
         }
-        result
+        result.map(|service| (service, stop))
     }
 
     pub(super) async fn infrastructure(

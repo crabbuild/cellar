@@ -5398,6 +5398,8 @@ async fn async_main(
             )
         })
         .transpose()?;
+    #[cfg(not(cellar_internal_tests))]
+    let fleet_lifecycle = crate::asyncrt::services().raft_lifecycle();
     let outcome = driver::run(
         driver::PreparedDriver {
             app,
@@ -5450,6 +5452,15 @@ async fn async_main(
             operations
                 .joined(&outcome, tokio::runtime::Handle::current())
                 .await;
+        }
+        match fleet_lifecycle.take_stop_reporter() {
+            Ok(Some(reporter)) => {
+                reporter
+                    .joined(&outcome, tokio::runtime::Handle::current())
+                    .await
+            }
+            Ok(None) => (),
+            Err(error) => tracing::warn!(%error, "fleet stop reporter unavailable after join"),
         }
         outcome
     };

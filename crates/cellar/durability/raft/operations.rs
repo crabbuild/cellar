@@ -6,7 +6,7 @@ use crate::application::consensus::{
     CommandFailure, CommandId, EngineInstanceId, GroupScope, LogIndex, LogPosition, MemberId,
     NodeIdentity, RaftCells,
 };
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 
 #[derive(Clone, Copy, Debug)]
 pub struct RaftCloseReportLimits {
@@ -118,6 +118,8 @@ struct State {
     service: Option<RaftCells>,
     report: Option<RaftNodeShutdownReport>,
     deadline: Option<u64>,
+    managed: bool,
+    stop: Option<Arc<crate::raft::fleet_stop::Reporter>>,
 }
 
 /// One production cell host for the Node's exclusive raft directory. A complete
@@ -127,9 +129,51 @@ struct State {
 #[derive(Default)]
 pub(crate) struct NodeLifecycle {
     state: Mutex<State>,
+    shutdown: OnceLock<tokio::sync::mpsc::UnboundedSender<crate::actor::ShutdownMode>>,
 }
 
 impl NodeLifecycle {
+    /// Both adapters route to this same Node's driver. Prefer the embedded
+    /// owner's command channel when installed before driver readiness.
+    pub(crate) fn configure_shutdown(
+        &self,
+        sender: tokio::sync::mpsc::UnboundedSender<crate::actor::ShutdownMode>,
+    ) {
+        let _ = self.shutdown.set(sender);
+    }
+
+    pub(crate) fn managed(&self) -> Result<bool, CommandFailure> {
+        Ok(self
+            .state
+            .lock()
+            .map_err(|_| CommandFailure::Unavailable)?
+            .managed)
+    }
+
+    pub(crate) fn stop_reporter(
+        &self,
+    ) -> Result<Option<Arc<crate::raft::fleet_stop::Reporter>>, CommandFailure> {
+        Ok(self
+            .state
+            .lock()
+            .map_err(|_| CommandFailure::Unavailable)?
+            .stop
+            .clone())
+    }
+
+    /// After the domain joins, transfer the final reporter to its surrounding
+    /// host so retained HostServices do not retain the closed engine caches.
+    pub(crate) fn take_stop_reporter(
+        &self,
+    ) -> Result<Option<Arc<crate::raft::fleet_stop::Reporter>>, CommandFailure> {
+        Ok(self
+            .state
+            .lock()
+            .map_err(|_| CommandFailure::Unavailable)?
+            .stop
+            .take())
+    }
+
     fn sample_service(
         &self,
     ) -> Result<Option<crate::application::consensus::RaftCells>, CommandFailure> {
@@ -155,12 +199,13 @@ impl NodeLifecycle {
         Ok(self.sample_service()?.map(|service| service.performance()))
     }
 
-    pub(crate) fn begin(self: &Arc<Self>) -> Result<Starting, CommandFailure> {
+    pub(crate) fn begin(self: &Arc<Self>, managed: bool) -> Result<Starting, CommandFailure> {
         let mut state = self.state.lock().map_err(|_| CommandFailure::Unavailable)?;
         if state.sealed || state.started || state.poisoned {
             return Err(CommandFailure::Unavailable);
         }
         state.started = true;
+        state.managed = managed;
         Ok(Starting {
             owner: self.clone(),
             armed: true,
@@ -234,7 +279,11 @@ pub(crate) struct Starting {
 }
 
 impl Starting {
-    pub(crate) fn install(mut self, service: RaftCells) -> Result<(), CommandFailure> {
+    pub(crate) fn install(
+        mut self,
+        service: RaftCells,
+        stop: Option<crate::raft::fleet_stop::Services>,
+    ) -> Result<(), CommandFailure> {
         let mut state = self
             .owner
             .state
@@ -242,6 +291,18 @@ impl Starting {
             .map_err(|_| CommandFailure::Unavailable)?;
         if state.sealed {
             return Err(CommandFailure::Unavailable);
+        }
+        if let Some(stop) = stop {
+            let shutdown = self
+                .owner
+                .shutdown
+                .get()
+                .cloned()
+                .ok_or(CommandFailure::Unavailable)?;
+            state.stop = Some(
+                crate::raft::fleet_stop::Reporter::start(stop, shutdown)
+                    .map_err(|_| CommandFailure::Unavailable)?,
+            );
         }
         state.service = Some(service);
         self.armed = false;
@@ -254,6 +315,7 @@ impl Starting {
         if let Ok(mut state) = self.owner.state.lock() {
             if !state.sealed {
                 state.started = false;
+                state.managed = false;
             }
             self.armed = false;
         }

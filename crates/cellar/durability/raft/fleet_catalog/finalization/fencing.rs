@@ -27,6 +27,20 @@ struct Record {
 }
 
 impl Record {
+    fn stop_selector(&self, request: ProposalId) -> Result<crate::raft::fleet_stop::StopSelector> {
+        let selector = crate::raft::fleet_stop::StopSelector {
+            boot: self.node.boot_binding(self.catalog)?,
+            epoch: self.node.epoch,
+            operation: self.request.operation,
+            finalization: self.request.id,
+            request: request.bytes(),
+        };
+        selector
+            .validate()
+            .map_err(|_| FleetCatalogError::Corrupt("stop selector"))?;
+        Ok(selector)
+    }
+
     fn validate(&self, catalog: &FleetCatalog) -> Result<()> {
         validate_request(&self.request)?;
         self.node.validate(&catalog.inner)?;
@@ -124,6 +138,32 @@ pub struct FleetFinalizationAdmission {
 }
 
 impl FleetFinalizationAdmission {
+    /// Request data only. The receiving host must revalidate the rooted fence
+    /// and persist its exact local guard before issuing any Node stop.
+    pub fn stop_request(
+        &self,
+        request: ProposalId,
+    ) -> Result<crate::raft::fleet_stop::FleetStopRequest> {
+        crate::raft::fleet_stop::FleetStopRequest::new(
+            self.record.stop_selector(request)?,
+            crate::raft::fleet_stop::FleetStopAction::Stop,
+        )
+        .map_err(|_| FleetCatalogError::Corrupt("stop request"))
+    }
+
+    /// Fence delayed stops at this epoch. This does not cancel the rooted
+    /// evacuation, restore eligibility or release the disruption slot.
+    pub fn stop_fence_request(
+        &self,
+        request: ProposalId,
+    ) -> Result<crate::raft::fleet_stop::FleetStopRequest> {
+        crate::raft::fleet_stop::FleetStopRequest::new(
+            self.record.stop_selector(request)?,
+            crate::raft::fleet_stop::FleetStopAction::Fence,
+        )
+        .map_err(|_| FleetCatalogError::Corrupt("stop fence request"))
+    }
+
     pub fn operation(&self) -> [u8; 16] {
         self.record.request.operation
     }
@@ -339,6 +379,110 @@ fn check_process(
 }
 
 impl FleetCatalog {
+    pub(crate) fn closure_sink(
+        &self,
+        selector: &crate::raft::fleet_stop::StopSelector,
+    ) -> Result<crate::raft::fleet_stop::Sink> {
+        selector
+            .validate()
+            .map_err(|_| FleetCatalogError::Invalid("stop selector"))?;
+        let owner = self.birth_owner()?;
+        if selector.boot.catalog != owner.catalog || selector.boot.fleet != self.inner.incarnation {
+            return Err(FleetCatalogError::Conflict);
+        }
+        Ok(crate::raft::fleet_stop::Sink {
+            bucket: self.inner.bucket.clone(),
+            key: self.inner.key(&format!(
+                "closures/{}/{}",
+                hex::encode(selector.boot.boot),
+                hex::encode(selector.request)
+            )),
+        })
+    }
+
+    pub(crate) async fn verify_local_stop(
+        &self,
+        selector: &crate::raft::fleet_stop::StopSelector,
+        action: crate::raft::fleet_stop::FleetStopAction,
+        timeout: Duration,
+    ) -> Result<()> {
+        selector
+            .validate()
+            .map_err(|_| FleetCatalogError::Invalid("stop selector"))?;
+        self.run(timeout, async {
+            let current = self.inner.current().await?;
+            let record = self.stop_record(&current, selector.operation).await?;
+            let request = ProposalId::new(selector.request)
+                .map_err(|_| FleetCatalogError::Invalid("stop request"))?;
+            if record.stop_selector(request)? != *selector {
+                return Err(FleetCatalogError::PayloadConflict);
+            }
+            if action == crate::raft::fleet_stop::FleetStopAction::Stop {
+                Candidate::read(self, record.candidate)
+                    .await?
+                    .basis
+                    .check_stop_inputs(self, &current)?;
+            }
+            if self.inner.current().await?.token != current.token {
+                return Err(FleetCatalogError::Conflict);
+            }
+            Ok(())
+        })
+        .await
+    }
+
+    async fn stop_record(&self, snapshot: &FleetSnapshot, operation: [u8; 16]) -> Result<Record> {
+        let bytes = self
+            .inner
+            .lookup(
+                snapshot.head.tables[FleetTable::Operations.slot()],
+                &key(operation),
+            )
+            .await?
+            .ok_or(FleetCatalogError::Conflict)?;
+        let record: Record = decode(FENCE_KIND, &bytes, 4096)?;
+        record.validate(self)?;
+        if record.request.operation != operation {
+            return Err(FleetCatalogError::Corrupt("stop operation key"));
+        }
+        record.confirm(self, snapshot).await?;
+        self.check_evacuation_slot(snapshot, operation, record.disruption)
+            .await?;
+        let node =
+            NodeId::new(record.node.node).map_err(|_| FleetCatalogError::Corrupt("stop node"))?;
+        if self.host_from_record(snapshot, node).await?.record != record.node {
+            return Err(FleetCatalogError::Conflict);
+        }
+        Ok(record)
+    }
+
+    /// Verify the boot-pinned signature produced by the actual surrounding host
+    /// after its domain joins. This grants no terminal state/slot transition.
+    pub async fn verify_physical_closure(
+        &self,
+        snapshot: &FleetSnapshot,
+        operation: ProposalId,
+        request: ProposalId,
+        timeout: Duration,
+    ) -> Result<crate::raft::fleet_stop::VerifiedFleetClosure> {
+        self.check_snapshot(snapshot)?;
+        self.run(timeout, async {
+            if self.inner.current().await?.token != snapshot.token {
+                return Err(FleetCatalogError::Conflict);
+            }
+            let selector = self
+                .stop_record(snapshot, operation.bytes())
+                .await?
+                .stop_selector(request)?;
+            let proof = self.closure_sink(&selector)?.verify(&selector).await?;
+            if self.inner.current().await?.token != snapshot.token {
+                return Err(FleetCatalogError::Conflict);
+            }
+            Ok(proof)
+        })
+        .await
+    }
+
     async fn finalization_request(&self, request: &FleetRequestIdentity) -> Result<Option<Record>> {
         let Some((mutation, _)) = self
             .inner

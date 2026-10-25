@@ -1,0 +1,330 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
+//! Real accepted stop/cancellation fences, physical joins and signed closure.
+use super::*;
+use cellar::sdk::consensus::FleetStopAction;
+use futures_util::StreamExt;
+use object_store::{path::Path, ObjectStore};
+use sha2::{Digest, Sha256};
+
+#[path = "raft_storage_fault.rs"]
+#[allow(dead_code)]
+mod fault;
+
+async fn finished(mut node: cellar::sdk::Node, f: &Fixture) -> Result<()> {
+    let outcome = f
+        .domain
+        .run(cellar::asyncrt::timeout(TIMEOUT, node.finished()))
+        .await???;
+    let NodeOutcome::Stopped(report) = outcome else {
+        anyhow::bail!("scoped fleet stop did not stop the node");
+    };
+    let raft = report.raft.context("missing joined physical Raft report")?;
+    ensure!(!raft.startup_incomplete && raft.result?.unfinished.is_empty());
+    Ok(())
+}
+
+async fn guarded() -> Result<(Started, Arc<fault::Gate>)> {
+    let s = Box::pin(Started::new()).await?;
+    let cut = s.f.catalog.read(TIMEOUT).await?;
+    let spec = s.f.peer_spec(7)?;
+    let authorization = s.f.catalog.authorize_host(&cut, spec.node, TIMEOUT).await?;
+    stopped(s.observer_node).await?;
+    let gate = fault::Gate::new(None);
+    let node = public_node::node_declared_with_filesystem(
+        s._observer_root.path(),
+        s.f.definition.application.clone(),
+        &spec.label,
+        vec![],
+        Arc::new(fault::FaultFileSystem { gate: gate.clone() }),
+    )
+    .await?;
+    let (mut config, services) = s.f.config_for(&node, authorization, &spec).await?;
+    config.infrastructure.log.mode = LogOpenMode::Resume;
+    config.infrastructure.log.process = ProcessGeneration::new([137; 16])?;
+    config.peers[0].process = config.infrastructure.log.process;
+    let observer = node.start_raft_cells(config, services).await?;
+    Ok((
+        Started {
+            observer_node: node,
+            observer,
+            f: s.f,
+            nodes: s.nodes,
+            cells: s.cells,
+            _observer_root: s._observer_root,
+            proposal: s.proposal,
+            authorization: s.authorization,
+            archive: s.archive,
+            _scratch_root: s._scratch_root,
+            scratch: s.scratch,
+            verifier: s.verifier,
+        },
+        gate,
+    ))
+}
+
+async fn finalizing(
+    s: &Started,
+) -> Result<(
+    ProposalId,
+    cellar::application::consensus::verification::FleetFinalizationAdmission,
+)> {
+    let (namespace, operation, candidate) = candidate(s).await?;
+    let root = s.f.catalog.read(TIMEOUT).await?;
+    let admission = candidate
+        .begin_finalization(
+            &root,
+            &request(operation, root.revision()),
+            &s.nodes[0].host,
+            std::slice::from_ref(&namespace),
+            TIMEOUT,
+        )
+        .await?;
+    Ok((operation, admission))
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn fleet_stop_waiter_loss_still_joins_and_signs() -> Result<()> {
+    let (s, gate) = Box::pin(guarded()).await?;
+    let (operation, admission) = finalizing(&s).await?;
+    let id = ProposalId::new([238; 16])?;
+    let request = admission.stop_request(id)?;
+    let mut wrong = serde_json::to_value(&request)?;
+    wrong["selector"]["boot"]["process"] = serde_json::json!(vec![138; 16]);
+    ensure!(matches!(
+        s.observer_node
+            .request_fleet_stop(serde_json::from_value(wrong)?, TIMEOUT)
+            .await,
+        Err(FleetCatalogError::Conflict)
+    ));
+    s.f.store.fail_closure_after.store(true, Ordering::Release);
+    let release = gate.arm(fault::HOLD_SYNC);
+    let mut pending = Box::pin(s.observer_node.request_fleet_stop(request, TIMEOUT));
+    ensure!(futures_util::poll!(pending.as_mut()).is_pending());
+    s.f.domain
+        .run(cellar::asyncrt::timeout(TIMEOUT, gate.entered.notified()))
+        .await??;
+    let cut = s.f.catalog.read(TIMEOUT).await?;
+    ensure!(matches!(
+        s.f.catalog
+            .verify_physical_closure(&cut, operation, id, TIMEOUT)
+            .await,
+        Err(FleetCatalogError::Unconfirmed)
+    ));
+    drop(pending);
+    drop(release);
+    // Observe and join autonomous shutdown without issuing another stop signal.
+    finished(s.observer_node, &s.f).await?;
+    ensure!(!s.f.store.fail_closure_after.load(Ordering::Acquire));
+    let cut = s.f.catalog.read(TIMEOUT).await?;
+    let proof =
+        s.f.catalog
+            .verify_physical_closure(&cut, operation, id, TIMEOUT)
+            .await?;
+    ensure!(
+        proof.node() == [7; 16] && proof.process() == [137; 16] && proof.request() == id.bytes()
+    );
+    ensure!(proof.operation() == operation.bytes() && proof.digest() != [0; 32]);
+    // A checksum-correct bucket edit still cannot fabricate the host signature.
+    let mut objects = s.f.store.inner.list(None);
+    let mut closure = None;
+    while let Some(object) = objects.next().await {
+        let object = object?;
+        if object.location.as_ref().contains("/closures/") {
+            ensure!(closure.is_none());
+            closure = Some(object.location);
+        }
+    }
+    let key: Path = closure.context("missing actual closure object")?;
+    let original = s.f.store.get(&key).await?.bytes().await?;
+    let payload = std::str::from_utf8(&original[13..original.len() - 32])?;
+    ensure!(payload.contains("\"groups\":0"));
+    let payload = payload.replacen("\"groups\":0", "\"groups\":1", 1);
+    let mut corrupt = original[..9].to_vec();
+    corrupt.extend_from_slice(&(payload.len() as u32).to_be_bytes());
+    corrupt.extend_from_slice(payload.as_bytes());
+    corrupt.extend_from_slice(&Sha256::digest(&corrupt));
+    s.f.store.inner.put(&key, corrupt.into()).await?;
+    ensure!(matches!(
+        s.f.catalog
+            .verify_physical_closure(&cut, operation, id, TIMEOUT)
+            .await,
+        Err(FleetCatalogError::Corrupt("closure signature"))
+    ));
+    s.f.store.inner.put(&key, original.into()).await?;
+    ensure!(
+        s.f.catalog
+            .verify_physical_closure(&cut, operation, id, TIMEOUT)
+            .await?
+            .digest()
+            == proof.digest()
+    );
+    write_read(&s.f, &s.cells, 1, 9, 9).await?;
+    ensure!(s.scratch.usage()?.generations == 0);
+    stop(s.nodes).await?;
+    s.f.domain.shutdown().await;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn fleet_stop_cancellation_fence_defeats_late_stop() -> Result<()> {
+    let (s, _gate) = Box::pin(guarded()).await?;
+    let (operation, admission) = finalizing(&s).await?;
+    let cancellation = admission.stop_fence_request(ProposalId::new([239; 16])?)?;
+    let accepted = s
+        .observer_node
+        .request_fleet_stop(cancellation.clone(), TIMEOUT)
+        .await?;
+    ensure!(accepted.action() == FleetStopAction::Fence);
+    ensure!(
+        s.observer_node
+            .request_fleet_stop(cancellation, TIMEOUT)
+            .await?
+            .request()
+            == [239; 16]
+    );
+    let id = ProposalId::new([238; 16])?;
+    ensure!(matches!(
+        s.observer_node
+            .request_fleet_stop(admission.stop_request(id)?, TIMEOUT)
+            .await,
+        Err(FleetCatalogError::Conflict)
+    ));
+    ensure!(!s.observer_node.is_closed());
+    s.observer.observe_node(TIMEOUT).await?;
+    stopped(s.observer_node).await?;
+    let cut = s.f.catalog.read(TIMEOUT).await?;
+    ensure!(matches!(
+        s.f.catalog
+            .verify_physical_closure(&cut, operation, id, TIMEOUT)
+            .await,
+        Err(FleetCatalogError::Unconfirmed)
+    ));
+    // The local fence did not release the rooted operation or disruption slot.
+    ensure!(
+        s.f.catalog
+            .evacuation_finalization(&cut, operation, TIMEOUT)
+            .await?
+            .enrollment_epoch()
+            == admission.enrollment_epoch()
+    );
+    stop(s.nodes).await?;
+    s.f.domain.shutdown().await;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn fleet_stop_closure_waits_for_physical_owner_join() -> Result<()> {
+    let (s, gate) = Box::pin(guarded()).await?;
+    let (operation, admission) = finalizing(&s).await?;
+    let id = ProposalId::new([238; 16])?;
+    let release = gate.arm(fault::HOLD_LOCK_DROP);
+    let accepted = s
+        .observer_node
+        .request_fleet_stop(admission.stop_request(id)?, TIMEOUT)
+        .await?;
+    ensure!(accepted.action() == FleetStopAction::Stop);
+    s.f.domain
+        .run(cellar::asyncrt::timeout(TIMEOUT, gate.entered.notified()))
+        .await??;
+    ensure!(!s.observer_node.is_closed());
+    // Exact accepted retries remain bounded while the driver cannot yet join
+    // the physical engine. They preserve acceptance without issuing more stops.
+    for _ in 0..32 {
+        ensure!(
+            s.observer_node
+                .request_fleet_stop(admission.stop_request(id)?, TIMEOUT)
+                .await?
+                .request()
+                == id.bytes()
+        );
+    }
+    let cut = s.f.catalog.read(TIMEOUT).await?;
+    ensure!(matches!(
+        s.f.catalog
+            .verify_physical_closure(&cut, operation, id, TIMEOUT)
+            .await,
+        Err(FleetCatalogError::Unconfirmed)
+    ));
+    let late_fence = admission.stop_fence_request(ProposalId::new([239; 16])?)?;
+    ensure!(matches!(
+        s.observer_node
+            .request_fleet_stop(late_fence, TIMEOUT)
+            .await,
+        Err(FleetCatalogError::Closed
+            | FleetCatalogError::Conflict
+            | FleetCatalogError::Unconfirmed)
+    ));
+    write_read(&s.f, &s.cells, 1, 3, 3).await?;
+    drop(release);
+    finished(s.observer_node, &s.f).await?;
+    let cut = s.f.catalog.read(TIMEOUT).await?;
+    ensure!(
+        s.f.catalog
+            .verify_physical_closure(&cut, operation, id, TIMEOUT)
+            .await?
+            .request()
+            == id.bytes()
+    );
+    ensure!(s.scratch.usage()?.generations == 0);
+    stop(s.nodes).await?;
+    s.f.domain.shutdown().await;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn fleet_stop_changed_inventory_refuses_admission() -> Result<()> {
+    let (s, _gate) = Box::pin(guarded()).await?;
+    let (operation, admission) = finalizing(&s).await?;
+    let mut config = s.f.declaration.namespace.clone();
+    config.namespace = NamespaceId::new([87; 16])?;
+    config.managed_fleet = None;
+    let extra = Catalog::new(
+        s.f.store.clone(),
+        CatalogOptions {
+            prefix: "host-enrollment/".into(),
+            ..Default::default()
+        },
+    )?
+    .open_namespace(config)
+    .await?;
+    let cut = s.f.catalog.read(TIMEOUT).await?;
+    s.f.catalog
+        .declare_namespace(
+            &cut,
+            &Fixture::request(222, cut.revision()),
+            &extra,
+            "Counter",
+            TIMEOUT,
+        )
+        .await?;
+    let id = ProposalId::new([238; 16])?;
+    ensure!(matches!(
+        s.observer_node
+            .request_fleet_stop(admission.stop_request(id)?, TIMEOUT)
+            .await,
+        Err(FleetCatalogError::Conflict)
+    ));
+    ensure!(!s.observer_node.is_closed());
+    // Cancellation can narrow authority even when positive inventory inputs
+    // changed. It cannot complete the rooted operation or produce closure.
+    let fenced = s
+        .observer_node
+        .request_fleet_stop(
+            admission.stop_fence_request(ProposalId::new([239; 16])?)?,
+            TIMEOUT,
+        )
+        .await?;
+    ensure!(fenced.action() == FleetStopAction::Fence);
+    stopped(s.observer_node).await?;
+    let cut = s.f.catalog.read(TIMEOUT).await?;
+    ensure!(matches!(
+        s.f.catalog
+            .verify_physical_closure(&cut, operation, id, TIMEOUT)
+            .await,
+        Err(FleetCatalogError::Unconfirmed)
+    ));
+    stop(s.nodes).await?;
+    s.f.domain.shutdown().await;
+    Ok(())
+}
