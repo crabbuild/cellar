@@ -381,6 +381,16 @@ status and joined local closure. Admission is synchronous, including when a
 returned future is not polled. Attempt deadlines are checked by the dispatcher
 and SQL owner; cancellation cannot release a slot while its callback still runs.
 
+Checkpoint and source metadata capture freezes an exact durable cut on that SQL
+owner, then releases it before physical snapshot encoding. A separate registered
+blocking task retains the immutable image pin, source reservation, scratch owners
+and any application work until encoding exits. The same source admission bounds
+checkpoints and transfers. Queries and commands can continue while a snapshot is
+encoded; an encoding completion cannot clear a newer SQL operation's busy flag.
+The `snapshot_encode` performance timer records this work separately from SQL.
+Physical verification and runtime checkpoint/install authorization still precede
+publication, and shutdown joins the encoder before releasing its owners.
+
 Each SQL owner prioritizes queued publication, retirement, submission, discard
 and archive capture over unrelated ordinary work. It never passes an earlier
 request for the same cell, and after three priority selections it serves the

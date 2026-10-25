@@ -476,14 +476,39 @@ async fn drill(
         started.elapsed().as_secs_f64()
     );
     let first_read = std::time::Instant::now();
-    read(
+    let first_read_result = read(
         &handles[primary],
         definitions[primary].get.clone(),
         7,
         payload_bytes,
         QueryConsistency::Linearizable,
     )
-    .await?;
+    .await;
+    if let Err(error) = &first_read_result {
+        // Preserve the state before failure unwinds the cluster and joins slow
+        // archive work. A shutdown stack alone cannot identify why a read failed.
+        for (index, (handle, service)) in handles.iter().zip(&cluster.services).enumerate() {
+            let status = handle.status().await;
+            let resources = service.resource_usage();
+            let performance = service.performance();
+            let operations = performance
+                .operations
+                .iter()
+                .filter(|operation| {
+                    matches!(
+                        operation.name,
+                        "sql_queue"
+                            | "sql_query"
+                            | "sql_other"
+                            | "sql_archive_capture"
+                            | "snapshot_encode"
+                    )
+                })
+                .collect::<Vec<_>>();
+            eprintln!("full-native first-read-refused worker={index} error={error:#} status={status:?} groups={:?} sql={:?} operations={operations:?}", resources.groups, resources.sql);
+        }
+    }
+    first_read_result?;
     eprintln!(
         "full-native stage=first-read duration_s={:.3}",
         first_read.elapsed().as_secs_f64()

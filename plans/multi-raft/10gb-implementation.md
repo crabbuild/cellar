@@ -209,6 +209,19 @@ without relaxing read deadlines or checkpoint/publication proofs. This is a
 working diagnosis, not a qualified fix. The extent-root contract is being built
 in an isolated checkout while the existing native path is repaired.
 
+The small gated regression reproduced `VersionUnavailable` while a checkpoint
+encoder held the SQL worker (5.61 seconds). Snapshot metadata capture now freezes
+the exact durable cut and retains its image pin, then a separately admitted
+execution-domain blocking job performs encoding. Source, scratch and application
+work ownership persist through completion and shutdown; encoding completion does
+not release a newer SQL operation's busy flag. The snapshot descriptor, physical
+verification and runtime checkpoint/install proofs are unchanged. Three gated
+tests pass (2.33 seconds): reads/new writes during held encoding, joined close
+with retained reservations, and a late encoding completion during a newer private
+callback. `snapshot_encode` records this work separately from SQL. Broader owning
+suites and the full-size peer/RustFS reruns remain required; these focused tests
+do not establish that the earlier 10 GB failure has been eliminated.
+
 ## Remaining work
 
 The completion checklist remains open. Full native 10 GB warm takeover, exact

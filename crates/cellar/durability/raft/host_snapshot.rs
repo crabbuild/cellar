@@ -41,6 +41,62 @@ impl Incoming {
 }
 
 impl Driver {
+    pub(super) fn encode_snapshot(
+        &mut self,
+        scope: GroupScope,
+        purpose: SqlPurpose,
+        capture: Box<crate::raft::snapshot::SnapshotCapture>,
+        reservation: SourceReservation,
+        work: Option<Arc<client::Work>>,
+        bytes: Option<Permit>,
+    ) {
+        // Source admission bounds every encoder, including checkpoints. The
+        // blocking owner retains the pin, scratch charges and application work
+        // even if its network/request waiter is cancelled. Shutdown joins jobs.
+        let checkpoint = matches!(&purpose, SqlPurpose::Checkpoint);
+        let performance = self.local.performance.clone();
+        let job = self.log.domain().blocking(move || {
+            let _work = work;
+            let timer = performance.timer(super::super::performance::Operation::SnapshotEncode);
+            let result = capture
+                .encode()
+                .map_err(super::super::execution::storage)
+                .map(|package| {
+                    let value = if checkpoint {
+                        let material = Box::new(package.checkpoint_material());
+                        drop(package);
+                        drop(reservation);
+                        Value::Checkpoint(material)
+                    } else {
+                        Value::SnapshotSource {
+                            package: Box::new(package),
+                            reservation,
+                        }
+                    };
+                    sql::Output {
+                        value,
+                        _bytes: bytes,
+                    }
+                });
+            timer.finish(result.is_ok());
+            result
+        });
+        self.jobs.push(Box::pin(async move {
+            let result = match job {
+                Ok(job) => match job.await {
+                    Ok(result) => result,
+                    Err(error) => Err(ExecutionError::Storage(anyhow::Error::new(error))),
+                },
+                Err(_) => Err(ExecutionError::Refused(CommandFailure::Unavailable)),
+            };
+            Job::SnapshotEncoded {
+                scope,
+                purpose,
+                result: Box::new(result),
+            }
+        }));
+    }
+
     fn snapshot_send_failure(&mut self, scope: &GroupScope, member: u64) {
         let runtime = self.runtime.clone();
         let scope = scope.clone();
@@ -303,10 +359,21 @@ impl Driver {
         purpose: SqlPurpose,
         result: Result<sql::Output, ExecutionError>,
     ) {
+        if let Some(cell) = self.cells.get_mut(&scope) {
+            cell.sql_busy = false;
+        }
+        self.on_snapshot_encoded(scope, purpose, result);
+    }
+
+    pub(super) fn on_snapshot_encoded(
+        &mut self,
+        scope: GroupScope,
+        purpose: SqlPurpose,
+        result: Result<sql::Output, ExecutionError>,
+    ) {
         let Some(cell) = self.cells.get_mut(&scope) else {
             return;
         };
-        cell.sql_busy = false;
         match purpose {
             SqlPurpose::Checkpoint => match result {
                 Ok(sql::Output {
