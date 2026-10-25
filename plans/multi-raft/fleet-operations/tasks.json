@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "baseline_revision": "c79245d1c7308071e0d29e1964ad33a7c872be8c",
+  "baseline_revision": "c8e6815e50c70bd582619c5a63dbbf7a0820b67b",
   "invariants": {
     "F01": "Quorum authority",
     "F02": "Stable identities",
@@ -2141,13 +2141,24 @@
         "crates/cellar-logic/lib.rs",
         "crates/cellar-logic/raft_placement.rs",
         "crates/cellar/durability/raft/fleet_catalog/mod.rs",
-        "crates/cellar-logic/README.md"
+        "crates/cellar-logic/README.md",
+        "crates/cellar/durability/raft/fleet_catalog/capacity.rs",
+        "crates/cellar/durability/raft/fleet_catalog/README.md",
+        "crates/cellar/application/consensus/mod.rs",
+        "crates/cellar/application/consensus/protocol.rs",
+        "crates/cellar/durability/raft/catalog_wire.rs",
+        "crates/cellar/tests/support/raft_capacity_native.rs",
+        "crates/cellar/tests/support/raft_initial_native.rs"
       ],
       "creates": [
         "crates/cellar/tests/native_raft_fleet_placement.rs",
         "crates/cellar-logic/raft_fleet/mod.rs",
         "crates/cellar-logic/raft_fleet/ledger.rs",
-        "crates/cellar-logic/tests/raft_fleet_ledger.rs"
+        "crates/cellar-logic/tests/raft_fleet_ledger.rs",
+        "crates/cellar/durability/raft/fleet_catalog/resources/mod.rs",
+        "crates/cellar/durability/raft/fleet_catalog/resources/records.rs",
+        "crates/cellar/durability/raft/fleet_catalog/resources/admission.rs",
+        "crates/cellar/tests/support/raft_resource_native.rs"
       ],
       "steps": [
         "Implement dependency-free FleetView, FleetPolicy, projected-capacity scoring and typed refusal reasons.",
@@ -2156,7 +2167,8 @@
         "Implement complete bounded assignment and final-fleet single-failure simulation; distinguish search exhaustion from infeasibility.",
         "Use source-target gap and lexicographic pressure improvement for performance-triggered moves; explicit topology requests reduce feasible live-assignment distance while retained physical state remains charged.",
         "Produce a complete final assignment and a legal bounded move DAG; reconcile materialization without double-crediting physical resources.",
-        "Implement boot/process/profile-scoped conservative resource accounting, monotonic attributed materialization and bounded unresolved movement debt. Preserve physical high water until a separate terminal-proof release boundary; a pure ledger grants no catalog admission authority."
+        "Implement boot/process/profile-scoped conservative resource accounting, monotonic attributed materialization and bounded unresolved movement debt. Preserve physical high water until a separate terminal-proof release boundary; a pure ledger grants no catalog admission authority.",
+        "Add journal-linked root-CAS resource debits using current typed capacity, owned authenticated probes and explicit deployment occupancy attestation. Preserve old-scope and unmaterialized genesis debt, refuse unknown permit attribution and prevent generic deletion/reset. Link the physical inventory producer, typed membership permit and terminal release before general fleet redistribution."
       ],
       "acceptance": [
         "Projected destination utilization includes every unresolved permit.",
@@ -2264,6 +2276,61 @@
             "F02",
             "F06"
           ]
+        },
+        {
+          "name": "fleet_resource_lost_reply_reconciles_and_cannot_reset_book",
+          "oracle": "Lose the successful head-CAS response and confirmation, exclude and stop the actual target, recreate the adapter and reconcile the historical debit without live inputs. Changed payload and generic book/row deletion refuse without freeing debt.",
+          "invariants": [
+            "F03",
+            "F05",
+            "F06",
+            "F07",
+            "F08"
+          ]
+        },
+        {
+          "name": "fleet_resource_refuses_raw_active_and_incomplete_inputs",
+          "oracle": "The resource consumer refuses bare Active metadata, incomplete namespace inventory, a stale boot, too-small learner byte bounds and memory overcommit without advancing the root.",
+          "invariants": [
+            "F03",
+            "F05",
+            "F06",
+            "F07",
+            "F08"
+          ]
+        },
+        {
+          "name": "fleet_resource_exclusion_wins_at_cas",
+          "oracle": "Hold the real resource head CAS after its owned probe; an independent adapter excludes the target first. The resource CAS loses and orphan candidate bytes grant no rooted debit or membership.",
+          "invariants": [
+            "F03",
+            "F05",
+            "F06",
+            "F07",
+            "F08"
+          ]
+        },
+        {
+          "name": "fleet_resource_expired_cas_has_no_detached_writer",
+          "oracle": "Hold the actual conditional in-memory head CAS past the original operation deadline. Its owned waiter drops without a late writer; the root stays unchanged, then an exact unadmitted retry can reconcile and admit after the hold releases.",
+          "invariants": [
+            "F03",
+            "F05",
+            "F06",
+            "F07",
+            "F08"
+          ]
+        },
+        {
+          "name": "fleet_resource_unmaterialized_genesis_is_not_free",
+          "oracle": "A Reserved birth targeting an empty node blocks overlapping resource admission. Confirming it Live without materializing its original voter still supplies no free-slot proof; exact physical history attribution remains required.",
+          "invariants": [
+            "F03",
+            "F05",
+            "F06",
+            "F07",
+            "F08"
+          ]
         }
       ],
       "verification": [
@@ -2310,6 +2377,30 @@
           "--",
           "-D",
           "warnings"
+        ],
+        [
+          "cargo",
+          "test",
+          "-p",
+          "cellar",
+          "--test",
+          "native_raft_fleet_enrollment",
+          "--locked",
+          "fleet_resource_",
+          "--",
+          "--test-threads=1"
+        ],
+        [
+          "cargo",
+          "test",
+          "-p",
+          "cellar",
+          "--test",
+          "native_raft_fleet_enrollment",
+          "--locked",
+          "fleet_placement_concurrent_targets",
+          "--",
+          "--test-threads=1"
         ]
       ],
       "evidence": []

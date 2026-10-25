@@ -1689,6 +1689,50 @@ operations; it does not block this dependency-free accounting component.
 FO-04 is `IN_PROGRESS`; FO-05 through FO-10 remain `TODO`. The fleet remains
 default-off, with no new throughput, latency or deployed-capacity qualification.
 
+## FO-04 progress: atomic resource debits
+
+Source `c8e6815e50c70bd582619c5a63dbbf7a0820b67b` consumes current typed capacity
+in `FleetCatalog::reserve_resources`. It owns complete inventory and an
+authenticated exact-boot node probe, combines explicit deployment occupancy
+attestation with installed runtime floors, then installs the journal-linked
+resource row and active movement book through one expected-root CAS. Physical
+high water and unresolved old-boot/profile growth remain charged. The initial
+execution profile bounds active resource debits to two fleet-wide. Generic
+metadata writes cannot delete or replace admitted rows or reset the book.
+
+The six new native cases pass, including an actual last-slot race between
+independent catalog adapters, an exclusion winning against a held resource CAS,
+lost successful CAS response/confirmation with target shutdown and adapter
+recreation, original-deadline cancellation without a detached local writer,
+invalid/incomplete input refusal, and unmaterialized genesis debt. The seven
+capacity cases and earlier-protocol refusal also pass. The full current native
+cohort passes 137 cases: enrollment 109, catalog 12 and directory 16. All 162
+selected Raft unit cases pass; focused checks overlap those totals. Clippy for
+the library and these integration targets passes with warnings denied. The
+runner freezes all 1,193 Rust files and 21 Cargo/configuration inputs and retains
+the actual executed binaries and hashes. All inputs match this code commit. Formatting/layout, native dependencies (465 reachable packages, no JavaScript engine), documentation, plan validation, ten validator tests and source preflight pass. The partial record and logs are retained at ignored `implementation/fo04/resource-boundary.json` and adjacent `fo04-resources-v2-*` paths under `.cellar/raft-perf/fleet-operations/`. No raw evidence is tracked.
+
+The resource cases currently run through the existing
+`native_raft_fleet_enrollment` fixture. The complete
+`native_raft_fleet_placement` target and all its required acceptance boundaries
+remain deliverables; a passing resource case does not close FO-04.
+
+This is resource-only admission. The historical receipt grants no learner or
+membership authority. Complete physical history attribution, linking each debit
+with its exact membership permit, source/target work ownership and terminal
+release remain required. Unknown legacy permit attribution and noncancelled
+genesis obligations refuse instead of counting them as free. Before releasing
+an active debit, retain its physical high water independently of the completed
+row so unused-growth release cannot also credit retained bytes or slots.
+Complete final/staged assignment and one-node-loss restoration feasibility are
+still pending. Deployed resource measurements, RustFS and performance are not
+qualified; automatic fleet management remains default-off.
+
+The experimental protocol now ends in `/capacity-readiness-1/resource-reservations-1`
+so earlier writers cannot bypass the new append-only resource-book rules. Markers
+stay at 1; use fresh coordination/data prefixes, namespaces, engine directories
+and matching binaries. No compatibility reader or migration is added.
+
 ## Prioritized remaining delivery
 
 The append-only namespace registry, complete inventory read, native retired-binding
@@ -1708,7 +1752,7 @@ lifecycle proof remains pending. A saved count cannot authorize maintenance. The
 | Priority | Boundary | Required result before advancing |
 | --- | --- | --- |
 | P0 | FO-03 terminal completion | Resume or refresh candidates while Finalizing without rebinding accepted stop authority; retain uncertain occupancy for unreachable owners. Obtain fresh terminal survivor/inventory/archive checks and atomically root the terminal receipt/node transition/disruption-slot release. Close `fleet_enrollment_incomplete_import` at removal certification. Attested capacity readiness is implemented at its local boundary; deployed measurements remain a qualification gate. |
-| P1 | FO-04 placement, FO-05 load, FO-06 reconciliation | Consume current typed capacity and fresh occupancy in bounded staged feasibility for retained/temporary costs and one-node-loss headroom, then add fresh load observations and a domain-owned reconciler. Restart/cancellation/lost replies must converge; release reservations only with fresh terminal quorum proof and physical-work joins. |
+| P1 | FO-04 placement, FO-05 load, FO-06 reconciliation | Resource-only admission now consumes current typed capacity through one CAS. Add complete physical attribution and exact permit linkage, bounded staged feasibility for retained/temporary costs and one-node-loss headroom, then fresh load observations and a domain-owned reconciler. Restart/cancellation/lost replies must converge; release reservations only with fresh terminal quorum proof and physical-work joins. |
 | P2 | FO-07 maintenance and FO-08 operator API/CLI | Integrate local stop/fence admission and verified closure with the shared disruption slot for restart/resize, complete evacuation/removal receipts and authenticated idempotent workflows with revision guards and typed outcomes. Deliver typed remote overload/unknown outcomes, add/remove, rolling restart and cancellation/resume. |
 | P3 | FO-09 scaling and fewer-cell shrink | Reconcile desired, effective and observed resources for horizontal and vertical changes. Require observed platform-limit checks and complete retained-state fit before shrinking; fewer cells do not establish removability. |
 | Release gate | FO-10 deployed qualification and performance | Qualify actual five/six/four-node RustFS/Colima operations and faults with enforced 1-vCPU/3-GiB limits and a 24-hour soak. Measure successful TPS, p50/p95/p99, archive catch-up and controller idle/movement overhead. Prefer p99 below 200 ms; 500 ms is the hard ceiling. Keep optional performance changes only with matched evidence of higher throughput or lower latency. |
