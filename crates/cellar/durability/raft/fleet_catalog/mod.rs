@@ -14,6 +14,7 @@ mod nodes;
 mod permits;
 mod placement;
 mod records;
+mod resources;
 
 pub use capacity::{
     fleet_capacity_profile_digest, FleetCapacityAction, FleetCapacityAdmission,
@@ -36,6 +37,9 @@ pub use nodes::{
 pub(crate) use nodes::{FleetTrustReader, FleetTrustSnapshot};
 pub use permits::{FleetGroupAuthorization, FleetPermitAuthorization};
 pub use placement::FleetReplicaSeparation;
+pub use resources::{
+    FleetResourceAdmission, FleetResourceAttestation, FleetResourceBounds, FleetResourceRequest,
+};
 
 use records::{CommitRecord, Head, Pin};
 pub use records::{FleetChange, FleetMutation, FleetTable};
@@ -71,6 +75,7 @@ pub enum FleetCatalogError {
     Closed,
     Storage(anyhow::Error),
     Observation(super::inspection::InspectionError),
+    Resource(cellar_logic::raft_fleet::LedgerError),
 }
 
 impl From<super::catalog::CatalogError> for FleetCatalogError {
@@ -340,6 +345,7 @@ impl FleetCatalog {
         if current.token != snapshot.token || mutation.expected_revision != snapshot.revision() {
             return Err(FleetCatalogError::Conflict);
         }
+        self.check_resource_mutation(snapshot, mutation).await?;
         self.inner
             .create_exact(&format!("requests/{key}"), &bytes, REQUEST_LIMIT)
             .await?;

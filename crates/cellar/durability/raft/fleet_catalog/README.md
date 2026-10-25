@@ -8,7 +8,8 @@ business writes. No business acknowledgement calls the fleet catalog.
 The adapter and its verification export are available for integration work.
 The [namespace registry and inventory check](namespaces/README.md) enumerate every
 declared namespace and retained birth/history. Typed evacuation exclusion now
-consumes that complete inventory. Capacity activation, terminal lifecycle proof,
+consumes that complete inventory. Typed capacity activation and resource debit
+admission are implemented at the boundaries below. Terminal lifecycle proof,
 automatic reconciliation and operator workflows remain separate packages in the
 [fleet operations plan](../../../../../plans/multi-raft/fleet-operations/README.md).
 Do not interpret successful generic metadata writes as proof that a placement
@@ -119,7 +120,7 @@ Ordinary `bootstrap_member` can only resume an already enrolled managed group;
 it refuses fresh or bare genesis before creating local group state or a member
 claim. Managed host startup and `activate_managed_initial_member` use the guarded path described below.
 
-This experimental protocol hard-cuts to `/fleet-quorum-1/fleet-cuts-1/empty-archives-1/archive-cuts-1/fleet-finalization-1/fleet-stop-1/fleet-stop-rpc-1/capacity-readiness-1`; use fresh fleet
+This experimental protocol hard-cuts to `/fleet-quorum-1/fleet-cuts-1/empty-archives-1/archive-cuts-1/fleet-finalization-1/fleet-stop-1/fleet-stop-rpc-1/capacity-readiness-1/resource-reservations-1`; use fresh fleet
 roots, fresh namespaces, fresh engine directories and matching binaries. Fleet heads require the current
 protocol digest, and their permanent genesis pin binds it. Missing or earlier
 protocol state refuses initialization and reads; there is no compatibility reader.
@@ -501,6 +502,49 @@ reservations. Actual host initialization still enforces its own bounds. The
 reservation planner and complete operator workflows remain pending; this does
 not enable automatic fleet management or certify deployed resource limits.
 
+## Atomic resource debit admission
+
+`reserve_resources` consumes current typed capacity, complete rooted inventory,
+an explicit deployment occupancy attestation and an owned authenticated node
+probe. The probe must name the exact qualified boot, engine, process, running
+profile and current enrollment cut. Its original age is rechecked immediately
+before the expected-root CAS, within the original operation deadline.
+
+One root CAS installs the immutable journal-linked resource row and the bounded
+active movement book. Independent adapters cannot both consume a target's last
+slot. Engine capacity uses the smallest installed host/runtime/engine/profile
+and attested bound; durable capacity uses the smaller profile/platform bound.
+Memory and disk occupancy remain explicitly deployment-attested, with additional
+floors from actual engine occupancy, configured byte reservations and installed
+buffer bounds. These floors do not measure RSS or complete filesystem usage.
+The submitting trusted operator retains the referenced attestation evidence.
+
+The shared pure ledger charges existing physical high water and every unresolved
+incremental peak before the candidate. Earlier boots and profiles retain their
+full debt. The initial execution profile admits two active debits fleet-wide,
+with at most two on one node. Queued plan entries are not active debits. Recovery
+headroom and final/staged assignment feasibility remain planner prerequisites;
+this resource-only boundary does not establish either.
+
+Missing permit resource attribution refuses instead of inventing zero debt.
+An initial voter reference may still initialize after its birth becomes Live.
+Until exact physical history attribution is implemented, a target with a
+noncancelled genesis obligation refuses new resource work. This includes a
+Reserved birth and a Live birth with no materialized engine group. The complete
+physical inventory producer and typed permit consumer must close these gates
+before general redistribution is enabled.
+
+Exact committed retries reconcile from the permanent request journal before
+live probes, including after exclusion, target shutdown and adapter recreation.
+Changed payloads refuse. A deadline drops the owned metadata/CAS waiter; an
+ambiguous result still requires exact journal reconciliation. Generic metadata
+mutations cannot delete or replace earlier resource rows or reset their book.
+
+`FleetResourceAdmission` is historical debit acceptance, not a capacity lease,
+membership permit or learner-initialization capability. No release API is
+provided: terminal group proof, physical joins and atomic permit/resource release
+remain controller work. No business acknowledgement calls this component.
+
 ## Host API and fresh learners
 
 ### Rooted node enrollment
@@ -701,7 +745,7 @@ response alone is not a fleet completion certificate.
 Cellar-owned markers stay at 1. Membership and intent records require an explicit
 nullable `fleet` field. Birth records also require an explicit nullable
 `cancelled_by` field; the namespace protocol identity ends in
-`/catalog-trust-1/fleet-admission-1/fleet-quorum-1/fleet-cuts-1/empty-archives-1/archive-cuts-1/fleet-finalization-1/fleet-stop-1/fleet-stop-rpc-1/capacity-readiness-1`.
+`/catalog-trust-1/fleet-admission-1/fleet-quorum-1/fleet-cuts-1/empty-archives-1/archive-cuts-1/fleet-finalization-1/fleet-stop-1/fleet-stop-rpc-1/capacity-readiness-1/resource-reservations-1`.
 Node records require an explicit nullable `boot` field; Finalizing is a boot-refusing
 state. The engine requires a separate `cellar-node-lifecycle` record, initialized
 atomically with a new engine root. Resume refuses a missing record rather than

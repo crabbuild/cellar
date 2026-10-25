@@ -280,7 +280,7 @@ impl FleetCatalog {
             .await
             .map_err(FleetCatalogError::Observation)?;
         deadline.remaining()?;
-        check_observation(&target, request, &observation)?;
+        check_observation(&target, &request.attestation, &observation)?;
         self.run(deadline.remaining()?, async {
             if self.inner.current().await?.token != snapshot.token {
                 return Err(FleetCatalogError::Conflict);
@@ -353,46 +353,39 @@ impl FleetCatalog {
             if self.inner.current().await?.token != snapshot.token {
                 return Err(FleetCatalogError::Conflict);
             }
-            let bytes = self
-                .inner
-                .lookup(
-                    snapshot.head.tables[FleetTable::Operations.slot()],
-                    &key(node.bytes()),
-                )
-                .await?
-                .ok_or(FleetCatalogError::Conflict)?;
-            let record: Record = decode(KIND, &bytes, 4096)?;
-            record.validate(self)?;
-            if record.request.attestation.boot.node != node.bytes() {
-                return Err(FleetCatalogError::Corrupt("capacity node key"));
-            }
-            let (mutation, original) = self
-                .capacity_request(&record.request)
-                .await?
-                .ok_or(FleetCatalogError::Corrupt("missing capacity request"))?;
-            if encode(KIND, &original, 4096)? != bytes
-                || self.capacity_applied(snapshot, &mutation).await?.is_none()
-            {
-                return Err(FleetCatalogError::Corrupt("unadmitted capacity"));
-            }
-            let target = self.host_from(snapshot, node).await?;
-            if target.state() != record.request.action.state()
-                || target.epoch() != record.epoch
-                || target.boot_binding()? != record.request.attestation.boot
-                || hash(&encode(NODE_KIND, &target.record, 4096)?) != record.node_digest
-            {
-                return Err(FleetCatalogError::Conflict);
-            }
-            self.confirm_boot(snapshot, &target.record).await?;
+            let authorization = self.capacity_from(snapshot, node).await?;
             if self.inner.current().await?.token != snapshot.token {
                 return Err(FleetCatalogError::Conflict);
             }
-            Ok(FleetCapacityAuthorization {
-                record,
-                revision: snapshot.revision(),
-            })
+            Ok(authorization)
         })
         .await
+    }
+
+    // Called only inside an owned catalog turn. Callers retain the surrounding
+    // current-root checks, avoiding nested turn acquisition during admission.
+    pub(super) async fn capacity_from(
+        &self,
+        snapshot: &FleetSnapshot,
+        node: NodeId,
+    ) -> Result<FleetCapacityAuthorization> {
+        let record = self
+            .rooted_capacity(snapshot, node)
+            .await?
+            .ok_or(FleetCatalogError::Conflict)?;
+        let target = self.host_from(snapshot, node).await?;
+        if target.state() != record.request.action.state()
+            || target.epoch() != record.epoch
+            || target.boot_binding()? != record.request.attestation.boot
+            || hash(&encode(NODE_KIND, &target.record, 4096)?) != record.node_digest
+        {
+            return Err(FleetCatalogError::Conflict);
+        }
+        self.confirm_boot(snapshot, &target.record).await?;
+        Ok(FleetCapacityAuthorization {
+            record,
+            revision: snapshot.revision(),
+        })
     }
 
     async fn capacity_applied(
@@ -500,9 +493,9 @@ impl FleetCatalog {
     }
 }
 
-fn check_observation(
+pub(super) fn check_observation(
     target: &FleetHostAuthorization,
-    request: &FleetCapacityRequest,
+    attestation: &FleetCapacityAttestation,
     sample: &RaftPeerNodeObservation,
 ) -> Result<()> {
     let view = &sample.view;
@@ -510,7 +503,6 @@ fn check_observation(
         .current_enrollment
         .as_ref()
         .ok_or(FleetCatalogError::Unconfirmed)?;
-    let attestation = &request.attestation;
     let bounds = &view.startup_bounds;
     if view.fleet_boot.as_ref() != Some(&attestation.boot)
         || view.node.identity.node != target.node()

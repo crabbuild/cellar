@@ -5,7 +5,7 @@
 use super::*;
 use cellar::application::consensus::verification::NamespaceCatalog;
 
-async fn namespace(f: &Fixture) -> Result<NamespaceCatalog> {
+pub(super) async fn namespace(f: &Fixture) -> Result<NamespaceCatalog> {
     Ok(Catalog::new(
         f.store.clone(),
         CatalogOptions {
@@ -17,7 +17,7 @@ async fn namespace(f: &Fixture) -> Result<NamespaceCatalog> {
     .await?)
 }
 
-async fn attestation(
+pub(super) async fn attestation(
     f: &Fixture,
     origin: &RaftCells,
     target: &RaftCells,
@@ -58,7 +58,7 @@ fn request(
     }
 }
 
-async fn joined(node: cellar::sdk::Node) -> Result<()> {
+pub(super) async fn joined(node: cellar::sdk::Node) -> Result<()> {
     let NodeOutcome::Stopped(report) = node.shutdown(ShutdownMode::Preserve).await? else {
         anyhow::bail!("capacity fixture did not stop");
     };

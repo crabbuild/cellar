@@ -29,6 +29,9 @@ mod peer_observation;
 #[path = "raft_published_cut.rs"]
 mod published_cut;
 
+#[path = "raft_resource_native.rs"]
+mod resources;
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn fleet_genesis_imported_namespace() -> Result<()> {
     let f = Fixture::with_domains(false, true).await?;
