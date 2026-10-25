@@ -17,7 +17,7 @@ does not close schema, resource, packaging or performance requirements.
 
 | Priority | Remaining gap | Deliverable / completion evidence |
 | --- | --- | --- |
-| P0 — next | Remaining lifecycle and peer/admission provenance | Delivered: whole-call budgets, 55 deadline cases, 128 proof-wait cases, 80 cycle cases and 96 parent-write/child-refusal/forged-category cases. Next slice: owned Node worker failure during typed calls and host shutdown, proving joins and reservation cleanup; then remaining V8/Python lifecycle waits and broader peer/admission provenance. Retain every delivered matrix and investigate recurring timeout/domain-closure diagnostics. |
+| P0 — next | Remaining lifecycle and peer/admission provenance | Delivered: whole-call budgets, 55 deadline cases, 128 proof-wait cases, 80 cycle cases, 96 provenance cases and 48 owned Node worker/shutdown cases. Next slice: terminate V8 during active typed calls before/after sync; require joined children, expired authority, zero bridge reservations and fresh-runtime receipt recovery for local/signed-peer callers. Then qualify Python cancellation suppression, forced guest peer retries and broader call-local peer/admission provenance. Retain every delivered matrix and investigate recurring timeout/domain-closure diagnostics. |
 | P0 | Resource bounds and parser correctness | Global symbol/import validation and bounded expanded-name inventories are delivered. Close remaining option/schema semantics; audit effective method/runtime/host/peer minima, retained binary copies and decoder allocations; demonstrate bounded queues, reservations and memory under saturation, flood and disconnect. |
 | P1 | Language/profile coverage | Exercise the portable Protobuf profile as real business calls across all local/remote pairs; qualify supported Python interpreter modes and remaining lifecycle/regression boundaries. |
 | P1 | Reproducible application delivery | Deliver `cellar rpc generate/check`, static binding and frozen package inventories, embedded Python source identity, a published typed-RPC example and clean-machine CI. |
@@ -72,6 +72,61 @@ pairs. Preserve the full test matrix, failures and remaining work across turns.
 
 ## Current evidence
 
+- Owned Node lifecycle qualification adds 16 worker-SIGKILL cases and 32 active
+  host-shutdown cases: four real caller backends, local/signed-peer routing,
+  before/after sync, and graceful/forced shutdown. A disposable provider uses a
+  separate Node runtime from every caller. Generated business calls enter an
+  actual Rust child gate; the native provider turn observes count, receipt,
+  transaction closure and WAL position before termination. No guest outcome
+  claim or file marker establishes that checkpoint. Weak budget sources retain
+  no native contexts; physical frame retirement and exact `ContextExpired`
+  refusals are checked independently. Observation failures never complete or
+  cancel business work, and observations freeze before the trigger.
+- Worker death must return `Unavailable/unknown`, leave its native owner able
+  to serve a fresh Rust method, and release the held native child. Graceful host
+  shutdown must refuse fresh admission before a factory runs while allowing the
+  accepted call to finish. A forced cutoff must retain an **unclean** drain proof
+  with pending work at the cut and unknown effects; only subsequent physical
+  frame retirement, zero bridge reservations and joined owned work establish
+  cleanup. The strict graceful fleet-stop assertions remain unchanged. Every
+  disposable worker group must report ESRCH after its owning runtime joins.
+  A fresh native owner and fresh Node worker recover the same SQLite data and
+  verify two explicit retries against the receipt without duplicate effects.
+- `JavaScriptApplication::bridge_usage()` exposes native invocation/byte
+  reservations and stop state for diagnostics. Fields are independently sampled;
+  a stopped runtime alone does not prove cleanup. These gauges exclude heap,
+  RSS and cached objects, so this slice does not close resource qualification.
+  The pending-operation limit remains one in the new matrix.
+- The initial forced-shutdown smoke failed strict graceful-stop validation.
+  `/tmp/cellar-rpc-worker-shutdown-diagnostic.log` records pending application
+  events/dispatches and `drain_timed_out: true`, with log/local durability closed.
+  Native shutdown intentionally cuts stalled admitted work before closing and
+  joining its execution domain. Forced cases now preserve that unclean report
+  and independently audit cleanup after shutdown returns; they never relabel it
+  as a successful drain. An earlier smoke accidentally used an old executable
+  after a failed build; `.cellar/rpc/worker-smoke-pre-checkpoint.json` is
+  quarantined and is not qualification evidence. Separate 16/32-case reports
+  predate the final non-interfering observer hardening; the fresh combined run
+  below qualifies that final source.
+- The normal-stack run on implementation `e27ba6dd` passes all twelve suites:
+  **600 cases**, preserving the previous 552 and adding 16 worker kills plus
+  16 graceful and 16 forced host shutdowns. The saved report independently
+  verifies every new caller/route/checkpoint/trigger combination, weak-authority
+  expiry, held/zero reservation gauges, cold receipt recovery and owned worker
+  group exit. All 48 killed owners and their groups exit; all 48 disposable
+  provider groups also report ESRCH. Publication follows native and guest joins.
+  `.cellar/rpc/worker-full-matrix.json` contains 1,014,205 bytes, SHA-256
+  `ebf4a096069b089af74c054a9edc27c4754be1edc55a9704b942eb67b5b077d0`;
+  `/tmp/cellar-rpc-worker-full.log` records the execution. Full-qualification
+  flags remain false. This is local qualification; no new hosted CI pass is
+  claimed.
+- All 29 qualifier unit tests pass, including four new adversarial tests for
+  complete native transaction/receipt checkpoints and conservative shutdown
+  replies. Combined adapter/qualifier all-target Clippy, Node-only/V8-only
+  Clippy, 30 JS runtime tests and live adapter regressions pass. The 65 RPC SDK
+  and three streaming SDK tests, strict TS checks and fixture build pass.
+  Format/layout check 1,001 Rust files; docs validate 745 local references;
+  the native-only graph remains engine-free at 465 reachable packages.
 - Main is integrated through `e2273a91` (#114/#116), retaining the incoming
   RustFS conversation/history changes and native SSE/WebSocket SDK support.
   Node keeps the RPC binary framing, cancellation controls and fixed failure
@@ -996,18 +1051,21 @@ modes, full cross-language parity, performance or the completion of T01-T19.
 
 ## Next implementation boundaries
 
-The implementation PR is a draft until the remaining correctness and delivery
-boundaries are qualified. Deliver the following slices in order; each slice
+The implementation remains incompletely qualified until the remaining
+correctness and delivery boundaries pass. Deliver these slices in order; each slice
 must preserve the existing recovery, crash, proof and receipt evidence.
 
 1. **P0: close remaining lifecycle and peer/admission provenance gaps.** Preserve
    the 96 parent-write/forged-category cases, 80 self/A-to-B-to-A cleanup cases
    and 128 proof-wait cases. Qualify broader call-local peer/admission evidence.
-   Next, qualify owned Node worker failure during an active typed call and host
-   shutdown: require native joins, retired invocation authority and reservations
-   returning to baseline. Then cover remaining V8/Python lifecycle waits,
-   forced guest peer retries and broader
-   nested-provider paths. If the unexplained Node watchdog failure recurs, use
+   Keep the 48 owned Node worker/shutdown cases green. Next, terminate an owned
+   V8 isolate during active typed calls before and after sync: require joined
+   native children, expired original authority, zero bridge reservations and
+   receipt-safe recovery with a fresh runtime for local/signed-peer callers.
+   Then qualify Python cancellation suppression during typed calls and host
+   shutdown, including refusal to report clean shutdown while owned work remains.
+   Forced guest peer retries and broader nested-provider paths also remain.
+   If the unexplained Node watchdog failure recurs, use
    its observer/heartbeat/input diagnostics to establish the actual cause before
    changing policy. Trusted pre-admission refusal may establish
    `not_committed` for that call; it cannot reclassify the parent's earlier
