@@ -104,6 +104,10 @@ const app = workersApplication(worker, {
 | Object RPC | Native IDs/routing; inherited public prototype methods; clone values and remote error properties | Property RPC, pipelining, returned `RpcTarget` capabilities and cross-event failure state |
 | Event lifetime | Retained native drivers for `waitUntil`, transaction callbacks, outstanding SDK work and complete container monitors | Complete compatibility eviction/deadline policy |
 
+Alarm callbacks serialize per object, including when a running handler rearms
+its alarm. Other events can still make progress while that handler awaits work.
+This follows the [single running alarm contract](https://developers.cloudflare.com/durable-objects/api/alarms/).
+
 `WorkerEntrypoint` and `RpcTarget` base classes are importable. Defining these
 classes does not implement remote target transport. The tracing export used by
 the pinned Sandbox fallback is explicitly disabled.
@@ -173,6 +177,11 @@ not process RSS limits. Unsupported capabilities throw explicitly. Native
 transaction completion waits for commit/rollback acknowledgement; a lost response
 cannot be reported as successful rollback.
 
+Routed object RPC/HTTP and Workers container-port requests have independent
+native operation admission. They can overlap without holding the local storage
+mutation slot. Their native authority checks, output gates, byte/operation
+quotas and unknown-outcome reporting still apply.
+
 ## Execution evidence
 
 | Test boundary | What it proves |
@@ -181,12 +190,13 @@ cannot be reported as successful rollback.
 | Node module fixture | HTTP object routing by named/opaque ID, activation-owned env, binary/cookie preservation, cross-object refusal and effects surviving an oversized response |
 | Unchanged celld Container module + Containers 0.3.7 | Named, singleton and random routing through native cells and an engine protocol peer; separate container ownership and explicit joined cleanup |
 | Published constructor fixtures | Containers 0.3.7 construction/scheduling in both engines; Sandbox 0.12.9 configuration/metadata recovery in Node |
-| Pinned Sandbox image startup | Image boots and answers its own `/api/ping`; published SDK calls through Cellar remain pending |
+| Pinned Sandbox image through Cellar | Actual SDK exec/file route assertions pass; process creation loses a function-bearing RPC result, so the full opt-in test still fails |
 
 The engine peer is a test server, not a running container image. The complete
 published SDK/image baseline retains `conformance: not_run` in the input manifest.
-Sleep/wake, complete hooks/timeouts, streaming/upgrades, Sandbox exec/files/
-processes/previews and hosted provider qualification remain required.
+Sleep/wake, complete hooks/timeouts, streaming/upgrades, Sandbox process
+function delegates/previews and the remaining SDK/image fault qualification
+remain required, along with hosted providers.
 
 ```sh
 node tools/sandbox/compat/build.mjs

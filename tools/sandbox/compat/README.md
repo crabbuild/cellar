@@ -72,3 +72,53 @@ delayed destroy acknowledgement and explicit cleanup use an engine protocol
 peer. Actual image execution, complete sleep/wake/hooks, Sandbox HTTP/RPC and
 cloud providers remain required. The source inventory continues to report
 `conformance: not_run` for that complete baseline.
+
+## Run the pinned image through Cellar
+
+The opt-in `sandbox_image` integration target uses the **unchanged** pinned
+Sandbox application and published SDK. Its wrapper adds only a teardown route.
+Cellar starts the real image through its selected native engine; no protocol
+peer supplies command or file results.
+
+| Prerequisite | Configuration |
+| --- | --- |
+| Isolated Docker/Podman daemon | Explicit Unix socket; this test creates containers, networks and native fence rules |
+| Sandbox image | Preload the exact digest/platform in `manifest.json`; tags are not substituted |
+| Fence image | Preload the native `cellar-fence` image built by the normal deployment tooling |
+| Optional runtime | Node.js and the `cellar-javascript/node` feature |
+
+```sh
+export CELLAR_SANDBOX_ENGINE_SOCKET=/path/to/isolated/docker.sock
+export CELLAR_SANDBOX_FENCE_IMAGE="sha256:<preloaded-fence-image-id>"
+cargo test --locked -p cellar-javascript --features node \
+  --test sandbox_image -- --ignored --nocapture
+```
+
+The test checks stdout/stderr and nonzero exit status, a file read during a later
+event, background process discovery, explicit SDK destroy and joined native
+shutdown. It verifies that no containers with its unique host label remain.
+It shuts down its node after application failures too. This test does not remove
+unrelated daemon resources; use a disposable daemon for network/fence isolation.
+Passing it qualifies these routes for the pinned baseline, not the full SP-04
+streaming, preview, restart/fencing or live-cloud requirements.
+
+### Current live qualification
+
+| Route / boundary | Evidence on 2026-10-25 |
+| --- | --- |
+| `/exec` | Real SDK/image stdout, stderr and child-command exit code 7 match assertions |
+| `/write`, then a later `/exec` | Real write/read and exact JSON-encoded file contents, including the trailing newline, match assertions |
+| `/serve` | Actual background process starts, but its function-bearing result cannot cross the value-only RPC codec; the submitted outcome remains unknown |
+| `/processes` | Not reached by the full test; returned process objects require the same function-delegate support |
+| Teardown / shutdown | Explicit SDK destroy removes owned containers; serialized alarm callbacks allow native cell/application drainage without a timeout |
+
+**The complete opt-in image test still fails at `/serve`.** Implement bounded
+RPC function delegates and their ownership/disposal lifetimes; do not strip
+methods from SDK return objects to turn this into a value-only test. The source
+inventory keeps its complete baseline at `conformance: not_run`.
+
+In the local Colima run, automatic VM ports initially collided with an unrelated
+host service. Qualification uses an isolated task VM whose Docker ephemeral
+port range was moved to observed-free host ports. Verify the expected protocol,
+not just HTTP status. This is local macOS/amd64-emulation evidence; Linux network
+policy, other architectures and live cloud services remain separately qualified.

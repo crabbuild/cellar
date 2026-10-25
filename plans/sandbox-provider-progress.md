@@ -16,7 +16,7 @@ does not narrow that objective or turn fixture passes into full compatibility.
 | SP-01 | Exact celld reference commit/files/license, npm packages/lock/integrities, imported runtime bytes and immutable Sandbox image manifest are in `tools/sandbox/compat`; drift/refusal tests pass; API/fixture inventory lists native mappings and explicit gaps | Input inventory implemented; runtime conformance remains in SP-02–SP-04 and later profiles |
 | SP-02 | Native-backed DO SQL/KV/clone facade, activation-bound authority, object identity, value-only namespace/cell RPC, constructor admission, native input gates/reset, sync/async transactions and retained event/background drivers execute in Node/V8; actual published constructors are exercised; Node module HTTP dispatch, namespace bindings and activation-owned env execute against native cells | Complete loader/bootstrap, embedded web globals, other binding kinds, property/target RPC and lifetimes, full versioned lifetime/deadline qualification and profile/version admission; retain native-only dependency boundary |
 | SP-03 | Actual published `@cloudflare/containers@0.3.7` constructor, state and SQL scheduling run in both engines; root-event queued lifecycle and run-bound monitors; Node runs published readiness with native HTTP ports, healthy state and start/stop hooks; unchanged pinned module named/singleton/random routes execute against the engine peer | Embedded web globals, callback-owned queue drainage, sleep/wake, complete hooks, streamed/upgrade port behavior and real-image cleanup |
-| SP-04 | Actual `@cloudflare/sandbox@0.12.9` constructor/configuration and metadata recovery run in Node; matching upstream app/Dockerfile and `linux/amd64` image digest are pinned | Run the unchanged app and SDK/image end to end over HTTP and RPC; files, streamed exec, background records, previews, teardown and failure cases |
+| SP-04 | Actual `@cloudflare/sandbox@0.12.9` constructor/configuration and metadata recovery run in Node; matching upstream app/Dockerfile and `linux/amd64` image digest are pinned; unchanged application exec/file assertions now execute against the real image, while the full live target fails at function-bearing process results | Run the unchanged app and SDK/image end to end over HTTP and RPC; files, streamed exec, background records, previews, teardown and failure cases |
 | SP-05 | Provider environment/operation/limit discovery is implemented in Rust, Python, JS and TS; native and restricted provider dispatch tests cover it | Portable files and richer operations, named configuration, durable remote bindings, fencing, expiry/reconnect, loss/unknown outcomes and orphan reconciliation |
 | SP-06 | No Vercel/E2B implementation yet | Real shared provider implementations, fixtures and real-account conformance, explicit Cloudflare profile compatibility/gaps |
 | SP-07 | Separate 1.x contract identified in the design; it is not the 0.12.9 baseline | Pin and run exact current package/helper/image, extended container API, errors, streams, cancellation and supported persistence |
@@ -483,3 +483,48 @@ documentation tests. All 19 JavaScript build/type/package/HTTP/stream tests and
 Strict affected-crate all-target Clippy, Rust format/layout (1047 sources), JS
 formatting (48 owned sources), documentation references and the 466-package
 native-only engine guard pass. No live cloud-provider result is claimed.
+
+### Real SDK/image qualification and independent Workers I/O
+
+| Boundary | Delivered / observed evidence |
+| --- | --- |
+| Routed object calls | Workers RPC/HTTP can overlap under native routing/output gates and existing operation/byte quotas; they remain mutations for failure provenance |
+| Workers port requests | A profile-only `workers.container.fetch` operation delegates to the selected provider; native lifetime admission is required before effects and ordinary portable storage mutation rules remain intact |
+| Local progress | Port I/O no longer occupies the JS local-storage mutation slot; the actual Sandbox onStart transaction can progress while version/port work is pending |
+| Alarm ownership | Module dispatch serializes alarm callbacks per object, retaining each original native invocation; revocation releases a cancelled wait without allowing a later callback to bypass an active predecessor |
+| Real image | Unchanged pinned Sandbox app/SDK executes commands with stdout/stderr/nonzero child exit and a file round trip across requests |
+| Remaining live failure | `/serve` starts the process, then loses its function-bearing result at the value-only RPC codec; `/processes` is not reached and requires the same delegate transport |
+
+The full opt-in `sandbox_image` acceptance target remains failing at `/serve`;
+its assertions and complete route requirements are retained. Explicit SDK destroy
+and zero-owned-container checks run after failures too. The first live runs also
+exposed overlapping alarm callbacks: one SDK timer promise remained unresolved,
+and native shutdown correctly reported undrained work. Serial alarm admission
+fixes that real-image drain failure without increasing shutdown deadlines.
+
+A task-owned Colima daemon uses an observed-free ephemeral port range to avoid
+a verified host/VM forwarding collision. The initial test command terminated
+the SDK's persistent shell; the corrected probe runs a child shell and preserves
+the exact exit-code assertion. Later file comparison uses JSON-encoded contents
+to preserve the trailing newline independently of session-output normalization.
+This is evidence for those assertions, not a full SP-04 pass. RPC function and
+RpcTarget transport must retain their native event/activation authority, quotas,
+caller disposal and cancellation; removing process methods is not conformance.
+
+Follow-up validation: 21 JS build/type/package/HTTP/alarm tests pass, including
+queued and active alarm revocation. Native qualification passes 34 runtime unit,
+2 portable container, 16 Workers and 3 module integrations. The new alarm probe
+uses a 250 ms actor-operation deadline to force redelivery while its handler
+remains live; its two-second observation window is inside a separate five-second
+handler budget. Existing handler deadlines and assertions remain unchanged.
+The provider/guest unit and contract checks pass (8 + 16 + 1), as do strict
+all-target Clippy, Rust format/layout (1048 sources), JS formatting (49 sources),
+input identity checks, documentation checks and the native-only dependency guard.
+
+One combined typed RPC run hit the existing 250 ms V8 codec-budget deadline;
+the exact current binary passed that test in isolation without source changes.
+The stale-codec test passed in the combined run. The full live image target was
+rebuilt against the final runtime: command/file assertions and explicit teardown
+pass, `cells_drained` and `application_work_drained` are true with no timeout,
+and the overall target remains failing at `/serve`'s function-bearing result.
+This is not a complete published SDK/image qualification result.
