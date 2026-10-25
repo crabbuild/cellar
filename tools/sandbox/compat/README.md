@@ -60,8 +60,10 @@ These tests execute actual published Container construction/scheduling in Node
 and V8, and Sandbox construction/configuration in Node, through real native
 SQLite and an activation-bound synchronous provider running property. Node/V8
 fixtures check native startup/teardown observations against the engine protocol
-peer and refuse foreign-cell property access. They qualify those paths only;
-the compatibility facade still has no queued lifecycle or port methods. The
+peer and refuse foreign-cell property access. Root-event queued lifecycle tests
+cover blocked startup with storage progress, explicit destroy/monitor outcomes
+and submitted startup failures without replay. Callback-owned queued lifecycle
+and port methods remain incomplete. These tests qualify those paths only. The
 unchanged upstream applications, actual image, HTTP/RPC, monitor hooks and cloud
 providers remain required. The source inventory continues to report
 `conformance: not_run` for that complete baseline.

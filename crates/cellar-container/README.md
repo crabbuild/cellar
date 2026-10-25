@@ -7,7 +7,8 @@ The default `Native` provider uses Cellar's existing Docker/Podman integration;
 Rust hosts can supply another backend without changing the guest API.
 
 [Quick start](#quick-start) · [Capabilities](#discover-capabilities) ·
-[Add a provider](#add-a-provider) · [Wire reference](#bridge-protocol-version-1)
+[Lifecycle](#two-lifecycle-interfaces) · [Add a provider](#add-a-provider) ·
+[Wire reference](#bridge-protocol-version-1)
 
 ## How it fits together
 
@@ -149,10 +150,49 @@ authority, but does not start a container or call the provider's effect dispatch
 | `max_body_bytes` | Host limit for binary bodies and bounded results |
 | `max_resources` | Provider-declared live-handle cap; `null` means unknown, not unlimited |
 | `synchronous_running` | Opt-in, authoritative running observation with no backend I/O; required by the Workers property |
+| `queued_lifecycle` | Opt-in to bounded, synchronous lifecycle admission followed by asynchronous provider execution |
 
 `Native` declares Linux and enforces 64 live handles per invocation. JS and Python
 return immutable metadata. The `worker_isolate` enum value describes a possible
 environment; it does not mean an isolate provider is implemented.
+
+## Two lifecycle interfaces
+
+The portable API waits for provider acknowledgement. The experimental Workers
+facade separates immediate admission from asynchronous execution.
+
+| Action | Portable Python / JS / TS | Workers facade |
+| --- | --- | --- |
+| Observe state | `await c.running()` | `c.running` property |
+| Start | `await c.start(options)` | `c.start(options)` returns `void`; validation may throw |
+| Signal | `await c.signal(signal)` | `c.signal(signal)` returns `void` |
+| Observe exit | `await c.monitor()` returns an exit code | `await c.monitor()` resolves normally or throws an exit error |
+| Destroy | `await c.destroy()` | `await c.destroy(reason?)`; monitors receive the explicit reason |
+
+```mermaid
+sequenceDiagram
+    participant App as Workers application
+    participant Session as Native invocation / Session
+    participant Engine as Selected provider
+    App->>Session: persist earlier application writes
+    App->>Session: start(options): validate and reserve ticket
+    Session-->>App: void, before provider I/O
+    Session->>Session: await required durability proof
+    Session->>Engine: consume ticket once and start
+    Engine-->>Session: acknowledgement or uncertain failure
+    Session-->>App: monitor / destroy promise outcome
+```
+
+Admission checks immutable inputs, event authority and provider prerequisites.
+Each invocation retains at most **64 queued controls**, with their combined JSON
+inputs bounded by `max_body_bytes`. Consumed tickets cannot be replayed; an
+uncertain startup needs explicit reconciliation or cleanup.
+
+The Workers path requires `Source::workers_lifetimes()` and both provider opt-ins.
+It currently refuses queued lifecycle calls inside transaction and
+`blockConcurrencyWhile` callbacks before effects. Port forwarding, unchanged
+published applications and real-image conformance remain pending; see the
+[Cloudflare execution evidence](../../packages/cellar-cloudflare/README.md#current-execution-evidence).
 
 ## Understand lifetime and failure outcomes
 
@@ -169,8 +209,14 @@ its inactivity window. Ownership transfer, reset, node restart or shutdown can
 destroy it. Persist job progress in cell state and expect a fresh process after
 takeover.
 
-**Dispatch order:** validate input/capability → check event authority → await the
-output gate for mutations → execute provider → recheck authority → validate reply.
+```mermaid
+flowchart LR
+    V[Validate input and capability] --> A[Check event authority]
+    A --> G[Await mutation output gate]
+    G --> E[Execute provider]
+    E --> R[Recheck authority]
+    R --> B[Validate bounded reply]
+```
 
 | Failure point | What callers can conclude |
 | --- | --- |
@@ -193,6 +239,7 @@ startup. See the [trait definitions](lib.rs) and
 | `Provider::operations` | Advertise only fully implemented operations; subsets are supported |
 | `Provider::environment` / `max_resources` | Declare the execution environment and enforced handle cap; defaults mean unknown |
 | `Provider::synchronous_running` / `ProviderSession::running_snapshot` | Opt in to an immediate running-state read; the shared session still checks event authority |
+| `Provider::queued_lifecycle` / `ProviderSession::preflight` | Opt in to lifecycle admission; validate backend prerequisites without I/O or effects |
 | `Provider::open` | Allocate an invocation-local `ProviderSession`; perform no I/O |
 | `ProviderSession::execute` | Run the operation using the original native context and the supplied limits |
 

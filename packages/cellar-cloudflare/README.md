@@ -92,10 +92,29 @@ container view uses `durableObjectContainer(ctx)`: its synchronous `running`
 getter reads the native provider on every access under the current event's
 activation authority. Providers must opt in with `synchronous_running`; an
 async-only provider refuses instead of returning a guessed or cached state.
-Queued start, monitor and port methods remain unfinished profile work. The
-running-state fixture starts and destroys through Cellar's existing native API
-against the engine protocol peer; it does not execute an actual container image
-or certify a full SDK profile.
+The facade also supplies queued lifecycle controls for root events with
+`Source::workers_lifetimes()` enabled:
+
+| API | Current behavior |
+| --- | --- |
+| `start(options)` | Synchronous validation and bounded native admission; returns `void` before provider I/O |
+| `signal(signal)` | Admits an ordered control and returns `void` |
+| `monitor()` | Returns `Promise<void>`; nonzero exits reject with `exitCode` |
+| `destroy(reason?)` | Acknowledges native cleanup; monitors resolve normally or reject with the explicit reason |
+
+Providers must declare `queued_lifecycle` and implement effect-free preflight.
+Native tickets are invocation-owned, one-shot and bounded by both command count
+and aggregate input bytes. Startup does not occupy the ordinary JS storage
+mutation slot; provider effects still await native durability/output gates.
+Uncertain failures are retained without automatic replay. Explicit destroy can
+clean up after failed startup. Queued calls inside native transactions and
+`blockConcurrencyWhile` callbacks currently refuse before effects.
+
+The fixtures exercise startup/teardown against the engine protocol peer,
+including a blocked startup, storage progress, monitor outcomes, restart and a
+submitted startup failure. They do not execute an actual container image or
+certify a full SDK profile. Port methods, callback-owned lifecycle drainage,
+published class hooks and full stopped-state/lifetime behavior remain required.
 
 The storage fixture exercises structured graphs, SQL blobs/numeric conversion,
 private data boundaries, cursor/byte quotas, failed admission, stale contexts,
