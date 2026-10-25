@@ -3,7 +3,15 @@
 // Shared SDK facade for embedded V8 and Node. This file is a factory expression:
 // the Rust bootstrap evaluates or embeds it, then supplies the private host call.
 // Keep the expression free of a trailing semicolon for embedding in parentheses.
-(host, synchronousHost, currentHost, encodeClone, decodeClone, scopedHost, addAbortListener) => {
+(
+  host,
+  synchronousHost,
+  currentHost,
+  encodeClone,
+  decodeClone,
+  scopedHost,
+  addAbortListener,
+) => {
   "use strict";
 
   // Capture these builtins before importing/evaluating application code.
@@ -23,13 +31,21 @@
     const state = lifetimes.get(id);
     if (!state) return promise;
     if (report && state.reported >= state.limit) {
-      const error = new ErrorClass("waitUntil job quota exceeded"); error.name = "QuotaExceededError"; throw error;
+      const error = new ErrorClass("waitUntil job quota exceeded");
+      error.name = "QuotaExceededError";
+      throw error;
     }
     if (report) state.reported++;
     const settled = resolve(promise);
     state.jobs.add(settled);
-    const release = () => { state.jobs.delete(settled); if (report) state.reported--; };
-    settled.then(release, () => { release(); if (report) state.failed = true; });
+    const release = () => {
+      state.jobs.delete(settled);
+      if (report) state.reported--;
+    };
+    settled.then(release, () => {
+      release();
+      if (report) state.failed = true;
+    });
     return promise;
   }
   async function drain(id) {
@@ -42,49 +58,76 @@
   const ErrorClass = Error;
   const apply = Reflect.apply;
   const typedArrayPrototype = Object.getPrototypeOf(Uint8Array.prototype);
-  const typedArrayTag = Object.getOwnPropertyDescriptor(typedArrayPrototype, Symbol.toStringTag).get;
-  const typedArrayBytes = Object.getOwnPropertyDescriptor(typedArrayPrototype, "byteLength").get;
-  const typedArrayOffset = Object.getOwnPropertyDescriptor(typedArrayPrototype, "byteOffset").get;
-  const typedArrayBuffer = Object.getOwnPropertyDescriptor(typedArrayPrototype, "buffer").get;
+  const typedArrayTag = Object.getOwnPropertyDescriptor(
+    typedArrayPrototype,
+    Symbol.toStringTag,
+  ).get;
+  const typedArrayBytes = Object.getOwnPropertyDescriptor(
+    typedArrayPrototype,
+    "byteLength",
+  ).get;
+  const typedArrayOffset = Object.getOwnPropertyDescriptor(
+    typedArrayPrototype,
+    "byteOffset",
+  ).get;
+  const typedArrayBuffer = Object.getOwnPropertyDescriptor(
+    typedArrayPrototype,
+    "buffer",
+  ).get;
   const budgetKeys = new WeakMap();
   const rpcKey = Symbol.for("cellar.rpc");
   const own = Object.getOwnPropertyDescriptor;
   const rpcFailures = freeze({
-    InvalidArgument:'{"rpc_error":"InvalidArgument"}', MethodNotFound:'{"rpc_error":"MethodNotFound"}',
-    ContractMismatch:'{"rpc_error":"ContractMismatch"}', ResourceExhausted:'{"rpc_error":"ResourceExhausted"}',
-    ContextExpired:'{"rpc_error":"ContextExpired"}', Cancelled:'{"rpc_error":"Cancelled"}',
-    DeadlineExceeded:'{"rpc_error":"DeadlineExceeded"}', Unavailable:'{"rpc_error":"Unavailable"}',
-    OwnershipLost:'{"rpc_error":"OwnershipLost"}', DurabilityUnproven:'{"rpc_error":"DurabilityUnproven"}',
-    InvalidResponse:'{"rpc_error":"InvalidResponse"}', Internal:'{"rpc_error":"Internal"}',
+    InvalidArgument: '{"rpc_error":"InvalidArgument"}',
+    MethodNotFound: '{"rpc_error":"MethodNotFound"}',
+    ContractMismatch: '{"rpc_error":"ContractMismatch"}',
+    ResourceExhausted: '{"rpc_error":"ResourceExhausted"}',
+    ContextExpired: '{"rpc_error":"ContextExpired"}',
+    Cancelled: '{"rpc_error":"Cancelled"}',
+    DeadlineExceeded: '{"rpc_error":"DeadlineExceeded"}',
+    Unavailable: '{"rpc_error":"Unavailable"}',
+    OwnershipLost: '{"rpc_error":"OwnershipLost"}',
+    DurabilityUnproven: '{"rpc_error":"DurabilityUnproven"}',
+    InvalidResponse: '{"rpc_error":"InvalidResponse"}',
+    Internal: '{"rpc_error":"Internal"}',
   });
   function handlerFailure(error) {
     try {
       // Read a data property without invoking code/outcome/message getters.
       const descriptor = own(error, "code");
       const value = descriptor && own(descriptor, "value");
-      const category = value && typeof value.value === "string" && value.value.length <= 32 && own(rpcFailures, value.value);
+      const category =
+        value &&
+        typeof value.value === "string" &&
+        value.value.length <= 32 &&
+        own(rpcFailures, value.value);
       if (category) return category.value;
-    } catch { /* A proxy trap cannot manufacture outcome evidence. */ }
+    } catch {
+      /* A proxy trap cannot manufacture outcome evidence. */
+    }
     return rpcFailures.Internal;
   }
   // Node supplies events.addAbortListener, which resists stopImmediatePropagation.
   // Closed V8 bundles may supply a standard AbortController polyfill.
   const dispose = Symbol.dispose;
-  const subscribe = addAbortListener ? ((signal, listener) => {
-    let subscription;
-    const onAbort = () => {
-      listener();
-      // A synthetic abort event must not consume Node's one-shot protected
-      // subscription. Native Node snapshots listeners for each dispatch.
-      if (!signal.aborted) subscription = addAbortListener(signal, onAbort);
-    };
-    subscription = addAbortListener(signal, onAbort);
-    return () => subscription[dispose]();
-  }) : ((signal, listener) => {
-    const add = signal.addEventListener, remove = signal.removeEventListener;
-    apply(add, signal, ["abort", listener]);
-    return () => apply(remove, signal, ["abort", listener]);
-  });
+  const subscribe = addAbortListener
+    ? (signal, listener) => {
+        let subscription;
+        const onAbort = () => {
+          listener();
+          // A synthetic abort event must not consume Node's one-shot protected
+          // subscription. Native Node snapshots listeners for each dispatch.
+          if (!signal.aborted) subscription = addAbortListener(signal, onAbort);
+        };
+        subscription = addAbortListener(signal, onAbort);
+        return () => subscription[dispose]();
+      }
+    : (signal, listener) => {
+        const add = signal.addEventListener,
+          remove = signal.removeEventListener;
+        apply(add, signal, ["abort", listener]);
+        return () => apply(remove, signal, ["abort", listener]);
+      };
 
   function rpcFailure(code, outcome) {
     const error = new ErrorClass(code);
@@ -119,7 +162,7 @@
     }
 
     if (isArray(value)) {
-      return value.map(v => json(v, depth + 1));
+      return value.map((v) => json(v, depth + 1));
     }
 
     if (
@@ -222,7 +265,7 @@
     const body = decode(value.body);
     const text = () =>
       decodeURIComponent(
-        Array.from(body, b => "%" + b.toString(16).padStart(2, "0")).join(""),
+        Array.from(body, (b) => "%" + b.toString(16).padStart(2, "0")).join(""),
       );
 
     return freeze({ ...value, body, text, json: () => json(parse(text())) });
@@ -234,18 +277,45 @@
   const crypto = freeze({
     getRandomValues(array) {
       const type = apply(typedArrayTag, array, []);
-      if (!["Int8Array", "Uint8Array", "Uint8ClampedArray", "Int16Array", "Uint16Array", "Int32Array", "Uint32Array", "BigInt64Array", "BigUint64Array"].includes(type)) {
-        const error = new ErrorClass("Expected an integer typed array"); error.name = "TypeMismatchError"; throw error;
+      if (
+        ![
+          "Int8Array",
+          "Uint8Array",
+          "Uint8ClampedArray",
+          "Int16Array",
+          "Uint16Array",
+          "Int32Array",
+          "Uint32Array",
+          "BigInt64Array",
+          "BigUint64Array",
+        ].includes(type)
+      ) {
+        const error = new ErrorClass("Expected an integer typed array");
+        error.name = "TypeMismatchError";
+        throw error;
       }
       const length = apply(typedArrayBytes, array, []);
-      if (length > 65536) { const error = new ErrorClass("Random-values quota exceeded"); error.name = "QuotaExceededError"; throw error; }
+      if (length > 65536) {
+        const error = new ErrorClass("Random-values quota exceeded");
+        error.name = "QuotaExceededError";
+        throw error;
+      }
       const invocation = context(currentHost(), null, null);
-      const bytes = decode(invocation._sync("workers.crypto.random", { length }));
-      new Uint8Array(apply(typedArrayBuffer, array, []), apply(typedArrayOffset, array, []), length).set(bytes);
+      const bytes = decode(
+        invocation._sync("workers.crypto.random", { length }),
+      );
+      new Uint8Array(
+        apply(typedArrayBuffer, array, []),
+        apply(typedArrayOffset, array, []),
+        length,
+      ).set(bytes);
       return array;
     },
-    randomUUID: () => context(currentHost(), null, null)._sync("workers.crypto.uuid"),
-    get subtle() { throw new ErrorClass("Unsupported Workers API: crypto.subtle"); },
+    randomUUID: () =>
+      context(currentHost(), null, null)._sync("workers.crypto.uuid"),
+    get subtle() {
+      throw new ErrorClass("Unsupported Workers API: crypto.subtle");
+    },
   });
 
   // Each facade closes over one invocation ID. The backend independently checks
@@ -272,7 +342,12 @@
         throw error;
       }
 
-      return synchronous ? finish(name, pending) : track(id, pending.then(reply => finish(name, reply)));
+      return synchronous
+        ? finish(name, pending)
+        : track(
+            id,
+            pending.then((reply) => finish(name, reply)),
+          );
     };
 
     const finish = (name, reply) => {
@@ -323,115 +398,132 @@
       }
     };
 
-    const call = (name, value = {}, body, signal, budget) => track(id, (async () => {
-      let encoded, pending;
+    const call = (name, value = {}, body, signal, budget) =>
+      track(
+        id,
+        (async () => {
+          let encoded, pending;
 
-      try {
-        encoded = stringify(json(value));
-      } catch {
-        const error = new ErrorClass("ValidationError");
-        error.code = "ValidationError";
-        error.outcome = "not_committed";
-        throw error;
-      }
-
-      let unsubscribe, cancel;
-      let submitted = false, cancelled = false, invalidSignal = false;
-      // Subscribe before admission. The native cancellation capability belongs
-      // only to this operation; its signal may fire in another JS continuation.
-      try {
-        if (signal !== undefined) {
-          const onAbort = () => {
-            let aborted = true;
-            try {
-              aborted = signal.aborted;
-              if (typeof aborted !== "boolean") throw new TypeError();
-            } catch { invalidSignal = true; }
-            if (aborted || invalidSignal) {
-              cancelled = true;
-              cancel?.();
-            }
-          };
           try {
-            unsubscribe = subscribe(signal, onAbort);
-            onAbort();
+            encoded = stringify(json(value));
           } catch {
-            throw rpcFailure("InvalidArgument", "not_committed");
+            const error = new ErrorClass("ValidationError");
+            error.code = "ValidationError";
+            error.outcome = "not_committed";
+            throw error;
           }
-          if (invalidSignal) throw rpcFailure("InvalidArgument", "not_committed");
-          if (cancelled) throw rpcFailure("Cancelled", "not_committed");
-        }
 
-        // Synchronous admission failures precede submission. RPC admission
-        // returns a private [promise, cancel] pair; other operations keep their
-        // existing promise shape. No cancellation authority crosses JSON.
-        try {
-          const key = budget === undefined ? undefined : budgetKeys.get(budget);
-          if (budget !== undefined && key === undefined) throw new ErrorClass("ContextMismatch");
-          const admitted = host(id, name, encoded, body, key);
-          if (name === "cell.call") [pending, cancel] = admitted;
-          else pending = admitted;
-          submitted = true;
-        } catch (error) {
-          error.code = error.message;
-          error.outcome = "not_committed";
-          throw error;
-        }
-        if (cancelled) cancel();
+          let unsubscribe, cancel;
+          let submitted = false,
+            cancelled = false,
+            invalidSignal = false;
+          // Subscribe before admission. The native cancellation capability belongs
+          // only to this operation; its signal may fire in another JS continuation.
+          try {
+            if (signal !== undefined) {
+              const onAbort = () => {
+                let aborted = true;
+                try {
+                  aborted = signal.aborted;
+                  if (typeof aborted !== "boolean") throw new TypeError();
+                } catch {
+                  invalidSignal = true;
+                }
+                if (aborted || invalidSignal) {
+                  cancelled = true;
+                  cancel?.();
+                }
+              };
+              try {
+                unsubscribe = subscribe(signal, onAbort);
+                onAbort();
+              } catch {
+                throw rpcFailure("InvalidArgument", "not_committed");
+              }
+              if (invalidSignal)
+                throw rpcFailure("InvalidArgument", "not_committed");
+              if (cancelled) throw rpcFailure("Cancelled", "not_committed");
+            }
 
-        // Always await the original native acknowledgement. A local Promise
-        // race would release the waiter before mutation/byte admission settles.
-        const [metadata, replyBody] = await pending;
-        if (invalidSignal) throw rpcFailure("InvalidArgument", "unknown");
-        const result = parse(metadata);
+            // Synchronous admission failures precede submission. RPC admission
+            // returns a private [promise, cancel] pair; other operations keep their
+            // existing promise shape. No cancellation authority crosses JSON.
+            try {
+              const key =
+                budget === undefined ? undefined : budgetKeys.get(budget);
+              if (budget !== undefined && key === undefined)
+                throw new ErrorClass("ContextMismatch");
+              const admitted = host(id, name, encoded, body, key);
+              if (name === "cell.call") [pending, cancel] = admitted;
+              else pending = admitted;
+              submitted = true;
+            } catch (error) {
+              error.code = error.message;
+              error.outcome = "not_committed";
+              throw error;
+            }
+            if (cancelled) cancel();
 
-        if (!result.ok) {
-          throw rpcFailure(result.code, result.outcome);
-        }
+            // Always await the original native acknowledgement. A local Promise
+            // race would release the waiter before mutation/byte admission settles.
+            const [metadata, replyBody] = await pending;
+            if (invalidSignal) throw rpcFailure("InvalidArgument", "unknown");
+            const result = parse(metadata);
 
-        if (name === "cell.call") {
-          if (replyBody instanceof Uint8Array) return replyBody;
-          throw rpcFailure("InvalidResponse", "unknown");
-        }
+            if (!result.ok) {
+              throw rpcFailure(result.code, result.outcome);
+            }
 
-        // A result that cannot be represented safely may follow a committed write.
-        // Refusing it must not imply that the native mutation rolled back.
-        try {
-          return json(result.value);
-        } catch {
-        const read = [
-          "clock.now",
-          "workers.crypto.random",
-          "workers.crypto.uuid",
-          "workers.identity",
-          "workers.namespace",
-          "workers.callback.begin",
-          "workers.sql.size",
-          "workers.kv.get",
-          "workers.kv.list",
-          "storage.read",
-          "alarm.get",
-          "var",
-          "kv.get",
-          "kv.list",
-          "container.capabilities",
-          "container.running",
-          "container.monitor",
-          "container.exec.read_stdout",
-          "container.exec.read_stderr",
-          "container.exec.wait",
-          "container.socket.read",
-          "container.websocket.receive",
-          "websocket.next",
-          "response.read",
-        ].includes(name);
-          throw rpcFailure(read ? "HostError" : "Ambiguous", "unknown");
-        }
-      } finally {
-        try { unsubscribe?.(); }
-        catch { throw rpcFailure("InvalidArgument", submitted ? "unknown" : "not_committed"); }
-      }
-    })());
+            if (name === "cell.call") {
+              if (replyBody instanceof Uint8Array) return replyBody;
+              throw rpcFailure("InvalidResponse", "unknown");
+            }
+
+            // A result that cannot be represented safely may follow a committed write.
+            // Refusing it must not imply that the native mutation rolled back.
+            try {
+              return json(result.value);
+            } catch {
+              const read = [
+                "clock.now",
+                "workers.crypto.random",
+                "workers.crypto.uuid",
+                "workers.identity",
+                "workers.namespace",
+                "workers.callback.begin",
+                "workers.sql.size",
+                "workers.kv.get",
+                "workers.kv.list",
+                "storage.read",
+                "alarm.get",
+                "var",
+                "kv.get",
+                "kv.list",
+                "container.capabilities",
+                "container.running",
+                "container.monitor",
+                "container.exec.read_stdout",
+                "container.exec.read_stderr",
+                "container.exec.wait",
+                "container.socket.read",
+                "container.websocket.receive",
+                "websocket.next",
+                "response.read",
+              ].includes(name);
+              throw rpcFailure(read ? "HostError" : "Ambiguous", "unknown");
+            }
+          } finally {
+            try {
+              unsubscribe?.();
+            } catch {
+              throw rpcFailure(
+                "InvalidArgument",
+                submitted ? "unknown" : "not_committed",
+              );
+            }
+          }
+        })(),
+      );
 
     const synchronous = (name, value = {}) => invoke(name, value, true);
 
@@ -441,30 +533,42 @@
       const common = {
         release: () => call("container.release", { id: resourceId }),
       };
-      return freeze(kind === "exec" ? {
-        ...common,
-        readStdout: async () => decode(await operation("read_stdout")),
-        readStderr: async () => decode(await operation("read_stderr")),
-        write: bytes => operation("write", { data: encode(bytes) }),
-        closeStdin: () => operation("close_stdin"),
-        wait: () => operation("wait"),
-        kill: (signal = 9) => operation("kill", { signal }),
-      } : kind === "websocket" ? {
-        ...common,
-        receive: async () => {
-          const event = await operation("receive");
-          return freeze(event.type === "binary" ? { ...event, data: decode(event.data) } : event);
-        },
-        sendText: text => operation("send_text", { text }),
-        sendBinary: bytes => operation("send_binary", { data: encode(bytes) }),
-        close: (code = 1000, reason = "") => operation("close", { code, reason }),
-      } : {
-        ...common,
-        read: async () => decode(await operation("read")),
-        write: bytes => operation("write", { data: encode(bytes) }),
-        closeWrite: () => operation("close_write"),
-        close: () => operation("close"),
-      });
+      return freeze(
+        kind === "exec"
+          ? {
+              ...common,
+              readStdout: async () => decode(await operation("read_stdout")),
+              readStderr: async () => decode(await operation("read_stderr")),
+              write: (bytes) => operation("write", { data: encode(bytes) }),
+              closeStdin: () => operation("close_stdin"),
+              wait: () => operation("wait"),
+              kill: (signal = 9) => operation("kill", { signal }),
+            }
+          : kind === "websocket"
+            ? {
+                ...common,
+                receive: async () => {
+                  const event = await operation("receive");
+                  return freeze(
+                    event.type === "binary"
+                      ? { ...event, data: decode(event.data) }
+                      : event,
+                  );
+                },
+                sendText: (text) => operation("send_text", { text }),
+                sendBinary: (bytes) =>
+                  operation("send_binary", { data: encode(bytes) }),
+                close: (code = 1000, reason = "") =>
+                  operation("close", { code, reason }),
+              }
+            : {
+                ...common,
+                read: async () => decode(await operation("read")),
+                write: (bytes) => operation("write", { data: encode(bytes) }),
+                closeWrite: () => operation("close_write"),
+                close: () => operation("close"),
+              },
+      );
     };
 
     const container = freeze({
@@ -476,31 +580,56 @@
       start: (options = {}) => call("container.start", { options }),
       monitor: () => call("container.monitor"),
       destroy: () => call("container.destroy"),
-      signal: signal => call("container.signal", { signal }),
-      setInactivityTimeout: timeout_ms => call("container.set_inactivity_timeout", { timeout_ms }),
-      exec: async options => resource("exec", await call("container.exec", { options })),
+      signal: (signal) => call("container.signal", { signal }),
+      setInactivityTimeout: (timeout_ms) =>
+        call("container.set_inactivity_timeout", { timeout_ms }),
+      exec: async (options) =>
+        resource("exec", await call("container.exec", { options })),
       execOutput: async (options, max_bytes = 1048576) => {
-        const output = await call("container.exec_output", { options, max_bytes });
-        return freeze({ ...output, stdout: decode(output.stdout), stderr: decode(output.stderr) });
+        const output = await call("container.exec_output", {
+          options,
+          max_bytes,
+        });
+        return freeze({
+          ...output,
+          stdout: decode(output.stdout),
+          stderr: decode(output.stderr),
+        });
       },
-      port: port => freeze({
-        waitReady: (timeout_ms = 10000) => call("container.port.wait_ready", { port, timeout_ms }),
-        fetch: async value => request(await call("container.port.fetch", { port, request: value })),
-        connect: async () => resource("socket", await call("container.port.connect", { port })),
-        connectWebSocket: async (url, headers = []) => {
-          const result = await call("container.port.connect_websocket", { port, url, headers });
-          return freeze(result.upgraded
-            ? { upgraded: true, protocol: result.protocol, socket: resource("websocket", result.id) }
-            : { upgraded: false, response: request(result.response) });
-        },
-      }),
+      port: (port) =>
+        freeze({
+          waitReady: (timeout_ms = 10000) =>
+            call("container.port.wait_ready", { port, timeout_ms }),
+          fetch: async (value) =>
+            request(
+              await call("container.port.fetch", { port, request: value }),
+            ),
+          connect: async () =>
+            resource("socket", await call("container.port.connect", { port })),
+          connectWebSocket: async (url, headers = []) => {
+            const result = await call("container.port.connect_websocket", {
+              port,
+              url,
+              headers,
+            });
+            return freeze(
+              result.upgraded
+                ? {
+                    upgraded: true,
+                    protocol: result.protocol,
+                    socket: resource("websocket", result.id),
+                  }
+                : { upgraded: false, response: request(result.response) },
+            );
+          },
+        }),
     });
 
     // These objects contain bridge calls, never native storage handles. Binding
     // lookup and effect execution remain in the original Rust invocation.
     // Socket facades carry opaque IDs, never native handles. Each operation
     // resolves its authority through the current Rust invocation.
-    const socket = id =>
+    const socket = (id) =>
       freeze({
         id,
         accept: (options = {}) =>
@@ -510,7 +639,7 @@
             tags: [],
             ...options,
           }),
-        send: data =>
+        send: (data) =>
           call(
             "websocket.send",
             typeof data === "string"
@@ -532,7 +661,8 @@
                 },
           );
         },
-        setAttachment: value => call("websocket.attachment.set", { id, value }),
+        setAttachment: (value) =>
+          call("websocket.attachment.set", { id, value }),
         getAttachment: () => call("websocket.attachment.get", { id }),
         tags: () => call("websocket.tags", { id }),
         autoResponseTimestamp: () =>
@@ -542,7 +672,7 @@
 
     // Keep the native response capability intact so callers can either forward
     // it directly or pull chunks without buffering the complete response.
-    const liveResponse = result => {
+    const liveResponse = (result) => {
       const id = result.forward;
 
       return freeze({
@@ -577,21 +707,31 @@
       [rpcKey]: freeze({
         check: () => host(id, "$check", "{}"),
         budget: () => {
-          const wrap = control => {
-            const budget = freeze({__proto__:null, remaining:control[1], limit:control[2], release:control[3]});
+          const wrap = (control) => {
+            const budget = freeze({
+              __proto__: null,
+              remaining: control[1],
+              limit: control[2],
+              release: control[3],
+            });
             budgetKeys.set(budget, control[0]);
             return budget;
           };
           const control = host(id, "$rpc_budget", "{}");
-          return typeof control?.then === "function" ? control.then(wrap) : wrap(control);
+          return typeof control?.then === "function"
+            ? control.then(wrap)
+            : wrap(control);
         },
-        verify: method => {
+        verify: (method) => {
           try {
             const contract = contracts[method.digest];
             method.verify(contract);
-            return freeze({maxMessageBytes:contract.limits.max_message_bytes,
-              maxDepth:contract.limits.max_depth, maxElements:contract.limits.max_elements,
-              maxDecodedSlots:contract.limits.max_decoded_slots});
+            return freeze({
+              maxMessageBytes: contract.limits.max_message_bytes,
+              maxDepth: contract.limits.max_depth,
+              maxElements: contract.limits.max_elements,
+              maxDecodedSlots: contract.limits.max_decoded_slots,
+            });
           } catch {
             const error = new ErrorClass("ContractMismatch");
             error.code = "ContractMismatch";
@@ -599,11 +739,12 @@
             throw error;
           }
         },
-        call: (metadata, body, signal, budget) => call("cell.call", metadata, body, signal, budget),
+        call: (metadata, body, signal, budget) =>
+          call("cell.call", metadata, body, signal, budget),
       }),
-      fetchStream: async value =>
+      fetchStream: async (value) =>
         liveResponse(await call("http.fetch_stream", { request: value })),
-      acceptWebSocket: async response =>
+      acceptWebSocket: async (response) =>
         socket(
           (
             await call("websocket.from_response", {
@@ -616,13 +757,18 @@
       _call: call,
       _waitUntil(promise) {
         try {
-          if ((activation === null ? currentHost() : currentHost(activation)) !== id) throw new ErrorClass("ContextMismatch");
+          if (
+            (activation === null ? currentHost() : currentHost(activation)) !==
+            id
+          )
+            throw new ErrorClass("ContextMismatch");
         } catch (error) {
           error.code = error.message;
           error.outcome = "not_committed";
           throw error;
         }
-        if (!lifetimes.has(id)) throw new ErrorClass("Workers lifetimes are not enabled");
+        if (!lifetimes.has(id))
+          throw new ErrorClass("Workers lifetimes are not enabled");
         track(id, promise, true);
       },
       // Optional Workers state has activation lifetime. This getter deliberately
@@ -632,8 +778,9 @@
         let cachedId, cached;
         const current = () => {
           let invocation;
-          try { invocation = currentHost(activation); }
-          catch (error) {
+          try {
+            invocation = currentHost(activation);
+          } catch (error) {
             error.code = error.message;
             error.outcome = "not_committed";
             throw error;
@@ -649,7 +796,8 @@
       },
       _sync: synchronous,
       _callbackSync(callback) {
-        if (typeof callback !== "function") throw new TypeError("Expected a callback");
+        if (typeof callback !== "function")
+          throw new TypeError("Expected a callback");
         const token = synchronous("workers.callback.start_sync", {});
         let success = false;
         try {
@@ -657,31 +805,40 @@
           success = true;
           return result;
         } finally {
-          synchronous("workers.callback.finish_sync", { id: token.id, success });
+          synchronous("workers.callback.finish_sync", {
+            id: token.id,
+            success,
+          });
         }
       },
       _callback(kind, callback) {
-        if (typeof callback !== "function") throw new TypeError("Expected a callback");
-        return track(id, (async () => {
-          const token = await call("workers.callback.begin", { kind });
-          let result, success = false;
-          try {
-            const current = () => {
-              if (currentHost(activation, token.id) !== id) throw new ErrorClass("ContextMismatch");
-              return context(id, identity, activation, contracts);
-            };
-            result = await scopedHost(id, token.id, () => callback(current));
-            success = true;
-          } finally {
-            await call("workers.callback.finish", { id: token.id, success });
-          }
-          return result;
-        })());
+        if (typeof callback !== "function")
+          throw new TypeError("Expected a callback");
+        return track(
+          id,
+          (async () => {
+            const token = await call("workers.callback.begin", { kind });
+            let result,
+              success = false;
+            try {
+              const current = () => {
+                if (currentHost(activation, token.id) !== id)
+                  throw new ErrorClass("ContextMismatch");
+                return context(id, identity, activation, contracts);
+              };
+              result = await scopedHost(id, token.id, () => callback(current));
+              success = true;
+            } finally {
+              await call("workers.callback.finish", { id: token.id, success });
+            }
+            return result;
+          })(),
+        );
       },
-      _serialize: value => encode(encodeClone(value)),
-      _deserialize: value => decodeClone(decode(value)),
+      _serialize: (value) => encode(encodeClone(value)),
+      _deserialize: (value) => decodeClone(decode(value)),
       _decode: decode,
-      _encode: data => encode(bytes(data)),
+      _encode: (data) => encode(bytes(data)),
 
       websocket: socket,
       websocketPair: async () => socket((await call("websocket.pair")).id),
@@ -690,17 +847,17 @@
       websockets: async (tag = null) =>
         (await call("websocket.list", { tag })).map(socket),
       getWebSocketAutoResponse: () => call("websocket.auto_response.get"),
-      setWebSocketAutoResponse: pair =>
+      setWebSocketAutoResponse: (pair) =>
         call("websocket.auto_response", { pair }),
 
       identity: identity && freeze(identity),
       now: () => call("clock.now"),
-      variable: name => call("var", { name }),
+      variable: (name) => call("var", { name }),
       container,
 
       storage: freeze({
-        read: key => call("storage.read", { key }),
-        apply: batch => call("storage.apply", batch),
+        read: (key) => call("storage.read", { key }),
+        apply: (batch) => call("storage.apply", batch),
         sync: () => call("storage.sync"),
         sql: (sql, params = []) => call("storage.sql", { sql, params }),
         getAlarm: () => call("alarm.get"),
@@ -708,11 +865,11 @@
 
       cell: (binding, name) =>
         freeze({
-          fetch: async value =>
+          fetch: async (value) =>
             request(
               await call("cell.fetch", { binding, name, request: value }),
             ),
-          fetchStream: async value =>
+          fetchStream: async (value) =>
             liveResponse(
               await call("cell.fetch_stream", {
                 binding,
@@ -722,29 +879,29 @@
             ),
         }),
 
-      kv: binding =>
+      kv: (binding) =>
         freeze({
-          get: key => call("kv.get", { binding, key }),
+          get: (key) => call("kv.get", { binding, key }),
           put: (key, value, options = {}) =>
             call("kv.put", { binding, key, value, ...options }),
-          delete: key => call("kv.delete", { binding, key }),
+          delete: (key) => call("kv.delete", { binding, key }),
           list: (options = {}) =>
             call("kv.list", { binding, prefix: "", ...options }),
         }),
 
-      sql: binding =>
+      sql: (binding) =>
         freeze({
           query: (sql, params = []) =>
             call("sql.query", { binding, sql, params }),
         }),
 
-      queue: binding =>
+      queue: (binding) =>
         freeze({
           send: (body, options = {}) =>
             call("queue.send", { binding, body, ...options }),
         }),
 
-      settle: options => call("queue.settle", options),
+      settle: (options) => call("queue.settle", options),
       noRetry: () => call("cron.no_retry"),
     });
   }
@@ -754,7 +911,8 @@
   // JavaScript state without changing the cell's durable Rust-owned storage.
   return (app, descriptor, maximum, lifetimeLimit) => {
     const declared = parse(descriptor);
-    const objects = new MapClass(), rpc = new MapClass();
+    const objects = new MapClass(),
+      rpc = new MapClass();
     const contracts = declared.rpc_contracts ?? {};
     // Keep trusted native schema data immutable when passing it to generated
     // codec verification. The projection is flat; type recursion uses names.
@@ -765,8 +923,6 @@
       }
     }
     lock(contracts);
-
-
 
     for (const name of declared.events) {
       if (typeof app[name] !== "function") {
@@ -792,19 +948,30 @@
     }
     for (const [name, methods] of entries(services)) {
       const registration = app.rpc?.[name]?.methods;
-      if (!registration || Object.keys(registration).length !== Object.keys(methods).length) {
+      if (
+        !registration ||
+        Object.keys(registration).length !== Object.keys(methods).length
+      ) {
         throw new ErrorClass("RPC methods differ from native registration");
       }
       const table = new MapClass();
       for (const [wire, native] of entries(methods)) {
         const rule = registration[wire];
-        const handler = rule && own(app.cells[name].prototype, rule.handler)?.value;
-        if (!rule || rule.digest !== native.digest || rule.input !== native.input ||
-            rule.output !== native.output || typeof handler !== "function" ||
-            typeof rule.decode !== "function" || typeof rule.encode !== "function") {
+        const handler =
+          rule && own(app.cells[name].prototype, rule.handler)?.value;
+        if (
+          !rule ||
+          rule.digest !== native.digest ||
+          rule.input !== native.input ||
+          rule.output !== native.output ||
+          typeof handler !== "function" ||
+          typeof rule.decode !== "function" ||
+          typeof rule.encode !== "function"
+        ) {
           throw new ErrorClass("RPC contract differs from native registration");
         }
-        if (typeof rule.verify !== "function") throw new ErrorClass("Missing RPC codec verification");
+        if (typeof rule.verify !== "function")
+          throw new ErrorClass("Missing RPC codec verification");
         rule.verify(contracts[native.digest]);
         const limits = freeze({
           maxMessageBytes: native.limits.max_message_bytes,
@@ -812,22 +979,31 @@
           maxElements: native.limits.max_elements,
           maxDecodedSlots: native.limits.max_decoded_slots,
         });
-        table.set(wire, freeze({handler, decode:rule.decode, encode:rule.encode, limits}));
+        table.set(
+          wire,
+          freeze({ handler, decode: rule.decode, encode: rule.encode, limits }),
+        );
       }
       rpc.set(name, table);
     }
 
     async function dispatch(id, payload, body) {
       const invocation = parse(payload);
-      const ctx = context(id, invocation.identity, invocation.object, contracts);
-        let rule, argument;
-        if (invocation.kind === "rpc") {
-          rule = rpc.get(invocation.class)?.get(invocation.event.method);
-          if (!rule || !(body instanceof Uint8Array)) throw new ErrorClass("InvalidRpcInvocation");
-          argument = rule.decode(body, rule.limits);
-        } else if (body !== undefined) {
-          throw new ErrorClass("UnexpectedAttachment");
-        }
+      const ctx = context(
+        id,
+        invocation.identity,
+        invocation.object,
+        contracts,
+      );
+      let rule, argument;
+      if (invocation.kind === "rpc") {
+        rule = rpc.get(invocation.class)?.get(invocation.event.method);
+        if (!rule || !(body instanceof Uint8Array))
+          throw new ErrorClass("InvalidRpcInvocation");
+        argument = rule.decode(body, rule.limits);
+      } else if (body !== undefined) {
+        throw new ErrorClass("UnexpectedAttachment");
+      }
 
       let target = app;
 
@@ -844,20 +1020,24 @@
         }
       }
 
-        if (rule) {
-          let result;
-          try { result = await apply(rule.handler, target, [argument, ctx]); }
-          catch (error) { throw handlerFailure(error); }
-          try {
-            const encoded = rule.encode(result, rule.limits);
-            if (!(encoded instanceof Uint8Array)) throw new ErrorClass("InvalidResponse");
-            return encoded;
-          } catch {
-            // Missing response bytes become InvalidResponse/unknown in native
-            // code. Never forward codec text or a claimed rollback outcome.
-            return "null";
-          }
+      if (rule) {
+        let result;
+        try {
+          result = await apply(rule.handler, target, [argument, ctx]);
+        } catch (error) {
+          throw handlerFailure(error);
         }
+        try {
+          const encoded = rule.encode(result, rule.limits);
+          if (!(encoded instanceof Uint8Array))
+            throw new ErrorClass("InvalidResponse");
+          return encoded;
+        } catch {
+          // Missing response bytes become InvalidResponse/unknown in native
+          // code. Never forward codec text or a claimed rollback outcome.
+          return "null";
+        }
+      }
 
       let event =
         invocation.kind === "fetch"
@@ -876,7 +1056,10 @@
         if (!isArray(args)) throw new ErrorClass("Invalid RPC arguments");
         let value;
         try {
-          value = await target.cell_rpc(freeze({ method: event.method, args }), ctx);
+          value = await target.cell_rpc(
+            freeze({ method: event.method, args }),
+            ctx,
+          );
         } catch (error) {
           // Remote throws are successful native RPC responses. Preserve the
           // thrown value and own data properties, without leaking its stack.
@@ -887,7 +1070,10 @@
               if (key !== "stack") properties[key] = value;
             }
           }
-          return stringify({ value: ctx._serialize([error, properties]), error: true });
+          return stringify({
+            value: ctx._serialize([error, properties]),
+            error: true,
+          });
         }
         // Encoding can fail after the handler committed writes. Such a
         // failure is a lost result, not a business exception from the method.
@@ -942,30 +1128,50 @@
     return freeze({
       failurePayload(error) {
         if (typeof error === "string") {
-          for (const [, payload] of entries(rpcFailures)) if (payload === error) return payload;
+          for (const [, payload] of entries(rpcFailures))
+            if (payload === error) return payload;
         }
         return "null";
       },
       async dispatch(id, payload, body) {
-        if (!declared.workers_lifetimes || parse(payload).kind === "rpc") return dispatch(id, payload, body);
+        if (!declared.workers_lifetimes || parse(payload).kind === "rpc")
+          return dispatch(id, payload, body);
         let cancel;
-        const cancelled = new PromiseClass(done => { cancel = done; });
-        const state = { jobs: new SetClass(), reported: 0, limit: lifetimeLimit, failed: false, cancel, cancelled };
+        const cancelled = new PromiseClass((done) => {
+          cancel = done;
+        });
+        const state = {
+          jobs: new SetClass(),
+          reported: 0,
+          limit: lifetimeLimit,
+          failed: false,
+          cancel,
+          cancelled,
+        };
         lifetimes.set(id, state);
-        let encoded = "null", failed = false;
-        try { encoded = await dispatch(id, payload, body); }
-        catch { failed = true; }
-        const publish = value => context(id, null, null)._call("workers.lifetime.response", value);
-        try { await publish({ value: encoded, failed }); }
-        catch {
+        let encoded = "null",
+          failed = false;
+        try {
+          encoded = await dispatch(id, payload, body);
+        } catch {
+          failed = true;
+        }
+        const publish = (value) =>
+          context(id, null, null)._call("workers.lifetime.response", value);
+        try {
+          await publish({ value: encoded, failed });
+        } catch {
           failed = true;
           // A refused oversized result must not abandon accepted background
           // work. A compact error can use publication capacity if the first
           // attempt was refused before admission. Both hosts admit it once.
-          try { await publish({ value: "null", failed: true }); } catch {}
+          try {
+            await publish({ value: "null", failed: true });
+          } catch {}
         }
         await drain(id);
-        if (failed || state.failed) throw new ErrorClass("Workers event/background work failed");
+        if (failed || state.failed)
+          throw new ErrorClass("Workers event/background work failed");
         // The backend owns final cleanup after a full microtask checkpoint.
         // Derived continuations may register more SDK work after this resolves.
         return "null";
@@ -977,7 +1183,10 @@
       },
       cancel(id) {
         const state = lifetimes.get(id);
-        if (state) { lifetimes.delete(id); state.cancel(); }
+        if (state) {
+          lifetimes.delete(id);
+          state.cancel();
+        }
       },
       retire(id) {
         objects.delete(id);

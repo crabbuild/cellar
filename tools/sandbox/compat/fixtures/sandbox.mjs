@@ -13,7 +13,10 @@ class Probe extends Sandbox {
       await this.setLabels({ fixture: "native" });
     }
     const name = await this.ctx.storage.get("sandboxName");
-    check(command !== "read" || name === "native-fixture", "published Sandbox metadata recovery");
+    check(
+      command !== "read" || name === "native-fixture",
+      "published Sandbox metadata recovery",
+    );
     return { state: state.status, name: name ?? null };
   }
 }

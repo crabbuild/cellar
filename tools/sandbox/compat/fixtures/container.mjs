@@ -14,7 +14,10 @@ class Probe extends Container {
       check(result.payload.value === 42, "published SQL schedule cursor");
       this.ctx.storage.kv.put("configuration", { tested: true });
     }
-    return { state: state.status, configuration: this.ctx.storage.kv.get("configuration") ?? null };
+    return {
+      state: state.status,
+      configuration: this.ctx.storage.kv.get("configuration") ?? null,
+    };
   }
   callback() {}
 }

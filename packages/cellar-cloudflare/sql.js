@@ -6,28 +6,47 @@ export function sqlStorage(current) {
   function parameter(value) {
     if (value === null) return { type: "null" };
     if (typeof value === "string") return { type: "text", value };
-    if (typeof value === "number") return { type: "number", value: String(value) };
+    if (typeof value === "number")
+      return { type: "number", value: String(value) };
     if (value instanceof ArrayBuffer) value = new Uint8Array(value);
     if (ArrayBuffer.isView(value)) {
-      return { type: "blob", value: current()._encode(new Uint8Array(value.buffer, value.byteOffset, value.byteLength)) };
+      return {
+        type: "blob",
+        value: current()._encode(
+          new Uint8Array(value.buffer, value.byteOffset, value.byteLength),
+        ),
+      };
     }
-    throw new TypeError("SQL parameters must be null, numbers, strings or binary buffers");
+    throw new TypeError(
+      "SQL parameters must be null, numbers, strings or binary buffers",
+    );
   }
   function value(value) {
     switch (value.type) {
-      case "null": return null;
-      case "number": return Number(value.value);
-      case "text": return value.value;
-      case "blob": return current()._decode(value.value).buffer;
-      default: throw new Error("Invalid SQL value");
+      case "null":
+        return null;
+      case "number":
+        return Number(value.value);
+      case "text":
+        return value.value;
+      case "blob":
+        return current()._decode(value.value).buffer;
+      default:
+        throw new Error("Invalid SQL value");
     }
   }
   return Object.freeze({
-    get databaseSize() { return current()._sync("workers.sql.size"); },
+    get databaseSize() {
+      return current()._sync("workers.sql.size");
+    },
     exec(query, ...parameters) {
       const invocation = current();
-      if (typeof query !== "string") throw new TypeError("SQL query must be a string");
-      const initial = invocation._sync("workers.sql.exec", { sql: query, params: parameters.map(parameter) });
+      if (typeof query !== "string")
+        throw new TypeError("SQL query must be a string");
+      const initial = invocation._sync("workers.sql.exec", {
+        sql: query,
+        params: parameters.map(parameter),
+      });
       let done = false;
       let read = initial.rows_read;
       let written = initial.rows_written;
@@ -42,30 +61,51 @@ export function sqlStorage(current) {
         written = row.rows_written;
         if (done) return { done: true };
         const values = row.row.map(value);
-        return { done: false, value: raw ? values : Object.fromEntries(columns.map((name, i) => [name, values[i]])) };
+        return {
+          done: false,
+          value: raw
+            ? values
+            : Object.fromEntries(columns.map((name, i) => [name, values[i]])),
+        };
       }
       function close() {
-        if (!done) { invocation._sync("workers.sql.close", { id: initial.id }); done = true; }
+        if (!done) {
+          invocation._sync("workers.sql.close", { id: initial.id });
+          done = true;
+        }
         return { done: true };
       }
       function iterator(raw) {
         return {
-          [Symbol.iterator]() { return this; },
+          [Symbol.iterator]() {
+            return this;
+          },
           next: () => next(raw),
           return: close,
-          toArray() { return [...this]; },
+          toArray() {
+            return [...this];
+          },
         };
       }
       const cursor = {
         ...iterator(false),
-        get columnNames() { return columns; },
-        get rowsRead() { return read; },
-        get rowsWritten() { return written; },
+        get columnNames() {
+          return columns;
+        },
+        get rowsRead() {
+          return read;
+        },
+        get rowsWritten() {
+          return written;
+        },
         raw: () => iterator(true),
         one() {
           const first = next(false);
           const second = next(false);
-          if (first.done || !second.done) { close(); throw new Error("Expected exactly one SQL row"); }
+          if (first.done || !second.done) {
+            close();
+            throw new Error("Expected exactly one SQL row");
+          }
           return first.value;
         },
       };

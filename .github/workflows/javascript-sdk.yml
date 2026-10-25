@@ -43,6 +43,7 @@ jobs:
       - name: Locked npm build
         run: |
           npm ci --prefix tools/javascript --ignore-scripts
+          npm run --prefix tools/javascript format:check
           npm ci --prefix examples/javascript --ignore-scripts
           npm ci --prefix examples/node --ignore-scripts
           npm ci --prefix examples/streaming --ignore-scripts

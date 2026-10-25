@@ -21,7 +21,12 @@ function fail() {
 }
 function receive(message, body) {
   if (waiting && message.type === "reply" && message.id === waiting.id) {
-    if (message.invocation !== waiting.invocation || typeof message.payload !== "string" || body !== undefined) fail();
+    if (
+      message.invocation !== waiting.invocation ||
+      typeof message.payload !== "string" ||
+      body !== undefined
+    )
+      fail();
     const bytes = Buffer.from(message.payload);
     if (bytes.length > bytesSlot.length) fail();
     bytesSlot.set(bytes);
@@ -31,16 +36,32 @@ function receive(message, body) {
     Atomics.notify(headerSlot, 0);
     return;
   }
-  if (waiting && message.type === "cancel" && message.id === waiting.invocation) {
-    receive({ type: "reply", id: waiting.id, invocation: waiting.invocation,
-      payload: stringify({ ok: false, code: "ContextExpired", outcome: "unknown" }) });
+  if (
+    waiting &&
+    message.type === "cancel" &&
+    message.id === waiting.invocation
+  ) {
+    receive({
+      type: "reply",
+      id: waiting.id,
+      invocation: waiting.invocation,
+      payload: stringify({
+        ok: false,
+        code: "ContextExpired",
+        outcome: "unknown",
+      }),
+    });
   }
   const encoded = stringify(message);
   const size = Buffer.byteLength(encoded) + (body?.byteLength ?? 0) + 8;
-  if (Atomics.add(queued, 0, BigInt(size)) + BigInt(size) > BigInt(config.bridgeLimit)) fail();
+  if (
+    Atomics.add(queued, 0, BigInt(size)) + BigInt(size) >
+    BigInt(config.bridgeLimit)
+  )
+    fail();
   parentPort.postMessage({ encoded, body });
 }
-parentPort.on("message", message => {
+parentPort.on("message", (message) => {
   if (message.type === "synchronous") {
     if (waiting) fail();
     const value = parse(message.encoded);
@@ -54,7 +75,11 @@ function sendEncoded(encoded, body) {
   const bytes = Buffer.from(encoded);
   const bodyLength = body?.byteLength ?? 0;
   const size = bytes.length + bodyLength + 8;
-  if (bytes.length + bodyLength > maximum || socket.writableLength + size > config.bridgeLimit) fail();
+  if (
+    bytes.length + bodyLength > maximum ||
+    socket.writableLength + size > config.bridgeLimit
+  )
+    fail();
   const frame = Buffer.allocUnsafe(size);
   frame.writeUInt32BE(bytes.length);
   frame.writeUInt32BE(bodyLength, 4);
@@ -65,9 +90,13 @@ function sendEncoded(encoded, body) {
 
 socket.on("error", fail);
 socket.on("close", fail);
-await new Promise(resolve => socket.once("connect", resolve));
+await new Promise((resolve) => socket.once("connect", resolve));
 socket.setNoDelay(true);
-const hello = stringify({ type: "hello", secret: config.secret, has_body: false });
+const hello = stringify({
+  type: "hello",
+  secret: config.secret,
+  has_body: false,
+});
 Atomics.add(queued, 0, BigInt(Buffer.byteLength(hello) + 8));
 sendEncoded(hello);
 delete config.secret;
@@ -82,7 +111,7 @@ let headerBytes = 0;
 let frame = null;
 let frameBytes = 0;
 
-socket.on("data", chunk => {
+socket.on("data", (chunk) => {
   try {
     let offset = 0;
 
@@ -114,9 +143,17 @@ socket.on("data", chunk => {
       offset += n;
 
       if (frameBytes === frame.length) {
-        const message = parse(metadataDecoder.decode(frame.subarray(0, metadataLength)));
-        if (typeof message.has_body !== "boolean" || (!message.has_body && metadataLength !== frame.length)) fail();
-        const body = message.has_body ? Uint8Array.from(frame.subarray(metadataLength)) : undefined;
+        const message = parse(
+          metadataDecoder.decode(frame.subarray(0, metadataLength)),
+        );
+        if (
+          typeof message.has_body !== "boolean" ||
+          (!message.has_body && metadataLength !== frame.length)
+        )
+          fail();
+        const body = message.has_body
+          ? Uint8Array.from(frame.subarray(metadataLength))
+          : undefined;
         frame = null;
         receive(message, body);
       }

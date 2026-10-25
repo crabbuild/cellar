@@ -3,6 +3,16 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "dependencies": {"esbuild": "0.28.2", "typescript": "7.0.2"},
-  "scripts": {"test": "node --test build.test.mjs node-package.test.mjs node-build.test.mjs containers.test.mjs"}
+  "dependencies": {
+    "esbuild": "0.28.2",
+    "typescript": "7.0.2"
+  },
+  "scripts": {
+    "format": "node format.mjs --write",
+    "format:check": "node format.mjs --check",
+    "test": "node --test build.test.mjs node-package.test.mjs node-build.test.mjs containers.test.mjs"
+  },
+  "devDependencies": {
+    "prettier": "3.9.10"
+  }
 }

@@ -8,15 +8,24 @@ export class RpcTarget {
     // turning a nested RPC target into an empty data object. The RPC codec must
     // materialize this capability before serializing it. JSON omits the brand.
     Object.defineProperty(this, "__cellar_runtime_capability__", {
-      value: () => {}, enumerable: true,
+      value: () => {},
+      enumerable: true,
     });
   }
 }
 export class WorkerEntrypoint extends RpcTarget {
-  constructor(ctx, env) { super(); this.ctx = ctx; this.env = env; }
+  constructor(ctx, env) {
+    super();
+    this.ctx = ctx;
+    this.env = env;
+  }
 }
 export class DurableObject extends RpcTarget {
-  constructor(ctx, env) { super(); this.ctx = ctx; this.env = env; }
+  constructor(ctx, env) {
+    super();
+    this.ctx = ctx;
+    this.env = env;
+  }
 }
 // The pinned Sandbox helper explicitly supports unavailable tracing. This
 // profile exports that disabled state, rather than manufacturing trace results.
