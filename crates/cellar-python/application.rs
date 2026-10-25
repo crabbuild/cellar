@@ -246,7 +246,7 @@ impl PythonApplication {
     /// A live, nonblocking snapshot of native bridge resource accounting.
     /// Does not enter Python or confer invocation authority.
     pub fn bridge_report(&self) -> crate::BridgeReport {
-        self.runtime.budget.report()
+        self.runtime.bridge_report()
     }
 
     /// Last sampled interpreter state, without acquiring the GIL or blocking.

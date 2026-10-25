@@ -209,7 +209,7 @@ pub struct Report {
     pub host_failed: bool,
     #[serde(default)]
     pub native_outcomes: Vec<serde_json::Value>,
-    #[serde(default)]
+    /// Required native cleanup evidence; absent observations cannot imply zero.
     pub bridge: BridgeReport,
 }
 
@@ -227,6 +227,7 @@ impl Report {
             && self.unraisable_errors == 0
             && self.thread_errors == 0
             && !self.host_failed
+            && self.bridge.native_invocations == 0
             && self.bridge.queued_bytes == 0
             && self.bridge.pending_reservations == 0
             && self.bridge.operations.settled()
@@ -246,8 +247,8 @@ pub struct Incomplete {
 
 impl std::fmt::Display for Incomplete {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Python shutdown incomplete: {} tasks, {} objects, {} threads; runtime_failed={}, host_failed={}, incomplete_native_outcomes={}, queued_bridge_bytes={}, bridge_reservations={}, pending_operations={}, pending_retirements={}",
-            self.report.pending_tasks, self.report.pending_objects, self.report.pending_threads, self.report.runtime_failed, self.report.host_failed, self.report.native_outcomes.iter().filter(|outcome| outcome["complete"] != true).count(), self.report.bridge.queued_bytes, self.report.bridge.pending_reservations, self.report.bridge.operations.pending, self.report.work.pending_retirements)
+        write!(f, "Python shutdown incomplete: {} tasks, {} objects, {} threads; runtime_failed={}, host_failed={}, incomplete_native_outcomes={}, native_invocations={}, queued_bridge_bytes={}, bridge_reservations={}, pending_operations={}, pending_retirements={}",
+            self.report.pending_tasks, self.report.pending_objects, self.report.pending_threads, self.report.runtime_failed, self.report.host_failed, self.report.native_outcomes.iter().filter(|outcome| outcome["complete"] != true).count(), self.report.bridge.native_invocations, self.report.bridge.queued_bytes, self.report.bridge.pending_reservations, self.report.bridge.operations.pending, self.report.work.pending_retirements)
     }
 }
 
@@ -271,6 +272,12 @@ pub(crate) struct Runtime {
 }
 
 impl Runtime {
+    pub fn bridge_report(&self) -> BridgeReport {
+        let mut report = self.budget.report();
+        report.native_invocations = self.options.max_invocations - self.permits.available_permits();
+        report
+    }
+
     pub(crate) fn lifecycle(&self) -> Arc<std::sync::atomic::AtomicU8> {
         self.wakeup.lifecycle()
     }
@@ -706,7 +713,7 @@ impl PythonRuntime {
                     .import("json")?
                     .call_method1("dumps", (outcome?,))?
                     .extract()?;
-                let mut report: Report = serde_json::from_str(&encoded)?;
+                let mut report: serde_json::Value = serde_json::from_str(&encoded)?;
                 // The host is joined; no sender can authorize more work. Drain
                 // unused channel entries and their reservations before observing.
                 let bound = inbox.borrow(py);
@@ -722,7 +729,17 @@ impl PythonRuntime {
                     .unwrap_or_else(std::sync::PoisonError::into_inner)
                     .try_iter()
                     .for_each(drop);
-                report.bridge = runtime.budget.report();
+                // The runner reports guest work only. Supply the required native
+                // evidence here, after joining the host and draining its queues;
+                // deserializing a published Report must never invent it.
+                report
+                    .as_object_mut()
+                    .context("Python shutdown report must be an object")?
+                    .insert(
+                        "bridge".into(),
+                        serde_json::to_value(runtime.bridge_report())?,
+                    );
+                let mut report: Report = serde_json::from_value(report)?;
                 report.memory = MemoryReport {
                     before_interpreter: memory_initial,
                     after_join: MemorySample::capture(),
@@ -776,3 +793,6 @@ pub(crate) fn channel(capacity: usize) -> (async_mpsc::Sender<Event>, async_mpsc
 
 #[cfg(test)]
 mod channel_tests;
+
+#[cfg(test)]
+mod report_tests;

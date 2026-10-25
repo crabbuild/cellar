@@ -661,9 +661,9 @@ terminate the whole process. This is trusted native execution.
 
 | Observation | How to interpret it |
 | --- | --- |
-| `Report::complete()` | Requires managed work, reservations, operation accounting, object retirement, failures, and all recorded native outcomes to be settled/complete. |
+| `Report::complete()` | Requires zero native admissions, settled managed work/reservations/operations, complete object retirement, no failures, and complete recorded native outcomes. |
 | `Incomplete.report` | Retains the combined report when cleanup or host execution fails. |
-| `PythonApplication::bridge_report()` | Independently sampled atomic counters; conservation checks apply after quiescence. |
+| `PythonApplication::bridge_report()` | Independently sampled native admission, byte and operation counters; conservation checks apply after quiescence. |
 | `PythonApplication::interpreter_snapshot()` | GIL-free, non-waiting observation; check `generation` and `age_ns`. `None` can mean no sample or a busy publisher. |
 | `Report::interpreter` | Interpreter-thread CPU, handler/loop timing, allocated blocks, and process peak RSS; not per-cell cost attribution. |
 | `Report::memory` | Before/after process and allocator samples; unavailable values are `None`. CPython remains initialized. |
