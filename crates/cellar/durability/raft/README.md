@@ -786,6 +786,18 @@ the exact snapshot reference and complete image state. Source scratch admission
 stays charged until the recovery set's last physical owner drops; failed
 confirmation or replay returns no new head proof.
 
+Part publication overlaps at most two conditional writes/read-back confirmations
+per producer. Source reads and the whole-stream hash remain ordered; the index
+retains source order even when confirmations finish out of order. Each part's
+owned buffer moves into its upload, avoiding additional complete-part copies.
+The window's PUT/read buffers fit the existing physical working-memory
+allowance, independently of logical image size. A failure stops new part
+admission and drains entered confirmations before releasing the source. No
+index/head is exposed on failure, and independent destination replay remains
+required. `raft_archive_phase` logs distinguish encoding, confirmed upload,
+material download, physical replay and exact head confirmation; they are
+observations, not new publication proofs or recovery-time guarantees.
+
 A newer protocol/configuration cut may rebind an existing full snapshot index
 when its complete image state, including epoch, TXID, checksum, geometry and
 digest, is unchanged. The producer first downloads and validates the prior

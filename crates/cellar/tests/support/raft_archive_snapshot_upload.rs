@@ -21,6 +21,55 @@ async fn multipart_fixture() -> Result<(Fixture, CommittedArchiveCut)> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn snapshot_upload_overlaps_a_bounded_window_of_exact_confirmations() -> Result<()> {
+    let (fixture, cut) = multipart_fixture().await?;
+    let store = fixture.store.clone();
+    store.hold_part_confirmations.store(true, Ordering::Release);
+    let archive = fixture.archive.clone();
+    let verifier = fixture.verifier.clone();
+    let task = tokio::spawn(async move { archive.publish(cut, &verifier).await });
+    let entered = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        while store.active_part_confirmations.load(Ordering::Acquire) < 2 {
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+    })
+    .await;
+    let active = store.active_part_confirmations.load(Ordering::Acquire);
+    let selected = fixture.archive.recovery_metadata().await;
+    let created = store.snapshot_part_puts.load(Ordering::Acquire);
+    store
+        .hold_part_confirmations
+        .store(false, Ordering::Release);
+    store.part_confirmations_resume.notify_waiters();
+    let result = task.await?;
+    let peak = store.peak_part_confirmations.load(Ordering::Acquire);
+    let drained = store.active_part_confirmations.load(Ordering::Acquire);
+    let restored = result
+        .as_ref()
+        .ok()
+        .map(|set| restored(set, 7))
+        .transpose()?;
+    let expected = fixture.bytes.clone();
+    fixture.close().await?;
+    ensure!(
+        entered.is_ok(),
+        "upload remained serial at {active} confirmation(s)"
+    );
+    ensure!(
+        active == 2 && created == 2 && peak == 2,
+        "upload window escaped its bound"
+    );
+    ensure!(
+        selected?.is_none(),
+        "head appeared before all confirmations"
+    );
+    ensure!(drained == 0);
+    result?;
+    ensure!(restored == Some(expected));
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn confirmed_snapshot_parts_are_not_downloaded_again_by_the_producer() -> Result<()> {
     let (fixture, cut) = multipart_fixture().await?;
     let set = fixture.publish(cut).await?;
@@ -115,6 +164,63 @@ async fn owned_source_fixture() -> Result<(
     )?;
     let cut = fixture.commit_bytes(image, vec![], |_| {}).await?;
     Ok((fixture, cut, faults, scratch))
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn failed_upload_drains_entered_confirmations_before_releasing_its_source() -> Result<()> {
+    let (fixture, cut, _, scratch) = owned_source_fixture().await?;
+    let store = fixture.store.clone();
+    store.hold_part_confirmations.store(true, Ordering::Release);
+    store
+        .fail_first_part_after_window_enters
+        .store(true, Ordering::Release);
+    let archive = fixture.archive.clone();
+    let verifier = fixture.verifier.clone();
+    let first = cut.clone();
+    let task = tokio::spawn(async move { archive.publish(first, &verifier).await });
+    let entered = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        while store
+            .fail_first_part_after_window_enters
+            .load(Ordering::Acquire)
+            || store.active_part_confirmations.load(Ordering::Acquire) != 1
+        {
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+    })
+    .await;
+    let waiting = !task.is_finished();
+    let held = scratch.usage();
+    let before = fixture.archive.recovery_metadata().await;
+    store
+        .hold_part_confirmations
+        .store(false, Ordering::Release);
+    store.part_confirmations_resume.notify_waiters();
+    let result = task.await?;
+    let drained = store.active_part_confirmations.load(Ordering::Acquire);
+    let released = scratch.usage();
+    let after = fixture.archive.recovery_metadata().await;
+    let retry = fixture.publish(cut).await;
+    let value = retry.as_ref().ok().map(|set| restored(set, 7)).transpose();
+    let expected = fixture.bytes.clone();
+    drop(retry);
+    fixture.close().await?;
+    ensure!(
+        entered.is_ok() && waiting,
+        "publication did not retain entered work"
+    );
+    let held = held?;
+    ensure!(held.reserved_files == 1 && held.reserved_bytes > 9 * 1024 * 1024);
+    ensure!(
+        before?.is_none() && after?.is_none(),
+        "failed window published a head"
+    );
+    ensure!(result.is_err() && drained == 0);
+    ensure!(released? == ScratchUsage::default());
+    ensure!(
+        value? == Some(expected),
+        "exact retry did not restore the image"
+    );
+    Ok(())
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

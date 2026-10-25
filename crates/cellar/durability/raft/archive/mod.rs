@@ -837,7 +837,10 @@ impl CellArchive {
                 )
                 .await;
             match self.read(&self.key("head"), 4096, None).await? {
-                Some((observed, _)) if observed == desired => return Ok(set),
+                Some((observed, _)) if observed == desired => {
+                    tracing::info!(event = "raft_archive_phase", phase = "head_confirmed", cell = %self.scope.cell, index = manifest.position.index);
+                    return Ok(set);
+                }
                 Some(_) => continue,
                 None => {
                     return match outcome {
@@ -854,6 +857,7 @@ impl CellArchive {
         &self,
         cut: &CommittedArchiveCut,
     ) -> Result<PreparedManifest, ArchiveError> {
+        tracing::info!(event = "raft_archive_phase", phase = "encode_start", cell = %self.scope.cell, index = cut.position.index.get(), image_bytes = cut.image.pin().state().length);
         let input = cut.clone();
         let limits = self.limits;
         let (body, inline) = self
@@ -875,7 +879,9 @@ impl CellArchive {
             .await
             .map_err(ArchiveError::Worker)??;
         let position = cut.position.into();
+        tracing::info!(event = "raft_archive_phase", phase = "encode_complete", cell = %self.scope.cell, index = cut.position.index.get(), encoded_bytes = body.metadata().encoded_length);
         let snapshot = self.put_snapshot(body, inline, position).await?;
+        tracing::info!(event = "raft_archive_phase", phase = "upload_confirmed", cell = %self.scope.cell, index = cut.position.index.get());
         Ok(PreparedManifest {
             manifest: self.full_manifest(cut, snapshot.reference().clone()),
             confirmed_snapshot: Some(snapshot),
@@ -934,14 +940,18 @@ impl CellArchive {
         set: ArchiveRecoverySet,
         verifier: &ArchiveVerifier,
     ) -> Result<ArchiveRecoverySet, ArchiveError> {
+        tracing::info!(event = "raft_archive_phase", phase = "replay_start", cell = %self.scope.cell, index = set.position.index.get());
         let verifier = verifier.clone();
-        self.host
+        let set = self
+            .host
             .run_blocking(move || {
                 verifier.verify(&set)?;
-                Ok(set)
+                Ok::<_, ArchiveError>(set)
             })
             .await
-            .map_err(ArchiveError::Worker)?
+            .map_err(ArchiveError::Worker)??;
+        tracing::info!(event = "raft_archive_phase", phase = "replay_complete", cell = %self.scope.cell, index = set.position.index.get());
+        Ok(set)
     }
 
     pub async fn recovery_set(&self) -> Result<Option<ArchiveRecoverySet>, ArchiveError> {
@@ -1035,6 +1045,7 @@ impl CellArchive {
         &self,
         metadata: ArchiveMetadata,
     ) -> Result<ArchiveRecoverySet, ArchiveError> {
+        tracing::info!(event = "raft_archive_phase", phase = "material_read_start", cell = %self.scope.cell, index = metadata.manifest.position.index);
         let manifest = &metadata.manifest;
         // Metadata bounds the retained bodies; physical image parts have
         // independent bounded read windows and disk admission.
@@ -1053,6 +1064,7 @@ impl CellArchive {
             .next()
             .ok_or(ArchiveError::Corrupt("missing snapshot index"))?;
         let snapshot = self.get_snapshot(&manifest.snapshot, index).await?;
+        tracing::info!(event = "raft_archive_phase", phase = "material_read_complete", cell = %self.scope.cell, index = manifest.position.index);
         self.finish_material(metadata, snapshot, bodies.collect())
             .await
     }

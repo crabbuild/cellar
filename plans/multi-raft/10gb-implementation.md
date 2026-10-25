@@ -480,6 +480,29 @@ data and never treats inventory names as native authority. See the
 [persistent owner contract](extent-root-contract.md#persistent-node-extent-owner).
 Native selection, COW writes and archive/peer placement remain open.
 
+## Bounded snapshot publication window
+
+A gated archive regression reproduced serial part publication: holding one
+exact read-back prevented a second part from entering. Snapshot publication now
+overlaps two conditional PUT/read-back operations while keeping source reads,
+whole-stream hashing and manifest part order sequential. Each source buffer
+moves into its upload instead of being copied for object hashing and upload.
+The fixed window fits the existing physical working-memory allowance; producer
+admission bounds node-wide windows independently of image size. After any
+failure, admission stops and every entered confirmation drains before the
+source is released. Index/head publication and independent destination replay
+retain their existing proofs.
+
+The new regression passes, alongside an entered-window failure test that holds
+the second confirmation after the first fails, checks retained scratch, then
+releases it and verifies no head, complete cleanup and a successful exact retry.
+All 62 archive cases pass, including transient source corruption and independent
+destination sync refusal. Coarse `raft_archive_phase` observations distinguish
+encoding, confirmed upload, retained-material reads, physical replay and exact
+head confirmation. The full-capacity fixture enables these observations without
+changing its checks, requests or deadlines. A new full-size run is still needed;
+the bounded window alone establishes no recovery-time or production claim.
+
 ## Remaining work
 
 The completion checklist remains open. Full native 10 GB warm takeover, exact

@@ -395,6 +395,10 @@ async fn drill(
     from_s3: bool,
     secondary_workdir: Option<PathBuf>,
 ) -> Result<()> {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter("cellar::raft::archive=info")
+        .with_test_writer()
+        .try_init();
     let started = std::time::Instant::now();
     let source_root = tempfile::tempdir_in(&workdir)?;
     let path = source_root.path().to_path_buf();

@@ -39,6 +39,11 @@ pub struct Store {
     pub archive_payload_reads: AtomicUsize,
     pub snapshot_part_reads: AtomicUsize,
     pub snapshot_part_puts: AtomicUsize,
+    pub hold_part_confirmations: AtomicBool,
+    pub fail_first_part_after_window_enters: AtomicBool,
+    pub active_part_confirmations: AtomicUsize,
+    pub peak_part_confirmations: AtomicUsize,
+    pub part_confirmations_resume: tokio::sync::Notify,
     pub corrupt_scratch_after_part_read: std::sync::Mutex<Option<std::sync::Arc<AtomicBool>>>,
     pub hold_archive_payloads: AtomicBool,
     pub active_payload_reads: AtomicUsize,
@@ -253,7 +258,43 @@ impl ObjectStore for Store {
         }
         self.archive_fault(path).await?;
         if !options.head && path.as_ref().contains("/snapshot-parts/") {
-            self.snapshot_part_reads.fetch_add(1, Ordering::AcqRel);
+            let ordinal = self.snapshot_part_reads.fetch_add(1, Ordering::AcqRel) + 1;
+
+            struct Confirmation<'a>(&'a AtomicUsize);
+
+            impl Drop for Confirmation<'_> {
+                fn drop(&mut self) {
+                    self.0.fetch_sub(1, Ordering::AcqRel);
+                }
+            }
+            let active = self
+                .active_part_confirmations
+                .fetch_add(1, Ordering::AcqRel)
+                + 1;
+            self.peak_part_confirmations
+                .fetch_max(active, Ordering::AcqRel);
+            let _confirmation = Confirmation(&self.active_part_confirmations);
+            if ordinal == 1
+                && self
+                    .fail_first_part_after_window_enters
+                    .load(Ordering::Acquire)
+            {
+                while self.active_part_confirmations.load(Ordering::Acquire) < 2 {
+                    tokio::task::yield_now().await;
+                }
+                self.fail_first_part_after_window_enters
+                    .store(false, Ordering::Release);
+                return Err(failure());
+            }
+            loop {
+                let resumed = self.part_confirmations_resume.notified();
+                tokio::pin!(resumed);
+                resumed.as_mut().enable();
+                if !self.hold_part_confirmations.load(Ordering::Acquire) {
+                    break;
+                }
+                resumed.await;
+            }
             let corrupt = self
                 .corrupt_scratch_after_part_read
                 .lock()
