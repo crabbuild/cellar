@@ -482,12 +482,23 @@ frames retain their reservation through native admission; completed inputs
 release their backing capacity. Once a queued frame owns an invocation's bytes,
 Node keeps the invocation's authority without retaining another request buffer.
 
+Before allocating a decoded control object, Node checks its flat wire shape:
+at most 16 scalar fields, distinct literal ASCII keys of at most 64 bytes, and
+numeric tokens of at most 32 bytes. Application JSON stays inside the encoded
+`payload` string; RPC bytes use the raw attachment. Nested control arrays or
+objects and escaped key spellings are refused. An allocation-free scan counts
+decoded UTF-8 bytes, including Unicode escapes and surrogate pairs. Parser
+scratch is reserved separately and released after decoding; the decoded strings
+and attachment keep their reservations until native handoff or refusal.
+
 Startup checks a conservative isolated-transfer floor. With `V = max_value_bytes`
 and `F = 6 * V + 4096` (JSON escaping and protocol overhead), Node requires
 `max_bridge_bytes >= V + 2 * F + 8`. The defaults satisfy this bound. Concurrent
 work shares the remaining capacity and can exhaust it. Node worker JavaScript
-buffers, guest aliases, codec objects, OS socket buffers and process RSS require
-separate accounting and qualification; the native gauge does not measure them.
+buffers, guest aliases, codec objects, allocator overhead, the fixed control
+layout and OS socket buffers require separate accounting and qualification.
+The native gauge is not a process RSS measurement; the control field limit
+bounds its object layout independently of payload byte reservations.
 
 Process restart belongs to the external supervisor. Do not detach Node children
 from the owned group without separate supervision.

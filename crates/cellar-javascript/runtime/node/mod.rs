@@ -13,6 +13,7 @@ use std::{
     process::{Child, Command, Stdio},
     time::Instant,
 };
+mod control;
 mod package;
 mod transport;
 use transport::Transport;

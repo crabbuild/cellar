@@ -2,6 +2,7 @@
 
 //! Bounded control metadata and optional owned byte attachments. Application
 //! stdout is separate from this authenticated, nonblocking transport.
+use super::control;
 use anyhow::{ensure, Context as _, Result};
 use serde_json::Value;
 use std::{
@@ -223,9 +224,11 @@ impl Transport {
             if target > HEADER_BYTES && self.input.len() == target {
                 let metadata = u32::from_be_bytes(self.input[..4].try_into()?) as usize;
                 let end = HEADER_BYTES + metadata;
-                // Parsing owns decoded strings and a raw attachment while the
-                // complete encoded input still exists. Reserve before copying.
-                let bytes = self.reserve(target - HEADER_BYTES)?;
+                // Flat shape, decoded UTF-8 sizes and parser scratch are checked
+                // without allocation while the encoded frame remains charged.
+                let bounds = control::preflight(&self.input[HEADER_BYTES..end], target - end)?;
+                let scratch = self.reserve(bounds.scratch)?;
+                let bytes = self.reserve(bounds.retained)?;
                 let value: Value = serde_json::from_slice(&self.input[HEADER_BYTES..end])?;
                 let present = value
                     .get("has_body")
@@ -239,6 +242,7 @@ impl Transport {
                 // Do not leave an uncharged high-water allocation after a frame.
                 self.input = Vec::new();
                 self.input_bytes = None;
+                drop(scratch);
                 return Ok(Some(Frame {
                     metadata: value,
                     body,

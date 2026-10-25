@@ -17,7 +17,7 @@ does not close schema, resource, packaging or performance requirements.
 
 | Priority | Remaining gap | Deliverable / completion evidence |
 | --- | --- | --- |
-| P0 — hosted verification | Remaining broad SDK gates | On `38bfbb96`, lifecycle CI and the free-threaded FastAPI deployment pass. JS/Node remains queued; the GIL SDK job reaches embedded Python packaging while other jobs remain running/queued. The earlier 696-case report is historical evidence, not a rerun of the changed validator or native Node frame accounting. |
+| P0 — hosted verification | Remaining broad SDK gates | On `38bfbb96`, lifecycle CI, both durable Python agent modes and free-threaded FastAPI pass. JS/Node reaches adapter/real-node tests. The GIL SDK job passes packaging but fails the native large-binding test's 60-second deadline; free-threaded SDK remains queued. The frame-accounting change passes a fresh 696-case recheck; the following control-decoder change still needs broader runtime qualification. |
 | P0 | Cross-adapter deadline and regression timing | Direct Python queue admission and the decoder's separate read-only activation have controlled regressions under unchanged budgets. Broader V8 HTTP and V8/Node streaming commands still fail; the V8 HTTP failure retains a 250 ms handler timeout and clean host drain. Earlier Python counters point to the native cold-cell path. Passing retries do not close these failures or establish one shared cause. |
 | P0 | Remaining lifecycle and peer/admission provenance | Preserve whole-call budgets, 55 deadline cases, 128 proof-wait cases, 80 cycle cases, 96 provenance cases and 96 Node/V8 lifecycle cases. The Python follow-up covers cooperative cancellation suppression, forced host cutoff and persistent suppression with process supervision. Next close forced guest peer retries and broader call-local peer/admission evidence. Retain incomplete-shutdown failures while guest work remains, expired authority, zero native reservations and receipt-safe recovery. |
 | P0 | Resource bounds and parser correctness | Raw descriptor admission now bounds allocations/work before decoding, rejects unresolved/unknown attributes and enforces the pinned declaration depth. Message definitions borrow the decoded tree instead of cloning nested subtrees. Canonical artifacts and real runtime checks pass. Close remaining semantic conformance; audit effective method/runtime/host/peer minima, retained binary copies and decoder allocations; demonstrate bounded queues, reservations and memory under saturation, flood and disconnect. |
@@ -74,6 +74,45 @@ pairs. Preserve the full test matrix, failures and remaining work across turns.
 
 ## Current evidence
 
+- **Node control decoding now has allocation-free shape and string admission.**
+  The private protocol admits at most 16 scalar fields with distinct literal
+  ASCII keys of at most 64 bytes and numeric tokens of at most 32 bytes.
+  Application values remain encoded payload strings or raw attachments.
+  Borrowed input scanning rejects collections and ambiguous keys before
+  serde_json allocates, counts exact decoded UTF-8 string bytes (including
+  surrogate pairs), and reserves parser scratch separately from retained
+  strings/attachments. Scratch returns after decoding; retained bytes follow
+  the frame through native admission. The fixed field cap bounds control
+  object layout separately; allocator overhead and RSS remain unqualified.
+- Four new transport regressions fail on `720ae5c4` and pass after the control
+  guard. All **49 combined-feature library tests**, **35 Node-only library
+  tests**, two Node real-host HTTP/streaming tests and both combined-feature
+  typed-RPC/codec-readiness tests pass, alongside all-target JavaScript Clippy.
+  Standard format/layout (1,025 Rust files), docs and dependency checks pass.
+  The parser tests include malformed escapes, Unicode boundaries, a generated
+  1,024-step Unicode corpus, field/key/scalar limits and scratch cleanup.
+  Initial red compilation and a mistyped 33-digit positive boundary fixture
+  are retained separately from the corrected behavioral runs; production
+  limits and refusal assertions are unchanged.
+- The same isolated allocator probe/inputs now refuse the array-valued frame
+  before building a JSON collection. Peak Rust allocation above baseline falls
+  from **8,789,387 to 400,193 bytes** under the unchanged **4 MiB** byte pool.
+  Both the original scalar input and an escaped 400,123-byte scalar control
+  remain accepted with unchanged measured allocation peaks; all permits
+  return on drop. Old/new source, binary and linked-library hashes are retained
+  in `.cellar/rpc/node-frame-budget/control-allocation-differential.json`.
+  This finite allocation experiment is not a process RSS or flood qualification.
+  The 696-case report below predates this control guard and is not its full
+  runtime qualification. Stage results use
+  `.cellar/rpc/node-control-preflight-status.json` and logs use
+  `/tmp/cellar-rpc-node-control-preflight-`.
+- Hosted GIL SDK job **121299416265** on `38bfbb96` now fails
+  `lifted_bindings_persist_large_values_batches_and_pages` at its original
+  **60-second** deadline, after embedded Python packaging succeeds. The same
+  all-feature native integration command passes all five tests locally in
+  **46.94 seconds**. There is no phase evidence in the hosted failure and no
+  proven cause or fix. Preserve its workload/limits and add bounded phase
+  observations before changing the implementation or fixture.
 - **Native Node framing now uses the runtime's payload byte pool.** Three
   controlled transport regressions fail against the old implementation:
   incoming input bypasses aggregate admission, input coexists with queued

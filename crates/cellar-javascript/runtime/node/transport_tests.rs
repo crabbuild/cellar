@@ -198,7 +198,7 @@ fn native_payload_owners_and_transport_frames_use_the_same_reservations() -> Res
 #[test]
 fn partial_inputs_and_returned_frames_retain_only_their_owned_charges() -> Result<()> {
     let bytes = frame(json!({"has_body":true}), &[1, 2, 3]);
-    let payload = bytes.len() - HEADER_BYTES;
+    let retained = "has_body".len() + 3;
     let (mut peer, mut transport) = connected(128, 256)?;
     let budget = transport.budget.clone();
     peer.write_all(&bytes[..3])?;
@@ -211,9 +211,9 @@ fn partial_inputs_and_returned_frames_retain_only_their_owned_charges() -> Resul
     let decoded = receive(&mut transport)?;
     assert_eq!(decoded.body.as_deref(), Some(&[1, 2, 3][..]));
     assert_eq!(transport.input.capacity(), 0);
-    assert_eq!(budget.available_permits(), 256 - payload);
+    assert_eq!(budget.available_permits(), 256 - retained);
     drop(transport);
-    assert_eq!(budget.available_permits(), 256 - payload);
+    assert_eq!(budget.available_permits(), 256 - retained);
     drop(decoded);
     assert_eq!(budget.available_permits(), 256);
     Ok(())
@@ -280,5 +280,83 @@ fn partial_socket_writes_keep_full_allocations_reserved_until_flush() -> Result<
     assert_eq!(received, expected);
     assert_eq!(transport.queued, 0);
     assert_eq!(budget.available_permits(), capacity);
+    Ok(())
+}
+
+#[test]
+fn incoming_control_metadata_cannot_allocate_collection_graphs() -> Result<()> {
+    for value in [json!(vec![0; 2048]), json!({"nested": {"value": 1}})] {
+        let (mut peer, mut transport) = connected(8192, 128 * 1024)?;
+        peer.write_all(&frame(json!({"has_body":false,"extra":value}), &[]))?;
+        assert!(
+            receive(&mut transport).is_err(),
+            "structured control metadata reached the allocating JSON decoder"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn incoming_controls_bound_keys_fields_and_duplicate_spellings() -> Result<()> {
+    let mut many = serde_json::Map::new();
+    many.insert("has_body".into(), Value::Bool(false));
+    for index in 0..16 {
+        many.insert(format!("field_{index}"), Value::Bool(false));
+    }
+    for metadata in [
+        r#"{"has_body":false,"has_body":false}"#.to_string(),
+        r#"{"has\u005fbody":false}"#.to_string(),
+        json!({"has_body":false,"x".repeat(65):0}).to_string(),
+        Value::Object(many).to_string(),
+    ] {
+        let (mut peer, mut transport) = connected(4096, 16 * 1024)?;
+        let mut bytes = (metadata.len() as u32).to_be_bytes().to_vec();
+        bytes.extend_from_slice(&0_u32.to_be_bytes());
+        bytes.extend_from_slice(metadata.as_bytes());
+        peer.write_all(&bytes)?;
+        assert!(
+            receive(&mut transport).is_err(),
+            "unbounded or ambiguous control was admitted"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn escaped_control_strings_reserve_parser_scratch_before_decoding() -> Result<()> {
+    let bytes = frame(
+        json!({"has_body":false,"payload":format!("{}\n", "x".repeat(1024))}),
+        &[],
+    );
+    let capacity = bytes.len() + bytes.len() - HEADER_BYTES;
+    let (mut peer, mut transport) = connected(4096, capacity)?;
+    let budget = transport.budget.clone();
+    peer.write_all(&bytes)?;
+    assert!(
+        receive(&mut transport).is_err(),
+        "JSON parser scratch bypassed byte admission"
+    );
+    drop(transport);
+    assert_eq!(budget.available_permits(), capacity);
+    Ok(())
+}
+
+#[test]
+fn decoded_control_strings_preserve_unicode_and_release_scratch() -> Result<()> {
+    let metadata = r#"{"has_body":false,"payload":"\u0000\ufeff\uD83D\uDE00\"\\\n"}"#;
+    let (mut peer, mut transport) = connected(1024, 4096)?;
+    let budget = transport.budget.clone();
+    let mut bytes = (metadata.len() as u32).to_be_bytes().to_vec();
+    bytes.extend_from_slice(&0_u32.to_be_bytes());
+    bytes.extend_from_slice(metadata.as_bytes());
+    peer.write_all(&bytes)?;
+    let decoded = receive(&mut transport)?;
+    let expected = "\0\u{feff}😀\"\\\n";
+    assert_eq!(decoded.metadata["payload"], expected);
+    let retained = "has_body".len() + "payload".len() + expected.len();
+    assert_eq!(budget.available_permits(), 4096 - retained);
+    drop(decoded);
+    drop(transport);
+    assert_eq!(budget.available_permits(), 4096);
     Ok(())
 }
