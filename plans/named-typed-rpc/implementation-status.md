@@ -75,6 +75,29 @@ pairs. Preserve the full test matrix, failures and remaining work across turns.
 
 ## Current evidence
 
+- PR #110 merges at `906eb36a`, including the named RPC implementation, offline
+  checker and bounded proof-wait lease diagnostics. The generator-read follow-up
+  starts from that updated main (including the Raft image-limit change) at
+  `fb8b5275`. It passes all nine generator unit tests, three descriptor-admission
+  tests, 65 RPC-related native library tests, four CLI checker tests, the native
+  typed-RPC integration and 31 qualifier unit tests. All three affected Clippy
+  commands pass. Format/layout check 1,019 Rust files; the native dependency guard
+  remains engine-free at 465 packages; docs check 749 local references.
+- The updated-main rerun again passes all 16 local and 16 authenticated-peer
+  pairs, including restart, handoff and receipt recovery. Independent audits
+  validate both complete pair sets, digest, topology, epoch/scope and recovery
+  flags. `.cellar/rpc/delivery-main-local.json` and
+  `.cellar/rpc/delivery-main-remote.json` reproduce the earlier local/peer report
+  bytes and SHA-256 values recorded below. All raw command logs are preserved
+  as `.cellar/rpc/cellar-rpc-delivery-main-*.log`.
+- Updated-main generation again reproduces all 24 tracked artifacts exactly.
+  `.cellar/rpc/delivery-main-regeneration.json` records source `fb8b5275`,
+  4,741 bytes and SHA-256
+  `772620875b1677010842fb6ec6182e200ed749f00054fc7012b2d886cfee3841`.
+  The reference files are unchanged. This verifies the bounded reader's valid
+  path; the full 696-case command and failing lifecycle/deadline/regression gates
+  below remain open, with all broader qualification flags false.
+
 - The shipped CLI adds `cellar rpc check --descriptor FILE --inventory FILE`
   with optional `--catalog FILE`. It uses the runtime's portable-profile
   validator and the generator's exact canonical inventory. Native catalog
