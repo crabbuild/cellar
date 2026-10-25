@@ -173,12 +173,15 @@ work. The architecture and product policy are in
   Writers retain their existing checkpoint and FULL durability behavior. The
   tests also require missing-store reads to leave the database absent, recovery
   after it returns, conditional updates and explicit checkpoint/reopen.
-- All 542 host library tests, 29 native Raft host tests and the original outage
-  fixture pass on the final reader policy. The complete 93-case native-node
-  rerun is in progress. The outage fixture's deadlines and fencing assertions
-  are unchanged. Removing an identified read-side I/O stall does not establish
-  that every intermittent lease expiry has the same cause; Linux CI and further
-  repeated recovery checks remain required.
+- At commit `0966e7fc`, all 542 host library tests (73.37 seconds), 29 native
+  Raft host tests (42.15 seconds) and all 93 native-node tests (662.81 seconds)
+  pass serially on the final reader policy. The original outage fixture also
+  passes independently and in 20 further fresh-process repetitions (274.02
+  seconds total). Its deadlines and fencing assertions are unchanged. Both
+  Rust 1.98.1 Clippy target sets, the native-only/no-Python feature check,
+  formatting, layout, dependency and documentation checks pass. Removing an
+  identified read-side I/O stall does not establish that every intermittent
+  lease expiry has the same cause; Linux CI qualification remains pending.
 
 ## Remaining work
 
