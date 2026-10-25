@@ -44,6 +44,9 @@ pub(super) fn encoded(value: &clone::StructuredValue, maximum: usize) -> Result<
 /// Translate the actual native CellRpc event, preserving its clone graph.
 pub fn request(method: String, args: RpcData, maximum: usize) -> Result<Value> {
     let value = match args {
+        RpcData::Leased { .. } => {
+            anyhow::bail!("RPC capability arguments require a session-aware profile")
+        }
         RpcData::Json(json) => {
             ensure!(json.len() <= maximum, "RPC arguments exceed limit");
             clone::StructuredValue::from_json(serde_json::from_str(&json)?)?

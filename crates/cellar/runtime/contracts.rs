@@ -93,6 +93,32 @@ pub fn parse_request_id(value: &str) -> Option<RequestId> {
 pub enum RpcData {
     Json(String),
     Structured(bytes::Bytes),
+    /// A value with an owned, revocable transport lifetime. Value-only codecs
+    /// must refuse it rather than silently dropping exported capabilities.
+    Leased {
+        value: Box<RpcData>,
+        lease: crate::application::rpc::Lease,
+    },
+}
+
+impl RpcData {
+    pub fn payload_bytes(&self) -> usize {
+        match self {
+            Self::Json(value) => value.len(),
+            Self::Structured(value) => value.len(),
+            Self::Leased { value, .. } => value.payload_bytes(),
+        }
+    }
+
+    /// Lease results can be forwarded, but nested leases are never valid wire
+    /// values. Closing/rejecting a malformed result releases its resources.
+    pub fn with_lease(self, lease: crate::application::rpc::Lease) -> anyhow::Result<Self> {
+        anyhow::ensure!(!matches!(self, Self::Leased { .. }), "nested RPC lease");
+        Ok(Self::Leased {
+            value: Box::new(self),
+            lease,
+        })
+    }
 }
 
 pub type HttpChunkStream =

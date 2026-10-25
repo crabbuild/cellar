@@ -744,6 +744,9 @@ pub(crate) async fn rpc(
     control: RpcControl<'_>,
 ) -> anyhow::Result<Response<PooledResponseBody>> {
     let (content_type, payload) = match args {
+        crate::engine_api::RpcData::Leased { .. } => {
+            anyhow::bail!("leased RPC arguments require a capability session")
+        }
         crate::engine_api::RpcData::Json(json) => ("application/json", Bytes::from(json.clone())),
         crate::engine_api::RpcData::Structured(bytes) => {
             ("application/octet-stream", bytes.clone())

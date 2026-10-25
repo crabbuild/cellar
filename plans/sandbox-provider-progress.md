@@ -528,3 +528,40 @@ rebuilt against the final runtime: command/file assertions and explicit teardown
 pass, `cells_drained` and `application_work_drained` are true with no timeout,
 and the overall target remains failing at `/serve`'s function-bearing result.
 This is not a complete published SDK/image qualification result.
+
+### Native RPC result transport lifetime
+
+Native `RpcData::Leased` carries a finite value with a shared, revocable result
+lifetime. `sdk::rpc::Lease::for_context` retains the original native event under
+its existing cancellation, retirement and deadline limits. Weak closure
+observers and revocation guards do not keep an ownership alias alive.
+
+| Boundary | Implemented behavior |
+| --- | --- |
+| Local calls | Aliases share one lifetime; the last drop notifies the original producer |
+| Peer calls | The existing authenticated RPC route sends a versioned finite-value prefix followed by a live response body; body closure releases the result |
+| Revocation | Explicit close, producer retirement or peer-reader domain shutdown closes retained aliases and releases owned transport work |
+| Bounds | Check the finite peer value's 64 MiB ceiling before allocation; reject invalid/truncated framing, nested leases and unknown versions |
+| Existing value services | Refuse leased values or arguments explicitly; preserve payload accounting and the existing output proofs |
+
+This does not yet export/import JS functions or `RpcTarget`, dispatch callbacks,
+provide reverse callback arguments, or implement language-level `dup`/disposal.
+Those operations must retain the original event and apply their own quotas and
+output proof before returning delegated results. The live Sandbox `/serve`
+failure therefore remains unresolved, and SP-02/SP-04 stay partial. Full routed
+peer/fault qualification and profile-specific result budgets also remain open.
+
+Validation for this transport slice passes six lease/framing unit tests and the
+extended real native-cell integration. The latter checks cleanup through the
+producer's original SDK context and revocation on retirement while a caller
+retains an alias. HTTP/1 loopback tests check caller-drop and server-revocation
+behavior; they do not substitute for a routed multi-node fault test. All 16
+shared guest unit tests, strict affected-crate all-target Clippy, Rust
+format/layout (1,051 sources), JS formatting (49 sources), all 21 JS tooling
+tests, three container documentation examples, documentation references and
+the 466-package native-only engine guard pass.
+
+Final Node/V8 regressions pass all 16 Workers integrations and both typed RPC
+integrations with existing deadlines and assertions unchanged. The new native
+lease API documentation example also compiles. No new live SDK/image or
+cloud-account acceptance result is claimed for this transport-only change.

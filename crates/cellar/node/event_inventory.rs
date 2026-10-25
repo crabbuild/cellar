@@ -84,10 +84,7 @@ async fn checked(app: &AppHandle, request: Request<Incoming>) -> anyhow::Result<
     let (_, result) =
         futures_util::future::join(super::dispatch_rpc_call(app.clone(), call), receiver).await;
     let data = result??;
-    let bytes = match &data {
-        crate::engine_api::RpcData::Json(s) => s.len(),
-        crate::engine_api::RpcData::Structured(b) => b.len(),
-    };
+    let bytes = data.payload_bytes();
     anyhow::ensure!(
         bytes <= 4 * crate::runtime::event_inventory::MAX_REPLY_BYTES,
         "encoded inventory reply exceeds bounds"

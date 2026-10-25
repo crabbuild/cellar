@@ -80,6 +80,8 @@ struct Signals {
     background_started: Notify,
     background_resume: Notify,
     background_done: Notify,
+    lease_closed: Notify,
+    lease_disposals: AtomicUsize,
 }
 
 struct Pending(Arc<Signals>);
@@ -167,6 +169,30 @@ impl Cell for Account {
                     Ok(output(&count.to_string()))
                 }
                 Invocation::CellRpc { method, args } => {
+                    if method == "lease-scope" {
+                        return Ok(Output::Rpc(
+                            RpcData::Json("null".into())
+                                .with_lease(cellar::sdk::rpc::Lease::for_context(&context)?)?,
+                        ));
+                    }
+                    if method == "lease" {
+                        let lease = cellar::sdk::rpc::Lease::for_context(&context)?;
+                        let closed = lease.closed();
+                        let signals = self.0.clone();
+                        let producer = context.clone();
+                        context.wait_until(async move {
+                            closed.wait().await;
+                            producer
+                                .storage()?
+                                .put_json("lease-disposed", &serde_json::json!(true))?;
+                            signals.lease_disposals.fetch_add(1, Ordering::SeqCst);
+                            signals.lease_closed.notify_one();
+                            Ok(())
+                        })?;
+                        return Ok(Output::Rpc(
+                            RpcData::Json("{\"leased\":true}".into()).with_lease(lease)?,
+                        ));
+                    }
                     if method == "pending" {
                         let _guard = Pending(self.0.clone());
                         self.0.pending.notify_one();
@@ -318,6 +344,31 @@ impl Cell for Coordinator {
                         .await
                         .is_err());
                     Ok(output("rpc"))
+                }
+                "rpc-lease" => {
+                    let reply = self
+                        .stub()
+                        .rpc(&context, "lease", RpcData::Json("[]".into()))
+                        .await?;
+                    assert!(cellar::application::decode_rpc_result(&reply).is_err());
+                    let RpcData::Leased { value, lease } = reply else {
+                        panic!("native RPC lost its lease")
+                    };
+                    assert!(
+                        matches!(*value, RpcData::Json(ref value) if value == "{\"leased\":true}")
+                    );
+                    let alias = lease.clone();
+                    drop(lease);
+                    assert!(!alias.is_closed());
+                    assert_eq!(self.0.lease_disposals.load(Ordering::SeqCst), 0);
+                    drop(alias);
+                    cellar::asyncrt::timeout(
+                        Duration::from_secs(2),
+                        self.0.lease_closed.notified(),
+                    )
+                    .await?;
+                    assert_eq!(self.0.lease_disposals.load(Ordering::SeqCst), 1);
+                    Ok(output("leased RPC disposed"))
                 }
                 "rpc-errors" => {
                     let error = self
@@ -667,6 +718,7 @@ async fn run() -> Result<()> {
         ("stale", "stale"),
         ("stream", "streamed"),
         ("rpc", "rpc"),
+        ("rpc-lease", "leased RPC disposed"),
         ("rpc-errors", "remote errors"),
         ("route-error", "retryable"),
         ("broken", "fresh"),
@@ -839,7 +891,26 @@ async fn run() -> Result<()> {
     }
     signals.background_resume.notify_one();
     signals.background_done.notified().await;
+    let leased = runtime
+        .rpc(
+            alpha.clone(),
+            None,
+            "lease-scope".into(),
+            RpcData::Json("[]".into()),
+            None,
+        )
+        .await?
+        .data;
+    let RpcData::Leased { lease, .. } = leased else {
+        panic!("missing event-owned lease")
+    };
+    let closed = lease.closed();
     runtime.swap_out_cell(&alpha, 1).await?;
+    cellar::asyncrt::timeout(Duration::from_secs(2), closed.wait()).await?;
+    assert!(
+        lease.is_closed(),
+        "an external result extended retired producer authority"
+    );
     runtime.start_cell(alpha.clone(), 1, false).await?;
     runtime.publish_cell(&alpha, 1)?;
     assert_eq!(call(&runtime, "retained").await?.body, b"4");

@@ -64,6 +64,7 @@ pub fn decode_rpc(data: &RpcData) -> Result<cellar_native::clone::StructuredValu
             cellar_native::clone::StructuredValue::from_json(serde_json::from_str(json)?)
         }
         RpcData::Structured(bytes) => cellar_native::clone::decode(bytes),
+        RpcData::Leased { .. } => anyhow::bail!("RPC value requires an owned session decoder"),
     }
 }
 
@@ -96,6 +97,7 @@ pub fn decode_rpc_result_with_limits(
         RpcData::Structured(bytes) => {
             cellar_native::rpc::decode_response_with_limits(bytes, limits)
         }
+        RpcData::Leased { .. } => anyhow::bail!("RPC result requires an owned session decoder"),
     }
 }
 

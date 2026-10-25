@@ -1000,6 +1000,9 @@ impl NamespaceCell {
             _ => return Err(error(format!("namespace has no RPC method {method}"))),
         };
         match args {
+            RpcData::Leased { .. } => {
+                anyhow::bail!("leased RPC arguments are not supported by this value-only service")
+            }
             RpcData::Structured(_) => encode_rpc(&result),
             RpcData::Json(_) if matches!(result.root, CloneValue::Undefined) => {
                 Ok(RpcData::Json("null".into()))

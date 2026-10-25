@@ -90,6 +90,26 @@ Completed callees detach from their caller's cancellation tree so valid
 background work keeps its own lifetime. Full guest cancellation controls and
 proof/lifecycle qualification remain open.
 
+### Native result lifetimes
+
+Native adapters can attach `sdk::rpc::Lease::for_context(&context)` to a raw
+`RpcData` result with `with_lease`. This retains the producer's original event
+under its existing lifetime limits. The finite value and lease travel through
+the native RPC route, including the authenticated peer tunnel.
+
+| Action | Result |
+| --- | --- |
+| Clone a lease | Share ownership of the same result lifetime |
+| Drop the last alias or call `close()` | Release the transport and notify the producer |
+| Retire/cancel the producer or stop its execution domain | Revoke retained aliases |
+| Decode with a value-only codec | Refuse the result instead of discarding its lifetime |
+
+A lease grants no SDK authority and does not implement callable JavaScript
+results, `RpcTarget`, callback arguments or streaming RPC. These require a
+session-aware language profile with its own dispatch, quotas and disposal rules.
+The peer format bounds the finite value at 64 MiB; adapters must impose their
+own tighter profile budgets. Closing a result does not roll back earlier effects.
+
 ## Design for ambiguous responses
 
 ![A client retries the same command ID and digest after a lost reply; the cell reads its retained receipt and returns the stored result.](diagrams/command-retries.svg)
