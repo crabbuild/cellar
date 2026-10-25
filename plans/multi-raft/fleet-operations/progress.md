@@ -1048,19 +1048,85 @@ reclaims no storage. FO-04 through FO-10 remain pending and fleet automation
 stays default-off. RustFS/Colima limits, TPS/p99, full scaling workflows and soak
 qualification remain unproven.
 
+## FO-03 progress: remote quorum observations
+
+Source `cc27382774f7acf4d589dfbe7de4fe3620019d43` adds
+`RaftCells::observe_peer_fleet_membership` for an empty coordinator. The target
+independently reads a rooted history at least as new as the requested trust cut,
+checks its actual birth/schema, performs safe ReadIndex, and captures a coherent
+configuration and publication sample. The opaque response binds the exact
+original or joined member, node, disk, process and engine. Retained results expose
+the complete invocation age through SDK delivery and supply no lease.
+
+A distinct RPC purpose and TLS exporter authenticate catalog, scope, history,
+nonce and both physical endpoints. Both peers retain metadata reservations;
+both hosts retain response reservations. EOF, caller cancellation, the original
+deadline, physical revocation and shutdown cancel and join nested SDK work.
+No dormant registration, local replica, SQL image or business query is required
+at the coordinator. Rooted node trust creates no seeding or membership-mutation
+grant. The existing write acknowledgement path calls none of this metadata work.
+
+Five focused native cases passed before final formatting. They cover image-free
+original members, retained response age, dormant refusal, an injected older root,
+actual held target catalog IO with continued native S3 SQL, minority refusal,
+cancellation, shutdown, learner binding, joint roles and stable replacement.
+The initial fixture used the unmanaged/colocated constructor and correctly failed
+managed birth reservation before reaching the RPC; it now uses declared managed
+births on distinct hosts. No assertion or timeout was weakened.
+
+The first broad attempt failed an existing host cache-pressure case with
+`node is closing` before Raft startup. A second attempt failed archive setup
+with `node authority was not established before startup deadline`. Three exact
+unchanged-binary cache replays passed. Temporary fixture tracing then produced
+20 passing exact replays and a complete passing 29-case host target without
+reproducing either startup failure. The fixture is restored byte-for-byte;
+these diagnostic runs do not replace final source qualification. No production
+logic, lease setting, assertion or deadline was changed, and the startup cause
+remains unresolved. Both failed attempts and the probe logs are retained.
+
+Final source qualification passed **374 native cases across 13 complete targets**,
+including 72 enrollment, 12 catalog and 25 permit/import cases. Five process
+helpers remain ignored in direct listings and run through passing parents.
+Another **140 Raft library tests and four startup-confirmation cases passed**.
+Affected-target/lib Clippy with warnings denied, formatting/layout over 961 Rust
+files, native dependencies (454 reachable packages, no JavaScript engine),
+documentation, source preflight and all 10 plan-validator tests passed.
+
+Nineteen changed Rust files stayed identical from final formatting through the
+successful qualification matrix and match the committed source. Temporary
+fixture tracing was restored exactly before that matrix. The **partial** record
+`implementation/fo03/peer-quorum-boundary.json` under ignored
+`.cellar/raft-perf/fleet-operations/` retains source, log and executable hashes,
+including both earlier failed attempts. Mutable build-cache paths do not archive
+executable bytes. The repeated green matrix does not establish the cause of the
+earlier startup failures.
+
+The plan retains 181 required cases and 71 reviewed source anchors.
+The protocol ends in `/fleet-quorum-1`;
+use fresh experimental coordination/data prefixes, namespaces and matching
+binaries. Numeric markers stay at 1, with no compatibility reader or migration.
+No raw evidence is tracked under `plans/multi-raft/evidence/`.
+
+FO-03 remains **IN_PROGRESS**. The missing mandatory
+`fleet_enrollment_incomplete_import` case still requires the actual removal
+certification boundary. Remote quorum observations are inputs to that verifier,
+not complete inventory, archive coverage, physical-work joins or terminal
+Evacuated/Removed receipts. Capacity activation, automatic placement, the
+reconciler, operator workflows, scaling and deployed qualification remain open.
+
 ## Prioritized remaining delivery
 
 The append-only namespace registry, complete inventory read, native retired-binding
 refusal, unrooted ingress refusal, catalog-scoped move trust admission,
 physical route/process revocation, rooted replica separation and typed evacuation
-exclusion are implemented. The evacuation adapter consumes complete inventory
+exclusion and remote quorum observations are implemented. The evacuation adapter consumes complete inventory
 inside its exact root CAS. Capacity activation and terminal lifecycle proof still
 require their operation-specific integration; a saved count cannot authorize
 placement or maintenance. The manifest dependencies remain unchanged.
 
 | Priority | Boundary | Required result before advancing |
 | --- | --- | --- |
-| P0 | FO-03 capacity and terminal lifecycle integration | Complete inventory now gates typed evacuation exclusion under one exact root CAS; rooted physical-host policy is enforced on birth and fresh repair. Finish capacity activation/readiness and inventory-consuming terminal proof with fresh quorum/archive coverage, settled permits and physical-work joins/fences. Exclusion is not node absence. Close `fleet_enrollment_incomplete_import` at the actual removal-certification boundary. |
+| P0 | FO-03 capacity and terminal lifecycle integration | Complete inventory now gates typed evacuation exclusion under one exact root CAS; rooted physical-host policy is enforced on birth and fresh repair. Finish capacity activation/readiness and inventory-consuming terminal proof with fresh quorum/archive coverage, settled permits and physical-work joins/fences. Bind coherent fixed data/configuration cuts, including empty histories, before consuming the remote observations. Exclusion is not node absence. Close `fleet_enrollment_incomplete_import` at the actual removal-certification boundary. |
 | P1 | FO-04 placement, FO-05 load, FO-06 reconciliation | Implement bounded staged feasibility for retained/temporary costs and one-node-loss headroom, fresh load observations and a domain-owned reconciler. Restart/cancellation/lost replies must converge; release reservations only with fresh terminal quorum proof and physical-work joins. |
 | P2 | FO-07 maintenance and FO-08 operator API/CLI | Deliver exact-operation/epoch/process stop fencing, shared disruption-slot integration for restart/resize, complete evacuation/removal receipts and authenticated idempotent workflows with revision guards and typed outcomes. Cover add/remove and rolling restart. |
 | P3 | FO-09 scaling and fewer-cell shrink | Reconcile desired, effective and observed resources for horizontal and vertical changes. Require observed platform-limit checks and complete retained-state fit before shrinking; fewer cells do not establish removability. |
