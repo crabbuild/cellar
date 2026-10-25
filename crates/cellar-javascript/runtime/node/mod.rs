@@ -165,8 +165,9 @@ fn run(
     // The factory is captured before importing application modules. The channel
     // secret is delivered only over inherited stdin, never argv or the environment.
     let script = format!(
-        "const makeRunner = ({});\n{}",
+        "const makeRunner = ({});\nconst ioSource = {};\n{}",
         include_str!("../runner.js"),
+        serde_json::to_string(include_str!("io.mjs"))?,
         include_str!("worker.mjs")
     );
     let mut command = Command::new(&node.executable);
@@ -206,7 +207,8 @@ fn run(
         "bridgeLimit": runtime.options.max_bridge_bytes,
         "pendingLimit": runtime.options.max_pending_operations,
         "operationLimit": runtime.options.max_operations,
-        "invocationLimit": runtime.options.max_invocations
+        "invocationLimit": runtime.options.max_invocations,
+        "synchronousTimeout": node.heartbeat_timeout.as_millis()
     });
     let mut stdin = process.0.stdin.take().context("Node stdin missing")?;
     let config = serde_json::to_vec(&config)?;
@@ -397,6 +399,11 @@ fn run(
                     last_operation = id;
                     let name = string(&message, "name")?;
                     let payload = string(&message, "payload")?;
+                    let synchronous = message
+                        .get("synchronous")
+                        .map(|v| v.as_bool().context("invalid Node synchronous flag"))
+                        .transpose()?
+                        .unwrap_or(false);
                     let Some(state) = invocations.get_mut(&invocation) else {
                         reject(&mut transport, invocation, id, "ContextExpired")?;
                         continue;
@@ -408,6 +415,8 @@ fn run(
                         || !state.start.owner.load(Ordering::Acquire)
                     {
                         Some("ContextExpired")
+                    } else if synchronous && !supports_synchronous(name) {
+                        Some("UnsupportedOperation")
                     } else if name.len() > 64 || payload.len() > runtime.options.max_value_bytes {
                         Some("ValueLimit")
                     } else if state.operations >= runtime.options.max_operations
@@ -434,6 +443,7 @@ fn run(
                             id,
                             name: name.into(),
                             payload: payload.into(),
+                            synchronous: None,
                             _bytes: bytes,
                         })
                         .is_err()

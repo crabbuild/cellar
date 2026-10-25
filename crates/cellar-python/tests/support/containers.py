@@ -33,6 +33,10 @@ class Counter:
             await rejects(lambda: self.old.running(), "not_committed")
             return Response("ok")
         container = ctx.container
+        capabilities = await container.capabilities()
+        assert capabilities.provider == "audited-native" and capabilities.environment == "linux"
+        assert capabilities.max_resources == 64 and "container.exec" in capabilities.operations
+        assert isinstance(capabilities.operations, tuple)
         if not await container.running():
             await container.start(env=[("HELLO", "world")], labels=[("app", "adapter")])
         port = container.port(int(await ctx.var("HTTP_PORT")))

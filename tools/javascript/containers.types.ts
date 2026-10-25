@@ -58,3 +58,15 @@ async function control(ctx: Context) {
   await container.start({enableInternet: true});
 }
 void control;
+
+async function providerCapabilities(context: import("../../packages/cellar-sdk/index.js").Context) {
+  const capabilities = await context.container.capabilities();
+  const environment: "unspecified" | "linux" | "worker_isolate" = capabilities.environment;
+  const version: 1 = capabilities.format;
+  // @ts-expect-error capabilities are immutable
+  capabilities.provider = "forged";
+  // @ts-expect-error operation discovery is immutable
+  capabilities.operations.push("container.snapshot");
+  return {environment, version};
+}
+void providerCapabilities;

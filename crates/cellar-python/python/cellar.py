@@ -345,6 +345,17 @@ class Storage:
 
 
 @dataclass(frozen=True)
+class ContainerCapabilities:
+    """Declared operations and limits; querying does not start a sandbox."""
+    format: int
+    provider: str
+    environment: str
+    operations: tuple[str, ...]
+    max_body_bytes: int
+    max_resources: int | None
+
+
+@dataclass(frozen=True)
 class ContainerExecOutput:
     exit_code: int
     stdout: bytes
@@ -448,9 +459,14 @@ class ContainerPort:
 
 
 class Container:
-    """Control a root cell's declared container through native ownership gates."""
+    """Control a root cell's configured provider through native ownership gates."""
     def __init__(self, context: Context) -> None:
         self._context = context
+
+    async def capabilities(self) -> ContainerCapabilities:
+        value = await self._context._call("container.capabilities")
+        return ContainerCapabilities(value["format"], value["provider"], value["environment"],
+            tuple(value["operations"]), value["max_body_bytes"], value["max_resources"])
 
     async def running(self) -> bool:
         return await self._context._call("container.running")

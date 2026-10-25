@@ -1,0 +1,214 @@
+{
+  "format": 1,
+  "reviewed": "2026-10-25",
+  "status": "inventory_only",
+  "reference": {
+    "repository": "denoland/celld",
+    "commit": "8702f6d186c77698dbfb30cf29e3b1922a88f008",
+    "files": [
+      {
+        "path": "fixtures/celld/LICENSE",
+        "upstream": "LICENSE",
+        "git_blob": "d645695673349e3947e8e5ae42332d0ac3164cd7",
+        "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+      },
+      {
+        "path": "fixtures/celld/container/index.js",
+        "upstream": "examples/container/index.js",
+        "git_blob": "6ab5928cbe9f6cd3f7f78a2f23598fa412a87a34",
+        "sha256": "d66a299944dcf130a1d4360d5ecd03d0f311ae257adcbc583dbb480b8470fcb1"
+      },
+      {
+        "path": "fixtures/celld/container/package.json",
+        "upstream": "examples/container/package.json",
+        "git_blob": "5f2e3f4888d5e357e41dfb0af238a52a8e30e890",
+        "sha256": "4b7f6a8a48cf640a719032406310121977c08532084d9ca09dfcdc74c676f84e"
+      },
+      {
+        "path": "fixtures/celld/sandbox/index.js",
+        "upstream": "examples/sandbox/index.js",
+        "git_blob": "c66c16dabd2b0614b883ca4096e7d676fb4402e6",
+        "sha256": "94c435bcfda181d2b6580f1dfe43d3628a6fb417a105f6354aa8aee3e3ed3585"
+      },
+      {
+        "path": "fixtures/celld/sandbox/package.json",
+        "upstream": "examples/sandbox/package.json",
+        "git_blob": "a8f163f75a118afdbc637ab814ed4e95b64a1ca2",
+        "sha256": "d0857756014102e0f6d03abd326e2a7a06e1f0c81c980086fd69695f28054635"
+      },
+      {
+        "path": "fixtures/celld/sandbox/Dockerfile",
+        "upstream": "examples/sandbox/Dockerfile",
+        "git_blob": "338be2cf31c47f359c17fbbb5a3ee68ae5f6f5c2",
+        "sha256": "ff8bc84f02325719f791d95e912bb26316d4325d7875b13d9ab358836e6aaa5c"
+      },
+      {
+        "path": "fixtures/celld/sandbox/wrangler.jsonc",
+        "upstream": "examples/sandbox/wrangler.jsonc",
+        "git_blob": "2afcced1b39cd3540fce540524991e11689c3461",
+        "sha256": "8bbcda4b608cfc9b22be3a4420f329fc4ee614de1ae95bbc7ce9be39f080e700"
+      }
+    ]
+  },
+  "lock_sha256": "87be6b46ecf363e8e6216915dee7d12c934b74e716fc915d0d2a501f7eac56dd",
+  "packages": [
+    {
+      "name": "@cloudflare/containers",
+      "version": "0.3.7",
+      "integrity": "sha512-DM9dm3FnIBSyiSJ1FLavKwl/lk3oAmTaynCzZQ9pZR0ncRPquSxkxd8Nu2MFILxmDDsPkxKsSNEh9mHHMty4Fw==",
+      "tarball": "https://registry.npmjs.org/@cloudflare/containers/-/containers-0.3.7.tgz"
+    },
+    {
+      "name": "@cloudflare/sandbox",
+      "version": "0.12.9",
+      "integrity": "sha512-JlCQ8adVaHT3TrZO13X6US2LJTyQ4YvoEZpfh5EewRqcxPfMHZNJPB/1dsRdiFqmtzpz+lMxGazSUa2H/g2IKg==",
+      "tarball": "https://registry.npmjs.org/@cloudflare/sandbox/-/sandbox-0.12.9.tgz"
+    }
+  ],
+  "image": {
+    "tag": "docker.io/cloudflare/sandbox:0.12.9",
+    "reference": "docker.io/cloudflare/sandbox@sha256:4a56a37a3cfd9b38d65bb4b5d0b341e6490a3a4c0226274ae4c1cca4948e85fe",
+    "config_digest": "sha256:1fd6698858bf214f797829e3d18513667203751bf2153d418e42e8d99d569397",
+    "platform": "linux/amd64",
+    "manifest_path": "fixtures/image-manifest.json"
+  },
+  "runtime": {
+    "files": [
+      {
+        "path": "fixtures/celld/container/index.js",
+        "sha256": "d66a299944dcf130a1d4360d5ecd03d0f311ae257adcbc583dbb480b8470fcb1"
+      },
+      {
+        "path": "fixtures/celld/sandbox/index.js",
+        "sha256": "94c435bcfda181d2b6580f1dfe43d3628a6fb417a105f6354aa8aee3e3ed3585"
+      },
+      {
+        "path": "node_modules/@cloudflare/containers/dist/index.js",
+        "sha256": "4788f78cbab43389d23feb71c8ef4e6657c01f9eeffe962650310784390bd486"
+      },
+      {
+        "path": "node_modules/@cloudflare/containers/dist/lib/container.js",
+        "sha256": "9dfc5feaa43b2bdec08863c85eb94731237aeb9f19c7b7e58ff426776ec8863c"
+      },
+      {
+        "path": "node_modules/@cloudflare/containers/dist/lib/helpers.js",
+        "sha256": "320eae245a1d05a64c8348652f6808fa54c776340bd7c24391c19fe3b9e0f05f"
+      },
+      {
+        "path": "node_modules/@cloudflare/containers/dist/lib/utils.js",
+        "sha256": "22f96e63b873b10081fc15216bffc8d23a4614516efcb64be99db87372d4011c"
+      },
+      {
+        "path": "node_modules/@cloudflare/sandbox/dist/dist-B_eXrP83.js",
+        "sha256": "e16fae404f15bfdde3068198512d976f8bad17ed3f067e9006d60f78c0f7212d"
+      },
+      {
+        "path": "node_modules/@cloudflare/sandbox/dist/errors-CpkKPbWC.js",
+        "sha256": "2c3c6cdf1fa7cc84047821205a41c1437616738d69f218b10ae68c58d440e594"
+      },
+      {
+        "path": "node_modules/@cloudflare/sandbox/dist/index.js",
+        "sha256": "5ef106f47f6b300c19afdbfeccbd06e0e7d96bcbfec2c7a8477b9d2a0f06be37"
+      },
+      {
+        "path": "node_modules/@cloudflare/sandbox/dist/sandbox-D0rNqxlr.js",
+        "sha256": "400b77a826a9fb441e795af23bfdc4b6ba9f97b57b15f0b358fb92bc6fcb3648"
+      },
+      {
+        "path": "node_modules/aws4fetch/dist/aws4fetch.esm.mjs",
+        "sha256": "3049cd99d00a2fb83ce0e77f0e6b3fb22c17d8e708b740821f906145a8f978e9"
+      },
+      {
+        "path": "node_modules/capnweb/dist/index.js",
+        "sha256": "26a67655fa0f86734ac035d7bf3646b6e9a21dc0a9bdffa18ecd771eae428d1a"
+      }
+    ],
+    "externals": [
+      "cloudflare:workers",
+      "node:path/posix"
+    ]
+  },
+  "requirements": [
+    {
+      "id": "workers_module",
+      "contract": "Workers base classes and RPC targets",
+      "status": "pending",
+      "evidence": [
+        {
+          "path": "node_modules/@cloudflare/containers/dist/lib/container.js",
+          "token": "cloudflare:workers"
+        },
+        {
+          "path": "node_modules/@cloudflare/sandbox/dist/sandbox-D0rNqxlr.js",
+          "token": "cloudflare:workers"
+        }
+      ]
+    },
+    {
+      "id": "sync_sql",
+      "contract": "Synchronous Durable Object SQLite cursor",
+      "status": "pending",
+      "evidence": [
+        {
+          "path": "node_modules/@cloudflare/containers/dist/lib/container.js",
+          "token": "this.ctx.storage.sql.exec"
+        }
+      ]
+    },
+    {
+      "id": "sync_kv",
+      "contract": "Synchronous Durable Object KV access",
+      "status": "pending",
+      "evidence": [
+        {
+          "path": "node_modules/@cloudflare/containers/dist/lib/container.js",
+          "token": "this.ctx.storage.kv.get"
+        }
+      ]
+    },
+    {
+      "id": "initialization_gate",
+      "contract": "Constructor initialization admission",
+      "status": "pending",
+      "evidence": [
+        {
+          "path": "node_modules/@cloudflare/containers/dist/lib/container.js",
+          "token": "this.ctx.blockConcurrencyWhile"
+        }
+      ]
+    },
+    {
+      "id": "transaction",
+      "contract": "Durable Object storage transactions",
+      "status": "pending",
+      "evidence": [
+        {
+          "path": "node_modules/@cloudflare/sandbox/dist/sandbox-D0rNqxlr.js",
+          "token": "this.#host.storage.transaction"
+        }
+      ]
+    },
+    {
+      "id": "container_lifecycle",
+      "contract": "Persistent container authority, startup, monitor and ports",
+      "status": "pending",
+      "evidence": [
+        {
+          "path": "node_modules/@cloudflare/containers/dist/lib/container.js",
+          "token": "this.container.getTcpPort"
+        }
+      ]
+    },
+    {
+      "id": "capnweb",
+      "contract": "Sandbox RPC transport using the real package",
+      "status": "pending",
+      "evidence": [
+        {
+          "path": "node_modules/@cloudflare/sandbox/dist/sandbox-D0rNqxlr.js",
+          "token": "new RpcSession"
+        }
+      ]
+    }
+  ]
+}

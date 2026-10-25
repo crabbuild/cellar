@@ -3,7 +3,7 @@
 // Injected by the Rust bootstrap. No application code runs before the private
 // transport and context factory have captured their dependencies.
 import { readFileSync } from "node:fs";
-import { connect } from "node:net";
+import { Worker } from "node:worker_threads";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { pathToFileURL } from "node:url";
 
@@ -22,33 +22,29 @@ const active = new Map();
 const pending = new Map();
 let next = 0;
 let runner;
-const socket = connect({ host: "127.0.0.1", port: config.port });
 const exit = process.exit.bind(process);
+// One slot suffices: the application event loop can execute only one blocking
+// callback at a time. Keep replies bounded independently of MessagePort queues.
+const synchronousSlot = new SharedArrayBuffer(config.valueLimit + 8);
+const queued = new BigInt64Array(new SharedArrayBuffer(8));
 const maximum = Math.min(config.valueLimit * 6 + 4096, config.bridgeLimit);
-
-// Each JSON message has a four-byte big-endian length header. Bound both the
-// individual frame and queued output before allocating and writing the frame.
-function send(value) {
-  const bytes = Buffer.from(stringify(value));
-
-  if (
-    bytes.length > maximum ||
-    socket.writableLength + bytes.length + 4 > config.bridgeLimit
-  ) {
-    exit(70);
-  }
-
-  const frame = Buffer.allocUnsafe(bytes.length + 4);
-  frame.writeUInt32BE(bytes.length);
-  bytes.copy(frame, 4);
-  socket.write(frame);
+const synchronousHeader = new Int32Array(synchronousSlot, 0, 2);
+const synchronousBytes = new Uint8Array(synchronousSlot, 8);
+const io = new Worker(new URL(`data:text/javascript,${encodeURIComponent(ioSource)}`), {
+  workerData: { config, synchronousSlot, queueSlot: queued.buffer },
+});
+io.on("error", () => exit(70));
+io.on("exit", () => exit(70));
+function send(value, synchronous = false) {
+  const encoded = stringify(value);
+  const size = Buffer.byteLength(encoded) + 4;
+  if (size > maximum + 4 || Atomics.add(queued, 0, BigInt(size)) + BigInt(size) > BigInt(config.bridgeLimit)) exit(70);
+  io.postMessage({ type: synchronous ? "synchronous" : "send", encoded });
 }
-
-socket.on("error", () => exit(70));
-socket.on("close", () => exit(70));
-await new Promise(resolve => socket.once("connect", resolve));
-socket.setNoDelay(true);
-send({ type: "hello", secret: config.secret });
+await new Promise(resolve => io.once("message", message => {
+  if (message.type !== "connected") exit(70);
+  resolve();
+}));
 delete config.secret;
 
 function reject(code) {
@@ -57,7 +53,7 @@ function reject(code) {
 
 // AsyncLocalStorage binds promises, timers and Node I/O continuations to their
 // invocation. Rust repeats the liveness/limit checks before accepting effects.
-const factory = makeRunner((invocation, name, payload) => {
+function operation(invocation, name, payload, synchronous = false) {
   if (scope.getStore() !== invocation) {
     reject("ContextMismatch");
   }
@@ -66,6 +62,10 @@ const factory = makeRunner((invocation, name, payload) => {
 
   if (!state) {
     reject("ContextExpired");
+  }
+
+  if (synchronous && !["clock.now", "storage.read", "storage.apply", "storage.sql", "alarm.get"].includes(name)) {
+    reject("UnsupportedOperation");
   }
 
   if (Buffer.byteLength(payload) > config.valueLimit) {
@@ -90,6 +90,7 @@ const factory = makeRunner((invocation, name, payload) => {
     "kv.list",
     "websocket.next",
     "response.read",
+    "container.capabilities",
     "container.running",
     "container.monitor",
     "container.exec.read_stdout",
@@ -113,11 +114,28 @@ const factory = makeRunner((invocation, name, payload) => {
   state.pending++;
   state.mutation ||= mutation;
 
+  if (synchronous) {
+    Atomics.store(synchronousHeader, 0, 0);
+    send({ type: "operation", invocation, id, name, payload, synchronous: true }, true);
+    // The I/O worker may wake this slot with a reply, revocation, or failure.
+    // Rust's event-loop watchdog remains authoritative; no worker heartbeats
+    // pretend the application thread is responsive while it waits.
+    Atomics.wait(synchronousHeader, 0, 0, config.synchronousTimeout);
+    if (Atomics.load(synchronousHeader, 0) !== 1) exit(70);
+    const length = Atomics.load(synchronousHeader, 1);
+    if (length < 0 || length > config.valueLimit) exit(70);
+    const result = Buffer.from(synchronousBytes.subarray(0, length)).toString("utf8");
+    state.pending--;
+    if (mutation) state.mutation = false;
+    return result;
+  }
+
   return new Promise(resolve => {
     pending.set(id, { invocation, mutation, resolve });
     send({ type: "operation", invocation, id, name, payload });
   });
-});
+}
+const factory = makeRunner(operation, (invocation, name, payload) => operation(invocation, name, payload, true));
 
 // Revocation prevents new Cellar calls. It cannot undo effects already submitted
 // to Rust, or stop arbitrary application work using Node's own OS capabilities.
@@ -221,53 +239,12 @@ function receive(message) {
   }
 }
 
-// Incrementally copy into one bounded frame; coalesced frames are dispatched
-// individually instead of retaining an unbounded concatenated input buffer.
-let header = Buffer.alloc(4);
-let headerBytes = 0;
-let frame = null;
-let frameBytes = 0;
-
-socket.on("data", chunk => {
+io.on("message", message => {
   try {
-    let offset = 0;
-
-    while (offset < chunk.length) {
-      if (!frame) {
-        const n = Math.min(4 - headerBytes, chunk.length - offset);
-        chunk.copy(header, headerBytes, offset, offset + n);
-        headerBytes += n;
-        offset += n;
-
-        if (headerBytes < 4) {
-          continue;
-        }
-
-        const length = header.readUInt32BE();
-
-        if (!length || length > maximum) {
-          exit(70);
-        }
-
-        frame = Buffer.allocUnsafe(length);
-        frameBytes = 0;
-        headerBytes = 0;
-      }
-
-      const n = Math.min(frame.length - frameBytes, chunk.length - offset);
-      chunk.copy(frame, frameBytes, offset, offset + n);
-      frameBytes += n;
-      offset += n;
-
-      if (frameBytes === frame.length) {
-        const message = parse(frame.toString("utf8"));
-        frame = null;
-        receive(message);
-      }
-    }
-  } catch {
-    exit(70);
-  }
+    const size = Buffer.byteLength(message.encoded) + 4;
+    Atomics.sub(queued, 0, BigInt(size));
+    receive(parse(message.encoded));
+  } catch { exit(70); }
 });
 
 // Import only after installing the authenticated channel and private SDK facade.

@@ -4,11 +4,13 @@
 #![doc = include_str!("README.md")]
 #![warn(clippy::disallowed_methods, clippy::disallowed_types)]
 
+mod capabilities;
 mod native;
 mod results;
 mod values;
 
 use anyhow::{ensure, Context as _, Result};
+pub use capabilities::{Capabilities, Environment};
 use cellar::sdk::{containers::ProviderAuthority, Context};
 use serde_json::Value;
 use std::{
@@ -38,6 +40,7 @@ impl std::error::Error for Validation {}
 /// Closed operation vocabulary of the container bridge, version 1.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Operation {
+    Capabilities,
     Running,
     Start,
     Monitor,
@@ -69,6 +72,7 @@ pub enum Operation {
 
 impl Operation {
     pub const ALL: &'static [Self] = &[
+        Self::Capabilities,
         Self::Running,
         Self::Start,
         Self::Monitor,
@@ -100,6 +104,7 @@ impl Operation {
 
     pub fn parse(name: &str) -> std::result::Result<Self, Validation> {
         match name {
+            "container.capabilities" => Ok(Self::Capabilities),
             "container.running" => Ok(Self::Running),
             "container.start" => Ok(Self::Start),
             "container.monitor" => Ok(Self::Monitor),
@@ -133,6 +138,7 @@ impl Operation {
 
     pub fn name(self) -> &'static str {
         match self {
+            Self::Capabilities => "container.capabilities",
             Self::Running => "container.running",
             Self::Start => "container.start",
             Self::Monitor => "container.monitor",
@@ -168,7 +174,8 @@ impl Operation {
     pub fn is_read(self) -> bool {
         matches!(
             self,
-            Self::Running
+            Self::Capabilities
+                | Self::Running
                 | Self::Monitor
                 | Self::ReadStdout
                 | Self::ReadStderr
@@ -186,6 +193,17 @@ pub type ProviderFuture<'a> = Pin<Box<dyn Future<Output = Result<Value>> + Send 
 /// Implementations declare supported operations and allocate invocation resources.
 pub trait Provider: Send + Sync {
     fn name(&self) -> &str;
+
+    /// Execution environment supplied by this configured backend. Unknown is
+    /// explicit for existing providers until they declare their environment.
+    fn environment(&self) -> Environment {
+        Environment::Unspecified
+    }
+
+    /// Maximum live handles enforced by the provider, when declared.
+    fn max_resources(&self) -> Option<usize> {
+        None
+    }
 
     fn operations(&self) -> &[Operation];
 
@@ -209,6 +227,14 @@ pub trait ProviderSession: Send + Sync {
 pub struct Native;
 
 impl Provider for Native {
+    fn environment(&self) -> Environment {
+        Environment::Linux
+    }
+
+    fn max_resources(&self) -> Option<usize> {
+        Some(native::MAX_RESOURCES)
+    }
+
     fn name(&self) -> &str {
         "native"
     }
@@ -259,6 +285,12 @@ impl Adapter {
         self.0.as_ref()
     }
 
+    /// Describe the configured provider without allocating an invocation session
+    /// or contacting a remote service. Limits are those of the invoking host.
+    pub fn capabilities(&self, limits: &Limits) -> Capabilities {
+        Capabilities::new(self.0.as_ref(), limits)
+    }
+
     pub fn session(&self) -> Session {
         Session {
             backend: self.0.open(),
@@ -296,7 +328,8 @@ impl Session {
             values::check_depth(&input)?;
             ensure!(input.is_object(), "container input must be an object");
             ensure!(
-                self.provider.operations().contains(&operation),
+                operation == Operation::Capabilities
+                    || self.provider.operations().contains(&operation),
                 "unsupported provider operation"
             );
             native::validate(operation.name(), &input, limits)
@@ -305,6 +338,12 @@ impl Session {
         let candidate = context.container_provider_authority()?;
         let authority = self.authority.get_or_init(|| candidate);
         authority.check(context)?;
+        if operation == Operation::Capabilities {
+            return Ok(serde_json::to_value(Capabilities::new(
+                self.provider.as_ref(),
+                limits,
+            ))?);
+        }
         // Observations can drain streams while one control operation is pending.
         let _control = if operation.is_read() {
             None

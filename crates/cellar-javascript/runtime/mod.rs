@@ -81,6 +81,9 @@ pub(crate) enum Event {
         id: u64,
         name: String,
         payload: String,
+        // Embedded synchronous calls have a private reply slot. Node routes
+        // its replies through the existing authenticated transport.
+        synchronous: Option<mpsc::SyncSender<Reply>>,
         _bytes: OwnedSemaphorePermit,
     },
     Complete {
@@ -141,9 +144,22 @@ impl Runtime {
             .map_err(|_| anyhow::anyhow!("JavaScript admission exhausted"))
     }
 
+    #[cfg(test)]
     pub fn reply(&self, invocation: u64, id: u64, payload: String) -> Result<()> {
+        self.respond(invocation, id, payload, None)
+    }
+
+    pub fn respond(
+        &self,
+        invocation: u64,
+        id: u64,
+        payload: String,
+        synchronous: Option<mpsc::SyncSender<Reply>>,
+    ) -> Result<()> {
         let bytes = self.reserve(payload.len())?;
-        self.replies
+        synchronous
+            .as_ref()
+            .unwrap_or(&self.replies)
             .try_send(Reply {
                 invocation,
                 id,
@@ -157,6 +173,16 @@ impl Runtime {
         self.closed.store(true, Ordering::Release);
         self.stopped.send_replace(true);
     }
+}
+
+/// Synchronous compatibility calls run on the original native invocation. Keep
+/// this allowlist local and finite: waiting on network/container I/O would block
+/// the language event loop and could deadlock application-to-application calls.
+pub(crate) fn supports_synchronous(name: &str) -> bool {
+    matches!(
+        name,
+        "clock.now" | "storage.read" | "storage.apply" | "storage.sql" | "alarm.get"
+    )
 }
 
 /// Process bootstrap. Every call owns a joined engine and watchdog. V8's global
@@ -279,3 +305,7 @@ fn run_with<T>(
 #[cfg(all(test, feature = "embed"))]
 #[path = "../runtime_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "../synchronous_runtime_tests.rs"]
+mod synchronous_tests;

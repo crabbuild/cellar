@@ -368,6 +368,19 @@ admitting calls, and Rust independently checks invocation and activation
 liveness. SDK futures remain in the original native handler. JavaScript receives
 owned values and a private call facade, never a Rust context or storage handle.
 
+The optional compatibility runtime also has an internal synchronous bridge for
+local SQL, storage batches/reads, alarms and the native clock. Those calls still
+execute in the original Rust invocation and share the asynchronous operation,
+byte and mutation limits. Embedded V8 waits on a private bounded reply slot;
+Node uses a private I/O worker with a bounded shared reply buffer and a shared
+queue budget. Node old-space limits apply per isolate, including this worker;
+they do not bound total process memory. The application event-loop watchdog
+stays active during a wait.
+This plumbing is preparation for the
+[Cloudflare compatibility profile](../../plans/sandbox-provider-progress.md),
+not a published Workers/DO API or full package compatibility. Normal Cellar
+application code continues to use the typed asynchronous storage facade.
+
 Await every SDK operation. Known reads may overlap; only one mutation may be
 outstanding per invocation. SQL, storage sync, and nested cell fetches count as
 mutations. Returning with outstanding operations fails the handler. Do not save
@@ -467,7 +480,8 @@ production multi-node fault or performance qualification.
 | [runtime/runner.js](runtime/runner.js) | Shared SDK facade, export validation, and activation-local objects. |
 | [runtime/engine.rs](runtime/engine.rs) | V8 isolate, continuation identity, promises, and watchdog. |
 | [runtime/node/mod.rs](runtime/node/mod.rs) | Node startup, authentication, liveness checks, and process ownership. |
-| [runtime/node/worker.mjs](runtime/node/worker.mjs) | Node module loading, async context, and JavaScript IPC peer. |
+| [runtime/node/worker.mjs](runtime/node/worker.mjs) | Node module loading, async context, and synchronous reply admission. |
+| [runtime/node/io.mjs](runtime/node/io.mjs) | Private socket worker, bounded frames/queues and synchronous reply wakeups. |
 | [runtime/node/transport.rs](runtime/node/transport.rs) | Bounded, length-prefixed JSON transport separate from stdout/stderr. |
 | [runtime/node/package.rs](runtime/node/package.rs) | Build-bound Node inventory verification. |
 | [cellar-guest](../cellar-guest/README.md) | Shared native operation validation, storage batches, and failure envelopes. |

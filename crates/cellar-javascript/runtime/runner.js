@@ -3,7 +3,7 @@
 // Shared SDK facade for embedded V8 and Node. This file is a factory expression:
 // the Rust bootstrap evaluates or embeds it, then supplies the private host call.
 // Keep the expression free of a trailing semicolon for embedding in parentheses.
-host => {
+(host, synchronousHost) => {
   "use strict";
 
   // Capture these builtins before importing/evaluating application code.
@@ -153,7 +153,7 @@ host => {
   // Each facade closes over one invocation ID. The backend independently checks
   // continuation identity and liveness whenever that facade calls into Rust.
   function context(id, identity) {
-    const call = async (name, value = {}) => {
+    const invoke = (name, value, synchronous) => {
       let encoded, pending;
 
       try {
@@ -167,14 +167,18 @@ host => {
 
       // Synchronous admission failures occur before the operation is submitted.
       try {
-        pending = host(id, name, encoded);
+        pending = (synchronous ? synchronousHost : host)(id, name, encoded);
       } catch (error) {
         error.code = error.message;
-        error.outcome = "not_committed";
+        error.outcome ??= "not_committed";
         throw error;
       }
 
-      const result = parse(await pending);
+      return synchronous ? finish(name, pending) : pending.then(reply => finish(name, reply));
+    };
+
+    const finish = (name, reply) => {
+      const result = parse(reply);
 
       if (!result.ok) {
         const error = new ErrorClass(result.code);
@@ -195,6 +199,7 @@ host => {
           "var",
           "kv.get",
           "kv.list",
+          "container.capabilities",
           "container.running",
           "container.monitor",
           "container.exec.read_stdout",
@@ -211,6 +216,9 @@ host => {
         throw error;
       }
     };
+
+    const call = async (name, value = {}) => invoke(name, value, false);
+    const synchronous = (name, value = {}) => invoke(name, value, true);
 
     const resource = (kind, resourceId) => {
       const operation = (method, args = {}) =>
@@ -245,6 +253,10 @@ host => {
     };
 
     const container = freeze({
+      capabilities: async () => {
+        const value = await call("container.capabilities");
+        return freeze({ ...value, operations: freeze(value.operations) });
+      },
       running: () => call("container.running"),
       start: (options = {}) => call("container.start", { options }),
       monitor: () => call("container.monitor"),
@@ -359,6 +371,7 @@ host => {
         ),
       // Private hooks used by dispatch while retaining this invocation.
       _call: call,
+      _sync: synchronous,
       _encode: data => encode(bytes(data)),
 
       websocket: socket,

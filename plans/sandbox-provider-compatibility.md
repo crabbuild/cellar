@@ -7,6 +7,9 @@ Docker/compatible Podman operations are implemented in `cellar-container`.
 Cloudflare API compatibility, hosted providers and the sandbox extensions below
 remain pending. Naming a target does not enable that backend or SDK profile.
 
+Implementation evidence and remaining requirements are tracked in the
+[implementation ledger](sandbox-provider-progress.md).
+
 ## Decision: follow celld's application model, add execution providers
 
 Prioritize self-hosted Workers/Durable Object container and Sandbox API
@@ -157,8 +160,10 @@ foundation. Extend them in tested slices when an actual backend needs them:
 
 ## Delivery slices and acceptance
 
-All slices below are pending. The existing native adapter is the implemented
-foundation. No cloud account is needed to prove the initial local SDK profiles.
+SP-01 input identities and the API/gap inventory are implemented; the
+[ledger](sandbox-provider-progress.md) records the evidence and partial runtime
+work. The complete runtime/provider profiles below still require their acceptance
+checks. No cloud account is needed to prove the initial local SDK profiles.
 
 | Slice | Deliverable | Required evidence |
 | --- | --- | --- |

@@ -26,6 +26,10 @@ export class Counter {
       return ok();
     }
     const c = ctx.container;
+    const capabilities = await c.capabilities();
+    check(capabilities.provider === "audited-native" && capabilities.environment === "linux", "configured provider");
+    check(capabilities.max_resources === 64 && capabilities.operations.includes("container.exec"), "provider limits");
+    check(Object.isFrozen(capabilities) && Object.isFrozen(capabilities.operations), "immutable capabilities");
     if (!await c.running()) await c.start({env: [["HELLO", "world"]], labels: [["app", "adapter"]]});
     const http = c.port(Number(await ctx.variable("HTTP_PORT")));
     if (req.url.endsWith("/leak") || req.url.endsWith("/cancel")) {

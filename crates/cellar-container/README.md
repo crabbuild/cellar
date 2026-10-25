@@ -24,6 +24,8 @@ optional backend. The plan includes versioned Workers/Containers/Sandbox
 profiles, Dynamic Worker isolates and four-language qualification. Those
 extensions and remote backends remain pending; the existing provider interface
 is the starting point, not a complete sandbox or Workers implementation.
+Track delivered slices and outstanding qualification in the
+[implementation ledger](../../plans/sandbox-provider-progress.md).
 
 ## Select a provider
 
@@ -89,8 +91,15 @@ Provider requirements:
   once execution, and returning an error does not roll back external effects.
 
 A provider may support a subset, such as lifecycle plus buffered exec, while
-refusing raw TCP or WebSockets. Application code can inspect the host provider's
-`operations()` before selecting workflows that require those capabilities.
+refusing raw TCP or WebSockets. Hosts can query `Adapter::capabilities(&limits)`
+without allocating resources. Root-cell guests can query
+`ctx.container.capabilities()` (Python: `await ctx.container.capabilities()`).
+The version-1 descriptor reports `provider`, `environment` (`linux`,
+`worker_isolate` or `unspecified`), `operations`, `max_body_bytes` and
+`max_resources` (null means undeclared, not unlimited). Querying metadata does
+not start a sandbox or call the provider's effect dispatcher. Native reports
+Linux and its enforced 64-handle limit. No snapshot/PTY feature is implied by a
+provider name. JS and Python return immutable descriptor values.
 
 ## Bridge protocol, version 1
 
@@ -101,6 +110,7 @@ Successful void operations return JSON null. IDs and run tokens are opaque strin
 
 | Operations | Input | Result |
 | --- | --- | --- |
+| `container.capabilities` | `{}` | versioned provider/environment/operation/limit descriptor |
 | `container.running`, `container.monitor`, `container.destroy` | `{}` | boolean, integer exit code, null |
 | `container.start` | `{options:{entrypoint?,env?,enable_internet?,labels?}}` | run token |
 | `container.signal` | `{signal}` | null |

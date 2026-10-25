@@ -44,10 +44,37 @@ fn refuse(scope: &v8::PinScope, message: &str) {
     }
 }
 
+// Once submitted, an unavailable synchronous result cannot prove rollback.
+fn unknown(scope: &v8::PinScope, rv: &mut v8::ReturnValue) {
+    if let Some(payload) = v8::String::new(
+        scope,
+        r#"{"ok":false,"code":"ContextExpired","outcome":"unknown"}"#,
+    ) {
+        rv.set(payload.into());
+    }
+}
+
 fn operation(
     scope: &mut v8::PinScope,
     args: v8::FunctionCallbackArguments,
     mut rv: v8::ReturnValue,
+) {
+    dispatch_operation(scope, args, &mut rv, false);
+}
+
+fn synchronous(
+    scope: &mut v8::PinScope,
+    args: v8::FunctionCallbackArguments,
+    mut rv: v8::ReturnValue,
+) {
+    dispatch_operation(scope, args, &mut rv, true);
+}
+
+fn dispatch_operation(
+    scope: &mut v8::PinScope,
+    args: v8::FunctionCallbackArguments,
+    rv: &mut v8::ReturnValue,
+    synchronous: bool,
 ) {
     let Some(state) = scope.get_slot::<Shared>().cloned() else {
         return;
@@ -79,6 +106,10 @@ fn operation(
     }
     let name = name.to_rust_string_lossy(scope);
     let payload = payload.to_rust_string_lossy(scope);
+    if synchronous && !supports_synchronous(&name) {
+        return refuse(scope, "UnsupportedOperation");
+    }
+    let shared = state.clone();
     let mut state = state.borrow_mut();
     let runtime = state.runtime.clone();
     let Some(active) = state.invocations.get_mut(&invocation) else {
@@ -110,6 +141,12 @@ fn operation(
     let Some(resolver) = v8::PromiseResolver::new(scope) else {
         return refuse(scope, "RuntimeFailed");
     };
+    let (synchronous_sender, synchronous_reply) = if synchronous {
+        let (sender, receiver) = mpsc::sync_channel(1);
+        (Some(sender), Some(receiver))
+    } else {
+        (None, None)
+    };
     if active
         .start
         .sender
@@ -117,6 +154,7 @@ fn operation(
             id,
             name,
             payload,
+            synchronous: synchronous_sender,
             _bytes: bytes,
         })
         .is_err()
@@ -127,6 +165,55 @@ fn operation(
     active.operations += 1;
     active.pending += 1;
     active.mutation |= mutation;
+    if let Some(receive) = synchronous_reply {
+        let life = active.start.active.clone();
+        let owner = active.start.owner.clone();
+        // Release isolate state before blocking; no runtime thread touches cell
+        // storage. The host future still owns all SDK authority and effects.
+        drop(state);
+        let until = Instant::now() + runtime.options.turn_timeout;
+        let reply = loop {
+            if runtime.closed.load(Ordering::Acquire)
+                || !life.load(Ordering::Acquire)
+                || !owner.load(Ordering::Acquire)
+                || Instant::now() >= until
+            {
+                life.store(false, Ordering::Release);
+                return unknown(scope, rv);
+            }
+            match receive.recv_timeout(Duration::from_millis(1)) {
+                Ok(reply) => break reply,
+                Err(mpsc::RecvTimeoutError::Timeout) => {}
+                Err(mpsc::RecvTimeoutError::Disconnected) => {
+                    life.store(false, Ordering::Release);
+                    return unknown(scope, rv);
+                }
+            }
+        };
+        if reply.invocation != invocation || reply.id != id {
+            runtime.close();
+            return unknown(scope, rv);
+        }
+        if !life.load(Ordering::Acquire) || !owner.load(Ordering::Acquire) {
+            life.store(false, Ordering::Release);
+            return unknown(scope, rv);
+        }
+        {
+            let mut state = shared.borrow_mut();
+            if let Some(active) = state.invocations.get_mut(&invocation) {
+                active.pending -= 1;
+                if mutation {
+                    active.mutation = false;
+                }
+            }
+        }
+        let Some(payload) = v8::String::new(scope, &reply.payload) else {
+            runtime.close();
+            return unknown(scope, rv);
+        };
+        rv.set(payload.into());
+        return;
+    }
     let promise = resolver.get_promise(scope);
     state.operations.insert(
         id,
@@ -221,12 +308,14 @@ pub(super) fn run(
     let scope = &mut scope.init();
     let host =
         v8::Function::new(scope, operation).context("JavaScript bridge initialization failed")?;
+    let synchronous = v8::Function::new(scope, synchronous)
+        .context("JavaScript synchronous bridge initialization failed")?;
     let factory = script(scope, include_str!("runner.js"))?;
     let factory = v8::Local::<v8::Function>::try_from(factory)?;
     let undefined = v8::undefined(scope);
     // Capture pristine builtins before application initialization can change them.
     let factory = factory
-        .call(scope, undefined.into(), &[host.into()])
+        .call(scope, undefined.into(), &[host.into(), synchronous.into()])
         .context("JavaScript facade initialization failed")?;
     let factory = v8::Local::<v8::Function>::try_from(factory)?;
     script(scope, &source.code)?;

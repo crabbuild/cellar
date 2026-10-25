@@ -315,8 +315,8 @@ impl JavaScriptApplication {
             let event = cellar::asyncrt::select_biased! { "runtime shutdown revokes authority before queued operations";
                 _ = stopped.changed() => anyhow::bail!("JavaScript runtime stopped"),
                 result = pending.next(), if !pending.is_empty() => {
-                    let (id, encoded) = result.expect("nonempty native operation set");
-                    self.runtime.reply(invocation, id, encoded?)?;
+                    let (id, encoded, synchronous) = result.expect("nonempty native operation set");
+                    self.runtime.respond(invocation, id, encoded?, synchronous)?;
                     continue;
                 },
                 event = receive.recv() => event,
@@ -331,6 +331,7 @@ impl JavaScriptApplication {
                     id,
                     name,
                     payload,
+                    synchronous,
                     _bytes,
                 } => {
                     if !active.load(Ordering::Acquire) {
@@ -367,7 +368,7 @@ impl JavaScriptApplication {
                             result,
                             self.runtime.options.max_value_bytes,
                         );
-                        (id, encoded)
+                        (id, encoded, synchronous)
                     });
                     // Initiate operations in receive order. Polling once here
                     // establishes FIFO start even for futures awaiting nested
@@ -377,9 +378,9 @@ impl JavaScriptApplication {
                     })
                     .await
                     {
-                        std::task::Poll::Ready((id, encoded)) => {
-                            self.runtime.reply(invocation, id, encoded?)?
-                        }
+                        std::task::Poll::Ready((id, encoded, synchronous)) => self
+                            .runtime
+                            .respond(invocation, id, encoded?, synchronous)?,
                         std::task::Poll::Pending => pending.push(operation),
                     }
                 }

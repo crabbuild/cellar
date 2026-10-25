@@ -207,6 +207,14 @@ pub struct AuditedProvider {
 }
 
 impl cellar_guest::containers::Provider for AuditedProvider {
+    fn environment(&self) -> cellar_guest::containers::Environment {
+        cellar_guest::containers::Native.environment()
+    }
+
+    fn max_resources(&self) -> Option<usize> {
+        cellar_guest::containers::Native.max_resources()
+    }
+
     fn name(&self) -> &str {
         "audited-native"
     }

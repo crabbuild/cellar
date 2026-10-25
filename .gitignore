@@ -19,6 +19,7 @@ console-audit.sqlite*
 /examples/javascript/app.bundle.js*
 !/examples/javascript/package-lock.json
 !/tools/javascript/package-lock.json
+!/tools/sandbox/compat/package-lock.json
 /examples/node/dist/
 !/examples/node/package-lock.json
 /examples/pi-agent/dist/

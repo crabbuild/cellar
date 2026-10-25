@@ -103,6 +103,7 @@ Python uses embedded CPython. TypeScript compiles before deployment.
 | Running state | `running(context)` | `await running()` | `await running()` |
 | Lifecycle | `start`, `monitor`, `destroy`, `signal` | Same async names | Same async names |
 | Idle policy | `set_inactivity_timeout` | `set_inactivity_timeout` | `setInactivityTimeout` |
+| Discover provider operations/limits | `Adapter::capabilities` | `capabilities` | `capabilities` |
 | Execute with streams | `exec` | `exec` | `exec` |
 | Collect bounded output | `exec(...).output(...)` | `exec_output` | `execOutput` |
 | Obtain port | `port(context, port)` | `port(port)` | `port(port)` |

@@ -90,6 +90,16 @@ export interface Identity {
   epoch: string;
 }
 
+/** Provider configuration metadata; querying it does not start a sandbox. */
+export interface ContainerCapabilities {
+  readonly format: 1;
+  readonly provider: string;
+  readonly environment: "unspecified" | "linux" | "worker_isolate";
+  readonly operations: readonly string[];
+  readonly max_body_bytes: number;
+  readonly max_resources: number | null;
+}
+
 export interface ContainerStartOptions {
   entrypoint?: string[];
   env?: [string, string][];
@@ -147,8 +157,9 @@ export interface ContainerSocket {
   release(): Promise<null>;
 }
 
-/** Available only on root cells whose class declares a container image. */
+/** Root-cell provider control. Native execution requires a declared image. */
 export interface Container {
+  capabilities(): Promise<Readonly<ContainerCapabilities>>;
   running(): Promise<boolean>;
   /** Opaque run identity, represented as a string to avoid integer rounding. */
   start(options?: ContainerStartOptions): Promise<string>;

@@ -13,7 +13,7 @@ use std::{
     time::Duration,
 };
 
-const MAX_RESOURCES: usize = 64;
+pub(crate) const MAX_RESOURCES: usize = 64;
 
 #[derive(Default)]
 pub(crate) struct Resources(Mutex<Table>);
@@ -165,7 +165,10 @@ fn bytes(value: &Value, limit: usize) -> Result<Vec<u8>> {
 
 pub(crate) fn validate(name: &str, value: &Value, limits: &Limits) -> Result<()> {
     match name {
-        "container.running" | "container.monitor" | "container.destroy" => {}
+        "container.capabilities"
+        | "container.running"
+        | "container.monitor"
+        | "container.destroy" => {}
         "container.start" => {
             start(value)?;
         }

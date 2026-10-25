@@ -89,7 +89,24 @@ impl Cell for Root {
             let limits = Limits {
                 max_body_bytes: 1024,
             };
-            let valid = if request.url.ends_with("/open") {
+            let valid = if request.url.ends_with("/capabilities") {
+                let value = session
+                    .execute(&context, Operation::Capabilities, json!({}), &limits)
+                    .await?;
+                ensure!(
+                    value["provider"] == "remote-fixture" && value["environment"] == "unspecified"
+                );
+                ensure!(
+                    value["operations"]
+                        == json!([
+                            "container.capabilities",
+                            "container.running",
+                            "container.start"
+                        ])
+                );
+                ensure!(value["max_body_bytes"] == 1024 && value["max_resources"].is_null());
+                true
+            } else if request.url.ends_with("/open") {
                 ensure!(
                     session
                         .execute(&context, Operation::Running, json!({}), &limits)
@@ -187,7 +204,7 @@ fn custom_provider_preserves_authority_capabilities_and_failure_provenance() -> 
         probe.retained.lock().unwrap().take();
         let outcome = node.shutdown(ShutdownMode::Preserve).await?;
         ensure!(matches!(outcome, NodeOutcome::Stopped(report) if report.cells_drained && report.application_work_drained && !report.drain_timed_out));
-        ensure!(probe.dropped.load(Ordering::SeqCst) >= 6, "session resources were retained");
+        ensure!(probe.dropped.load(Ordering::SeqCst) >= 7, "session resources were retained");
         Ok(())
     })
 }
