@@ -205,7 +205,7 @@ impl LocalStore {
             // Incremental I/O pins this row/version in the read transaction.
             let blob = transaction
                 .blob_open(
-                    rusqlite::DatabaseName::Main,
+                    rusqlite::MAIN_DB,
                     "__sys_local_objects",
                     "body",
                     rowid,
@@ -334,7 +334,7 @@ impl LocalStore {
         {
             let mut blob = transaction
                 .blob_open(
-                    rusqlite::DatabaseName::Main,
+                    rusqlite::MAIN_DB,
                     "__sys_local_objects",
                     "body",
                     rowid,

@@ -157,7 +157,7 @@ impl Watch {
             state.database = Some(database as usize);
         }
         if expanded_text == self.receipt_sql {
-            match event as i32 {
+            match event {
                 ffi::SQLITE_TRACE_STMT => state.receipt = Some((statement as usize, 0)),
                 ffi::SQLITE_TRACE_ROW => {
                     let read = state
@@ -183,7 +183,7 @@ impl Watch {
                 expanded_text == self.count_sql,
                 "batch wrote another key before its count checkpoint"
             );
-            match event as i32 {
+            match event {
                 ffi::SQLITE_TRACE_STMT => {
                     ensure!(state.write.is_none(), "count write already started");
                     // SAFETY: the callback's database remains open and on its owning thread.
@@ -277,7 +277,7 @@ unsafe extern "C" fn trace(
 
 unsafe extern "C" fn attach(
     database: *mut ffi::sqlite3,
-    _: *mut *const c_char,
+    _: *mut *mut c_char,
     _: *const ffi::sqlite3_api_routines,
 ) -> c_int {
     // SAFETY: SQLite calls this extension with a newly opened live connection.
@@ -285,7 +285,7 @@ unsafe extern "C" fn attach(
     unsafe {
         ffi::sqlite3_trace_v2(
             database,
-            (ffi::SQLITE_TRACE_STMT | ffi::SQLITE_TRACE_ROW | ffi::SQLITE_TRACE_PROFILE) as u32,
+            ffi::SQLITE_TRACE_STMT | ffi::SQLITE_TRACE_ROW | ffi::SQLITE_TRACE_PROFILE,
             Some(trace),
             std::ptr::null_mut(),
         )

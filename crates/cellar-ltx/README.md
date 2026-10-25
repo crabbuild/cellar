@@ -177,6 +177,13 @@ cargo check -p cellar-ltx --no-default-features --locked
 cargo check -p cellar-ltx --all-features --locked
 ```
 
+The workspace pins the native SQLite binding and retains checked unsigned
+integer conversions. Native SDK CI checks the actual linked library against its
+headers and requires the upstream WAL-reset fix (SQLite 3.51.3 or newer).
+The Python interpreter's SQLite version does not establish the Rust host's
+version. WAL capture, checkpointing, immutable readers and crash recovery must
+be qualified when this dependency changes.
+
 Use the checkout-specific target directory in
 [build guidance](../../AGENTS.md#build-and-validation). The ordinary library test
 target is disabled; replication changes also need the owning host's integration

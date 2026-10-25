@@ -49,10 +49,12 @@ fn warm_actor_identity_reuses_prepared_statements() -> anyhow::Result<()> {
     let prepares = Arc::new(AtomicU64::new(0));
     let observed = prepares.clone();
     with(scope, |connection| {
-        connection.authorizer(Some(move |context: rusqlite::hooks::AuthContext<'_>| {
-            observed.fetch_add(1, Ordering::Relaxed);
-            authorize_sql(context)
-        }));
+        connection
+            .authorizer(Some(move |context: rusqlite::hooks::AuthContext<'_>| {
+                observed.fetch_add(1, Ordering::Relaxed);
+                authorize_sql(context)
+            }))
+            .expect("fixture connection owns its SQLite handle");
     });
     set_actor_name(scope, "counter")?;
     assert_eq!(get_actor_name(scope)?.as_deref(), Some("counter"));

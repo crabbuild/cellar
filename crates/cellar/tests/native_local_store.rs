@@ -7,6 +7,45 @@
 use anyhow::{ensure, Context as _, Result};
 use cellar::{bucket::Bucket, sdk::ExecutionDomain};
 
+/// This checks the library actually linked into native applications, not the
+/// SQLite CLI or Python interpreter installed on the development machine.
+#[test]
+fn linked_sqlite_includes_wal_reset_fix() {
+    eprintln!("linked SQLite {}", rusqlite::version());
+    assert_eq!(
+        rusqlite::version_number(),
+        rusqlite::ffi::SQLITE_VERSION_NUMBER,
+        "linked SQLite differs from the bundled binding headers"
+    );
+    assert!(
+        rusqlite::version_number() >= 3_051_003,
+        "linked SQLite {} predates the WAL-reset fix",
+        rusqlite::version()
+    );
+}
+
+#[test]
+fn unsigned_sql_values_keep_checked_conversion() -> Result<()> {
+    let connection = rusqlite::Connection::open_in_memory()?;
+    for value in [9_007_199_254_740_993_u64, i64::MAX as u64] {
+        let actual: u64 = connection.query_row("SELECT ?1", [value], |row| row.get(0))?;
+        ensure!(actual == value, "unsigned SQL value lost precision");
+    }
+    ensure!(
+        connection
+            .query_row("SELECT -1", [], |row| row.get::<_, u64>(0))
+            .is_err(),
+        "negative SQL integer became unsigned"
+    );
+    ensure!(
+        connection
+            .query_row("SELECT ?1", [u64::MAX], |row| row.get::<_, i64>(0))
+            .is_err(),
+        "unsigned overflow reached SQLite"
+    );
+    Ok(())
+}
+
 #[tokio::test]
 async fn operation_connections_leave_commits_in_wal_and_reopen_with_etags() -> Result<()> {
     let directory = tempfile::tempdir()?;
