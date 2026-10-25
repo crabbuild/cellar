@@ -171,6 +171,21 @@ impl Fixture {
         )?
         .existing_namespace(f.registration.namespace.clone())
         .await?;
+        let root = f.catalog.read(TIMEOUT).await?;
+        f.catalog
+            .declare_namespace(
+                &root,
+                &FleetRequestIdentity {
+                    id: [250; 16],
+                    operation: [251; 16],
+                    principal: "fixture-declaration".into(),
+                    expected_revision: root.revision(),
+                },
+                &namespace,
+                "Counter",
+                TIMEOUT,
+            )
+            .await?;
         let birth = namespace
             .birth(&scope.cell)
             .await?

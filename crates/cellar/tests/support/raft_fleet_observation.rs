@@ -134,6 +134,21 @@ async fn fleet_observation_requires_enrollment() -> Result<()> {
     foreign.initialize(TIMEOUT).await?;
     let foreign_root = foreign.read(TIMEOUT).await?;
     foreign
+        .declare_namespace(
+            &foreign_root,
+            &FleetRequestIdentity {
+                id: [90; 16],
+                operation: [92; 16],
+                principal: "observation-test".into(),
+                expected_revision: foreign_root.revision(),
+            },
+            &namespace,
+            "Counter",
+            TIMEOUT,
+        )
+        .await?;
+    let foreign_root = foreign.read(TIMEOUT).await?;
+    foreign
         .enroll_history(
             &foreign_root,
             &FleetRequestIdentity {

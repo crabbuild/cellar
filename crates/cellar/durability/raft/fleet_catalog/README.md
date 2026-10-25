@@ -6,8 +6,9 @@ still commits configurations, grants fresh-quorum seeding and acknowledges
 business writes. No business acknowledgement calls the fleet catalog.
 
 The adapter and its verification export are available for integration work.
-Fleet-wide inventory, typed capacity/lifecycle admission, automatic reconciliation
-and operator workflows are separate packages in the
+The [namespace registry and inventory check](namespaces/README.md) enumerate every
+declared namespace and retained birth/history. Typed capacity/lifecycle admission,
+automatic reconciliation and operator workflows remain separate packages in the
 [fleet operations plan](../../../../../plans/multi-raft/fleet-operations/README.md).
 Do not interpret successful generic metadata writes as proof that a placement
 or removal is safe. Deployment against RustFS remains a qualification gate.
@@ -39,6 +40,12 @@ must be verified on the deployed backend. Prefixes and fleet incarnation are
 explicit constructor inputs; missing/corrupt state is never an empty inventory.
 
 ## History and birth admission
+
+Declare the exact namespace/class with `declare_namespace` before managed host
+startup, history enrollment, import or new birth admission. Declarations are
+append-only; their data-root and schema pins cannot be replaced. A complete
+inventory read covers the whole rooted registry, rather than a caller-selected
+subset or reachable-node scan. It does not certify node removal.
 
 `bind_namespace` prepares a fresh namespace configuration with an immutable
 birth owner. The owner binds the fleet incarnation and exact scoped catalog key;
@@ -91,7 +98,7 @@ Ordinary `bootstrap_member` can only resume an already enrolled managed group;
 it refuses fresh or bare genesis before creating local group state or a member
 claim. Managed host startup and `activate_managed_initial_member` use the guarded path described below.
 
-This experimental protocol hard-cuts to `/namespace-import-1`; use fresh fleet
+This experimental protocol hard-cuts to `/fleet-namespaces-1`; use fresh fleet
 roots, fresh namespaces and matching binaries. Fleet heads require the current
 protocol digest, and their permanent genesis pin binds it. Missing or earlier
 protocol state refuses initialization and reads; there is no compatibility reader.

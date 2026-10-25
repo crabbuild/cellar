@@ -88,6 +88,21 @@ impl Fixture {
         )?
         .open_namespace(config)
         .await?;
+        let root = fleet.read(TIMEOUT).await?;
+        fleet
+            .declare_namespace(
+                &root,
+                &FleetRequestIdentity {
+                    id: [250; 16],
+                    operation: [251; 16],
+                    principal: "fixture-declaration".into(),
+                    expected_revision: root.revision(),
+                },
+                &namespace,
+                "Counter",
+                TIMEOUT,
+            )
+            .await?;
         let proposal = BirthProposal {
             scope: GroupScope {
                 cluster: ClusterId::new([1; 16])?,
@@ -329,6 +344,17 @@ async fn fleet_birth_reservation_group_identity() -> Result<()> {
     )?
     .open_namespace(config)
     .await?;
+    let root = f.fleet.read(TIMEOUT).await?;
+    f.fleet
+        .declare_namespace(
+            &root,
+            &Fixture::request(249, root.revision()),
+            &other,
+            "Counter",
+            TIMEOUT,
+        )
+        .await?;
+    let after = f.fleet.read(TIMEOUT).await?;
     alias.scope.namespace = other.config().namespace;
     ensure!(matches!(
         f.fleet

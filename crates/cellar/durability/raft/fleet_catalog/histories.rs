@@ -581,6 +581,13 @@ impl FleetCatalog {
             .await?
             .is_none()
         {
+            let class = scope
+                .cell
+                .split_once(':')
+                .ok_or(FleetCatalogError::Invalid("history class"))?
+                .0;
+            self.require_namespace_declaration(snapshot, namespace, Some(class))
+                .await?;
             if current.token != snapshot.token || request.expected_revision != snapshot.revision() {
                 return Err(FleetCatalogError::Conflict);
             }

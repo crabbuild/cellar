@@ -22,7 +22,7 @@ pub use births::BirthDisposition;
 
 #[path = "catalog_inventory/mod.rs"]
 mod inventory;
-pub(crate) use inventory::BirthImportCut;
+pub(crate) use inventory::{BirthImportCut, ManagedBirthInventory};
 pub use inventory::{
     BirthInventoryCursor, BirthInventoryEntry, BirthInventoryPage, FrozenBirthInventory,
 };

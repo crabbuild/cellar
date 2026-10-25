@@ -24,6 +24,9 @@ const TIMEOUT: Duration = Duration::from_secs(5);
 #[path = "raft_initial_native.rs"]
 mod initial_tests;
 
+#[path = "raft_namespace_registry_hosts.rs"]
+mod namespace_registry_tests;
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn fleet_enrollment_node_probe_retained_age() -> Result<()> {
     let f = Fixture::new().await?;
@@ -719,7 +722,7 @@ impl Fixture {
         if managed {
             declaration.namespace = catalog.bind_namespace(declaration.namespace)?;
         }
-        Catalog::new(
+        let namespace = Catalog::new(
             store.clone(),
             CatalogOptions {
                 prefix: "host-enrollment/".into(),
@@ -728,6 +731,21 @@ impl Fixture {
         )?
         .open_namespace(declaration.namespace.clone())
         .await?;
+        let root = catalog.read(TIMEOUT).await?;
+        catalog
+            .declare_namespace(
+                &root,
+                &FleetRequestIdentity {
+                    id: [250; 16],
+                    operation: [251; 16],
+                    principal: "fixture-declaration".into(),
+                    expected_revision: root.revision(),
+                },
+                &namespace,
+                "Counter",
+                TIMEOUT,
+            )
+            .await?;
         let spec = FleetNodeSpec {
             node: NodeId::new([4; 16])?,
             disk: DiskLineage::new([14; 16])?,

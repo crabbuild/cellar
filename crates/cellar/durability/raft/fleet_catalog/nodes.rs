@@ -153,6 +153,16 @@ impl fmt::Debug for FleetHostAuthorization {
 }
 
 impl FleetHostAuthorization {
+    pub(crate) async fn check_declared_namespaces(
+        &self,
+        entries: &[crate::raft::host::NamespaceRegistration],
+        timeout: Duration,
+    ) -> Result<()> {
+        self.catalog
+            .check_declared_namespaces(entries, timeout)
+            .await
+    }
+
     pub(crate) fn check_namespace(
         &self,
         config: &crate::raft::catalog::NamespaceConfig,
@@ -631,7 +641,7 @@ impl FleetCatalog {
         self.host_record(snapshot, record)
     }
 
-    fn host_record(
+    pub(super) fn host_record(
         &self,
         snapshot: &FleetSnapshot,
         record: NodeRecord,

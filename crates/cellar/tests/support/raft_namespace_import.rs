@@ -10,6 +10,9 @@ use object_store::path::Path;
 
 const OP: [u8; 16] = [201; 16];
 
+#[path = "raft_fleet_inventory.rs"]
+mod fleet_inventory;
+
 struct ImportFixture {
     f: Fixture,
     namespace: NamespaceCatalog,
@@ -552,6 +555,11 @@ async fn namespace_import_catalog_scope() -> Result<()> {
         .await?
         .context("actual birth")?;
     let root = other.read(TIMEOUT).await?;
+    let declared = f.request(root.revision());
+    other
+        .declare_namespace(&root, &declared, &f.namespace, "Counter", TIMEOUT)
+        .await?;
+    let root = other.read(TIMEOUT).await?;
     let early = f.request(root.revision());
     other
         .enroll_history(&root, &early, &f.namespace, &actual, TIMEOUT)
@@ -692,9 +700,32 @@ async fn namespace_import_missing_coverage_page() -> Result<()> {
         f.namespace.resolve_birth(f.another(60)?).await,
         Err(CatalogError::BirthsFrozen)
     ));
-    f.store.inner.put(&page, saved.into()).await?;
+    f.store.inner.put(&page, saved.clone().into()).await?;
     f.advance(None).await?;
     ensure!(f.state().await?.1.phase() == FleetImportPhase::Complete);
+    let root = f.f.catalog.read(TIMEOUT).await?;
+    ensure!(
+        f.f.catalog
+            .check_inventory(&root, std::slice::from_ref(&f.namespace), TIMEOUT)
+            .await?
+            .histories()
+            == 1
+    );
+    f.store.inner.delete(&page).await?;
+    ensure!(f
+        .f
+        .catalog
+        .check_inventory(&root, std::slice::from_ref(&f.namespace), TIMEOUT)
+        .await
+        .is_err());
+    f.store.inner.put(&page, saved.clone().into()).await?;
+    ensure!(
+        f.f.catalog
+            .check_inventory(&root, std::slice::from_ref(&f.namespace), TIMEOUT)
+            .await?
+            .histories()
+            == 1
+    );
     f.close().await
 }
 
@@ -728,6 +759,13 @@ async fn namespace_import_radix_completeness() -> Result<()> {
         }
     }
     ensure!(histories == 141);
+    ensure!(
+        f.f.catalog
+            .check_inventory(&root, std::slice::from_ref(&f.namespace), TIMEOUT)
+            .await?
+            .histories()
+            == 141
+    );
     ensure!(f.f.strong().await? == 5);
     f.close().await
 }

@@ -4,6 +4,7 @@
 mod histories;
 mod imports;
 mod index;
+mod namespaces;
 mod nodes;
 mod permits;
 mod records;
@@ -12,6 +13,7 @@ pub use histories::{
     FleetBirthAuthorization, FleetBirthReservation, FleetHistory, FleetHistoryState,
 };
 pub use imports::{FleetImportPhase, FleetNamespaceImport};
+pub use namespaces::FleetInventory;
 pub use nodes::{
     FleetHostAuthorization, FleetNodeEligibility, FleetNodeSpec, FleetNodeState,
     FleetRequestIdentity,
@@ -45,6 +47,7 @@ pub enum FleetCatalogError {
     Conflict,
     PayloadConflict,
     MissingRoot,
+    InventoryIncomplete,
     Limit,
     Overloaded,
     Unconfirmed,
@@ -302,6 +305,12 @@ impl FleetCatalog {
             .ok_or(FleetCatalogError::Limit)?;
         for change in &mutation.changes {
             let slot = change.table.slot();
+            if change.table == FleetTable::Policy && change.key == namespaces::KEY {
+                next.namespace_count = namespaces::next_namespace_count(
+                    next.namespace_count,
+                    change.value.as_deref(),
+                )?;
+            }
             if change.table == FleetTable::Histories {
                 let existed = self
                     .inner
@@ -395,6 +404,8 @@ impl Inner {
             || head.revision == 0
             || head.format != 1
             || head.history_count > HISTORY_LIMIT
+            || head.namespace_count > 64
+            || head.tables[FleetTable::Policy.slot()].is_none() && head.namespace_count != 0
             || head.tables[FleetTable::Histories.slot()].is_none() && head.history_count != 0
         {
             return Err(FleetCatalogError::Corrupt("fleet identity/revision"));

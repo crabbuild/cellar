@@ -51,10 +51,26 @@ async fn fleet_genesis_imported_namespace() -> Result<()> {
     let cells = registered(&nodes, &auth).await?;
     activate(&cells, &auth).await?;
     write_read(&f, &cells, 1, 4, 4).await?;
+    let root = f.catalog.read(TIMEOUT).await?;
+    ensure!(
+        f.catalog
+            .check_inventory(&root, std::slice::from_ref(&namespace), TIMEOUT)
+            .await?
+            .histories()
+            == 1
+    );
     let retained = stop(nodes).await?;
     let nodes = restart(&f, retained, &proposal).await?;
     let cells = handles(&nodes, &proposal)?;
     write_read(&f, &cells, 2, 5, 9).await?;
+    let root = f.catalog.read(TIMEOUT).await?;
+    ensure!(
+        f.catalog
+            .check_inventory(&root, std::slice::from_ref(&namespace), TIMEOUT)
+            .await?
+            .histories()
+            == 1
+    );
     for cell in &cells {
         let guard = cell
             .fleet_membership_status()
@@ -709,6 +725,97 @@ async fn fleet_genesis_foreign_namespace_owner_refused() -> Result<()> {
         .storage_instance()
         .is_none());
     node.shutdown(ShutdownMode::Preserve).await?;
+    f.domain.shutdown().await;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn fleet_inventory_reserved_births() -> Result<()> {
+    let f = Fixture::with_managed_births(true).await?;
+    let nodes = fleet(&f).await?;
+    let (namespace, proposal, reserved) = reserved_birth(&f).await?;
+    let root = f.catalog.read(TIMEOUT).await?;
+    ensure!(namespace
+        .birth_disposition(&proposal.scope.cell)
+        .await?
+        .is_none());
+    let inventory = f
+        .catalog
+        .check_inventory(&root, std::slice::from_ref(&namespace), TIMEOUT)
+        .await?;
+    ensure!(inventory.namespaces() == 1 && inventory.histories() == 1);
+    f.domain
+        .run(namespace.resolve_managed_birth(&reserved, TIMEOUT))
+        .await??;
+    // The lost/unfinished root confirmation still retains the live decision.
+    ensure!(
+        *f.catalog
+            .history(&root, &proposal.scope, TIMEOUT)
+            .await?
+            .state()
+            == FleetHistoryState::Reserved
+    );
+    ensure!(
+        f.catalog
+            .check_inventory(&root, std::slice::from_ref(&namespace), TIMEOUT)
+            .await?
+            .histories()
+            == 1
+    );
+    let mut pending = proposal.clone();
+    pending.scope.cell = "Counter:cancelled-pending".into();
+    pending.scope.group = GroupId::new([83; 16])?;
+    pending.scope.incarnation = IncarnationId::new([84; 16])?;
+    let reserved = f
+        .catalog
+        .reserve_birth(
+            &root,
+            &Fixture::request(132, root.revision()),
+            &namespace,
+            pending.clone(),
+            TIMEOUT,
+        )
+        .await?;
+    let root = f.catalog.read(TIMEOUT).await?;
+    f.domain
+        .run(namespace.cancel_managed_birth(
+            &reserved.authorization,
+            ProposalId::new([210; 16])?,
+            TIMEOUT,
+        ))
+        .await??;
+    ensure!(
+        f.catalog
+            .check_inventory(&root, std::slice::from_ref(&namespace), TIMEOUT)
+            .await?
+            .histories()
+            == 2
+    );
+    f.catalog
+        .confirm_birth(
+            &root,
+            &Fixture::request(133, root.revision()),
+            &namespace,
+            &reserved.authorization,
+            TIMEOUT,
+        )
+        .await?;
+    let root = f.catalog.read(TIMEOUT).await?;
+    ensure!(matches!(
+        f.catalog
+            .history(&root, &pending.scope, TIMEOUT)
+            .await?
+            .state(),
+        FleetHistoryState::Cancelled { .. }
+    ));
+    ensure!(
+        f.catalog
+            .check_inventory(&root, &[namespace], TIMEOUT)
+            .await?
+            .histories()
+            == 2
+    );
+    stop(nodes).await?;
     f.domain.shutdown().await;
     Ok(())
 }

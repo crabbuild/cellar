@@ -367,7 +367,14 @@
         "crates/cellar/durability/raft/fleet_catalog/imports/inventory.rs",
         "crates/cellar/durability/raft/fleet_catalog/imports/mod.rs",
         "crates/cellar/durability/raft/fleet_catalog/imports/records.rs",
-        "crates/cellar/tests/support/raft_namespace_import.rs"
+        "crates/cellar/tests/support/raft_namespace_import.rs",
+        "crates/cellar/durability/raft/catalog_inventory/current.rs",
+        "crates/cellar/durability/raft/fleet_catalog/namespaces/mod.rs",
+        "crates/cellar/durability/raft/fleet_catalog/namespaces/records.rs",
+        "crates/cellar/durability/raft/fleet_catalog/namespaces/inventory.rs",
+        "crates/cellar/durability/raft/fleet_catalog/namespaces/README.md",
+        "crates/cellar/tests/support/raft_fleet_inventory.rs",
+        "crates/cellar/tests/support/raft_namespace_registry_hosts.rs"
       ],
       "steps": [
         "Add CAS-authorized node-set revisions with bounded route and permission refresh.",
@@ -380,7 +387,9 @@
         "Observe enrolled group configuration through a new quorum ReadIndex per invocation, without requiring a SQL image. Preserve joint roles, exact birth/process identity, bounded reply retention and original-deadline cancellation; this is not a complete-import or removal certificate.",
         "Implement rooted per-namespace import Preparing/Inventory/Coverage/Handoff/Complete phases over the exact frozen set, conditional pending-decision cancellation, retained stop/resume and exact stored-candidate replay after lost replies.",
         "Verify every live group through opaque safe-ReadIndex observations, complete retained witness/history/member-claim reads, and unresolved-admission refusal before exact catalog-scoped namespace handoff. This does not certify fleet-wide compiled namespace coverage or node absence.",
-        "Bind committed group guards and permits to the exact catalog fingerprint. Store managed ownership in each new canonical birth so an adopted immutable-unmanaged namespace can initialize later births with guards in the first sync while old histories replay their committed enrollment."
+        "Bind committed group guards and permits to the exact catalog fingerprint. Store managed ownership in each new canonical birth so an adopted immutable-unmanaged namespace can initialize later births with guards in the first sync while old histories replay their committed enrollment.",
+        "Root an append-only paged namespace/class registry before managed host startup, history/import admission and new managed birth reservation. Pin schema and physical data-root identity; preserve every earlier declaration when adding capacity.",
+        "Check all rooted namespace declarations against exact catalog handles, original retained import coverage, current canonical admission indexes and every fleet history. Include unpublished/reserved/cancelled births and offline histories; this bounded read is not a capacity or removal receipt."
       ],
       "acceptance": [
         "Inventory includes pending births and all managed namespaces.",
@@ -1032,7 +1041,7 @@
         },
         {
           "name": "namespace_import_missing_coverage_page",
-          "oracle": "A missing retained coverage page refuses handoff before ownership changes. Exact metadata restoration resumes the original rooted cut without resetting or declaring an empty set.",
+          "oracle": "A missing retained coverage page refuses handoff before ownership changes. Exact metadata restoration resumes the original rooted cut without resetting or declaring an empty set. The fleet-wide inventory check also rereads retained coverage after import completion and refuses missing metadata.",
           "invariants": [
             "F01",
             "F03",
@@ -1076,6 +1085,96 @@
             "F02",
             "F05",
             "F07",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_inventory_namespace_coverage",
+          "oracle": "A second declared namespace invalidates a formerly complete caller-selected subset. Missing or incomplete import blocks inventory success; complete empty import restores full coverage without replacing serving Raft authority.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F04",
+            "F05",
+            "F06",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_inventory_registry_retries_and_scope",
+          "oracle": "Lost registry-CAS replies reconcile after later declarations and adapter recreation using the original candidate; changed payloads and namespace root/class replacement are refused.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F04",
+            "F05",
+            "F06",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_inventory_retains_offline_and_missing_births",
+          "oracle": "Offline endpoints do not remove histories. Full inventory retains live/cancelled canonical intents; missing immutable decisions refuse success until exact metadata restoration.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F04",
+            "F05",
+            "F06",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_inventory_namespace_bound",
+          "oracle": "The 64-namespace bound refuses a 65th declaration without changing the root; existing namespace identity cannot be replaced at the bound.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F04",
+            "F05",
+            "F06",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_registry_compiled_namespace_gate",
+          "oracle": "A valid registered capability digest cannot boot an undeclared compiled namespace. Failed startup binds no fleet storage pin; declaring the exact namespace permits intact-engine resume with both compiled declarations.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F04",
+            "F05",
+            "F06",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_inventory_reserved_births",
+          "oracle": "Fresh managed namespaces enumerate root reservations before intent publication and retain live/cancelled outcomes whose root confirmations are still pending; reconciliation never converts these physical references into absence proof.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F04",
+            "F05",
+            "F06",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_inventory_registry_no_reset",
+          "oracle": "The fleet head permanently retains the namespace count. Registry deletion/regression and lost index pages cannot recreate an empty registry or admit a replacement set; exact metadata restoration resumes the original declaration.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F05",
+            "F06",
+            "F08",
             "F10"
           ]
         }

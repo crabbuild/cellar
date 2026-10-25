@@ -128,6 +128,11 @@ pub(super) async fn prepare(
             && auth.instance_matches(service.log.storage_instance()?),
         "managed host physical identity mismatch"
     );
+    managed
+        .authorization
+        .check_declared_namespaces(namespaces, std::time::Duration::from_secs(5))
+        .await?;
+
     let mut authorizations = BTreeMap::new();
     for cell in cells {
         let scope = cell.birth.scope();

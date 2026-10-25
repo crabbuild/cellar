@@ -13,6 +13,40 @@ impl FleetCatalog {
         namespace: &NamespaceCatalog,
         record: &Record,
     ) -> Result<()> {
+        self.verify_import_coverage(snapshot, namespace, record, true)
+            .await
+    }
+
+    pub(in crate::raft::fleet_catalog) async fn verify_imported_inventory(
+        &self,
+        snapshot: &FleetSnapshot,
+        namespace: &NamespaceCatalog,
+    ) -> Result<()> {
+        let record = self
+            .import_record(snapshot, namespace)
+            .await
+            .map_err(|e| match e {
+                FleetCatalogError::Conflict => FleetCatalogError::InventoryIncomplete,
+                other => other,
+            })?;
+        if record.phase != records::FleetImportPhase::Complete || record.stopped {
+            return Err(FleetCatalogError::InventoryIncomplete);
+        }
+        namespace
+            .check_birth_import(&record.cut, &self.birth_owner()?, true)
+            .await
+            .map_err(catalog_error)?;
+        self.verify_import_coverage(snapshot, namespace, &record, false)
+            .await
+    }
+
+    async fn verify_import_coverage(
+        &self,
+        snapshot: &FleetSnapshot,
+        namespace: &NamespaceCatalog,
+        record: &Record,
+        handoff: bool,
+    ) -> Result<()> {
         let mut after = None;
         let mut seen = 0u64;
         loop {
@@ -112,21 +146,21 @@ impl FleetCatalog {
                             {
                                 return Err(FleetCatalogError::Corrupt("import witness voters"));
                             }
-                            let host = self
-                                .host_from(
-                                    snapshot,
-                                    cellar_logic::consensus::NodeId::new(voter.node).map_err(
-                                        |_| FleetCatalogError::Corrupt("import witness node"),
-                                    )?,
-                                )
-                                .await?;
+                            let record = self
+                                .node_records(snapshot)
+                                .await?
+                                .into_iter()
+                                .find(|n| n.node == voter.node)
+                                .ok_or(FleetCatalogError::Conflict)?;
+                            let host = self.host_record(snapshot, record)?;
                             if host.disk().bytes() != voter.disk
                                 || host.storage_instance().map(|id| id.bytes())
                                     != Some(voter.instance)
-                                || matches!(
-                                    host.state(),
-                                    FleetNodeState::Removed | FleetNodeState::Evacuated
-                                )
+                                || handoff
+                                    && matches!(
+                                        host.state(),
+                                        FleetNodeState::Removed | FleetNodeState::Evacuated
+                                    )
                             {
                                 return Err(FleetCatalogError::Conflict);
                             }
@@ -165,8 +199,12 @@ impl FleetCatalog {
         if seen != record.cut.count {
             return Err(FleetCatalogError::Corrupt("missing import coverage"));
         }
-        self.no_namespace_admissions(snapshot, namespace.config().namespace)
-            .await
+        if handoff {
+            self.no_namespace_admissions(snapshot, namespace.config().namespace)
+                .await
+        } else {
+            Ok(())
+        }
     }
 
     pub(super) async fn import_coverage_step(

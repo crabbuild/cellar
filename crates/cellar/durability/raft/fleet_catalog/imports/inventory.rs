@@ -23,6 +23,14 @@ impl FleetCatalog {
             return Ok(Vec::new());
         };
         let proposal = entry.proposal();
+        let class = proposal
+            .scope
+            .cell
+            .split_once(':')
+            .ok_or(FleetCatalogError::Invalid("import history class"))?
+            .0;
+        self.require_namespace_declaration(snapshot, namespace, Some(class))
+            .await?;
         let decision = match namespace
             .birth_disposition(&proposal.scope.cell)
             .await

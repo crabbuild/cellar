@@ -94,6 +94,8 @@ impl FleetCatalog {
         };
         record.validate(self, namespace)?;
         self.run(timeout, async {
+            self.require_namespace_declaration(snapshot, namespace, None)
+                .await?;
             let mutation = history_mutation(
                 request,
                 vec![FleetChange {
