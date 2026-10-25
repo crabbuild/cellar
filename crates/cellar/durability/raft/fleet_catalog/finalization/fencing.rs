@@ -404,6 +404,7 @@ impl FleetCatalog {
         &self,
         selector: &crate::raft::fleet_stop::StopSelector,
         action: crate::raft::fleet_stop::FleetStopAction,
+        origin: Option<&crate::raft::fleet_stop::BootBinding>,
         timeout: Duration,
     ) -> Result<()> {
         selector
@@ -411,6 +412,18 @@ impl FleetCatalog {
             .map_err(|_| FleetCatalogError::Invalid("stop selector"))?;
         self.run(timeout, async {
             let current = self.inner.current().await?;
+            if let Some(origin) = origin {
+                origin
+                    .validate()
+                    .map_err(|_| FleetCatalogError::Invalid("stop origin"))?;
+                let node = NodeId::new(origin.node)
+                    .map_err(|_| FleetCatalogError::Invalid("stop origin node"))?;
+                let sender = self.host_from_record(&current, node).await?;
+                if !sender.permits_transport() || sender.boot_binding()? != *origin {
+                    return Err(FleetCatalogError::Conflict);
+                }
+                self.confirm_boot(&current, &sender.record).await?;
+            }
             let record = self.stop_record(&current, selector.operation).await?;
             let request = ProposalId::new(selector.request)
                 .map_err(|_| FleetCatalogError::Invalid("stop request"))?;

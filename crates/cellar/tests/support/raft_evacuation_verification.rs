@@ -417,7 +417,7 @@ async fn fleet_evacuation_candidate_fixed_cut_under_writes() -> Result<()> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn fleet_evacuation_candidate_after_voter_replacement() -> Result<()> {
     use super::super::retirement::{step, stopped};
-    let s = Box::pin(Started::new()).await?;
+    let mut s = Box::pin(Started::new()).await?;
     write_read(&s.f, &s.cells, 1, 7, 7).await?;
     let p = primary(&s.f, &s.cells).await?;
     let obsolete = (p + 1) % 3;
@@ -511,7 +511,8 @@ async fn fleet_evacuation_candidate_after_voter_replacement() -> Result<()> {
     verification
         .verify_live(observer, peers, archive(&s, &reference), TIMEOUT)
         .await?;
-    ensure!(verification.publish_candidate(TIMEOUT).await?.histories() == 1);
+    let candidate = verification.publish_candidate(TIMEOUT).await?;
+    ensure!(candidate.histories() == 1);
     let retained = observer.observe_node(TIMEOUT).await?;
     ensure!(retained.node.groups > 0 || retained.unattached_engine_histories > 0);
     let mut active = s
@@ -522,7 +523,60 @@ async fn fleet_evacuation_candidate_after_voter_replacement() -> Result<()> {
         .map(|(_, cell)| cell.clone())
         .collect::<Vec<_>>();
     active.push(target);
-    write_read(&s.f, &active, 2, 5, 12).await?;
+    let root = s.f.catalog.read(TIMEOUT).await?;
+    let operation = ProposalId::new(identity.operation)?;
+    let finalizing = candidate
+        .begin_finalization(
+            &root,
+            &FleetRequestIdentity {
+                id: [230; 16],
+                operation: operation.bytes(),
+                principal: "retired-voter-stop".into(),
+                expected_revision: root.revision(),
+            },
+            &s.observer,
+            std::slice::from_ref(&namespace),
+            TIMEOUT,
+        )
+        .await?;
+    let minimum = finalizing.applied_revision();
+    s.f.remote(&s.observer, s.nodes[obsolete].spec.node, minimum)
+        .await?;
+    s.f.remote(&s.nodes[obsolete].host, NodeId::new([7; 16])?, minimum)
+        .await?;
+    let stop_id = ProposalId::new([238; 16])?;
+    let stopping =
+        s.observer
+            .request_peer_fleet_stop(finalizing.stop_request(stop_id)?, minimum, TIMEOUT);
+    let (stop_result, write_result) =
+        futures_util::join!(stopping, write_read(&s.f, &active, 2, 5, 12));
+    write_result?;
+    ensure!(matches!(
+        stop_result,
+        Ok(_) | Err(FleetCatalogError::Unconfirmed)
+    ));
+    let mut departed = s.nodes.remove(obsolete);
+    let outcome =
+        s.f.domain
+            .run(cellar::asyncrt::timeout(TIMEOUT, departed.node.finished()))
+            .await???;
+    let NodeOutcome::Stopped(report) = outcome else {
+        anyhow::bail!("retired voter did not finish its scoped stop");
+    };
+    let raft = report.raft.context("retired voter physical shutdown")?;
+    ensure!(!raft.startup_incomplete);
+    let closed = raft.result?;
+    ensure!(closed.groups_total > 0 && closed.unfinished.is_empty());
+    let root = s.f.catalog.read(TIMEOUT).await?;
+    let closure =
+        s.f.catalog
+            .verify_physical_closure(&root, operation, stop_id, TIMEOUT)
+            .await?;
+    ensure!(
+        closure.node() == departed.spec.node.bytes()
+            && closure.process() == retained.node.identity.process.bytes()
+    );
+    write_read(&s.f, &active, 3, 6, 18).await?;
     // This fixture promoted the original empty observer into the replacement
     // voter, so require its actual occupied state and join that owner explicitly.
     ensure!(s.scratch.usage()?.generations == 0);

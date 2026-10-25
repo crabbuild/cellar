@@ -23,6 +23,7 @@ pub(crate) struct Services {
 
 struct Job {
     request: FleetStopRequest,
+    origin: Option<Box<BootBinding>>,
     deadline: u64,
     reply: oneshot::Sender<Result<FleetStopAcceptance>>,
 }
@@ -68,7 +69,9 @@ impl Reporter {
         let worker = reporter.clone();
         crate::asyncrt::try_spawn(async move {
             while let Some(job) = jobs.recv().await {
-                let result = worker.apply(&job.request, job.deadline).await;
+                let result = worker
+                    .apply(&job.request, job.origin.as_deref(), job.deadline)
+                    .await;
                 // Dropping a caller never cancels an admitted engine update or
                 // the following stop signal. The Node owns this task and join.
                 let _ = job.reply.send(result);
@@ -84,15 +87,8 @@ impl Reporter {
         request: FleetStopRequest,
         timeout: Duration,
     ) -> Result<FleetStopAcceptance> {
-        request
-            .selector
-            .validate()
-            .map_err(|_| FleetCatalogError::Invalid("stop request"))?;
         if timeout.as_millis() == 0 || timeout > Duration::from_secs(60) {
             return Err(FleetCatalogError::Invalid("stop timeout"));
-        }
-        if request.selector.boot != self.boot {
-            return Err(FleetCatalogError::Conflict);
         }
         let deadline = self
             .log
@@ -101,10 +97,47 @@ impl Reporter {
             .map_err(|_| FleetCatalogError::Closed)?
             .checked_add(timeout.as_millis() as u64)
             .ok_or(FleetCatalogError::Limit)?;
+        self.submit_until(request, None, deadline).await
+    }
+
+    /// The transport and this reporter share the physical Node domain clock.
+    /// Preserve the receiver's original deadline through queueing and fsync.
+    pub(crate) async fn submit_peer(
+        &self,
+        request: FleetStopRequest,
+        origin: BootBinding,
+        deadline: u64,
+    ) -> Result<FleetStopAcceptance> {
+        self.submit_until(request, Some(Box::new(origin)), deadline)
+            .await
+    }
+
+    async fn submit_until(
+        &self,
+        request: FleetStopRequest,
+        origin: Option<Box<BootBinding>>,
+        deadline: u64,
+    ) -> Result<FleetStopAcceptance> {
+        request
+            .selector
+            .validate()
+            .map_err(|_| FleetCatalogError::Invalid("stop request"))?;
+        if let Some(origin) = &origin {
+            origin
+                .validate()
+                .map_err(|_| FleetCatalogError::Invalid("stop origin"))?;
+        }
+        if request.selector.boot != self.boot {
+            return Err(FleetCatalogError::Conflict);
+        }
+        if self.remaining(deadline)? > Duration::from_secs(60) {
+            return Err(FleetCatalogError::Invalid("stop deadline"));
+        }
         let (reply, response) = oneshot::channel();
         self.sender
             .try_send(Job {
                 request,
+                origin,
                 deadline,
                 reply,
             })
@@ -136,6 +169,7 @@ impl Reporter {
     async fn apply(
         &self,
         request: &FleetStopRequest,
+        origin: Option<&BootBinding>,
         deadline: u64,
     ) -> Result<FleetStopAcceptance> {
         if request.selector.boot != self.boot {
@@ -153,7 +187,12 @@ impl Reporter {
             return Ok(request.acceptance());
         }
         self.catalog
-            .verify_local_stop(&request.selector, request.action, self.remaining(deadline)?)
+            .verify_local_stop(
+                &request.selector,
+                request.action,
+                origin,
+                self.remaining(deadline)?,
+            )
             .await?;
         self.remaining(deadline)?;
         let update = match request.action {

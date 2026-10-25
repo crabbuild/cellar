@@ -11,6 +11,9 @@ use sha2::{Digest, Sha256};
 #[allow(dead_code)]
 mod fault;
 
+#[path = "raft_fleet_stop_rpc.rs"]
+mod remote;
+
 async fn finished(mut node: cellar::sdk::Node, f: &Fixture) -> Result<()> {
     let outcome = f
         .domain

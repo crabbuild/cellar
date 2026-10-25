@@ -119,7 +119,7 @@ Ordinary `bootstrap_member` can only resume an already enrolled managed group;
 it refuses fresh or bare genesis before creating local group state or a member
 claim. Managed host startup and `activate_managed_initial_member` use the guarded path described below.
 
-This experimental protocol hard-cuts to `/fleet-quorum-1/fleet-cuts-1/empty-archives-1/archive-cuts-1/fleet-finalization-1/fleet-stop-1`; use fresh fleet
+This experimental protocol hard-cuts to `/fleet-quorum-1/fleet-cuts-1/empty-archives-1/archive-cuts-1/fleet-finalization-1/fleet-stop-1/fleet-stop-rpc-1`; use fresh fleet
 roots, fresh namespaces, fresh engine directories and matching binaries. Fleet heads require the current
 protocol digest, and their permanent genesis pin binds it. Missing or earlier
 protocol state refuses initialization and reads; there is no compatibility reader.
@@ -441,8 +441,31 @@ The existing authenticated, generation-bound private management endpoint accepts
 unconfirmed`. Generic management Stop refuses managed Raft hosts. The admin
 adapter requires Operate permission and identical guard/audit request IDs, and
 records acceptance rather than terminal success. Its discovery still depends on
-the legacy Actor lease. A standalone authenticated Raft-control-lane stop/fence
-RPC and complete operator workflows remain required for Raft-only fleet control.
+the legacy Actor lease; complete operator workflows remain pending.
+
+`RaftCells::request_peer_fleet_stop` supplies the standalone Raft control path.
+Its origin and target may both have zero business groups. The origin resolves
+only rooted exact node views at the requested minimum trust cut. A distinct TLS
+exporter and MAC purpose bind the request/reply, body digest and exact physical
+route. The origin boot comes from its synced engine guard; new receiver work
+also verifies that boot against the current root and permanent boot journal.
+This creates no cell, voting identity or query/seeding grant.
+
+The original origin deadline covers queueing and transport. The receiver anchors
+its advertised remaining budget at TLS admission, including prefix/header/body
+residence, and passes that same absolute Node-domain deadline to the owned stop
+worker. Its input queue, transport tasks and node/peer metadata reservations are
+bounded. Dropping a sender or losing a reply cannot undo receiver-admitted work;
+there is no hidden network retry. Responses preserve typed overload, conflict,
+refusal and unconfirmed outcomes. A returned acceptance is historical local
+admission only; use the signed closure verifier for physical joins. In-flight
+work already admitted before caller revocation remains owned, and cached accepted
+stops do not grant a new effect.
+
+Native coverage includes empty origins/targets and an actual S3-seeded voter
+replacement followed by rooted finalization, Raft-control stop concurrent with
+survivor writes, retained-history owner join and signed closure. This still
+supplies no terminal node transition or disruption-slot release.
 
 ## Host API and fresh learners
 
@@ -644,7 +667,7 @@ response alone is not a fleet completion certificate.
 Cellar-owned markers stay at 1. Membership and intent records require an explicit
 nullable `fleet` field. Birth records also require an explicit nullable
 `cancelled_by` field; the namespace protocol identity ends in
-`/catalog-trust-1/fleet-admission-1/fleet-quorum-1/fleet-cuts-1/empty-archives-1/archive-cuts-1/fleet-finalization-1/fleet-stop-1`.
+`/catalog-trust-1/fleet-admission-1/fleet-quorum-1/fleet-cuts-1/empty-archives-1/archive-cuts-1/fleet-finalization-1/fleet-stop-1/fleet-stop-rpc-1`.
 Node records require an explicit nullable `boot` field; Finalizing is a boot-refusing
 state. The engine requires a separate `cellar-node-lifecycle` record, initialized
 atomically with a new engine root. Resume refuses a missing record rather than

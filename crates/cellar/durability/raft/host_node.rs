@@ -72,6 +72,7 @@ impl Driver {
             return;
         }
         match std::mem::replace(&mut request.kind, NodeKind::ControllerStatus) {
+            NodeKind::PeerFleetStop(call) => self.start_peer_fleet_stop(request, *call),
             NodeKind::InspectPeerFleet(call) => self.start_peer_fleet_inspection(request, *call),
             NodeKind::ObserveFleet {
                 history,

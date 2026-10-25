@@ -93,6 +93,8 @@ use node_control::reply_node;
 pub use node_control::{
     RaftHostEnrollmentObservation, RaftHostObservation, RaftPeerNodeObservation,
 };
+#[path = "host_fleet_stop.rs"]
+mod fleet_stop;
 #[path = "host_membership.rs"]
 mod membership;
 #[path = "host_node_inspection.rs"]
@@ -1173,6 +1175,7 @@ enum SqlPurpose {
 }
 
 enum Job {
+    PeerFleetStop(Box<fleet_stop::Completed>),
     PeerFleetInspection(Box<fleet_inspection::PeerCompleted>),
     LocalFleetInspection(Box<fleet_inspection::LocalCompleted>),
     FleetAdmission(Box<fleet_admission::Completed>),
@@ -3101,6 +3104,7 @@ impl Driver {
 
     fn on_job(&mut self, job: Job) {
         match job {
+            Job::PeerFleetStop(completed) => self.finish_peer_fleet_stop(*completed),
             Job::FleetAdmission(completed) => self.finish_fleet_admission(*completed),
             Job::HistoryRegistered(completed) => self.finish_history_registration(*completed),
             Job::Drained(completed) => self.finish_node_drain(*completed),

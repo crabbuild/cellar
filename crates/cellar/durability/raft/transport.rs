@@ -36,6 +36,8 @@ mod directory;
 mod fleet;
 #[path = "fleet_inspection_transport.rs"]
 pub(crate) mod fleet_inspections;
+#[path = "fleet_stop_transport.rs"]
+pub(crate) mod fleet_stops;
 #[path = "inspection_transport.rs"]
 pub(crate) mod inspections;
 #[path = "transport_metrics.rs"]
@@ -1171,6 +1173,9 @@ impl State {
                     .map_err(|e| TransportError::Tls(e.to_string()))
             })
             .await?;
+        // Mutation budgets include a delayed first prefix and header. Capture
+        // this once per connection, without adding a clock read per Raft frame.
+        let connected_at = self.domain.mono_ms().map_err(|_| TransportError::Closed)?;
         let exporter = stream
             .get_ref()
             .1
@@ -1216,6 +1221,22 @@ impl State {
                     .map_err(|error| TransportError::Tls(error.to_string()))?;
                 return self
                     .receive_node_inspection(&mut stream, &exporter, prefix)
+                    .await;
+            }
+            if &prefix[..4] == fleet_stops::REQUEST_MAGIC {
+                if lane != Lane::Control
+                    || sequence != 0
+                    || !self.inspection_enabled.load(Ordering::Acquire)
+                {
+                    return Err(TransportError::Protocol);
+                }
+                let exporter = stream
+                    .get_ref()
+                    .1
+                    .export_keying_material([0; 32], fleet_stops::EXPORT_LABEL, None)
+                    .map_err(|error| TransportError::Tls(error.to_string()))?;
+                return self
+                    .receive_fleet_stop(&mut stream, &exporter, prefix, connected_at)
                     .await;
             }
             if &prefix[..4] == fleet_inspections::REQUEST_MAGIC {

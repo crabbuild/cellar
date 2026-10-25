@@ -10,6 +10,7 @@ pub(crate) enum NodeKind {
         minimum_revision: u64,
     },
     InspectPeerFleet(Box<PeerFleetRequest>),
+    PeerFleetStop(Box<PeerStopRequest>),
     ObserveFleet {
         history: Box<crate::raft::fleet_inspection_wire::History>,
         minimum_revision: u64,
@@ -23,6 +24,12 @@ pub(crate) struct PeerFleetRequest {
     pub node: cellar_logic::consensus::NodeId,
     pub minimum_revision: u64,
     pub authorization: crate::raft::fleet_catalog::FleetGroupAuthorization,
+}
+
+pub(crate) struct PeerStopRequest {
+    pub request: crate::raft::fleet_stop::FleetStopRequest,
+    pub minimum_revision: u64,
+    pub deadline: u64,
 }
 
 pub(crate) enum ControlRequest {
@@ -40,6 +47,70 @@ pub(crate) struct NodeRequest {
 }
 
 impl RaftCells {
+    /// Submit an exact-boot stop/fence through the authenticated Raft control
+    /// lane. The origin and target may both have zero business groups; no Actor
+    /// lease is used. Acceptance is historical guard admission, never physical
+    /// closure or terminal removal. A lost response is unconfirmed: reconcile
+    /// the same request and its signed closure instead of issuing a new scope.
+    pub fn request_peer_fleet_stop(
+        &self,
+        request: crate::raft::fleet_stop::FleetStopRequest,
+        minimum_revision: u64,
+        timeout: Duration,
+    ) -> Pin<
+        Box<
+            dyn Future<
+                    Output = Result<
+                        crate::raft::fleet_stop::FleetStopAcceptance,
+                        crate::raft::fleet_catalog::FleetCatalogError,
+                    >,
+                > + Send,
+        >,
+    > {
+        use crate::raft::fleet_catalog::FleetCatalogError;
+        if request.selector.validate().is_err()
+            || minimum_revision == 0
+            || minimum_revision >= u64::MAX - 2
+            || timeout.as_millis() == 0
+            || timeout > Duration::from_secs(60)
+        {
+            return Box::pin(async { Err(FleetCatalogError::Invalid("peer stop request")) });
+        }
+        let domain = self.handle.domain.clone();
+        let deadline = match domain
+            .mono_ms()
+            .ok()
+            .and_then(|now| now.checked_add(timeout.as_millis() as u64))
+        {
+            Some(deadline) => deadline,
+            None => return Box::pin(async { Err(FleetCatalogError::Closed) }),
+        };
+        let call = self.node_call(
+            NodeKind::PeerFleetStop(Box::new(PeerStopRequest {
+                request,
+                minimum_revision,
+                deadline,
+            })),
+            timeout,
+        );
+        Box::pin(async move {
+            let result = call.await.map_err(|error| match error {
+                CommandFailure::Overloaded => FleetCatalogError::Overloaded,
+                CommandFailure::UnsupportedCapability => {
+                    FleetCatalogError::Invalid("peer stop capability")
+                }
+                _ => FleetCatalogError::Unconfirmed,
+            })?;
+            if !domain.mono_ms().is_ok_and(|now| now < deadline) {
+                return Err(FleetCatalogError::Unconfirmed);
+            }
+            match result {
+                Response::PeerFleetStop(result) => result.map(|accepted| *accepted),
+                _ => Err(FleetCatalogError::Unconfirmed),
+            }
+        })
+    }
+
     /// Obtain a fresh safe-ReadIndex observation from an enrolled remote group.
     /// The origin may have zero local groups. Both endpoints must install the
     /// requested catalog cut; the target independently authorizes this exact

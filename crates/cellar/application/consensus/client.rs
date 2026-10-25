@@ -30,8 +30,8 @@ mod bindings;
 mod node;
 pub(crate) use bindings::Bindings;
 use node::send_failure;
-pub(crate) use node::PeerFleetRequest;
 pub(crate) use node::{ControlRequest, NodeKind, NodeRequest};
+pub(crate) use node::{PeerFleetRequest, PeerStopRequest};
 
 /// A compare-and-set admission request for a preconfigured fresh learner.
 #[derive(Clone, Debug)]
@@ -1152,6 +1152,12 @@ impl CancelFailure {
 }
 
 pub(crate) enum Response {
+    PeerFleetStop(
+        Result<
+            Box<crate::raft::fleet_stop::FleetStopAcceptance>,
+            crate::raft::fleet_catalog::FleetCatalogError,
+        >,
+    ),
     PeerFleetObservation(
         Result<Box<super::RaftPeerFleetMembershipObservation>, super::InspectionError>,
     ),
