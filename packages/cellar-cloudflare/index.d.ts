@@ -128,6 +128,7 @@ type Reserved =
 export type DurableObjectStub<T extends object> = {
   readonly id: DurableObjectId;
   readonly name: string | undefined;
+  fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response>;
 } & {
   [
     K in keyof T as K extends Reserved
@@ -162,3 +163,25 @@ export function activateDurableObject<T, E extends object>(
   nativeContext: object,
   options?: { env?: E; container?: unknown },
 ): Activation<T>;
+
+/** Bounded HTTP and value RPC module dispatch; native host registrations are required. */
+export function workersApplication<
+  M extends { default: { fetch: (...args: never[]) => unknown } },
+>(
+  module: M,
+  options: {
+    namespaces: Record<string, Exclude<keyof M, "default"> & string>;
+    containers?: readonly (Exclude<keyof M, "default"> & string)[];
+    variables?: readonly string[];
+  },
+): {
+  cells: Record<string, unknown>;
+  fetch(
+    request: unknown,
+    nativeContext: object,
+  ): Promise<{
+    status: number;
+    headers: [string, string][];
+    body: string;
+  }>;
+};

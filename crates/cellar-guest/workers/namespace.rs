@@ -37,6 +37,58 @@ fn descriptor(id: &Id) -> Value {
     json!({"id":id.to_string(), "name":id.name_utf16()})
 }
 
+fn stub(
+    context: &Context,
+    binding: &str,
+    encoded: &str,
+    name: Option<Vec<u16>>,
+) -> Result<cellar::sdk::cells::Stub> {
+    let namespace = context.namespace(binding)?;
+    let mut id = namespace.id_from_string(encoded)?;
+    if let Some(name) = name {
+        let named = namespace.id_from_name_utf16(&name);
+        ensure!(named == id, "name does not match ID");
+        id = named;
+    }
+    namespace.get(&id)
+}
+
+pub(super) async fn fetch(
+    context: &Context,
+    input: Value,
+    options: &Limits,
+    signal: Option<cellar::sdk::web::AbortSignal>,
+) -> Result<Value> {
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Input {
+        binding: String,
+        id: String,
+        name: Option<Vec<u16>>,
+        request: Value,
+    }
+    let (stub, request) = (|| -> Result<_> {
+        let input: Input = serde_json::from_value(input)?;
+        let stub = stub(context, &input.binding, &input.id, input.name)?;
+        let request = crate::values::input(&input.request, options.max_body_bytes)?;
+        Ok((stub, request))
+    })()
+    .context(crate::failure::Validation)?;
+    let call = async {
+        let response = stub.fetch(context, request).await?;
+        crate::values::response(response, options.max_body_bytes).await
+    };
+    match signal {
+        None => call.await,
+        Some(signal) => {
+            cellar::asyncrt::select_biased! { "cancellation revokes a namespace HTTP waiter before an undelivered reply";
+                _ = signal.cancelled() => Err(cellar::sdk::rpc::Failure::new(cellar::sdk::rpc::Code::Cancelled).into()),
+                result = call => result,
+            }
+        }
+    }
+}
+
 pub(super) async fn call(context: &Context, input: Value, options: &Limits) -> Result<Value> {
     #[derive(Deserialize)]
     #[serde(deny_unknown_fields)]
@@ -53,15 +105,9 @@ pub(super) async fn call(context: &Context, input: Value, options: &Limits) -> R
             !input.method.is_empty() && input.method.len() <= 512 && !input.method.contains('\0'),
             "invalid RPC method"
         );
-        let namespace = context.namespace(&input.binding)?;
-        let mut id = namespace.id_from_string(&input.id)?;
-        if let Some(name) = input.name {
-            let named = namespace.id_from_name_utf16(&name);
-            ensure!(named == id, "RPC name does not match ID");
-            id = named;
-        }
+        let stub = stub(context, &input.binding, &input.id, input.name)?;
         let args = rpc::arguments(&input.args, options.max_body_bytes)?;
-        Ok((namespace.get(&id)?, input.method, args))
+        Ok((stub, input.method, args))
     })()
     .context(crate::failure::Validation)?;
     // This is the original native invocation's routed RPC future. It retains

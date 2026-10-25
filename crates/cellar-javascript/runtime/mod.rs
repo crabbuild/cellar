@@ -268,7 +268,7 @@ pub(crate) fn requires_mutation_slot(name: &str) -> bool {
 }
 
 pub(crate) fn supports_operation_cancellation(name: &str) -> bool {
-    matches!(name, "cell.call" | "container.port.fetch")
+    matches!(name, "cell.call" | "container.port.fetch" | "workers.fetch")
 }
 
 /// Process bootstrap. Every call owns a joined engine and watchdog. V8's global

@@ -87,6 +87,12 @@ pub async fn execute_with_signal(
     options: &Limits,
     signal: Option<cellar::sdk::web::AbortSignal>,
 ) -> Result<Value> {
+    if name == "workers.fetch" {
+        return state
+            .workers
+            .execute_with_signal(context, name, value, options, signal)
+            .await;
+    }
     if name == "container.port.fetch" {
         return state
             .containers

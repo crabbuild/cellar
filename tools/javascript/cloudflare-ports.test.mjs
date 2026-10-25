@@ -8,6 +8,10 @@ function fixture(limit = 4) {
   const requests = [];
   let admitted = true;
   const context = {
+    _sync: (name) => {
+      assert.equal(name, "workers.http.limits");
+      return { max_body_bytes: limit };
+    },
     _encode: (body) => Buffer.from(body).toString("base64"),
     container: {
       capabilities: async () => ({ max_body_bytes: limit }),

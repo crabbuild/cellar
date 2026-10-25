@@ -379,6 +379,25 @@ fn published_container_constructor_storage_in_v8() -> Result<()> {
     qualify(Backend::Embedded, "container")
 }
 
+#[cfg(feature = "embed")]
+#[test]
+fn embedded_module_http_profile_refuses_before_host_start_without_web_bootstrap() -> Result<()> {
+    let called = std::sync::atomic::AtomicBool::new(false);
+    let result = run(Backend::Embedded, "module", |_| {
+        called.store(true, std::sync::atomic::Ordering::SeqCst);
+        Ok(())
+    });
+    ensure!(
+        result.is_err(),
+        "HTTP module profile admitted missing web globals"
+    );
+    ensure!(
+        !called.load(std::sync::atomic::Ordering::SeqCst),
+        "incomplete profile reached the native host"
+    );
+    Ok(())
+}
+
 #[cfg(feature = "node")]
 #[test]
 fn published_container_constructor_storage_in_node() -> Result<()> {

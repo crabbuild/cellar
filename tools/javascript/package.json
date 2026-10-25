@@ -10,7 +10,7 @@
   "scripts": {
     "format": "node format.mjs --write",
     "format:check": "node format.mjs --check",
-    "test": "node --test build.test.mjs node-package.test.mjs node-build.test.mjs containers.test.mjs cloudflare-ports.test.mjs"
+    "test": "node --test build.test.mjs node-package.test.mjs node-build.test.mjs containers.test.mjs cloudflare-ports.test.mjs cloudflare-http.test.mjs"
   },
   "devDependencies": {
     "prettier": "3.9.10"

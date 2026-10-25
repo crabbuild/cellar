@@ -31,7 +31,7 @@
   function track(id, promise, report = false) {
     const state = lifetimes.get(id);
     if (!state) return promise;
-    if (report && state.reported >= state.limit) {
+    if (report && state.reported + state.retained >= state.limit) {
       const error = new ErrorClass("waitUntil job quota exceeded");
       error.name = "QuotaExceededError";
       throw error;
@@ -372,6 +372,8 @@
           "workers.crypto.uuid",
           "workers.identity",
           "workers.namespace",
+          "workers.http.limits",
+          "workers.variable",
           "workers.container.running",
           "workers.container.admit",
           "workers.container.discard",
@@ -458,7 +460,11 @@
               if (budget !== undefined && key === undefined)
                 throw new ErrorClass("ContextMismatch");
               const admitted = host(id, name, encoded, body, key);
-              if (["cell.call", "container.port.fetch"].includes(name))
+              if (
+                ["cell.call", "container.port.fetch", "workers.fetch"].includes(
+                  name,
+                )
+              )
                 [pending, cancel] = admitted;
               else pending = admitted;
               submitted = true;
@@ -495,6 +501,8 @@
                 "workers.crypto.uuid",
                 "workers.identity",
                 "workers.namespace",
+                "workers.http.limits",
+                "workers.variable",
                 "workers.container.running",
                 "workers.container.admit",
                 "workers.container.discard",
@@ -799,6 +807,34 @@
           throw error;
         }
         return synchronous("workers.container.admit", { operation, input });
+      },
+      _containerMonitor(make) {
+        if (
+          (activation === null ? currentHost() : currentHost(activation)) !== id
+        )
+          throw rpcFailure("ContextMismatch", "not_committed");
+        const state = lifetimes.get(id);
+        if (!state) throw rpcFailure("UnsupportedOperation", "not_committed");
+        if (state.reported + state.retained >= state.limit) {
+          const error = rpcFailure("OperationLimit", "not_committed");
+          error.name = "QuotaExceededError";
+          throw error;
+        }
+        state.retained++;
+        let pending;
+        try {
+          pending = resolve(make());
+        } catch (error) {
+          state.retained--;
+          throw error;
+        }
+        const release = () => {
+          state.retained--;
+        };
+        pending.then(release, release);
+        // The wrapper may await a destroy acknowledgement in another event
+        // after its native read completed. Retain that entire monitor promise.
+        return track(id, pending);
       },
       _waitUntil(promise) {
         try {
@@ -1188,6 +1224,7 @@
         const state = {
           jobs: new SetClass(),
           reported: 0,
+          retained: 0,
           limit: lifetimeLimit,
           failed: false,
           cancel,

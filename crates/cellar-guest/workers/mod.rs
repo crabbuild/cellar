@@ -28,6 +28,8 @@ pub fn is_read(name: &str) -> bool {
             | "workers.crypto.uuid"
             | "workers.identity"
             | "workers.namespace"
+            | "workers.http.limits"
+            | "workers.variable"
             | "workers.callback.begin"
             | "workers.sql.size"
             | "workers.kv.get"
@@ -46,6 +48,8 @@ pub fn supports_synchronous(name: &str) -> bool {
             | "workers.crypto.uuid"
             | "workers.identity"
             | "workers.namespace"
+            | "workers.http.limits"
+            | "workers.variable"
             | "workers.sql.exec"
             | "workers.sql.next"
             | "workers.sql.close"
@@ -66,16 +70,36 @@ impl State {
         input: Value,
         options: &Limits,
     ) -> Result<Value> {
+        self.execute_with_signal(context, name, input, options, None)
+            .await
+    }
+
+    pub async fn execute_with_signal(
+        &self,
+        context: &Context,
+        name: &str,
+        input: Value,
+        options: &Limits,
+        signal: Option<cellar::sdk::web::AbortSignal>,
+    ) -> Result<Value> {
         (|| -> Result<()> {
             crate::values::check_depth(&input)?;
             ensure!(input.is_object(), "Workers operation requires an object");
             ensure!(
-                supports_synchronous(name) || name == "workers.rpc",
+                supports_synchronous(name) || matches!(name, "workers.rpc" | "workers.fetch"),
                 "unsupported Workers operation"
+            );
+            ensure!(
+                signal.is_none() || name == "workers.fetch",
+                "operation does not accept a signal"
             );
             let fields: Option<&[&str]> = match name {
                 "workers.crypto.random" => Some(&["length"]),
-                "workers.crypto.uuid" | "workers.identity" | "workers.sql.size" => Some(&[]),
+                "workers.crypto.uuid"
+                | "workers.identity"
+                | "workers.sql.size"
+                | "workers.http.limits" => Some(&[]),
+                "workers.variable" => Some(&["name"]),
                 "workers.sql.exec" => Some(&["sql", "params"]),
                 "workers.sql.next" | "workers.sql.close" => Some(&["id"]),
                 _ => None,
@@ -95,6 +119,22 @@ impl State {
         .context(crate::failure::Validation)?;
         let candidate = context.invocation_authority()?;
         self.authority.get_or_init(|| candidate).check(context)?;
+        if name == "workers.http.limits" {
+            return Ok(serde_json::json!({"max_body_bytes": options.max_body_bytes}));
+        }
+        if name == "workers.variable" {
+            let key = input["name"]
+                .as_str()
+                .filter(|name| !name.is_empty() && name.len() <= 512)
+                .context("invalid variable name")
+                .context(crate::failure::Validation)?;
+            return Ok(serde_json::json!(context.var(key)));
+        }
+        if name == "workers.fetch" {
+            let result = namespace::fetch(context, input, options, signal).await;
+            self.authority.get().unwrap().check(context)?;
+            return result;
+        }
         if name == "workers.namespace" {
             return namespace::identity(context, input);
         }

@@ -130,6 +130,8 @@ function operation(
       "workers.crypto.uuid",
       "workers.identity",
       "workers.namespace",
+      "workers.http.limits",
+      "workers.variable",
       "workers.container.running",
       "workers.container.admit",
       "workers.container.discard",
@@ -176,6 +178,8 @@ function operation(
       "workers.crypto.uuid",
       "workers.identity",
       "workers.namespace",
+      "workers.http.limits",
+      "workers.variable",
       "workers.container.running",
       "workers.container.admit",
       "workers.container.discard",
@@ -265,7 +269,8 @@ function operation(
       body,
     );
   });
-  if (!["cell.call", "container.port.fetch"].includes(name)) return promise;
+  if (!["cell.call", "container.port.fetch", "workers.fetch"].includes(name))
+    return promise;
   let cancelled = false;
   const cancel = () => {
     if (cancelled || active.get(invocation) !== state || !pending.has(id))

@@ -25,6 +25,8 @@ use tokio::{
 pub struct Engine {
     pub startup_gate: Mutex<Option<watch::Receiver<bool>>>,
     pub start_entered: AtomicBool,
+    pub destroy_gate: Mutex<Option<watch::Receiver<bool>>>,
+    pub destroy_entered: AtomicBool,
     pub fail_next_start: AtomicBool,
     pub refuse_remove: AtomicBool,
     pub app_image_loaded: AtomicBool,
@@ -183,6 +185,7 @@ impl Engine {
                         "NetworkSettings": {
                             "Networks": {"fixture": {"IPAddress": "127.0.0.1"}},
                             "Ports": {
+                                "8080/tcp": [{"HostPort": self.http_port.to_string()}],
                                 format!("{}/tcp", self.http_port): [{"HostPort": self.http_port.to_string()}],
                                 format!("{}/tcp", self.tcp_port): [{"HostPort": self.tcp_port.to_string()}]
                             }
@@ -211,6 +214,13 @@ impl Engine {
                 } else {
                     self.labels.lock().unwrap().remove(name);
                     self.containers.lock().unwrap().remove(name);
+                }
+                let gate = self.destroy_gate.lock().unwrap().clone();
+                if let Some(mut gate) = gate {
+                    self.destroy_entered.store(true, Ordering::SeqCst);
+                    while !*gate.borrow_and_update() {
+                        gate.changed().await?;
+                    }
                 }
             }
             json!({})

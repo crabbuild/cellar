@@ -4,6 +4,7 @@ import {
   activateDurableObject,
   durableObjectNamespace,
   durableObjectContainer,
+  workersApplication,
   type DurableObjectStorage,
 } from "../../packages/cellar-cloudflare/index.js";
 import { DurableObject } from "../../packages/cellar-cloudflare/workers.js";
@@ -43,8 +44,12 @@ const result: Promise<bigint> = stub.increment(3n);
 stub.env();
 // @ts-expect-error: argument types remain intact
 stub.increment("3");
-// @ts-expect-error: fetch needs a web transport profile
-stub.fetch("http://example.com");
+const fetched: Promise<Response> = stub.fetch("http://example.com");
+void fetched;
+const module = { default: { fetch: async () => new Response("ok") }, Counter };
+workersApplication(module, { namespaces: { COUNTERS: "Counter" } });
+// @ts-expect-error: namespace classes must be exports of the supplied module
+workersApplication(module, { namespaces: { COUNTERS: "Missing" } });
 const activation = activateDurableObject(Counter, context);
 const local: Promise<bigint> = activation.invoke((target) =>
   target.increment(1n),

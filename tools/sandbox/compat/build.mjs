@@ -15,6 +15,8 @@ for (const [fixture, platform] of [
   ["callbacks", "neutral"],
   ["rpc", "neutral"],
   ["container", "neutral"],
+  ["module", "neutral"],
+  ["container-module", "neutral"],
   ["sandbox", "node"],
 ]) {
   for (const format of platform === "node" ? ["esm"] : ["iife", "esm"]) {

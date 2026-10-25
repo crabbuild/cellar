@@ -125,32 +125,34 @@ export function durableObjectContainer(nativeContext) {
       }
       const observed = run;
       const before = event(context).tail ?? observed.started;
-      return before.then(async () => {
-        if (observed.terminal) {
-          if (observed.terminal.ok) return;
-          throw observed.terminal.error;
-        }
-        const native = context.container.monitor();
-        observed.monitors.add(native);
-        let code;
-        try {
-          code = await native;
-        } finally {
-          observed.monitors.delete(native);
-        }
-        if (observed.stop) {
-          await observed.stop.work;
-          if (observed.stop.hasError) throw observed.stop.error;
-          return;
-        }
-        if (code !== 0) {
-          const error = new Error(
-            `container exited with unexpected exit code: ${code}`,
-          );
-          error.exitCode = code;
-          throw error;
-        }
-      });
+      return context._containerMonitor(() =>
+        before.then(async () => {
+          if (observed.terminal) {
+            if (observed.terminal.ok) return;
+            throw observed.terminal.error;
+          }
+          const native = context.container.monitor();
+          observed.monitors.add(native);
+          let code;
+          try {
+            code = await native;
+          } finally {
+            observed.monitors.delete(native);
+          }
+          if (observed.stop) {
+            await observed.stop.work;
+            if (observed.stop.hasError) throw observed.stop.error;
+            return;
+          }
+          if (code !== 0) {
+            const error = new Error(
+              `container exited with unexpected exit code: ${code}`,
+            );
+            error.exitCode = code;
+            throw error;
+          }
+        }),
+      );
     },
     destroy(error) {
       const context = current();

@@ -1,15 +1,22 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 import { idDescriptor, nativeId } from "./id.js";
+import { fetchRequest } from "./http.js";
 
 // This initial namespace facade is event-owned, just like the native SDK
 // context supplied to it. Activation-owned environment bindings are a separate
 // dispatch/lifetime layer; retaining this facade never grants a later event.
 export function durableObjectNamespace(nativeContext, binding) {
+  return namespaceBinding(() => nativeContext, binding);
+}
+
+// Only the module dispatcher supplies an activation-bound current accessor.
+// Ordinary public namespaces and their stubs keep their original event context.
+export function namespaceBinding(current, binding) {
   if (typeof binding !== "string" || !binding.length)
     throw new TypeError("Expected a namespace binding name");
   const identify = (input) =>
-    nativeId(nativeContext._sync("workers.namespace", { binding, ...input }));
+    nativeId(current()._sync("workers.namespace", { binding, ...input }));
   const unsupportedOptions = (options) => {
     if (options !== undefined)
       throw new Error(
@@ -49,12 +56,24 @@ export function durableObjectNamespace(nativeContext, binding) {
           if (Object.hasOwn(target, method)) return target[method];
           if (method === "then" || typeof method !== "string") return undefined;
           if (method === "fetch")
-            return () => {
-              throw new Error(
-                "Workers Request/Response transport is not enabled by this RPC-only namespace profile",
+            return (input, init) => {
+              const context = current();
+              return fetchRequest(input, init, context, (request, signal) =>
+                context._call(
+                  "workers.fetch",
+                  {
+                    binding,
+                    id: checked.toString(),
+                    name: descriptor.name,
+                    request,
+                  },
+                  undefined,
+                  signal,
+                ),
               );
             };
           return async (...args) => {
+            const nativeContext = current();
             const reply = await nativeContext._call("workers.rpc", {
               binding,
               id: checked.toString(),
