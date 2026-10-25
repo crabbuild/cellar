@@ -11,9 +11,10 @@ use prost_types::{
     FileDescriptorProto, FileDescriptorSet, MethodDescriptorProto, ServiceDescriptorProto,
 };
 use std::{
-    path::PathBuf,
-    process::Command,
+    path::{Path, PathBuf},
+    process::{Command, Output, Stdio},
     sync::atomic::{AtomicUsize, Ordering},
+    time::{Duration, Instant},
 };
 
 struct Scratch(PathBuf);
@@ -36,6 +37,72 @@ impl Drop for Scratch {
     fn drop(&mut self) {
         let _ = std::fs::remove_dir_all(&self.0);
     }
+}
+
+fn bounded_run(input: &Path, output: &Path) -> Output {
+    let mut child = Command::new(env!("CARGO_BIN_EXE_cellar-rpc-codegen"))
+        .arg("--descriptor")
+        .arg(input)
+        .arg("--out")
+        .arg(output)
+        .env("PATH", "")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        if child.try_wait().unwrap().is_some() {
+            return child.wait_with_output().unwrap();
+        }
+        if Instant::now() >= deadline {
+            child.kill().unwrap();
+            let result = child.wait_with_output().unwrap();
+            panic!("generator waited for invalid descriptor input: {result:?}");
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+#[test]
+fn oversized_descriptor_files_are_refused_before_generation() {
+    let scratch = Scratch::new();
+    let input = scratch.0.join("large.binpb");
+    let output = scratch.0.join("generated");
+    let size = 4 * 1024 * 1024 + 1;
+    std::fs::File::create(&input)
+        .unwrap()
+        .set_len(size)
+        .unwrap();
+    std::fs::create_dir(&output).unwrap();
+    std::fs::write(output.join("user-file.txt"), b"preserve this file").unwrap();
+    let result = bounded_run(&input, &output);
+    assert_eq!(result.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&result.stderr).contains("RPC descriptor file exceeds"));
+    assert_eq!(std::fs::metadata(&input).unwrap().len(), size);
+    assert_eq!(std::fs::read_dir(&output).unwrap().count(), 1);
+    assert_eq!(
+        std::fs::read(output.join("user-file.txt")).unwrap(),
+        b"preserve this file"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn fifo_descriptors_are_refused_without_waiting_for_a_writer() {
+    let scratch = Scratch::new();
+    let input = scratch.0.join("waiting.binpb");
+    let output = scratch.0.join("generated");
+    // Only fixture creation needs coreutils; the generator itself has no tools.
+    assert!(Command::new("mkfifo")
+        .arg(&input)
+        .status()
+        .unwrap()
+        .success());
+    let result = bounded_run(&input, &output);
+    assert_eq!(result.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&result.stderr).contains("regular file"));
+    assert!(!output.exists());
 }
 
 fn descriptor() -> FileDescriptorSet {

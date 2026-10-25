@@ -88,8 +88,10 @@ pub struct Contract {
 }
 
 impl Contract {
-    // Build-time artifact readers apply this before allocating descriptor input.
-    pub(crate) const MAX_DESCRIPTOR_BYTES: usize = 4 * 1024 * 1024;
+    /// Maximum encoded descriptor-bundle size accepted by the native validator.
+    /// Build tools should enforce this bound while reading, before allocating
+    /// descriptor input. It is independent of the business-message limits.
+    pub const MAX_DESCRIPTOR_BYTES: usize = 4 * 1024 * 1024;
 
     /// Load an application descriptor set at startup, with no I/O or runtime
     /// schema lookup. Unsupported features and unresolved imports are refused.

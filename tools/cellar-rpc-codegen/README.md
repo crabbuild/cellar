@@ -50,9 +50,15 @@ inventories remain delivery work.
 Generation and native startup use the same `Contract::from_descriptor` validator.
 An invalid descriptor fails before the generator creates its output directory,
 writes an artifact or invokes a language compiler.
+The generator requires a regular file and checks the shared
+`Contract::MAX_DESCRIPTOR_BYTES` bound before allocating its input buffer.
+The read itself is capped too, so a growing file cannot bypass the limit. A FIFO
+is refused before open instead of waiting for a writer.
 
 ```text
-descriptor set (at most 4 MiB)
+regular descriptor file (metadata at most 4 MiB)
+        |
+bounded read (reject growth past the shared limit)
         |
 canonical files + acyclic imports + bounded symbol namespace
         |
