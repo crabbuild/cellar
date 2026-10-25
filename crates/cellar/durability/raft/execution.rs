@@ -61,7 +61,7 @@ impl ExecutionLimits {
         if let Some(maintenance) = self.receipt_maintenance {
             maintenance.validate()?;
         }
-        if !(4096..=64 * 1024 * 1024).contains(&self.max_image_bytes)
+        if !(4096..=256 * 1024 * 1024).contains(&self.max_image_bytes)
             || !(1..=1024 * 1024).contains(&self.max_result_bytes)
             || !(1..=65_536).contains(&self.max_client_identities)
             || !(1..=65_536).contains(&self.max_retained_receipts)

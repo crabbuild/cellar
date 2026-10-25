@@ -31,6 +31,9 @@ use std::sync::{
 };
 use tokio::sync::{mpsc, Notify};
 
+#[path = "host_image_limits.rs"]
+mod image_limits;
+
 #[cfg(all(test, not(cellar_internal_tests)))]
 #[path = "host_startup_tests.rs"]
 mod startup_tests;
@@ -116,7 +119,7 @@ pub struct RaftHostOptions {
 impl Default for RaftHostOptions {
     fn default() -> Self {
         let images = GenerationLimits {
-            apply: super::archive::apply_limits(),
+            apply: super::snapshot::SnapshotLimits::default().apply(),
             ..Default::default()
         };
         Self {
@@ -196,7 +199,8 @@ impl RaftHostOptions {
         anyhow::ensure!(
             apply.decode.max_encoded_bytes >= snapshot_bound
                 && apply.max_total_encoded_bytes >= snapshot_bound
-                && self.archive.limits.max_object_bytes >= snapshot_bound,
+                && self.archive.limits.max_object_bytes >= snapshot_bound
+                && self.archive.limits.max_image_bytes >= self.execution.max_image_bytes,
             "snapshot image and archive admission must cover full-LTX encoding overhead"
         );
         anyhow::ensure!(
