@@ -4,6 +4,7 @@
 //! The exclusive private database owner supplies the SQL-visible geometry and
 //! keeps writers/checkpoint work quiescent for this synchronous observation.
 
+use super::wal_index::WalIndexCut;
 use super::*;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
@@ -14,7 +15,9 @@ impl Db {
     /// WAL offsets are bounded by an independent scratch/index budget, and only
     /// complete checksum-verified transactions contribute to the image.
     ///
-    /// The caller must exclusively own all database writers during inspection.
+    /// The caller must exclude all database writers and checkpoints during inspection.
+    /// The live SQLite WAL index fixes the exact committed boundary: corrupt or
+    /// missing committed frames cannot fall back to an older same-size image.
     /// This is a physical observation, never a durability or publication proof.
     pub fn committed_image_digest(
         &self,
@@ -41,22 +44,34 @@ impl Db {
             return Err(Error::Other("image inspection WAL page size".into()));
         }
         let frame_length = u64::from(page_size) + WAL_FRAME_HEADER_SIZE as u64;
+        let cut = WalIndexCut::capture(self)?;
+        let committed_end = WAL_HEADER_SIZE as u64 + u64::from(cut.frames()) * frame_length;
+        if !cut.matches_wal(&header)
+            || u64::from(cut.pages()) * u64::from(page_size) != length
+            || committed_end > wal_length
+        {
+            return Err(Error::Other(
+                "committed WAL boundary differs from physical bytes".into(),
+            ));
+        }
         let mut offset = WAL_HEADER_SIZE as u64;
         let mut pages = BTreeMap::new();
         let mut pending = BTreeMap::new();
         let mut commit = 0;
-        while offset
-            .checked_add(frame_length)
-            .is_some_and(|end| end <= wal_length)
-        {
+        while offset < committed_end {
             let frame = wal.read_exact_at(offset, WAL_FRAME_HEADER_SIZE)?;
             let data =
                 wal.read_exact_at(offset + WAL_FRAME_HEADER_SIZE as u64, page_size as usize)?;
-            let (pgno, size) = match reader.consume_frame(&frame, &data, true) {
-                Ok(value) => value,
-                Err(error) if error.is_eof() => break,
-                Err(error) => return Err(error.into()),
-            };
+            let (pgno, size) = reader
+                .consume_frame(&frame, &data, true)
+                .map_err(Error::from)?;
+            if offset + frame_length == committed_end
+                && (size == 0 || !cut.matches_last_frame(&frame))
+            {
+                return Err(Error::Other(
+                    "committed WAL frame differs from SQLite's index".into(),
+                ));
+            }
             if pgno == 0 || pgno == lock_pgno(page_size) {
                 return Err(Error::Other("invalid image inspection WAL page".into()));
             }
@@ -64,6 +79,9 @@ impl Db {
             if size != 0 {
                 while let Some((page, position)) = pending.pop_first() {
                     pages.insert(page, position);
+                }
+                while pages.last_key_value().is_some_and(|(page, _)| *page > size) {
+                    pages.pop_last();
                 }
                 commit = size;
             }
@@ -103,7 +121,10 @@ impl Db {
                 pgno += count;
             }
         }
-        if wal.file_len()? != wal_length || wal.read_exact_at(0, WAL_HEADER_SIZE)? != header {
+        if wal.file_len()? != wal_length
+            || wal.read_exact_at(0, WAL_HEADER_SIZE)? != header
+            || WalIndexCut::capture(self)? != cut
+        {
             return Err(Error::Other("WAL changed during image inspection".into()));
         }
         Ok(hash.finalize().into())

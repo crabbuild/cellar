@@ -115,7 +115,16 @@ configure a shared larger pool explicitly for larger standalone snapshots.
 `Db::committed_image_digest` independently observes the committed main-file/WAL
 overlay without SQLite serialization. Writers must remain exclusively quiescent
 during that scan. Main-file reads use SQLite's VFS, including demand-loaded
-images; complete WAL transactions supply the page overlay. This still scans the
+images; complete WAL transactions supply the page overlay. The live WAL index's
+two matching, checksum-verified headers fix the committed frame boundary,
+geometry, salts and last-frame checksum. Corrupt or missing committed bytes
+refuse observation instead of selecting an older transaction with the same
+database length. Uncommitted spilled frames remain outside that boundary.
+The metadata sample borrows the WAL write lock for its 96-byte copy and refuses
+contention; it does not checkpoint. Unsupported WAL-index formats also refuse
+observation.
+All writers and checkpoints must remain quiescent throughout inspection.
+This still scans the
 full image and is not an incremental identity or fast-takeover qualification.
 
 Image preparation also removes up to eight eligible retired files before its

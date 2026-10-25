@@ -66,6 +66,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 #[path = "db_image.rs"]
 mod image;
+#[path = "db_wal_index.rs"]
+mod wal_index;
 
 /// Maps a `rusqlite::Error` into the crate error type.
 fn sql_err(e: rusqlite::Error) -> Error {

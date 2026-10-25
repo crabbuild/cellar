@@ -284,6 +284,38 @@ cause or a fix. Membership-target Rust 1.98.1 Clippy and formatting pass.
 
 ## Remaining work
 
+Committed-image observation now binds its full main/WAL scan to SQLite's live
+committed WAL-index cut. Both matching native-endian header copies, their
+checksums, geometry, salts and final-frame checksum are required. A borrowed
+write lock protects the 96-byte metadata copy; contention refuses immediately,
+and the lock is released before image I/O. Rechecking the cut after inspection
+retains the quiescent-owner boundary. A new regression failed before this change:
+corrupting or truncating a newer committed frame could previously select an older
+transaction when the database length stayed unchanged. Corrupt checksums, salts
+and incomplete committed frames now refuse; active writers refuse and rolled-back
+spilled frames remain excluded. No bad source bytes become a publication proof.
+
+The final ordinary scope passes 603 host library, 21 native execution, 32 native
+host, 27 native LTX, 44 snapshot, four LTX library and three committed-image cases:
+734 cases with six ignored native process/fixture entry points. Rust 1.98.1
+all-target Clippy for `cellar` and `cellar-ltx`, formatting, module layout,
+native dependencies and documentation checks pass. This correctness evidence
+does not replace full-size recovery qualification.
+
+The private cache-pressure experiment against frozen `552b3979` runtime
+components completed with a failure after 2,598.74 seconds and 82,837,504-byte
+maximum RSS. Only snapshot-scratch files used macOS `F_NOCACHE`; application
+code, timeouts and proof gates were unchanged. First read took 2.494 seconds and
+first write 87.091 seconds. The joined former owner's local state was erased;
+warm first read took 4.586 seconds and warm first write 78.888 seconds.
+Takeover/retry completed at 559.222 seconds and quota/cleanup/page reuse at
+778.372 seconds. It then exceeded the unchanged 1,800-second wait for an archive
+head covering the newly admitted repair. Empty-worker activation, local cold
+read, promotion and restart were never reached. The retained prefix is
+`full-capacity-qualification/b74a73f6b84724a79e4f90e7eafe5a64`.
+The query-time improvement is diagnostic evidence; this isolated filesystem
+variant is not a production fix or a successful full-size recovery run.
+
 The completion checklist remains open. Full native 10 GB warm takeover, exact
 peer and RustFS recovery after local state loss, restart/retry reconciliation,
 quota housekeeping headroom, full qualification of aggregate scratch admission, and incremental
