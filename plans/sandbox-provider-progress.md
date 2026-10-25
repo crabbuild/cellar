@@ -178,6 +178,20 @@ Streaming responses, TCP streams,
 WebSocket upgrades, complete timeout semantics and unchanged applications/images
 remain required. This does not change the pinned inventory's `not_run` status.
 
+### Real-image startup preparation
+
+On 2026-10-25 a separate task-owned Colima VM (Docker 29.5.2, aarch64 with
+Rosetta amd64 emulation) pulled the exact pinned Sandbox 0.12.9 manifest digest.
+Its amd64 image started `/container-server/sandbox`, reported version 0.12.9,
+and returned `success: true` / `status: healthy` from `/api/ping` over an explicit
+loopback port. This proves image startup only: published SDK calls through
+Cellar, image ownership/network policy and teardown qualification remain pending.
+
+The VM's first automatically published port reached an unrelated pre-existing
+host service. Qualification switched to an explicitly selected free loopback
+port and verified the expected Sandbox protocol response. A successful HTTP
+status alone is insufficient evidence that a VM port reaches the intended image.
+
 Constructor callbacks remain attached to their original event and admission
 refuses failed initialization, including rejection with `undefined`. The
 follow-up below now uses the actual native gate/reset and async transaction
