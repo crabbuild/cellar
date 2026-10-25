@@ -64,6 +64,9 @@ use std::ffi::c_int;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+#[path = "db_image.rs"]
+mod image;
+
 /// Maps a `rusqlite::Error` into the crate error type.
 fn sql_err(e: rusqlite::Error) -> Error {
     Error::Other(Box::new(e))
@@ -284,6 +287,9 @@ pub struct CapturedLtx {
 struct CaptureOutput {
     max_files: usize,
     remaining_bytes: usize,
+    remaining_decoded: u64,
+    remaining_pages: usize,
+    max_image_bytes: u64,
     files: Vec<CapturedLtx>,
 }
 
@@ -1085,7 +1091,9 @@ impl Db {
     /// The caller must still validate and independently persist disposable cuts
     /// before acknowledging work.
     ///
-    /// Both bounds must be nonzero. Exceeding either bound or failing capture
+    /// The encoded bound must fit the bounded decoder. Decoded output uses its
+    /// default 64 MiB/page budget; use `capture_with_limits` for explicit policy.
+    /// Both bounds must be nonzero. Exceeding a bound or failing capture
     /// returns no batch, although SQLite or local capture may already have
     /// advanced; callers must retain their ordinary failure/rebuild policy.
     pub fn capture_with_files(
@@ -1093,12 +1101,36 @@ impl Db {
         max_files: usize,
         max_encoded_bytes: usize,
     ) -> Result<Vec<CapturedLtx>> {
-        if max_files == 0 || max_encoded_bytes == 0 || self.capture_output.is_some() {
+        self.capture_with_limits(
+            max_files,
+            ltx::DecodeLimits {
+                max_encoded_bytes,
+                max_image_bytes: crate::stream_snapshot::MAX_IMAGE_BYTES,
+                ..Default::default()
+            },
+        )
+    }
+
+    /// Capture a complete batch with independent decoded/page/image admission.
+    /// Bounds are checked before collecting database pages, including fallback
+    /// full snapshots after a broken WAL continuation. Failure returns no cut.
+    pub fn capture_with_limits(
+        &mut self,
+        max_files: usize,
+        limits: ltx::DecodeLimits,
+    ) -> Result<Vec<CapturedLtx>> {
+        limits
+            .validate()
+            .map_err(|error| Error::Other(Box::new(error)))?;
+        if max_files == 0 || max_files > 1024 || self.capture_output.is_some() {
             return Err(Error::Other("invalid or active capture output".into()));
         }
         self.capture_output = Some(CaptureOutput {
             max_files,
-            remaining_bytes: max_encoded_bytes,
+            remaining_bytes: limits.max_encoded_bytes,
+            remaining_decoded: limits.max_decoded_bytes,
+            remaining_pages: limits.max_pages,
+            max_image_bytes: limits.max_image_bytes,
             files: Vec::new(),
         });
         let result = self.capture();
@@ -1413,7 +1445,7 @@ impl Db {
     /// Detects whether a FULL or RESTART checkpoint occurred (we may have missed
     /// frames). Ported from `DB.detectFullCheckpoint` (db.go:1477-1507).
     fn detect_full_checkpoint(&self, known_salts: &[(u32, u32)]) -> Result<bool> {
-        let wal_bytes = self.host.read(&self.wal_path())?;
+        let wal_bytes = self.read_wal_bytes()?;
         let rd = WalReader::new(&wal_bytes).map_err(Error::from)?;
         let last_known = known_salts.last().copied().unwrap_or((0, 0));
         let mut m = rd.frame_salts_until(last_known);
@@ -1436,8 +1468,13 @@ impl Db {
         let offset = info.offset;
         let salt1 = info.salt1;
         let salt2 = info.salt2;
+        let bounded = self.capture_output.is_some();
         Ok(self.with_wal_file(|file| {
-            let file_len = file.file_len()? as usize;
+            let length = file.file_len()?;
+            if bounded && length > 512 * 1024 * 1024 {
+                return Err(std::io::Error::other("capture WAL scratch budget exceeded"));
+            }
+            let file_len = usize::try_from(length).map_err(std::io::Error::other)?;
             if file_len < WAL_HEADER_SIZE || start < WAL_HEADER_SIZE || start >= file_len {
                 return Err(std::io::Error::from(std::io::ErrorKind::UnexpectedEof));
             }
@@ -1456,11 +1493,15 @@ impl Db {
                 let target_end = start
                     .saturating_add(target_frames.saturating_mul(frame_size))
                     .min(complete_end);
-                if target_end > cursor {
-                    let chunk = file.read_exact_at(cursor as u64, target_end - cursor)?;
+                while target_end > cursor {
+                    let n = (target_end - cursor).min(65536);
+                    let chunk = file.read_exact_at(cursor as u64, n)?;
+                    if chunk.len() != n {
+                        return Err(std::io::ErrorKind::UnexpectedEof.into());
+                    }
                     read_bytes += chunk.len();
                     bytes.extend_from_slice(&chunk);
-                    cursor = target_end;
+                    cursor += n;
                 }
 
                 let valid_end = {
@@ -1521,6 +1562,30 @@ impl Db {
         })?)
     }
 
+    fn read_wal_bytes(&self) -> Result<Vec<u8>> {
+        if self.capture_output.is_none() {
+            return Ok(self.host.read(&self.wal_path())?);
+        }
+        let mut file = self.host.open(&self.wal_path())?;
+        let length = file.file_len()?;
+        if length > 512 * 1024 * 1024 {
+            return Err(Error::Other("capture WAL scratch budget exceeded".into()));
+        }
+        let mut bytes = Vec::with_capacity(length as usize);
+        while (bytes.len() as u64) < length {
+            let n = (length - bytes.len() as u64).min(65536) as usize;
+            let chunk = file.read_exact_at(bytes.len() as u64, n)?;
+            if chunk.len() != n {
+                return Err(std::io::Error::from(std::io::ErrorKind::UnexpectedEof).into());
+            }
+            bytes.extend_from_slice(&chunk);
+        }
+        if file.file_len()? != length {
+            return Err(Error::Other("WAL changed during capture read".into()));
+        }
+        Ok(bytes)
+    }
+
     /// Copies pending bytes from the real WAL into a new L0 LTX file.
     ///
     /// Ported from `DB.sync` (db.go:1517-1723). Returns `true` if an LTX file was
@@ -1561,7 +1626,7 @@ impl Db {
         let frame_size_bytes = self.page_size as i64 + WAL_FRAME_HEADER_SIZE as i64;
         let mut wal = if info.snapshotting {
             self.last_sync_timing.wal_read_kind = 1;
-            let bytes = self.host.read(&self.wal_path())?;
+            let bytes = self.read_wal_bytes()?;
             self.last_sync_timing.wal_read_bytes = bytes.len() as u64;
             self.last_sync_timing.wal_len_bytes = bytes.len() as u64;
             WalImage::whole(bytes)
@@ -1581,7 +1646,7 @@ impl Db {
                 }
                 Err(_) => {
                     self.last_sync_timing.wal_read_kind = 3;
-                    let bytes = self.host.read(&self.wal_path())?;
+                    let bytes = self.read_wal_bytes()?;
                     self.last_sync_timing.wal_read_bytes = bytes.len() as u64;
                     self.last_sync_timing.wal_len_bytes = bytes.len() as u64;
                     WalImage::whole(bytes)
@@ -1617,7 +1682,7 @@ impl Db {
         if mismatch {
             info.offset = WAL_HEADER_SIZE as i64;
             if self.last_sync_timing.wal_read_kind == 0 {
-                let bytes = self.host.read(&self.wal_path())?;
+                let bytes = self.read_wal_bytes()?;
                 self.last_sync_timing.wal_read_kind = 3;
                 self.last_sync_timing.wal_read_bytes = bytes.len() as u64;
                 self.last_sync_timing.wal_len_bytes = bytes.len() as u64;
@@ -1659,6 +1724,31 @@ impl Db {
         }
 
         let (rd_salt1, rd_salt2) = rd.salt();
+
+        if let Some(output) = &self.capture_output {
+            let lock = lock_pgno(self.page_size);
+            let count = if info.snapshotting {
+                u64::from(commit) - u64::from(commit >= lock)
+            } else {
+                let growth = commit.saturating_sub(info.prev_commit);
+                let lock_in_growth = info.prev_commit < lock && lock <= commit;
+                page_map
+                    .keys()
+                    .filter(|pgno| **pgno <= info.prev_commit)
+                    .count() as u64
+                    + u64::from(growth)
+                    - u64::from(lock_in_growth)
+            };
+            if output.files.len() >= output.max_files
+                || u64::from(commit) * u64::from(self.page_size) > output.max_image_bytes
+                || count > output.remaining_pages as u64
+                || count * u64::from(self.page_size) > output.remaining_decoded
+            {
+                return Err(Error::Other(
+                    "capture decoded output exceeds its bounds".into(),
+                ));
+            }
+        }
 
         // Build the page set for the encoder.
         let pages: Vec<(u32, Vec<u8>)> = if info.snapshotting {
@@ -1784,6 +1874,8 @@ impl Db {
             // No nested capture runs between the bound check and this handoff.
             // Shrinking to the encoded length avoids retaining encoder capacity.
             output.remaining_bytes -= encoded.len();
+            output.remaining_pages -= pages.len();
+            output.remaining_decoded -= pages.len() as u64 * u64::from(self.page_size);
             output.files.push(CapturedLtx {
                 txid: tx_id,
                 bytes: encoded.into_boxed_slice(),
@@ -1852,9 +1944,20 @@ impl Db {
     /// epoch restored a database whose integrity_check named every overflow
     /// chain (fleet, 2026-09-02). The VFS faults the page in instead.
     fn read_db_page(&self, pgno: u32) -> Result<Vec<u8>> {
+        let offset = u64::from(
+            pgno.checked_sub(1)
+                .ok_or_else(|| Error::Other("invalid database page".into()))?,
+        ) * u64::from(self.page_size);
+        self.read_db_range(offset, self.page_size as usize)
+    }
+
+    fn read_db_range(&self, offset: u64, length: usize) -> Result<Vec<u8>> {
+        if length == 0 || length > 64 * 1024 || offset > i64::MAX as u64 {
+            return Err(Error::Other("invalid database read range".into()));
+        }
         let mut file: *mut ffi::sqlite3_file = std::ptr::null_mut();
-        // SAFETY: `conn` is open, and FILE_POINTER hands out the main file,
-        // which lives as long as the connection.
+        // SAFETY: FILE_POINTER returns this live connection's main VFS file.
+        // Its lifetime covers the synchronous bounded read below.
         let rc = unsafe {
             ffi::sqlite3_file_control(
                 self.conn.handle(),
@@ -1866,18 +1969,30 @@ impl Db {
         if rc != ffi::SQLITE_OK || file.is_null() {
             return Err(std::io::Error::other("no main database file").into());
         }
-        let n = self.page_size as usize;
-        let mut page = vec![0u8; n];
-        let offset = i64::from(pgno - 1) * i64::from(self.page_size);
-        // SAFETY: `file` is the live main file and `page` holds `n` bytes.
+        let mut bytes = vec![0; length];
+        // SAFETY: SQLite supplies a live method table; bytes owns length
+        // initialized bytes, and the checked offset fits SQLite's signed API.
         let rc = unsafe {
-            let read = (*(*file).pMethods).xRead.expect("xRead");
-            read(file, page.as_mut_ptr().cast(), n as c_int, offset)
+            let methods = (*file).pMethods;
+            if methods.is_null() {
+                return Err(std::io::Error::other("no main file methods").into());
+            }
+            let read = (*methods)
+                .xRead
+                .ok_or_else(|| std::io::Error::other("no main file read"))?;
+            read(
+                file,
+                bytes.as_mut_ptr().cast(),
+                length as c_int,
+                offset as i64,
+            )
         };
         if rc != ffi::SQLITE_OK {
-            return Err(std::io::Error::other(format!("read page {pgno}: sqlite rc {rc}")).into());
+            return Err(
+                std::io::Error::other(format!("read database range: sqlite rc {rc}")).into(),
+            );
         }
-        Ok(page)
+        Ok(bytes)
     }
 
     // ── Checkpointing ──────────────────────────────────────────────────────
@@ -2262,7 +2377,7 @@ impl Db {
         let db_size = self.db_file_size()?;
         let mut commit = (db_size / self.page_size as i64) as u32;
 
-        let wal = WalImage::whole(self.host.read(&self.wal_path())?);
+        let wal = WalImage::whole(self.read_wal_bytes()?);
         let mut rd = WalReader::new(&wal.bytes).map_err(Error::from)?;
         let (page_map, max_offset, wal_commit) = rd.page_map().map_err(Error::from)?;
         if wal_commit > 0 {

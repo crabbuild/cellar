@@ -12,9 +12,9 @@ use super::storage::LogError;
 use crate::application::consensus::protocol::WireScope;
 use ::raft::prelude::Snapshot;
 use cellar_logic::consensus::{GroupScope, LogIndex, LogPosition, Term};
-use cellar_ltx::apply::{ApplyLimits, ImageState, ImageUpdate, LtxSegment};
+use cellar_ltx::apply::ApplyLimits;
 use cellar_ltx::generation::{GenerationError, GenerationPin, GenerationStore};
-use cellar_ltx::{ltx, TXID};
+use cellar_ltx::{ltx, stream_snapshot};
 use protobuf::Message as _;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -23,6 +23,7 @@ use sha2::{Digest, Sha256};
 pub enum SnapshotError {
     Invalid(&'static str),
     Limit,
+    Physical(stream_snapshot::Error),
     Log(LogError),
     Archive(crate::raft::archive::ArchiveError),
     Images(GenerationError),
@@ -36,6 +37,30 @@ impl std::fmt::Display for SnapshotError {
 }
 
 impl std::error::Error for SnapshotError {}
+
+impl SnapshotError {
+    pub(crate) fn scratch_full(&self) -> bool {
+        matches!(
+            self,
+            Self::Physical(stream_snapshot::Error::ScratchFull)
+                | Self::Images(GenerationError::Snapshot(
+                    stream_snapshot::Error::ScratchFull
+                ))
+        ) || matches!(self, Self::Archive(error) if error.scratch_full())
+    }
+}
+
+impl From<super::archive::ArchiveError> for SnapshotError {
+    fn from(error: super::archive::ArchiveError) -> Self {
+        Self::Archive(error)
+    }
+}
+
+impl From<stream_snapshot::Error> for SnapshotError {
+    fn from(error: stream_snapshot::Error) -> Self {
+        Self::Physical(error)
+    }
+}
 
 impl From<LogError> for SnapshotError {
     fn from(error: LogError) -> Self {
@@ -74,8 +99,9 @@ impl Default for SnapshotLimits {
 
 impl SnapshotLimits {
     pub fn validate(self) -> Result<(), SnapshotError> {
-        if !(512..=256 * 1024 * 1024).contains(&self.max_image_bytes)
-            || !(512..=512 * 1024 * 1024).contains(&self.max_encoded_bytes)
+        if !(512..=stream_snapshot::MAX_IMAGE_BYTES).contains(&self.max_image_bytes)
+            || !(512..=stream_snapshot::MAX_ENCODED_BYTES as usize)
+                .contains(&self.max_encoded_bytes)
             || !(1..=1024 * 1024).contains(&self.max_chunk_bytes)
             || self.max_chunk_bytes > self.max_encoded_bytes
             || ltx::full_snapshot_bound(self.max_image_bytes, 512)
@@ -89,13 +115,14 @@ impl SnapshotLimits {
     pub(crate) fn apply(self) -> ApplyLimits {
         let mut limits = ApplyLimits::default();
         limits.decode.max_image_bytes = self.max_image_bytes;
-        limits.decode.max_encoded_bytes = self.max_encoded_bytes;
-        limits.decode.max_decoded_bytes = self.max_image_bytes;
-        limits.decode.max_pages = self.max_image_bytes.div_ceil(512) as usize;
-        limits.max_total_encoded_bytes = self.max_encoded_bytes;
-        limits.max_total_decoded_bytes = self.max_image_bytes;
-        limits.max_total_pages = limits.decode.max_pages;
         limits
+    }
+
+    fn physical(self) -> stream_snapshot::Limits {
+        stream_snapshot::Limits {
+            max_image_bytes: self.max_image_bytes,
+            max_encoded_bytes: self.max_encoded_bytes as u64,
+        }
     }
 }
 
@@ -220,7 +247,7 @@ impl Descriptor {
 pub struct SnapshotPackage {
     group: GroupLog,
     snapshot: Snapshot,
-    bytes: Vec<u8>,
+    bytes: Option<stream_snapshot::SnapshotFile>,
     pin: Option<GenerationPin>,
     limits: SnapshotLimits,
     membership: super::member_state::GroupMembership,
@@ -252,11 +279,11 @@ impl SnapshotPackage {
             })
             .transpose()?;
         let bytes = match &pin {
-            Some(pin) => encode_image(pin, limits)?,
-            None => Vec::new(),
+            Some(pin) => Some(encode_image(pin, limits)?),
+            None => None,
         };
-        if bytes.len() != descriptor.encoded_length
-            || <[u8; 32]>::from(Sha256::digest(&bytes)) != descriptor.encoded_digest
+        if payload_identity(bytes.as_ref())
+            != (descriptor.encoded_length, descriptor.encoded_digest)
         {
             return Err(SnapshotError::Invalid(
                 "retained checkpoint payload binding",
@@ -318,8 +345,8 @@ impl SnapshotPackage {
             )
         };
         let bytes = match &pin {
-            Some(pin) => encode_image(pin, limits)?,
-            None => Vec::new(),
+            Some(pin) => Some(encode_image(pin, limits)?),
+            None => None,
         };
         let descriptor = Descriptor {
             format: 1,
@@ -331,8 +358,8 @@ impl SnapshotPackage {
             conf,
             membership,
             image: pin.as_ref().map(marker),
-            encoded_length: bytes.len(),
-            encoded_digest: Sha256::digest(&bytes).into(),
+            encoded_length: payload_identity(bytes.as_ref()).0,
+            encoded_digest: payload_identity(bytes.as_ref()).1,
         };
         let snapshot = descriptor.snapshot()?;
         Descriptor::decode(group, schema, &snapshot, limits)?;
@@ -355,15 +382,27 @@ impl SnapshotPackage {
     }
 
     pub fn encoded_length(&self) -> usize {
-        self.bytes.len()
+        payload_identity(self.bytes.as_ref()).0
     }
 
-    pub fn chunk(&self, offset: usize, length: usize) -> Result<&[u8], SnapshotError> {
-        if length == 0 || length > self.limits.max_chunk_bytes {
+    /// Bounded file I/O; call on the owning blocking domain. The returned chunk
+    /// is independent of the full image size and never exceeds the wire bound.
+    pub fn chunk(&self, offset: usize, length: usize) -> Result<Vec<u8>, SnapshotError> {
+        if length == 0
+            || length > self.limits.max_chunk_bytes
+            || offset
+                .checked_add(length)
+                .is_none_or(|n| n > self.encoded_length())
+        {
             return Err(SnapshotError::Limit);
         }
-        let end = offset.checked_add(length).ok_or(SnapshotError::Limit)?;
-        self.bytes.get(offset..end).ok_or(SnapshotError::Limit)
+        let source = self.bytes.as_ref().ok_or(SnapshotError::Limit)?;
+        let mut bytes = Vec::with_capacity(length);
+        while bytes.len() < length {
+            let n = (length - bytes.len()).min(64 * 1024);
+            bytes.extend_from_slice(&source.chunk((offset + bytes.len()) as u64, n)?);
+        }
+        Ok(bytes)
     }
 
     /// Mechanical fixture write with data publication quiesced. A live runtime
@@ -471,8 +510,78 @@ pub struct SnapshotDownload {
     group: GroupLog,
     snapshot: Snapshot,
     descriptor: Descriptor,
-    limits: SnapshotLimits,
-    bytes: Vec<u8>,
+    payload: SnapshotPayload,
+}
+
+/// A download owns anonymous scratch storage from its execution domain. Empty
+/// snapshots carry no body; their descriptor still binds the empty digest.
+struct SnapshotPayload {
+    download: Option<stream_snapshot::Download>,
+    received: usize,
+    length: usize,
+    chunk_bytes: usize,
+}
+
+impl SnapshotPayload {
+    fn new(
+        descriptor: &Descriptor,
+        limits: SnapshotLimits,
+        filesystem: &dyn cellar_ltx::FileSystem,
+        directory: &std::path::Path,
+        scratch: &stream_snapshot::ScratchPool,
+    ) -> Result<Self, SnapshotError> {
+        let download = descriptor
+            .image
+            .as_ref()
+            .map(|image| {
+                stream_snapshot::Download::new_admitted_in(
+                    filesystem,
+                    Some(directory),
+                    stream_snapshot::Metadata {
+                        image: marker_state(image),
+                        encoded_length: descriptor.encoded_length as u64,
+                        encoded_digest: descriptor.encoded_digest,
+                    },
+                    limits.physical(),
+                    scratch,
+                )
+            })
+            .transpose()?;
+        Ok(Self {
+            download,
+            received: 0,
+            length: descriptor.encoded_length,
+            chunk_bytes: limits.max_chunk_bytes,
+        })
+    }
+
+    fn append(&mut self, offset: usize, bytes: &[u8]) -> Result<(), SnapshotError> {
+        if offset != self.received
+            || bytes.is_empty()
+            || bytes.len() > self.chunk_bytes
+            || offset
+                .checked_add(bytes.len())
+                .is_none_or(|n| n > self.length)
+        {
+            return Err(SnapshotError::Limit);
+        }
+        let download = self.download.as_mut().ok_or(SnapshotError::Limit)?;
+        for chunk in bytes.chunks(64 * 1024) {
+            download.append(self.received as u64, chunk)?;
+            self.received += chunk.len();
+        }
+        Ok(())
+    }
+
+    fn finish(self) -> Result<Option<stream_snapshot::SnapshotFile>, SnapshotError> {
+        if self.received != self.length {
+            return Err(SnapshotError::Invalid("short download"));
+        }
+        Ok(self
+            .download
+            .map(stream_snapshot::Download::finish)
+            .transpose()?)
+    }
 }
 
 impl SnapshotDownload {
@@ -492,33 +601,25 @@ impl SnapshotDownload {
         Ok(Self {
             group: group.clone(),
             snapshot,
+            payload: SnapshotPayload::new(
+                &descriptor,
+                limits,
+                group.filesystem.as_ref(),
+                &group.scratch_directory,
+                &group.snapshot_scratch,
+            )?,
             descriptor,
-            limits,
-            bytes: Vec::new(),
         })
     }
 
     pub fn append(&mut self, offset: usize, bytes: &[u8]) -> Result<(), SnapshotError> {
-        if offset != self.bytes.len()
-            || bytes.is_empty()
-            || bytes.len() > self.limits.max_chunk_bytes
-            || offset
-                .checked_add(bytes.len())
-                .is_none_or(|end| end > self.descriptor.encoded_length)
-        {
-            return Err(SnapshotError::Limit);
-        }
-        self.bytes
-            .try_reserve_exact(self.descriptor.encoded_length - self.bytes.len())
-            .map_err(|_| SnapshotError::Limit)?;
-        self.bytes.extend_from_slice(bytes);
-        Ok(())
+        self.payload.append(offset, bytes)
     }
 
     /// Seal on the destination's blocking owner. Exact existing bytes make a
     /// repeated download idempotent; a colliding identity is never overwritten.
     pub fn finish(self, images: &GenerationStore) -> Result<PreparedSnapshot, SnapshotError> {
-        let pin = seal_image(&self.descriptor, &self.bytes, self.limits, images)?;
+        let pin = seal_image(&self.descriptor, self.payload.finish()?, images)?;
         Ok(PreparedSnapshot {
             group: self.group,
             snapshot: self.snapshot,
@@ -659,93 +760,49 @@ pub(crate) fn snapshot_image(
     Ok(descriptor.image)
 }
 
-fn encode_image(pin: &GenerationPin, limits: SnapshotLimits) -> Result<Vec<u8>, SnapshotError> {
-    let state = pin.state();
-    state
-        .validate(&limits.apply())
-        .map_err(|_| SnapshotError::Invalid("source image"))?;
-    if state.txid == TXID(0) || state.length == 0 {
-        return Err(SnapshotError::Invalid("empty source"));
+fn encode_image(
+    pin: &GenerationPin,
+    limits: SnapshotLimits,
+) -> Result<stream_snapshot::SnapshotFile, SnapshotError> {
+    Ok(pin.snapshot(limits.physical())?)
+}
+
+fn payload_identity(bytes: Option<&stream_snapshot::SnapshotFile>) -> (usize, [u8; 32]) {
+    match bytes {
+        Some(bytes) => (
+            bytes.metadata().encoded_length as usize,
+            bytes.metadata().encoded_digest,
+        ),
+        None => (0, Sha256::digest([]).into()),
     }
-    let count = state.length / u64::from(state.page_size);
-    let mut reader = pin.open_reader()?;
-    let mut hash = Sha256::new();
-    let mut pages = Vec::with_capacity(count as usize);
-    for index in 0..count {
-        let page =
-            reader.read_exact_at(index * u64::from(state.page_size), state.page_size as usize)?;
-        hash.update(&page);
-        pages.push((index as u32 + 1, page));
-    }
-    // Images are bounded below SQLite's reserved lock page.
-    if <[u8; 32]>::from(hash.finalize()) != state.digest {
-        return Err(SnapshotError::Invalid("source digest"));
-    }
-    let header = ltx::Header {
-        version: ltx::VERSION,
-        flags: if state.checksum == 0 {
-            ltx::HEADER_FLAG_NO_CHECKSUM
-        } else {
-            0
-        },
-        page_size: state.page_size,
-        commit: count as u32,
-        min_txid: TXID(1),
-        max_txid: state.txid,
-        ..Default::default()
-    };
-    let bytes = ltx::encode_file_v0_5_2(&header, &pages, state.checksum)
-        .map_err(|_| SnapshotError::Invalid("source LTX encoding"))?;
-    if bytes.len() > limits.max_encoded_bytes {
-        return Err(SnapshotError::Limit);
-    }
-    Ok(bytes)
 }
 
 fn seal_image(
     descriptor: &Descriptor,
-    bytes: &[u8],
-    limits: SnapshotLimits,
+    payload: Option<stream_snapshot::SnapshotFile>,
     images: &GenerationStore,
 ) -> Result<Option<GenerationPin>, SnapshotError> {
-    if bytes.len() != descriptor.encoded_length
-        || <[u8; 32]>::from(Sha256::digest(bytes)) != descriptor.encoded_digest
+    if payload_identity(payload.as_ref()) != (descriptor.encoded_length, descriptor.encoded_digest)
     {
         return Err(SnapshotError::Invalid("transfer length/digest"));
     }
     let Some(image) = descriptor.image.as_ref() else {
         return Ok(None);
     };
+    let snapshot = payload.ok_or(SnapshotError::Invalid("missing image payload"))?;
     let state = marker_state(image);
-    let decoded = ltx::decode_file_bounded(bytes, limits.apply().decode)
-        .map_err(|_| SnapshotError::Invalid("physical LTX"))?;
-    if !decoded.header().is_snapshot()
-        || decoded.header().max_txid != state.txid
-        || decoded.header().page_size != state.page_size
-        || u64::from(decoded.header().commit) * u64::from(state.page_size) != state.length
-        || decoded.trailer().post_apply_checksum != state.checksum
-    {
+    if snapshot.metadata().image != state {
         return Err(SnapshotError::Invalid("physical image binding"));
     }
     let id = marker_id(image)?;
     let pin = match images.adopt(id, state) {
-        Ok(pin) => pin,
-        Err(GenerationError::Missing) => images.prepare(
-            id,
-            None,
-            &ImageUpdate {
-                base: ImageState::empty(state.epoch)
-                    .map_err(|_| SnapshotError::Invalid("image epoch"))?,
-                result: state,
-                segments: vec![LtxSegment {
-                    bytes,
-                    min_txid: TXID(1),
-                    max_txid: state.txid,
-                    page_count: decoded.pages().len(),
-                    decoded_bytes: decoded.decoded_bytes(),
-                }],
-            },
-        )?,
+        Ok(pin) => {
+            // A repeated transfer must still prove all of its physical bytes;
+            // an existing name cannot launder a malformed encoded payload.
+            snapshot.verify()?;
+            pin
+        }
+        Err(GenerationError::Missing) => images.prepare_snapshot(id, &snapshot)?,
         Err(error) => return Err(error.into()),
     };
     Ok(Some(pin))

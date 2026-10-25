@@ -42,6 +42,7 @@ pub(crate) struct CellStorage {
     pub services: ReadServices,
     pub images: GenerationLimits,
     pub execution: ExecutionLimits,
+    pub snapshot_scratch: cellar_ltx::stream_snapshot::ScratchPool,
 }
 
 #[derive(Clone)]
@@ -613,11 +614,12 @@ impl Pool {
             if cells.contains_key(scope) || cells.len() >= max || received.scope() != scope {
                 return Err(ExecutionError::Invalid("seed cell owner"));
             }
-            let images = GenerationStore::open_observed(
+            let images = GenerationStore::open_with_scratch(
                 storage.directory.join("images"),
                 storage.host.filesystem(),
                 storage.images,
-                accounting,
+                Some(accounting),
+                storage.snapshot_scratch,
             )
             .map_err(super::execution::storage)?;
             // Caller verified an absent stable group and absent permanent claim.
@@ -635,11 +637,12 @@ impl Pool {
             if cells.contains_key(scope) || cells.len() >= max || received.scope() != scope {
                 return Err(ExecutionError::Invalid("seed cell owner"));
             }
-            let images = GenerationStore::open_observed(
+            let images = GenerationStore::open_with_scratch(
                 storage.directory.join("images"),
                 storage.host.filesystem(),
                 storage.images,
-                accounting,
+                Some(accounting),
+                storage.snapshot_scratch,
             )
             .map_err(super::execution::storage)?;
             // Caller verified an absent stable group and absent permanent claim.
@@ -662,11 +665,12 @@ impl Pool {
             if cells.contains_key(scope) || cells.len() >= max || group.identity().scope != *scope {
                 return Err(ExecutionError::Invalid("cell initialization"));
             }
-            let images = GenerationStore::open_observed(
+            let images = GenerationStore::open_with_scratch(
                 storage.directory.join("images"),
                 storage.host.filesystem(),
                 storage.images,
-                accounting,
+                Some(accounting),
+                storage.snapshot_scratch,
             )
             .map_err(super::execution::storage)?;
             let applier = ImageApplier::recover(

@@ -73,8 +73,10 @@ decoder verifies file integrity, physical index coverage, page identities,
 snapshot completeness and compressed-frame bounds before retaining page data.
 Apply checks transaction ranges, declared page/byte counts, growth coverage and
 truncation against the resulting SQLite header and full image digest. Published
-images are never patched in place. This first materialized implementation uses
-a full verified copy; it does not require filesystem reflinks.
+images are never patched in place. Supported filesystems use an exclusively
+created copy-on-write clone; other providers use bounded copying. Both paths
+independently inspect the destination before it can be used. Hard links are not
+allowed, and a clone never replaces verification or publication barriers.
 
 `GenerationStore::prepare_chain` replays several exact updates into one private
 image. It verifies every intermediate image's digest, SQLite geometry and optional
@@ -84,6 +86,37 @@ disk admission reserves twice the largest intermediate image, including growth
 that is later truncated. No intermediate pin is exposed. Archive recovery uses
 `limits()` to partition longer histories within the destination's captured limits,
 retiring each previous batch only after its successor is sealed.
+
+`stream_snapshot` encodes and verifies full v0.5.2 images using anonymous files,
+64 KiB I/O buffers and a disk-spooled page index. Logical image quotas extend to
+decimal 10 GB independently of command-delta decode budgets. Offsets stay `u64`;
+the reserved SQLite lock page is omitted from LTX and represented by canonical
+zeros in the full physical image digest. `Download` owns ordered scratch writes
+and refuses reuse after an uncertain append. A complete transport digest alone
+does not establish physical validity or a durable generation.
+
+`GenerationStore::prepare_snapshot_chain` decodes this file-backed source and
+applies its bounded tail in one private destination. It independently re-reads
+the written image, checks every intermediate result and shares ordinary image
+reservation, cleanup and publication barriers. File-backed snapshot callers do
+not raise command `max_decoded_bytes`, `max_pages` or encoded-envelope bounds to
+the full image quota. All synchronous work belongs to the owning blocking domain.
+Native transfer and archive receive spools use the configured replica volume;
+generation snapshot sources use a separate sibling scratch directory outside
+the generation inventory. Anonymous handles retain their storage through
+blocking work and cancellation. `ScratchPool` supplies shared byte/file admission:
+encoders reserve a complete body/index bound before file creation and receivers
+reserve the declared complete file. Charges survive cloning, failed appends and
+cancellation until the last physical file owner closes. Generation stores opened
+with `open_with_scratch` and archive/receive callers can share the same pool.
+Standalone generation stores use a separate default 2 GiB snapshot scratch pool;
+configure a shared larger pool explicitly for larger standalone snapshots.
+
+`Db::committed_image_digest` independently observes the committed main-file/WAL
+overlay without SQLite serialization. Writers must remain exclusively quiescent
+during that scan. Main-file reads use SQLite's VFS, including demand-loaded
+images; complete WAL transactions supply the page overlay. This still scans the
+full image and is not an incremental identity or fast-takeover qualification.
 
 Image preparation also removes up to eight eligible retired files before its
 final directory sync, sharing that barrier with the new image's creation. Selected

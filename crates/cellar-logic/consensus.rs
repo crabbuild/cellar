@@ -324,18 +324,29 @@ impl CommandId {
 /// its identity in Ambiguous; callers must reconcile instead of minting a new ID.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CommandFailure {
-    NotLeader { leader: Option<MemberId> },
+    NotLeader {
+        leader: Option<MemberId>,
+    },
     Unavailable,
     Overloaded,
-    Ambiguous { command: CommandId },
+    /// SQLite refused private execution for lack of storage. No proposal was
+    /// submitted; free capacity before retrying this command identity.
+    StorageFull,
+    Ambiguous {
+        command: CommandId,
+    },
     CommandConflict,
-    SequenceGap { next: u64 },
+    SequenceGap {
+        next: u64,
+    },
     CommandExpired,
     VersionUnavailable,
     WrongIncarnation,
     UnsupportedCapability,
     UnsupportedConsistency,
-    ArchiveUnavailable { command: CommandId },
+    ArchiveUnavailable {
+        command: CommandId,
+    },
     CorruptState,
 }
 

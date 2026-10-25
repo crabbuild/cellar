@@ -125,6 +125,19 @@ pub trait FileSystem: Send + Sync {
         ))
     }
 
+    /// Try to exclusively create an independent writable COW clone. Shared
+    /// physical blocks must split on writes; hard links are never permitted.
+    /// `None` requests the caller's bounded copy fallback. That fallback must
+    /// still use exclusive creation, since an error may leave an uncertain name.
+    /// Success is data material only: callers independently verify and sync it.
+    fn clone_read_write(
+        &self,
+        _source: &Path,
+        _destination: &Path,
+    ) -> io::Result<Option<HostFile>> {
+        Ok(None)
+    }
+
     fn lock_file(&self, _path: &Path) -> io::Result<HostFileLock> {
         Err(io::Error::new(
             io::ErrorKind::Unsupported,
@@ -319,6 +332,131 @@ impl HostFileIo for DirectFile {
     }
 }
 
+// Optional native COW creation. Unsupported filesystems retain the bounded
+// copy path. The publisher independently verifies and syncs the output.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[allow(clippy::disallowed_methods)]
+fn clone_source_file(path: &Path) -> io::Result<std::fs::File> {
+    use std::os::unix::fs::OpenOptionsExt as _;
+    // Do not follow a leaf symlink or block while opening a non-regular inode.
+    // Managed directories may themselves live under an ordinary volume symlink.
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(path)?;
+    if !file.metadata()?.is_file() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "clone source is not a regular file",
+        ));
+    }
+    Ok(file)
+}
+
+#[cfg(target_os = "macos")]
+#[allow(clippy::disallowed_methods)]
+fn clone_read_write_direct(source: &Path, destination: &Path) -> io::Result<Option<HostFile>> {
+    use std::os::unix::fs::PermissionsExt as _;
+    use std::{
+        ffi::CString,
+        os::{
+            fd::AsRawFd as _,
+            unix::{ffi::OsStrExt as _, fs::OpenOptionsExt as _},
+        },
+    };
+    let source = clone_source_file(source)?;
+    let destination_c = CString::new(destination.as_os_str().as_bytes()).map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "clone destination contains NUL",
+        )
+    })?;
+    // SAFETY: source owns a live readable regular-file descriptor; the C path
+    // is NUL-terminated and lives through this synchronous call. Darwin creates
+    // the destination exclusively and atomically, with independent writable
+    // metadata/data semantics. See Apple's clonefile(2) manual in xnu/bsd/man.
+    let result = unsafe {
+        libc::fclonefileat(
+            source.as_raw_fd(),
+            libc::AT_FDCWD,
+            destination_c.as_ptr(),
+            0,
+        )
+    };
+    if result != 0 {
+        let error = io::Error::last_os_error();
+        return match error.raw_os_error() {
+            Some(libc::ENOTSUP | libc::EXDEV | libc::ENOSYS) => Ok(None),
+            _ => Err(error),
+        };
+    }
+    // A failed open after creation remains an uncertain owned name to the
+    // publisher. It must keep its reservation and quarantine, never overwrite.
+    // A read-only template may carry a read-only mode. Its independent clone
+    // gets private owner access before opening the writable handle; source
+    // permissions and bytes remain untouched.
+    let mode_handle = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW)
+        .open(destination)?;
+    mode_handle.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+    drop(mode_handle);
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .custom_flags(libc::O_NOFOLLOW)
+        .open(destination)?;
+    Ok(Some(HostFile::from_io(DirectFile { file })))
+}
+
+#[cfg(target_os = "linux")]
+#[allow(clippy::disallowed_methods)]
+fn clone_read_write_direct(source: &Path, destination: &Path) -> io::Result<Option<HostFile>> {
+    use std::os::fd::AsRawFd as _;
+    let source = clone_source_file(source)?;
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create_new(true)
+        .open(destination)?;
+    // SAFETY: both descriptors are live regular files, and the destination was
+    // just created exclusively for this operation. FICLONE receives an integer
+    // source descriptor, not a pointer. The kernel supplies COW isolation.
+    // https://man7.org/linux/man-pages/man2/FICLONE.2const.html
+    let result = unsafe { libc::ioctl(file.as_raw_fd(), libc::FICLONE, source.as_raw_fd()) };
+    if result == 0 {
+        return Ok(Some(HostFile::from_io(DirectFile { file })));
+    }
+    let error = io::Error::last_os_error();
+    match error.raw_os_error() {
+        Some(
+            libc::EOPNOTSUPP
+            | libc::ENOTTY
+            | libc::EXDEV
+            | libc::EINVAL
+            | libc::ENOSYS
+            | libc::EBADF,
+        ) => {
+            drop(file);
+            // This exact exclusive-create handle established ownership. Refund
+            // the transient name only after its removal and directory barrier.
+            std::fs::remove_file(destination)?;
+            let parent = destination
+                .parent()
+                .filter(|p| !p.as_os_str().is_empty())
+                .unwrap_or(Path::new("."));
+            std::fs::File::open(parent)?.sync_all()?;
+            Ok(None)
+        }
+        _ => Err(error),
+    }
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+fn clone_read_write_direct(_source: &Path, _destination: &Path) -> io::Result<Option<HostFile>> {
+    Ok(None)
+}
+
 #[allow(clippy::disallowed_methods)]
 impl FileSystem for DirectFileSystem {
     fn create_read_write(&self, path: &Path) -> io::Result<HostFile> {
@@ -329,6 +467,10 @@ impl FileSystem for DirectFileSystem {
                 .create_new(true)
                 .open(path)?,
         }))
+    }
+
+    fn clone_read_write(&self, source: &Path, destination: &Path) -> io::Result<Option<HostFile>> {
+        clone_read_write_direct(source, destination)
     }
 
     fn open_read_write(&self, path: &Path) -> io::Result<HostFile> {

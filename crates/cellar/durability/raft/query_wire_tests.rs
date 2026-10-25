@@ -324,6 +324,7 @@ fn query_wire_failures_remain_typed() {
         CommandFailure::UnsupportedConsistency,
         CommandFailure::Overloaded,
         CommandFailure::CorruptState,
+        CommandFailure::StorageFull,
         CommandFailure::Unavailable,
     ] {
         let bytes = encode_result(&Err(failure.clone()), 4096).unwrap();

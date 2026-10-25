@@ -29,8 +29,12 @@ fn config() -> RaftCellsConfig {
 
 #[test]
 fn materialized_profiles_cover_worst_case_physical_snapshots() {
-    for mib in [64, 128, 256] {
-        let bytes = mib * 1024 * 1024;
+    for bytes in [
+        64 * 1024 * 1024,
+        128 * 1024 * 1024,
+        256 * 1024 * 1024,
+        10_000_000_000,
+    ] {
         let config = config().with_materialized_image_limit(bytes).unwrap();
         config.host.validate().unwrap();
         let transport = &config.infrastructure.transport;
@@ -38,7 +42,10 @@ fn materialized_profiles_cover_worst_case_physical_snapshots() {
         snapshot.apply().validate().unwrap();
         let physical = cellar_ltx::ltx::full_snapshot_bound(bytes, 512).unwrap();
         assert!(snapshot.max_encoded_bytes >= physical);
-        assert!(config.host.archive.limits.max_object_bytes >= physical);
+        assert!(config.host.archive.limits.max_snapshot_bytes >= physical as u64);
+        assert!(config.infrastructure.log.snapshot_scratch.max_bytes >= 4 * physical as u64);
+        assert!(config.host.images.apply.decode.max_decoded_bytes <= 64 * 1024 * 1024);
+        assert!(config.host.archive.limits.max_object_bytes <= 128 * 1024 * 1024);
         assert!(config.host.images.max_bytes >= 8 * bytes);
         assert!(
             transport.max_seed_recovery_bytes
@@ -54,7 +61,7 @@ fn materialized_profile_refuses_unbounded_or_unaligned_images() {
         0,
         4095,
         64 * 1024 * 1024 + 1,
-        256 * 1024 * 1024 + 4096,
+        10_000_000_000 + 512,
         u64::MAX,
     ] {
         assert!(config().with_materialized_image_limit(bytes).is_err());
@@ -65,19 +72,19 @@ fn materialized_profile_refuses_unbounded_or_unaligned_images() {
 }
 
 #[test]
-fn snapshot_reservation_cannot_admit_a_larger_logical_image() {
+fn snapshot_image_quota_is_independent_of_bounded_transfer_memory() {
     let mut transport = TransportOptions {
         max_snapshot_bytes: 512 * 1024 * 1024,
         ..Default::default()
     };
-    // A large encoded allowance alone does not reserve decoded working memory.
+    // A large encoded allowance alone does not authorize a larger logical image.
     transport.validate().unwrap();
     assert!(transport.snapshot_limits(128 * 1024 * 1024).is_err());
     let before = crate::raft::transport::snapshots::memory_bound(&transport);
     transport.max_snapshot_image_bytes = 128 * 1024 * 1024;
     assert!(transport.snapshot_limits(128 * 1024 * 1024).is_ok());
     assert_eq!(
-        crate::raft::transport::snapshots::memory_bound(&transport) - before,
-        4 * 64 * 1024 * 1024
+        crate::raft::transport::snapshots::memory_bound(&transport),
+        before
     );
 }

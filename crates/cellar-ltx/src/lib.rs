@@ -35,6 +35,7 @@ pub mod paged_vfs;
 pub mod replica;
 pub mod replica_compactor;
 pub mod replica_url;
+pub mod stream_snapshot;
 pub mod system_schema;
 pub mod wal;
 

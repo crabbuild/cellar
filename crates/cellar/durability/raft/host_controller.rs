@@ -72,7 +72,7 @@ impl RaftControllerOptions {
             (10..=60_000).contains(&self.interval_ms)
                 && (1..=60_000).contains(&self.probe_timeout_ms)
                 && (1..=60_000).contains(&self.operation_timeout_ms)
-                && (1..=300_000).contains(&self.seed_timeout_ms)
+                && (1..=3_600_000).contains(&self.seed_timeout_ms)
                 && (self.interval_ms..=3_600_000).contains(&self.unavailable_after_ms)
                 && (self.seed_timeout_ms..=3_600_000).contains(&self.learner_timeout_ms)
                 && (4..=32).contains(&self.probes_per_group)

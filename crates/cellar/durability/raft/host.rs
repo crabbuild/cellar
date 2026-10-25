@@ -197,9 +197,7 @@ impl RaftHostOptions {
             cellar_ltx::ltx::full_snapshot_bound(self.execution.max_image_bytes, 512)
                 .ok_or_else(|| anyhow::anyhow!("snapshot encoded bound overflow"))?;
         anyhow::ensure!(
-            apply.decode.max_encoded_bytes >= snapshot_bound
-                && apply.max_total_encoded_bytes >= snapshot_bound
-                && self.archive.limits.max_object_bytes >= snapshot_bound
+            self.archive.limits.max_snapshot_bytes >= snapshot_bound as u64
                 && self.archive.limits.max_image_bytes >= self.execution.max_image_bytes,
             "snapshot image and archive admission must cover full-LTX encoding overhead"
         );
@@ -459,6 +457,7 @@ async fn initialize(
                 host: ltx_host(),
                 services: read_services(),
                 images: options.images,
+                snapshot_scratch: service.log.snapshot_scratch(),
                 execution: options.execution,
             };
             if placement == RaftCellPlacement::Standby {
@@ -661,11 +660,14 @@ async fn initialize(
                                 .transport
                                 .snapshot_limits(options.execution.max_image_bytes)?;
                             let action = if from_s3 {
-                                let archive = namespace.cell_archive(
-                                    &birth,
-                                    storage.host.clone(),
-                                    options.archive.limits,
-                                )?;
+                                let archive = namespace
+                                    .cell_archive(
+                                        &birth,
+                                        storage.host.clone(),
+                                        options.archive.limits,
+                                    )?
+                                    .with_scratch_directory(service.log.limits().directory.clone())
+                                    .with_snapshot_scratch(service.log.snapshot_scratch());
                                 let received = service
                                     .transport
                                     .seed_from_archive(
@@ -754,7 +756,10 @@ async fn initialize(
                 Cell::recovered(
                     group,
                     birth.clone(),
-                    namespace.cell_archive(&birth, ltx_host(), options.archive.limits)?,
+                    namespace
+                        .cell_archive(&birth, ltx_host(), options.archive.limits)?
+                        .with_scratch_directory(service.log.limits().directory.clone())
+                        .with_snapshot_scratch(service.log.snapshot_scratch()),
                     image,
                     worker,
                     namespace.minimum_durability(),
@@ -772,6 +777,7 @@ async fn initialize(
                 ImageId::new(nonce)?,
                 options.images.apply,
                 pool.image_accounting(),
+                service.log.snapshot_scratch(),
             )
             .await?;
             for cell in cells.values_mut() {

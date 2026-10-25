@@ -1127,6 +1127,88 @@ async fn archive_large_image_keeps_short_efficient_tails() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn archive_snapshot_parts_verify_every_object_and_preserve_exact_head() -> Result<()> {
+    let mut fixture = Fixture::new(ArchiveLimits {
+        max_capture_bytes: 16 * 1024 * 1024,
+        ..Default::default()
+    })
+    .await?;
+    let next = images::image(
+        None,
+        "CREATE TABLE counter(value INTEGER);INSERT INTO counter VALUES(7);\
+         CREATE TABLE padding(bytes BLOB);INSERT INTO padding VALUES(randomblob(9437184))",
+    )?;
+    let cut = fixture.commit_bytes(next, vec![], |_| {}).await?;
+    fixture.store.fail_after.store(true, Ordering::Release);
+    let set = fixture.publish(cut.clone()).await?;
+    ensure!(!fixture.store.fail_after.load(Ordering::Acquire));
+    let reference = set.reference();
+    let parts = fixture
+        .store
+        .inner
+        .list(None)
+        .try_collect::<Vec<_>>()
+        .await?
+        .into_iter()
+        .filter(|object| object.location.as_ref().contains("/snapshot-parts/"))
+        .collect::<Vec<_>>();
+    ensure!(
+        parts.len() >= 3,
+        "the fixture must exercise multiple incompressible parts"
+    );
+    ensure!(parts.iter().all(|part| part.size <= 4 * 1024 * 1024));
+    ensure!(restored(&set, 7)? == fixture.bytes);
+    for (mode, part) in parts.iter().take(3).enumerate() {
+        let original = fixture
+            .store
+            .inner
+            .get(&part.location)
+            .await?
+            .bytes()
+            .await?;
+        match mode {
+            0 => fixture.store.inner.delete(&part.location).await?,
+            1 => {
+                let mut corrupt = original.to_vec();
+                let at = corrupt.len() / 2;
+                corrupt[at] ^= 1;
+                fixture
+                    .store
+                    .inner
+                    .put(&part.location, corrupt.into())
+                    .await?;
+            }
+            _ => {
+                fixture
+                    .store
+                    .inner
+                    .put(&part.location, original.slice(..original.len() - 1).into())
+                    .await?;
+            }
+        }
+        ensure!(fixture.archive.recovery_set_at(&reference).await.is_err());
+        ensure!(fixture.publish(cut.clone()).await.is_err());
+        ensure!(
+            fixture
+                .archive
+                .recovery_metadata()
+                .await?
+                .context("exact head")?
+                .reference()
+                == reference
+        );
+        fixture
+            .store
+            .inner
+            .put(&part.location, original.into())
+            .await?;
+    }
+    let recovered = fixture.archive.recovery_set_at(&reference).await?;
+    ensure!(restored(&recovered, 7)? == fixture.bytes);
+    fixture.close().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn archive_tail_limit_establishes_new_snapshot() -> Result<()> {
     let mut fixture = Fixture::new(ArchiveLimits {
         max_tails: 1,

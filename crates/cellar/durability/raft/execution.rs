@@ -61,7 +61,7 @@ impl ExecutionLimits {
         if let Some(maintenance) = self.receipt_maintenance {
             maintenance.validate()?;
         }
-        if !(4096..=256 * 1024 * 1024).contains(&self.max_image_bytes)
+        if !(4096..=cellar_ltx::stream_snapshot::MAX_IMAGE_BYTES).contains(&self.max_image_bytes)
             || !(1..=1024 * 1024).contains(&self.max_result_bytes)
             || !(1..=65_536).contains(&self.max_client_identities)
             || !(1..=65_536).contains(&self.max_retained_receipts)
@@ -1003,8 +1003,19 @@ pub(super) fn storage(error: impl Into<anyhow::Error>) -> ExecutionError {
     let error = error.into();
     if matches!(
         error.downcast_ref::<cellar_ltx::generation::GenerationError>(),
-        Some(cellar_ltx::generation::GenerationError::Limit)
-    ) {
+        Some(
+            cellar_ltx::generation::GenerationError::Limit
+                | cellar_ltx::generation::GenerationError::Snapshot(
+                    cellar_ltx::stream_snapshot::Error::ScratchFull
+                )
+        )
+    ) || error
+        .downcast_ref::<super::snapshot::SnapshotError>()
+        .is_some_and(|e| e.scratch_full())
+        || error
+            .downcast_ref::<super::archive::ArchiveError>()
+            .is_some_and(|e| e.scratch_full())
+    {
         ExecutionError::Refused(CommandFailure::Overloaded)
     } else {
         ExecutionError::Storage(error)
@@ -1012,6 +1023,16 @@ pub(super) fn storage(error: impl Into<anyhow::Error>) -> ExecutionError {
 }
 
 fn transaction_failure(error: anyhow::Error) -> ExecutionError {
+    // This is still private execution: no proposal or output proof exists.
+    // Preserve rebuild_required even for SQLITE_FULL. SQLite may have rolled
+    // back automatically, and an error does not prove the connection reusable.
+    if matches!(
+        error.downcast_ref::<rusqlite::Error>(),
+        Some(rusqlite::Error::SqliteFailure(failure, _))
+            if failure.code == rusqlite::ErrorCode::DiskFull
+    ) {
+        return ExecutionError::Refused(CommandFailure::StorageFull);
+    }
     match error.downcast::<ExecutionError>() {
         Ok(error) => error,
         Err(error) => match error.downcast::<CommandFailure>() {

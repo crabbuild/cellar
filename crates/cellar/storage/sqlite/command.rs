@@ -4,8 +4,7 @@
 
 use anyhow::{ensure, Context as _, Result};
 use rusqlite::hooks::{AuthAction, AuthContext, Authorization};
-use rusqlite::{ffi, Connection, DatabaseName, OpenFlags, Params, Row};
-use sha2::{Digest, Sha256};
+use rusqlite::{ffi, Connection, OpenFlags, Params, Row};
 use std::path::Path;
 
 /// Host-captured inputs for one command. Followers apply bytes, never rerun it.
@@ -138,7 +137,7 @@ impl CommandDatabase {
         result
     }
 
-    pub(crate) fn digest(&self, max_image_bytes: u64) -> Result<([u8; 32], u64, u32)> {
+    pub(crate) fn geometry(&self, max_image_bytes: u64) -> Result<(u64, u32)> {
         ensure!(
             self.connection.is_autocommit(),
             "cannot freeze an active command transaction"
@@ -156,12 +155,7 @@ impl CommandDatabase {
             length > 0 && length <= max_image_bytes,
             "private image exceeds its bound"
         );
-        let image = self.connection.serialize(DatabaseName::Main)?;
-        ensure!(
-            image.len() as u64 == length,
-            "frozen SQLite image length changed"
-        );
-        Ok((Sha256::digest(&*image).into(), length, size))
+        Ok((length, size))
     }
 }
 

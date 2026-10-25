@@ -151,6 +151,7 @@ pub(super) fn encode_result(
             CommandFailure::UnsupportedConsistency => 4,
             CommandFailure::Overloaded => 5,
             CommandFailure::CorruptState => 6,
+            CommandFailure::StorageFull => 8,
             _ => 7,
         }),
     }
@@ -198,6 +199,7 @@ pub(super) fn decode_result(
         5 => Err(CommandFailure::Overloaded),
         6 => Err(CommandFailure::CorruptState),
         7 => Err(CommandFailure::Unavailable),
+        8 => Err(CommandFailure::StorageFull),
         _ => return Err(TransportError::Protocol),
     };
     if !body.0.is_empty() {

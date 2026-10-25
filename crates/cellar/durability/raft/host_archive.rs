@@ -58,7 +58,7 @@ impl RaftArchiveOptions {
         anyhow::ensure!(
             (1..=super::archive::bundle::MAX_GROUPS).contains(&self.max_batch_groups)
                 && (1..=60_000).contains(&self.retry_ms)
-                && (4096..=16 * 1024 * 1024 * 1024).contains(&self.max_unarchived_bytes)
+                && (4096..=256 * 1024 * 1024 * 1024).contains(&self.max_unarchived_bytes)
                 && (1..=65_536).contains(&self.max_unarchived_entries),
             "invalid archive admission limits"
         );
@@ -170,6 +170,7 @@ impl Owner {
         nonce: ImageId,
         mut apply: cellar_ltx::apply::ApplyLimits,
         accounting: cellar_ltx::generation::GenerationAccounting,
+        snapshot_scratch: cellar_ltx::stream_snapshot::ScratchPool,
     ) -> anyhow::Result<Self> {
         let filesystem = host.filesystem();
         let verifier = host
@@ -181,9 +182,14 @@ impl Owner {
                     max_generations: 4,
                     max_bytes: (512 * 1024 * 1024).max(4 * apply.decode.max_image_bytes),
                 };
-                let images =
-                    GenerationStore::open_observed(directory, filesystem, limits, &accounting)
-                        .map_err(ArchiveError::Images)?;
+                let images = GenerationStore::open_with_scratch(
+                    directory,
+                    filesystem,
+                    limits,
+                    Some(&accounting),
+                    snapshot_scratch,
+                )
+                .map_err(ArchiveError::Images)?;
                 // This directory contains verification copies only, never an
                 // engine marker or the only acknowledged application image.
                 images.retain_only(&[]).map_err(ArchiveError::Images)?;

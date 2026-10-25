@@ -6,6 +6,8 @@
 #[path = "support/raft_cluster.rs"]
 #[allow(dead_code)]
 mod cluster;
+#[path = "support/raft_full_capacity.rs"]
+mod full_capacity;
 #[path = "support/raft_node.rs"]
 #[allow(dead_code)]
 mod public_node;

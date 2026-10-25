@@ -220,6 +220,13 @@ impl HostFileIo for FaultFile {
 }
 
 impl FileSystem for FaultFileSystem {
+    fn temporary_file(&self, directory: Option<&Path>) -> io::Result<HostFile> {
+        Ok(self.wrap(
+            Path::new("snapshot.scratch"),
+            DirectFileSystem.temporary_file(directory)?,
+        ))
+    }
+
     fn read(&self, path: &Path) -> io::Result<Vec<u8>> {
         DirectFileSystem.read(path)
     }

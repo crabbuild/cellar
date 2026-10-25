@@ -1615,7 +1615,7 @@ async fn submitted_command_recovery() -> Result<()> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn command_failure_and_result_limit_roll_back() -> Result<()> {
-    for mode in 0..3 {
+    for mode in 0..4 {
         let root = tempfile::tempdir()?;
         let mut host = Host::open(root.path(), false).await?;
         host.elect().await?;
@@ -1629,6 +1629,15 @@ async fn command_failure_and_result_limit_roll_back() -> Result<()> {
             match mode {
                 0 => bail!("callback failed"),
                 1 => panic!("callback panicked"),
+                3 => {
+                    transaction.execute("CREATE TABLE quota(value BLOB)", [])?;
+                    // Each value stays within ordinary SQL limits. Total
+                    // growth must hit SQLite's independently configured quota.
+                    for _ in 0..128 {
+                        transaction.execute("INSERT INTO quota VALUES(zeroblob(1048576))", [])?;
+                    }
+                    bail!("growth unexpectedly passed the image quota")
+                }
                 _ => Ok(vec![0; 64 * 1024 + 1]),
             }
         });
@@ -1636,6 +1645,11 @@ async fn command_failure_and_result_limit_roll_back() -> Result<()> {
             assert!(matches!(
                 result,
                 Err(ExecutionError::Refused(CommandFailure::Overloaded))
+            ));
+        } else if mode == 3 {
+            assert!(matches!(
+                result,
+                Err(ExecutionError::Refused(CommandFailure::StorageFull))
             ));
         } else {
             assert!(result.is_err());

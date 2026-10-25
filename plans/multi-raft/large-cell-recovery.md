@@ -6,13 +6,22 @@
 
 The current Raft storage path materializes a complete SQLite image for every
 published generation. The opt-in `RaftCellsConfig::with_materialized_image_limit`
-profile supports logical images up to 256 MiB. Its default remains 64 MiB. It
-coordinates execution, bounded decoding, physical snapshots, archive objects and
-sets, transfer memory, archive verification scratch space, retained generations
-and unarchived admission. It does not change the replicated command size limit.
+profile now accepts logical quotas up to 10,000,000,000 bytes; its default remains
+64 MiB. Full snapshots use bounded file-backed v0.5.2 encoding and transfer.
+Archives reference an authenticated index and immutable 4 MiB parts, with bounded
+read overlap and disk-backed assembly. Small snapshots inline their encoded
+bytes in the index. This is an internal format-1 hard cutover, not a legacy-reader
+or migration path. The profile does not raise replicated command/delta buffers.
+The native host shares node-wide anonymous snapshot scratch admission across
+producers, archive downloads and peer/S3 learner recovery. Its independent
+`infrastructure.log.snapshot_scratch` byte/file bounds retain reservations until
+the last physical owner closes. The large-image profile configures a conservative
+four-body scratch floor; overload refuses work before creating a partial file.
+See the [active implementation and qualification record](10gb-implementation.md).
 
-This is a bounded extension of the existing implementation, not a 10 GB capacity
-or recovery-time qualification. The owning test is
+The implementation is not yet a complete native 10 GB capacity or recovery-time
+qualification. Full-image hashing and portable materialized copies still limit takeover
+and cold restoration. The owning test is
 [`native_raft_large_images`](../../crates/cellar/tests/native_raft_large_images.rs):
 a real SQLite database grows past 64 MiB, survives leader removal and duplicate
 retry, seeds an empty learner from a peer or object-store archive, receives further
@@ -44,6 +53,35 @@ bucket keys. Use a checkout-specific writable target directory as required by
 Both warm takeover and empty-worker recovery must be implemented and measured
 before claiming the larger target described below.
 
+The full-capacity fixture is in
+[`raft_full_capacity`](../../crates/cellar/tests/support/raft_full_capacity.rs).
+It installs an identical verified initial template on three permanently claimed
+replicas before starting their runtimes. Subsequent SDK commands, quorum apply,
+receipts and learner recovery use the native paths and ordinary delta bounds.
+Its small ordinary tests exercise quota refusal, cleanup, takeover, peer/S3 seed
+and restart. Full-size tests remain ignored and require explicit infrastructure.
+
+For a full-size drill, additionally set `CELLAR_LARGE_IMAGE_WORKDIR` to a writable
+worker volume with ample space for full source, receive and verification spools.
+An optional `CELLAR_LARGE_IMAGE_SECONDARY_WORKDIR` places alternating simulated
+workers on a second volume; record that layout with the results. Without
+`CELLAR_LARGE_IMAGE_FIXTURE`, the drill creates its own quota-filled SQLite
+template using 1 MiB deterministic incompressible values. A reusable fixture
+must contain `items(id INTEGER PRIMARY KEY,value BLOB)` and
+`quota_tail(value BLOB)` at the exact page-rounded quota. Input fixtures are
+cloned or copied and never mutated.
+
+```sh
+cargo test --locked --release -p cellar --test native_raft_large_images full_capacity::decimal_ten_gb_rustfs_restores_native_serving_after_owner_and_local_state_loss -- --ignored --exact --nocapture --test-threads=1
+cargo test --locked --release -p cellar --test native_raft_large_images full_capacity::decimal_ten_gb_peer_restores_native_serving_after_owner_and_local_state_loss -- --ignored --exact --nocapture --test-threads=1
+```
+
+These runs use separate random `full-capacity-qualification/` bucket prefixes,
+preserve their objects for inspection, and report stage times. Both use the real
+S3 store for background archives; an in-process store would retain large object
+payloads in memory. They currently stop the owner service and restart workers;
+full-size abrupt process/power-loss qualification remains separate.
+
 ## Cloudflare storage parity target
 
 Use **10 GB (10,000,000,000 bytes) of logical SQLite storage per cell** as the
@@ -66,8 +104,8 @@ reads, cleanup and retry reconciliation at capacity, without bypassing receipt,
 quorum or publication proofs. Test cleanup and reuse of freed pages at the quota
 boundary; deletion need not shrink the SQLite file immediately.
 
-The present 256 MiB materialized ceiling remains an implementation limit until
-the larger storage path is implemented and qualified. A 4 GiB image is an
+The previous 256 MiB configured ceiling has been replaced by the decimal 10 GB
+quota and bounded physical codec; complete runtime qualification is still open. A 4 GiB image is an
 intermediate qualification size, not the final product ceiling. A 10 GiB engine
 stress case exceeds the decimal product quota and must not silently redefine it.
 
@@ -75,7 +113,7 @@ stress case exceeds the decimal product quota and must not silently redefine it.
 
 | Boundary | Existing behavior | Required large-image behavior |
 | --- | --- | --- |
-| Existing voter takes over | It already owns committed, sealed images. Quorum and election still gate writes. Opening its private writer copies and hashes the full base. | Keep a ready immutable root and a private copy-on-write writer. Catch up only missing committed changes. First write must not scan the whole image. |
+| Existing voter takes over | It already owns committed, sealed images. Quorum and election still gate writes. Private writers use COW where supported and bounded copies elsewhere, with a full verification scan. | Keep a ready immutable root and a private copy-on-write writer. Catch up only missing committed changes. First write must not scan the whole image. |
 | Empty authorized learner | Obtain an exact live-peer seed grant; restore its physical snapshot and necessary archive tail; seal and sync before durable Raft installation. | Fetch a bounded manifest and hot extents first; fetch and verify remaining immutable extents on demand with bounded background hydration. Preserve the same seed and installation proof boundaries. |
 | Planned maintenance | Admit and catch up a replacement, promote it, transfer leadership and drain the old node. A blank standby has no image. | Prewarm and prove applied position before handoff. Enforce a lag and capacity threshold; refuse a handoff that would destroy the remaining quorum. |
 | New empty cell | Initialize a small SQLite image. | Keep initialization independent of maximum configured cell capacity. |
@@ -88,16 +126,17 @@ voting quorum or a synchronized local image.
 
 ## Why removing the numerical checks is insufficient
 
-Execution rebuilds a private base and computes full-image SHA-256. Immutable apply
-copies, checksums and hashes the base/result. Snapshot encoding and decoding retain
-full page collections; transfer assembly retains the full encoded body. Archive
-recovery retains bounded complete objects and replay sets. Generation admission
-requires multiple maximum-image copies. Raising these dimensions to 10 GB would
-reserve many GiB of memory and disk and retain linear work on the critical path.
+Execution still rebuilds a private base and computes full-image SHA-256 through
+the committed main-file/WAL overlay. Immutable apply clones or copies the base,
+then checksums and hashes the base/result. Physical snapshots no longer retain the complete image or page
+index in memory, and archive recovery uses bounded parts and anonymous files.
+Generation admission still requires multiple maximum-image copies. Large quotas
+therefore retain substantial disk use and linear I/O on important paths; bounded
+buffers alone do not satisfy the fast-recovery target.
 
-Images above 1 GiB also cross SQLite's reserved locking-page location. Existing
-snapshot encoding assumes images remain below that page. A larger path must omit
-the reserved page from LTX records while preserving the physical image length and
+Images above 1 GiB also cross SQLite's reserved locking-page location. The streamed
+snapshot codec omits that page from LTX records while preserving canonical zero
+bytes in the physical image length and
 a canonical byte representation in its content proof. Do not just raise the page
 or image counters.
 

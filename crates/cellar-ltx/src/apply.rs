@@ -291,6 +291,31 @@ pub(crate) fn apply_private_chain(
     Ok(state)
 }
 
+/// Continue from an exclusively owned snapshot destination. The independent
+/// destination inspection supplies the initial rolling checksum; all tail
+/// transitions retain the ordinary bounded apply and intermediate proofs.
+pub(crate) fn apply_private_tail(
+    target: &mut HostFile,
+    base: ImageState,
+    updates: &[ImageUpdate<'_>],
+    limits: &ApplyLimits,
+) -> Result<ImageState, ApplyError> {
+    base.validate(limits)?;
+    if !updates.is_empty() {
+        peak_chain_bytes(updates, limits)?;
+        if updates[0].base != base {
+            return Err(ApplyError::Chain);
+        }
+    }
+    let mut rolling = inspect(target, &base, None)?;
+    let mut state = base;
+    for update in updates {
+        rolling = apply_private_update(target, update, limits, rolling)?;
+        state = update.result;
+    }
+    Ok(state)
+}
+
 // This target belongs exclusively to apply_private_chain. No intermediate
 // image is exposed, but every result is physically inspected before proceeding.
 fn apply_private_update(
@@ -450,7 +475,7 @@ pub(crate) fn inspect(
     Ok(rolling)
 }
 
-fn validate_sqlite_header(bytes: &[u8], state: &ImageState) -> Result<(), ApplyError> {
+pub(crate) fn validate_sqlite_header(bytes: &[u8], state: &ImageState) -> Result<(), ApplyError> {
     if bytes.len() < 100 || &bytes[..16] != b"SQLite format 3\0" {
         return Err(ApplyError::Geometry);
     }

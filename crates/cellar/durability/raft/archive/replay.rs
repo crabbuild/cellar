@@ -5,7 +5,7 @@ use super::{result_state, ArchiveError, ArchiveRecoverySet};
 use crate::application::consensus::CellUpdate;
 use cellar_ltx::apply::{ApplyLimits, ImageState, ImageUpdate, LtxSegment};
 use cellar_ltx::generation::{GenerationPin, GenerationStore, ImageId};
-use cellar_ltx::{ltx, TXID};
+use cellar_ltx::TXID;
 use sha2::{Digest, Sha256};
 
 // Decoded envelopes have their own existing per-entry bound. Small entries
@@ -59,7 +59,7 @@ struct Update {
 
 #[derive(Default)]
 struct Batch<'a> {
-    snapshot: Option<ImageUpdate<'a>>,
+    snapshot: Option<&'a cellar_ltx::stream_snapshot::SnapshotFile>,
     entries: Vec<Update>,
     retained: usize,
     usage: Usage,
@@ -80,23 +80,8 @@ impl Batch<'_> {
         if self.is_empty() {
             return Ok(());
         }
-        let mut hash = Sha256::new();
-        hash.update(b"cellar-archive-image-1");
-        hash.update(nonce.bytes());
-        hash.update(sequence.to_be_bytes());
-        let digest: [u8; 32] = hash.finalize().into();
-        let id = ImageId::new(
-            digest[..16]
-                .try_into()
-                .map_err(|_| ArchiveError::Corrupt("archive image identity"))?,
-        )
-        .map_err(ArchiveError::Images)?;
-        *sequence = sequence.checked_add(1).ok_or(ArchiveError::Limit)?;
-        let mut updates =
-            Vec::with_capacity(self.entries.len() + usize::from(self.snapshot.is_some()));
-        if let Some(snapshot) = &self.snapshot {
-            updates.push(snapshot.clone());
-        }
+        let id = image_id(nonce, sequence)?;
+        let mut updates = Vec::with_capacity(self.entries.len());
         for entry in &self.entries {
             updates.push(ImageUpdate {
                 base: entry.base,
@@ -115,9 +100,11 @@ impl Batch<'_> {
                     .collect(),
             });
         }
-        let next = images
-            .prepare_chain(id, pin.as_ref(), &updates)
-            .map_err(ArchiveError::Images)?;
+        let next = match self.snapshot {
+            Some(snapshot) => images.prepare_snapshot_chain(id, snapshot, &updates),
+            None => images.prepare_chain(id, pin.as_ref(), &updates),
+        }
+        .map_err(ArchiveError::Images)?;
         if let Some(previous) = pin.take() {
             images.retire(previous.id()).map_err(ArchiveError::Images)?;
             drop(previous);
@@ -143,35 +130,17 @@ impl ArchiveRecoverySet {
         nonce: ImageId,
     ) -> Result<GenerationPin, ArchiveError> {
         let mut state = self.manifest.snapshot.image.decode()?;
-        let decoded = ltx::decode_file_bounded(&self.snapshot, images.apply_limits().decode)
-            .map_err(|_| ArchiveError::Corrupt("archive snapshot LTX"))?;
-        let snapshot = ImageUpdate {
-            base: ImageState::empty(state.epoch)
-                .map_err(|_| ArchiveError::Corrupt("archive image epoch"))?,
-            result: state,
-            segments: vec![LtxSegment {
-                bytes: &self.snapshot,
-                min_txid: TXID(1),
-                max_txid: state.txid,
-                page_count: decoded.pages().len(),
-                decoded_bytes: decoded.decoded_bytes(),
-            }],
-        };
-        drop(decoded);
-        let usage = Usage::default().add(
-            snapshot
-                .segments
-                .iter()
-                .map(|s| (s.bytes.len(), s.decoded_bytes, s.page_count)),
-        )?;
+        let mut sequence = 0;
+        let mut pin = None;
         let mut batch = Batch {
-            snapshot: Some(snapshot),
-            usage,
+            snapshot: Some(&self.snapshot),
+            usage: Usage {
+                files: 1,
+                ..Default::default()
+            },
             ..Default::default()
         };
         let limits = images.apply_limits();
-        let mut sequence = 0;
-        let mut pin = None;
         for entry in &self.entries {
             if entry.data.is_empty() {
                 continue;
@@ -227,4 +196,19 @@ impl ArchiveRecoverySet {
         }
         Ok(pin)
     }
+}
+
+fn image_id(nonce: ImageId, sequence: &mut u64) -> Result<ImageId, ArchiveError> {
+    let mut hash = Sha256::new();
+    hash.update(b"cellar-archive-image-1");
+    hash.update(nonce.bytes());
+    hash.update(sequence.to_be_bytes());
+    let digest: [u8; 32] = hash.finalize().into();
+    *sequence = sequence.checked_add(1).ok_or(ArchiveError::Limit)?;
+    ImageId::new(
+        digest[..16]
+            .try_into()
+            .map_err(|_| ArchiveError::Corrupt("archive image identity"))?,
+    )
+    .map_err(ArchiveError::Images)
 }

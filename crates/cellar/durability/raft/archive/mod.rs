@@ -13,7 +13,7 @@ use ::raft::prelude::{ConfState, Entry, EntryType};
 use cellar_logic::consensus::{GroupScope, LogPosition};
 use cellar_ltx::apply::{ApplyLimits, ImageState};
 use cellar_ltx::generation::{GenerationError, GenerationStore, ImageId};
-use cellar_ltx::{ltx, LtxHost, TXID};
+use cellar_ltx::{ltx, stream_snapshot, LtxHost};
 use futures_util::{StreamExt, TryStreamExt};
 use object_store::{path::Path, ObjectStore, PutMode, PutOptions, UpdateVersion};
 use protobuf::Message;
@@ -26,14 +26,20 @@ use std::{
 };
 
 pub(crate) mod bundle;
+mod physical;
 mod replay;
 
 const READ_WINDOW: usize = 4;
 
+pub(crate) const fn physical_read_bytes() -> usize {
+    physical::READ_BYTES
+}
+
 // Logical recovery limits exclude the containing bundles. Retain an additional
 // full bundle for every concurrent extraction, including cancelled workers.
 pub(crate) const RECOVERY_BUNDLE_READ_BYTES: usize = READ_WINDOW * bundle::MAX_BYTES;
-pub(crate) const MAX_RECOVERY_READ_BYTES: usize = 1024 * 1024 * 1024 + RECOVERY_BUNDLE_READ_BYTES;
+pub(crate) const MAX_RECOVERY_READ_BYTES: usize =
+    1024 * 1024 * 1024 + RECOVERY_BUNDLE_READ_BYTES + physical::READ_BYTES;
 
 #[derive(Debug)]
 pub enum ArchiveError {
@@ -46,6 +52,7 @@ pub enum ArchiveError {
     Timeout,
     Log(super::storage::LogError),
     Images(GenerationError),
+    Physical(stream_snapshot::Error),
     Storage(object_store::Error),
     Worker(cellar_ltx::host::HostTaskError),
 }
@@ -58,15 +65,31 @@ impl fmt::Display for ArchiveError {
 
 impl std::error::Error for ArchiveError {}
 
+impl ArchiveError {
+    pub(crate) fn scratch_full(&self) -> bool {
+        matches!(
+            self,
+            Self::Physical(stream_snapshot::Error::ScratchFull)
+                | Self::Images(GenerationError::Snapshot(
+                    stream_snapshot::Error::ScratchFull
+                ))
+        )
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct ArchiveLimits {
     pub envelope: EnvelopeLimits,
     /// Logical SQLite image bound, independent of compressed object length.
     pub max_image_bytes: u64,
+    /// Encoded physical snapshot bytes, held in bounded file-backed chunks.
+    pub max_snapshot_bytes: u64,
     pub io_timeout_ms: u64,
     pub max_capture_bytes: usize,
     pub max_manifest_bytes: usize,
     pub max_object_bytes: usize,
+    /// Small index, encoded tails and dependency material retained for replay.
+    /// Physical snapshot parts have independent max_snapshot_bytes/disk bounds.
     pub max_set_bytes: usize,
     pub max_entries: usize,
     pub max_tails: usize,
@@ -83,6 +106,7 @@ impl Default for ArchiveLimits {
         Self {
             envelope: EnvelopeLimits::default(),
             max_image_bytes: 64 * 1024 * 1024,
+            max_snapshot_bytes: 128 * 1024 * 1024,
             io_timeout_ms: 10_000,
             max_capture_bytes: 4 * 1024 * 1024,
             max_manifest_bytes: 256 * 1024,
@@ -102,7 +126,8 @@ impl ArchiveLimits {
             .validate()
             .map_err(|_| ArchiveError::Invalid("archive envelope limits"))?;
         if !(1024..=1024 * 1024).contains(&self.max_manifest_bytes)
-            || !(512..=256 * 1024 * 1024).contains(&self.max_image_bytes)
+            || !(512..=stream_snapshot::MAX_IMAGE_BYTES).contains(&self.max_image_bytes)
+            || !(512..=stream_snapshot::MAX_ENCODED_BYTES).contains(&self.max_snapshot_bytes)
             || !(1..=60_000).contains(&self.io_timeout_ms)
             || !(1024..=self.max_object_bytes).contains(&self.max_capture_bytes)
             || self.max_manifest_bytes > self.max_object_bytes
@@ -302,54 +327,24 @@ impl CommittedArchiveCut {
                 .sum::<usize>()
     }
 
-    fn snapshot(&self, limits: ArchiveLimits) -> Result<Vec<u8>, ArchiveError> {
-        let pin = self.image.pin();
-        let state = pin.state();
-        Image::from(state).decode()?;
-        if state.length > limits.max_image_bytes || state.length > limits.max_object_bytes as u64 {
-            return Err(ArchiveError::Limit);
-        }
-        let mut reader = pin.open_reader().map_err(ArchiveError::Images)?;
-        let mut pages = Vec::new();
-        let count = state.length / u64::from(state.page_size);
-        let mut hash = Sha256::new();
-        for i in 0..count {
-            let page = reader
-                .read_exact_at(i * u64::from(state.page_size), state.page_size as usize)
-                .map_err(ArchiveError::Images)?;
-            hash.update(&page);
-            if i + 1 != u64::from(ltx::lock_pgno(state.page_size)) {
-                pages.push((i as u32 + 1, page));
-            }
-        }
-        if <[u8; 32]>::from(hash.finalize()) != state.digest {
-            return Err(ArchiveError::Corrupt("pinned archive image digest"));
-        }
-        let header = ltx::Header {
-            version: ltx::VERSION,
-            flags: if state.checksum == 0 {
-                ltx::HEADER_FLAG_NO_CHECKSUM
-            } else {
-                0
-            },
-            page_size: state.page_size,
-            commit: count as u32,
-            min_txid: TXID(1),
-            max_txid: state.txid,
-            ..Default::default()
-        };
-        let bytes = ltx::encode_file_v0_5_2(&header, &pages, state.checksum)
-            .map_err(|_| ArchiveError::Corrupt("archive snapshot encoding"))?;
-        if bytes.len() > limits.max_object_bytes {
-            return Err(ArchiveError::Limit);
-        }
-        verify_snapshot(&bytes, state)?;
-        Ok(bytes)
+    fn snapshot(
+        &self,
+        limits: ArchiveLimits,
+    ) -> Result<stream_snapshot::SnapshotFile, ArchiveError> {
+        self.image
+            .pin()
+            .snapshot(stream_snapshot::Limits {
+                max_image_bytes: limits.max_image_bytes,
+                max_encoded_bytes: limits.max_snapshot_bytes,
+            })
+            .map_err(ArchiveError::Images)
     }
 }
 
 #[derive(Clone)]
 pub struct CellArchive {
+    snapshot_scratch: stream_snapshot::ScratchPool,
+    scratch_directory: Option<std::path::PathBuf>,
     store: Arc<dyn ObjectStore>,
     prefix: String,
     bundle_prefix: String,
@@ -443,7 +438,7 @@ pub struct ArchiveRecoverySet {
     scope: GroupScope,
     position: LogPosition,
     manifest: Manifest,
-    snapshot: Vec<u8>,
+    snapshot: stream_snapshot::SnapshotFile,
     entries: Vec<Entry>,
     dependencies: Vec<(ObjectRef, Vec<u8>)>,
     envelope: EnvelopeLimits,
@@ -474,6 +469,8 @@ impl CellArchive {
             ..Default::default()
         };
         Self {
+            scratch_directory: None,
+            snapshot_scratch: Default::default(),
             store,
             prefix: format!(
                 "{}/{}/{}",
@@ -496,6 +493,19 @@ impl CellArchive {
         }
     }
 
+    /// Place anonymous receive spools on an existing owned volume. This changes
+    /// only scratch placement; verified data still carries no activation proof.
+    pub fn with_scratch_directory(mut self, directory: std::path::PathBuf) -> Self {
+        self.scratch_directory = Some(directory);
+        self
+    }
+
+    /// Share receive spool admission with all snapshot work on the node.
+    pub fn with_snapshot_scratch(mut self, pool: stream_snapshot::ScratchPool) -> Self {
+        self.snapshot_scratch = pool;
+        self
+    }
+
     pub(crate) fn can_batch_with(&self, other: &Self) -> bool {
         self.bundle_prefix == other.bundle_prefix
             && self.root == other.root
@@ -508,6 +518,7 @@ impl CellArchive {
     pub(crate) fn read_memory_bound(&self) -> usize {
         self.limits.max_set_bytes
             + READ_WINDOW * bundle::MAX_BYTES.min(self.limits.max_object_bytes)
+            + physical::READ_BYTES
     }
 
     pub(crate) fn with_read_retention(mut self, retention: Arc<super::budget::Permit>) -> Self {
@@ -813,22 +824,26 @@ impl CellArchive {
     async fn snapshot_manifest(&self, cut: &CommittedArchiveCut) -> Result<Manifest, ArchiveError> {
         let input = cut.clone();
         let limits = self.limits;
-        let body = self
+        let (body, inline) = self
             .host
-            .run_blocking(move || input.snapshot(limits))
+            .run_blocking(move || {
+                let snapshot = input.snapshot(limits)?;
+                let length = snapshot.metadata().encoded_length;
+                let inline = if length <= physical::INLINE_BYTES as u64 {
+                    Some(
+                        snapshot
+                            .chunk(0, length as usize)
+                            .map_err(ArchiveError::Physical)?,
+                    )
+                } else {
+                    None
+                };
+                Ok::<_, ArchiveError>((snapshot, inline))
+            })
             .await
             .map_err(ArchiveError::Worker)??;
         let position = cut.position.into();
-        let object = self
-            .put_object(
-                ObjectKind::Snapshot,
-                &body,
-                Some(PositionRange {
-                    first: position,
-                    last: position,
-                }),
-            )
-            .await?;
+        let object = self.put_snapshot(body, inline, position).await?;
         Ok(Manifest {
             scope: (&self.scope).into(),
             root_digest: self.root,
@@ -1002,9 +1017,10 @@ impl CellArchive {
             .try_collect::<Vec<_>>()
             .await?
             .into_iter();
-        let snapshot = bodies
+        let index = bodies
             .next()
-            .ok_or(ArchiveError::Corrupt("missing archive snapshot"))?;
+            .ok_or(ArchiveError::Corrupt("missing snapshot index"))?;
+        let snapshot = self.get_snapshot(&manifest.snapshot, index).await?;
         let tails = bodies
             .by_ref()
             .take(manifest.tails.len())
@@ -1268,7 +1284,10 @@ impl ArchiveRecoverySet {
 
     fn validate_payloads(&self) -> Result<(), ArchiveError> {
         let mut state = self.manifest.snapshot.image.decode()?;
-        verify_snapshot(&self.snapshot, state)?;
+        if self.snapshot.metadata().image != state {
+            return Err(ArchiveError::Corrupt("archive snapshot/image binding"));
+        }
+        self.snapshot.verify().map_err(ArchiveError::Physical)?;
         let mut position = self.manifest.snapshot.position;
         for entry in &self.entries {
             if position.index.checked_add(1) != Some(entry.index)
@@ -1328,40 +1347,11 @@ fn result_state(update: &CellUpdate) -> Result<ImageState, ArchiveError> {
 
 pub(crate) fn apply_limits() -> ApplyLimits {
     super::snapshot::SnapshotLimits {
-        max_image_bytes: 256 * 1024 * 1024,
+        max_image_bytes: stream_snapshot::MAX_IMAGE_BYTES,
         max_encoded_bytes: 512 * 1024 * 1024,
         ..Default::default()
     }
     .apply()
-}
-
-fn verify_snapshot(bytes: &[u8], state: ImageState) -> Result<(), ArchiveError> {
-    let mut limits = apply_limits().decode;
-    // A compressed object cannot expand beyond its manifest-bound image even
-    // when the reader implementation supports larger configured profiles.
-    limits.max_image_bytes = state.length;
-    limits.max_decoded_bytes = state.length;
-    limits.max_pages = state.length.div_ceil(512) as usize;
-    let file = ltx::decode_file_bounded(bytes, limits)
-        .map_err(|_| ArchiveError::Corrupt("archive snapshot LTX"))?;
-    let header = file.header();
-    if !header.is_snapshot()
-        || header.max_txid != state.txid
-        || header.page_size != state.page_size
-        || u64::from(header.commit) * u64::from(header.page_size) != state.length
-        || file.trailer().post_apply_checksum != state.checksum
-    {
-        return Err(ArchiveError::Corrupt("archive snapshot/image binding"));
-    }
-    let mut hash = Sha256::new();
-    for (_, page) in file.pages() {
-        hash.update(page);
-    }
-    // Archive images are bounded below SQLite's 1-GiB reserved lock page.
-    if <[u8; 32]>::from(hash.finalize()) != state.digest {
-        return Err(ArchiveError::Corrupt("archive snapshot image digest"));
-    }
-    Ok(())
 }
 
 fn encode_tail(entries: &[Entry], limits: ArchiveLimits) -> Result<Vec<u8>, ArchiveError> {
