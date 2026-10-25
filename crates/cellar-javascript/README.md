@@ -462,8 +462,13 @@ heartbeat instead; slow asynchronous I/O can continue while its event loop
 remains responsive. A runaway V8 turn terminates the isolate, while a blocked
 or crashed Node worker stops the application. V8 bootstrap joins its engine and
 watchdog; Node bootstrap kills the owned Unix process group and waits for its
-child. Process restart belongs to the external supervisor. Do not detach Node
-children from the owned group without separate supervision.
+child. Node processes one bounded IPC receive pass before its heartbeat decision,
+so queued valid heartbeats are observed after a native observer delay. New guest
+starts wait while heartbeats are overdue; invocation deadlines and retired SDK
+authority retain their original checks.
+
+Process restart belongs to the external supervisor. Do not detach Node children
+from the owned group without separate supervision.
 
 `application.bridge_usage()` returns a small `BridgeUsage` snapshot for host
 diagnostics. It reads native reservation counters and requires no guest call:

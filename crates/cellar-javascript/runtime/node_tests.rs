@@ -129,6 +129,44 @@ fn node_refuses_overlapping_mutations() -> Result<()> {
 }
 
 #[test]
+fn node_process_survives_native_observer_pause() -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    let entry = directory.path().join("app.mjs");
+    std::fs::write(&entry, "export function fetch(){return {alive:true}}")?;
+    let resumed = Arc::new(AtomicBool::new(false));
+    let mut node = NodeOptions::new(entry);
+    node.heartbeat_timeout = Duration::from_millis(100);
+    node.observer_pause = Some((Duration::from_millis(300), resumed.clone()));
+    NodeRuntime::run(
+        Options::default(),
+        node,
+        Source::module().events([EventKind::Fetch]),
+        |app| {
+            // Node remains a live, independently scheduled process during the
+            // native pause. Its ordinary 25 ms heartbeats accumulate on IPC.
+            let until = Instant::now() + Duration::from_secs(2);
+            while !resumed.load(Ordering::Acquire) {
+                assert!(Instant::now() < until, "native observer did not resume");
+                std::thread::sleep(Duration::from_millis(1));
+            }
+            let (_, mut receiver) = start(&app.runtime, Arc::new(AtomicBool::new(true)));
+            let Event::Complete {
+                payload, failed, ..
+            } = event(&mut receiver)
+            else {
+                panic!("healthy Node worker did not complete");
+            };
+            assert!(!failed);
+            assert_eq!(
+                serde_json::from_str::<Value>(&payload)?,
+                json!({"alive":true})
+            );
+            Ok(())
+        },
+    )
+}
+
+#[test]
 fn node_crash_and_runaway_revoke_and_join() {
     for body in ["process.exit(9)", "while(true){}"] {
         let before = Instant::now();

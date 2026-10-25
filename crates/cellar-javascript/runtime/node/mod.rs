@@ -34,6 +34,9 @@ pub struct NodeOptions {
     pub environment: BTreeMap<String, String>,
     /// Maximum time without a responsive Node event loop (not handler duration).
     pub heartbeat_timeout: Duration,
+    // Hold native observation while the real worker continues producing input.
+    #[cfg(test)]
+    pub(crate) observer_pause: Option<(Duration, Life)>,
 }
 
 impl NodeOptions {
@@ -45,6 +48,8 @@ impl NodeOptions {
             working_directory: None,
             environment: BTreeMap::new(),
             heartbeat_timeout: Duration::from_secs(2),
+            #[cfg(test)]
+            observer_pause: None,
         }
     }
 }
@@ -275,6 +280,8 @@ fn run(
     let mut initialized = false;
     let mut heartbeat = Instant::now();
     let mut last_check = heartbeat;
+    #[cfg(test)]
+    let mut observer_pause = node.observer_pause.clone();
     let mut invocations = HashMap::<u64, InvocationState>::new();
     let mut objects = HashMap::<u64, Life>::new();
     let mut last_operation = 0;
@@ -284,16 +291,23 @@ fn run(
         if runtime.closed.load(Ordering::Acquire) {
             return Ok(());
         }
+        #[cfg(test)]
+        if initialized {
+            if let Some((duration, resumed)) = observer_pause.take() {
+                std::thread::sleep(duration);
+                ensure!(
+                    transport.input_ready()?,
+                    "observer pause has no queued worker input"
+                );
+                resumed.store(true, Ordering::Release);
+            }
+        }
         let now = Instant::now();
         let loop_gap = now.saturating_duration_since(last_check);
         let heartbeat_gap = now.saturating_duration_since(heartbeat);
         last_check = now;
         ensure!(
-            if initialized {
-                heartbeat_gap < node.heartbeat_timeout
-            } else {
-                now < deadline
-            },
+            initialized || now < deadline,
             "Node event loop or initialization timed out: initialized={initialized}, heartbeat_gap_ms={}, observer_gap_ms={}, input_ready={:?}, invocations={}, objects={}",
             heartbeat_gap.as_millis(), loop_gap.as_millis(), transport.input_ready().ok(), invocations.len(), objects.len()
         );
@@ -345,7 +359,9 @@ fn run(
             }
         }
 
-        if initialized {
+        // Hold new guest starts until an overdue heartbeat has been observed.
+        // Native invocation deadlines and authority are checked independently.
+        if initialized && heartbeat_gap < node.heartbeat_timeout {
             for start in starts.try_iter().take(runtime.options.max_invocations) {
                 if !start.active.load(Ordering::Acquire) || !start.owner.load(Ordering::Acquire) {
                     continue;
@@ -594,6 +610,15 @@ fn run(
                 _ => anyhow::bail!("invalid Node protocol message"),
             }
         }
+        // A delayed native observer can resume with valid heartbeats already
+        // queued. Inspect the bounded receive pass before deciding the worker
+        // is unresponsive; input readiness alone never resets the watchdog.
+        let heartbeat_gap = Instant::now().saturating_duration_since(heartbeat);
+        ensure!(
+            !initialized || heartbeat_gap < node.heartbeat_timeout,
+            "Node event loop or initialization timed out: initialized={initialized}, heartbeat_gap_ms={}, observer_gap_ms={}, input_ready={:?}, invocations={}, objects={}",
+            heartbeat_gap.as_millis(), loop_gap.as_millis(), transport.input_ready().ok(), invocations.len(), objects.len()
+        );
         std::thread::sleep(Duration::from_millis(1));
     }
 }
