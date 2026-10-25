@@ -334,7 +334,10 @@
         "crates/cellar/durability/raft/host_fleet.rs",
         "crates/cellar/durability/raft/host_membership.rs",
         "crates/cellar/durability/raft/archive/replay.rs",
-        "crates/cellar/tests/support/raft_controller_native.rs"
+        "crates/cellar/tests/support/raft_controller_native.rs",
+        "crates/cellar/durability/raft/archive/mod.rs",
+        "crates/cellar/durability/raft/manifest.rs",
+        "crates/cellar/durability/raft/archive/bundle_tests.rs"
       ],
       "creates": [
         "crates/cellar/tests/native_raft_fleet_enrollment.rs",
@@ -402,7 +405,10 @@
         "crates/cellar/tests/support/raft_published_cut.rs",
         "crates/cellar/tests/support/raft_empty_archive.rs",
         "crates/cellar/tests/support/raft_empty_archive_seed.rs",
-        "crates/cellar/tests/support/raft_fleet_empty_archive.rs"
+        "crates/cellar/tests/support/raft_fleet_empty_archive.rs",
+        "crates/cellar/durability/raft/archive/coverage.rs",
+        "crates/cellar/tests/support/raft_archive_coverage.rs",
+        "crates/cellar/tests/support/raft_archive_publication_origin.rs"
       ],
       "steps": [
         "Add CAS-authorized node-set revisions with bounded route and permission refresh.",
@@ -1496,6 +1502,45 @@
             "F06",
             "F07",
             "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_archive_coverage_empty_and_data",
+          "oracle": "Only exact immutable sets that physically replay may cover a fixed publication cut; canonical-empty, first SQL image, retained references and later data preserve exact history/configuration and complete prefix coverage.",
+          "invariants": [
+            "F01",
+            "F05",
+            "F06",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_archive_coverage_configuration_and_replay_failure",
+          "oracle": "Valid downloaded hashes cannot substitute for physical replay; insufficient scratch capacity refuses and quarantines the verifier, and a changed membership revision refuses an earlier archive proof. Full snapshots retain original publication positions; intact restart aliases remain covered without replaying a callback.",
+          "invariants": [
+            "F01",
+            "F04",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_archive_coverage_selected_reference_and_deadline",
+          "oracle": "The original deadline suppresses proof through held payload IO or delayed polling; a missing selected manifest never falls back to a healthy newer head.",
+          "invariants": [
+            "F03",
+            "F06",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "archive_preserves_publication_origin_across_protocol_progress",
+          "oracle": "An actual producer held across protocol-only progress retains its exact earlier publication position in immutable manifests, and a recovered alias is preserved independently of the archive applied cut; both sets physically replay the native SQL value.",
+          "invariants": [
+            "F01",
+            "F06",
             "F10"
           ]
         }

@@ -22,6 +22,8 @@ mod images;
 #[path = "support/raft_node.rs"]
 #[allow(dead_code)]
 mod public_node;
+#[path = "support/raft_archive_publication_origin.rs"]
+mod publication_origin;
 
 use anyhow::{ensure, Context as _, Result};
 use cellar::application::consensus::verification::*;

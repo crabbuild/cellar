@@ -26,7 +26,10 @@ use std::{
 };
 
 pub(crate) mod bundle;
+mod coverage;
 mod replay;
+
+pub use coverage::VerifiedArchiveCoverage;
 
 const READ_WINDOW: usize = 4;
 
@@ -157,10 +160,21 @@ impl ArchiveVerifier {
     }
 
     fn verify(&self, set: &ArchiveRecoverySet) -> Result<(), ArchiveError> {
+        self.verify_checked(set, || Ok(()))
+    }
+
+    fn verify_checked(
+        &self,
+        set: &ArchiveRecoverySet,
+        check: impl FnOnce() -> Result<(), ArchiveError>,
+    ) -> Result<(), ArchiveError> {
         let mut state = self
             .inner
             .lock()
             .map_err(|_| ArchiveError::Invalid("archive verifier owner is poisoned"))?;
+        // Lifecycle verification may have expired while another replay owned
+        // the workspace. Refuse before touching scratch state in that case.
+        check()?;
         if state.failed {
             return Err(ArchiveError::Invalid("archive verifier requires recovery"));
         }
@@ -417,6 +431,7 @@ pub struct CellArchive {
     io_domain: Option<crate::asyncrt::DomainToken>,
     read_retention: Option<Arc<super::budget::Permit>>,
     bundle_client: Option<bundle::Client>,
+    verification_deadline: Option<u64>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -552,6 +567,7 @@ impl CellArchive {
             io_domain: crate::asyncrt::runtime_services().domain_token(),
             read_retention: None,
             bundle_client: None,
+            verification_deadline: None,
         }
     }
 
@@ -615,13 +631,18 @@ impl CellArchive {
     }
 
     fn deadline(&self) -> Result<u64, ArchiveError> {
-        Ok(self
+        let now = self
             .io_domain
             .as_ref()
             .ok_or(ArchiveError::Stopped)?
             .mono_ms()
-            .map_err(|_| ArchiveError::Stopped)?
-            .saturating_add(self.limits.io_timeout_ms))
+            .map_err(|_| ArchiveError::Stopped)?;
+        let deadline = now.saturating_add(self.limits.io_timeout_ms);
+        match self.verification_deadline {
+            Some(operation) if now >= operation => Err(ArchiveError::Timeout),
+            Some(operation) => Ok(deadline.min(operation)),
+            None => Ok(deadline),
+        }
     }
 
     fn key(&self, name: &str) -> Path {
@@ -779,6 +800,8 @@ impl CellArchive {
                     });
                     manifest.position = cut.position.into();
                     manifest.image = cut.image_state();
+                    manifest.image_position =
+                        cut.image.as_ref().map(|image| image.position().into());
                     manifest
                 }
                 (_, previous) => {
@@ -909,6 +932,7 @@ impl CellArchive {
             tails: Vec::new(),
             position: cut.position.into(),
             image: cut.image_state(),
+            image_position: cut.image.as_ref().map(|image| image.position().into()),
             dependencies: Vec::new(),
         })
     }
@@ -922,6 +946,7 @@ impl CellArchive {
     ) -> Result<(), ArchiveError> {
         let position = cut.position;
         let image = cut.image_state();
+        let image_position = cut.image.as_ref().map(|image| image.position().into());
         let verifier = verifier.clone();
         self.host
             .run_blocking(move || {
@@ -933,6 +958,7 @@ impl CellArchive {
                 previous.position = position;
                 previous.manifest.position = position.into();
                 previous.manifest.image = image;
+                previous.manifest.image_position = image_position;
                 previous.validate_payloads()?;
                 verifier.verify(&previous)
             })
@@ -1334,6 +1360,15 @@ impl ArchiveRecoverySet {
         self.manifest.image.map(Image::decode).transpose()
     }
 
+    /// Descriptive producer publication origin, including restore aliases.
+    /// Physical verification and current quorum remain separate requirements.
+    pub fn image_position(&self) -> Result<Option<LogPosition>, ArchiveError> {
+        self.manifest
+            .image_position
+            .map(Position::decode)
+            .transpose()
+    }
+
     pub fn tail_entries(&self) -> usize {
         self.entries.len()
     }
@@ -1348,6 +1383,7 @@ impl ArchiveRecoverySet {
         let Some(snapshot_image) = self.manifest.snapshot.image else {
             if self.manifest.snapshot.object.is_some()
                 || self.manifest.image.is_some()
+                || self.manifest.image_position.is_some()
                 || !self.manifest.tails.is_empty()
                 || !self.manifest.dependencies.is_empty()
                 || !self.snapshot.is_empty()
@@ -1362,6 +1398,7 @@ impl ArchiveRecoverySet {
         let mut state = snapshot_image.decode()?;
         verify_snapshot(&self.snapshot, state)?;
         let mut position = self.manifest.snapshot.position;
+        let mut data_position = None;
         for entry in &self.entries {
             if position.index.checked_add(1) != Some(entry.index)
                 || entry.term < position.term
@@ -1372,6 +1409,10 @@ impl ArchiveRecoverySet {
             if !entry.data.is_empty() {
                 let update = self.update(entry, state)?;
                 state = result_state(&update)?;
+                data_position = Some(Position {
+                    index: entry.index,
+                    term: entry.term,
+                });
                 if state.length > self.max_image_bytes {
                     return Err(ArchiveError::Limit);
                 }
@@ -1383,6 +1424,16 @@ impl ArchiveRecoverySet {
         }
         if position != self.manifest.position || Some(Image::from(state)) != self.manifest.image {
             return Err(ArchiveError::Corrupt("archive final image/cut"));
+        }
+        let published = self.manifest.image_position.ok_or(ArchiveError::Corrupt(
+            "missing archive image publication position",
+        ))?;
+        if data_position.is_some_and(|data| {
+            published.index < data.index
+                || published.term < data.term
+                || published.index == data.index && published.term != data.term
+        }) {
+            return Err(ArchiveError::Corrupt("archive publication precedes data"));
         }
         Ok(())
     }

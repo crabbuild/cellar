@@ -189,6 +189,9 @@ pub(crate) struct Manifest {
     pub position: Position,
     #[serde(deserialize_with = "required_option")]
     pub image: Option<Image>,
+    /// Original published-image position, distinct from protocol-only apply.
+    #[serde(deserialize_with = "required_option")]
+    pub image_position: Option<Position>,
     pub dependencies: Vec<ObjectRef>,
 }
 
@@ -219,6 +222,15 @@ impl Manifest {
         self.position.decode()?;
         self.snapshot.image.map(Image::decode).transpose()?;
         self.image.map(Image::decode).transpose()?;
+        if let Some(position) = self.image_position {
+            position.decode()?;
+            if position.index > self.position.index
+                || position.term > self.position.term
+                || position.index == self.position.index && position.term != self.position.term
+            {
+                return Err(ArchiveError::Corrupt("archive image publication position"));
+            }
+        }
         if self
             .snapshot
             .image
@@ -241,15 +253,20 @@ impl Manifest {
         // Explicit nulls denote the canonical pre-schema state. Missing fields
         // are rejected by required_option; partial pairs or retained payloads
         // cannot be reinterpreted as an empty archive.
-        let object = match (&self.snapshot.image, &self.snapshot.object, &self.image) {
-            (None, None, None)
+        let object = match (
+            &self.snapshot.image,
+            &self.snapshot.object,
+            &self.image,
+            &self.image_position,
+        ) {
+            (None, None, None, None)
                 if self.tails.is_empty()
                     && self.dependencies.is_empty()
                     && self.snapshot.position == self.position =>
             {
                 return Ok(())
             }
-            (Some(_), Some(object), Some(_)) => object,
+            (Some(_), Some(object), Some(_), Some(_)) => object,
             _ => return Err(ArchiveError::Corrupt("archive empty/image binding")),
         };
         object.validate_location()?;
@@ -490,6 +507,7 @@ mod tests {
             tails: vec![],
             position,
             image: None,
+            image_position: None,
             dependencies: vec![],
         };
         (scope, manifest)
@@ -505,9 +523,11 @@ mod tests {
             missing["snapshot"].as_object_mut().unwrap().remove(field);
             assert!(serde_json::from_value::<Manifest>(missing).is_err());
         }
-        let mut missing = value;
-        missing.as_object_mut().unwrap().remove("image");
-        assert!(serde_json::from_value::<Manifest>(missing).is_err());
+        for field in ["image", "image_position"] {
+            let mut missing = value.clone();
+            missing.as_object_mut().unwrap().remove(field);
+            assert!(serde_json::from_value::<Manifest>(missing).is_err());
+        }
     }
 
     #[test]
@@ -528,6 +548,9 @@ mod tests {
         invalid.position.index += 1;
         assert!(validate(&invalid).is_err());
         let mut invalid = manifest.clone();
+        invalid.image_position = Some(invalid.position);
+        assert!(validate(&invalid).is_err());
+        let mut invalid = manifest.clone();
         invalid.snapshot.object = Some(ObjectRef::new(ObjectKind::Snapshot, b"", None));
         assert!(validate(&invalid).is_err());
         let mut invalid = manifest.clone();
@@ -545,5 +568,55 @@ mod tests {
             digest: [0; 32],
         });
         assert!(validate(&invalid).is_err());
+    }
+
+    #[test]
+    fn archive_manifest_requires_bounded_publication_origin() {
+        let (scope, mut manifest) = empty_manifest();
+        let position = Position { index: 7, term: 3 };
+        let image = Image {
+            epoch: 1,
+            txid: 1,
+            checksum: 0,
+            page_size: 4096,
+            length: 4096,
+            digest: [9; 32],
+        };
+        manifest.position = position;
+        manifest.snapshot.position = position;
+        manifest.snapshot.image = Some(image);
+        manifest.snapshot.object = Some(ObjectRef::new(
+            ObjectKind::Snapshot,
+            b"metadata-only snapshot reference",
+            Some(PositionRange {
+                first: position,
+                last: position,
+            }),
+        ));
+        manifest.image = Some(image);
+        manifest.image_position = Some(Position { index: 2, term: 1 });
+        let validate = |m: &Manifest| {
+            m.validate(
+                &scope,
+                [5; 32],
+                [6; 32],
+                [7; 32],
+                ArchiveLimits::default(),
+                &manifest.snapshot.membership,
+            )
+        };
+        // A full snapshot applied at 7 does not relabel the SQL publication at 2.
+        assert!(validate(&manifest).is_ok());
+        for origin in [
+            None,
+            Some(Position { index: 0, term: 1 }),
+            Some(Position { index: 8, term: 3 }),
+            Some(Position { index: 2, term: 4 }),
+            Some(Position { index: 7, term: 2 }),
+        ] {
+            let mut invalid = manifest.clone();
+            invalid.image_position = origin;
+            assert!(validate(&invalid).is_err());
+        }
     }
 }

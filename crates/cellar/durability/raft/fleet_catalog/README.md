@@ -119,7 +119,7 @@ Ordinary `bootstrap_member` can only resume an already enrolled managed group;
 it refuses fresh or bare genesis before creating local group state or a member
 claim. Managed host startup and `activate_managed_initial_member` use the guarded path described below.
 
-This experimental protocol hard-cuts to `/fleet-quorum-1/fleet-cuts-1/empty-archives-1`; use fresh fleet
+This experimental protocol hard-cuts to `/fleet-quorum-1/fleet-cuts-1/empty-archives-1/archive-cuts-1`; use fresh fleet
 roots, fresh namespaces and matching binaries. Fleet heads require the current
 protocol digest, and their permanent genesis pin binds it. Missing or earlier
 protocol state refuses initialization and reads; there is no compatibility reader.
@@ -265,8 +265,34 @@ coverage, reservation release, removal or process-stop authority. The terminal
 verifier must independently check the surviving replicas, fully verify the
 archive, settle permits and fence or join physical work. Cold canonical-empty
 histories use explicit empty archives; the terminal verifier must select and
-verify their exact history-bound set rather than waive the archive gate. Business-write acknowledgement calls none of this
-metadata work.
+verify their exact history-bound set rather than waive the archive gate.
+
+`CellArchive::verify_published_at(reference, minimum, verifier, timeout)` now
+provides that archive sub-proof. It downloads the exact selected immutable set,
+checks complete coverage of the fixed `FleetPublishedCut`, physically replays the
+SQL image or verifies canonical-empty state, and reclaims the exclusive scratch
+generations before returning an opaque `VerifiedArchiveCoverage`. Metadata-only
+reads cannot mint it. Missing/corrupt selected material never falls back to a
+newer mutable head. Failed replay quarantines the verifier until its storage
+owner recovers it.
+
+The proof binds the fleet/catalog/history, birth/schema, membership revision,
+archive reference, applied position, original image-publication position and image state. It handles protocol-only
+progress and intact-restore aliases, while a changed configuration requires a
+new attempt. The manifest requires `image_position`: populated state has a
+bounded non-null publication origin, canonical-empty state has explicit null,
+and tail replay refuses an origin preceding its last data entry. A full snapshot
+does not manufacture a later SQL publication position. An old archive cannot cover later data, and a later no-op cannot
+make a conflicting earlier SQL image appear current. One original deadline
+covers object reads, workspace waiting, replay and delivery; completed work
+cannot issue a proof after expiry. Blocking work retains its inputs until its
+execution owner joins it. The caller owns scratch storage and admission for the
+configured recovery-memory bound.
+
+This is historical archive coverage. Complete inventory, fresh surviving quorum
+and publications, exact permit settlement, physical joins/fences, rooted terminal
+receipts and disruption-slot release remain separate pending lifecycle work.
+Business-write acknowledgement calls none of this metadata work.
 
 The opaque response includes the installed node enrollment and whole invocation
 age through SDK delivery. Per-node and per-peer 1 MiB transport reservations cover
@@ -469,7 +495,7 @@ response alone is not a fleet completion certificate.
 Cellar-owned markers stay at 1. Membership and intent records require an explicit
 nullable `fleet` field. Birth records also require an explicit nullable
 `cancelled_by` field; the namespace protocol identity ends in
-`/catalog-trust-1/fleet-admission-1/fleet-quorum-1/fleet-cuts-1/empty-archives-1`.
+`/catalog-trust-1/fleet-admission-1/fleet-quorum-1/fleet-cuts-1/empty-archives-1/archive-cuts-1`.
 Older namespace protocols refuse startup; there is no legacy reader or migration.
 Use a fresh experimental namespace and matching participants. Do not downgrade a
 guarded engine to an older binary or remove the guard field to regain admission.
