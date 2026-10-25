@@ -776,6 +776,26 @@ retained payloads once during complete final verification. Reusing a covering
 head still downloads and physically verifies its material. Snapshot rotation
 also checks the prior payloads before replacing them, preserving refusal of
 missing or corrupt prior history.
+
+Fresh snapshot uploads retain their anonymous source after exact conditional
+read-back confirmation of every part and index. The SHA-256 of the actual
+uploaded stream must equal that source's encoded digest. This private proof can
+supply the same bytes to full physical validation and independent destination
+replay without downloading the producer's own parts again. It remains bound to
+the exact snapshot reference and complete image state. Source scratch admission
+stays charged until the recovery set's last physical owner drops; failed
+confirmation or replay returns no new head proof.
+
+A newer protocol/configuration cut may rebind an existing full snapshot index
+when its complete image state, including epoch, TXID, checksum, geometry and
+digest, is unchanged. The producer first downloads and validates the prior
+recovery closure, then conditionally writes and reads back an index reference
+for the new exact position. The manifest uses the newly captured durable
+configuration/member bindings. No image parts are uploaded on this path.
+Missing or corrupt prior material remains a refusal. Full physical validation,
+independent destination sealing and head CAS still gate publication; ordinary
+recovery continues to download and verify every selected part.
+
 `archive/replay.rs` materializes bounded batches into a private image and seals
 only each batch's final generation. Every intermediate image still passes its
 full SHA-256 and checksum proof. Batches retain at most 64 decoded envelopes or

@@ -20,6 +20,8 @@ mod images;
 #[path = "support/raft_node.rs"]
 #[allow(dead_code)]
 mod public_node;
+#[path = "support/raft_archive_snapshot_upload.rs"]
+mod snapshot_upload;
 
 use anyhow::{ensure, Context as _, Result};
 use cellar::application::consensus::verification::*;

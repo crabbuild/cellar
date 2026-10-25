@@ -33,6 +33,8 @@ pub struct Faults {
     pub image_renames: AtomicUsize,
     pub private_ltx_readbacks: AtomicUsize,
     pub private_image_copies: AtomicUsize,
+    pub corrupt_next_scratch_read: Arc<AtomicBool>,
+    pub scratch_read_corruptions: AtomicUsize,
     pub events: Mutex<Vec<&'static str>>,
     pub image_seals: Mutex<Vec<PathBuf>>,
     pub synced_paths: Mutex<Vec<PathBuf>>,
@@ -53,6 +55,8 @@ impl Faults {
             image_renames: AtomicUsize::new(0),
             private_ltx_readbacks: AtomicUsize::new(0),
             private_image_copies: AtomicUsize::new(0),
+            corrupt_next_scratch_read: Arc::new(AtomicBool::new(false)),
+            scratch_read_corruptions: AtomicUsize::new(0),
             events: Mutex::new(Vec::new()),
             image_seals: Mutex::new(Vec::new()),
             synced_paths: Mutex::new(Vec::new()),
@@ -145,7 +149,23 @@ impl HostFileIo for File {
         if self.faults.fail_reads.load(Ordering::Acquire) {
             return Err(io::Error::other("injected image read failure"));
         }
-        self.inner.read_exact_at(offset, length)
+        let mut bytes = self.inner.read_exact_at(offset, length)?;
+        if self
+            .path
+            .extension()
+            .is_some_and(|extension| extension == "scratch")
+            && !bytes.is_empty()
+            && self
+                .faults
+                .corrupt_next_scratch_read
+                .swap(false, Ordering::AcqRel)
+        {
+            bytes[0] ^= 1;
+            self.faults
+                .scratch_read_corruptions
+                .fetch_add(1, Ordering::AcqRel);
+        }
+        Ok(bytes)
     }
 
     fn set_len(&mut self, length: u64) -> io::Result<()> {

@@ -282,7 +282,7 @@ samples for failure output, without additional probes or a longer deadline.
 The Linux timeout remains unresolved; local repetitions do not establish its
 cause or a fix. Membership-target Rust 1.98.1 Clippy and formatting pass.
 
-## Remaining work
+## Committed-image integrity and full-size diagnostic
 
 Committed-image observation now binds its full main/WAL scan to SQLite's live
 committed WAL-index cut. Both matching native-endian header copies, their
@@ -315,6 +315,49 @@ read, promotion and restart were never reached. The retained prefix is
 `full-capacity-qualification/b74a73f6b84724a79e4f90e7eafe5a64`.
 The query-time improvement is diagnostic evidence; this isolated filesystem
 variant is not a production fix or a successful full-size recovery run.
+
+## Archive publication work reduction
+
+Direct inspection of that retained RustFS prefix found 4,812 objects, including
+4,797 snapshot parts totaling 20,115,602,176 bytes and two full snapshot indexes.
+The selected head stayed at index/term 2/2; a newer manifest for 9/5 was present
+before the deadline, but its physical publication had not confirmed. The worker
+sample was encoding a full snapshot. This is evidence of substantial pending
+archive work, not an object-store outage or a successful cold activation.
+
+Fresh publication now retains a private confirmed-source proof after every
+part/index is conditionally created and exactly read back. The actual uploaded
+stream must match the source's encoded SHA-256. Full physical validation and
+independent destination replay/sync still run before head CAS, using that same
+confirmed source instead of downloading its parts again. Dependencies still come
+from their exact stored references. Tail extension and covering-head verification
+retain their prior closure checks.
+
+A protocol/configuration-only checkpoint can rebind a fully validated prior
+snapshot index when its complete image state is identical to the new durable cut.
+The new manifest captures the current exact position and configuration/member
+bindings; no image parts are uploaded. Missing/corrupt prior material refuses
+instead of being repaired. Wire markers, object layout, timeouts and publication
+barriers are unchanged.
+
+The fresh three-part regression fails before this change (six part GETs for
+three read-back confirmations) and passes afterward with three. Configuration
+rebinding previously uploaded three unchanged parts and now uploads zero.
+Independent recovery still fetches all three parts. Six new tests also cover
+transient source-read corruption, missing confirmations, source scratch lifetime,
+independent destination sync refusal and missing prior parts during rebind.
+
+The final ordinary scope passes 764 cases: 603 host library, 60 archive, 21
+execution, 32 host, four ordinary large-image and 44 snapshot tests. Seven
+child/opt-in fixture entries remain ignored by those parent invocations.
+Rust 1.98.1 all-target native Clippy, the native-only/no-Python library check,
+formatting/layout (1,037 Rust files), native dependencies and documentation pass.
+The release diagnostic's 12 MiB end-to-end preflight passes through restart and
+receipt reconciliation in 9.33 seconds (46,170,112-byte maximum RSS). It retains
+the diagnostic9 cache policy for comparison; this is not production 10 GB or RTO
+qualification. The fresh full-size archive/recovery rerun remains required.
+
+## Remaining work
 
 The completion checklist remains open. Full native 10 GB warm takeover, exact
 peer and RustFS recovery after local state loss, restart/retry reconciliation,
