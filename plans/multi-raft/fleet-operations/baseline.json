@@ -71,6 +71,10 @@
       "sha256": "b3e7e59823751a9f393fce2c10db7fc308be5dddbb7a40fb1f1c5d5fd2ca45b9"
     },
     {
+      "path": "crates/cellar/durability/raft/archive/replay.rs",
+      "sha256": "5210f092c78daf564e146923d80ae37d214bc75e6a34a80956f745df87f5deee"
+    },
+    {
       "path": "crates/cellar/durability/raft/cache.rs",
       "sha256": "09e1c4ad48e80f2624e9c334c4f49e12b6e2606c26abed5dd36ce764a193cc33"
     },
@@ -265,6 +269,10 @@
     {
       "path": "crates/cellar/tests/support/raft_catalog_fault.rs",
       "sha256": "93251958fa9437f07c44f72221f6b01f2a9befc8c26807de999570b5356d7bcd"
+    },
+    {
+      "path": "crates/cellar/tests/support/raft_controller_native.rs",
+      "sha256": "aeaf2e7673eff6a2e1402c213df3195ddc35dfcd7e757da76a960361a8e2068a"
     },
     {
       "path": "crates/cellar/tests/support/raft_metrics_native.rs",

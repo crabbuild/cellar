@@ -140,7 +140,24 @@ impl ArchiveRecoverySet {
         images: &GenerationStore,
         nonce: ImageId,
     ) -> Result<GenerationPin, ArchiveError> {
-        let mut state = self.manifest.snapshot.image.decode()?;
+        self.restore_state(images, nonce)?
+            .ok_or(ArchiveError::Invalid(
+                "canonical empty archive has no SQL image",
+            ))
+    }
+
+    /// Verify and restore the exact selected state. None is a validated
+    /// canonical empty configuration; it neither creates nor deletes an image.
+    pub fn restore_state(
+        &self,
+        images: &GenerationStore,
+        nonce: ImageId,
+    ) -> Result<Option<GenerationPin>, ArchiveError> {
+        let Some(snapshot_image) = self.manifest.snapshot.image else {
+            self.validate_payloads()?;
+            return Ok(None);
+        };
+        let mut state = snapshot_image.decode()?;
         let decoded = ltx::decode_file_bounded(&self.snapshot, apply_limits().decode)
             .map_err(|_| ArchiveError::Corrupt("archive snapshot LTX"))?;
         let snapshot = ImageUpdate {
@@ -220,9 +237,9 @@ impl ArchiveRecoverySet {
         }
         batch.flush(images, nonce, &mut sequence, &mut pin)?;
         let pin = pin.ok_or(ArchiveError::Corrupt("missing restored archive image"))?;
-        if super::super::manifest::Image::from(pin.state()) != self.manifest.image {
+        if Some(super::super::manifest::Image::from(pin.state())) != self.manifest.image {
             return Err(ArchiveError::Corrupt("restored archive image digest"));
         }
-        Ok(pin)
+        Ok(Some(pin))
     }
 }

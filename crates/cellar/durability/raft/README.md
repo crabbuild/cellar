@@ -31,7 +31,7 @@ owned fleet reconciler and its qualification gates.
 Managed initial voters persist their enrollment with genesis before a permanent
 member claim and runtime attachment. Empty hosts can initialize them dynamically,
 and cold managed members resolve rooted peer views with only a self hint.
-The experimental namespace protocol now ends in `/fleet-quorum-1/fleet-cuts-1`; use fresh
+The experimental namespace protocol now ends in `/fleet-quorum-1/fleet-cuts-1/empty-archives-1`; use fresh
 fleet/data prefixes, namespaces and matching binaries, with numeric markers
 retained at 1 and no compatibility reader or migration.
 
@@ -719,6 +719,21 @@ by the verifier owner. SQL workers capture immutable published image/engine cuts
 head advances only after referenced bytes are read back, validated and replayed.
 Lost object/head responses are reconciled by exact reads. The supplied
 `Bucket::raft_store` binds the bucket prefix and its conditional-write client.
+
+Cold groups publish an explicit canonical-empty archive containing the durable
+configuration, membership/fleet guard and history/schema bindings. Its snapshot
+image, snapshot object and final image are required null fields; tails and
+dependencies must be empty. Missing fields, a half-present image/object pair,
+zero-TXID image markers or retained payloads refuse validation. A missing SQL
+publication of applied data cannot be captured as empty.
+
+The bounded producer scheduler includes these cold groups. Empty capture creates
+no SQLite image or payload object. `restore_state` returns `None` for the verified
+empty state and never deletes existing images; image-only `restore` refuses it.
+The authenticated S3 seed path installs an empty snapshot under the same actual
+learner, quorum, process and membership checks as an image seed. The first SQL
+write establishes a complete archive snapshot. Empty metadata supplies neither
+live quorum nor activation/removal authority.
 
 Quorum commands settle after commit and durable image publication. S3 commands
 also need an archive proof covering that exact command. The namespace minimum is

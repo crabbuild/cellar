@@ -18,6 +18,8 @@ mod revocation;
 #[path = "raft_fleet_placement_native.rs"]
 mod placement;
 
+#[path = "raft_fleet_empty_archive.rs"]
+mod empty_archive;
 #[path = "raft_evacuation_native.rs"]
 mod evacuation;
 #[path = "raft_peer_fleet_observation.rs"]

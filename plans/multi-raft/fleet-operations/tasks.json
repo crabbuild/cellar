@@ -332,7 +332,9 @@
         "crates/cellar/tests/native_raft_directory.rs",
         "crates/cellar/durability/raft/query.rs",
         "crates/cellar/durability/raft/host_fleet.rs",
-        "crates/cellar/durability/raft/host_membership.rs"
+        "crates/cellar/durability/raft/host_membership.rs",
+        "crates/cellar/durability/raft/archive/replay.rs",
+        "crates/cellar/tests/support/raft_controller_native.rs"
       ],
       "creates": [
         "crates/cellar/tests/native_raft_fleet_enrollment.rs",
@@ -397,7 +399,10 @@
         "crates/cellar/durability/raft/host_fleet_cut.rs",
         "crates/cellar/durability/raft/host_fleet_cut_tests.rs",
         "crates/cellar/durability/raft/fleet_cut_wire.rs",
-        "crates/cellar/tests/support/raft_published_cut.rs"
+        "crates/cellar/tests/support/raft_published_cut.rs",
+        "crates/cellar/tests/support/raft_empty_archive.rs",
+        "crates/cellar/tests/support/raft_empty_archive_seed.rs",
+        "crates/cellar/tests/support/raft_fleet_empty_archive.rs"
       ],
       "steps": [
         "Add CAS-authorized node-set revisions with bounded route and permission refresh.",
@@ -1415,6 +1420,84 @@
             "F08",
             "F10"
           ]
+        },
+        {
+          "name": "archive_empty_configuration_roundtrip_and_lost_reply",
+          "oracle": "Publish durable cold configuration with no SQLite/payload object, reconcile a lost conditional-head reply, and retain exact empty references across later configuration progress.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F04",
+            "F06",
+            "F07",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "archive_empty_reference_survives_first_image_without_erasure",
+          "oracle": "First SQL establishes a complete snapshot; an old empty cut cannot erase newer archived data. Empty capture refuses an applied image, while exact empty restore never reclaims live images.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F04",
+            "F06",
+            "F07",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "archive_empty_and_mixed_batches_keep_each_history_verified",
+          "oracle": "Two real cold archives and a mixed cold/populated batch retain input order and independent verified state under the existing bounded publisher.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F04",
+            "F06",
+            "F07",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "native_empty_archive_seed_then_first_s3_write",
+          "oracle": "Actual RF3 source and fresh learner seed from canonical-empty S3 material with zero application callbacks or fabricated generations, then acknowledge and query the first real S3 write.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F04",
+            "F06",
+            "F07",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "native_empty_archive_seed_refuses_minority",
+          "oracle": "A reachable isolated original voter plus complete empty archive cannot seed a learner without fresh quorum, and no application callback runs.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F04",
+            "F06",
+            "F07",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_empty_archive_seed_retains_guard_and_completes_repair",
+          "oracle": "Actual managed cold RF3 repair retains the exact fleet binding/consumed permit through S3 learner activation, joint promotion and stable retirement, before the first native S3 command. Privileged capacity/permit fixture inputs do not qualify the pending controller.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F04",
+            "F06",
+            "F07",
+            "F08",
+            "F10"
+          ]
         }
       ],
       "verification": [
@@ -1458,6 +1541,50 @@
           "cellar",
           "--test",
           "native_raft_fleet_permits",
+          "--locked",
+          "--",
+          "--test-threads=1"
+        ],
+        [
+          "cargo",
+          "test",
+          "-p",
+          "cellar",
+          "--test",
+          "native_raft_archive",
+          "--locked",
+          "--",
+          "--list"
+        ],
+        [
+          "cargo",
+          "test",
+          "-p",
+          "cellar",
+          "--test",
+          "native_raft_archive",
+          "--locked",
+          "--",
+          "--test-threads=1"
+        ],
+        [
+          "cargo",
+          "test",
+          "-p",
+          "cellar",
+          "--test",
+          "native_raft_snapshot",
+          "--locked",
+          "--",
+          "--list"
+        ],
+        [
+          "cargo",
+          "test",
+          "-p",
+          "cellar",
+          "--test",
+          "native_raft_snapshot",
           "--locked",
           "--",
           "--test-threads=1"

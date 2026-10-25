@@ -3026,7 +3026,6 @@ impl Driver {
         let eligible = |cell: &Cell| {
             !cell.failed
                 && !cell.sql_busy
-                && cell.image.is_some()
                 && cell.archive_retry_at <= now
                 && cell
                     .group

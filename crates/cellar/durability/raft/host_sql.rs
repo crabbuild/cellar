@@ -942,11 +942,12 @@ impl Cell {
                 })
             }
             Action::CaptureArchive { limits } => {
-                let cut = self
+                let cut = match self
                     .applier
                     .queryable()
                     .map_err(super::execution::storage)?
-                    .map(|image| {
+                {
+                    Some(image) => {
                         let dependencies = super::effects::capture_dependencies(
                             &image,
                             self.class.blob_limits(),
@@ -955,10 +956,15 @@ impl Cell {
                         )
                         .map_err(super::execution::storage)?;
                         CommittedArchiveCut::capture(&self.group, image, dependencies, limits)
-                            .map_err(super::execution::storage)
-                    })
-                    .transpose()?;
-                Ok(Value::ArchiveCut(cut.map(Box::new)))
+                    }
+                    None => CommittedArchiveCut::capture_empty(
+                        &self.group,
+                        self.class.schema_digest(),
+                        limits,
+                    ),
+                }
+                .map_err(super::execution::storage)?;
+                Ok(Value::ArchiveCut(Some(Box::new(cut))))
             }
             Action::ScanEffects {
                 now,

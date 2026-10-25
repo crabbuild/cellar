@@ -283,8 +283,14 @@ impl PreparedSeed {
                 .try_into()
                 .map_err(|_| SnapshotError::Invalid("archive seed image nonce"))?,
         )?;
-        let pin = set.restore(images, nonce).map_err(SnapshotError::Archive)?;
-        let bytes = encode_image(&pin, limits)?;
+        let pin = set
+            .restore_state(images, nonce)
+            .map_err(SnapshotError::Archive)?;
+        let bytes = pin
+            .as_ref()
+            .map(|pin| encode_image(pin, limits))
+            .transpose()?
+            .unwrap_or_default();
         let descriptor = Descriptor {
             format: 1,
             scope: WireScope::from(birth.scope()),
@@ -295,7 +301,7 @@ impl PreparedSeed {
             conf: manifest::encode_conf(&conf)
                 .map_err(|_| SnapshotError::Invalid("archive seed configuration encoding"))?,
             membership,
-            image: Some(marker(&pin)),
+            image: pin.as_ref().map(marker),
             encoded_length: bytes.len(),
             encoded_digest: Sha256::digest(&bytes).into(),
         };
@@ -311,7 +317,7 @@ impl PreparedSeed {
             grant: SeedPermit::S3(grant),
             descriptor,
             initial,
-            pin: Some(pin),
+            pin,
             _reservation: reservation,
         })
     }

@@ -7,6 +7,8 @@
 mod cluster;
 #[path = "support/raft_archive_download.rs"]
 mod download;
+#[path = "support/raft_empty_archive.rs"]
+mod empty_archive;
 #[path = "support/raft_catalog_fault.rs"]
 mod faults;
 #[path = "support/raft_ltx_fault.rs"]
@@ -2508,10 +2510,17 @@ async fn check_archive_producer_shutdown(max_producers: usize) -> Result<()> {
                 let mut committed = 0;
                 for (handle, before) in handles.iter().zip(&before_commands) {
                     let status = archive_status(handle).await?;
-                    if status.committed > *before && status.applied.index >= status.committed {
+                    if status.committed > *before
+                        && status.applied.index >= status.committed
+                        && status.version.as_ref().is_some_and(|version| version.position.index > *before)
+                    {
+                        // A cold configuration can already be fully archived.
+                        // Count only this command's published SQL state, and
+                        // require its data cut to remain unacknowledged.
+                        let version = status.version.as_ref().context("published command version")?;
+                        ensure!(status.archived < version.position.index);
                         committed += 1;
                     }
-                    ensure!(status.archived < status.committed);
                 }
                 if committed == count
                     && store.active_payload_reads.load(Ordering::Acquire) == max_producers
@@ -2580,6 +2589,7 @@ async fn archive_shutdown_joins_hung_store_without_acknowledging() -> Result<()>
     )
     .await?;
     let cell = native.cell()?;
+    let before = archive_status(&cell).await?.committed;
     let mut options = public_node::options(1)?;
     options.durability = Durability::S3;
     let pending = cell.command(
@@ -2588,16 +2598,29 @@ async fn archive_shutdown_joins_hung_store_without_acknowledging() -> Result<()>
         options,
     );
     tokio::time::timeout(std::time::Duration::from_secs(5), async {
-        while store.archive_attempts.load(Ordering::Acquire) == 0 {
+        loop {
+            let status = archive_status(&cell).await?;
+            if store.archive_attempts.load(Ordering::Acquire) > 0
+                && status.committed > before
+                && status.applied.index >= status.committed
+                && status
+                    .version
+                    .as_ref()
+                    .is_some_and(|version| version.position.index > before)
+            {
+                return Ok::<_, anyhow::Error>(());
+            }
             tokio::time::sleep(std::time::Duration::from_millis(10)).await;
         }
     })
-    .await?;
+    .await??;
+    ensure!(native.calls.load(Ordering::Acquire) == 1);
     tokio::time::timeout(std::time::Duration::from_secs(5), native.close()).await??;
-    ensure!(matches!(
-        pending.await,
-        Err(CommandFailure::Ambiguous { .. })
-    ));
+    let outcome = pending.await;
+    ensure!(
+        matches!(outcome, Err(CommandFailure::Ambiguous { .. })),
+        "committed unarchived command did not remain ambiguous: {outcome:?}"
+    );
     Ok(())
 }
 
