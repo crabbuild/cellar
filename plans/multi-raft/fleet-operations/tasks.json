@@ -331,7 +331,8 @@
         "crates/cellar/tests/native_raft_archive.rs",
         "crates/cellar/tests/native_raft_directory.rs",
         "crates/cellar/durability/raft/query.rs",
-        "crates/cellar/durability/raft/host_fleet.rs"
+        "crates/cellar/durability/raft/host_fleet.rs",
+        "crates/cellar/durability/raft/host_membership.rs"
       ],
       "creates": [
         "crates/cellar/tests/native_raft_fleet_enrollment.rs",
@@ -380,7 +381,9 @@
         "crates/cellar/durability/raft/host_fleet_admission.rs",
         "crates/cellar/tests/support/raft_fleet_trust_native.rs",
         "crates/cellar/tests/support/raft_fleet_trust_store.rs",
-        "crates/cellar/tests/support/raft_fleet_ingress_native.rs"
+        "crates/cellar/tests/support/raft_fleet_ingress_native.rs",
+        "crates/cellar/tests/support/raft_fleet_revocation_native.rs",
+        "crates/cellar/tests/support/raft_revocation_endpoint.rs"
       ],
       "steps": [
         "Add CAS-authorized node-set revisions with bounded route and permission refresh.",
@@ -398,7 +401,9 @@
         "Check all rooted namespace declarations against exact catalog handles, original retained import coverage, current canonical admission indexes and every fleet history. Include unpublished/reserved/cancelled births and offline histories; this bounded read is not a capacity or removal receipt.",
         "Qualify actual managed retirement through peer seed/joint membership, outgoing-voter shutdown and fresh-quorum completion; reopen the stale intact engine and refuse metadata/engine rebinding under a fresh member ID. Abort the unusable learner and verify a newer member on a distinct engine through archive seed and native writes. Fresh learner admission must refresh current rooted host/history authorization within the original seed deadline and metadata budget rather than using startup eligibility.",
         "Stamp opaque membership authorizations with their rooted minimum trust revision. On managed hosts, gate only fresh repair starts on actual source/target process acknowledgements through the existing authenticated metadata RPC; retain exact committed-plan continuation, original deadlines, memory bounds, cancellation, drain and joined shutdown. Bucket pins, published views and correctly authenticated unsolicited frames do not create node trust or local group state.",
-        "Bind complete trust cuts, successor checks and authenticated node metadata routes to the exact catalog fingerprint. Refuse cross-catalog acknowledgements even with the same fleet ID, physical pins, epochs and revision numbers. Hard-cut the experimental protocol with mandatory catalog-scoped routes and marker 1; retain no compatibility reader."
+        "Bind complete trust cuts, successor checks and authenticated node metadata routes to the exact catalog fingerprint. Refuse cross-catalog acknowledgements even with the same fleet ID, physical pins, epochs and revision numbers. Hard-cut the experimental protocol with mandatory catalog-scoped routes and marker 1; retain no compatibility reader.",
+        "Qualify complete process and node-set revocation over real blocked TLS connections. Resume an already seeded learner on the same engine under a new process during restart exclusion; require all original peers to install its new view, old sockets to close, old publishers to refuse revival, verified SQL catch-up and joint completion. Preserve pending transport through exclusion modes, then require final Removed to cancel and join it before a valid late advisory publication is refused.",
+        "While a successor repair is accepted but not yet applied, retain its waiter through the previous terminal repair status. Refuse a conflicting result only after the accepted position applies; a prior Complete/Aborted plan does not prove the new proposal failed. Preserve exact quorum reconciliation of ambiguous outcomes."
       ],
       "acceptance": [
         "Inventory includes pending births and all managed namespaces.",
@@ -424,11 +429,15 @@
         },
         {
           "name": "fleet_enrollment_route_revocation",
-          "oracle": "New node-set/process revisions revoke obsolete routes and join their physical tasks; a move waits for its required participants to acknowledge the trusted revision.",
+          "oracle": "Compose the actual source/target trust-acknowledgement scenario with a seeded learner restart on the same engine and new process. Superseded blocked metadata and consensus/data connections close without stopping the live fleet; old publication cannot replace the new view, verified native SQL catches up, and joint promotion completes. An empty peer keeps a blocked call through RestartPending/ResizePending/Draining/Evacuated; Removed cancels and joins physical I/O, releases metadata reservations, and refuses a valid late directory republication. All owning SDK nodes are joined. Privileged lifecycle fixture edits are not an operator evacuation/removal certificate.",
           "invariants": [
+            "F01",
             "F02",
+            "F04",
             "F06",
-            "F08"
+            "F07",
+            "F08",
+            "F10"
           ]
         },
         {

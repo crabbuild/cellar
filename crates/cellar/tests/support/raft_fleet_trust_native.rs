@@ -195,6 +195,10 @@ async fn fleet_enrollment_catalog_scoped_node_trust() -> Result<()> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn fleet_enrollment_move_trust_acknowledgements() -> Result<()> {
+    Box::pin(verify_move_trust_acknowledgements()).await
+}
+
+pub(super) async fn verify_move_trust_acknowledgements() -> Result<()> {
     let f = Fixture::with_managed_births(true).await?;
     let nodes = fleet(&f).await?;
     let (proposal, authorization) = birth(&f).await?;

@@ -560,7 +560,13 @@ impl Driver {
                         (cell.route_revision >= status.changed_at)
                             .then_some(Ok(Response::Repair(Some(status))))
                     }
-                    Ok(Some(status)) if status.plan != *plan || !status.phase.active() => {
+                    // A prior terminal repair can remain visible after this
+                    // proposal is accepted and before it applies. It cannot
+                    // establish a conflict with the submitted proposal.
+                    Ok(Some(status))
+                        if cache.applied.position.index >= accepted.position.index
+                            && (status.plan != *plan || !status.phase.active()) =>
+                    {
                         Some(Err(CommandFailure::CommandConflict))
                     }
                     Err(_) => Some(Err(CommandFailure::CorruptState)),

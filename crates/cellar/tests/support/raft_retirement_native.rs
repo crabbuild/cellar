@@ -182,7 +182,8 @@ async fn fleet_enrollment_retired_binding() -> Result<()> {
     .await?;
     source
         .begin_managed_repair(permit.clone(), plan, TIMEOUT)
-        .await?;
+        .await
+        .context("begin peer-seeded replacement")?;
     let observed = target_host.observe_node(TIMEOUT).await?;
     ensure!(
         observed.startup_enrollment.as_ref().map(|e| e.state) == Some(FleetNodeState::Registered)
@@ -297,7 +298,8 @@ async fn fleet_enrollment_retired_binding() -> Result<()> {
     .await?;
     source
         .begin_managed_repair(stale_target.clone(), plan, TIMEOUT)
-        .await?;
+        .await
+        .context("begin replacement on retired engine")?;
     let before = f.calls.load(Ordering::Acquire);
     ensure!(
         matches!(
@@ -438,7 +440,9 @@ async fn fleet_enrollment_retired_binding() -> Result<()> {
         cells[(primary + 2) % 3].clone(),
         target.clone(),
     ];
-    write_read(&f, &current, 2, 5, 12).await?;
+    write_read(&f, &current, 2, 5, 12)
+        .await
+        .context("write before archive replacement")?;
     let (plan, fresh_permit) = reserve(
         &f,
         &source,
@@ -455,14 +459,16 @@ async fn fleet_enrollment_retired_binding() -> Result<()> {
     .await?;
     source
         .begin_managed_repair(fresh_permit.clone(), plan, TIMEOUT)
-        .await?;
+        .await
+        .context("begin archive-seeded replacement")?;
     let receipt = source
         .command(
             f.definition.increment.clone(),
             9_i64.to_be_bytes().to_vec(),
             public_node::archived_options(3)?,
         )
-        .await?;
+        .await
+        .context("write archive replacement seed")?;
     ensure!(receipt.durability == Durability::S3);
     f.state(fresh_spec.node, FleetNodeState::Draining, 154)
         .await?;
@@ -541,7 +547,9 @@ async fn fleet_enrollment_retired_binding() -> Result<()> {
     );
     admission(&f, &proposal.scope, 182, None).await?;
     current[2] = target_fresh;
-    write_read(&f, &current, 4, 1, 22).await?;
+    write_read(&f, &current, 4, 1, 22)
+        .await
+        .context("write after archive replacement")?;
     ensure!(source.status().await?.member_high_water == 6);
     let root = f.catalog.read(TIMEOUT).await?;
     ensure!(
