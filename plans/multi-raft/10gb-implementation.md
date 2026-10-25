@@ -222,6 +222,19 @@ callback. `snapshot_encode` records this work separately from SQL. Broader ownin
 suites and the full-size peer/RustFS reruns remain required; these focused tests
 do not establish that the earlier 10 GB failure has been eliminated.
 
+At runtime revision `1a387317`, serial qualification passes 600 host library,
+32 native host, 44 snapshot, 54 archive, 21 execution and four ordinary large-image
+tests. The operations suite initially passed 22 cases and rejected its old
+26-operation metrics inventory. Its updated fixed inventory explicitly includes
+`snapshot_encode` (27 operations and 657 Prometheus performance samples), and all
+23 operations tests then pass. This totals 778 passing cases; seven ignored
+fixture entries remain outside the default parent invocations. Native all-target
+Clippy with Rust 1.98.1 and warnings denied, the native-only/no-Python library
+feature check, formatting, layout, dependency and documentation checks pass.
+These suites retain the existing small-fixture crash,
+corruption, exact-cut and shutdown coverage; they do not replace the still-required
+full-size RustFS and peer reruns after the encoding separation.
+
 ## Remaining work
 
 The completion checklist remains open. Full native 10 GB warm takeover, exact

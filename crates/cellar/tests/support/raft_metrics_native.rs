@@ -239,10 +239,13 @@ async fn cluster(groups: usize) -> Result<BTreeSet<String>> {
         let observed = service.performance();
         ensure!(observed.available && !observed.saturated && observed.source.len() == 32);
         ensure!(
-            observed.operations.len() == 26 && observed.counters.len() == 34,
+            observed.operations.len() == 27 && observed.counters.len() == 34,
             "performance inventory changed: {} operations, {} counters",
             observed.operations.len(), observed.counters.len()
         );
+        let snapshot_operations = observed.operations.iter().map(|operation| operation.name)
+            .filter(|name| name.starts_with("snapshot_")).collect::<BTreeSet<_>>();
+        ensure!(snapshot_operations == BTreeSet::from(["snapshot_encode"]));
         // Archive admission/publication observations are fixed vocabulary,
         // just like engine and transport metrics. Check their identities as
         // well as the total so a missing series cannot hide behind another.
@@ -273,7 +276,7 @@ async fn cluster(groups: usize) -> Result<BTreeSet<String>> {
         // Two gauges, 34 counters, and 23 samples per operation (five outcome
         // counters, 16 buckets, a sum and a count). This remains independent
         // of the observed inventory and of the group population.
-        ensure!(perf_ids.len() == 634);
+        ensure!(perf_ids.len() == 657);
         let expected = observed.prometheus().lines().filter(|line| !line.starts_with('#') && !line.is_empty()).map(|line| line.split_whitespace().next().unwrap().to_owned()).collect::<BTreeSet<_>>();
         ensure!(perf_ids == expected && perf_ids.is_disjoint(&identities));
         identities.extend(perf_ids);
