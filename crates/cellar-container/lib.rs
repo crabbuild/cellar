@@ -205,6 +205,12 @@ pub trait Provider: Send + Sync {
         None
     }
 
+    /// Whether sessions implement an immediate, I/O-free running snapshot.
+    /// Workers uses this for its synchronous `container.running` property.
+    fn synchronous_running(&self) -> bool {
+        false
+    }
+
     fn operations(&self) -> &[Operation];
 
     fn open(&self) -> Box<dyn ProviderSession>;
@@ -213,6 +219,12 @@ pub trait Provider: Send + Sync {
 /// Invocation-local backend resources. Drop must cancel work and release streams.
 /// See the README for authority, isolation, response and retry requirements.
 pub trait ProviderSession: Send + Sync {
+    /// Observe authoritative state without I/O, blocking or starting work.
+    /// Providers must opt in through `Provider::synchronous_running`.
+    fn running_snapshot(&self, _context: &Context) -> Result<bool> {
+        anyhow::bail!(Validation)
+    }
+
     fn execute<'a>(
         &'a self,
         context: &'a Context,
@@ -227,6 +239,10 @@ pub trait ProviderSession: Send + Sync {
 pub struct Native;
 
 impl Provider for Native {
+    fn synchronous_running(&self) -> bool {
+        true
+    }
+
     fn environment(&self) -> Environment {
         Environment::Linux
     }
@@ -249,6 +265,10 @@ impl Provider for Native {
 }
 
 impl ProviderSession for native::Resources {
+    fn running_snapshot(&self, context: &Context) -> Result<bool> {
+        context.container()?.running(context)
+    }
+
     fn execute<'a>(
         &'a self,
         context: &'a Context,
@@ -317,6 +337,22 @@ impl Default for Session {
 }
 
 impl Session {
+    /// Read the provider's immediate snapshot under this event's authority.
+    /// This is separate from `execute(Running)`, which may perform backend I/O.
+    pub fn running_snapshot(&self, context: &Context) -> Result<bool> {
+        ensure!(
+            self.provider.synchronous_running()
+                && self.provider.operations().contains(&Operation::Running),
+            Validation
+        );
+        let candidate = context.container_provider_authority()?;
+        let authority = self.authority.get_or_init(|| candidate);
+        authority.check(context)?;
+        let result = self.backend.running_snapshot(context);
+        authority.check(context)?;
+        result
+    }
+
     pub async fn execute(
         &self,
         context: &Context,

@@ -105,7 +105,13 @@ impl Cell for Root {
                         ])
                 );
                 ensure!(value["max_body_bytes"] == 1024 && value["max_resources"].is_null());
+                ensure!(value["synchronous_running"] == false);
                 true
+            } else if request.url.ends_with("/snapshot") {
+                session
+                    .running_snapshot(&context)
+                    .unwrap_err()
+                    .is::<Validation>()
             } else if request.url.ends_with("/open") {
                 ensure!(
                     session
@@ -195,7 +201,7 @@ fn custom_provider_preserves_authority_capabilities_and_failure_provenance() -> 
         let root = Arc::new(Root { adapter: Adapter::new(Arc::new(Backend(probe.clone()))), probe: probe.clone() });
         let (node, address) = native::start(directory.path(), Arc::new(App(root))).await?;
         let client = reqwest::Client::builder().timeout(std::time::Duration::from_secs(5)).build()?;
-        for (path, calls) in [("open",2), ("retained",2), ("unsupported",2), ("invalid",2), ("uncertain",3), ("deep",4)] {
+        for (path, calls) in [("snapshot",0), ("open",2), ("retained",2), ("unsupported",2), ("invalid",2), ("uncertain",3), ("deep",4)] {
             let response = client.get(format!("{address}/{path}")).send().await?;
             ensure!(response.status().is_success());
             ensure!(response.text().await? == "true", "{path}");

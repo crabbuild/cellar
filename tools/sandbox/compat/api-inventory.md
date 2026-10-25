@@ -19,7 +19,7 @@ none of the rows is a runtime compatibility pass. Requalify changed inputs.
 | `ctx.storage.sql.exec` iterable synchronous rows | Bounded invocation-owned synchronous SQL bridge | Cloudflare cursor values/metadata, parameter conversion and transaction behavior |
 | `ctx.storage.kv.get` / `put` and async storage `get` / `put` / `delete` | Native KV snapshots and atomic batches | Correct missing values, supported serialization, multi-key operations and API-level limits |
 | Storage `transaction`, alarms, `sync` | Native synchronous checked batches, alarms and durability proof | Callback transaction semantics, rollback/conflict behavior, alarm delivery and published package scheduling |
-| Stable `ctx.container.running` property and synchronous queued `start` | Native async lifecycle and observed run identity | Queue/admission timing, event-owned authority, monitor callbacks and stopped state recovery |
+| Stable `ctx.container.running` property and synchronous queued `start` | Provider-declared authoritative synchronous running snapshot; native async lifecycle and run identity | Snapshot authority is exercised in Node/V8; queued start/admission, monitor callbacks and stopped-state recovery remain required |
 | Container `getTcpPort`, HTTP/WS forwarding and readiness | Native port, TCP and WS capabilities | Fetch/port switching, stream/upgrade conversion and exact package timeout/abort behavior |
 | Background monitor/lifetime work | Native cancellation, ownership, inactivity and cleanup | Workers `waitUntil`/event lifetime behavior without detached native SDK work |
 | Outbound interception and `ctx.exports.ContainerProxy` | Native internet policy | Interception/proxy implementation or explicit profile refusal; no silent policy bypass |

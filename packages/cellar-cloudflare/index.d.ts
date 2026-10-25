@@ -94,6 +94,14 @@ export interface DurableObjectState {
   waitUntil(promise: Promise<unknown>): void;
   abort(): never;
 }
+/** Implemented state slice; lifecycle/ports require further profile support. */
+export interface DurableObjectContainer {
+  readonly running: boolean;
+}
+/** Activation-bound, authoritative provider state; never performs backend I/O. */
+export function durableObjectContainer(
+  nativeContext: object,
+): DurableObjectContainer;
 type Reserved =
   | "constructor"
   | "dup"

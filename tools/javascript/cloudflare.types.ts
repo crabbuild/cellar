@@ -3,6 +3,7 @@
 import {
   activateDurableObject,
   durableObjectNamespace,
+  durableObjectContainer,
   type DurableObjectStorage,
 } from "../../packages/cellar-cloudflare/index.js";
 import { DurableObject } from "../../packages/cellar-cloudflare/workers.js";
@@ -16,6 +17,13 @@ class Counter extends DurableObject {
   }
 }
 declare const context: Context;
+const container = durableObjectContainer(context);
+const running: boolean = container.running;
+void running;
+// @ts-expect-error: Workers running is a property, not a Promise or method
+container.running();
+// @ts-expect-error: Native state is read-only
+container.running = false;
 const namespace = durableObjectNamespace<Counter>(context, "COUNTERS");
 const stub = namespace.getByName("alice");
 const result: Promise<bigint> = stub.increment(3n);

@@ -288,6 +288,7 @@ fn exercise(
                     ensure!(before["state"] == "stopped");
                     ensure!(before["configuration"].is_null() != restart);
                     ensure!(request(&client, &address, "alice/schedule").await?["configuration"]["tested"] == true);
+                    ensure!(request(&client, &address, "alice/running").await?["state"] == "stopped");
                     ensure!(request(&client, &address, "bob/read").await?["configuration"].is_null());
                 }
                 "sandbox" => {

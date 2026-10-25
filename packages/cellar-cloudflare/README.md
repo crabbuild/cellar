@@ -88,9 +88,14 @@ slice, not a full Cloudflare SDK conformance claim.
 and builds genuine SDK constructor/storage fixtures. `cargo test --locked -p
 cellar-javascript --features embed,node --test workers` executes them through real
 native nodes, temporary cell databases and configured provider observation. The
-container view in these fixtures exposes the actual provider's stopped state;
-it deliberately supplies no start/monitor/port implementation. No test here
-executes a container image or certifies a full SDK profile.
+container view uses `durableObjectContainer(ctx)`: its synchronous `running`
+getter reads the native provider on every access under the current event's
+activation authority. Providers must opt in with `synchronous_running`; an
+async-only provider refuses instead of returning a guessed or cached state.
+Queued start, monitor and port methods remain unfinished profile work. The
+running-state fixture starts and destroys through Cellar's existing native API
+against the engine protocol peer; it does not execute an actual container image
+or certify a full SDK profile.
 
 The storage fixture exercises structured graphs, SQL blobs/numeric conversion,
 private data boundaries, cursor/byte quotas, failed admission, stale contexts,

@@ -1,6 +1,9 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
-import { activateDurableObject } from "../../../../packages/cellar-cloudflare/index.js";
+import {
+  activateDurableObject,
+  durableObjectContainer,
+} from "../../../../packages/cellar-cloudflare/index.js";
 let saved;
 let generations = 0;
 export const check = (value, message) => {
@@ -20,11 +23,10 @@ export function application(Target, usesContainer = false) {
   class Counter {
     async initialize(ctx) {
       this.initialization ??= (async () => {
-        // This fixture qualifies constructor/storage paths only. Observe the
-        // actual configured provider, then supply only its stopped-state view.
-        // Starting/monitoring/forwarding an engine is a separate SDK profile.
+        // This fixture qualifies constructors/storage and the live running
+        // property. Queued lifecycle and forwarding remain separate work.
         const container = usesContainer
-          ? Object.freeze({ running: await ctx.container.running() })
+          ? durableObjectContainer(ctx)
           : undefined;
         if (usesContainer)
           check(
@@ -37,7 +39,11 @@ export function application(Target, usesContainer = false) {
         });
         this.original = ctx;
         this.generation = ++generations;
-        saved ??= { activation: this.activation, name: ctx.identity.name };
+        saved ??= {
+          activation: this.activation,
+          container,
+          name: ctx.identity.name,
+        };
       })();
       await this.initialization;
       if (this.original !== ctx)
@@ -50,6 +56,8 @@ export function application(Target, usesContainer = false) {
           () => saved.activation.invoke(() => "forbidden"),
           "ContextMismatch",
         );
+      if (usesContainer && saved.activation !== this.activation)
+        await refuses(() => saved.container.running, "ContextMismatch");
     }
     async fetch(req, ctx) {
       try {

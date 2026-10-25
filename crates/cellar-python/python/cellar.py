@@ -353,6 +353,7 @@ class ContainerCapabilities:
     operations: tuple[str, ...]
     max_body_bytes: int
     max_resources: int | None
+    synchronous_running: bool
 
 
 @dataclass(frozen=True)
@@ -466,7 +467,8 @@ class Container:
     async def capabilities(self) -> ContainerCapabilities:
         value = await self._context._call("container.capabilities")
         return ContainerCapabilities(value["format"], value["provider"], value["environment"],
-            tuple(value["operations"]), value["max_body_bytes"], value["max_resources"])
+            tuple(value["operations"]), value["max_body_bytes"], value["max_resources"],
+            value["synchronous_running"])
 
     async def running(self) -> bool:
         return await self._context._call("container.running")

@@ -16,6 +16,7 @@
     "sql.js",
     "id.js",
     "namespace.js",
+    "container.js",
     "index.d.ts",
     "workers.d.ts",
     "storage.d.ts",

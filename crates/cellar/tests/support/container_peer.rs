@@ -207,6 +207,10 @@ pub struct AuditedProvider {
 }
 
 impl cellar_guest::containers::Provider for AuditedProvider {
+    fn synchronous_running(&self) -> bool {
+        true
+    }
+
     fn environment(&self) -> cellar_guest::containers::Environment {
         cellar_guest::containers::Native.environment()
     }
@@ -239,6 +243,11 @@ struct AuditedSession {
 }
 
 impl cellar_guest::containers::ProviderSession for AuditedSession {
+    fn running_snapshot(&self, context: &cellar::sdk::Context) -> Result<bool> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        self.inner.running_snapshot(context)
+    }
+
     fn execute<'a>(
         &'a self,
         context: &'a cellar::sdk::Context,

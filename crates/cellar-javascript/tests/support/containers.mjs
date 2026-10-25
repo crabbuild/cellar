@@ -37,6 +37,7 @@ export class Counter {
     }
     const c = ctx.container;
     const capabilities = await c.capabilities();
+    check(capabilities.synchronous_running, "declared synchronous observation");
     check(
       capabilities.provider === "audited-native" &&
         capabilities.environment === "linux",
@@ -56,6 +57,7 @@ export class Counter {
         env: [["HELLO", "world"]],
         labels: [["app", "adapter"]],
       });
+    check(ctx._sync("workers.container.running"), "native provider snapshot");
     const http = c.port(Number(await ctx.variable("HTTP_PORT")));
     if (req.url.endsWith("/leak") || req.url.endsWith("/cancel")) {
       const result = await http.connectWebSocket("http://container/ws");

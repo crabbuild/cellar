@@ -15,7 +15,7 @@ does not narrow that objective or turn fixture passes into full compatibility.
 | --- | --- | --- |
 | SP-01 | Exact celld reference commit/files/license, npm packages/lock/integrities, imported runtime bytes and immutable Sandbox image manifest are in `tools/sandbox/compat`; drift/refusal tests pass; API/fixture inventory lists native mappings and explicit gaps | Input inventory implemented; runtime conformance remains in SP-02–SP-04 and later profiles |
 | SP-02 | Native-backed DO SQL/KV/clone facade, activation-bound authority, object identity, value-only namespace/cell RPC, constructor admission, native input gates/reset, sync/async transactions and retained event/background drivers execute in Node/V8; actual published constructors are exercised | Complete module/bootstrap/web globals, automatic activation-owned environment bindings, property/target RPC and lifetimes, full versioned lifetime/deadline qualification and profile/version admission; retain native-only dependency boundary |
-| SP-03 | Actual published `@cloudflare/containers@0.3.7` constructor, state and SQL scheduling run in both engines with native storage and a stopped-provider view; unchanged upstream example is pinned | Execute the unchanged app, class hooks, routing, sleep/wake, process/port behavior and cleanup against the native engine |
+| SP-03 | Actual published `@cloudflare/containers@0.3.7` constructor, state and SQL scheduling run in both engines with native storage; an authoritative synchronous running property observes native start/destroy and refuses foreign activation access; unchanged upstream example is pinned | Native queued lifecycle/admission, then unchanged app, class hooks, routing, sleep/wake, process/port behavior and cleanup against the native engine |
 | SP-04 | Actual `@cloudflare/sandbox@0.12.9` constructor/configuration and metadata recovery run in Node; matching upstream app/Dockerfile and `linux/amd64` image digest are pinned | Run the unchanged app and SDK/image end to end over HTTP and RPC; files, streamed exec, background records, previews, teardown and failure cases |
 | SP-05 | Provider environment/operation/limit discovery is implemented in Rust, Python, JS and TS; native and restricted provider dispatch tests cover it | Portable files and richer operations, named configuration, durable remote bindings, fencing, expiry/reconnect, loss/unknown outcomes and orphan reconciliation |
 | SP-06 | No Vercel/E2B implementation yet | Real shared provider implementations, fixtures and real-account conformance, explicit Cloudflare profile compatibility/gaps |
@@ -97,10 +97,22 @@ same epoch. Native identity and V8 random/UUID scheduling paths are implemented.
 
 Published Containers 0.3.7 construction/state/scheduling and Sandbox 0.12.9
 construction/configuration/metadata recovery execute through real native nodes.
-The fixtures observe a stopped configured provider and intentionally supply no
-start/monitor/port methods. They do not run the unchanged upstream apps or the
-Sandbox image. Shared initialization is memoized in the fixture adapter so an
+The fixtures now use the activation-bound `durableObjectContainer` running
+property rather than retaining an asynchronously observed stopped value. They
+do not supply queued start/monitor/port methods or run the unchanged upstream
+apps or the Sandbox image. Shared initialization is memoized in the fixture adapter so an
 alarm and fetch cannot construct duplicate objects for one activation.
+
+The provider contract separately declares `synchronous_running` and implements
+`ProviderSession::running_snapshot`. Native reads the actual cell-owned engine
+state without I/O; the shared session checks invocation/facet authority before
+and after the observation. Async-only providers refuse before dispatch. Rust,
+Python and JS/TS capability descriptors report the opt-in. Node/V8 fixtures
+observe actual native start/destroy against the engine protocol peer and reject
+another cell's saved running facade. The observation also executes inside native
+sync/async transactions, and both codecs refuse to persist the branded live
+container capability as plain data. This is running-property evidence, not
+evidence that the published package's queued lifecycle or a real image works.
 
 Constructor callbacks remain attached to their original event and admission
 refuses failed initialization, including rejection with `undefined`. The

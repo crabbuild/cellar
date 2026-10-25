@@ -98,6 +98,8 @@ export interface ContainerCapabilities {
   readonly operations: readonly string[];
   readonly max_body_bytes: number;
   readonly max_resources: number | null;
+  /** Provider offers an authoritative snapshot without backend I/O. */
+  readonly synchronous_running: boolean;
 }
 
 export interface ContainerStartOptions {

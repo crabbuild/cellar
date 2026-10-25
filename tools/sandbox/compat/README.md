@@ -58,8 +58,10 @@ before running, preventing reuse of stale executable fixtures. The original
 
 These tests execute actual published Container construction/scheduling in Node
 and V8, and Sandbox construction/configuration in Node, through real native
-SQLite and a configured stopped-provider observation. They qualify those paths
-only. The stopped-state container view has no lifecycle or port methods. The
+SQLite and an activation-bound synchronous provider running property. Node/V8
+fixtures check native startup/teardown observations against the engine protocol
+peer and refuse foreign-cell property access. They qualify those paths only;
+the compatibility facade still has no queued lifecycle or port methods. The
 unchanged upstream applications, actual image, HTTP/RPC, monitor hooks and cloud
 providers remain required. The source inventory continues to report
 `conformance: not_run` for that complete baseline.

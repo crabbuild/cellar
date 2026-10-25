@@ -25,6 +25,7 @@ pub struct Capabilities {
     pub operations: Vec<String>,
     pub max_body_bytes: usize,
     pub max_resources: Option<usize>,
+    pub synchronous_running: bool,
 }
 
 impl Capabilities {
@@ -41,6 +42,8 @@ impl Capabilities {
             operations,
             max_body_bytes: limits.max_body_bytes,
             max_resources: provider.max_resources(),
+            synchronous_running: provider.synchronous_running()
+                && provider.operations().contains(&Operation::Running),
         }
     }
 }
@@ -59,6 +62,7 @@ mod tests {
         assert_eq!(capabilities.environment, Environment::Linux);
         assert_eq!(capabilities.max_body_bytes, 42);
         assert_eq!(capabilities.max_resources, Some(64));
+        assert!(capabilities.synchronous_running);
         assert_eq!(capabilities.operations.len(), Operation::ALL.len());
         assert!(capabilities
             .operations

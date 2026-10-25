@@ -5,6 +5,7 @@ import { nativeId } from "./id.js";
 import { DurableObject, RpcTarget } from "./workers.js";
 export { durableStorage } from "./storage.js";
 export { durableObjectNamespace } from "./namespace.js";
+export { durableObjectContainer } from "./container.js";
 
 const reserved = new Set([
   "constructor",

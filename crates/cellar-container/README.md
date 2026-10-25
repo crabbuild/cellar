@@ -148,6 +148,7 @@ authority, but does not start a container or call the provider's effect dispatch
 | `operations` | Actually declared bridge operations, plus shared capability discovery |
 | `max_body_bytes` | Host limit for binary bodies and bounded results |
 | `max_resources` | Provider-declared live-handle cap; `null` means unknown, not unlimited |
+| `synchronous_running` | Opt-in, authoritative running observation with no backend I/O; required by the Workers property |
 
 `Native` declares Linux and enforces 64 live handles per invocation. JS and Python
 return immutable metadata. The `worker_isolate` enum value describes a possible
@@ -191,6 +192,7 @@ startup. See the [trait definitions](lib.rs) and
 | `Provider::name` | Stable backend name for discovery |
 | `Provider::operations` | Advertise only fully implemented operations; subsets are supported |
 | `Provider::environment` / `max_resources` | Declare the execution environment and enforced handle cap; defaults mean unknown |
+| `Provider::synchronous_running` / `ProviderSession::running_snapshot` | Opt in to an immediate running-state read; the shared session still checks event authority |
 | `Provider::open` | Allocate an invocation-local `ProviderSession`; perform no I/O |
 | `ProviderSession::execute` | Run the operation using the original native context and the supplied limits |
 

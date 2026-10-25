@@ -9,6 +9,9 @@ import {
 
 async function control(ctx: Context) {
   const container: Container = ctx.container;
+  const synchronous: boolean = (await container.capabilities())
+    .synchronous_running;
+  void synchronous;
   const running: boolean = await container.running();
   if (!running) {
     const run: string = await container.start({
