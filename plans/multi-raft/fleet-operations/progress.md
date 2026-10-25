@@ -976,20 +976,93 @@ must apply to later movement, beyond existing birth checks. FO-04 through FO-10
 remain pending. Automatic fleet management stays default-off. No deployed
 RustFS/Colima, resource-enforcement, TPS/p99 or soak qualification is claimed.
 
+## FO-03 progress: rooted placement and evacuation admission
+
+Source `67e3d6f4d2193f87ea7db122ac832b53c2c3d8b1` records explicit `PhysicalHosts` or `Nodes` replica
+separation. The default requires distinct physical hosts. The head retains the
+current choice and the genesis pin its initial choice; incompatible initialization,
+missing policy fields and unknown values refuse. `Nodes` permits an explicitly
+colocated fleet without claiming independence from loss of a shared host.
+
+Managed birth admission uses that rooted policy. A fresh managed repair checks
+the actual durable configuration plus its proposed learner after source/target
+trust acknowledgements. Rooted physical-host identities supply separation;
+advisory regions, zones and process labels do not. A refusal consumes no member
+or permit sequence and leaves the root reservation retained. Exact committed
+plans still reconcile after exclusion. Native coverage fences the unused permit,
+then performs a legal replacement through peer seed, joint completion and S3 SQL;
+the explicit colocated policy also completes real RF3 birth and replacement.
+
+`begin_evacuation` now consumes complete inventory inside an exclusion-admission
+turn. A single root CAS records the canonical operation projection, raises one
+Active node's epoch to Draining and claims the disruption slot. The head retains
+a digest of that slot, so missing data and generic deletion/reset cannot create
+an apparently free slot. The immutable catalog-scoped operation-request object
+binds operation ID, mutation identity, principal, original revision and node
+before root CAS. Its binding survives a losing candidate. Admitted retries use
+the journal and preserve the original applied revision, including after a later
+incomplete namespace is declared. Admission reads verify canonical and journal
+linkage; historical counts and node epochs grant no lease or removal authority.
+
+Six native lifecycle cases cover authenticated observation of exclusion, refusal
+of fresh target placement, continued S3 SQL, omitted/unadopted namespaces, missing
+canonical history, a held CAS losing to a concurrent declaration, permanent
+operation identity, lost replies through a recreated adapter, missing request
+bytes, generic slot-deletion refusal, racing disruptions, cancellation and the
+original deadline. Metadata and owning SDK nodes are joined. Catalog fixture
+state inputs remain privileged; this is not capacity-activation qualification.
+
+**369 native cases passed across 13 complete targets**, including 67 enrollment,
+12 catalog and 25 permit/import cases. Five directly ignored process helpers run
+through their passing parent cases. **136 Raft library units** and **four startup
+confirmation cases** passed. Clippy with warnings denied, formatting/layout over
+955 Rust files, native dependency checks (454 packages, no JavaScript engine),
+documentation, source preflight, plan validation and all 10 validator tests
+passed. The plan retains 176 required cases and 71 reviewed source anchors.
+
+The first filtered two-target run passed its 12 catalog cases and 59 enrollment
+cases, with seven enrollment cases excluded by the filter and one fixture
+failure: it tried to register a new dormant history after exclusion. The fixture
+now registers before exclusion and verifies that a subsequent call refuses.
+No production guard was relaxed. A red regression also reproduced operation-ID
+reuse reaching inventory checking after a losing CAS; the permanent request
+binding corrects that gap. Initial and intermediate logs remain retained. No
+assertion, timeout or lint was weakened, and no stack override or debug probe
+remains. Earlier readiness/setup timing instability remains unresolved.
+
+The **partial** record `implementation/fo03/lifecycle-placement-boundary.json`
+under ignored `.cellar/raft-perf/fleet-operations/` retains exact source, log and
+executable hashes. Build-cache paths do not archive executable bytes. No raw files
+are tracked under `plans/multi-raft/evidence/`. The protocol hard-cuts to
+`/fleet-admission-1`: use fresh experimental fleet/data prefixes, namespaces and
+matching binaries. Numeric markers stay at 1, with no compatibility reader or
+migration. New head/pin fields and canonical request linkage are mandatory.
+
+FO-03 remains **IN_PROGRESS**. The remaining absent mandatory case is
+`fleet_enrollment_incomplete_import`, whose oracle is terminal removal
+certification, beyond exclusion admission. Capacity activation/readiness and
+terminal lifecycle integration remain required. This increment moves no replicas
+automatically, stops no process, certifies no node absence, marks no node
+Evacuated/Removed, releases no disruption or membership reservation, and
+reclaims no storage. FO-04 through FO-10 remain pending and fleet automation
+stays default-off. RustFS/Colima limits, TPS/p99, full scaling workflows and soak
+qualification remain unproven.
+
 ## Prioritized remaining delivery
 
 The append-only namespace registry, complete inventory read, native retired-binding
-refusal, unrooted ingress refusal, catalog-scoped move trust admission and
-physical route/process revocation are implemented. Next, consume a revalidated exact root inside typed capacity and
-lifecycle admissions; a saved count cannot authorize
+refusal, unrooted ingress refusal, catalog-scoped move trust admission,
+physical route/process revocation, rooted replica separation and typed evacuation
+exclusion are implemented. The evacuation adapter consumes complete inventory
+inside its exact root CAS. Capacity activation and terminal lifecycle proof still
+require their operation-specific integration; a saved count cannot authorize
 placement or maintenance. The manifest dependencies remain unchanged.
 
 | Priority | Boundary | Required result before advancing |
 | --- | --- | --- |
-| P0, first | FO-03 complete inventory admission | The rooted registry and full canonical/history checker supply the inventory input; native retired-binding refusal is covered. Connect an exact revalidated root to typed capacity and maintenance admission, including offline and pending references, operation-specific live proofs and physical-work joins. Checked inventory does not prove node absence. Close `fleet_enrollment_incomplete_import`. |
-| P0, next | FO-03 rooted failure-domain policy | Unknown-node ingress, actual source/target trust acknowledgements and physical route/process revocation are covered. Enforce rooted node-versus-physical-host placement for later movement, beyond existing birth checks. Pass both remaining mandatory cases and the full FO-03 behavior suite. Close `fleet_enrollment_physical_host`. |
+| P0 | FO-03 capacity and terminal lifecycle integration | Complete inventory now gates typed evacuation exclusion under one exact root CAS; rooted physical-host policy is enforced on birth and fresh repair. Finish capacity activation/readiness and inventory-consuming terminal proof with fresh quorum/archive coverage, settled permits and physical-work joins/fences. Exclusion is not node absence. Close `fleet_enrollment_incomplete_import` at the actual removal-certification boundary. |
 | P1 | FO-04 placement, FO-05 load, FO-06 reconciliation | Implement bounded staged feasibility for retained/temporary costs and one-node-loss headroom, fresh load observations and a domain-owned reconciler. Restart/cancellation/lost replies must converge; release reservations only with fresh terminal quorum proof and physical-work joins. |
-| P2 | FO-07 maintenance and FO-08 operator API/CLI | Deliver exact-operation/epoch/process stop fencing, one disruption slot, complete evacuation/removal receipts and authenticated idempotent workflows with revision guards and typed outcomes. Cover add/remove and rolling restart. |
+| P2 | FO-07 maintenance and FO-08 operator API/CLI | Deliver exact-operation/epoch/process stop fencing, shared disruption-slot integration for restart/resize, complete evacuation/removal receipts and authenticated idempotent workflows with revision guards and typed outcomes. Cover add/remove and rolling restart. |
 | P3 | FO-09 scaling and fewer-cell shrink | Reconcile desired, effective and observed resources for horizontal and vertical changes. Require observed platform-limit checks and complete retained-state fit before shrinking; fewer cells do not establish removability. |
 | Release gate | FO-10 deployed qualification and performance | Qualify actual five/six/four-node RustFS/Colima operations and faults with enforced 1-vCPU/3-GiB limits and a 24-hour soak. Measure successful TPS, p50/p95/p99, archive catch-up and controller idle/movement overhead. Prefer p99 below 200 ms; 500 ms is the hard ceiling. Keep optional performance changes only with matched evidence of higher throughput or lower latency. |
 

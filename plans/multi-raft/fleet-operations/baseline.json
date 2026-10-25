@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "revision": "1a6dc10e691fa10c292ff88e883692dfc2e03fec",
+  "revision": "67e3d6f4d2193f87ea7db122ac832b53c2c3d8b1",
   "files": [
     {
       "path": ".github/workflows/native-sdk.yml",
@@ -48,11 +48,11 @@
     },
     {
       "path": "crates/cellar/application/consensus/mod.rs",
-      "sha256": "e2e02c854e470217b70781acc405f25e6d2a69569ef19f8f225c9fcfe054d446"
+      "sha256": "2dd57b1562d476874d26992f450c76820f41a816af1a15d545ceaa05fc969b4a"
     },
     {
       "path": "crates/cellar/application/consensus/protocol.rs",
-      "sha256": "880447981dab2bb063cc160869c01dc2664a347319d3d943c6e4240abc64d61e"
+      "sha256": "b3173ed72ec58bb813fb4a84241d525e3ed1a9e99c752efed599e064a47bbab6"
     },
     {
       "path": "crates/cellar/application/consensus/resources.rs",
@@ -64,7 +64,7 @@
     },
     {
       "path": "crates/cellar/durability/raft/README.md",
-      "sha256": "a5d28df9e912ea8c0bfa4f9fd184585670927196eff548450539e5afa9489dcf"
+      "sha256": "59fcbde8051e6d7ccc25a9fcf4e8999592b39786f111444745ad38c1f127c3c1"
     },
     {
       "path": "crates/cellar/durability/raft/archive/mod.rs",
@@ -80,7 +80,7 @@
     },
     {
       "path": "crates/cellar/durability/raft/catalog_wire.rs",
-      "sha256": "537b47e12c0d882537611d1b850a24300dfb8c9107694f99029f89e45116d810"
+      "sha256": "0ced0fba9225be28cccc878b855bdcbef5ff8e95460c57f9405f190976cd10e3"
     },
     {
       "path": "crates/cellar/durability/raft/controller_action.rs",
