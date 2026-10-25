@@ -22,10 +22,9 @@ container engine. Selecting `Native` keeps the same Docker/Podman execution path
 | Existing Workers/Durable Object application APIs | Optional `@cellar/cloudflare` package | Experimental API compatibility above the same provider boundary |
 | A hosted sandbox such as Vercel or E2B | A dedicated Rust `Provider` implementation | Remote execution, fencing, reconciliation and cleanup; these providers remain planned |
 
-Cellar follows celld's application pattern: a durable object/cell owns container
-controls, while the node executes the backend work. The extra provider boundary
-lets a host supply another executor. Compatibility with a published SDK still
-requires testing its APIs and matching image together.
+Like celld, a durable object/cell owns container controls and the node executes
+them. Cellar adds a host-selected provider shared by all four languages.
+SDK compatibility is qualified against its matching image.
 
 ## How it fits together
 
@@ -51,10 +50,9 @@ adapter does not move SDK effects onto the Python, Node or V8 runtime thread.
 | Hosted Cloudflare, Vercel, E2B, Daytona and Modal | Planned; no remote provider ships in this crate | [Delivery plan](../../plans/sandbox-provider-compatibility.md) |
 | Dynamic Worker isolates, PTY and snapshots | Planned features; the current operation set does not implement them | [Implementation ledger](../../plans/sandbox-provider-progress.md) |
 
-The pinned Sandbox 0.12.9 SDK/image passes the unchanged application's exec,
-file and background-process route tests, including later process discovery and
-explicit teardown. Streaming, previews and fault qualification remain open;
-see the [live qualification evidence](../../plans/sandbox-provider-progress.md#returned-functions-and-live-sandbox-processes).
+**Tested Sandbox baseline:** 0.12.9 SDK + matching image; unchanged exec, file,
+background-process discovery and teardown routes pass. Streaming, previews and
+fault qualification remain open. See the [evidence ledger](../../plans/sandbox-provider-progress.md#returned-functions-and-live-sandbox-processes).
 
 ## Quick start
 
@@ -241,14 +239,10 @@ its inactivity window. Ownership transfer, reset, node restart or shutdown can
 destroy it. Persist job progress in cell state and expect a fresh process after
 takeover.
 
-```mermaid
-flowchart LR
-    V[Validate input and capability] --> A[Check event authority]
-    A --> G[Await mutation output gate]
-    G --> E[Execute provider]
-    E --> R[Recheck authority]
-    R --> B[Validate bounded reply]
-```
+![For a control call, the session validates inputs and authority, waits for the required durability proof, invokes the provider, then checks authority and reply limits before returning.](diagram/control-call.svg)
+
+*Control calls wait for earlier cell writes to reach their required durability
+proof. Stream reads and other observations can overlap a pending control.*
 
 | Failure point | What callers can conclude |
 | --- | --- |
@@ -258,16 +252,17 @@ flowchart LR
 | Explicit cancellation before dispatch | `Cancelled` / `not_committed`; provider was not called |
 | Cancellation after admission | `Cancelled` / `unknown`; waiting stops and the provider future is dropped |
 
-The native gate orders external effects after the required durability proof of
-earlier cell writes. It does not make commands transactional or exactly once.
+Commands are not transactional or exactly once. Cancellation stops waiting;
+it does not establish whether an accepted command stopped or rolled back.
 
-Rust hosts can pass a native abort signal to `Session::execute_with_signal`.
-JavaScript/TypeScript buffered port fetches accept `{ signal }` as a second
-argument. The runtime retains the operation slot and byte reservation until the
-native cancellation response arrives; it does not race away from native work.
-Dropping the native HTTP future cancels the outstanding connection/body work.
-Other provider implementations must honor their future-drop cleanup contract;
-cancellation does not prove that a remote command stopped or rolled back.
+| Cancellation API | Usage |
+| --- | --- |
+| Rust | `Session::execute_with_signal` with a native abort signal |
+| JS / TS buffered port fetch | `port.fetch(request, { signal })` |
+
+The runtime keeps reservations until native cancellation completes. Dropping a
+native HTTP future cancels its connection/body work; custom providers must honor
+the [future-drop cleanup contract](providers.md#backend-responsibilities).
 
 ## Add a provider
 
@@ -310,107 +305,25 @@ impl Provider for StatusOnly {
 let adapter = Adapter::new(Arc::new(StatusOnly));
 ```
 
-### Provider responsibilities
-
-| Method | Responsibility |
-| --- | --- |
-| `Provider::name` | Stable backend name for discovery |
-| `Provider::operations` | Advertise only fully implemented operations; subsets are supported |
-| `Provider::environment` / `max_resources` | Declare the execution environment and enforced handle cap; defaults mean unknown |
-| `Provider::synchronous_running` / `ProviderSession::running_snapshot` | Opt in to an immediate running-state read; the shared session still checks event authority |
-| `Provider::queued_lifecycle` / `ProviderSession::preflight` | Opt in to lifecycle admission; validate backend prerequisites without I/O or effects |
-| `Provider::open` | Allocate an invocation-local `ProviderSession`; perform no I/O |
-| `ProviderSession::execute` | Run the operation using the original native context and the supplied limits |
-
-The shared session enforces event liveness, current turn, activation epoch and
-host ownership before and after dispatch. `Native` additionally checks local
-class/image/engine requirements; another backend need not declare a Docker image.
-
-### Provider checklist
-
-| Concern | Provider must supply |
-| --- | --- |
-| Ownership / fencing | Stable cell identity, ownership epoch and provider-side fencing; local checks cannot revoke an already-accepted remote mutation |
-| Isolation | Explicit image, CPU/memory, runtime, filesystem and network policies; refuse unsupported security settings before allocation |
-| Bounded I/O | Private invocation handles, run invalidation, bounded frames/bodies and concurrent stdout/stderr collection |
-| Port authority | Forward only to the granted port; return redirects without following them |
-| Cleanup | Cancel/join pending work, release invocation streams, and reconcile or destroy instances on ownership loss, shutdown and explicit destroy |
-| Crash recovery | Provider-side leases/expiry and orphan reconciliation for node crashes |
-| Outcome reporting | Ordinary errors for uncertain mutations; attach `Validation` only when provider effects provably did not occur |
-
-Native bridge fences and resource accounting do not automatically protect a
-remote service. A lifecycle/exec-only provider may refuse TCP or WebSockets;
-capability discovery must make that subset explicit.
+The [provider contract](providers.md) explains each trait method, fencing,
+isolation, cleanup and uncertain outcomes. Use the [wire reference](protocol.md)
+for operation inputs and results.
 
 ## Bridge protocol, version 1
 
-Applications normally use the language facade. Provider implementers use
-`Operation::name()` and the owned JSON contract below.
+The [complete reference](protocol.md) documents the owned JSON contract. Most
+applications use the language facade instead of constructing these messages.
 
-| Convention | Encoding / bound |
-| --- | --- |
-| Binary data | Standard padded base64 |
-| Option keys | `snake_case`, including the JS facade's internal wire values |
-| Environment, labels, headers | Arrays of string pairs |
-| Void result / IDs | JSON `null` / opaque strings |
-| Port / signal / timeout | `1–65535` / `1–64` / integer milliseconds `0–86400000` |
-| Buffered exec | Required `max_bytes`, bounded by the host limit; one combined stdout/stderr budget |
-| End of stream | Empty stdout/stderr or TCP chunk |
-
-<details>
-<summary><strong>Operation reference: lifecycle, process I/O and ports</strong></summary>
-
-### Lifecycle and discovery
-
-| Operations | Input | Result |
+| Operation family | Examples | Reply |
 | --- | --- | --- |
-| `container.capabilities` | `{}` | Versioned capability descriptor |
-| `container.running` / `.monitor` / `.destroy` | `{}` | Boolean / integer exit code / `null` |
-| `container.start` | `{options:{entrypoint?,env?,enable_internet?,labels?}}` | Run token |
-| `container.signal` | `{signal}` | `null` |
-| `container.set_inactivity_timeout` | `{timeout_ms}` | `null` |
+| Discovery / lifecycle | `container.capabilities`, `.start`, `.monitor` | Capabilities, run token or exit code |
+| Commands | `container.exec`, `.exec_output` | Process handle or bounded output |
+| Process streams | `container.exec.read_stdout`, `.write` | Base64 bytes or `null` |
+| Ports | `container.port.fetch`, `.connect` | Buffered HTTP response or socket handle |
+| Sockets / WebSockets | `container.socket.read`, `container.websocket.receive` | Bytes or a typed event |
 
-### Process I/O
-
-| Operations | Input | Result |
-| --- | --- | --- |
-| `container.exec` | `{options:{cmd,env?,cwd?,user?,combined?}}` | Process ID |
-| `container.exec_output` | `{options:{cmd,env?,cwd?,user?,combined?},max_bytes}` | `{exit_code,stdout,stderr}` |
-| `container.exec.read_stdout` / `.read_stderr` | `{id}` | Base64 chunk; empty means EOF |
-| `container.exec.wait` | `{id}` | Integer exit code |
-| `container.exec.close_stdin` | `{id}` | `null` |
-| `container.exec.write` / `.kill` | `{id,data}` / `{id,signal}` | `null` |
-| `container.release` | `{id}` | `null`; releases the resource according to its kind |
-
-Buffered exec closes stdin and drains both output streams concurrently. For
-interactive exec, write input, close stdin as appropriate, and drain both streams
-while awaiting `wait`. Issue control operations sequentially; observations and
-stream reads can overlap a control operation.
-
-### Ports and sockets
-
-| Operations | Input | Result |
-| --- | --- | --- |
-| `container.port.wait_ready` | `{port,timeout_ms}` | `null` |
-| `container.port.fetch` | `{port,request:{url,method,headers,body}}` | `{status,headers,body}` |
-| `container.port.connect` | `{port}` | Socket ID |
-| `container.port.connect_websocket` | `{port,url,headers}` | `{upgraded:true,id,protocol}` or `{upgraded:false,response}` |
-| `container.socket.read` / `.write` / `.close_write` / `.close` | `{id}`; write adds `data` | Base64 chunk or `null` |
-| `container.websocket.receive` | `{id}` | One event from the table below |
-| `container.websocket.send_text` / `.send_binary` / `.close` | `{id,text}` / `{id,data}` / `{id,code,reason}` | `null` |
-
-Container port HTTP is buffered. Redirects are returned without following them;
-arbitrary HTTP streaming and server-side 101 passthrough use the separate
-[language transport API](../../docs/27-streaming-and-websockets.md).
-
-| WebSocket event | Wire value |
-| --- | --- |
-| Open | `{type:"open",protocol}` |
-| Text | `{type:"text",text}` |
-| Binary | `{type:"binary",data}` |
-| Close | `{type:"close",code,reason,clean}`; retains clean/unclean provenance |
-
-</details>
+Binary wire values use standard padded base64. Python exposes `bytes`; JS/TS
+exposes `Uint8Array`. The host controls byte and resource limits.
 
 ## Validate changes
 
