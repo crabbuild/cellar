@@ -50,6 +50,7 @@ pyo3-build-config = { workspace = true, optional = true }
 serde_json.workspace = true
 
 [dev-dependencies]
+cellar-container.workspace = true
 tar.workspace = true
 http-body-util.workspace = true
 hyper.workspace = true
@@ -68,6 +69,12 @@ tracing-subscriber.workspace = true
 [[test]]
 name = "typed_rpc"
 path = "tests/typed_rpc.rs"
+harness = false
+required-features = ["embed"]
+
+[[test]]
+name = "e2b"
+path = "tests/e2b.rs"
 harness = false
 required-features = ["embed"]
 

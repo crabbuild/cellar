@@ -5,6 +5,7 @@
 #![warn(clippy::disallowed_methods, clippy::disallowed_types)]
 
 mod capabilities;
+pub mod e2b;
 mod files;
 mod native;
 mod queued;
@@ -12,7 +13,7 @@ mod results;
 mod values;
 
 use anyhow::{ensure, Context as _, Result};
-pub use capabilities::{Capabilities, Environment};
+pub use capabilities::{Capabilities, Environment, Fencing};
 use cellar::sdk::{containers::ProviderAuthority, Context};
 use serde_json::Value;
 use std::{
@@ -238,6 +239,12 @@ pub trait Provider: Send + Sync {
         Environment::Unspecified
     }
 
+    /// Ownership protection supplied by this configured backend. Local
+    /// invocation checks alone do not revoke already accepted remote requests.
+    fn fencing(&self) -> Fencing {
+        Fencing::Unspecified
+    }
+
     /// Maximum live handles enforced by the provider, when declared.
     fn max_resources(&self) -> Option<usize> {
         None
@@ -289,6 +296,10 @@ pub trait ProviderSession: Send + Sync {
 pub struct Native;
 
 impl Provider for Native {
+    fn fencing(&self) -> Fencing {
+        Fencing::NativeCell
+    }
+
     fn queued_lifecycle(&self) -> bool {
         true
     }

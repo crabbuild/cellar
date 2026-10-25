@@ -10,6 +10,12 @@ import {
 
 async function control(ctx: Context) {
   const container: Container = ctx.container;
+  const fencing:
+    | "unspecified"
+    | "native_cell"
+    | "local_checks_and_expiry"
+    | "provider_enforced" = (await container.capabilities()).fencing;
+  void fencing;
   const synchronous: boolean = (await container.capabilities())
     .synchronous_running;
   void synchronous;

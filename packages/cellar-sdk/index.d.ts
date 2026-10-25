@@ -95,6 +95,11 @@ export interface ContainerCapabilities {
   readonly format: 1;
   readonly provider: string;
   readonly environment: "unspecified" | "linux" | "worker_isolate";
+  readonly fencing:
+    | "unspecified"
+    | "native_cell"
+    | "local_checks_and_expiry"
+    | "provider_enforced";
   readonly operations: readonly string[];
   readonly max_body_bytes: number;
   readonly max_resources: number | null;

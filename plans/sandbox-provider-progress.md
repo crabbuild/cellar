@@ -701,3 +701,50 @@ handler budget during intermediate runs. The final uninstrumented run passes
 in 0.63 seconds overall with the same per-handler budget; the timeout cause is
 not established. No assertion or deadline was relaxed. This local result does
 not complete the broader deadline/fault or live-provider qualification.
+
+
+### Experimental direct E2B execution profile
+
+The Rust `e2b::E2b` provider uses pinned upstream control OpenAPI and envd
+HTTP/Connect protocols. The existing Rust, Python, JavaScript and TypeScript
+container APIs select it in the native host; no vendor SDK or JavaScript engine
+is introduced into a native-only application.
+
+| Boundary | Delivered behavior |
+| --- | --- |
+| Explicit ownership choice | Direct E2B requires `LocalChecksAndExpiry`; strict provider-fence admission refuses before allocation. Shared capabilities expose the configured `fencing` guarantee in all four languages. |
+| Durable lifecycle | Persist a stable creation identity before POST, retain unknown outcomes across restart, reconcile by exact protected metadata and confirm one resource; never blindly replay a create after an empty listing. |
+| Delete / replacement | Persist deletion intent, inspect the original ID after a lost reply, confirm retirement before a new generation; reject foreign configuration or metadata before commands/deletion. |
+| Protocol / credentials | Host-pinned HTTPS endpoints, manual redirects, separate API/envd authentication, bounded control bodies and original-context HTTP; no credentials in guest results or the protected journal. |
+| Commands / files | Direct argv, cwd/env/Unix username, bounded binary stdout/stderr and child exit codes; file read/write/stat/list, UTF-8 names and permission modes. Writes use tee/chmod without shell construction or implicit mkdir. |
+| Cancellation / bounds | Overall operation deadline, incremental Connect decoding, combined output budgets, strict framing/terminal checks and dropped native streams on failure. Stdin submission and stdout draining run concurrently. |
+
+The native protocol peer covers lost create/delete replies, host recovery,
+metadata mismatches, binary/empty/512 KiB files, combined output, nonzero child
+exits, malformed/compressed/truncated streams, output overflow, timeout cleanup
+and redirect refusal. Actual CPython, Node and embedded V8 fixtures exercise the
+same backend and reject a saved facade from a later event. TypeScript checks
+cover the portable API and fencing descriptor. These tests execute no E2B VM;
+source pins and local fixtures do not establish live provider or SDK conformance.
+
+Direct E2B cannot fence an already accepted remote request. Fixed lifetime is
+not inactivity or automatic owner-loss cleanup. Interactive handles, monitor,
+signals, ports/previews, PTY/snapshots and Workers queued/synchronous lifecycle
+remain unsupported. A fenced broker, live-account expiry/takeover/orphan/fault
+qualification, named guest bindings and the remaining SP-05/SP-06 requirements
+are still open. The E2B manifest retains `qualification: not_run`; Vercel,
+Daytona, Modal, current Sandbox, Dynamic Workers and the rest of SP-01–SP-10
+remain in the active full goal.
+
+
+Final-source checks pass 14 provider unit tests, 16 shared guest unit tests, all
+three provider integrations and four adapter doctests. E2B acceptance passes in
+CPython, Node and embedded V8; the existing native-provider container regressions
+also pass in those runtimes. Strict all-target Clippy passes for the provider,
+shared guest and both language crates with all affected runtime features enabled.
+All 25 JS/tool/type tests, both E2B pinned-input tests, 55 owned JS/TS formatting
+checks, documentation references and the 466-package native-only dependency guard
+pass. Rust format/layout covers 1,080 sources. Owned-source whitespace checks
+pass; the pinned process protobuf retains its upstream whitespace and is checked
+byte-for-byte instead. No existing deadline or assertion was weakened, and no
+live-cloud qualification is claimed.

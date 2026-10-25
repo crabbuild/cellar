@@ -14,6 +14,16 @@ pub enum Environment {
     WorkerIsolate,
 }
 
+/// Ownership protection actually supplied by this configured provider.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Fencing {
+    Unspecified,
+    NativeCell,
+    LocalChecksAndExpiry,
+    ProviderEnforced,
+}
+
 /// Only operations actually declared by the configured provider are advertised.
 /// Optional future features are absent until a backend implements their contract.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -22,6 +32,7 @@ pub struct Capabilities {
     pub format: u8,
     pub provider: String,
     pub environment: Environment,
+    pub fencing: Fencing,
     pub operations: Vec<String>,
     pub max_body_bytes: usize,
     pub max_resources: Option<usize>,
@@ -40,6 +51,7 @@ impl Capabilities {
             format: 1,
             provider: provider.name().to_owned(),
             environment: provider.environment(),
+            fencing: provider.fencing(),
             operations,
             max_body_bytes: limits.max_body_bytes,
             max_resources: provider.max_resources(),
@@ -62,6 +74,7 @@ mod tests {
             Adapter::new(Arc::new(Native)).capabilities(&Limits { max_body_bytes: 42 });
         assert_eq!(capabilities.provider, "native");
         assert_eq!(capabilities.environment, Environment::Linux);
+        assert_eq!(capabilities.fencing, Fencing::NativeCell);
         assert_eq!(capabilities.max_body_bytes, 42);
         assert_eq!(capabilities.max_resources, Some(64));
         assert!(capabilities.synchronous_running);

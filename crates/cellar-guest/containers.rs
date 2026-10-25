@@ -2,8 +2,8 @@
 
 //! Shared container and sandbox provider boundary.
 pub use cellar_container::{
-    Adapter, Capabilities, Environment, Limits, Native, Operation, Provider, ProviderFuture,
-    ProviderSession, Session,
+    Adapter, Capabilities, Environment, Fencing, Limits, Native, Operation, Provider,
+    ProviderFuture, ProviderSession, Session,
 };
 
 pub(crate) async fn workers(

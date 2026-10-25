@@ -20,7 +20,8 @@ container engine. Selecting `Native` keeps the same Docker/Podman execution path
 | Typed Rust access to the configured local engine | `cellar::sdk::Context::container()` | Direct native lifecycle, exec and port APIs |
 | A backend selectable by the host across Rust, Python, JS and TS | This crate's `Adapter` / `Session` | Shared operations, capabilities, validation and bounded replies |
 | Existing Workers/Durable Object application APIs | Optional `@cellar/cloudflare` package | Experimental API compatibility above the same provider boundary |
-| A hosted sandbox such as Vercel or E2B | A dedicated Rust `Provider` implementation | Remote execution, fencing, reconciliation and cleanup; these providers remain planned |
+| A hosted E2B sandbox | Experimental [`e2b::E2b`](e2b.md) provider | Bounded commands/files and durable lifecycle reconciliation; explicit weaker ownership profile |
+| Vercel or another hosted sandbox | A dedicated Rust `Provider` implementation | Extend the same boundary; these providers remain planned |
 
 Like celld, a durable object/cell owns container controls and the node executes
 them. Cellar adds a host-selected provider shared by all four languages.
@@ -47,7 +48,8 @@ adapter does not move SDK effects onto the Python, Node or V8 runtime thread.
 | Local Docker / compatible Podman Engine | Implemented by the default `Native` provider | [Runnable native walkthrough](../../examples/native-container/README.md) |
 | Custom container or sandbox backend | `Provider` / `ProviderSession` extension point is available; the host supplies the implementation | [Provider contract](#add-a-provider) |
 | Local Cloudflare Workers / Containers / Sandbox APIs | Experimental compatibility slices in a separate package; full application/image conformance remains pending | [Cloudflare facade](../../packages/cellar-cloudflare/README.md) |
-| Hosted Cloudflare, Vercel, E2B, Daytona and Modal | Planned; no remote provider ships in this crate | [Delivery plan](../../plans/sandbox-provider-compatibility.md) |
+| E2B control API + envd | Experimental bounded execution/files; explicit weaker ownership, local protocol tests; live account qualification pending | [E2B configuration and recovery](e2b.md) |
+| Hosted Cloudflare, Vercel, Daytona and Modal | Planned | [Delivery plan](../../plans/sandbox-provider-compatibility.md) |
 | Dynamic Worker isolates, PTY and snapshots | Planned features; the current operation set does not implement them | [Implementation ledger](../../plans/sandbox-provider-progress.md) |
 
 **Tested Sandbox baseline:** 0.12.9 SDK + matching image; unchanged exec, file,
@@ -175,6 +177,7 @@ authority, but does not start a container or call the provider's effect dispatch
 | `format` | Descriptor version; currently `1` |
 | `provider` | Host-selected backend name |
 | `environment` | `linux`, `worker_isolate` or `unspecified`; the last means undeclared |
+| `fencing` | Declared ownership protection: `native_cell`, `local_checks_and_expiry`, `provider_enforced` or `unspecified` |
 | `operations` | Actually declared bridge operations, plus shared capability discovery |
 | `max_body_bytes` | Host limit for binary bodies and bounded results |
 | `max_resources` | Provider-declared live-handle cap; `null` means unknown, not unlimited |

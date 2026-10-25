@@ -15,6 +15,7 @@ operations it can execute; guests discover that subset through capabilities.
 | `Provider::name` | Stable backend name for discovery |
 | `Provider::operations` | Advertise only fully implemented operations; subsets are supported |
 | `Provider::environment` / `max_resources` | Declare the execution environment and enforced handle cap; defaults mean unknown |
+| `Provider::fencing` | Declare actual ownership protection; default `unspecified` makes no guarantee |
 | `Provider::synchronous_running` / `ProviderSession::running_snapshot` | Opt in to an immediate running-state read; the shared session still checks event authority |
 | `Provider::queued_lifecycle` / `ProviderSession::preflight` | Opt in to lifecycle admission; validate backend prerequisites without I/O or effects |
 | `Provider::open` | Allocate an invocation-local `ProviderSession`; perform no I/O |
@@ -46,4 +47,9 @@ or ordinary application KV must not authorize a remote account resource.
 Native bridge fences and resource accounting do not automatically protect a
 remote service. A lifecycle/exec-only provider may refuse TCP or WebSockets;
 capability discovery must make that subset explicit.
+
+A direct service without per-request ownership tokens must require explicit
+host opt-in to its weaker guarantee, advertise `local_checks_and_expiry`, and
+document accepted-request races and cleanup limits. The [E2B profile](e2b.md)
+uses this policy; it does not claim provider-enforced fencing.
 

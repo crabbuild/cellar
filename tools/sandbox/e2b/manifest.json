@@ -1,0 +1,35 @@
+{
+  "format": 1,
+  "provider": "e2b",
+  "repository": "https://github.com/e2b-dev/E2B",
+  "commit": "a2b2caea4498766aee8fd33d3280b56744070e99",
+  "sdk_reference_version": "2.59.0",
+  "files": [
+    {
+      "path": "openapi.yml",
+      "upstream": "spec/openapi.yml",
+      "git_blob": "07b1832ceac282c4a3851e5ec447884af6a8085c"
+    },
+    {
+      "path": "envd_envd.yaml",
+      "upstream": "spec/envd/envd.yaml",
+      "git_blob": "935b1d3a23920c0e5b5389f2fb5ca9e42076c7e1"
+    },
+    {
+      "path": "envd_filesystem_filesystem.proto",
+      "upstream": "spec/envd/filesystem/filesystem.proto",
+      "git_blob": "5325d85f47f5d78aa4d7d68f35c432aa43b46824"
+    },
+    {
+      "path": "envd_process_process.proto",
+      "upstream": "spec/envd/process/process.proto",
+      "git_blob": "99376a0e378e0aa2e959dbbf00a73c36d88fadb4"
+    },
+    {
+      "path": "LICENSE",
+      "upstream": "LICENSE",
+      "git_blob": "ec47fef19f779f6b0e7d0073035cb727baf73c7a"
+    }
+  ],
+  "qualification": "not_run"
+}
