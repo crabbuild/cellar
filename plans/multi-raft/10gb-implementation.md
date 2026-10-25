@@ -235,6 +235,26 @@ These suites retain the existing small-fixture crash,
 corruption, exact-cut and shutdown coverage; they do not replace the still-required
 full-size RustFS and peer reruns after the encoding separation.
 
+The fresh full-size RustFS rerun at `552b3979` also failed on its first read with
+`VersionUnavailable`. The exact 9,999,998,976-byte image reached readiness at
+391.22 seconds; total elapsed time was 657.37 seconds and maximum process RSS
+was 61,292,544 bytes. The peer drill did not start. Before unwinding, diagnostics
+recorded one running leader SQL query, idle follower SQL workers, no snapshot
+encoder starts, and incoherent reported images on all three replicas. Their
+image-view positions remained at index 2/term 2 while durable application had
+advanced to index 3/term 3. This disproves snapshot encoding as the complete
+explanation for this failure. Query/VFS work and protocol-only image-position
+reporting now require independent investigation; deadlines and assertions remain
+unchanged. The failed log, frozen executable identity and unique RustFS prefix
+remain preserved privately.
+
+At `552b3979`, all-target JavaScript Clippy passes with Rust 1.98.1, both
+`embed,node` features and warnings denied. All 16 focused V8 termination cases
+and the complete 96-case local lifecycle matrix pass. The corresponding
+[Linux lifecycle job](https://github.com/crabbuild/cellar/actions/runs/40181416781/job/121133098989)
+also passes qualifier checks and the owned Node/V8/Python matrices. This is
+language lifecycle evidence, not full-size recovery qualification.
+
 ## Remaining work
 
 The completion checklist remains open. Full native 10 GB warm takeover, exact
