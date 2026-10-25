@@ -781,19 +781,76 @@ proofs and physical-work joins. The same five mandatory FO-03 cases remain absen
 FO-04 through FO-10 remain pending and automatic fleet management stays default-off.
 No RustFS/Colima/resource-enforcement, TPS/p99 or soak claim is made.
 
+## FO-03 progress: current learner admission and retired bindings
+
+Source `45b4924344028f2716d3064165c56339c764b23c` replaces startup-cached learner eligibility with a fresh
+bounded host/history authorization read. It checks the actual engine pin,
+namespace and history binding before initializing a fresh member. Registered to
+Active can receive a replica without restarting; startup Active cannot bypass a
+current Draining exclusion. The metadata read uses the original seed deadline
+and an independent 4 MiB control reservation, released before bulk seeding.
+An existing synced member still needs its exact committed permit to resume after
+exclusion. Business-write acknowledgement adds no catalog read.
+
+`fleet_enrollment_retired_binding` exercises actual peer seeding, joint consensus
+and native SQL. It physically stops an outgoing voter before final removal,
+finishes with the surviving joint majorities, then reopens that stale intact
+engine without a cell registration. Both metadata registration and physical
+bootstrap refuse a fresh member identity, retaining the original slot and guard.
+The failed learner is aborted and its ID stays consumed. A distinct enrolled
+engine receives a newer member ID through archive seeding and serves verified
+native writes and reads. Retirement/reopen and replacement-host stops verify
+physical Raft joins. Privileged catalog fixture mutations stand in for the pending
+reconciler; this is not an evacuation/removal certificate.
+
+**357 native cases passed across 13 complete targets**, including 56 enrollment
+and 25 permit/import cases. Five direct-list process helpers run through their
+passing parent cases. **136 Raft library units** and **four startup-confirmation
+cases** also passed. Clippy with warnings denied, format/layout over 945 Rust
+files, native dependency checks (454 packages, no JavaScript engine), documentation,
+source preflight, plan validation and all 10 validator tests passed. The manifest
+retains 167 required cases and 71 reviewed source anchors; no package status
+advances in this substep.
+
+The new test consistently reproduced learner admission refusal before seeding.
+Targeted diagnostics showed startup Registered alongside current Active; refreshing
+rooted authorization corrects that stale cache and tests the inverse exclusion.
+Reopened-host discovery also exposed a temporary old-endpoint Unreachable result;
+the existing bounded fixture retry now handles it while still requiring a valid
+response at the requested trust revision. A now-redundant catch-all arm was removed
+before qualification. Initial integration import/context errors and diagnostic
+failures remain retained. No assertion, timeout or lint was weakened; no stack
+override or debug instrumentation remains. Earlier readiness/setup timing failures
+remain unresolved and are not claimed fixed by this qualification.
+
+The **partial** record `implementation/fo03/retired-binding-boundary.json` under
+ignored `.cellar/raft-perf/fleet-operations/` retains exact source, log and executable
+hashes. Mutable build-cache paths do not archive executable bytes. No raw evidence
+is tracked under `plans/multi-raft/evidence/`. This substep changes no wire format.
+
+FO-03 remains **IN_PROGRESS**. The combined enrollment/permit listing still
+correctly refuses four missing mandatory cases: `fleet_enrollment_unknown_node`,
+`fleet_enrollment_route_revocation`, `fleet_enrollment_incomplete_import` and
+`fleet_enrollment_physical_host`. Complete inventory consumption in typed
+capacity/maintenance admission, move-participant trust acknowledgements and
+explicit failure-domain policy remain required. FO-04 through FO-10 remain
+pending. Automatic fleet management stays default-off; no deployed RustFS/Colima,
+resource-enforcement, TPS/p99 or soak qualification is claimed.
+
 ## Prioritized remaining delivery
 
-The append-only namespace registry and complete inventory read are implemented.
-Next, consume a revalidated exact root inside typed capacity and lifecycle
-admissions; a saved count cannot authorize placement or maintenance. The manifest
-dependencies remain unchanged.
+The append-only namespace registry, complete inventory read and native
+retired-binding refusal are implemented. Next, consume a revalidated exact root
+inside typed capacity and lifecycle admissions; a saved count cannot authorize
+placement or maintenance. The manifest dependencies remain unchanged.
 
 | Priority | Boundary | Required result before advancing |
 | --- | --- | --- |
-| P0, first | FO-03 fleet-wide completeness and retired bindings | The rooted registry and full canonical/history checker now supply the inventory input. Connect that exact revalidated root to typed capacity and maintenance admission; establish operation-specific live proofs and physical-work joins. Integrate actual retired-binding refusal. Checked inventory does not prove node absence. Close `fleet_enrollment_incomplete_import`, `fleet_enrollment_retired_binding`. |
-| P0, next | FO-03 trust and failure-domain policy | Refuse unsolicited node ingress, require installed trust-revision acknowledgements from actual move participants, and enforce explicit rooted node-versus-physical-host placement policy. Pass all five missing cases and the full FO-03 behavior suite. Close `fleet_enrollment_unknown_node`, `fleet_enrollment_route_revocation`, `fleet_enrollment_physical_host`. |
+| P0, first | FO-03 complete inventory admission | The rooted registry and full canonical/history checker supply the inventory input; native retired-binding refusal is covered. Connect an exact revalidated root to typed capacity and maintenance admission, including offline and pending references, operation-specific live proofs and physical-work joins. Checked inventory does not prove node absence. Close `fleet_enrollment_incomplete_import`. |
+| P0, next | FO-03 trust and failure-domain policy | Qualify unsolicited-node ingress refusal, require installed trust-revision acknowledgements from actual move participants, and enforce rooted node-versus-physical-host placement policy. Pass all four remaining mandatory cases and the full FO-03 behavior suite. Close `fleet_enrollment_unknown_node`, `fleet_enrollment_route_revocation`, `fleet_enrollment_physical_host`. |
 | P1 | FO-04 placement, FO-05 load, FO-06 reconciliation | Implement bounded staged feasibility for retained/temporary costs and one-node-loss headroom, fresh load observations and a domain-owned reconciler. Restart/cancellation/lost replies must converge; release reservations only with fresh terminal quorum proof and physical-work joins. |
-| P2 | FO-07 maintenance, FO-08 operator API/CLI, FO-09 scaling | Deliver exact-operation/epoch/process stop fencing, one disruption slot, complete evacuation/removal receipts, authenticated idempotent workflows and observed resource-limit checks. Cover add/remove, rolling restart, horizontal and vertical resizing, and fewer-cell shrink. |
+| P2 | FO-07 maintenance and FO-08 operator API/CLI | Deliver exact-operation/epoch/process stop fencing, one disruption slot, complete evacuation/removal receipts and authenticated idempotent workflows with revision guards and typed outcomes. Cover add/remove and rolling restart. |
+| P3 | FO-09 scaling and fewer-cell shrink | Reconcile desired, effective and observed resources for horizontal and vertical changes. Require observed platform-limit checks and complete retained-state fit before shrinking; fewer cells do not establish removability. |
 | Release gate | FO-10 deployed qualification and performance | Qualify actual five/six/four-node RustFS/Colima operations and faults with enforced 1-vCPU/3-GiB limits and a 24-hour soak. Measure successful TPS, p50/p95/p99, archive catch-up and controller idle/movement overhead. Prefer p99 below 200 ms; 500 ms is the hard ceiling. Keep optional performance changes only with matched evidence of higher throughput or lower latency. |
 
 The local implementation has no measured TPS or latency improvement claim. Keep
