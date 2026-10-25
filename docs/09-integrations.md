@@ -197,7 +197,13 @@ container or sandbox services, and select them for Python or JS/TS through
 `Source::container_provider`. Sessions retain invocation authority and gate
 mutations before provider dispatch. Remote providers must enforce their own
 remote fencing, isolation, cleanup and accounting. Only the native Docker/Podman
-provider ships today; Cloudflare compatibility requires a separate implementation.
+provider ships today. The
+[sandbox provider and compatibility plan](../plans/sandbox-provider-compatibility.md)
+includes Vercel, E2B, Daytona, Modal and Cloudflare Workers/Containers/Sandbox.
+The primary pattern follows celld: compatible application APIs on Cellar, backed
+by the local engine or another declared execution provider. Local Cloudflare
+SDK compatibility, additional hosted providers and Dynamic Worker execution have
+separate acceptance gates; a provider name alone does not enable them.
 
 Native container control requires a running Linux Docker or Docker-compatible Podman
 engine with a reachable Unix socket. At the CLI boundary, use `DOCKER_HOST` with

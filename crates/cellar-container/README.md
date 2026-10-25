@@ -10,8 +10,20 @@ ownership cleanup, exec streams and port capabilities.
 
 The adapter is a host extension point. It does not implement Cloudflare Workers,
 Cloudflare Containers or the Cloudflare Sandbox SDK. A remote provider can be
-implemented without changing the guest SDK, but must satisfy the lifecycle and
-isolation contract below. No additional cloud provider ships in this crate.
+implemented without changing the existing guest container facade, but must
+satisfy the lifecycle and isolation contract below. No additional cloud provider
+ships in this crate.
+
+Cloudflare Workers, Containers and Sandbox are explicit targets alongside Vercel,
+E2B, Daytona and Modal in the
+[provider and compatibility delivery plan](../../plans/sandbox-provider-compatibility.md).
+The primary pattern follows celld: expose compatible application APIs on Cellar
+and execute through the local engine or another declared provider. Local
+Cloudflare package compatibility comes first; hosted Cloudflare services are an
+optional backend. The plan includes versioned Workers/Containers/Sandbox
+profiles, Dynamic Worker isolates and four-language qualification. Those
+extensions and remote backends remain pending; the existing provider interface
+is the starting point, not a complete sandbox or Workers implementation.
 
 ## Select a provider
 
