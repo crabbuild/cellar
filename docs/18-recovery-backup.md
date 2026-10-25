@@ -27,6 +27,12 @@ every fleet-acknowledged write.
 
 ## Proposed backup policy
 
+The machine-local development object store can retain committed data in SQLite
+WAL sidecars after clients close. An offline backup must stop every client and
+preserve the database with its sidecars; copying only the main file can lose
+acknowledged objects. Use SQLite's backup API for an online copy. This local
+development backend is separate from a production object-store backup policy.
+
 No turnkey point-in-time backup/restore product or arbitrary timestamp recovery
 guarantee is established by this documentation. Design and qualify a procedure
 for your store, durability posture and retention policy:

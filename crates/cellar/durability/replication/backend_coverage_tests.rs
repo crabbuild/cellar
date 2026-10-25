@@ -86,8 +86,8 @@ async fn evicted_coverage_reloads_durable_state_and_retries_failed_reads() -> an
             assert!(through > 0 && through < u64::MAX);
             backend.note_covered("Counter:other", 1, 0);
             assert!(backend.covered_by_cell.lock().unwrap().get(&key).is_none());
-            // Remove only the disposable object-store database. Reads open a new,
-            // uninitialized database and fail; they must not cache zero coverage.
+            // Remove only the disposable object-store database. Reads must fail
+            // without recreating the store or caching zero coverage.
             let filesystem = host.filesystem();
             let original = database.clone();
             let held = backup.clone();

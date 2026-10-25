@@ -157,6 +157,29 @@ work. The architecture and product policy are in
   pass. Formatting and the CI native-only/no-Python library feature check also
   pass. This does not replace the remaining full-size and fault qualification.
 
+## CI follow-up
+
+- Rust 1.98.1 Clippy rejected constant-sized `chunks_exact` calls shared by the
+  language streaming and native fixtures. Fixed array chunks preserve the same
+  coverage. The streamed snapshot admission fixture now rejects insufficient
+  archive/transport allowances before member storage opens and positively tests
+  smaller independent command buffers and archive object parts. Both Rust 1.98.1
+  Clippy target sets and all 29 native Raft host tests pass.
+- The event-owner outage failure showed a healthy node expiring before the
+  injected outage; a local replay also observed a healthy successor expiry.
+  A deterministic dev-store regression found that a metadata read's final
+  connection close checkpointed unrelated committed WAL data. Read operations
+  now use read-only, non-creating connections with no close-time checkpoint.
+  Writers retain their existing checkpoint and FULL durability behavior. The
+  tests also require missing-store reads to leave the database absent, recovery
+  after it returns, conditional updates and explicit checkpoint/reopen.
+- All 542 host library tests, 29 native Raft host tests and the original outage
+  fixture pass on the final reader policy. The complete 93-case native-node
+  rerun is in progress. The outage fixture's deadlines and fencing assertions
+  are unchanged. Removing an identified read-side I/O stall does not establish
+  that every intermittent lease expiry has the same cause; Linux CI and further
+  repeated recovery checks remain required.
+
 ## Remaining work
 
 The completion checklist remains open. Full native 10 GB warm takeover, exact
