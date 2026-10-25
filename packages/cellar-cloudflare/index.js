@@ -2,7 +2,22 @@
 
 import { durableStorage } from "./storage.js";
 import { nativeId } from "./id.js";
+import { DurableObject, RpcTarget } from "./workers.js";
 export { durableStorage } from "./storage.js";
+export { durableObjectNamespace } from "./namespace.js";
+
+const reserved = new Set(["constructor", "dup", "fetch", "connect", "alarm", "webSocketMessage", "webSocketClose", "webSocketError"]);
+function rpcMethod(target, method, args) {
+  if (!(target instanceof DurableObject) || typeof method !== "string" || reserved.has(method) || !Array.isArray(args)) throw new TypeError("Invalid Durable Object RPC method");
+  for (let prototype = Object.getPrototypeOf(target); prototype && prototype !== DurableObject.prototype && prototype !== RpcTarget.prototype && prototype !== Object.prototype; prototype = Object.getPrototypeOf(prototype)) {
+    const descriptor = Object.getOwnPropertyDescriptor(prototype, method);
+    if (descriptor) {
+      if (typeof descriptor.value !== "function") throw new TypeError("RPC property access requires a property-capable profile");
+      return Reflect.apply(descriptor.value, target, args);
+    }
+  }
+  throw new TypeError("No public Durable Object RPC method");
+}
 
 // The future Worker/DO event dispatcher uses this activation owner. Native SDK
 // contexts retain invocation lifetime; only the state facade reacquires authority
@@ -41,13 +56,12 @@ export function activateDurableObject(Target, nativeContext, { env = {}, contain
     current();
     if (failed) throw failure;
   }
-  return Object.freeze({
-    async invoke(callback) {
-      current();
-      await admitted();
-      const result = await callback(target);
-      await admitted();
-      return result;
-    },
-  });
+  async function invoke(callback) {
+    current();
+    await admitted();
+    const result = await callback(target);
+    await admitted();
+    return result;
+  }
+  return Object.freeze({ invoke, rpc: (method, args) => invoke(target => rpcMethod(target, method, args)) });
 }

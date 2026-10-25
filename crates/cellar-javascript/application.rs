@@ -26,6 +26,9 @@ use std::{
 #[serde(rename_all = "lowercase")]
 pub enum EventKind {
     Fetch,
+    /// Native cell RPC, with structured arguments and results.
+    #[serde(rename = "cell_rpc")]
+    CellRpc,
     Alarm,
     Queue,
     Scheduled,
@@ -41,6 +44,7 @@ impl EventKind {
     pub(crate) fn name(self) -> &'static str {
         match self {
             Self::Fetch => "fetch",
+            Self::CellRpc => "cell_rpc",
             Self::Alarm => "alarm",
             Self::Queue => "queue",
             Self::Scheduled => "scheduled",
@@ -255,6 +259,14 @@ impl JavaScriptApplication {
                         "cron": scheduled.cron
                     }),
                 ),
+                Invocation::CellRpc { method, args } => (
+                    "cell_rpc",
+                    cellar_guest::workers::rpc::request(
+                        method,
+                        args,
+                        self.runtime.options.max_body_bytes,
+                    )?,
+                ),
                 event => {
                     cellar_guest::transport::invocation(event, self.runtime.options.max_body_bytes)?
                 }
@@ -408,6 +420,13 @@ impl JavaScriptApplication {
                         values::output(&context, &value, self.runtime.options.max_body_bytes)
                             .map(Output::Http)
                             .map_err(|_| anyhow::anyhow!("JavaScript response conversion failed"))
+                    } else if kind == "cell_rpc" {
+                        cellar_guest::workers::rpc::output(
+                            value,
+                            self.runtime.options.max_body_bytes,
+                        )
+                        .map(Output::Rpc)
+                        .map_err(|_| anyhow::anyhow!("JavaScript RPC response conversion failed"))
                     } else {
                         Ok(Output::Done)
                     };

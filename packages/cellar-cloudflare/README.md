@@ -32,14 +32,25 @@ constructor admission above the original native Cellar invocation:
 - Constructor `blockConcurrencyWhile` admission: await initialization before
   invoking application methods and refuse a failed initialization. Callbacks
   remain attached to their original native event.
+- Native namespace ID derivation/validation and event-owned stubs for value-only
+  cell RPC. Actual native `Invocation::CellRpc` / `Output::Rpc` carry clone graphs;
+  calls retain native routing, ownership, durability and cancellation behavior.
+  Prototype methods (including inherited methods) are callable; instance fields,
+  arrow properties, getters, system handlers and base-object methods are refused.
+  Remote thrown values and error properties/causes survive; error stacks are
+  removed. Encoding/size failures after execution remain unknown outcomes.
+- TypeScript declarations for this implemented slice, including typed method
+  arguments/results and storage. Unavailable transaction callbacks are refused
+  by the declarations as well as at runtime.
 
-`activateDurableObject` is the shared owner for the upcoming native event/module
-and RPC dispatcher. The `workers` entry supplies the imported base classes and
+`activateDurableObject` owns activation storage and exposes `rpc(method, args)`
+for prototype-method dispatch. The `workers` entry supplies the imported base classes and
 an explicitly disabled tracing export used by the pinned Sandbox fallback.
 Defining `RpcTarget` does not implement RPC transport or remote object lifetime.
 
-The complete Worker module loader, HTTP/web globals, namespace binding APIs,
-RPC targets, transactions/rollback, PITR, native input-gate/reset/30-second block
+The complete Worker module loader, HTTP/web globals, automatic activation-owned
+namespace environment bindings, property RPC, RPC targets, transactions/rollback,
+PITR, native input-gate/reset/30-second block
 semantics, `waitUntil`, abort/reconstruction,
 container lifecycle and Sandbox control-server integration remain required.
 Unavailable APIs throw; they must not silently succeed or lose transaction,
@@ -67,3 +78,47 @@ private data boundaries, cursor/byte quotas, failed admission, stale contexts,
 idled/replaced activations and fresh-runtime recovery. Both async and sync
 transactions currently refuse before invoking application callbacks; full
 transaction/rollback support is a remaining requirement, not a no-op fallback.
+
+## Native value-only RPC integration
+
+The Rust source must declare `EventKind::CellRpc` for each participating cell.
+The Cellar handler receives `{ method, args }` with decoded arguments, and its
+return value is encoded by the optional runtime. A wrapper can reuse the DO
+owner across native events:
+
+```js
+import { activateDurableObject, durableObjectNamespace } from "@cellar/cloudflare";
+import { DurableObject } from "@cellar/cloudflare/workers";
+
+class Counter extends DurableObject {
+  async increment(by) {
+    const next = (await this.ctx.storage.get("count") ?? 0) + by;
+    await this.ctx.storage.put("count", next);
+    return next;
+  }
+}
+class CounterCell {
+  cell_rpc({ method, args }, context) {
+    this.owner ??= activateDurableObject(Counter, context);
+    return this.owner.rpc(method, args);
+  }
+}
+export const cells = { Counter: CounterCell };
+
+// Inside a Cellar handler, with this invocation's native context:
+export async function increment(context) {
+  return durableObjectNamespace(context, "COUNTERS").getByName("alice").increment(1);
+}
+```
+
+The namespace facade and its stubs belong to the supplied event; retaining one
+does not grant a later event authority. IDs preserve UTF-16 naming inputs and
+are validated against the configured native namespace. Placement/jurisdiction
+options, HTTP `fetch`, property access, promise pipelining, cross-event stub
+failure state and returned `RpcTarget` capabilities need further implementation.
+The bridge's operation/value quotas apply in addition to clone graph/body
+limits. The native `Stub::call_with_limits` bounds successful and error replies
+before decoding; a reply that cannot be represented may follow committed effects.
+The RPC fixtures cover native JSON interoperability, restart recovery, namespace
+isolation, cycles/binary/bigint/undefined and visibility/error boundaries in
+both Node and embedded V8. This is not full Workers RPC conformance.

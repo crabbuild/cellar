@@ -3,10 +3,11 @@
   "version": "0.1.0",
   "type": "module",
   "license": "Apache-2.0",
+  "types": "./index.d.ts",
   "exports": {
-    ".": "./index.js",
-    "./workers": "./workers.js",
-    "./storage": "./storage.js"
+    ".": { "types": "./index.d.ts", "default": "./index.js" },
+    "./workers": { "types": "./workers.d.ts", "default": "./workers.js" },
+    "./storage": { "types": "./storage.d.ts", "default": "./storage.js" }
   },
   "files": [
     "index.js",
@@ -14,6 +15,10 @@
     "storage.js",
     "sql.js",
     "id.js",
+    "namespace.js",
+    "index.d.ts",
+    "workers.d.ts",
+    "storage.d.ts",
     "README.md",
     "LICENSE"
   ]

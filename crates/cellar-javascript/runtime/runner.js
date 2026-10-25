@@ -223,6 +223,7 @@
           "workers.crypto.random",
           "workers.crypto.uuid",
           "workers.identity",
+          "workers.namespace",
           "workers.sql.size",
           "workers.kv.get",
           "workers.kv.list",
@@ -552,6 +553,29 @@
             ...event,
             data: event.body === undefined ? event.text : decode(event.body),
           });
+        }
+
+        if (invocation.kind === "cell_rpc") {
+          const args = ctx._deserialize(event.args);
+          if (!isArray(args)) throw new ErrorClass("Invalid RPC arguments");
+          let value;
+          try {
+            value = await target.cell_rpc(freeze({ method: event.method, args }), ctx);
+          } catch (error) {
+            // Remote throws are successful native RPC responses. Preserve the
+            // thrown value and own data properties, without leaking its stack.
+            const properties = Object.create(null);
+            if (error instanceof ErrorClass) {
+              properties.name = error.name;
+              for (const [key, value] of entries(error)) {
+                if (key !== "stack") properties[key] = value;
+              }
+            }
+            return stringify({ value: ctx._serialize([error, properties]), error: true });
+          }
+          // Encoding can fail after the handler committed writes. Such a
+          // failure is a lost result, not a business exception from the method.
+          return stringify({ value: ctx._serialize(value), error: false });
         }
 
         let result = await target[invocation.kind](event, ctx);

@@ -67,8 +67,9 @@ application code against ES2023 without DOM or Node globals.
 
 Both backends expose buffered HTTP, streaming HTTP/SSE, and host-owned WebSocket
 upgrades/events. See [streaming and WebSockets](../../docs/27-streaming-and-websockets.md)
-for producers, forwarding, hibernation and cancellation. Cellar workflows, RPC, and JavaScript-authored
-Raft commands are outside this adapter's current contract. The Node example
+for producers, forwarding, hibernation and cancellation. Value-only cell RPC uses
+the native handler protocol described below. Cellar workflows, Worker/target RPC
+and JavaScript-authored Raft commands remain outside this adapter's current contract. The Node example
 qualifies React server rendering; browser DOM execution and arbitrary framework
 integrations are separate concerns.
 
@@ -89,8 +90,12 @@ SDK. The application engine and the container's own runtime remain separate.
 ## Optional Cloudflare runtime work
 
 The experimental [Cloudflare runtime package](../../packages/cellar-cloudflare/README.md)
-now provides activation-owned DO storage and constructor admission above the
-native operation boundary. Published Containers 0.3.7 constructor/scheduling
+now provides activation-owned DO storage, constructor admission and event-owned
+namespace/method RPC above the native operation boundary. Native CellRpc calls
+retain structured graphs and typed remote errors in both engines, with explicit
+visibility and clone limits. This partial profile includes TypeScript declarations;
+automatic environment bindings and returned RPC targets remain required.
+Published Containers 0.3.7 constructor/scheduling
 methods execute against native SQLite in both engines; Sandbox 0.12.9 constructor
 and metadata recovery execute in Node. These are constructor/storage fixtures
 using a stopped-provider view. They do not qualify the unchanged upstream HTTP/
@@ -110,6 +115,7 @@ Export application-level handlers and a `cells` map of named classes. The Rust
 | Application `scheduled` | `scheduled(event, ctx)` | `.events([EventKind::Scheduled])` |
 | Cell `fetch` | `fetch(request, ctx)` | `.cell("Counter")` |
 | Cell `alarm` | `alarm(event, ctx)` | `.cell_events("Counter", [EventKind::Fetch, EventKind::Alarm])` when both handlers exist |
+| Cell `cell_rpc` | `cell_rpc({ method, args }, ctx)` | `.cell_events("Counter", [EventKind::CellRpc])` |
 
 Pass all application event kinds together to `Source::events`; it sets the event
 list rather than appending. Constructors take no arguments and receive no SDK

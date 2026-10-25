@@ -45,6 +45,12 @@ impl Application for PrivateApplication {
 impl Cell for PrivateCell {
     fn invoke(self: Arc<Self>, context: Context, event: Invocation) -> HandlerFuture<Output> {
         Box::pin(async move {
+            if matches!(&event, Invocation::CellRpc { method, .. } if method == "native_fixture_json")
+            {
+                return Ok(Output::Rpc(cellar::engine_api::RpcData::Json(
+                    "{\"fromNative\":true}".into(),
+                )));
+            }
             context
                 .storage()?
                 .put_json("__sys_workers_hidden", &serde_json::json!("host-private"))?;
@@ -116,9 +122,19 @@ fn source(root: &Path, fixture: &str) -> Result<Source> {
     } else {
         std::fs::read_to_string(path)?
     };
-    Ok(Source::new(code, fixture)
+    let events = if fixture == "rpc" {
+        vec![EventKind::CellRpc]
+    } else {
+        vec![EventKind::Fetch, EventKind::Alarm]
+    };
+    let source = Source::new(code, fixture)
         .events([EventKind::Fetch])
-        .cell_events("Counter", [EventKind::Fetch, EventKind::Alarm]))
+        .cell_events("Counter", events);
+    Ok(if fixture == "rpc" {
+        source.cell_events("Other", [EventKind::CellRpc])
+    } else {
+        source
+    })
 }
 
 async fn request(client: &reqwest::Client, address: &str, path: &str) -> Result<Value> {
@@ -139,12 +155,23 @@ fn exercise(
         tokio::time::timeout(Duration::from_secs(75), async {
             let peer = peer::Peer::start().await?;
             let (node, address) = native::start_configured(path, Arc::new(PrivateApplication(application)), |config, services, graph| {
-                if fixture != "storage" { peer.configure(config, services, graph); }
+                if fixture == "rpc" {
+                    graph.primary.options.do_classes.push("Other".into());
+                    graph.primary.options.bindings.push(("OTHERS".into(), "Other".into()));
+                }
+                if fixture != "storage" && fixture != "rpc" { peer.configure(config, services, graph); }
                 config.runtime.handler_budget = Duration::from_secs(15);
                 if fixture == "storage" { config.actor.core.idle_evict_ms = Some(50); }
             }).await?;
             let client = reqwest::Client::builder().timeout(Duration::from_secs(20)).build()?;
             match fixture {
+                "rpc" => {
+                    let first: u64 = if restart { 3 } else { 1 };
+                    ensure!(request(&client, &address, "alice/tick").await?["count"] == first);
+                    ensure!(request(&client, &address, "bob/tick").await?["count"] == first.div_ceil(2));
+                    ensure!(request(&client, &address, "alice/tick").await?["count"] == first + 1);
+                    ensure!(request(&client, &address, "alice/check").await?["ok"] == true);
+                }
                 "storage" => {
                     let first: u64 = if restart { 3 } else { 1 };
                     ensure!(request(&client, &address, "alice/tick").await?["count"] == first);
@@ -230,4 +257,16 @@ fn published_container_constructor_storage_in_node() -> Result<()> {
 #[test]
 fn published_sandbox_constructor_metadata_recovery() -> Result<()> {
     qualify(Backend::Node, "sandbox")
+}
+
+#[cfg(feature = "embed")]
+#[test]
+fn embedded_workers_native_rpc_and_recovery() -> Result<()> {
+    qualify(Backend::Embedded, "rpc")
+}
+
+#[cfg(feature = "node")]
+#[test]
+fn node_workers_native_rpc_and_recovery() -> Result<()> {
+    qualify(Backend::Node, "rpc")
 }

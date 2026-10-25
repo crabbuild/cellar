@@ -315,6 +315,8 @@ export interface QueueBatch {
  * The host must explicitly register each implemented handler.
  */
 export interface Cell {
+  /** Native value-only RPC; requires EventKind::CellRpc on the Rust host. */
+  cell_rpc?(event: { readonly method: string; readonly args: unknown[] }, context: Context): unknown | Promise<unknown>;
   fetch?(
     request: Request,
     context: Context,

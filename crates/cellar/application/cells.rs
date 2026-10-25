@@ -4,7 +4,7 @@
 use super::*;
 use cellar_native::cell_id;
 pub use cellar_native::cell_id::Id;
-use cellar_native::clone::{encode, Object, StructuredValue, Value};
+use cellar_native::clone::{encode_with_limits, Limits, Object, StructuredValue, Value};
 
 /// A configured cell namespace. Equal business names address the same cell
 /// across instances, restarts and nodes using the existing namespace protocol.
@@ -192,6 +192,18 @@ impl Stub {
         method: impl Into<String>,
         arguments: &StructuredValue,
     ) -> HandlerFuture<StructuredValue> {
+        self.call_with_limits(context, method, arguments, Limits::default())
+    }
+
+    /// Apply clone byte/graph limits to arguments and routed replies, including
+    /// thrown values. Reply refusal can follow effects in the remote method.
+    pub fn call_with_limits(
+        &self,
+        context: &Context,
+        method: impl Into<String>,
+        arguments: &StructuredValue,
+        limits: Limits,
+    ) -> HandlerFuture<StructuredValue> {
         let prepared = self.check(context).and_then(|_| {
             let Value::Reference(index) = &arguments.root else {
                 anyhow::bail!("cell RPC arguments must be an array");
@@ -203,7 +215,9 @@ impl Stub {
                 ),
                 "cell RPC arguments must be an array"
             );
-            Ok(RpcData::Structured(encode(arguments)?.into()))
+            Ok(RpcData::Structured(
+                encode_with_limits(arguments, limits)?.into(),
+            ))
         });
         let args = match prepared {
             Ok(args) => args,
@@ -214,7 +228,7 @@ impl Stub {
         Box::pin(async move {
             // Remote throws arrive as successful transport replies with an
             // error envelope. Decode before applying the stub failure protocol.
-            stub.finish(super::decode_rpc_result(&call.await?))
+            stub.finish(super::decode_rpc_result_with_limits(&call.await?, limits))
         })
     }
 

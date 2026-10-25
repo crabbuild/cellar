@@ -14,7 +14,7 @@ does not narrow that objective or turn fixture passes into full compatibility.
 | Slice | Current evidence | Remaining work / completion evidence |
 | --- | --- | --- |
 | SP-01 | Exact celld reference commit/files/license, npm packages/lock/integrities, imported runtime bytes and immutable Sandbox image manifest are in `tools/sandbox/compat`; drift/refusal tests pass; API/fixture inventory lists native mappings and explicit gaps | Input inventory implemented; runtime conformance remains in SP-02–SP-04 and later profiles |
-| SP-02 | Native-backed DO SQL/KV/clone facade, activation-bound authority, object identity, constructor admission and scheduling primitives execute in Node/V8; actual published constructors are exercised | Complete module/bootstrap/web globals, namespace bindings/RPC, native critical-section/reset/lifetime behavior, transactions and profile/version admission; retain native-only dependency boundary |
+| SP-02 | Native-backed DO SQL/KV/clone facade, activation-bound authority, object identity, value-only namespace/cell RPC, constructor admission and scheduling primitives execute in Node/V8; actual published constructors are exercised | Complete module/bootstrap/web globals, automatic activation-owned environment bindings, property/target RPC and lifetimes, native critical-section/reset/lifetime behavior, transactions and profile/version admission; retain native-only dependency boundary |
 | SP-03 | Actual published `@cloudflare/containers@0.3.7` constructor, state and SQL scheduling run in both engines with native storage and a stopped-provider view; unchanged upstream example is pinned | Execute the unchanged app, class hooks, routing, sleep/wake, process/port behavior and cleanup against the native engine |
 | SP-04 | Actual `@cloudflare/sandbox@0.12.9` constructor/configuration and metadata recovery run in Node; matching upstream app/Dockerfile and `linux/amd64` image digest are pinned | Run the unchanged app and SDK/image end to end over HTTP and RPC; files, streamed exec, background records, previews, teardown and failure cases |
 | SP-05 | Provider environment/operation/limit discovery is implemented in Rust, Python, JS and TS; native and restricted provider dispatch tests cover it | Portable files and richer operations, named configuration, durable remote bindings, fencing, expiry/reconnect, loss/unknown outcomes and orphan reconciliation |
@@ -67,9 +67,9 @@ including cell isolation, saved-context refusal, asynchronous/synchronous
 mutation conflicts, alarm reads and pre-effect refusal of synchronous external
 calls. Runtime tests cover operation exhaustion, unsafe post-mutation replies,
 cancellation with subsequent runtime reuse, and joined shutdown without a reply.
-The follow-up now adds the actual SQL/KV facade and constructor-admission
-slice described below. Module/DO RPC dispatch and complete native critical
-section/transaction/lifetime semantics remain required.
+The follow-up adds the actual SQL/KV facade, constructor admission and native
+value-only DO RPC slices described below. Complete module/DO dispatch, target
+RPC and native critical-section/transaction/lifetime semantics remain required.
 
 ### Native-backed Workers storage and activation slice
 
@@ -108,8 +108,36 @@ This is not yet the complete native input-gate/reset/30-second contract.
 `Context::block_concurrency_while`, `Context::wait_until`, native transactions
 and `Invocation::CellRpc` already exist and must be used by the final dispatch
 protocol. Do not replace them with detached JS work, guessed rollback or an
-HTTP-only RPC substitute. Module/bootstrap globals, namespace bindings, RPC
-objects, transactions and full container lifecycle remain SP-02/SP-03 work.
+HTTP-only RPC substitute. Module/bootstrap globals, automatic environment
+bindings, RPC objects, transactions and full container lifecycle remain SP-02/SP-03 work.
+
+### Native namespace and value-only cell RPC
+
+The optional JS runtime now maps native `Invocation::CellRpc` and `Output::Rpc`
+directly, with an explicit `EventKind::CellRpc` registration and typed handler
+declaration. Namespace ID operations use the original native SDK, including
+UTF-16 name hashing, unique IDs and namespace-key validation. Event-owned
+namespace facades expose method stubs without an HTTP envelope or hosted service.
+
+`activateDurableObject.rpc` dispatches only public prototype methods above the
+DO base, including inheritance. It refuses own fields/arrows, getters, reserved
+system handlers and base-object properties. Clone graphs retain cycles, shared
+binary data, bigint, undefined and thrown values. Remote error own properties
+and causes survive while error stacks are stripped. Result serialization failures
+are transport/result failures with unknown mutation outcomes, not invented
+business exceptions or rollback. Native `Stub::call_with_limits` and the bounded
+RPC response decoder apply clone byte/object/value/depth limits to arguments
+and both normal/error replies. Rust/native-only callers retain default limits.
+
+Real Node/V8 fixtures exercise native JSON interoperability, fresh-runtime
+SQLite recovery, distinct cells/namespaces, forged/name-mismatched IDs, stale
+stubs, inherited methods, visibility, rich value/error graphs, and writes before
+both business errors and unavailable results. TypeScript declarations and
+compile checks cover the implemented storage/RPC slice. This does not implement
+automatic activation-owned env bindings, HTTP namespace fetch, placement,
+property RPC, pipelining, cross-event stub failure state or remote `RpcTarget`
+lifetime/capability transport. Those remain required for the published Sandbox
+methods and full SP-02/SP-04 acceptance.
 
 ## Reproduction commands
 
@@ -170,3 +198,15 @@ type tests (eight), documentation/fixture links and whitespace checks pass. The
 native-only all-feature dependency guard still reports 455 packages with no JS
 engine. Hosted CI and all remaining SDK/image/cloud qualification remain separate.
 The full SP-01–SP-10 objective stays active.
+
+The native value-only RPC checkpoint passes **623 Rust harness cases** across
+the core/native/container/guest/JS/Python libraries and selected integrations,
+plus the standalone CPython streaming program. Seven real-node Workers fixtures
+include the two new Node/V8 native RPC recovery scenarios. Node-only checks pass
+14 library cases and four Workers fixtures. Strict affected-crate all-target
+Clippy passes; formatting/layout cover 930 Rust files. Documentation and
+whitespace checks pass. The all-feature native dependency guard still reports
+455 packages without a JS engine. JavaScript/build/type checks pass nine cases,
+pinned-input checks pass four, and the package dry run includes all declarations
+and namespace implementation files. Full SDK/image/cloud conformance remains
+unqualified and the complete delivery objective remains active.

@@ -74,7 +74,7 @@ pub async fn execute(
     options: &Limits,
 ) -> Result<Value> {
     if name.starts_with("workers.") {
-        return state.workers.execute(context, name, value, options);
+        return state.workers.execute(context, name, value, options).await;
     }
     if name.starts_with("container.") {
         values::check_depth(&value).context(crate::failure::Validation)?;

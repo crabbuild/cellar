@@ -66,7 +66,7 @@ function operation(invocation, name, payload, synchronous = false) {
   }
 
   if (synchronous && !["clock.now", "storage.read", "storage.apply", "storage.sql", "alarm.get",
-      "workers.crypto.random", "workers.crypto.uuid", "workers.identity", "workers.sql.exec", "workers.sql.next", "workers.sql.close", "workers.sql.size",
+      "workers.crypto.random", "workers.crypto.uuid", "workers.identity", "workers.namespace", "workers.sql.exec", "workers.sql.next", "workers.sql.close", "workers.sql.size",
       "workers.kv.get", "workers.kv.put", "workers.kv.delete", "workers.kv.list", "workers.kv.delete_all"].includes(name)) {
     reject("UnsupportedOperation");
   }
@@ -89,6 +89,7 @@ function operation(invocation, name, payload, synchronous = false) {
     "workers.crypto.random",
     "workers.crypto.uuid",
     "workers.identity",
+    "workers.namespace",
     "workers.sql.size",
     "workers.kv.get",
     "workers.kv.list",
