@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "baseline_revision": "024acc19fd70edcc4374280341140a8fabe8a964",
+  "baseline_revision": "43bcd17ab9c8d750fa2a2c6d76d8d18a102a6093",
   "invariants": {
     "F01": "Quorum authority",
     "F02": "Stable identities",
@@ -429,7 +429,11 @@
         "crates/cellar/durability/raft/fleet_stop/closure.rs",
         "crates/cellar/durability/raft/fleet_stop/reporter.rs",
         "crates/cellar/durability/raft/storage_lifecycle_tests.rs",
-        "crates/cellar/tests/support/raft_finalization_stop.rs"
+        "crates/cellar/tests/support/raft_finalization_stop.rs",
+        "crates/cellar/durability/raft/host_fleet_stop.rs",
+        "crates/cellar/durability/raft/fleet_stop_transport.rs",
+        "crates/cellar/durability/raft/fleet_stop_transport_tests.rs",
+        "crates/cellar/tests/support/raft_fleet_stop_rpc.rs"
       ],
       "steps": [
         "Add CAS-authorized node-set revisions with bounded route and permission refresh.",
@@ -454,7 +458,8 @@
         "Admit Active-to-Draining evacuation intent through one exact root CAS after an internal complete-inventory scan. Atomically persist its canonical operation, excluded node epoch and the single disruption slot, with a retained root digest that refuses generic deletion/reset. Reconcile admitted exact retries through the journal, including after later incomplete namespace additions. This is exclusion admission only, with no shutdown, node-absence, terminal evacuation/removal, reservation release or completed-controller claim. Permanently bind each evacuation operation ID to its exact canonical request through conditional create before root CAS, even if that candidate loses. Admitted reads and retry reconciliation verify that immutable binding; missing request bytes refuse.",
         "Prepare bounded digest-addressed evacuation candidates by consuming complete rooted inventory and owning actual authenticated RF3 observations plus exact physical archive replay. Retain one fixed publication cut per pending history across writes and replay retries; check stable membership, exact settled latest permits, current rooted node/disk/process/engine bindings and failure-domain separation. Reserved births block; canonical cancellations remain explicit. Recheck rooted inputs around immutable paged receipt work. Candidates leave the root and disruption slot unchanged; fresh terminal health, physical joins/fences and the atomic terminal receipt remain required.",
         "Order every managed boot, including intact restart, against Finalizing through a permanent exact boot request and root CAS before endpoint publication. Bind trust and running-host authorization to the original boot process. Consume a complete historical candidate through fresh inventory and an owned process probe, then atomically root the Finalizing projection and higher node epoch while retaining the disruption slot. Reconcile exact committed retries without live inputs; preserve deadline checks at CAS. This boot fence grants no physical stop, terminal removal or resource release; Finalizing resumption and physical/terminal integration remain pending.",
-        "Pin the closure verification key at rooted boot and fsync an exact boot/process/engine lifecycle guard before endpoint publication. Admit scoped stop/fence work through the Node-owned bounded task and real engine worker with original deadlines. Sign immutable bounded closure only after actual Node/engine owners join; reconcile lost publication replies. Keep local acceptance, physical closure and future terminal removal/slot release distinct. Standalone Raft-control transport, Finalizing resumption, fresh terminal health, atomic completion and capacity readiness remain pending."
+        "Pin the closure verification key at rooted boot and fsync an exact boot/process/engine lifecycle guard before endpoint publication. Admit scoped stop/fence work through the Node-owned bounded task and real engine worker with original deadlines. Sign immutable bounded closure only after actual Node/engine owners join; reconcile lost publication replies. Keep local acceptance, physical closure and future terminal removal/slot release distinct. Finalizing resumption, fresh terminal health, atomic completion and capacity readiness remain pending.",
+        "Expose exact stop/fence work over authenticated, purpose-separated Raft control with rooted node routes, both boot/process/engine identities and body-digest binding. Recheck current origin boot for new receiver admissions. Preserve the original origin budget and the TLS-admission receiver deadline through header/body reading, bounded queueing and engine sync. Lost callers/transport replies remain unconfirmed and do not cancel receiver-owned admitted work. Both endpoints may be empty; no Actor lease or dummy cell is required. Compose a real voter replacement, concurrent survivor writes, scoped stop and signed joined closure; terminal CAS and slot release remain pending."
       ],
       "acceptance": [
         "Inventory includes pending births and all managed namespaces.",
@@ -1618,7 +1623,7 @@
         },
         {
           "name": "fleet_evacuation_candidate_after_voter_replacement",
-          "oracle": "Perform real guarded S3 learner seeding, joint promotion/removal and stable RF3 completion. Evacuation candidate verification consumes the new dynamically joined member binding and latest completed permit while the departed original voter retains physical history. Subsequent S3 writes and queries succeed on the three survivors.",
+          "oracle": "Perform real guarded S3 learner seeding, joint promotion/removal and stable RF3 completion. Evacuation candidate verification consumes the new dynamically joined member binding and latest completed permit while the departed original voter retains physical history. Subsequent S3 writes and queries succeed on the three survivors. Consume the candidate through rooted Finalizing and stop the actual retired voter over authenticated Raft control while survivor S3 writes continue. Join its Node without another shutdown command, require retained physical group history in the close report, verify its signed closure, and perform another survivor write. This does not release the disruption slot or certify terminal removal.",
           "invariants": [
             "F01",
             "F02",
@@ -1796,6 +1801,110 @@
           "name": "fleet_stop_signal_retries_are_bounded",
           "oracle": "Flood the actual shutdown channel through the production delivery helper with 10,000 accepted retries. Exactly one signal is queued, its confirmed historical delivery survives receiver closure, and a first failed delivery remains unconfirmed. The real held-engine-lock native case also reconciles 32 exact accepted requests before physical join.",
           "invariants": [
+            "F02",
+            "F03",
+            "F06",
+            "F07",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_stop_rpc_empty_nodes_and_fence",
+          "oracle": "Use real TLS between two empty managed nodes with no business-cell scope or Actor-lease lookup. Refuse stale minimum cuts and wrong target boot nonces, sync/retry a fence and reject the delayed stop; no physical closure or slot release follows.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F03",
+            "F06",
+            "F07",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_stop_rpc_waiter_loss_still_joins",
+          "oracle": "Send the real Raft-control RPC to a fault-injected actual Node. Hold engine sync, discard the origin SDK waiter, release physical work and observe Node.finished without another stop signal; the exact signed closure is verified and survivor S3 writes continue.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F03",
+            "F06",
+            "F07",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_stop_rpc_expired_metadata_wait_has_no_effect",
+          "oracle": "Hold actual fleet-head reads past the original RPC budget. The response remains unconfirmed, the late worker cannot admit a stop, a subsequent fence succeeds and the target remains live.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F03",
+            "F06",
+            "F07",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_stop_rpc_removed_origin_cannot_admit_work",
+          "oracle": "After authenticated empty-node discovery, remove the origin in the root. Its stop cannot admit a guard; a current surviving origin subsequently fences the same target, proving no stop won.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F03",
+            "F06",
+            "F07",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_stop_mac_binds_purpose_channel_payload_and_reply",
+          "oracle": "The production Wire codec binds stop purpose, TLS exporter, payload digest, exact request tag, nonce and response. Read-only-purpose replay, other TLS channels and altered payloads/headers refuse.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F03",
+            "F06",
+            "F07",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_stop_wire_requires_exact_root_and_physical_endpoints",
+          "oracle": "Require nonzero valid boot identities and bind both origin and target to the exact catalog/fleet/node/disk/process/engine route without manufacturing a group/member identity.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F03",
+            "F06",
+            "F07",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_stop_wire_rejects_unbounded_or_noncanonical_work",
+          "oracle": "Reject invalid/noncanonical nonces, missing/unknown fields, oversized bodies and timeout overflow; mismatched response digests/nonces refuse and explicit overload/conflict/unknown outcomes remain typed.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F03",
+            "F06",
+            "F07",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_stop_receiver_budget_includes_header_residence",
+          "oracle": "Anchor the receiver deadline at TLS connection admission. Header residence, clock rollback and overflow cannot renew the caller-advertised remaining budget before queueing or fsync.",
+          "invariants": [
+            "F01",
             "F02",
             "F03",
             "F06",

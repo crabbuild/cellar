@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "revision": "024acc19fd70edcc4374280341140a8fabe8a964",
+  "revision": "43bcd17ab9c8d750fa2a2c6d76d8d18a102a6093",
   "files": [
     {
       "path": ".github/workflows/native-sdk.yml",
@@ -48,7 +48,7 @@
     },
     {
       "path": "crates/cellar/application/consensus/client.rs",
-      "sha256": "59216ff9eafba7bbc1a9848561724f1b8334998f23b6ccf8006d6e4565126739"
+      "sha256": "7a7763b66d25c915359a123f78a60452e385c610e9acfd224eee891b07b2a919"
     },
     {
       "path": "crates/cellar/application/consensus/mod.rs",
@@ -56,7 +56,7 @@
     },
     {
       "path": "crates/cellar/application/consensus/protocol.rs",
-      "sha256": "c13fcf123c1a137246252924fdd618e0b9c97668f6c9204decd0ad9fc6dfee41"
+      "sha256": "ac81661aa3241e5bd1ee327a64215c84a4626e388805049d08a7964305639a70"
     },
     {
       "path": "crates/cellar/application/consensus/resources.rs",
@@ -92,7 +92,7 @@
     },
     {
       "path": "crates/cellar/durability/raft/catalog_wire.rs",
-      "sha256": "aba9a173f28e35490f1df4f95318279e776496bd0f678676713da9a99f9c9c53"
+      "sha256": "e5851a3962ec6516133ad82a4d14b62326810f86f18664df75f0a56ef23a6bde"
     },
     {
       "path": "crates/cellar/durability/raft/controller_action.rs",
@@ -108,7 +108,7 @@
     },
     {
       "path": "crates/cellar/durability/raft/host.rs",
-      "sha256": "cebcf112f0f393efa2129c2a60ca528ca69e9e0d5a789046c4e98ad93f7a9489"
+      "sha256": "db20dd0f837647f4d104baf84679a1845fba36103568259209ca58ee12f4fd43"
     },
     {
       "path": "crates/cellar/durability/raft/host_controller.rs",
@@ -224,7 +224,7 @@
     },
     {
       "path": "crates/cellar/durability/raft/transport.rs",
-      "sha256": "f8a198cb1294042ee99c43af31ef4161de2128b6fd9d18e0422e33bcef768878"
+      "sha256": "f8c7dc35a404dfdfb63cec4da3b06334dee91716d693f65004512299efcbf3a1"
     },
     {
       "path": "crates/cellar/durability/raft/transport_directory.rs",
@@ -324,5 +324,5 @@
     }
   ],
   "reviewed_from_revision": "900a677fb6481a259d1e24073d9dc1aacf785507",
-  "review_note": "FO-03 partial successor: exact-boot fsynced stop/fence admission, Node-owned work, one remembered shutdown signal and signed physical closure after actual Node/engine joins. Final source passed 400 native Raft cases across 13 targets, 158 Raft units, 12 RPC, four startup and 19 admin cases. The separately audited pre-coalescing source tree passed 93 legacy Node cases. Physical closure is not terminal removal or capacity readiness; standalone Raft stop transport, Finalizing resumption, fresh terminal checks, atomic terminal receipt/slot release and fleet controller work remain pending. Deployed RustFS/Colima, TPS/p99 and soak are unqualified."
+  "review_note": "FO-03 partial successor: authenticated exact-boot Raft-control stop/fence RPC for empty managed nodes, original deadlines through TLS-header residence and receiver-owned physical work. A real S3-seeded voter replacement now composes survivor writes, Raft-control stop, retained-history join and signed closure. Final source passes 404 native Raft cases across 13 targets, 162 Raft units, 12 RPC, four startup and 19 admin cases in 58 stages. Finalizing resumption, fresh terminal checks, atomic removal receipt/slot release and capacity readiness remain pending. No deployed RustFS/Colima, TPS/p99 or soak qualification."
 }

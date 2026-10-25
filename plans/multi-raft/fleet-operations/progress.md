@@ -1570,6 +1570,53 @@ this increment does not close the actual terminal
 `fleet_enrollment_incomplete_import` case or claim deployed RustFS, resource,
 performance or soak qualification.
 
+## FO-03 progress: standalone Raft stop control
+
+Source `43bcd17ab9c8d750fa2a2c6d76d8d18a102a6093` adds
+`RaftCells::request_peer_fleet_stop` on authenticated Raft control. Both origin
+and target may have zero business groups; no Actor lease or dummy cell is used.
+A separate TLS exporter/MAC purpose binds the physical route, body digest,
+request nonce and reply. New receiver work verifies the origin's current rooted
+boot and permanent boot admission. The original origin budget covers queueing
+and transport; the receiver includes prefix/header residence from TLS admission
+and retains its absolute deadline through the bounded Node-owned worker.
+Lost callers/replies remain unconfirmed and cannot undo admitted physical work.
+
+The actual retired-voter case now composes guarded S3 learner seeding, joint
+membership completion, rooted Finalizing, Raft-control stop during survivor
+writes, joined retained physical history, exact signed closure and another
+survivor write. Four new native RPC cases cover empty endpoints/fencing, caller
+loss during real engine sync, expired metadata work and removed-origin refusal.
+Four wire units cover authentication/purpose/channel/body binding, exact rooted
+endpoints, bounded canonical inputs and receiver deadline residence.
+
+All **58 qualification stages** pass: **404 native Raft cases across 13 targets**
+(including 96 enrollment), **162 Raft units**, **12 RPC cases**, **four startup
+cases** and **19 admin cases**. Warnings-denied Clippy for the library/selected
+targets and admin, formatting/layout (1,111 authored Rust files), native
+dependencies (465 packages, no JavaScript engine), documentation, plan validation
+and ten validator cases pass. The audit retains 39 actual executables (21 test
+executables); all 1,183 Rust files and 21 Cargo/configuration inputs match this
+implementation commit. Five direct-listing process helpers remain ignored and
+excluded from the passed totals. Earlier legacy Node results remain attributed
+to their earlier audited source rather than a current-source rerun.
+
+The plan now has 221 required cases and 80 source anchors. The remaining absent
+FO-03 name is `fleet_enrollment_incomplete_import` at actual terminal removal;
+that listing fact does not complete resumption, terminal proof or capacity
+readiness. FO-03 remains **IN_PROGRESS**. The partial record at ignored
+`implementation/fo03/stop-rpc-boundary.json` retains the final cohort, actual
+executable/source/log hashes, earlier passing smoke runs and the initial test
+fixture compile failure. No raw evidence is tracked under
+`plans/multi-raft/evidence/`.
+
+The experimental protocol now ends in
+`/fleet-finalization-1/fleet-stop-1/fleet-stop-rpc-1`. Use fresh coordination/data
+prefixes, namespaces, engine directories and matching binaries; markers remain
+1, with no migration or compatibility reader. Terminal removal, slot release,
+actual capacity readiness, deployed RustFS/Colima, performance and soak remain
+unqualified. Automatic fleet management stays default-off.
+
 ## Prioritized remaining delivery
 
 The append-only namespace registry, complete inventory read, native retired-binding
@@ -1577,8 +1624,10 @@ refusal, unrooted ingress refusal, catalog-scoped move trust admission,
 physical route/process revocation, rooted replica separation and typed evacuation
 exclusion, remote quorum observations, coherent publication cuts and complete-inventory
 candidate preparation with physical archive replay and a rooted no-new-boot
-Finalizing boundary, exact-boot local stop/fence admission and signed post-join
-closure are implemented at their documented boundaries.
+Finalizing boundary, exact-boot stop/fence admission through local and standalone
+Raft control, and signed post-join closure are implemented at their documented
+boundaries. Native coverage now composes real voter replacement and survivor
+writes with Raft-control stop and joined closure of retained physical history.
 The evacuation adapter consumes complete inventory inside its exact root CAS.
 Capacity activation and terminal lifecycle proof still require their
 operation-specific integration; a saved count cannot authorize
@@ -1586,7 +1635,7 @@ placement or maintenance. The manifest dependencies remain unchanged.
 
 | Priority | Boundary | Required result before advancing |
 | --- | --- | --- |
-| P0 | FO-03 standalone stop transport, terminal completion and capacity readiness | Reuse the local owned stop/fence task through authenticated Raft-control-lane transport without an Actor lease. Resume or refresh candidates while Finalizing without rebinding accepted stop authority; retain uncertain occupancy for unreachable owners. Obtain fresh terminal survivor/inventory/archive checks and atomically root the terminal receipt/node transition/disruption-slot release. Close `fleet_enrollment_incomplete_import` at removal certification; gate new capacity on actual process/engine and observed or explicitly attested platform limits. |
+| P0 | FO-03 terminal completion and capacity readiness | Resume or refresh candidates while Finalizing without rebinding accepted stop authority; retain uncertain occupancy for unreachable owners. Obtain fresh terminal survivor/inventory/archive checks and atomically root the terminal receipt/node transition/disruption-slot release. Close `fleet_enrollment_incomplete_import` at removal certification; gate new capacity on actual process/engine and observed or explicitly attested platform limits. |
 | P1 | FO-04 placement, FO-05 load, FO-06 reconciliation | Implement bounded staged feasibility for retained/temporary costs and one-node-loss headroom, fresh load observations and a domain-owned reconciler. Restart/cancellation/lost replies must converge; release reservations only with fresh terminal quorum proof and physical-work joins. |
 | P2 | FO-07 maintenance and FO-08 operator API/CLI | Integrate local stop/fence admission and verified closure with the shared disruption slot for restart/resize, complete evacuation/removal receipts and authenticated idempotent workflows with revision guards and typed outcomes. Deliver typed remote overload/unknown outcomes, add/remove, rolling restart and cancellation/resume. |
 | P3 | FO-09 scaling and fewer-cell shrink | Reconcile desired, effective and observed resources for horizontal and vertical changes. Require observed platform-limit checks and complete retained-state fit before shrinking; fewer cells do not establish removability. |
@@ -1594,21 +1643,16 @@ placement or maintenance. The manifest dependencies remain unchanged.
 
 The next implementation slice is **FO-03 terminal finalization**, in this order:
 
-1. Expose the exact existing stop/fence task through authenticated Raft control
-   transport, independent of a legacy Actor lease. Preserve its original deadline,
-   bounded queue, exact boot selector and unknown-outcome semantics. Reconcile
-   reachable hosts through the signed post-join proof; keep uncertain occupancy
-   charged for unreachable owners and failed publication. Never promote an
-   empty group count, cached acceptance or deserialized flag into closure.
-2. Compose real voter replacement under writes with scoped stop, signed joined
-   closure and terminal removal. Support restart-safe resumption and candidate
-   refresh while Finalizing without rebinding accepted stop authority. Obtain owned fresh survivor observations
+1. Support restart-safe resumption and candidate refresh while Finalizing without
+   rebinding accepted stop authority. Keep uncertain occupancy charged for
+   unreachable owners and failed closure publication. Obtain owned fresh survivor observations
    immediately before terminal CAS, preserving the fixed business cut while
    rechecking exact history, configuration, settled permits, policy and operation.
-3. Atomically root the terminal receipt, transition the exact node epoch and
+2. Extend the real voter-replacement/stop/closure case through terminal removal.
+   Atomically root the terminal receipt, transition the exact node epoch and
    release the disruption slot. Reconcile lost replies through the permanent
    journal; cover crashes at each boundary, orphan candidates and replanning.
-4. Close `fleet_enrollment_incomplete_import` at removal certification. Complete
+3. Close `fleet_enrollment_incomplete_import` at removal certification. Complete
    capacity readiness against actual process/engine and observed or explicitly
    attested platform limits before admitting new placement. Concurrent managed
    boot conflicts also need owned controller reconciliation; startup currently
@@ -1617,10 +1661,26 @@ The next implementation slice is **FO-03 terminal finalization**, in this order:
 These steps unblock the planner and reconciler. They do not require an optional
 leader-scheduling change or a new business-write acknowledgement dependency.
 
+The first complete lifecycle deliverable must extend the existing real
+voter-replacement test through fresh terminal verification and one atomic
+removal receipt/node transition/slot release, then admit the next disruption.
+Repeat across controller restart and lost terminal-CAS replies. An incomplete
+import or lost positive survivor proof must retain the slot and refuse removal;
+the same operation must remain discoverable for resumption.
+
 The local implementation has no measured TPS or latency improvement claim. Keep
 fleet management default-off until its release gates pass. Optional throughput
 or latency changes must meet the existing qualification gates; additional code
 alone is not evidence of an improvement.
+
+For optional performance work, preserve the investigation order: classify failed
+archive-head publications and repeated replica work; measure control queueing by
+traffic class; separate SQLite copying, validation and synchronization; identify
+archive batch flush reasons; then measure idle-group scheduling cost. Workspace
+contention was negligible in the earlier measurements, and the sixteen-frame
+control window is already implemented. Further changes need fresh matched
+profiles and a demonstrated successful-TPS or latency gain under the resource
+and error-rate gates before inclusion.
 
 ## Expanded operating design
 
