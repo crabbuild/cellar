@@ -1,0 +1,91 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
+name: Typed RPC lifecycle
+on:
+  pull_request:
+    paths:
+      - 'crates/**'
+      - 'packages/cellar-sdk/**'
+      - 'tools/rpc/**'
+      - 'tools/javascript/**'
+      - 'tools/cellar-rpc-codegen/**'
+      - 'tools/python/**'
+      - 'tools/perf/run.py'
+      - 'tools/perf/test_python_fleet.py'
+      - 'plans/named-typed-rpc/**'
+      - 'proto/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/typed-rpc.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: cellar-rpc-lifecycle-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  lifecycle:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    env:
+      CARGO_TARGET_DIR: '${{ github.workspace }}/.cellar/target-rpc'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+      CARGO_INCREMENTAL: '0'
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.14'
+      - name: Rust toolchain
+        run: |
+          rustup toolchain install 1.98.1 --profile minimal --component clippy
+          rustup default 1.98.1
+      - name: Locked guest fixtures
+        run: |
+          python -c "import sysconfig; assert not sysconfig.get_config_var('Py_GIL_DISABLED')"
+          python -m venv .cellar/rpc/python
+          .cellar/rpc/python/bin/python -m pip install protobuf==7.34.2
+          echo "PYO3_PYTHON=$PWD/.cellar/rpc/python/bin/python" >> "$GITHUB_ENV"
+          echo "CELLAR_RPC_PYTHON_SITE=$(.cellar/rpc/python/bin/python -c 'import site; print(site.getsitepackages()[0])')" >> "$GITHUB_ENV"
+          npm ci --prefix tools/javascript --ignore-scripts
+          npm ci --prefix tools/rpc --ignore-scripts
+          npm run --prefix tools/rpc build
+      - name: Qualifier checks
+        run: |
+          cargo test --locked -p cellar --bin cellar --test native_rpc_check
+          python3 tools/python/test_bridge_report.py
+          python3 -m unittest discover -s tools/perf -p test_python_fleet.py
+          cargo clippy --locked -p cellar-rpc-qualification --all-targets --features full -- -D warnings
+          cargo test --locked -p cellar-rpc-qualification --features full -- --test-threads=1
+      - name: Owned Node, V8 and Python lifecycle matrices
+        run: |
+          if ! cargo run --locked -p cellar-rpc-qualification --features full -- \
+            --suite lifecycle --report .cellar/rpc/lifecycle.json \
+            > .cellar/rpc/lifecycle.log 2>&1; then
+            tail -n 100 .cellar/rpc/lifecycle.log
+            exit 1
+          fi
+          for rpc_suite in python-cancellation python-supervision; do
+            if ! cargo run --locked -p cellar-rpc-qualification --features full -- \
+              --suite "$rpc_suite" --report ".cellar/rpc/$rpc_suite.json" \
+              > ".cellar/rpc/$rpc_suite.log" 2>&1; then
+              tail -n 100 ".cellar/rpc/$rpc_suite.log"
+              exit 1
+            fi
+          done
+      - name: Retain lifecycle evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: typed-rpc-lifecycle
+          path: |
+            .cellar/rpc/lifecycle.json
+            .cellar/rpc/lifecycle.log
+            .cellar/rpc/python-cancellation.json
+            .cellar/rpc/python-cancellation.log
+            .cellar/rpc/python-supervision.json
+            .cellar/rpc/python-supervision.log

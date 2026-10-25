@@ -28,7 +28,7 @@ test("SSE preserves multiline data and rejects field injection", () => {
   assert.equal(sseResponse([]).headers[0][1], "text/event-stream");
 });
 
-test("shared runtime awaits native backpressure before pulling the next chunk", async () => {
+test("shared runtime awaits native backpressure before pulling the next chunk", { timeout: 5000 }, async () => {
   const factory = (0, eval)(
     readFileSync(
       new URL(
@@ -39,6 +39,10 @@ test("shared runtime awaits native backpressure before pulling the next chunk", 
     ),
   );
   let unblock;
+  let signalFirstWrite;
+  const firstWrite = new Promise(resolve => {
+    signalFirstWrite = resolve;
+  });
   let pulled = 0;
   const calls = [];
   const runner = factory(async (id, name, payload) => {
@@ -51,10 +55,12 @@ test("shared runtime awaits native backpressure before pulling the next chunk", 
     ) {
       await new Promise(resolve => {
         unblock = resolve;
+        signalFirstWrite();
       });
     }
 
-    return JSON.stringify({ ok: true, value: null });
+    // The private bridge carries JSON metadata and an optional raw attachment.
+    return [JSON.stringify({ ok: true, value: null }), undefined];
   })(
     {
       fetch: () =>
@@ -81,9 +87,12 @@ test("shared runtime awaits native backpressure before pulling the next chunk", 
   );
 
   // The producer must stay on its first chunk until the native write resolves.
-  while (!unblock) {
-    await new Promise(resolve => setImmediate(resolve));
-  }
+  await Promise.race([
+    firstWrite,
+    completion.then(() => {
+      throw new Error("Stream completed before its first native write");
+    }),
+  ]);
 
   assert.equal(pulled, 1);
   assert.deepEqual(

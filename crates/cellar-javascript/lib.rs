@@ -19,7 +19,7 @@ pub use application::{EventKind, JavaScriptApplication, Source};
 #[cfg(feature = "embed")]
 pub use runtime::JavaScriptRuntime;
 #[cfg(any(feature = "embed", feature = "node"))]
-pub use runtime::Options;
+pub use runtime::{BridgeUsage, Options};
 
 #[cfg(feature = "node")]
 pub use runtime::node::{NodeOptions, NodeRuntime};

@@ -115,6 +115,8 @@ jobs:
         run: cargo check-layout
       - name: Verify native-only dependency graphs have no JavaScript engine
         run: python3 tools/check_native_dependencies.py
+      - name: Test native dependency guard against Cargo feature resolution
+        run: python3 tools/test_native_dependencies.py
       - name: Verify documentation integrity
         run: python3 tools/docs/check.py
       - name: Test performance workload and evidence guards
@@ -130,12 +132,19 @@ jobs:
           python3 tools/python/test_affinity.py
           python3 tools/python/test_build_identity.py
           python3 tools/python/test_fleet_smoke.py
+          python3 tools/rpc/test_python_cancellation.py
+          python3 tools/rpc/test_python_failure.py
       - name: Test Cloudflare benchmark peer relay
         run: |
           npm ci --ignore-scripts --prefix tools/perf/cloudflare
           npm test --prefix tools/perf/cloudflare
       - name: Test embedded Python adapter
-        run: cargo test -p cellar-python --features embed --locked -- --test-threads=1
+        run: |
+          python -m venv .cellar/rpc/python
+          .cellar/rpc/python/bin/python -m pip install protobuf==7.34.2
+          export CELLAR_RPC_PYTHON_SITE="$(.cellar/rpc/python/bin/python -c 'import site; print(site.getsitepackages()[0])')"
+          .cellar/rpc/python/bin/python -B tools/rpc/test_python_rpc.py
+          cargo test -p cellar-python --features embed --locked -- --test-threads=1
       - name: Verify native and Python baseline harness
         run: |
           cargo build -p cellar-python --example python-offered-load --no-default-features --locked
@@ -245,10 +254,12 @@ jobs:
           mkdir -p "$TMPDIR"
           # Fleet fixtures own concurrent runtimes and short authority leases.
           # Run independent cases serially to keep their resource envelope stable.
-          cargo test --workspace --exclude cellar-python --exclude cellar-javascript --all-features --lib --tests --locked -- --test-threads=1
+          # The opt-in RPC qualifier owns every guest runtime, including V8.
+          # Keep this native/Python job independent of JavaScript engines.
+          cargo test --workspace --exclude cellar-python --exclude cellar-javascript --exclude cellar-rpc-qualification --all-features --lib --tests --locked -- --test-threads=1
           cargo test -p cellar --bin cellar-perf-cells --bin cellar-perf-load --locked -- --test-threads=1
-          cargo test --workspace --exclude cellar-javascript --all-features --doc --locked
-          cargo clippy --workspace --exclude cellar-javascript --all-targets --all-features --locked -- -D warnings
+          cargo test --workspace --exclude cellar-javascript --exclude cellar-rpc-qualification --all-features --doc --locked
+          cargo clippy --workspace --exclude cellar-javascript --exclude cellar-rpc-qualification --all-targets --all-features --locked -- -D warnings
       - name: Test Axum feature modes and generated contract
         run: |
           cargo test -p cellar-axum --no-default-features --locked
