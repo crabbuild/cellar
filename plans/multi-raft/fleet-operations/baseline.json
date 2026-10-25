@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "revision": "b5d25b4b0425d2db673f043fe68585ea990c29b5",
+  "revision": "1a6dc10e691fa10c292ff88e883692dfc2e03fec",
   "files": [
     {
       "path": ".github/workflows/native-sdk.yml",
@@ -124,7 +124,7 @@
     },
     {
       "path": "crates/cellar/durability/raft/host_membership.rs",
-      "sha256": "6bcc132df8a0c11ae6d05c4dc52035b0812b174b551066d0c531569c9aae2da8"
+      "sha256": "9163325202e663e8d254f1eacd26eee000b81a59237f47c36722b3038f763cd9"
     },
     {
       "path": "crates/cellar/durability/raft/host_standby.rs",

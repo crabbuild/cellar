@@ -919,18 +919,75 @@ qualification. FO-04 through FO-10 remain pending. Automatic fleet management
 stays default-off; no deployed RustFS/Colima, resource-enforcement, TPS/p99 or soak
 qualification is claimed.
 
+## FO-03 progress: physical revocation and successor completion
+
+Source `1a6dc10e691fa10c292ff88e883692dfc2e03fec` adds the complete native route/process revocation
+case. Its managed learner retains the same engine after a joined SDK shutdown,
+resumes under a new process during RestartPending, catches up verified native SQL,
+and completes joint promotion. All original peers acknowledge the new process.
+A blocked request to the previous process closes while its server remains live;
+the old publisher cannot replace the new directory view.
+
+An empty peer preserves an already admitted transport call through RestartPending,
+ResizePending, Draining and Evacuated. Removed closes and joins physical I/O and
+releases metadata reservations before the SDK waiter is consumed. A valid late
+advisory directory publication cannot restore rooted trust. The case also runs
+the actual source/target trust-acknowledgement scenario and joins all owning SDK
+nodes. Catalog state/permit edits remain privileged fixture inputs, not operator
+evacuation, removal or capacity-activation certificates.
+
+The first broader run found a repair-completion race. A new proposal had been
+accepted while its waiter still observed the previous Complete repair. The
+waiter returned CommandConflict; a subsequent safe quorum read proved the exact
+new permit had committed Seeding at position 7. The conflict decision now waits
+until the accepted position applies. The existing retirement case reproduced the
+failure both in the cohort and alone; operation-specific error context identified
+the second Begin. Tagged diagnostics were removed before final qualification.
+The fix introduces no retry or reclassification of an error as success.
+
+**361 native cases passed across 13 complete targets**, including 60 enrollment
+and 25 permit/import cases. Five direct-list process helpers run through their
+passing parents. **136 Raft library units** and **four startup-confirmation cases**
+passed. Clippy with warnings denied, format/layout over 951 Rust files, native
+dependency checks (454 packages, no JavaScript engine), documentation, source
+preflight, plan validation and all 10 validator tests passed. The plan retains
+169 required cases and 71 reviewed source anchors. This is a fresh complete
+cohort; the prior source's 360-case record remains separately retained.
+
+Initial compilation and ordinary-stack assembly failures remain retained. The
+scenario boundaries use boxed futures; no stack override, timeout extension,
+assertion weakening, lint suppression or debug instrumentation remains. The first
+qualification attempt stopped after its enrollment failure and is not counted as
+a passing cohort. Earlier readiness/setup timing instability remains unresolved;
+the demonstrated successor-completion race is a separate finding.
+
+The **partial** record `implementation/fo03/route-revocation-boundary.json` under
+ignored `.cellar/raft-perf/fleet-operations/` retains exact source/log/executable
+hashes and the failed-attempt provenance. Mutable build-cache paths do not archive
+executable bytes. No raw evidence is tracked under `plans/multi-raft/evidence/`.
+This substep changes no wire format; the experimental protocol still ends in
+`/catalog-trust-1`.
+
+FO-03 remains **IN_PROGRESS**. Its two absent mandatory cases are
+`fleet_enrollment_incomplete_import` and `fleet_enrollment_physical_host`.
+Typed lifecycle admission must consume a revalidated complete inventory and
+operation-specific live proofs. Rooted node-versus-physical-host placement policy
+must apply to later movement, beyond existing birth checks. FO-04 through FO-10
+remain pending. Automatic fleet management stays default-off. No deployed
+RustFS/Colima, resource-enforcement, TPS/p99 or soak qualification is claimed.
+
 ## Prioritized remaining delivery
 
 The append-only namespace registry, complete inventory read, native retired-binding
-refusal, unrooted ingress refusal and catalog-scoped move trust admission are
-implemented. Next, consume a revalidated exact root inside typed capacity and
+refusal, unrooted ingress refusal, catalog-scoped move trust admission and
+physical route/process revocation are implemented. Next, consume a revalidated exact root inside typed capacity and
 lifecycle admissions; a saved count cannot authorize
 placement or maintenance. The manifest dependencies remain unchanged.
 
 | Priority | Boundary | Required result before advancing |
 | --- | --- | --- |
 | P0, first | FO-03 complete inventory admission | The rooted registry and full canonical/history checker supply the inventory input; native retired-binding refusal is covered. Connect an exact revalidated root to typed capacity and maintenance admission, including offline and pending references, operation-specific live proofs and physical-work joins. Checked inventory does not prove node absence. Close `fleet_enrollment_incomplete_import`. |
-| P0, next | FO-03 complete revocation and failure-domain policy | Unknown-node ingress and actual source/target trust acknowledgements are covered. Complete route/process revocation with physical-work joins, and enforce rooted node-versus-physical-host placement policy. Pass all three remaining mandatory cases and the full FO-03 behavior suite. Close `fleet_enrollment_route_revocation`, `fleet_enrollment_physical_host`. |
+| P0, next | FO-03 rooted failure-domain policy | Unknown-node ingress, actual source/target trust acknowledgements and physical route/process revocation are covered. Enforce rooted node-versus-physical-host placement for later movement, beyond existing birth checks. Pass both remaining mandatory cases and the full FO-03 behavior suite. Close `fleet_enrollment_physical_host`. |
 | P1 | FO-04 placement, FO-05 load, FO-06 reconciliation | Implement bounded staged feasibility for retained/temporary costs and one-node-loss headroom, fresh load observations and a domain-owned reconciler. Restart/cancellation/lost replies must converge; release reservations only with fresh terminal quorum proof and physical-work joins. |
 | P2 | FO-07 maintenance and FO-08 operator API/CLI | Deliver exact-operation/epoch/process stop fencing, one disruption slot, complete evacuation/removal receipts and authenticated idempotent workflows with revision guards and typed outcomes. Cover add/remove and rolling restart. |
 | P3 | FO-09 scaling and fewer-cell shrink | Reconcile desired, effective and observed resources for horizontal and vertical changes. Require observed platform-limit checks and complete retained-state fit before shrinking; fewer cells do not establish removability. |
