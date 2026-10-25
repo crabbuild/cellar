@@ -62,6 +62,7 @@ fn snapshot() -> InspectionSnapshot {
         },
         membership: Some(membership),
         configuration: Some(conf),
+        publication: None,
     }
 }
 

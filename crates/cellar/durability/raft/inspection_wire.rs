@@ -318,6 +318,7 @@ pub(crate) fn decode(bytes: &[u8]) -> Result<Box<InspectionSnapshot>, TransportE
         },
         membership,
         configuration: body.configuration.map(Configuration::decode).transpose()?,
+        publication: None,
     });
     snapshot.validate().map_err(|_| TransportError::Protocol)?;
     Ok(snapshot)

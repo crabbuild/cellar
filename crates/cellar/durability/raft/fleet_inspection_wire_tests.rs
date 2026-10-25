@@ -75,6 +75,23 @@ fn snapshot() -> InspectionSnapshot {
         },
         membership: Some(membership),
         configuration: Some(conf),
+        publication: Some(crate::raft::host::Publication::Image(
+            crate::raft::host::FleetPublishedImage::new(
+                LogPosition {
+                    index: LogIndex::new(1),
+                    term: Term::new(1),
+                },
+                cellar_ltx::apply::ImageState {
+                    epoch: 1,
+                    txid: cellar_ltx::TXID(1),
+                    checksum: 0,
+                    page_size: 4096,
+                    length: 4096,
+                    digest: [7; 32],
+                },
+            )
+            .unwrap(),
+        )),
     }
 }
 
@@ -115,6 +132,7 @@ fn fleet_quorum_wire_retains_exact_configuration_and_publication() {
     assert_eq!(restored.snapshot.view, view.snapshot.view);
     assert_eq!(restored.snapshot.membership, view.snapshot.membership);
     assert_eq!(restored.snapshot.configuration, view.snapshot.configuration);
+    assert_eq!(restored.snapshot.publication, view.snapshot.publication);
     assert!(
         restored
             .snapshot
@@ -126,6 +144,54 @@ fn fleet_quorum_wire_retains_exact_configuration_and_publication() {
             .index
             < restored.barrier
     );
+}
+
+#[test]
+fn fleet_cut_wire_requires_explicit_coherent_publication() {
+    use crate::raft::host::Publication;
+    let mut view = observation();
+    let valid = encode(&view).unwrap();
+    let ordinary = crate::raft::inspection_wire::decode(
+        &crate::raft::inspection_wire::encode(&view.snapshot).unwrap(),
+    )
+    .unwrap();
+    assert!(ordinary.publication.is_none());
+    let node = u32::from_be_bytes(valid[4..8].try_into().unwrap()) as usize;
+    let group = u32::from_be_bytes(valid[8..12].try_into().unwrap()) as usize;
+    let start = 20 + node + group;
+    assert!(decode(&valid[..start]).is_err());
+    for tag in [3, 255] {
+        let mut malformed = valid.clone();
+        malformed[start] = tag;
+        assert!(decode(&malformed).is_err());
+    }
+    for offset in [1, 9, 17, 25, 45] {
+        let mut malformed = valid.clone();
+        malformed[start + offset..start + offset + 8].fill(0);
+        assert!(decode(&malformed).is_err());
+    }
+    let mut contradictory = valid[..start].to_vec();
+    contradictory.push(0);
+    assert!(decode(&contradictory).is_err());
+    view.snapshot.publication = Some(Publication::Pending);
+    assert_eq!(
+        decode(&encode(&view).unwrap())
+            .unwrap()
+            .snapshot
+            .publication,
+        Some(Publication::Pending)
+    );
+    view.snapshot.view.member.as_mut().unwrap().published = None;
+    view.snapshot.publication = Some(Publication::Empty);
+    assert_eq!(
+        decode(&encode(&view).unwrap())
+            .unwrap()
+            .snapshot
+            .publication,
+        Some(Publication::Empty)
+    );
+    view.snapshot.publication = None;
+    assert!(encode(&view).is_err());
 }
 
 #[test]

@@ -84,6 +84,6 @@ explicit owner in their canonical birth record. New managed births cannot use
 bare bootstrap. Original imported births retain their earlier identity and
 replay their committed enrollment during intact-engine recovery.
 
-The internal protocol hard-cuts to `/fleet-quorum-1`. Use fresh fleet roots,
+The internal protocol hard-cuts to `/fleet-quorum-1/fleet-cuts-1`. Use fresh fleet roots,
 fresh namespaces and matching binaries. Numeric format markers stay at 1;
 there is no compatibility reader or state migration.

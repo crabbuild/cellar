@@ -71,6 +71,10 @@ mod fleet_control;
 #[path = "host_fleet_observation.rs"]
 mod fleet_observation;
 pub use fleet_observation::{FleetMembershipConfiguration, FleetMembershipObservation};
+#[path = "host_fleet_cut.rs"]
+mod fleet_cut;
+pub(crate) use fleet_cut::Publication;
+pub use fleet_cut::{FleetPublishedCut, FleetPublishedImage};
 #[path = "host_fleet_inspection.rs"]
 mod fleet_inspection;
 pub use super::fleet_inspection_wire::RaftPeerFleetMembershipObservation;

@@ -185,6 +185,7 @@ fn authenticated_body_cannot_cross_history_or_physical_owner() {
         },
         membership: None,
         configuration: None,
+        publication: None,
     };
     validate_response(&route, &snapshot).unwrap();
     for field in 0..11 {

@@ -119,7 +119,7 @@ Ordinary `bootstrap_member` can only resume an already enrolled managed group;
 it refuses fresh or bare genesis before creating local group state or a member
 claim. Managed host startup and `activate_managed_initial_member` use the guarded path described below.
 
-This experimental protocol hard-cuts to `/fleet-quorum-1`; use fresh fleet
+This experimental protocol hard-cuts to `/fleet-quorum-1/fleet-cuts-1`; use fresh fleet
 roots, fresh namespaces and matching binaries. Fleet heads require the current
 protocol digest, and their permanent genesis pin binds it. Missing or earlier
 protocol state refuses initialization and reads; there is no compatibility reader.
@@ -249,6 +249,24 @@ target independently reads its current catalog, authorizes the resident history,
 performs safe ReadIndex and returns a coherent durable configuration plus local
 publication progress. A signed status sample cannot satisfy this RPC. Dormant,
 retired, unenrolled or mismatched histories refuse without activation or SQL.
+
+`published_cut()` returns an opaque `FleetPublishedCut` only when the exact
+published image marker matches the durable applied marker captured with that
+configuration. A cut with `image() == None` proves the canonical empty state;
+an absent cut means publication is still pending. Ordinary status inspection
+cannot supply this statement. Configuration-only entries can advance the applied
+cut without changing SQL; an intact restart can publish the same image at a
+later configuration position. `covers()` compares complete prefix coverage at
+the same exact catalog/history and membership revision, including these restore
+aliases. A changed configuration requires a fresh verification attempt.
+
+The cut is historical. It establishes no current health, archive payload/replay
+coverage, reservation release, removal or process-stop authority. The terminal
+verifier must independently check the surviving replicas, fully verify the
+archive, settle permits and fence or join physical work. Cold canonical-empty
+histories still need an explicit archive-coverage contract; this API does not
+silently waive that gate. Business-write acknowledgement calls none of this
+metadata work.
 
 The opaque response includes the installed node enrollment and whole invocation
 age through SDK delivery. Per-node and per-peer 1 MiB transport reservations cover
@@ -451,7 +469,7 @@ response alone is not a fleet completion certificate.
 Cellar-owned markers stay at 1. Membership and intent records require an explicit
 nullable `fleet` field. Birth records also require an explicit nullable
 `cancelled_by` field; the namespace protocol identity ends in
-`/catalog-trust-1/fleet-admission-1/fleet-quorum-1`.
+`/catalog-trust-1/fleet-admission-1/fleet-quorum-1/fleet-cuts-1`.
 Older namespace protocols refuse startup; there is no legacy reader or migration.
 Use a fresh experimental namespace and matching participants. Do not downgrade a
 guarded engine to an older binary or remove the guard field to regain admission.

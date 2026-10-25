@@ -1,7 +1,7 @@
 //! Quorum metadata binds one rooted history to one authenticated node route.
 //! The body reuses the bounded node and membership inspection codecs.
 use super::fleet_catalog::FleetGroupAuthorization;
-use super::host::{FleetMembershipObservation, RaftHostObservation};
+use super::host::{FleetMembershipObservation, FleetPublishedCut, RaftHostObservation};
 use super::inspection::{CellInspection, InspectionSnapshot};
 use super::member_state::FleetGroupBinding;
 use super::transport::TransportError;
@@ -9,7 +9,11 @@ use super::{inspection_wire, node_inspection_wire};
 use cellar_logic::consensus::{GroupScope, LogIndex};
 use serde::{Deserialize, Serialize};
 
-pub(crate) const MAX_BODY: usize = 20 + node_inspection_wire::MAX_BODY + inspection_wire::MAX_BODY;
+#[path = "fleet_cut_wire.rs"]
+mod publication;
+
+pub(crate) const MAX_BODY: usize =
+    20 + node_inspection_wire::MAX_BODY + inspection_wire::MAX_BODY + publication::MAX_BODY;
 pub(crate) const RESPONSE_BYTES: usize = 128 * 1024;
 
 #[cfg(test)]
@@ -62,6 +66,7 @@ impl LocalObservation {
         if view.node.identity != self.node.node.identity
             || view.node.storage_instance != self.node.node.storage_instance
             || self.barrier.get() == 0
+            || self.snapshot.publication.is_none()
             || view
                 .member
                 .as_ref()
@@ -90,10 +95,19 @@ impl LocalObservation {
             self.barrier,
         )
         .map_err(|_| TransportError::Identity)?;
+        let published = FleetPublishedCut::capture(
+            &membership,
+            self.node.node.storage_instance,
+            self.snapshot
+                .publication
+                .as_ref()
+                .ok_or(TransportError::Protocol)?,
+        );
         Ok(super::host::RaftPeerFleetMembershipObservation::new(
             *self.node,
             membership,
             self.snapshot.view,
+            published,
             sample_age_ms,
         ))
     }
@@ -110,6 +124,13 @@ pub(crate) fn encode(observation: &LocalObservation) -> Result<Vec<u8>, Transpor
     bytes.extend_from_slice(&observation.barrier.get().to_be_bytes());
     bytes.extend_from_slice(&node);
     bytes.extend_from_slice(&group);
+    bytes.extend_from_slice(&publication::encode(
+        observation
+            .snapshot
+            .publication
+            .as_ref()
+            .ok_or(TransportError::Protocol)?,
+    ));
     Ok(bytes)
 }
 
@@ -131,13 +152,16 @@ pub(crate) fn decode(bytes: &[u8]) -> Result<LocalObservation, TransportError> {
     if word(0) != 1
         || node > node_inspection_wire::MAX_BODY
         || group > inspection_wire::MAX_BODY
-        || 20 + node + group != bytes.len()
+        || 20 + node + group >= bytes.len()
+        || bytes.len() - (20 + node + group) > publication::MAX_BODY
     {
         return Err(TransportError::Protocol);
     }
+    let mut snapshot = inspection_wire::decode(&bytes[20 + node..20 + node + group])?;
+    snapshot.publication = Some(publication::decode(&bytes[20 + node + group..])?);
     let observation = LocalObservation {
         node: node_inspection_wire::decode(&bytes[20..20 + node])?,
-        snapshot: inspection_wire::decode(&bytes[20 + node..])?,
+        snapshot,
         barrier: LogIndex::new(u64::from_be_bytes([
             bytes[12], bytes[13], bytes[14], bytes[15], bytes[16], bytes[17], bytes[18], bytes[19],
         ])),
@@ -153,6 +177,7 @@ pub struct RaftPeerFleetMembershipObservation {
     node: RaftHostObservation,
     membership: FleetMembershipObservation,
     progress: CellInspection,
+    published: Option<FleetPublishedCut>,
     sample_age_ms: u64,
 }
 
@@ -182,12 +207,14 @@ impl RaftPeerFleetMembershipObservation {
         node: RaftHostObservation,
         membership: FleetMembershipObservation,
         progress: CellInspection,
+        published: Option<FleetPublishedCut>,
         sample_age_ms: u64,
     ) -> Self {
         Self {
             node,
             membership,
             progress,
+            published,
             sample_age_ms,
         }
     }
@@ -202,6 +229,14 @@ impl RaftPeerFleetMembershipObservation {
 
     pub fn progress(&self) -> &CellInspection {
         &self.progress
+    }
+
+    /// A fixed data/configuration cut only when publication matched durable
+    /// apply at capture. None means publication is pending; an empty cut is an
+    /// explicit Some value whose image() is None. Neither supplies archive or
+    /// current-health proof.
+    pub fn published_cut(&self) -> Option<&FleetPublishedCut> {
+        self.published.as_ref()
     }
 
     /// Whole invocation through SDK delivery, including retained reply time.

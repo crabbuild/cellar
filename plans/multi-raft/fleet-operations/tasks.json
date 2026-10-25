@@ -393,7 +393,11 @@
         "crates/cellar/durability/raft/host_fleet_inspection.rs",
         "crates/cellar/tests/support/raft_peer_fleet_observation.rs",
         "crates/cellar/durability/raft/fleet_inspection_auth_tests.rs",
-        "crates/cellar/durability/raft/fleet_inspection_wire_tests.rs"
+        "crates/cellar/durability/raft/fleet_inspection_wire_tests.rs",
+        "crates/cellar/durability/raft/host_fleet_cut.rs",
+        "crates/cellar/durability/raft/host_fleet_cut_tests.rs",
+        "crates/cellar/durability/raft/fleet_cut_wire.rs",
+        "crates/cellar/tests/support/raft_published_cut.rs"
       ],
       "steps": [
         "Add CAS-authorized node-set revisions with bounded route and permission refresh.",
@@ -1382,6 +1386,30 @@
             "F01",
             "F02",
             "F04",
+            "F06",
+            "F07",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_published_cut_configuration_progress",
+          "oracle": "Actual RF3 safe observations freeze a coherent published image and applied configuration cut. Configuration-only permit fencing advances apply without user SQL, and intact full-cluster restart can relabel the same image at later positions. All survivors cover the fixed cut; later S3 writes preserve coverage without changing it. Different configuration revisions conflict.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F06",
+            "F07",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_published_cut_excludes_private_sql_image",
+          "oracle": "While the real second SQL callback is held after private mutation, a remote quorum observation retains the old exact published state with no query pin or local observer replica. After release, S3 acknowledgement, physical image position and native SQL result agree. Canonical empty and missing publication remain distinct.",
+          "invariants": [
+            "F01",
+            "F02",
             "F06",
             "F07",
             "F08",

@@ -138,6 +138,7 @@ pub(crate) struct InspectionSnapshot {
     pub view: CellInspection,
     pub membership: Option<GroupMembership>,
     pub configuration: Option<::raft::prelude::ConfState>,
+    pub publication: Option<super::host::Publication>,
 }
 
 pub(crate) const RESPONSE_RESERVATION: usize = 64 * 1024;
@@ -220,6 +221,9 @@ impl InspectionSnapshot {
             load.capacity != view.node.profile.leader_capacity || load.leaders > view.node.groups
         }) {
             return Err(invalid);
+        }
+        if let Some(publication) = &self.publication {
+            publication.validate(view.member.as_ref().ok_or(invalid)?)?;
         }
         Ok(())
     }

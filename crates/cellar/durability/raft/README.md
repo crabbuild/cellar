@@ -31,7 +31,7 @@ owned fleet reconciler and its qualification gates.
 Managed initial voters persist their enrollment with genesis before a permanent
 member claim and runtime attachment. Empty hosts can initialize them dynamically,
 and cold managed members resolve rooted peer views with only a self hint.
-The experimental namespace protocol now ends in `/fleet-quorum-1`; use fresh
+The experimental namespace protocol now ends in `/fleet-quorum-1/fleet-cuts-1`; use fresh
 fleet/data prefixes, namespaces and matching binaries, with numeric markers
 retained at 1 and no compatibility reader or migration.
 

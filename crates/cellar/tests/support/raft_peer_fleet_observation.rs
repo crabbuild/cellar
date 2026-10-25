@@ -136,6 +136,11 @@ async fn fleet_peer_observation_empty_coordinator() -> Result<()> {
         let observed = source
             .observe_peer_fleet_membership(node.spec.node, auth.clone(), revision, TIMEOUT)
             .await?;
+        let cut = observed
+            .published_cut()
+            .context("image-free published cut")?;
+        ensure!(cut.image().is_none());
+        ensure!(cut.applied() == observed.membership().applied());
         let proof = observed.membership();
         ensure!(proof.replica().scope == proposal.scope);
         ensure!(proof.replica().node == node.spec.node);

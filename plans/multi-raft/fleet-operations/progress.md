@@ -1119,18 +1119,39 @@ reconciler, operator workflows, scaling and deployed qualification remain open.
 The append-only namespace registry, complete inventory read, native retired-binding
 refusal, unrooted ingress refusal, catalog-scoped move trust admission,
 physical route/process revocation, rooted replica separation and typed evacuation
-exclusion and remote quorum observations are implemented. The evacuation adapter consumes complete inventory
-inside its exact root CAS. Capacity activation and terminal lifecycle proof still
-require their operation-specific integration; a saved count cannot authorize
+exclusion, remote quorum observations and coherent publication cuts are implemented.
+The evacuation adapter consumes complete inventory inside its exact root CAS.
+Capacity activation and terminal lifecycle proof still require their
+operation-specific integration; a saved count cannot authorize
 placement or maintenance. The manifest dependencies remain unchanged.
 
 | Priority | Boundary | Required result before advancing |
 | --- | --- | --- |
-| P0 | FO-03 capacity and terminal lifecycle integration | Complete inventory now gates typed evacuation exclusion under one exact root CAS; rooted physical-host policy is enforced on birth and fresh repair. Finish capacity activation/readiness and inventory-consuming terminal proof with fresh quorum/archive coverage, settled permits and physical-work joins/fences. Bind coherent fixed data/configuration cuts, including empty histories, before consuming the remote observations. Exclusion is not node absence. Close `fleet_enrollment_incomplete_import` at the actual removal-certification boundary. |
+| P0 | FO-03 capacity and terminal lifecycle integration | Complete inventory now gates typed evacuation exclusion under one exact root CAS; rooted physical-host policy is enforced on birth and fresh repair. Finish capacity activation/readiness and inventory-consuming terminal proof with fresh quorum/archive coverage, settled permits and physical-work joins/fences. Consume the coherent fixed data/configuration cuts in the terminal verifier; fully verify archive payloads and replay, including an explicit canonical-empty archive contract. Exclusion is not node absence. Close `fleet_enrollment_incomplete_import` at the actual removal-certification boundary. |
 | P1 | FO-04 placement, FO-05 load, FO-06 reconciliation | Implement bounded staged feasibility for retained/temporary costs and one-node-loss headroom, fresh load observations and a domain-owned reconciler. Restart/cancellation/lost replies must converge; release reservations only with fresh terminal quorum proof and physical-work joins. |
 | P2 | FO-07 maintenance and FO-08 operator API/CLI | Deliver exact-operation/epoch/process stop fencing, shared disruption-slot integration for restart/resize, complete evacuation/removal receipts and authenticated idempotent workflows with revision guards and typed outcomes. Cover add/remove and rolling restart. |
 | P3 | FO-09 scaling and fewer-cell shrink | Reconcile desired, effective and observed resources for horizontal and vertical changes. Require observed platform-limit checks and complete retained-state fit before shrinking; fewer cells do not establish removability. |
 | Release gate | FO-10 deployed qualification and performance | Qualify actual five/six/four-node RustFS/Colima operations and faults with enforced 1-vCPU/3-GiB limits and a 24-hour soak. Measure successful TPS, p50/p95/p99, archive catch-up and controller idle/movement overhead. Prefer p99 below 200 ms; 500 ms is the hard ceiling. Keep optional performance changes only with matched evidence of higher throughput or lower latency. |
+
+The next implementation slice is **FO-03 terminal verification**, in this order:
+
+1. Define and verify archive coverage for both populated and canonical-empty
+   histories. A published head alone is insufficient: validate referenced payload
+   hashes and physical restore/replay through the chosen fixed applied cut.
+2. Collect complete rooted inventory, settled exact permits and fresh stable
+   quorum configurations excluding the departing node. Require three surviving
+   coherent publications covering the fixed cut, then recheck the root,
+   configuration, policy and admission state before finalization.
+3. Publish an immutable candidate receipt, reference it in the terminal root
+   CAS, and release the disruption slot only through that verified transition.
+   Join reachable seed work; fence unreachable authority while retaining uncertain
+   physical occupancy. Cover lost replies, crashes and orphan candidate receipts.
+4. Close `fleet_enrollment_incomplete_import` at removal certification. Separately
+   complete capacity readiness against actual process/engine and observed or
+   explicitly attested platform limits before admitting new placement.
+
+These steps unblock the planner and reconciler. They do not require an optional
+leader-scheduling change or a new business-write acknowledgement dependency.
 
 The local implementation has no measured TPS or latency improvement claim. Keep
 fleet management default-off until its release gates pass. Optional throughput

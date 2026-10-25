@@ -210,6 +210,7 @@ impl Driver {
             },
             membership: None,
             configuration: None,
+            publication: None,
         };
         self.fill_inspection(scope, status, &mut snapshot)?;
         Ok(snapshot)
@@ -311,6 +312,12 @@ impl Driver {
             });
             snapshot.membership = Some(cache.membership.clone());
             snapshot.configuration = Some(cache.conf_state.clone());
+            snapshot.publication = Some(Publication::capture(
+                &cache.applied,
+                cell.image
+                    .as_ref()
+                    .map(|image| (&image.image, image.position)),
+            )?);
             return Ok(());
         }
         if let Some(dormant) = self.standbys.get(scope) {

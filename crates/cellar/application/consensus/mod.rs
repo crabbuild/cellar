@@ -43,12 +43,12 @@ pub use crate::raft::fleet_catalog::{
     FleetNodeState, FleetPermitAuthorization, FleetReplicaSeparation, FleetRequestIdentity,
 };
 pub use crate::raft::host::{
-    FleetMembershipConfiguration, FleetMembershipObservation, RaftArchiveOptions,
-    RaftCellPlacement, RaftCellRegistration, RaftCellsConfig, RaftCellsServices,
-    RaftControllerOptions, RaftControllerStatus, RaftHostEnrollmentObservation,
-    RaftHostObservation, RaftHostOptions, RaftInspectionScanOptions, RaftManagedHostOptions,
-    RaftNamespaceRegistration, RaftNodeDirectoryOptions, RaftPeerFleetMembershipObservation,
-    RaftPeerNode, RaftPeerNodeObservation,
+    FleetMembershipConfiguration, FleetMembershipObservation, FleetPublishedCut,
+    FleetPublishedImage, RaftArchiveOptions, RaftCellPlacement, RaftCellRegistration,
+    RaftCellsConfig, RaftCellsServices, RaftControllerOptions, RaftControllerStatus,
+    RaftHostEnrollmentObservation, RaftHostObservation, RaftHostOptions, RaftInspectionScanOptions,
+    RaftManagedHostOptions, RaftNamespaceRegistration, RaftNodeDirectoryOptions,
+    RaftPeerFleetMembershipObservation, RaftPeerNode, RaftPeerNodeObservation,
 };
 pub use crate::raft::inspection::{
     CellInspection, InspectionError, LeaderLoad, MemberInspection, NodeInspection, RaftNodeProfile,
