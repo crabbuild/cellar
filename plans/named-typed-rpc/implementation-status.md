@@ -93,8 +93,16 @@ pairs. Preserve the full test matrix, failures and remaining work across turns.
   12 encoding tests, three build-identity tests, strict TS checks and fixture
   build pass. The agent app build and all 36 agent unit tests pass; agent sources
   match main exactly. Browser/RustFS live-store checks were not rerun here.
-  A fresh combined ten-suite run is pending after this integration; the earlier
-  ten-suite evidence remains recorded below. Full-qualification flags stay false.
+  The fresh normal-stack combined run on the merged implementation at `949ea5a1`
+  passes all ten suites: 552 cases across 16 local pairs, 16 peer/handoff pairs,
+  55 deadlines, 17 cancellations, 80 cycles, 96 provenance cases, 128 proof waits,
+  32 failed-recovery cases, 48 observed owner kills and 64 proof/fencing cases.
+  `.cellar/rpc/descriptor-main-full-matrix.json` is published after native and
+  guest drains; all 48 owners and their worker groups exit. The execution log is
+  `/tmp/cellar-rpc-descriptor-main-full.log`. The earlier intermittent failures
+  do not recur, and their causes remain unestablished. Earlier evidence stays
+  recorded below. Full-qualification flags remain false. Hosted CI is queued;
+  no hosted pass is claimed.
 - Descriptor admission now validates one global namespace, including packages,
   enum values in their enclosing scope, fields, oneofs and service methods.
   Every message/enum reference requires the defining file to be visible through
@@ -121,16 +129,15 @@ pairs. Preserve the full test matrix, failures and remaining work across turns.
   `/tmp/cellar-rpc-descriptor-*.log`. All full-qualification flags remain false;
   option/schema semantics, runtime allocation/RSS and lifecycle work remain.
 - The earlier main integration through `2133d124` (#115) preserves copyright
-  notices,
-  preserved, including the one Node transport comment conflict. At the notice
+  notices, including the one Node transport comment conflict. At the notice
   merge, all 974 checked runtime, SDK and fixture source files matched the
   ten-suite-tested `73a62b5a` after removing only notice text. New sources receive
   matching notices. The generator applies notices reproducibly while retaining
   producer comments; nine generator tests and generator Clippy pass, and both
   Counter/profile sets reproduce all 24 artifacts with unchanged descriptor
   bytes. SDK, Python sanitizer/runner, three build-identity tests, documentation
-  and workflow parsing pass after the merge. Ten-suite runtime evidence is
-  from the implementation before the notice merge; it is not a fresh
+  and workflow parsing pass after the merge. That earlier ten-suite runtime
+  evidence is from the implementation before the notice merge; it is not a fresh
   package/release qualification or a resolution of the transient failures.
 - The earlier normal-stack serial run at `73a62b5a` passes all ten suites and publishes
   `.cellar/rpc/provenance-full-matrix.json` after native and guest drains:
