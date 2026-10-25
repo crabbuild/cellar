@@ -1339,12 +1339,73 @@ proofs in terminal survivor verification, immutable receipts and disruption-slot
 release; close `fleet_enrollment_incomplete_import` at actual removal certification.
 Capacity readiness and FO-04 through FO-10 remain required. Automation stays off.
 
+## FO-03 progress: inventory-consuming evacuation candidates
+
+Source `f130ed3ef58f05d3423a00d88d850af9c3d47fe7` connects complete rooted inventory to
+`FleetEvacuationVerification`. Preparation checks the current root, canonical
+active operation/journal, exact Draining node and every declared namespace/history.
+Each pending live history owns three authenticated safe-ReadIndex observations,
+checks stable RF3, current survivor identities/engine pins, the exact settled
+latest permit and rooted failure-domain separation, then physically verifies the
+selected immutable archive. Voter comparisons use logical sets because raft-rs
+ConfState vectors have no ordering guarantee.
+
+`freeze_live` retains one fixed historical publication cut while ordinary writes
+and archive catch-up continue. Repeated replay attempts keep that boundary.
+Reserved births block; canonical cancellations are consumed explicitly. A bounded
+immutable receipt index and digest-addressed candidate manifest cover every
+rooted history. Rooted-input changes invalidate the attempt. Unrelated Operations
+progress is allowed, while a missing or corrupted original operation refuses.
+Candidate publication confirms the final index page and leaves node state, the
+root and disruption ownership unchanged. Stored bytes cannot recreate proofs
+or supply terminal removal/stop authority after a crash.
+
+Five new native cases cover complete inventory and stable retries, failed
+archive reads without progress, unconsumed permits, reserved/cancelled births,
+missing imports, fixed cuts across later S3 writes, operation corruption, and
+real S3 learner seeding through joint-to-stable voter replacement. The departing
+original voter retains physical history; the three survivors continue writes
+and queries. Capacity/permit metadata remains privileged fixture input.
+
+Frozen-source qualification passed **223 native cases across five complete
+targets**: enrollment 83, catalog 12, permits 25, archive 57 and snapshot 46,
+plus **152 Raft unit cases**. Two snapshot process helpers remain ignored in
+direct listings and execute through their passing parent crash matrices. Lib and
+affected-target Clippy with warnings denied, formatting/layout over 1,098 Rust
+files, native dependencies (465 packages, no JavaScript engine), documentation,
+plan validation and all ten validator tests passed. All 1170 Rust files and
+captured Cargo inputs stayed unchanged and match committed Git blobs. Six test
+executables were retained and hash-checked. This is an incremental affected-scope
+run; the earlier 386-case/13-target matrix remains qualified at its own source.
+The plan now retains **198 required cases and 74 reviewed source anchors**.
+
+Initial compilation and diagnostic failures remain retained. Concurrent survivor
+calls reproduced typed `Observation(Overloaded)`; sequencing respects the bounded
+metadata turn and one original deadline. Fixtures now wait for actual installed
+trust after rooted changes. Publication verifies its final empty index page.
+The replacement-specific teardown requires its actual one-replica state and
+joined owners; existing empty-observer assertions remain intact. No proof check,
+original deadline or durability assertion was weakened.
+
+The ignored partial record is
+`implementation/fo03/candidate-boundary.json` under
+`.cellar/raft-perf/fleet-operations/`, with source/log/executable hashes and retained
+failed attempts. No raw evidence is tracked under `plans/multi-raft/evidence/`.
+The combined listing and passed-case audit still identify
+`fleet_enrollment_incomplete_import` as absent at the required terminal boundary.
+FO-03 remains **IN_PROGRESS**: fresh terminal survivor verification, physical
+joins/fences, atomic terminal receipt/slot release and capacity readiness remain.
+FO-04 through FO-10 are pending. This increment changes no existing protocol
+suffix and claims no startup fix, RustFS deployment, enforced resource tier,
+automation, TPS/latency gain or soak qualification.
+
 ## Prioritized remaining delivery
 
 The append-only namespace registry, complete inventory read, native retired-binding
 refusal, unrooted ingress refusal, catalog-scoped move trust admission,
 physical route/process revocation, rooted replica separation and typed evacuation
-exclusion, remote quorum observations and coherent publication cuts are implemented.
+exclusion, remote quorum observations, coherent publication cuts and complete-inventory
+candidate preparation with physical archive replay are implemented.
 The evacuation adapter consumes complete inventory inside its exact root CAS.
 Capacity activation and terminal lifecycle proof still require their
 operation-specific integration; a saved count cannot authorize
@@ -1352,29 +1413,27 @@ placement or maintenance. The manifest dependencies remain unchanged.
 
 | Priority | Boundary | Required result before advancing |
 | --- | --- | --- |
-| P0 | FO-03 capacity and terminal lifecycle integration | Complete inventory now gates typed evacuation exclusion under one exact root CAS; rooted physical-host policy is enforced on birth and fresh repair. Finish capacity activation/readiness and inventory-consuming terminal proof with fresh quorum/archive coverage, settled permits and physical-work joins/fences. Consume coherent fixed data/configuration cuts and the exact physically verified archive coverage proofs in the terminal verifier, including canonical-empty histories. Exclusion is not node absence. Close `fleet_enrollment_incomplete_import` at the actual removal-certification boundary. |
+| P0 | FO-03 capacity and terminal lifecycle integration | Complete inventory gates exclusion and candidate preparation; exact fixed cuts, settled permits, RF3 survivors and physical archive replay are connected. Finish fresh terminal survivor checks, physical-work joins/fences, the atomic rooted terminal receipt/disruption-slot release, and capacity activation/readiness. Historical candidates grant no removal authority. Close `fleet_enrollment_incomplete_import` at the actual removal-certification boundary. |
 | P1 | FO-04 placement, FO-05 load, FO-06 reconciliation | Implement bounded staged feasibility for retained/temporary costs and one-node-loss headroom, fresh load observations and a domain-owned reconciler. Restart/cancellation/lost replies must converge; release reservations only with fresh terminal quorum proof and physical-work joins. |
 | P2 | FO-07 maintenance and FO-08 operator API/CLI | Deliver exact-operation/epoch/process stop fencing, shared disruption-slot integration for restart/resize, complete evacuation/removal receipts and authenticated idempotent workflows with revision guards and typed outcomes. Cover add/remove and rolling restart. |
 | P3 | FO-09 scaling and fewer-cell shrink | Reconcile desired, effective and observed resources for horizontal and vertical changes. Require observed platform-limit checks and complete retained-state fit before shrinking; fewer cells do not establish removability. |
 | Release gate | FO-10 deployed qualification and performance | Qualify actual five/six/four-node RustFS/Colima operations and faults with enforced 1-vCPU/3-GiB limits and a 24-hour soak. Measure successful TPS, p50/p95/p99, archive catch-up and controller idle/movement overhead. Prefer p99 below 200 ms; 500 ms is the hard ceiling. Keep optional performance changes only with matched evidence of higher throughput or lower latency. |
 
-The next implementation slice is **FO-03 terminal verification**, in this order:
+The next implementation slice is **FO-03 terminal finalization**, in this order:
 
-1. Consume the new exact-reference physical archive proofs for populated and
-   canonical-empty histories in the terminal verifier. Check their fixed
-   state/configuration coverage alongside fresh survivor observations; a saved
-   historical proof alone cannot certify removal.
-2. Collect complete rooted inventory, settled exact permits and fresh stable
-   quorum configurations excluding the departing node. Require three surviving
-   coherent publications covering the fixed cut, then recheck the root,
-   configuration, policy and admission state before finalization.
-3. Publish an immutable candidate receipt, reference it in the terminal root
-   CAS, and release the disruption slot only through that verified transition.
-   Join reachable seed work; fence unreachable authority while retaining uncertain
-   physical occupancy. Cover lost replies, crashes and orphan candidate receipts.
-4. Close `fleet_enrollment_incomplete_import` at removal certification. Separately
-   complete capacity readiness against actual process/engine and observed or
-   explicitly attested platform limits before admitting new placement.
+1. Consume the historical candidate through owned fresh survivor observations
+   immediately before terminal CAS. Preserve the fixed business cut while
+   rechecking exact history, configuration, settled permits, policy and current
+   operation. Deserialized receipt flags cannot supply these proofs.
+2. Fence new boots and delayed operation/process authority before joining
+   reachable physical owners. Retain uncertain occupancy for unreachable owners;
+   an empty serving-group count supplies no physical closure or deletion proof.
+3. Atomically root the terminal receipt, transition the exact node epoch and
+   release the disruption slot. Reconcile lost replies through the permanent
+   journal, and cover crashes, orphan candidates and candidate replanning.
+4. Close `fleet_enrollment_incomplete_import` at removal certification. Complete
+   capacity readiness against actual process/engine and observed or explicitly
+   attested platform limits before admitting new placement.
 
 These steps unblock the planner and reconciler. They do not require an optional
 leader-scheduling change or a new business-write acknowledgement dependency.

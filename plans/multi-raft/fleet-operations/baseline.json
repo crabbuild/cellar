@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "revision": "e083e6a2c58b245cd378a189351aff0c0776d488",
+  "revision": "f130ed3ef58f05d3423a00d88d850af9c3d47fe7",
   "files": [
     {
       "path": ".github/workflows/native-sdk.yml",
@@ -48,7 +48,7 @@
     },
     {
       "path": "crates/cellar/application/consensus/mod.rs",
-      "sha256": "84a795a6d97f6166c8c39afba880ba336a72da0fd41ff3837cccf06f221113bd"
+      "sha256": "d4d4874667e8c9456d67a67ddb85003498547125d42267e6f42398cb43af3b8b"
     },
     {
       "path": "crates/cellar/application/consensus/protocol.rs",
