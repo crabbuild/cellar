@@ -40,6 +40,17 @@ struct Storage {
 }
 
 impl SnapshotFile {
+    /// Observe completed I/O on this shared physical spool. This does not
+    /// validate bytes or turn disposable transport material into an image pin.
+    pub fn set_io_activity(&self, activity: crate::host::IoActivity) -> Result<(), Error> {
+        self.storage
+            .file
+            .lock()
+            .map_err(|_| Error::Invalid("poisoned snapshot owner"))?
+            .set_io_activity(Some(activity));
+        Ok(())
+    }
+
     pub(super) fn new(
         file: HostFile,
         metadata: Metadata,

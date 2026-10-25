@@ -11,6 +11,10 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+#[path = "host_activity.rs"]
+mod activity;
+pub use activity::IoActivity;
+
 type HostFuture<T> = Pin<Box<dyn Future<Output = T> + Send>>;
 type BlockingJob = Box<dyn FnOnce() + Send>;
 type NowUnixMillis = dyn Fn() -> i64 + Send + Sync;
@@ -84,9 +88,25 @@ pub trait HostFileIo: Send {
 /// One open file owned by an injected filesystem.
 pub struct HostFile {
     inner: Box<dyn HostFileIo>,
+    activity: Option<IoActivity>,
 }
 
 impl HostFile {
+    /// Attach scheduling observations to this owned handle. Completed I/O
+    /// still requires its original integrity and publication checks.
+    pub fn set_io_activity(&mut self, activity: Option<IoActivity>) {
+        self.activity = activity;
+    }
+
+    fn record_activity<T>(&self, result: io::Result<T>) -> io::Result<T> {
+        if result.is_ok() {
+            if let Some(activity) = &self.activity {
+                activity.record();
+            }
+        }
+        result
+    }
+
     /// Request the provider's optional streaming-cache policy. Unsupported
     /// providers retain normal I/O; a successful hint proves no data property.
     pub fn advise_streaming(&mut self) -> io::Result<()> {
@@ -94,23 +114,28 @@ impl HostFile {
     }
 
     pub fn write_all_at(&mut self, offset: u64, bytes: &[u8]) -> io::Result<()> {
-        self.inner.write_all_at(offset, bytes)
+        let result = self.inner.write_all_at(offset, bytes);
+        self.record_activity(result)
     }
 
     pub fn set_len(&mut self, length: u64) -> io::Result<()> {
-        self.inner.set_len(length)
+        let result = self.inner.set_len(length);
+        self.record_activity(result)
     }
 
     pub fn write_all(&mut self, bytes: &[u8]) -> io::Result<()> {
-        self.inner.write_all(bytes)
+        let result = self.inner.write_all(bytes);
+        self.record_activity(result)
     }
 
     pub fn read_exact_at(&mut self, offset: u64, len: usize) -> io::Result<Vec<u8>> {
-        self.inner.read_exact_at(offset, len)
+        let result = self.inner.read_exact_at(offset, len);
+        self.record_activity(result)
     }
 
     pub fn sync_all(&mut self) -> io::Result<()> {
-        self.inner.sync_all()
+        let result = self.inner.sync_all();
+        self.record_activity(result)
     }
 
     pub fn file_len(&mut self) -> io::Result<u64> {
@@ -120,6 +145,7 @@ impl HostFile {
     pub fn from_io(inner: impl HostFileIo + 'static) -> Self {
         Self {
             inner: Box::new(inner),
+            activity: None,
         }
     }
 }

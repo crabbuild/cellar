@@ -798,6 +798,25 @@ required. `raft_archive_phase` logs distinguish encoding, confirmed upload,
 material download, physical replay and exact head confirmation; they are
 observations, not new publication proofs or recovery-time guarantees.
 
+Native replicas coordinate publication for actual images of at least 64 MiB
+through a bounded conditional `publication` record beside the cell archive's
+`head`. It is an advisory scheduling hint, with no cell ownership or durability
+authority. Each boot binds its publisher identity to node, disk and process.
+Acquisition, renewal and release use exact conditional versions and reconcile
+lost replies by reading back the complete desired record. A late publisher
+cannot release a replacement's hint.
+
+`RaftArchiveOptions.publication_stale_ms` defaults to 5,000 ms (100..=60,000).
+Competing replicas age unchanged versions on their own monotonic clocks; no
+shared wall clock or lease timestamp is required. Renewal requires completed
+data I/O, so a live but stalled publisher cannot keep peers waiting forever.
+The renewal future joins entered I/O before the producer returns. Released
+records permit immediate acquisition. Missing, malformed or unavailable hints
+fall back to ordinary publication; they cannot relax data validation. Small
+images avoid this scheduling traffic. Covering heads still require independent
+material reads and physical replay on every replica. This reduces duplicate
+snapshot creation, but does not remove full-image scans or qualify an RTO.
+
 A newer protocol/configuration cut may rebind an existing full snapshot index
 when its complete image state, including epoch, TXID, checksum, geometry and
 digest, is unchanged. The producer first downloads and validates the prior
@@ -834,7 +853,8 @@ it cannot recover through native snapshots.
 The default logical image limit is 64 MiB. For a larger fully materialized
 image, configure every replica with
 `config.with_materialized_image_limit(256 * 1024 * 1024)?` before
-`Node::start_raft_cells`. The opt-in maximum is 256 MiB. This method coordinates
+`Node::start_raft_cells`. The opt-in maximum is decimal 10 GB
+(10,000,000,000 bytes). This method coordinates
 execution, apply/decoder geometry, snapshot and archive sizes, generation disk
 admission, archive scratch space and transport working-memory reservations.
 It preserves the independent per-command envelope limits. Larger encoded-body
@@ -842,8 +862,9 @@ allowances alone cannot admit images beyond `max_snapshot_image_bytes`; S3
 recovery also checks `max_seed_recovery_bytes` before reading its complete set.
 Defaults retain the previous memory and disk bounds.
 
-This materialized path still copies and hashes complete images and buffers
-snapshot/archive data. It is not a 10 GB recovery qualification. The
+This materialized path still copies and hashes complete images. Snapshot files
+and object parts use bounded I/O and explicit scratch admission; full-size
+recovery remains unqualified. The
 [large-cell recovery plan](../../../../plans/multi-raft/large-cell-recovery.md)
 specifies incremental immutable roots, bounded transfers, warm promotion and
 verified demand loading for fast cold activation, targeting Cloudflare's

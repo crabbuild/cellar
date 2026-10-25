@@ -76,6 +76,7 @@ impl Batch<'_> {
         nonce: ImageId,
         sequence: &mut u64,
         pin: &mut Option<GenerationPin>,
+        activity: Option<cellar_ltx::host::IoActivity>,
     ) -> Result<(), ArchiveError> {
         if self.is_empty() {
             return Ok(());
@@ -101,8 +102,10 @@ impl Batch<'_> {
             });
         }
         let next = match self.snapshot {
-            Some(snapshot) => images.prepare_snapshot_chain(id, snapshot, &updates),
-            None => images.prepare_chain(id, pin.as_ref(), &updates),
+            Some(snapshot) => {
+                images.prepare_snapshot_chain_with_activity(id, snapshot, &updates, activity)
+            }
+            None => images.prepare_chain_with_activity(id, pin.as_ref(), &updates, activity),
         }
         .map_err(ArchiveError::Images)?;
         if let Some(previous) = pin.take() {
@@ -154,7 +157,13 @@ impl ArchiveRecoverySet {
                         .checked_add(entry.data.len())
                         .is_none_or(|bytes| bytes > MAX_REPLAY_BYTES))
             {
-                batch.flush(images, nonce, &mut sequence, &mut pin)?;
+                batch.flush(
+                    images,
+                    nonce,
+                    &mut sequence,
+                    &mut pin,
+                    self.activity.clone(),
+                )?;
             }
             let update = self.update(entry, state)?;
             let result = result_state(&update)?;
@@ -165,7 +174,13 @@ impl ArchiveRecoverySet {
                     .map(|f| (f.bytes.len(), f.decoded_bytes, f.page_count as usize)),
             )?;
             if !batch.is_empty() && !usage.fits(limits) {
-                batch.flush(images, nonce, &mut sequence, &mut pin)?;
+                batch.flush(
+                    images,
+                    nonce,
+                    &mut sequence,
+                    &mut pin,
+                    self.activity.clone(),
+                )?;
             }
             batch.usage = batch.usage.add(
                 update
@@ -185,11 +200,23 @@ impl ArchiveRecoverySet {
             // A later growth must reserve against the smaller pinned base,
             // keeping the disk budget no larger than entry-by-entry replay.
             if result.length < state.length {
-                batch.flush(images, nonce, &mut sequence, &mut pin)?;
+                batch.flush(
+                    images,
+                    nonce,
+                    &mut sequence,
+                    &mut pin,
+                    self.activity.clone(),
+                )?;
             }
             state = result;
         }
-        batch.flush(images, nonce, &mut sequence, &mut pin)?;
+        batch.flush(
+            images,
+            nonce,
+            &mut sequence,
+            &mut pin,
+            self.activity.clone(),
+        )?;
         let pin = pin.ok_or(ArchiveError::Corrupt("missing restored archive image"))?;
         if super::super::manifest::Image::from(pin.state()) != self.manifest.image {
             return Err(ArchiveError::Corrupt("restored archive image digest"));

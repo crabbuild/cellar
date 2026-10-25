@@ -13,7 +13,7 @@ use ::raft::prelude::{ConfState, Entry, EntryType};
 use cellar_logic::consensus::{GroupScope, LogPosition};
 use cellar_ltx::apply::{ApplyLimits, ImageState};
 use cellar_ltx::generation::{GenerationError, GenerationStore, ImageId};
-use cellar_ltx::{ltx, stream_snapshot, LtxHost};
+use cellar_ltx::{host::IoActivity, ltx, stream_snapshot, LtxHost};
 use futures_util::{StreamExt, TryStreamExt};
 use object_store::{path::Path, ObjectStore, PutMode, PutOptions, UpdateVersion};
 use protobuf::Message;
@@ -27,6 +27,7 @@ use std::{
 
 pub(crate) mod bundle;
 mod physical;
+mod publication;
 mod replay;
 
 const READ_WINDOW: usize = 4;
@@ -330,19 +331,25 @@ impl CommittedArchiveCut {
     fn snapshot(
         &self,
         limits: ArchiveLimits,
+        activity: Option<IoActivity>,
     ) -> Result<stream_snapshot::SnapshotFile, ArchiveError> {
         self.image
             .pin()
-            .snapshot(stream_snapshot::Limits {
-                max_image_bytes: limits.max_image_bytes,
-                max_encoded_bytes: limits.max_snapshot_bytes,
-            })
+            .snapshot_with_activity(
+                stream_snapshot::Limits {
+                    max_image_bytes: limits.max_image_bytes,
+                    max_encoded_bytes: limits.max_snapshot_bytes,
+                },
+                activity,
+            )
             .map_err(ArchiveError::Images)
     }
 }
 
 #[derive(Clone)]
 pub struct CellArchive {
+    coordination: Option<publication::Coordination>,
+    activity: Option<IoActivity>,
     snapshot_scratch: stream_snapshot::ScratchPool,
     scratch_directory: Option<std::path::PathBuf>,
     store: Arc<dyn ObjectStore>,
@@ -438,6 +445,7 @@ impl ArchiveMetadata {
 /// activation capability or an SDK acknowledgement. `restore` additionally
 /// verifies physical application in an exclusively owned generation store.
 pub struct ArchiveRecoverySet {
+    activity: Option<IoActivity>,
     _retention: Option<Arc<super::budget::Permit>>,
     reference: ArchiveReference,
     scope: GroupScope,
@@ -474,6 +482,8 @@ impl CellArchive {
             ..Default::default()
         };
         Self {
+            coordination: None,
+            activity: None,
             scratch_directory: None,
             snapshot_scratch: Default::default(),
             store,
@@ -585,14 +595,8 @@ impl CellArchive {
         Path::from(format!("{}/{name}", self.prefix))
     }
 
-    /// Publish only after every object has been read back and checked. CAS
-    /// failures (including lost success responses) are reconciled with exact
-    /// head reads; bounded contention never falls back to unconditional writes.
-    pub async fn publish(
-        &self,
-        cut: CommittedArchiveCut,
-        verifier: &ArchiveVerifier,
-    ) -> Result<ArchiveRecoverySet, ArchiveError> {
+    /// Refuse a cut from another history or application before advisory I/O.
+    fn validate_cut(&self, cut: &CommittedArchiveCut) -> Result<(), ArchiveError> {
         if cut.image.scope() != &self.scope
             || cut.image.application_digest() != self.schema
             || cut.birth_digest != self.birth
@@ -600,6 +604,15 @@ impl CellArchive {
         {
             return Err(ArchiveError::Invalid("archive producer history/schema"));
         }
+        Ok(())
+    }
+
+    async fn publish_inner(
+        &self,
+        cut: CommittedArchiveCut,
+        verifier: &ArchiveVerifier,
+    ) -> Result<ArchiveRecoverySet, ArchiveError> {
+        self.validate_cut(&cut)?;
         for _ in 0..8 {
             let previous = self.load_head_metadata().await?;
             if let Some((metadata, _, _)) = &previous {
@@ -860,10 +873,11 @@ impl CellArchive {
         tracing::info!(event = "raft_archive_phase", phase = "encode_start", cell = %self.scope.cell, index = cut.position.index.get(), image_bytes = cut.image.pin().state().length);
         let input = cut.clone();
         let limits = self.limits;
+        let activity = self.activity.clone();
         let (body, inline) = self
             .host
             .run_blocking(move || {
-                let snapshot = input.snapshot(limits)?;
+                let snapshot = input.snapshot(limits, activity)?;
                 let length = snapshot.metadata().encoded_length;
                 let inline = if length <= physical::INLINE_BYTES as u64 {
                     Some(
@@ -1122,6 +1136,12 @@ impl CellArchive {
         let dependencies = manifest.dependencies.iter().cloned().zip(bodies).collect();
         let scope = self.scope.clone();
         let limits = self.limits;
+        let activity = self.activity.clone();
+        if let Some(activity) = &activity {
+            snapshot
+                .set_io_activity(activity.clone())
+                .map_err(ArchiveError::Physical)?;
+        }
         self.host
             .run_blocking(move || {
                 let mut entries = Vec::new();
@@ -1139,6 +1159,7 @@ impl CellArchive {
                 }
                 let position = manifest.position.decode()?;
                 let set = ArchiveRecoverySet {
+                    activity,
                     _retention,
                     reference,
                     scope,
@@ -1320,6 +1341,13 @@ impl CellArchive {
                 return Err(ArchiveError::Limit);
             }
             bytes.extend_from_slice(&chunk);
+            // Advisory hint traffic cannot renew its own notion of progress.
+            // Count completed data/metadata reads belonging to the publication.
+            if !chunk.is_empty() && path.filename() != Some("publication") {
+                if let Some(activity) = &self.activity {
+                    activity.record();
+                }
+            }
         }
         if bytes.len() != length {
             return Err(ArchiveError::Corrupt("short archive object"));

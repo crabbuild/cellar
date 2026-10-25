@@ -425,7 +425,14 @@ impl Driver {
                         .cell_archive(&dormant.birth, ltx_host(), self.options.archive.limits)?
                         .with_scratch_directory(self.runtime.log().limits().directory.clone())
                         .with_snapshot_scratch(self.runtime.log().snapshot_scratch())
-                        .with_cancellation(owner.cancellation.subscribe());
+                        .with_cancellation(owner.cancellation.subscribe())
+                        .with_publication_coordination(
+                            crate::raft::host_archive::publication_owner(
+                                group.identity().node_identity(),
+                            ),
+                            self.options.archive.publication_stale_ms,
+                            64 * 1024 * 1024,
+                        )?;
                     let cell = Cell::recovered(
                         group,
                         dormant.birth.clone(),

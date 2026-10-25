@@ -6,6 +6,8 @@ use cellar_logic::consensus::*;
 
 fn archive(id: u8) -> CellArchive {
     CellArchive {
+        coordination: None,
+        activity: None,
         scratch_directory: None,
         snapshot_scratch: Default::default(),
         store: Arc::new(object_store::memory::InMemory::new()),

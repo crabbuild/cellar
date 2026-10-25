@@ -503,6 +503,59 @@ head confirmation. The full-capacity fixture enables these observations without
 changing its checks, requests or deadlines. A new full-size run is still needed;
 the bounded window alone establishes no recovery-time or production claim.
 
+## Full-size publication phase observation
+
+The frozen `29817781` production RustFS drill failed its unchanged deadline
+after 3,128.52 seconds, with 78,954,496-byte maximum RSS. Its SQLite input was
+9,999,998,976 bytes. Owner-state erasure, warm takeover/new writes, receipt retry
+and quota cleanup/reuse passed; repair admitted required index 9 in 0.130 seconds.
+The subsequent 1,800-second archive wait expired with selected head index/term
+2/2. No archive-ready, cold read, replacement promotion/write or restart was
+reached. This attempt used a separate RustFS instance on the workspace volume;
+its store filesystem differs from the preceding run, so timings are not a
+controlled comparison.
+
+Coarse phases show three overlapping encoders for the same index-2 cut. Two
+publishers completed their 10,058,329,319-byte encodings, uploads and independent
+replays, then both started reading retained material at the old cut. Duplicate
+cross-replica work is observed; a lower-level filesystem bottleneck is not
+established. Bounded two-part publication alone did not qualify full recovery.
+
+## Advisory cross-replica publication scheduling
+
+Native archive builders now enable conditional scheduling for actual images
+of at least 64 MiB. A bounded `publication` object beside the archive head binds
+the birth history and a node/disk/process-derived publisher identity. Exact CAS
+and exact read-back reconcile acquisition, renewal and release, including lost
+replies. This is optional scheduling input, never ownership or recovery proof.
+An old publisher cannot release a newer publisher's conditional record.
+
+Peers age unchanged versions on local monotonic clocks, using a configurable
+100..=60,000 ms grace period (default 5,000 ms). Renewal requires completed data
+I/O. A process-alive timer alone cannot renew a stalled operation indefinitely.
+The renewal future is joined; no detached heartbeat survives the data owner.
+Malformed/unavailable advisory records leave ordinary publication available.
+Covering heads still require each replica's independent material verification
+and physical replay. All data digests, destination syncs and exact head gates
+remain mandatory. Native incremental publication and full-size qualification
+remain open.
+
+The final ordinary scope passes 848 cases: 605 host library, 68 archive, four
+large-image, 27 native LTX, 22 native read, 44 snapshot and 78 LTX integration
+cases. Seven native child/full-size entries and two LTX child/full-size entries
+remain ignored by their parent invocations. Six new archive cases cover
+competing publishers, lost replies, active progress, abandoned work, a live but
+stalled publisher, late release and corrupt advisory metadata. Independent
+destination-sync refusal still exposes no new head. A file-observation case
+proves pending/failed reads and metadata inspection cannot fake data progress.
+
+An intermittent WAL fixture assumed every uncommitted spill grows the file.
+SQLite may instead restart and reuse its allocation. The fixture now pins the
+committed reader and explicitly flushes dirty pages while keeping the write
+transaction uncommitted. Its original growth, refusal and rollback-digest
+assertions remain intact; the corrected case passes 20 additional fresh
+processes. This changes the fixture setup, not production WAL inspection.
+
 ## Remaining work
 
 The completion checklist remains open. Full native 10 GB warm takeover, exact

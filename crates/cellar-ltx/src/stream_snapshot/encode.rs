@@ -68,6 +68,7 @@ pub(super) fn encode(
     image: ImageState,
     limits: Limits,
     scratch: Option<&ScratchPool>,
+    activity: Option<crate::host::IoActivity>,
     mut read: impl FnMut(u64, usize) -> io::Result<Vec<u8>>,
 ) -> Result<SnapshotFile, Error> {
     limits.image(image)?;
@@ -89,6 +90,8 @@ pub(super) fn encode(
         .transpose()?;
     let mut body_file = super::file::open_spool(filesystem, directory, image.length)?;
     let mut index_file = super::file::open_spool(filesystem, directory, image.length)?;
+    body_file.set_io_activity(activity.clone());
+    index_file.set_io_activity(activity);
     let metadata = {
         let mut output = Writer::new(&mut body_file, limits.max_encoded_bytes)?;
         let mut index = Writer::new(&mut index_file, limits.max_encoded_bytes)?;

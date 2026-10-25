@@ -101,6 +101,11 @@ the written image, checks every intermediate result and shares ordinary image
 reservation, cleanup and publication barriers. File-backed snapshot callers do
 not raise command `max_decoded_bytes`, `max_pages` or encoded-envelope bounds to
 the full image quota. All synchronous work belongs to the owning blocking domain.
+Optional `host::IoActivity` counters observe completed operations on owned file
+handles during encoding, reading and destination replay. Pending/failed I/O and
+metadata inspection do not advance the counter. The native archive uses these
+observations only to schedule competing publishers; they never establish byte
+integrity, persistence or permission to acknowledge a write.
 Native transfer and archive receive spools use the configured replica volume;
 generation snapshot sources use a separate sibling scratch directory outside
 the generation inventory. Anonymous handles retain their storage through

@@ -8,6 +8,13 @@ use object_store::{
 };
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
+// This test-only external store runs outside the node execution boundary.
+// Its transport delay must remain observable while the node's work is idle.
+#[allow(clippy::disallowed_methods)]
+async fn slow_confirmation_chunk() {
+    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+}
+
 #[derive(Debug, Default)]
 pub struct Store {
     /// Hold one exact ordinal initial-member claim while the host initializes.
@@ -40,10 +47,14 @@ pub struct Store {
     pub snapshot_part_reads: AtomicUsize,
     pub snapshot_part_puts: AtomicUsize,
     pub hold_part_confirmations: AtomicBool,
+    pub slow_part_confirmations: std::sync::Arc<AtomicBool>,
     pub fail_first_part_after_window_enters: AtomicBool,
     pub active_part_confirmations: AtomicUsize,
     pub peak_part_confirmations: AtomicUsize,
     pub part_confirmations_resume: tokio::sync::Notify,
+    pub hold_next_publication_release: AtomicBool,
+    pub publication_release_waiting: AtomicBool,
+    pub publication_release_resume: tokio::sync::Notify,
     pub corrupt_scratch_after_part_read: std::sync::Mutex<Option<std::sync::Arc<AtomicBool>>>,
     pub hold_archive_payloads: AtomicBool,
     pub active_payload_reads: AtomicUsize,
@@ -121,6 +132,27 @@ impl ObjectStore for Store {
     ) -> object_store::Result<PutResult> {
         if path.as_ref().contains("/snapshot-parts/") {
             self.snapshot_part_puts.fetch_add(1, Ordering::AcqRel);
+        }
+        let release = b"\"released\":true";
+        if path.filename() == Some("publication")
+            && payload
+                .iter()
+                .any(|bytes| bytes.windows(release.len()).any(|part| part == release))
+            && self
+                .hold_next_publication_release
+                .swap(false, Ordering::AcqRel)
+        {
+            self.publication_release_waiting
+                .store(true, Ordering::Release);
+            loop {
+                let resumed = self.publication_release_resume.notified();
+                tokio::pin!(resumed);
+                resumed.as_mut().enable();
+                if !self.publication_release_waiting.load(Ordering::Acquire) {
+                    break;
+                }
+                resumed.await;
+            }
         }
         if path.as_ref().contains("/dependencies/")
             && self.dependency_unavailable.load(Ordering::Acquire)
@@ -360,6 +392,38 @@ impl ObjectStore for Store {
             return Err(failure());
         }
         let mut result = self.inner.get_opts(path, options).await?;
+        if path.as_ref().contains("/snapshot-parts/")
+            && self.slow_part_confirmations.load(Ordering::Acquire)
+        {
+            let GetResultPayload::Stream(stream) = result.payload;
+            let slow = self.slow_part_confirmations.clone();
+            result.payload = GetResultPayload::Stream(
+                stream
+                    .flat_map(move |result| {
+                        let slow = slow.clone();
+                        match result {
+                            Ok(bytes) => futures_util::stream::unfold(
+                                (bytes, 0, slow),
+                                |(bytes, at, slow)| async move {
+                                    if at == bytes.len() {
+                                        return None;
+                                    }
+                                    if slow.load(Ordering::Acquire) {
+                                        slow_confirmation_chunk().await;
+                                    }
+                                    let end = (at + 64 * 1024).min(bytes.len());
+                                    Some((Ok(bytes.slice(at..end)), (bytes, end, slow)))
+                                },
+                            )
+                            .boxed(),
+                            Err(error) => {
+                                futures_util::stream::once(async move { Err(error) }).boxed()
+                            }
+                        }
+                    })
+                    .boxed(),
+            );
+        }
         if payload {
             let delta = self.payload_size_delta.load(Ordering::Acquire) as u64;
             result.meta.size += delta;

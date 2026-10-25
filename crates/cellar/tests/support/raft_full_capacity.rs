@@ -397,7 +397,9 @@ async fn drill(
 ) -> Result<()> {
     let _ = tracing_subscriber::fmt()
         .with_env_filter("cellar::raft::archive=info")
-        .with_test_writer()
+        // Stage observations use stderr too. Share its lock so concurrent
+        // archive phases cannot split a stage line between stdout/stderr.
+        .with_writer(std::io::stderr)
         .try_init();
     let started = std::time::Instant::now();
     let source_root = tempfile::tempdir_in(&workdir)?;

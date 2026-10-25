@@ -5,7 +5,7 @@
 use super::*;
 use cellar_ltx::stream_snapshot::{ScratchLimits, ScratchPool, ScratchUsage};
 
-async fn multipart_fixture() -> Result<(Fixture, CommittedArchiveCut)> {
+pub(super) async fn multipart_fixture() -> Result<(Fixture, CommittedArchiveCut)> {
     let mut fixture = Fixture::new(ArchiveLimits {
         max_capture_bytes: 16 * 1024 * 1024,
         ..Default::default()
@@ -299,7 +299,11 @@ async fn confirmed_source_still_requires_independent_destination_sync() -> Resul
         faults
             .mode
             .store(image_fault::FAIL_IMAGE_SYNC, Ordering::Release);
-        let result = fixture.archive.publish(cut.clone(), &verifier).await;
+        let coordinated = fixture
+            .archive
+            .clone()
+            .with_publication_coordination([7; 32], 1000, 0)?;
+        let result = coordinated.publish(cut.clone(), &verifier).await;
         ensure!(
             result.is_err(),
             "read-back confirmations cannot replace destination sealing"
@@ -317,7 +321,7 @@ async fn confirmed_source_still_requires_independent_destination_sync() -> Resul
         );
         // An uncertain destination remains refused instead of being recycled
         // as a successful proof on the next publication attempt.
-        ensure!(fixture.archive.publish(cut, &verifier).await.is_err());
+        ensure!(coordinated.publish(cut, &verifier).await.is_err());
         if let Some(reference) = previous {
             let set = fixture.archive.recovery_set_at(&reference).await?;
             ensure!(restored(&set, 7)? == fixture.bytes);

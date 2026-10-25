@@ -323,6 +323,16 @@ impl GenerationPin {
         &self,
         limits: crate::stream_snapshot::Limits,
     ) -> Result<crate::stream_snapshot::SnapshotFile, GenerationError> {
+        self.snapshot_with_activity(limits, None)
+    }
+
+    /// The same physical snapshot contract with completed-I/O observations.
+    /// Observations grant no data, persistence or publication proof.
+    pub fn snapshot_with_activity(
+        &self,
+        limits: crate::stream_snapshot::Limits,
+        activity: Option<crate::host::IoActivity>,
+    ) -> Result<crate::stream_snapshot::SnapshotFile, GenerationError> {
         let mut name = self
             .inner
             .directory
@@ -333,12 +343,14 @@ impl GenerationPin {
         let scratch = self.inner.directory.with_file_name(name);
         create_dir_all_durable(self.inner.filesystem.as_ref(), &scratch)?;
         let mut reader = self.open_reader()?;
-        Ok(crate::stream_snapshot::encode_admitted_in(
+        reader.file.set_io_activity(activity.clone());
+        Ok(crate::stream_snapshot::encode_observed_in(
             self.inner.filesystem.as_ref(),
             &scratch,
             self.state(),
             limits,
             &self.inner.snapshot_scratch,
+            activity,
             |offset, length| {
                 reader
                     .read_exact_at(offset, length)
@@ -640,6 +652,18 @@ impl GenerationStore {
         base: Option<&GenerationPin>,
         updates: &[ImageUpdate<'_>],
     ) -> Result<GenerationPin, GenerationError> {
+        self.prepare_chain_with_activity(id, base, updates, None)
+    }
+
+    /// The same private chain, with observations on its owned destination.
+    /// All independent inspection and persistence barriers remain required.
+    pub fn prepare_chain_with_activity(
+        &self,
+        id: ImageId,
+        base: Option<&GenerationPin>,
+        updates: &[ImageUpdate<'_>],
+        activity: Option<crate::host::IoActivity>,
+    ) -> Result<GenerationPin, GenerationError> {
         let peak = apply::peak_chain_bytes(updates, &self.inner.limits.apply)?;
         let first = updates.first().ok_or(ApplyError::Limit)?;
         if let Some(base) = base {
@@ -650,28 +674,34 @@ impl GenerationStore {
             return Err(ApplyError::MissingBase.into());
         }
         let base_path = base.map(|p| self.inner.directory.join(final_name(p.id())));
-        self.prepare_private(id, peak, base_path.as_deref(), |destination, cloned| {
-            if cloned {
-                Ok(apply::apply_private_tail(
-                    destination,
-                    first.base,
-                    updates,
-                    &self.inner.limits.apply,
-                )
-                .map_err(|error| match error {
-                    ApplyError::Digest => ApplyError::BaseDigest,
-                    error => error,
-                })?)
-            } else {
-                Ok(apply::apply_private_chain(
-                    self.inner.filesystem.as_ref(),
-                    base_path.as_deref(),
-                    destination,
-                    updates,
-                    &self.inner.limits.apply,
-                )?)
-            }
-        })
+        self.prepare_private(
+            id,
+            peak,
+            base_path.as_deref(),
+            activity,
+            |destination, cloned| {
+                if cloned {
+                    Ok(apply::apply_private_tail(
+                        destination,
+                        first.base,
+                        updates,
+                        &self.inner.limits.apply,
+                    )
+                    .map_err(|error| match error {
+                        ApplyError::Digest => ApplyError::BaseDigest,
+                        error => error,
+                    })?)
+                } else {
+                    Ok(apply::apply_private_chain(
+                        self.inner.filesystem.as_ref(),
+                        base_path.as_deref(),
+                        destination,
+                        updates,
+                        &self.inner.limits.apply,
+                    )?)
+                }
+            },
+        )
     }
 
     /// Seal an independently verified, file-backed physical snapshot. The body
@@ -695,6 +725,18 @@ impl GenerationStore {
         snapshot: &crate::stream_snapshot::SnapshotFile,
         updates: &[ImageUpdate<'_>],
     ) -> Result<GenerationPin, GenerationError> {
+        self.prepare_snapshot_chain_with_activity(id, snapshot, updates, None)
+    }
+
+    /// Observe destination writes and independent rereads during snapshot
+    /// replay without relaxing its reservation, integrity or sync contract.
+    pub fn prepare_snapshot_chain_with_activity(
+        &self,
+        id: ImageId,
+        snapshot: &crate::stream_snapshot::SnapshotFile,
+        updates: &[ImageUpdate<'_>],
+        activity: Option<crate::host::IoActivity>,
+    ) -> Result<GenerationPin, GenerationError> {
         let expected = snapshot.metadata().image;
         expected.validate(&self.inner.limits.apply)?;
         let peak = if updates.is_empty() {
@@ -705,7 +747,7 @@ impl GenerationStore {
             }
             apply::peak_chain_bytes(updates, &self.inner.limits.apply)?.max(expected.length)
         };
-        self.prepare_private(id, peak, None, |destination, _cloned| {
+        self.prepare_private(id, peak, None, activity, |destination, _cloned| {
             snapshot.write_image(destination)?;
             // Re-read the destination independently: valid input does not prove
             // that the storage adapter wrote the same bytes to the final file.
@@ -732,14 +774,20 @@ impl GenerationStore {
         if expected.length == 0 {
             return Err(GenerationError::Identity);
         }
-        self.prepare_private(id, expected.length, Some(source), |destination, cloned| {
-            if !cloned {
-                let mut source = self.inner.filesystem.open(source)?;
-                apply::inspect(&mut source, &expected, Some(destination))?;
-            }
-            apply::inspect(destination, &expected, None)?;
-            Ok(expected)
-        })
+        self.prepare_private(
+            id,
+            expected.length,
+            Some(source),
+            None,
+            |destination, cloned| {
+                if !cloned {
+                    let mut source = self.inner.filesystem.open(source)?;
+                    apply::inspect(&mut source, &expected, Some(destination))?;
+                }
+                apply::inspect(destination, &expected, None)?;
+                Ok(expected)
+            },
+        )
     }
 
     fn prepare_private(
@@ -747,6 +795,7 @@ impl GenerationStore {
         id: ImageId,
         peak: u64,
         clone_source: Option<&Path>,
+        activity: Option<crate::host::IoActivity>,
         write: impl FnOnce(&mut HostFile, bool) -> Result<ImageState, GenerationError>,
     ) -> Result<GenerationPin, GenerationError> {
         // Keep the existing conservative temporary-image admission charge.
@@ -813,6 +862,7 @@ impl GenerationStore {
                 Some(file) => file,
                 None => self.inner.filesystem.create_read_write(&final_path)?,
             };
+            destination.set_io_activity(activity);
             final_owned = true;
             let image = write(&mut destination, is_cloned)?;
             destination.sync_all()?;

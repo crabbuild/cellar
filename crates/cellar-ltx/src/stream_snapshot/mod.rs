@@ -109,7 +109,7 @@ pub fn encode(
     limits: Limits,
     read: impl FnMut(u64, usize) -> io::Result<Vec<u8>>,
 ) -> Result<SnapshotFile, Error> {
-    encode::encode(filesystem, None, image, limits, None, read)
+    encode::encode(filesystem, None, image, limits, None, None, read)
 }
 
 /// Encode using anonymous scratch files on an explicitly owned filesystem
@@ -121,7 +121,7 @@ pub fn encode_in(
     limits: Limits,
     read: impl FnMut(u64, usize) -> io::Result<Vec<u8>>,
 ) -> Result<SnapshotFile, Error> {
-    encode::encode(filesystem, Some(directory), image, limits, None, read)
+    encode::encode(filesystem, Some(directory), image, limits, None, None, read)
 }
 
 /// Encode under a shared node disk reservation acquired before file creation.
@@ -134,12 +134,25 @@ pub fn encode_admitted_in(
     scratch: &ScratchPool,
     read: impl FnMut(u64, usize) -> io::Result<Vec<u8>>,
 ) -> Result<SnapshotFile, Error> {
+    encode_observed_in(filesystem, directory, image, limits, scratch, None, read)
+}
+
+pub(crate) fn encode_observed_in(
+    filesystem: &dyn FileSystem,
+    directory: &std::path::Path,
+    image: ImageState,
+    limits: Limits,
+    scratch: &ScratchPool,
+    activity: Option<crate::host::IoActivity>,
+    read: impl FnMut(u64, usize) -> io::Result<Vec<u8>>,
+) -> Result<SnapshotFile, Error> {
     encode::encode(
         filesystem,
         Some(directory),
         image,
         limits,
         Some(scratch),
+        activity,
         read,
     )
 }

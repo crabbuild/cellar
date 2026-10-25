@@ -751,15 +751,21 @@ async fn initialize(
                     leader_hint: None,
                 },
             );
+            let archive = namespace
+                .cell_archive(&birth, ltx_host(), options.archive.limits)?
+                .with_scratch_directory(service.log.limits().directory.clone())
+                .with_snapshot_scratch(service.log.snapshot_scratch())
+                .with_publication_coordination(
+                    super::host_archive::publication_owner(group.identity().node_identity()),
+                    options.archive.publication_stale_ms,
+                    64 * 1024 * 1024,
+                )?;
             cells.insert(
                 scope.clone(),
                 Cell::recovered(
                     group,
                     birth.clone(),
-                    namespace
-                        .cell_archive(&birth, ltx_host(), options.archive.limits)?
-                        .with_scratch_directory(service.log.limits().directory.clone())
-                        .with_snapshot_scratch(service.log.snapshot_scratch()),
+                    archive,
                     image,
                     worker,
                     namespace.minimum_durability(),
