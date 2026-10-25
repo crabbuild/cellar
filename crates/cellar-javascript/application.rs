@@ -221,6 +221,8 @@ impl JavaScriptApplication {
     ) -> Result<Output> {
         let mut state = state;
         state.containers = self.source.containers.session();
+        let state = Arc::new(state);
+        let callbacks = Arc::new(crate::callbacks::Callbacks::default());
         let _permit = self
             .runtime
             .permits
@@ -343,34 +345,73 @@ impl JavaScriptApplication {
                     id,
                     name,
                     payload,
+                    callback_scope,
                     synchronous,
                     _bytes,
                 } => {
                     if !active.load(Ordering::Acquire) {
                         continue;
                     }
-                    let context = &context;
-                    let state = &state;
+                    let context = context.clone();
+                    let state = state.clone();
+                    let callbacks = callbacks.clone();
+                    let runtime = self.runtime.clone();
                     let mut operation = Box::pin(async move {
                         // The reservation is retained by the native future even
                         // if the awaiting JavaScript task has already been cancelled.
                         let _bytes = _bytes;
                         let result = match serde_json::from_str(&payload) {
                             Ok(payload) => {
-                                operations::execute(
-                                    context,
-                                    state,
-                                    &name,
-                                    payload,
-                                    &cellar_guest::Limits {
-                                        max_body_bytes: self.runtime.options.max_body_bytes,
-                                        max_batch_operations: self
-                                            .runtime
-                                            .options
-                                            .max_batch_operations,
-                                    },
-                                )
-                                .await
+                                // A parent can be draining an unawaited child
+                                // after its JS callback returned. Completion is
+                                // owned by this invocation and the named child;
+                                // it must not borrow the already closed parent.
+                                let scope = if name == "workers.callback.finish" {
+                                    Ok(None)
+                                } else {
+                                    callback_scope
+                                        .map(|id| callbacks.scope(&context, id))
+                                        .transpose()
+                                };
+                                match scope {
+                                    Err(error) => Err(error),
+                                    Ok(scope) => {
+                                        let scoped_context = context.clone();
+                                        let operation_name = name.clone();
+                                        let options = runtime.options.clone();
+                                        let scope_id = id;
+                                        let future = async move {
+                                            if operation_name.starts_with("workers.callback.") {
+                                                callbacks
+                                                    .execute(
+                                                        &scoped_context,
+                                                        &operation_name,
+                                                        payload,
+                                                        scope_id,
+                                                        options.max_batch_operations,
+                                                    )
+                                                    .await
+                                            } else {
+                                                operations::execute(
+                                                    &scoped_context,
+                                                    &state,
+                                                    &operation_name,
+                                                    payload,
+                                                    &cellar_guest::Limits {
+                                                        max_body_bytes: options.max_body_bytes,
+                                                        max_batch_operations: options
+                                                            .max_batch_operations,
+                                                    },
+                                                )
+                                                .await
+                                            }
+                                        };
+                                        match scope {
+                                            Some(scope) => scope.run(&context, future).await,
+                                            None => future.await,
+                                        }
+                                    }
+                                }
                             }
                             Err(error) => Err(anyhow::Error::from(error)
                                 .context(cellar_guest::failure::Validation)),
@@ -378,7 +419,7 @@ impl JavaScriptApplication {
                         let encoded = cellar_guest::failure::result(
                             &name,
                             result,
-                            self.runtime.options.max_value_bytes,
+                            runtime.options.max_value_bytes,
                         );
                         (id, encoded, synchronous)
                     });

@@ -55,7 +55,8 @@ function reject(code) {
 // AsyncLocalStorage binds promises, timers and Node I/O continuations to their
 // invocation. Rust repeats the liveness/limit checks before accepting effects.
 function operation(invocation, name, payload, synchronous = false) {
-  if (scope.getStore() !== invocation) {
+  const continuation = scope.getStore();
+  if (continuation?.invocation !== invocation) {
     reject("ContextMismatch");
   }
 
@@ -66,7 +67,7 @@ function operation(invocation, name, payload, synchronous = false) {
   }
 
   if (synchronous && !["clock.now", "storage.read", "storage.apply", "storage.sql", "alarm.get",
-      "workers.crypto.random", "workers.crypto.uuid", "workers.identity", "workers.namespace", "workers.sql.exec", "workers.sql.next", "workers.sql.close", "workers.sql.size",
+      "workers.callback.rollback", "workers.crypto.random", "workers.crypto.uuid", "workers.identity", "workers.namespace", "workers.sql.exec", "workers.sql.next", "workers.sql.close", "workers.sql.size",
       "workers.kv.get", "workers.kv.put", "workers.kv.delete", "workers.kv.list", "workers.kv.delete_all"].includes(name)) {
     reject("UnsupportedOperation");
   }
@@ -90,6 +91,8 @@ function operation(invocation, name, payload, synchronous = false) {
     "workers.crypto.uuid",
     "workers.identity",
     "workers.namespace",
+    "workers.callback.begin",
+    "workers.callback.finish",
     "workers.sql.size",
     "workers.kv.get",
     "workers.kv.list",
@@ -126,7 +129,7 @@ function operation(invocation, name, payload, synchronous = false) {
 
   if (synchronous) {
     Atomics.store(synchronousHeader, 0, 0);
-    send({ type: "operation", invocation, id, name, payload, synchronous: true }, true);
+    send({ type: "operation", invocation, id, name, payload, callback_scope: continuation.callback_scope, synchronous: true }, true);
     // The I/O worker may wake this slot with a reply, revocation, or failure.
     // Rust's event-loop watchdog remains authoritative; no worker heartbeats
     // pretend the application thread is responsive while it waits.
@@ -142,14 +145,15 @@ function operation(invocation, name, payload, synchronous = false) {
 
   return new Promise(resolve => {
     pending.set(id, { invocation, mutation, resolve });
-    send({ type: "operation", invocation, id, name, payload });
+    send({ type: "operation", invocation, id, name, payload, callback_scope: continuation.callback_scope });
   });
 }
 const factory = makeRunner(operation, (invocation, name, payload) => operation(invocation, name, payload, true), (...requested) => {
-  const invocation = scope.getStore();
+  const invocation = scope.getStore()?.invocation;
   const state = active.get(invocation);
   if (!state) reject("ContextExpired");
   if (requested.length && (requested[0] === null || state.activation !== requested[0])) reject("ContextMismatch");
+  if (requested.length > 1 && scope.getStore()?.callback_scope !== requested[1]) reject("ContextMismatch");
   return invocation;
 }, value => {
   const serializer = new Serializer();
@@ -163,6 +167,10 @@ const factory = makeRunner(operation, (invocation, name, payload) => operation(i
   const deserializer = new Deserializer(bytes);
   if (!deserializer.readHeader()) reject("DataCloneError");
   return deserializer.readValue();
+}, (invocation, callback_scope, callback) => {
+  if (scope.getStore()?.invocation !== invocation) reject("ContextMismatch");
+  if (!Number.isSafeInteger(callback_scope) || callback_scope < 1 || typeof callback !== "function") reject("ValidationError");
+  return scope.run({ invocation, callback_scope }, callback);
 });
 
 // Revocation prevents new Cellar calls. It cannot undo effects already submitted
@@ -195,7 +203,7 @@ function receive(message) {
       active.set(message.id, state);
 
       scope
-        .run(message.id, async () => {
+        .run({ invocation: message.id }, async () => {
           let payload = "null";
           let failed = false;
 

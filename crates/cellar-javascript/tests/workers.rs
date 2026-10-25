@@ -18,9 +18,9 @@ mod native;
 mod peer;
 
 // Native host-private data must stay outside the guest KV/SQL surface.
-struct PrivateApplication(Arc<dyn Application>);
+struct PrivateApplication(Arc<dyn Application>, Arc<std::sync::atomic::AtomicU64>);
 
-struct PrivateCell(Arc<dyn Cell>);
+struct PrivateCell(Arc<dyn Cell>, Arc<std::sync::atomic::AtomicU64>);
 
 impl Application for PrivateApplication {
     fn invoke(self: Arc<Self>, context: Context, event: Invocation) -> HandlerFuture<Output> {
@@ -38,6 +38,7 @@ impl Application for PrivateApplication {
     fn create_cell(&self, context: Context, identity: &CellIdentity) -> Result<Arc<dyn Cell>> {
         Ok(Arc::new(PrivateCell(
             self.0.create_cell(context, identity)?,
+            self.1.clone(),
         )))
     }
 }
@@ -45,6 +46,7 @@ impl Application for PrivateApplication {
 impl Cell for PrivateCell {
     fn invoke(self: Arc<Self>, context: Context, event: Invocation) -> HandlerFuture<Output> {
         Box::pin(async move {
+            self.1.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             if matches!(&event, Invocation::CellRpc { method, .. } if method == "native_fixture_json")
             {
                 return Ok(Output::Rpc(cellar::engine_api::RpcData::Json(
@@ -154,17 +156,50 @@ fn exercise(
     tokio::runtime::Builder::new_multi_thread().enable_all().build()?.block_on(async {
         tokio::time::timeout(Duration::from_secs(75), async {
             let peer = peer::Peer::start().await?;
-            let (node, address) = native::start_configured(path, Arc::new(PrivateApplication(application)), |config, services, graph| {
+            let calls = Arc::new(std::sync::atomic::AtomicU64::new(0));
+            let (node, address) = native::start_configured(path, Arc::new(PrivateApplication(application, calls.clone())), |config, services, graph| {
                 if fixture == "rpc" {
                     graph.primary.options.do_classes.push("Other".into());
                     graph.primary.options.bindings.push(("OTHERS".into(), "Other".into()));
                 }
-                if fixture != "storage" && fixture != "rpc" { peer.configure(config, services, graph); }
+                if !matches!(fixture, "storage" | "rpc" | "callbacks") { peer.configure(config, services, graph); }
                 config.runtime.handler_budget = Duration::from_secs(15);
                 if fixture == "storage" { config.actor.core.idle_evict_ms = Some(50); }
             }).await?;
             let client = reqwest::Client::builder().timeout(Duration::from_secs(20)).build()?;
             match fixture {
+                "callbacks" => {
+                    let before = request(&client, &address, "alice/identity").await?;
+                    let hold_client = client.clone();
+                    let hold_address = address.clone();
+                    let hold = tokio::spawn(async move { request(&hold_client, &hold_address, "alice/hold").await });
+                    let mut entered = false;
+                    for _ in 0..100 {
+                        if request(&client, &address, "gate").await?["entered"] == true { entered = true; break; }
+                        tokio::time::sleep(Duration::from_millis(10)).await;
+                    }
+                    ensure!(entered, "native callback was not entered");
+                    let count = calls.load(std::sync::atomic::Ordering::SeqCst);
+                    let read_client = client.clone();
+                    let read_address = address.clone();
+                    let read = tokio::spawn(async move { request(&read_client, &read_address, "alice/read").await });
+                    tokio::time::sleep(Duration::from_millis(75)).await;
+                    ensure!(!read.is_finished() && calls.load(std::sync::atomic::Ordering::SeqCst) == count, "host admitted another native cell callback while input gate was held");
+                    ensure!(request(&client, &address, "gate").await?["reads"] == 0);
+                    request(&client, &address, "release").await?;
+                    ensure!(hold.await??["ok"] == true && read.await??["ok"] == true);
+                    let failed = client.get(format!("{address}/alice/fail")).send().await?;
+                    ensure!(!failed.status().is_success(), "failed native block reported success");
+                    let _ = failed.bytes().await?;
+                    let after = request(&client, &address, "alice/identity").await?;
+                    ensure!(after["id"] == before["id"] && after["generation"] != before["generation"], "failed native block did not reset the actual activation: {before:?} -> {after:?}");
+                    for _ in 0..2 {
+                        let broken = client.get(format!("{address}/broken/identity")).send().await?;
+                        ensure!(!broken.status().is_success(), "failed initialization returned success");
+                        let _ = broken.bytes().await?;
+                    }
+                    ensure!(request(&client, &address, "gate").await?["brokenInvocations"] == 0, "failed constructor admitted an application method");
+                }
                 "rpc" => {
                     let first: u64 = if restart { 3 } else { 1 };
                     ensure!(request(&client, &address, "alice/tick").await?["count"] == first);
@@ -178,7 +213,7 @@ fn exercise(
                     ensure!(request(&client, &address, "bob/tick").await?["count"] == first.div_ceil(2));
                     ensure!(request(&client, &address, "alice/tick").await?["count"] == first + 1);
                     if restart { ensure!(request(&client, &address, "alice/read-types").await?["ok"] == true); }
-                    for operation in ["types", "sql", "save", "borrow", "bounds", "buffers", "refuse", "crypto", "failure"] {
+                    for operation in ["types", "sql", "save", "borrow", "bounds", "buffers", "refuse", "crypto", "transactions", "callback-quota"] {
                         ensure!(request(&client, &address, &format!("alice/{operation}")).await?["ok"] == true);
                     }
                     let before = request(&client, &address, "alice/identity").await?;
@@ -269,4 +304,16 @@ fn embedded_workers_native_rpc_and_recovery() -> Result<()> {
 #[test]
 fn node_workers_native_rpc_and_recovery() -> Result<()> {
     qualify(Backend::Node, "rpc")
+}
+
+#[cfg(feature = "embed")]
+#[test]
+fn embedded_workers_native_callback_gates_and_reset() -> Result<()> {
+    qualify(Backend::Embedded, "callbacks")
+}
+
+#[cfg(feature = "node")]
+#[test]
+fn node_workers_native_callback_gates_and_reset() -> Result<()> {
+    qualify(Backend::Node, "callbacks")
 }

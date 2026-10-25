@@ -24,6 +24,7 @@ pub fn is_read(name: &str) -> bool {
             | "workers.crypto.uuid"
             | "workers.identity"
             | "workers.namespace"
+            | "workers.callback.begin"
             | "workers.sql.size"
             | "workers.kv.get"
             | "workers.kv.list"
@@ -33,7 +34,8 @@ pub fn is_read(name: &str) -> bool {
 pub fn supports_synchronous(name: &str) -> bool {
     matches!(
         name,
-        "workers.crypto.random"
+        "workers.callback.rollback"
+            | "workers.crypto.random"
             | "workers.crypto.uuid"
             | "workers.identity"
             | "workers.namespace"

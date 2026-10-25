@@ -400,6 +400,11 @@ fn run(
                     last_operation = id;
                     let name = string(&message, "name")?;
                     let payload = string(&message, "payload")?;
+                    let callback_scope = message
+                        .get("callback_scope")
+                        .filter(|value| !value.is_null())
+                        .map(|_| number(&message, "callback_scope"))
+                        .transpose()?;
                     let synchronous = message
                         .get("synchronous")
                         .map(|v| v.as_bool().context("invalid Node synchronous flag"))
@@ -411,7 +416,7 @@ fn run(
                     };
                     // Recheck authority and limits in Rust even though the worker
                     // also enforces them before sending an operation.
-                    let mutation = !cellar_guest::operations::is_read(name);
+                    let mutation = requires_mutation_slot(name);
                     let refusal = if !state.start.active.load(Ordering::Acquire)
                         || !state.start.owner.load(Ordering::Acquire)
                     {
@@ -444,6 +449,7 @@ fn run(
                             id,
                             name: name.into(),
                             payload: payload.into(),
+                            callback_scope,
                             synchronous: None,
                             _bytes: bytes,
                         })

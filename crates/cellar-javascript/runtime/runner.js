@@ -3,7 +3,7 @@
 // Shared SDK facade for embedded V8 and Node. This file is a factory expression:
 // the Rust bootstrap evaluates or embeds it, then supplies the private host call.
 // Keep the expression free of a trailing semicolon for embedding in parentheses.
-(host, synchronousHost, currentHost, encodeClone, decodeClone) => {
+(host, synchronousHost, currentHost, encodeClone, decodeClone, scopedHost) => {
   "use strict";
 
   // Capture these builtins before importing/evaluating application code.
@@ -224,6 +224,7 @@
           "workers.crypto.uuid",
           "workers.identity",
           "workers.namespace",
+          "workers.callback.begin",
           "workers.sql.size",
           "workers.kv.get",
           "workers.kv.list",
@@ -428,6 +429,22 @@
         return current;
       },
       _sync: synchronous,
+      async _callback(kind, callback) {
+        if (typeof callback !== "function") throw new TypeError("Expected a callback");
+        const token = await call("workers.callback.begin", { kind });
+        let result, success = false;
+        try {
+          const current = () => {
+            if (currentHost(activation, token.id) !== id) throw new ErrorClass("ContextMismatch");
+            return context(id, identity, activation);
+          };
+          result = await scopedHost(id, token.id, () => callback(current));
+          success = true;
+        } finally {
+          await call("workers.callback.finish", { id: token.id, success });
+        }
+        return result;
+      },
       _serialize: value => encode(encodeClone(value)),
       _deserialize: value => decodeClone(decode(value)),
       _decode: decode,

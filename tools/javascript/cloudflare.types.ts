@@ -23,6 +23,11 @@ declare const storage: DurableObjectStorage;
 const count: Promise<number | undefined> = storage.get<number>("count");
 const counters: Map<string, number> = storage.kv.get<number>(["count"]);
 const row: { value: number } = storage.sql.exec<{ value: number }>("SELECT 1 AS value").one();
-// @ts-expect-error: transactions are unavailable and must not accept callbacks
-storage.transaction(async () => {});
-void [result, local, cell, count, counters, row];
+const transaction: Promise<bigint> = storage.transaction(async tx => {
+  await tx.put("test", 3n);
+  tx.rollback();
+  return 4n;
+});
+// @ts-expect-error: synchronous transactions still require implementation
+storage.transactionSync(() => {});
+void [result, local, cell, count, counters, row, transaction];

@@ -7,7 +7,7 @@ import { root, verify } from "./inventory.mjs";
 await verify(JSON.parse(await readFile(resolve(root, "manifest.json"), "utf8")));
 const output = resolve(root, "dist");
 await mkdir(output, { recursive: true });
-for (const [fixture, platform] of [["storage", "neutral"], ["rpc", "neutral"], ["container", "neutral"], ["sandbox", "node"]]) {
+for (const [fixture, platform] of [["storage", "neutral"], ["callbacks", "neutral"], ["rpc", "neutral"], ["container", "neutral"], ["sandbox", "node"]]) {
   for (const format of platform === "node" ? ["esm"] : ["iife", "esm"]) {
     const result = await build({
       absWorkingDir: root,

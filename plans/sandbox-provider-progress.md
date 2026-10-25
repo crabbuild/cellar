@@ -14,7 +14,7 @@ does not narrow that objective or turn fixture passes into full compatibility.
 | Slice | Current evidence | Remaining work / completion evidence |
 | --- | --- | --- |
 | SP-01 | Exact celld reference commit/files/license, npm packages/lock/integrities, imported runtime bytes and immutable Sandbox image manifest are in `tools/sandbox/compat`; drift/refusal tests pass; API/fixture inventory lists native mappings and explicit gaps | Input inventory implemented; runtime conformance remains in SP-02–SP-04 and later profiles |
-| SP-02 | Native-backed DO SQL/KV/clone facade, activation-bound authority, object identity, value-only namespace/cell RPC, constructor admission and scheduling primitives execute in Node/V8; actual published constructors are exercised | Complete module/bootstrap/web globals, automatic activation-owned environment bindings, property/target RPC and lifetimes, native critical-section/reset/lifetime behavior, transactions and profile/version admission; retain native-only dependency boundary |
+| SP-02 | Native-backed DO SQL/KV/clone facade, activation-bound authority, object identity, value-only namespace/cell RPC, constructor admission, native input gates/reset and asynchronous transactions execute in Node/V8; actual published constructors are exercised | Complete module/bootstrap/web globals, automatic activation-owned environment bindings, property/target RPC and lifetimes, full background/response/disconnect behavior, synchronous transactions and profile/version admission; retain native-only dependency boundary |
 | SP-03 | Actual published `@cloudflare/containers@0.3.7` constructor, state and SQL scheduling run in both engines with native storage and a stopped-provider view; unchanged upstream example is pinned | Execute the unchanged app, class hooks, routing, sleep/wake, process/port behavior and cleanup against the native engine |
 | SP-04 | Actual `@cloudflare/sandbox@0.12.9` constructor/configuration and metadata recovery run in Node; matching upstream app/Dockerfile and `linux/amd64` image digest are pinned | Run the unchanged app and SDK/image end to end over HTTP and RPC; files, streamed exec, background records, previews, teardown and failure cases |
 | SP-05 | Provider environment/operation/limit discovery is implemented in Rust, Python, JS and TS; native and restricted provider dispatch tests cover it | Portable files and richer operations, named configuration, durable remote bindings, fencing, expiry/reconnect, loss/unknown outcomes and orphan reconciliation |
@@ -102,14 +102,48 @@ start/monitor/port methods. They do not run the unchanged upstream apps or the
 Sandbox image. Shared initialization is memoized in the fixture adapter so an
 alarm and fetch cannot construct duplicate objects for one activation.
 
-Constructor callbacks remain attached to their original event, and local
-admission refuses failed initialization, including rejection with `undefined`.
-This is not yet the complete native input-gate/reset/30-second contract.
-`Context::block_concurrency_while`, `Context::wait_until`, native transactions
-and `Invocation::CellRpc` already exist and must be used by the final dispatch
-protocol. Do not replace them with detached JS work, guessed rollback or an
-HTTP-only RPC substitute. Module/bootstrap globals, automatic environment
-bindings, RPC objects, transactions and full container lifecycle remain SP-02/SP-03 work.
+Constructor callbacks remain attached to their original event and admission
+refuses failed initialization, including rejection with `undefined`. The
+follow-up below now uses the actual native gate/reset and async transaction
+paths. Complete response/background/disconnect lifetimes and synchronous
+transactions remain required. Do not replace native contracts with detached JS
+work, guessed rollback or an HTTP-only RPC substitute. Module/bootstrap globals,
+automatic environment bindings, RPC objects and full container lifecycle remain
+SP-02/SP-03 work.
+
+### Native callback scopes, input gates and asynchronous transactions
+
+The engine-free SDK exposes an opaque `CallbackScope` captured only inside a
+currently polled native block/transaction callback. Its original invocation and
+facet authority, block liveness and transaction view are rechecked for each
+adapter operation. Native block/transaction guards are installed only for that
+poll, then restored. A weak block reference prevents an escaped scope token from
+retaining the host input gate after its boundary ends.
+
+The optional JS adapter owns a bounded callback registry per event and uses
+`Context::block_concurrency_while`, `Storage::transaction` and native completion
+work. Node AsyncLocalStorage and V8 continuation metadata carry the callback
+token across awaits. Closing the boundary waits for native commit/rollback.
+Callback completion may overlap the next callback's admission without occupying
+the JS mutation slot; native queues/guards remain responsible for serialization.
+The completion remains a mutation for failure classification, including lost
+acknowledgements.
+
+Async transactions share SQL/KV state across global and transaction facades,
+support nested commit/rollback and explicit rollback, preserve callback results
+and arbitrary thrown values (including `undefined`), and refuse escaped views.
+Unrelated promises cannot borrow an active transaction; promises from a closed
+callback cannot fall back to root authority. Constructor/method blocks now use
+the real input gate. Fixtures observe the Rust callback boundary while a second
+request is queued, then verify actual activation reconstruction after failure
+and zero application method invocations after failed constructor admission.
+
+This is still partial SP-02 delivery: the bridge closes on event completion or
+cancellation. Full Workers response/background retention, unawaited transaction
+work and ordinary client-disconnect survival remain required. Synchronous
+transactions, `waitUntil`, abort/reconstruction and full profile/deadline
+qualification are unfinished. Native SDK lifetime tests do not prove those JS
+profile guarantees. The complete delivery objective is unchanged.
 
 ### Native namespace and value-only cell RPC
 
@@ -210,3 +244,20 @@ whitespace checks pass. The all-feature native dependency guard still reports
 pinned-input checks pass four, and the package dry run includes all declarations
 and namespace implementation files. Full SDK/image/cloud conformance remains
 unqualified and the complete delivery objective remains active.
+
+The native callback checkpoint passes 627 distinct Rust harness cases across
+the owning suites and isolated reruns, plus the standalone CPython streaming
+program. This includes the native 30-second gate/transaction suites, closed and
+foreign callback tokens, nine real-node Workers fixtures, nested child drainage,
+128-boundary admission/refusal/release, and both backend restart paths. Node-only
+qualification passes 14 library cases and five Workers fixtures. Strict affected
+all-target and Node-only Clippy pass; formatting/layout cover 931 Rust files.
+Documentation/fixture links, whitespace, nine JS/build/type checks, four pinned
+input checks and the 455-package native-only engine boundary pass.
+
+Combined runs under concurrent host stress hit existing 100 ms V8 pump, 5-second startup
+and 250 ms fixture handler deadlines. The same runtime unit, V8 example, Node
+addon and transport checks pass in serial/isolated reruns with every deadline
+and assertion unchanged. These are local results, not hosted CI or a complete
+Workers/SDK/image/provider conformance claim. Full response/background/disconnect
+lifetimes, synchronous transactions and the remaining SP-01–SP-10 work stay open.

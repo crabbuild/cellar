@@ -12,6 +12,7 @@ mod admission;
 mod authority;
 pub use admission::ApplicationOverloaded;
 pub use authority::InvocationAuthority;
+pub use concurrency::CallbackScope;
 pub mod assets;
 pub mod blob;
 pub mod cache;

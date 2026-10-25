@@ -18,7 +18,7 @@ function key(value) {
   return value;
 }
 
-export function durableStorage(current) {
+export function durableStorage(current, transaction = false) {
   const kv = Object.freeze({
     get(keys) {
       const invocation = current();
@@ -51,6 +51,7 @@ export function durableStorage(current) {
   const readOptions = ["allowConcurrency", "noCache"];
   const writeOptions = ["allowConcurrency", "allowUnconfirmed", "noCache"];
   return Object.freeze({
+    ...(transaction ? { rollback() { current()._sync("workers.callback.rollback", {}); } } : {}),
     kv,
     sql: sqlStorage(current),
     async get(key, value) { options(value, readOptions); return kv.get(key); },
@@ -74,7 +75,10 @@ export function durableStorage(current) {
     async deleteAlarm(value) { options(value, ["allowConcurrency", "allowUnconfirmed"]); current()._sync("storage.apply", { delete_alarm: true }); },
     async deleteAll(value) { options(value, writeOptions); current()._sync("workers.kv.delete_all"); },
     sync: () => current().storage.sync(),
-    transaction() { throw new Error("Workers storage transactions are not implemented yet"); },
+    transaction(callback) {
+      if (typeof callback !== "function") throw new TypeError("transaction requires a callback");
+      return current()._callback("transaction", scope => callback(durableStorage(scope, true)));
+    },
     transactionSync() { throw new Error("Workers storage transactions are not implemented yet"); },
   });
 }

@@ -21,6 +21,92 @@ class Probe extends DurableObject {
     const { sql, kv } = storage;
     switch (command) {
       case "identity": return { ok: true, id: this.ctx.id.toString() };
+      case "callback-quota": {
+        const held = [];
+        try {
+          for (let i = 0; i < 128; i++) {
+            let entered, release;
+            const ready = new Promise(resolve => { entered = resolve; });
+            const done = nativeContext._callback("block", async () => {
+              await new Promise(resolve => { release = resolve; entered(); });
+            });
+            await ready;
+            held.push({ done, release });
+          }
+          let invoked = false;
+          await refuses(() => nativeContext._callback("block", () => { invoked = true; }), "ValidationError");
+          check(!invoked, "callback quota ran user code");
+        } finally {
+          for (const work of held) { work.release(); await work.done; }
+        }
+        check(await nativeContext._callback("transaction", () => 7) === 7, "callback quota did not release");
+        return { ok: true };
+      }
+      case "transactions": {
+        sql.exec("CREATE TABLE IF NOT EXISTS tx_probe (value INTEGER); DELETE FROM tx_probe").toArray();
+        await storage.put("tx-count", 0);
+        let escaped;
+        const returned = await storage.transaction(async tx => {
+          escaped = tx;
+          tx.kv.put("tx-count", 1);
+          await Promise.resolve();
+          sql.exec("INSERT INTO tx_probe VALUES(1)").toArray();
+          check(await storage.get("tx-count") === 1, "global facade lost transaction across await");
+          await storage.transaction(async child => {
+            child.kv.put("tx-count", 2);
+            check(child.sql.exec("SELECT count(*) AS n FROM tx_probe").one().n === 1, "nested SQL view");
+            await refuses(() => tx.get("tx-count"));
+          });
+          check(tx.kv.get("tx-count") === 2, "nested commit missing");
+          const failure = { marker: "original callback throw" };
+          check(await refuses(() => tx.transaction(async child => {
+            child.kv.put("tx-count", 3);
+            child.sql.exec("INSERT INTO tx_probe VALUES(2)").toArray();
+            throw failure;
+          })) === failure, "rollback replaced original callback throw");
+          check(tx.kv.get("tx-count") === 2 && tx.sql.exec("SELECT count(*) AS n FROM tx_probe").one().n === 1, "nested rollback failed");
+          return 42n;
+        });
+        check(returned === 42n && kv.get("tx-count") === 2, "transaction return/commit");
+        await refuses(() => escaped.put("escaped", true));
+        let threw = false;
+        try { await storage.transaction(async tx => { tx.kv.put("tx-count", 9); throw undefined; }); }
+        catch (error) { check(error === undefined, "undefined callback throw changed"); threw = true; }
+        check(threw && kv.get("tx-count") === 2, "undefined throw did not roll back");
+        await storage.transaction(async tx => {
+          tx.kv.put("tx-count", 8); tx.rollback();
+          await refuses(() => tx.get("tx-count"));
+        });
+        check(kv.get("tx-count") === 2, "explicit rollback failed");
+        let release;
+        const signal = new Promise(resolve => { release = resolve; });
+        const outside = signal.then(() => refuses(() => storage.put("intrude", true)));
+        await storage.transaction(async tx => {
+          release(); await outside;
+          check(await tx.get("intrude") === undefined, "outside continuation borrowed transaction");
+        });
+        let releaseEscaped;
+        const delayed = new Promise(resolve => { releaseEscaped = resolve; });
+        let late;
+        await storage.transaction(async () => { late = delayed.then(() => storage.put("late", true)); });
+        releaseEscaped(); await refuses(() => late, "ValidationError");
+        check(kv.get("late") === undefined, "closed callback scope borrowed root authority");
+        const order = [];
+        await Promise.all([1, 2, 3].map(value => storage.transaction(async tx => {
+          order.push(value); await Promise.resolve(); tx.kv.put("ordered", value);
+        })));
+        check(order.join() === "1,2,3" && kv.get("ordered") === 3, "native transaction reservation order");
+        let child;
+        const parent = await storage.transaction(async tx => {
+          child = tx.transaction(async nested => {
+            await Promise.resolve(); nested.kv.put("drained-child", true);
+          });
+          return "parent";
+        });
+        check(parent === "parent" && kv.get("drained-child") === true, "parent committed before native child drainage");
+        await child;
+        return { ok: true };
+      }
       case "crypto": {
         const bytes = new Uint8Array(32);
         check(crypto.getRandomValues(bytes) === bytes && bytes.some(n => n !== 0), "native random values");
@@ -31,19 +117,6 @@ class Probe extends DurableObject {
         const spoofed = new Float32Array(1);
         Object.defineProperty(spoofed, Symbol.toStringTag, { value: "Uint8Array" });
         check((await refuses(() => crypto.getRandomValues(spoofed))).name === "TypeMismatchError", "typed array brand was spoofed");
-        return { ok: true };
-      }
-      case "failure": {
-        let invoked = 0;
-        const native = this.ctx.storage; // Keep the real owning native facade in the callback.
-        const current = this.current;
-        const fail = class extends DurableObject {
-          constructor(ctx, env) { super(ctx, env); ctx.blockConcurrencyWhile(async () => { await ctx.storage.get("original"); throw undefined; }); }
-        };
-        const activation = activateDurableObject(fail, current);
-        for (let i=0; i<2; i++) await refuses(() => activation.invoke(() => { invoked++; }));
-        check(invoked === 0, "failed initialization admitted a handler");
-        await native.get("original");
         return { ok: true };
       }
       case "tick": {
@@ -133,8 +206,8 @@ class Probe extends DurableObject {
         check([...kv.list({ reverse: true, limit: 1 }).keys()][0] === "z-after", "private key charged against descending limit");
         await refuses(() => storage.put("__sys_private", 1), "ValidationError");
         await refuses(() => storage.list({ limit: 129 }), "ValidationError");
-        await refuses(() => storage.transaction(() => storage.put("original", 4)));
-        check(kv.get("original") === 1, "unsupported transaction ran callback");
+        await refuses(() => storage.transaction(async () => { await storage.put("original", 4); throw new Error("rollback"); }));
+        check(kv.get("original") === 1, "transaction did not roll back");
         return { ok: true };
       }
       default: throw new Error("Unknown fixture operation");

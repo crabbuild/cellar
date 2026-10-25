@@ -90,7 +90,8 @@ SDK. The application engine and the container's own runtime remain separate.
 ## Optional Cloudflare runtime work
 
 The experimental [Cloudflare runtime package](../../packages/cellar-cloudflare/README.md)
-now provides activation-owned DO storage, constructor admission and event-owned
+now provides activation-owned DO storage, native asynchronous transaction and
+critical-section callbacks, constructor admission and event-owned
 namespace/method RPC above the native operation boundary. Native CellRpc calls
 retain structured graphs and typed remote errors in both engines, with explicit
 visibility and clone limits. This partial profile includes TypeScript declarations;
@@ -100,7 +101,8 @@ methods execute against native SQLite in both engines; Sandbox 0.12.9 constructo
 and metadata recovery execute in Node. These are constructor/storage fixtures
 using a stopped-provider view. They do not qualify the unchanged upstream HTTP/
 RPC applications, container startup/monitor/hooks, the Sandbox image or a cloud
-provider. Full native input-gate/reset semantics and remaining runtime APIs stay
+provider. Real-node fixtures verify native input admission and failure/reset;
+complete background/response/disconnect lifetimes and remaining runtime APIs stay
 in the [delivery ledger](../../plans/sandbox-provider-progress.md).
 
 ## Write an application

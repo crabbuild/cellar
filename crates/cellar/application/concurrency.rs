@@ -29,6 +29,7 @@ struct Block {
     gate: Arc<InputGate>,
     depth: usize,
     children: Mutex<Vec<Ready>>,
+    active: std::sync::atomic::AtomicBool,
 }
 
 struct Lifetime {
@@ -38,11 +39,82 @@ struct Lifetime {
 
 impl Drop for Lifetime {
     fn drop(&mut self) {
+        self.block
+            .active
+            .store(false, std::sync::atomic::Ordering::Release);
         if !self.settled {
             self.block
                 .gate
                 .fail("the cell's critical section ended without releasing".into());
         }
+    }
+}
+
+/// Opaque native callback authority for optional language/FFI adapters.
+/// Operations are polled in the original invocation and inherit only this
+/// callback's block/transaction view. A retired boundary cannot be revived.
+#[derive(Clone)]
+pub struct CallbackScope {
+    context: Context,
+    authority: Arc<InvocationAuthority>,
+    // Retaining an expired adapter token must never retain the host input gate.
+    block: Weak<Block>,
+    transaction: Option<Storage>,
+}
+
+impl CallbackScope {
+    /// Roll back this callback's transaction view; subsequent operations refuse.
+    pub fn rollback(&self, context: &Context) -> Result<()> {
+        self.check(context)?;
+        self.transaction
+            .as_ref()
+            .ok_or_else(|| anyhow!("callback has no transaction"))?
+            .rollback()
+    }
+
+    pub fn check(&self, context: &Context) -> Result<()> {
+        self.authority.check(context)?;
+        let block = self
+            .block
+            .upgrade()
+            .ok_or_else(|| anyhow!("native callback boundary is closed"))?;
+        anyhow::ensure!(
+            block.active.load(std::sync::atomic::Ordering::Acquire),
+            "native callback boundary is closed"
+        );
+        if let Some(view) = &self.transaction {
+            view.1.as_ref().unwrap().check_active()?;
+        }
+        Ok(())
+    }
+
+    /// Install native callback guards for each poll, restoring them before any
+    /// unrelated continuation runs. Construct SDK effects inside this future.
+    pub fn run<T: Send + 'static>(
+        &self,
+        context: &Context,
+        future: impl Future<Output = Result<T>> + Send + 'static,
+    ) -> HandlerFuture<T> {
+        let scope = self.clone();
+        let context = context.clone();
+        Box::pin(async move {
+            let mut future = std::pin::pin!(future);
+            futures_util::future::poll_fn(move |cx| {
+                if let Err(error) = scope.check(&context) {
+                    return Poll::Ready(Err(error));
+                }
+                let Some(block) = scope.block.upgrade() else {
+                    return Poll::Ready(Err(anyhow!("native callback boundary is closed")));
+                };
+                let _block = Current::enter(&scope.context.state.blocks, block);
+                let _transaction = scope
+                    .transaction
+                    .as_ref()
+                    .map(storage::TransactionCurrent::enter);
+                future.as_mut().poll(cx)
+            })
+            .await
+        })
     }
 }
 
@@ -65,6 +137,43 @@ impl Drop for Current<'_> {
 }
 
 impl Context {
+    /// Capture the currently polled native critical-section/transaction callback.
+    /// The returned token carries no authority in another event or facet.
+    pub fn callback_scope(&self) -> Result<CallbackScope> {
+        let authority = Arc::new(self.invocation_authority()?);
+        let block = self
+            .state
+            .blocks
+            .current
+            .lock()
+            .unwrap()
+            .clone()
+            .ok_or_else(|| anyhow!("no native callback is being polled"))?;
+        let transaction = self.io.native_activation.as_ref().and_then(|activation| {
+            activation
+                .resources
+                .transaction
+                .lock()
+                .unwrap()
+                .clone()
+                .map(|transaction| {
+                    Storage(
+                        activation.clone(),
+                        Some(transaction),
+                        self.io.source_generation,
+                    )
+                })
+        });
+        let scope = CallbackScope {
+            context: self.clone(),
+            authority,
+            block: Arc::downgrade(&block),
+            transaction,
+        };
+        scope.check(self)?;
+        Ok(scope)
+    }
+
     /// Hold the cell's host input gate while the callback and every nested
     /// block finish. The work belongs to the cell and survives an ordinary
     /// client disconnect. Failure or the 30-second limit resets the instance.
@@ -116,6 +225,7 @@ impl Context {
                 gate,
                 depth,
                 children: Mutex::new(Vec::new()),
+                active: std::sync::atomic::AtomicBool::new(true),
             });
             let (done, receive_done) = tokio::sync::oneshot::channel();
             let ready: Ready = async move {

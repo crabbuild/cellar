@@ -39,6 +39,57 @@ struct State {
 // across application JavaScript, including property access or value conversion.
 type Shared = Rc<RefCell<State>>;
 
+fn continuation(scope: &mut v8::PinScope) -> Option<(u64, Option<u64>)> {
+    let current = scope.get_continuation_preserved_embedder_data();
+    if let Ok(number) = v8::Local::<v8::Number>::try_from(current) {
+        return Some((number.value() as u64, None));
+    }
+    let frame = v8::Local::<v8::Array>::try_from(current).ok()?;
+    let invocation = frame.get_index(scope, 0)?;
+    let callback = frame.get_index(scope, 1)?;
+    Some((
+        v8::Local::<v8::Number>::try_from(invocation).ok()?.value() as u64,
+        Some(v8::Local::<v8::Number>::try_from(callback).ok()?.value() as u64),
+    ))
+}
+
+fn scoped_callback(
+    scope: &mut v8::PinScope,
+    args: v8::FunctionCallbackArguments,
+    mut rv: v8::ReturnValue,
+) {
+    let Some((invocation, _)) = continuation(scope) else {
+        return refuse(scope, "ContextExpired");
+    };
+    let Ok(requested) = v8::Local::<v8::Number>::try_from(args.get(0)) else {
+        return refuse(scope, "ContextMismatch");
+    };
+    if requested.value() != invocation as f64 {
+        return refuse(scope, "ContextMismatch");
+    }
+    let Ok(callback_scope) = v8::Local::<v8::Number>::try_from(args.get(1)) else {
+        return refuse(scope, "ValidationError");
+    };
+    let value = callback_scope.value();
+    if !value.is_finite() || value < 1.0 || value.fract() != 0.0 || value > 9_007_199_254_740_991.0
+    {
+        return refuse(scope, "ValidationError");
+    }
+    let Ok(callback) = v8::Local::<v8::Function>::try_from(args.get(2)) else {
+        return refuse(scope, "ValidationError");
+    };
+    let previous = scope.get_continuation_preserved_embedder_data();
+    let invocation = v8::Number::new(scope, invocation as f64);
+    let frame = v8::Array::new_with_elements(scope, &[invocation.into(), callback_scope.into()]);
+    scope.set_continuation_preserved_embedder_data(frame.into());
+    let undefined = v8::undefined(scope);
+    let result = callback.call(scope, undefined.into(), &[]);
+    scope.set_continuation_preserved_embedder_data(previous);
+    if let Some(result) = result {
+        rv.set(result);
+    }
+}
+
 fn refuse(scope: &v8::PinScope, message: &str) {
     if let Some(text) = v8::String::new(scope, message) {
         let exception = v8::Exception::error(scope, text);
@@ -63,8 +114,7 @@ fn current_activation(
     args: v8::FunctionCallbackArguments,
     mut rv: v8::ReturnValue,
 ) {
-    let current = scope.get_continuation_preserved_embedder_data();
-    let Ok(current) = v8::Local::<v8::Number>::try_from(current) else {
+    let Some((invocation, callback_scope)) = continuation(scope) else {
         return refuse(scope, "ContextExpired");
     };
     let requested = if args.length() == 0 {
@@ -79,7 +129,6 @@ fn current_activation(
         return;
     };
     let state = shared.borrow();
-    let invocation = current.value() as u64;
     let Some(active) = state.invocations.get(&invocation) else {
         return refuse(scope, "ContextExpired");
     };
@@ -92,7 +141,15 @@ fn current_activation(
     if requested.is_some_and(|requested| active.activation.map(|id| id as f64) != Some(requested)) {
         return refuse(scope, "ContextMismatch");
     }
-    rv.set(current.into());
+    if args.length() > 1 {
+        let Ok(expected) = v8::Local::<v8::Number>::try_from(args.get(1)) else {
+            return refuse(scope, "ContextMismatch");
+        };
+        if callback_scope.map(|id| id as f64) != Some(expected.value()) {
+            return refuse(scope, "ContextMismatch");
+        }
+    }
+    rv.set(v8::Number::new(scope, invocation as f64).into());
 }
 
 fn operation(
@@ -122,18 +179,16 @@ fn dispatch_operation(
     };
     // Promise continuations carry their invocation ID. A facade saved by another
     // invocation must not borrow the currently executing call's authority.
-    let current = scope.get_continuation_preserved_embedder_data();
-    let Some(current) = current.number_value(scope) else {
+    let Some((invocation, callback_scope)) = continuation(scope) else {
         return refuse(scope, "ContextExpired");
     };
     let Some(requested) = args.get(0).number_value(scope) else {
         return refuse(scope, "ContextMismatch");
     };
-    if current != requested {
+    if invocation as f64 != requested {
         return refuse(scope, "ContextMismatch");
     }
 
-    let invocation = current as u64;
     // Require primitive strings: no user conversion while native state is borrowed.
     let Ok(name) = v8::Local::<v8::String>::try_from(args.get(1)) else {
         return refuse(scope, "ValidationError");
@@ -163,7 +218,7 @@ fn dispatch_operation(
         return refuse(scope, "ContextExpired");
     }
 
-    let mutation = !cellar_guest::operations::is_read(&name);
+    let mutation = requires_mutation_slot(&name);
     if active.pending >= runtime.options.max_pending_operations
         || active.operations >= runtime.options.max_operations
     {
@@ -195,6 +250,7 @@ fn dispatch_operation(
             id,
             name,
             payload,
+            callback_scope,
             synchronous: synchronous_sender,
             _bytes: bytes,
         })
@@ -357,6 +413,8 @@ pub(super) fn run(
         .context("JavaScript clone encoder initialization failed")?;
     let decode = v8::Function::new(scope, codec::decode)
         .context("JavaScript clone decoder initialization failed")?;
+    let scoped = v8::Function::new(scope, scoped_callback)
+        .context("JavaScript callback scope initialization failed")?;
     let factory = script(scope, include_str!("../runner.js"))?;
     let factory = v8::Local::<v8::Function>::try_from(factory)?;
     let undefined = v8::undefined(scope);
@@ -371,6 +429,7 @@ pub(super) fn run(
                 current.into(),
                 encode.into(),
                 decode.into(),
+                scoped.into(),
             ],
         )
         .context("JavaScript facade initialization failed")?;

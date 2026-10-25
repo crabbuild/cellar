@@ -41,7 +41,7 @@ export function activateDurableObject(Target, nativeContext, { env = {}, contain
     blockConcurrencyWhile(callback) {
       current();
       if (typeof callback !== "function") throw new TypeError("blockConcurrencyWhile requires a callback");
-      const promise = Promise.resolve().then(() => { current(); if (failed) throw failure; return callback(); });
+      const promise = current()._callback("block", () => { current(); if (failed) throw failure; return callback(); });
       blocks.add(promise);
       promise.then(() => blocks.delete(promise), error => { blocks.delete(promise); if (!failed) { failed = true; failure = error; } });
       return promise;

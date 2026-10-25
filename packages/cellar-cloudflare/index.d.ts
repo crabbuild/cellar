@@ -51,10 +51,11 @@ export interface DurableObjectStorage {
   deleteAlarm(options?: Omit<WriteOptions, "noCache">): Promise<void>;
   deleteAll(options?: WriteOptions): Promise<void>;
   sync(): Promise<null>;
-  /** Unsupported: these methods throw before invoking a callback. */
-  transaction(): never;
+  transaction<T>(callback: (transaction: DurableObjectTransaction) => T | Promise<T>): Promise<T>;
+  /** Unsupported: this method throws before invoking a callback. */
   transactionSync(): never;
 }
+export interface DurableObjectTransaction extends DurableObjectStorage { rollback(): void }
 export interface DurableObjectState {
   readonly id: DurableObjectId;
   readonly storage: DurableObjectStorage;

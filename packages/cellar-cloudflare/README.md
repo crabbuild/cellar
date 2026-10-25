@@ -30,8 +30,14 @@ constructor admission above the original native Cellar invocation:
   checks and the 64 KiB random-values quota; full Web Crypto and bootstrap
   globals remain separate work.
 - Constructor `blockConcurrencyWhile` admission: await initialization before
-  invoking application methods and refuse a failed initialization. Callbacks
-  remain attached to their original native event.
+  invoking application methods, acquire the real native input gate and reset
+  the actual activation on callback failure. Callbacks remain attached to their
+  original native event.
+- Async `storage.transaction`: native savepoints, nested transactions, explicit
+  rollback and callback return/throw values. SQL and KV share the same native
+  transaction view across Node/V8 awaits. Unrelated promises cannot borrow it;
+  escaped transaction views and closed callback continuations refuse effects.
+  Completion waits for the native commit/rollback, preserving output gates.
 - Native namespace ID derivation/validation and event-owned stubs for value-only
   cell RPC. Actual native `Invocation::CellRpc` / `Output::Rpc` carry clone graphs;
   calls retain native routing, ownership, durability and cancellation behavior.
@@ -49,9 +55,8 @@ an explicitly disabled tracing export used by the pinned Sandbox fallback.
 Defining `RpcTarget` does not implement RPC transport or remote object lifetime.
 
 The complete Worker module loader, HTTP/web globals, automatic activation-owned
-namespace environment bindings, property RPC, RPC targets, transactions/rollback,
-PITR, native input-gate/reset/30-second block
-semantics, `waitUntil`, abort/reconstruction,
+namespace environment bindings, property RPC, RPC targets, synchronous transactions,
+PITR, complete callback/response/disconnect lifetime semantics, `waitUntil`, abort/reconstruction,
 container lifecycle and Sandbox control-server integration remain required.
 Unavailable APIs throw; they must not silently succeed or lose transaction,
 network policy or cancellation guarantees. Current storage list/batch operations
@@ -75,9 +80,25 @@ executes a container image or certifies a full SDK profile.
 
 The storage fixture exercises structured graphs, SQL blobs/numeric conversion,
 private data boundaries, cursor/byte quotas, failed admission, stale contexts,
-idled/replaced activations and fresh-runtime recovery. Both async and sync
-transactions currently refuse before invoking application callbacks; full
-transaction/rollback support is a remaining requirement, not a no-op fallback.
+idled/replaced activations and fresh-runtime recovery. Native gate fixtures
+observe the Rust cell callback boundary while another request is queued, then
+verify real activation reconstruction and failed-constructor refusal. Native
+SDK tests also verify escaped scope tokens release the gate and refuse reuse.
+Synchronous transactions still refuse before invoking application callbacks.
+
+The bridge uses an opaque native callback scope, installed only while each SDK
+future is polled in the original invocation/facet. Node AsyncLocalStorage and
+V8 continuation metadata carry its token across awaits. At most the configured
+batch limit of callback boundaries can be retained by one invocation. Expired
+native tokens hold weak block references, so retaining one cannot retain the
+input gate. Callback completion control does not occupy a JS mutation slot;
+native transaction queues/guards serialize effects and result loss stays unknown.
+
+The adapter still closes its bridge on event completion/cancellation. Full
+Workers response/background retention, dropped transaction results and ordinary
+client-disconnect survival remain required. Native SDK lifetime/deadline tests
+do not establish those JS profile guarantees. `waitUntil`, synchronous callbacks
+and the complete published package/image paths are not qualified here.
 
 ## Native value-only RPC integration
 
