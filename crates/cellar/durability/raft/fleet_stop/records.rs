@@ -9,7 +9,9 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct BootBinding {
+/// Physical boot metadata. Possessing or decoding this value grants no stop,
+/// membership, capacity or joined-owner authority.
+pub struct BootBinding {
     pub catalog: [u8; 32],
     pub fleet: [u8; 16],
     pub node: [u8; 16],
@@ -22,7 +24,7 @@ pub(crate) struct BootBinding {
 }
 
 impl BootBinding {
-    pub fn validate(&self) -> Result<(), LogError> {
+    pub(crate) fn validate(&self) -> Result<(), LogError> {
         let invalid = || LogError::Invalid("fleet boot binding".into());
         IncarnationId::new(self.fleet).map_err(|_| invalid())?;
         NodeId::new(self.node).map_err(|_| invalid())?;

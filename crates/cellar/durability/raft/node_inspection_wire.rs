@@ -1,6 +1,6 @@
 //! Fleet/process-scoped metadata. There is deliberately no business-cell scope.
 use super::fleet_catalog::{FleetNodeState, FleetTrustSnapshot};
-use super::host::{RaftHostEnrollmentObservation, RaftHostObservation};
+use super::host::{RaftHostEnrollmentObservation, RaftHostObservation, RaftHostStartupBounds};
 use super::inspection::{NodeInspection, RaftNodeProfile};
 use super::inspection_identity::{Endpoint, PhysicalNode};
 use super::inspection_wire::Profile;
@@ -152,6 +152,8 @@ struct Body {
     disk: [u8; 16],
     process: [u8; 16],
     storage_instance: [u8; 16],
+    boot: super::fleet_stop::BootBinding,
+    bounds: Bounds,
     profile: Profile,
     groups: u32,
     reserved_bytes: String,
@@ -164,6 +166,15 @@ struct Body {
     unattached_engine_histories: u32,
 }
 
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Bounds {
+    host_groups: u32,
+    consensus_groups: u32,
+    engine_groups: u32,
+    bounded_buffer_bytes: String,
+}
+
 pub(crate) fn validate(view: &RaftHostObservation) -> Result<(), TransportError> {
     let startup = view
         .startup_enrollment
@@ -173,11 +184,24 @@ pub(crate) fn validate(view: &RaftHostObservation) -> Result<(), TransportError>
         .current_enrollment
         .as_ref()
         .ok_or(TransportError::Identity)?;
+    let boot = view.fleet_boot.as_ref().ok_or(TransportError::Identity)?;
+    boot.validate().map_err(|_| TransportError::Identity)?;
+    let bounds = &view.startup_bounds;
     view.node
         .profile
         .validate(4096, 1)
         .map_err(|_| TransportError::Protocol)?;
     if startup.fleet != current.fleet
+        || boot.fleet != current.fleet
+        || boot.node != view.node.identity.node.bytes()
+        || boot.disk != view.node.identity.disk.bytes()
+        || boot.process != view.node.identity.process.bytes()
+        || boot.engine != view.node.storage_instance.bytes()
+        || boot.epoch > current.epoch
+        || !(1..=4096).contains(&bounds.host_groups)
+        || !(1..=32_768).contains(&bounds.consensus_groups)
+        || !(1..=32_768).contains(&bounds.engine_groups)
+        || !(1..=64 * 1024 * 1024 * 1024).contains(&bounds.bounded_buffer_bytes)
         || startup.physical_host != current.physical_host
         || startup.capability_digest != current.capability_digest
         || startup.revision > current.revision
@@ -209,6 +233,13 @@ pub(crate) fn encode(view: &RaftHostObservation) -> Result<Vec<u8>, TransportErr
         disk: view.node.identity.disk.bytes(),
         process: view.node.identity.process.bytes(),
         storage_instance: view.node.storage_instance.bytes(),
+        boot: view.fleet_boot.clone().ok_or(TransportError::Identity)?,
+        bounds: Bounds {
+            host_groups: view.startup_bounds.host_groups,
+            consensus_groups: view.startup_bounds.consensus_groups,
+            engine_groups: view.startup_bounds.engine_groups,
+            bounded_buffer_bytes: view.startup_bounds.bounded_buffer_bytes.to_string(),
+        },
         profile: Profile::from(&view.node.profile),
         groups: view.node.groups,
         reserved_bytes: view.node.reserved_bytes.to_string(),
@@ -246,6 +277,13 @@ pub(crate) fn decode(bytes: &[u8]) -> Result<Box<RaftHostObservation>, Transport
     let startup = body.startup.decode()?;
     let current = body.current.decode()?;
     let view = RaftHostObservation {
+        fleet_boot: Some(body.boot),
+        startup_bounds: RaftHostStartupBounds {
+            host_groups: body.bounds.host_groups,
+            consensus_groups: body.bounds.consensus_groups,
+            engine_groups: body.bounds.engine_groups,
+            bounded_buffer_bytes: decimal(&body.bounds.bounded_buffer_bytes)?,
+        },
         node: NodeInspection {
             identity: NodeIdentity {
                 node: NodeId::new(body.node).map_err(|_| TransportError::Identity)?,

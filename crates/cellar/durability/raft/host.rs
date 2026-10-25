@@ -91,7 +91,8 @@ mod node_control;
 mod registration;
 use node_control::reply_node;
 pub use node_control::{
-    RaftHostEnrollmentObservation, RaftHostObservation, RaftPeerNodeObservation,
+    RaftHostEnrollmentObservation, RaftHostObservation, RaftHostStartupBounds,
+    RaftPeerNodeObservation,
 };
 #[path = "host_fleet_stop.rs"]
 mod fleet_stop;

@@ -7,6 +7,7 @@ mod reporter;
 
 pub(crate) use closure::Sink;
 pub use closure::VerifiedFleetClosure;
+pub use records::BootBinding as FleetBootBinding;
 pub(crate) use records::{BootBinding, Guard, LifecycleRecord, LifecycleUpdate, StopSelector};
 pub use records::{FleetStopAcceptance, FleetStopAction, FleetStopRequest};
 pub(crate) use reporter::{Reporter, Services};

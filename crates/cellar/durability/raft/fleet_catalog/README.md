@@ -119,7 +119,7 @@ Ordinary `bootstrap_member` can only resume an already enrolled managed group;
 it refuses fresh or bare genesis before creating local group state or a member
 claim. Managed host startup and `activate_managed_initial_member` use the guarded path described below.
 
-This experimental protocol hard-cuts to `/fleet-quorum-1/fleet-cuts-1/empty-archives-1/archive-cuts-1/fleet-finalization-1/fleet-stop-1/fleet-stop-rpc-1`; use fresh fleet
+This experimental protocol hard-cuts to `/fleet-quorum-1/fleet-cuts-1/empty-archives-1/archive-cuts-1/fleet-finalization-1/fleet-stop-1/fleet-stop-rpc-1/capacity-readiness-1`; use fresh fleet
 roots, fresh namespaces, fresh engine directories and matching binaries. Fleet heads require the current
 protocol digest, and their permanent genesis pin binds it. Missing or earlier
 protocol state refuses initialization and reads; there is no compatibility reader.
@@ -467,6 +467,40 @@ replacement followed by rooted finalization, Raft-control stop concurrent with
 survivor writes, retained-history owner join and signed closure. This still
 supplies no terminal node transition or disruption-slot release.
 
+## Capacity readiness and activation
+
+`admit_node_capacity` owns a complete current inventory scan and an authenticated
+node inspection. It atomically records the exact request and changes the target
+to Ready or Active. Qualifying a spare keeps it excluded; activation repeats the
+readiness checks. Neither operation creates a business cell. Their original
+deadline covers the inventory, RPC, immutable request work and final CAS.
+
+The probe reports the synced boot nonce/key and the installed host, consensus
+and engine group bounds. Its buffer total covers the reported configured
+host/consensus/log pools; it is not process RSS or a complete process-memory
+estimate. The explicit deployment attestation supplies CPU, memory, storage,
+engine-slot and no-swap limits, retained usage, a profile revision and a retained
+evidence reference/digest. This is labeled operator attestation; there is no
+independent kernel/container measurement in this adapter. Missing, conflicting
+or unfit evidence refuses admission. One profile revision cannot change its
+limits, and an already qualified Active boot requires the maintenance protocol
+before changing limits.
+
+Exact committed retries reconcile through the permanent journal before requiring
+live inputs. A retry can therefore return historical Active acceptance after
+exclusion or shutdown. It supplies no current placement authority.
+`authorize_capacity` separately verifies the current projection, node epoch,
+exact boot and original journal. A new boot invalidates old capacity even when
+its process hint is reused; intact engines may qualify again. Generic metadata
+saying Active without a matching readiness record is not quantified capacity.
+
+The capacity authorization is bound to its current root and is not a health
+lease or a resource reservation. The fleet planner must combine it with fresh
+occupancy, running profile/startup bounds, per-history eligibility and existing
+reservations. Actual host initialization still enforces its own bounds. The
+reservation planner and complete operator workflows remain pending; this does
+not enable automatic fleet management or certify deployed resource limits.
+
 ## Host API and fresh learners
 
 ### Rooted node enrollment
@@ -667,7 +701,7 @@ response alone is not a fleet completion certificate.
 Cellar-owned markers stay at 1. Membership and intent records require an explicit
 nullable `fleet` field. Birth records also require an explicit nullable
 `cancelled_by` field; the namespace protocol identity ends in
-`/catalog-trust-1/fleet-admission-1/fleet-quorum-1/fleet-cuts-1/empty-archives-1/archive-cuts-1/fleet-finalization-1/fleet-stop-1/fleet-stop-rpc-1`.
+`/catalog-trust-1/fleet-admission-1/fleet-quorum-1/fleet-cuts-1/empty-archives-1/archive-cuts-1/fleet-finalization-1/fleet-stop-1/fleet-stop-rpc-1/capacity-readiness-1`.
 Node records require an explicit nullable `boot` field; Finalizing is a boot-refusing
 state. The engine requires a separate `cellar-node-lifecycle` record, initialized
 atomically with a new engine root. Resume refuses a missing record rather than

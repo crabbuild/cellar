@@ -41,19 +41,22 @@ pub use cellar_logic::raft_leadership::LeaderPolicy;
 pub use cellar_logic::raft_placement::PlacementPolicy;
 
 pub use crate::raft::fleet_catalog::{
+    fleet_capacity_profile_digest, FleetCapacityAction, FleetCapacityAdmission,
+    FleetCapacityAttestation, FleetCapacityAuthorization, FleetCapacityRequest,
     FleetGroupAuthorization, FleetHostAuthorization, FleetNodeEligibility, FleetNodeSpec,
     FleetNodeState, FleetPermitAuthorization, FleetReplicaSeparation, FleetRequestIdentity,
 };
 pub use crate::raft::fleet_stop::{
-    FleetStopAcceptance, FleetStopAction, FleetStopRequest, VerifiedFleetClosure,
+    FleetBootBinding, FleetStopAcceptance, FleetStopAction, FleetStopRequest, VerifiedFleetClosure,
 };
 pub use crate::raft::host::{
     FleetMembershipConfiguration, FleetMembershipObservation, FleetPublishedCut,
     FleetPublishedImage, RaftArchiveOptions, RaftCellPlacement, RaftCellRegistration,
     RaftCellsConfig, RaftCellsServices, RaftControllerOptions, RaftControllerStatus,
-    RaftHostEnrollmentObservation, RaftHostObservation, RaftHostOptions, RaftInspectionScanOptions,
-    RaftManagedHostOptions, RaftNamespaceRegistration, RaftNodeDirectoryOptions,
-    RaftPeerFleetMembershipObservation, RaftPeerNode, RaftPeerNodeObservation,
+    RaftHostEnrollmentObservation, RaftHostObservation, RaftHostOptions, RaftHostStartupBounds,
+    RaftInspectionScanOptions, RaftManagedHostOptions, RaftNamespaceRegistration,
+    RaftNodeDirectoryOptions, RaftPeerFleetMembershipObservation, RaftPeerNode,
+    RaftPeerNodeObservation,
 };
 pub use crate::raft::inspection::{
     CellInspection, InspectionError, LeaderLoad, MemberInspection, NodeInspection, RaftNodeProfile,

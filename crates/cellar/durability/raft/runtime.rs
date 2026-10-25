@@ -194,6 +194,10 @@ impl RuntimeEvents {
 }
 
 impl RaftRuntime {
+    pub(crate) fn limits(&self) -> &RaftRuntimeOptions {
+        &self.inner.options
+    }
+
     pub(crate) fn claim_transport(&self) -> Result<TransportClaim, RuntimeError> {
         self.admit()?;
         self.inner

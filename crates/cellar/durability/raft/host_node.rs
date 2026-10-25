@@ -2,6 +2,16 @@
 //! the same bounded administrative queue and physical waiter ownership.
 use super::*;
 
+/// Bounds installed in the running owners. Buffer bounds cover the listed
+/// host/consensus/log pools, not process RSS or independently observed limits.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RaftHostStartupBounds {
+    pub host_groups: u32,
+    pub consensus_groups: u32,
+    pub engine_groups: u32,
+    pub bounded_buffer_bytes: u64,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RaftHostEnrollmentObservation {
     pub fleet: [u8; 16],
@@ -28,6 +38,9 @@ impl RaftHostEnrollmentObservation {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RaftHostObservation {
     pub node: super::super::inspection::NodeInspection,
+    /// Synced physical boot, independent of a caller-provided process hint.
+    pub fleet_boot: Option<super::super::fleet_stop::BootBinding>,
+    pub startup_bounds: RaftHostStartupBounds,
     /// Rooted observation used by this boot, never a fresh eligibility proof.
     pub startup_enrollment: Option<RaftHostEnrollmentObservation>,
     /// Enrollment in the installed current trust cut. It may differ from boot.
@@ -119,6 +132,12 @@ impl Driver {
             .map(RaftHostEnrollmentObservation::capture);
         Ok(RaftHostObservation {
             node,
+            fleet_boot: self
+                .log
+                .lifecycle_guard()
+                .map_err(|_| CommandFailure::Unavailable)?
+                .map(|guard| guard.boot),
+            startup_bounds: self.startup_bounds()?,
             startup_enrollment: self
                 .options
                 .managed
@@ -139,6 +158,34 @@ impl Driver {
             dormant_histories: bounded(dormant)?,
             pending_history_registrations: u32::from(self.history_registration.is_some()),
             unattached_engine_histories: bounded(unattached)?,
+        })
+    }
+
+    fn startup_bounds(&self) -> Result<RaftHostStartupBounds, CommandFailure> {
+        let runtime = self.runtime.limits();
+        let log = self.log.limits();
+        let buffers = [
+            self.options.max_pending_bytes,
+            self.options.max_control_bytes,
+            runtime.max_request_bytes,
+            runtime.max_event_bytes,
+            runtime.max_ready_bytes,
+            runtime.max_apply_bytes,
+            log.max_pending_bytes,
+            log.max_cache_bytes,
+        ];
+        let bounded_buffer_bytes = buffers
+            .into_iter()
+            .try_fold(0u64, |sum, bytes| {
+                sum.checked_add(u64::try_from(bytes).ok()?)
+            })
+            .ok_or(CommandFailure::CorruptState)?;
+        let count = |n| u32::try_from(n).map_err(|_| CommandFailure::CorruptState);
+        Ok(RaftHostStartupBounds {
+            host_groups: count(self.options.max_groups)?,
+            consensus_groups: count(runtime.max_groups)?,
+            engine_groups: count(log.max_groups)?,
+            bounded_buffer_bytes,
         })
     }
 }

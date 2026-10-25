@@ -2,6 +2,8 @@
 //! A retained mutation journal resolves ambiguous writes after later revisions.
 
 mod boots;
+mod capacity;
+mod deadline;
 mod evacuation;
 mod finalization;
 mod histories;
@@ -13,6 +15,10 @@ mod permits;
 mod placement;
 mod records;
 
+pub use capacity::{
+    fleet_capacity_profile_digest, FleetCapacityAction, FleetCapacityAdmission,
+    FleetCapacityAttestation, FleetCapacityAuthorization, FleetCapacityRequest,
+};
 pub use evacuation::FleetEvacuationAdmission;
 pub use finalization::{
     FleetEvacuationArchive, FleetEvacuationCandidate, FleetEvacuationVerification,

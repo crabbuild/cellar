@@ -16,6 +16,23 @@ fn view() -> RaftHostObservation {
         ..startup.clone()
     };
     RaftHostObservation {
+        fleet_boot: Some(super::super::fleet_stop::BootBinding {
+            catalog: [81; 32],
+            fleet: [80; 16],
+            node: [5; 16],
+            disk: [15; 16],
+            process: [25; 16],
+            engine: [35; 16],
+            boot: [41; 16],
+            epoch: 1,
+            join_key: crate::peer_probe::PeerProbeSigner::from_secret([4; 32]).public_key_bytes(),
+        }),
+        startup_bounds: crate::raft::host::RaftHostStartupBounds {
+            host_groups: 4096,
+            consensus_groups: 4096,
+            engine_groups: 4096,
+            bounded_buffer_bytes: 1024,
+        },
         node: NodeInspection {
             identity: NodeIdentity {
                 node: NodeId::new([5; 16]).unwrap(),
@@ -67,6 +84,8 @@ fn node_metadata_rejects_missing_invalid_and_unbounded_fields() {
         "current",
         "profile",
         "pending_history_registrations",
+        "boot",
+        "bounds",
     ] {
         let mut changed = original.clone();
         changed.as_object_mut().unwrap().remove(field);

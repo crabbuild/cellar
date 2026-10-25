@@ -27,6 +27,9 @@ mod initial_tests;
 #[path = "raft_namespace_registry_hosts.rs"]
 mod namespace_registry_tests;
 
+#[path = "raft_capacity_native.rs"]
+mod capacity_tests;
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn fleet_enrollment_node_probe_retained_age() -> Result<()> {
     let f = Fixture::new().await?;
@@ -490,10 +493,18 @@ impl Fixture {
     }
 
     async fn state(&self, node: NodeId, state: FleetNodeState, id: u8) -> Result<u64> {
-        let snapshot = self.catalog.read(TIMEOUT).await?;
+        Self::state_on(&self.catalog, node, state, id).await
+    }
+
+    async fn state_on(
+        catalog: &FleetCatalog,
+        node: NodeId,
+        state: FleetNodeState,
+        id: u8,
+    ) -> Result<u64> {
+        let snapshot = catalog.read(TIMEOUT).await?;
         let key = hex::encode(node.bytes());
-        let bytes = self
-            .catalog
+        let bytes = catalog
             .get(&snapshot, FleetTable::Nodes, &key, TIMEOUT)
             .await?
             .unwrap();
@@ -536,8 +547,7 @@ impl Fixture {
         updated.extend_from_slice(&(payload.len() as u32).to_be_bytes());
         updated.extend_from_slice(payload.as_bytes());
         updated.extend_from_slice(&Sha256::digest(&updated));
-        let commit = self
-            .catalog
+        let commit = catalog
             .commit(
                 &snapshot,
                 &FleetMutation {

@@ -70,46 +70,7 @@ impl FleetEvacuationCandidate {
     }
 }
 
-/// The original method deadline also covers work between catalog turns, remote
-/// RPC, physical replay and final delivery. Never restart it per awaited phase.
-struct Deadline<'a> {
-    catalog: &'a FleetCatalog,
-    end: u64,
-}
-
-impl<'a> Deadline<'a> {
-    fn new(catalog: &'a FleetCatalog, timeout: Duration) -> Result<Self> {
-        if timeout.as_millis() == 0 || timeout > Duration::from_secs(60) {
-            return Err(FleetCatalogError::Invalid("timeout"));
-        }
-        let now = catalog
-            .inner
-            .domain
-            .mono_ms()
-            .map_err(|_| FleetCatalogError::Closed)?;
-        Ok(Self {
-            catalog,
-            end: now
-                .checked_add(timeout.as_millis() as u64)
-                .ok_or(FleetCatalogError::Limit)?,
-        })
-    }
-
-    fn remaining(&self) -> Result<Duration> {
-        let now = self
-            .catalog
-            .inner
-            .domain
-            .mono_ms()
-            .map_err(|_| FleetCatalogError::Closed)?;
-        let millis = self
-            .end
-            .checked_sub(now)
-            .filter(|ms| *ms > 0)
-            .ok_or(FleetCatalogError::Unconfirmed)?;
-        Ok(Duration::from_millis(millis))
-    }
-}
+use super::deadline::Deadline;
 
 impl FleetCatalog {
     /// Begin from the current exact root and internally checked complete

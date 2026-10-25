@@ -93,6 +93,21 @@ fn required_nullable<'de, T: Deserialize<'de>, D: serde::Deserializer<'de>>(
 }
 
 impl NodeRecord {
+    pub(super) fn activate_capacity(&mut self, state: FleetNodeState) -> Result<()> {
+        if !matches!(
+            self.state,
+            FleetNodeState::Registered | FleetNodeState::Ready | FleetNodeState::Active
+        ) || !matches!(state, FleetNodeState::Ready | FleetNodeState::Active)
+            || self.boot.is_none()
+            || self.operation.is_some()
+        {
+            return Err(FleetCatalogError::Conflict);
+        }
+        self.epoch = self.epoch.checked_add(1).ok_or(FleetCatalogError::Limit)?;
+        self.state = state;
+        Ok(())
+    }
+
     pub(super) fn boot_binding(
         &self,
         catalog: [u8; 32],

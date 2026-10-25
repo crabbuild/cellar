@@ -106,6 +106,23 @@ fn observation() -> LocalObservation {
         capability_digest: [9; 32],
     };
     let node = Box::new(RaftHostObservation {
+        fleet_boot: Some(super::super::fleet_stop::BootBinding {
+            catalog: [81; 32],
+            fleet: [80; 16],
+            node: snapshot.view.node.identity.node.bytes(),
+            disk: snapshot.view.node.identity.disk.bytes(),
+            process: snapshot.view.node.identity.process.bytes(),
+            engine: snapshot.view.node.storage_instance.bytes(),
+            boot: [41; 16],
+            epoch: 1,
+            join_key: crate::peer_probe::PeerProbeSigner::from_secret([4; 32]).public_key_bytes(),
+        }),
+        startup_bounds: crate::raft::host::RaftHostStartupBounds {
+            host_groups: 4096,
+            consensus_groups: 4096,
+            engine_groups: 4096,
+            bounded_buffer_bytes: 1024,
+        },
         node: snapshot.view.node.clone(),
         startup_enrollment: Some(enrollment.clone()),
         current_enrollment: Some(enrollment),
