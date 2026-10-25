@@ -10,6 +10,23 @@ Rust hosts can supply another backend without changing the guest API.
 [Lifecycle](#two-lifecycle-interfaces) · [Add a provider](#add-a-provider) ·
 [Wire reference](#bridge-protocol-version-1)
 
+## Native containers, this adapter, or Workers?
+
+`cellar-container` puts a shared provider boundary above Cellar's native
+container engine. Selecting `Native` keeps the same Docker/Podman execution path.
+
+| Your application needs… | Use | What it adds |
+| --- | --- | --- |
+| Typed Rust access to the configured local engine | `cellar::sdk::Context::container()` | Direct native lifecycle, exec and port APIs |
+| A backend selectable by the host across Rust, Python, JS and TS | This crate's `Adapter` / `Session` | Shared operations, capabilities, validation and bounded replies |
+| Existing Workers/Durable Object application APIs | Optional `@cellar/cloudflare` package | Experimental API compatibility above the same provider boundary |
+| A hosted sandbox such as Vercel or E2B | A dedicated Rust `Provider` implementation | Remote execution, fencing, reconciliation and cleanup; these providers remain planned |
+
+Cellar follows celld's application pattern: a durable object/cell owns container
+controls, while the node executes the backend work. The extra provider boundary
+lets a host supply another executor. Compatibility with a published SDK still
+requires testing its APIs and matching image together.
+
 ## How it fits together
 
 ![Rust and language facades call a shared session inside the original native invocation. The host selects Native for Docker/Podman or supplies a custom provider.](diagram/provider-flow.svg)
@@ -34,9 +51,9 @@ adapter does not move SDK effects onto the Python, Node or V8 runtime thread.
 | Hosted Cloudflare, Vercel, E2B, Daytona and Modal | Planned; no remote provider ships in this crate | [Delivery plan](../../plans/sandbox-provider-compatibility.md) |
 | Dynamic Worker isolates, PTY and snapshots | Planned features; the current operation set does not implement them | [Implementation ledger](../../plans/sandbox-provider-progress.md) |
 
-The primary compatibility pattern follows celld: run compatible application APIs
-on Cellar, backed by a declared execution provider. Hosted services are a separate
-backend choice. A provider name alone does not establish SDK compatibility.
+The pinned Sandbox 0.12.9 SDK/image has exercised exec and file round trips on
+Cellar. Full acceptance still fails when background processes return callable
+RPC handles; see the [live qualification evidence](../../plans/sandbox-provider-progress.md#real-sdkimage-qualification-and-independent-workers-io).
 
 ## Quick start
 
@@ -205,7 +222,7 @@ It currently refuses queued lifecycle calls inside transaction and
 `blockConcurrencyWhile` callbacks before effects. Node supports buffered port
 forwarding, and the unchanged pinned Container example runs against an engine
 protocol peer. Streaming/upgrades, complete package lifecycle and real-image
-conformance remain pending; see the
+acceptance remain pending; see the
 [Cloudflare execution evidence](../../packages/cellar-cloudflare/README.md#execution-evidence).
 
 ## Understand lifetime and failure outcomes
@@ -256,6 +273,43 @@ cancellation does not prove that a remote command stopped or rolled back.
 Implement these traits in the Rust host, then select the provider before runtime
 startup. See the [trait definitions](lib.rs) and
 [provider integration tests](tests/providers.rs) for concrete code.
+
+### Example: expose only native status checks
+
+This complete provider delegates execution to `Native` and advertises only
+`Running`. The shared session refuses other operations before dispatch. A hosted
+provider instead opens its own session and implements its backend effects.
+
+```rust
+use cellar_container::{
+    Adapter, Environment, Native, Operation, Provider, ProviderSession,
+};
+use std::sync::Arc;
+
+struct StatusOnly;
+
+impl Provider for StatusOnly {
+    fn name(&self) -> &str {
+        "local-status"
+    }
+
+    fn environment(&self) -> Environment {
+        Environment::Linux
+    }
+
+    fn operations(&self) -> &[Operation] {
+        &[Operation::Running]
+    }
+
+    fn open(&self) -> Box<dyn ProviderSession> {
+        Native.open()
+    }
+}
+
+let adapter = Adapter::new(Arc::new(StatusOnly));
+```
+
+### Provider responsibilities
 
 | Method | Responsibility |
 | --- | --- |
