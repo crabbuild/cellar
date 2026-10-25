@@ -41,6 +41,30 @@ class Base extends DurableObject {
   effect() {
     return this.ctx.storage.get("effect");
   }
+  functions() {
+    const read = () => this.ctx.storage.get("delegate-count");
+    const increment = async (amount) => {
+      const value = ((await read()) ?? 0) + amount;
+      await this.ctx.storage.put("delegate-count", value);
+      return value;
+    };
+    const object = {
+      read,
+      increment,
+      again: increment,
+      nested: () => (value) => value,
+    };
+    object.self = object;
+    object.map = new Map([[increment, object]]);
+    return object;
+  }
+  async oversizedFunctions() {
+    await this.ctx.storage.put("oversized-function-effect", true);
+    return { call: () => {}, value: "x".repeat(800_000) };
+  }
+  oversizedFunctionEffect() {
+    return this.ctx.storage.get("oversized-function-effect");
+  }
 }
 class Probe extends Base {
   secret = "private";
@@ -61,9 +85,12 @@ class Counter {
   }
 }
 let saved;
+let savedFunctions;
 export const cells = { Counter, Other: Counter };
 export async function fetch(req, ctx) {
   try {
+    if (savedFunctions)
+      await refuses(() => savedFunctions.read(), "ContextMismatch");
     const [name, command] = req.url.split("/").slice(3);
     const namespace = durableObjectNamespace(ctx, "COUNTERS");
     const id = namespace.idFromName(name);
@@ -150,6 +177,40 @@ export async function fetch(req, ctx) {
       check(
         parallel[0] === "first" && parallel[1] === "second",
         "independently routed RPC calls may overlap",
+      );
+      const functions = await stub.functions();
+      check(
+        functions.self === functions &&
+          functions.increment === functions.again &&
+          functions.map.get(functions.increment) === functions,
+        "callable result graph identity",
+      );
+      const before = (await functions.read()) ?? 0;
+      check(
+        (await functions.increment(2)) === before + 2,
+        "callable writes use original native event",
+      );
+      const duplicate = functions.increment.dup();
+      const nested = await functions.nested();
+      check((await nested(9n)) === 9n, "nested callable result");
+      nested[Symbol.dispose]();
+      functions[Symbol.dispose]();
+      await refuses(() => functions.increment(1));
+      check(
+        (await duplicate(3)) === before + 5,
+        "duplicate retains native result lifetime",
+      );
+      duplicate[Symbol.dispose]();
+      // Retain a JS object without retaining native event authority. The host
+      // must dispose its imports when this event ends, even without GC/dispose.
+      savedFunctions = await stub.functions();
+      check(
+        (await refuses(() => stub.oversizedFunctions())).outcome === "unknown",
+        "oversized callable result outcome",
+      );
+      check(
+        (await stub.oversizedFunctionEffect()) === true,
+        "oversized callable result rolled back its earlier effect",
       );
       const error = await refuses(() => stub.fail());
       check(

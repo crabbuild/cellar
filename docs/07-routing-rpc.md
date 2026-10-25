@@ -104,9 +104,10 @@ the native RPC route, including the authenticated peer tunnel.
 | Retire/cancel the producer or stop its execution domain | Revoke retained aliases |
 | Decode with a value-only codec | Refuse the result instead of discarding its lifetime |
 
-A lease grants no SDK authority and does not implement callable JavaScript
-results, `RpcTarget`, callback arguments or streaming RPC. These require a
-session-aware language profile with its own dispatch, quotas and disposal rules.
+A lease grants no SDK authority. The optional Workers adapter builds returned
+function stubs above it, dispatching through the original native event with
+bounded handles/mailboxes, disposal and producer-side output proof. Returned
+`RpcTarget`, callback arguments and streaming RPC still require further work.
 The peer format bounds the finite value at 64 MiB; adapters must impose their
 own tighter profile budgets. Closing a result does not roll back earlier effects.
 

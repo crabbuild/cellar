@@ -81,7 +81,7 @@ export function namespaceBinding(current, binding) {
               method,
               args: nativeContext._serialize(args),
             });
-            const value = nativeContext._deserialize(reply.value);
+            const value = nativeContext._rpcDecode(reply);
             if (reply.error) {
               if (!Array.isArray(value) || value.length !== 2)
                 throw new Error("Invalid remote error envelope");

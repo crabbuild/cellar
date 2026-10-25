@@ -15,6 +15,7 @@ embed = ["dep:v8", "dep:cellar-guest"]
 node = ["dep:cellar-guest", "dep:getrandom", "dep:libc", "dep:sha2"]
 [dependencies]
 anyhow.workspace = true
+base64.workspace = true
 cellar.workspace = true
 cellar-guest = { workspace = true, optional = true }
 futures-util.workspace = true

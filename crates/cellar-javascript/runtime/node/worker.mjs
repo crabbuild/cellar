@@ -126,6 +126,7 @@ function operation(
       "workers.callback.start_sync",
       "workers.callback.finish_sync",
       "workers.callback.rollback",
+      "workers.rpc.dup",
       "workers.crypto.random",
       "workers.crypto.uuid",
       "workers.identity",
@@ -173,6 +174,7 @@ function operation(
   // their mutation failure provenance, without the local storage mutation slot.
   // Ordinary SQL and fetch operations remain conservative mutations.
   const mutation =
+    !name.startsWith("workers.rpc.") &&
     ![
       "workers.container.perform",
       "workers.rpc",
@@ -347,6 +349,7 @@ const factory = makeRunner(
     });
   },
   addAbortListener,
+  makeDelegates,
 );
 
 // Revocation prevents new Cellar calls. It cannot undo effects already submitted

@@ -253,6 +253,7 @@ pub(crate) fn supports_synchronous(name: &str) -> bool {
                 | "alarm.get"
                 | "workers.callback.start_sync"
                 | "workers.callback.finish_sync"
+                | "workers.rpc.dup"
         )
 }
 
@@ -263,15 +264,17 @@ pub(crate) fn supports_synchronous(name: &str) -> bool {
 // calls also have independent native futures/output gates. They may overlap,
 // without being classified as reads or taking the local storage mutation slot.
 pub(crate) fn requires_mutation_slot(name: &str) -> bool {
-    !matches!(
-        name,
-        "workers.callback.finish"
-            | "workers.callback.finish_sync"
-            | "workers.container.perform"
-            | "workers.rpc"
-            | "workers.fetch"
-            | "workers.container.fetch"
-    ) && !cellar_guest::operations::is_read(name)
+    !name.starts_with("workers.rpc.")
+        && !matches!(
+            name,
+            "workers.callback.finish"
+                | "workers.callback.finish_sync"
+                | "workers.container.perform"
+                | "workers.rpc"
+                | "workers.fetch"
+                | "workers.container.fetch"
+        )
+        && !cellar_guest::operations::is_read(name)
 }
 
 pub(crate) fn supports_operation_cancellation(name: &str) -> bool {

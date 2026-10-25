@@ -26,6 +26,7 @@ const upstream = resolve(root, "tools/sandbox/compat/fixtures/celld");
 const factories = new Set(
   [
     "crates/cellar-javascript/runtime/runner.js",
+    "crates/cellar-javascript/runtime/delegates.js",
     "crates/cellar-javascript/runtime/encoding.js",
     "crates/cellar-javascript/runtime/node/budget.js",
   ].map((path) => resolve(root, path)),

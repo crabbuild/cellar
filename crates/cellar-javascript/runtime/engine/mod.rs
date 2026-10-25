@@ -571,6 +571,7 @@ pub(super) fn run(
         .context("JavaScript callback scope initialization failed")?;
     let factory = script(scope, include_str!("../runner.js"))?;
     let factory = v8::Local::<v8::Function>::try_from(factory)?;
+    let delegates = script(scope, include_str!("../delegates.js"))?;
     let undefined = v8::undefined(scope);
     // Capture pristine builtins before application initialization can change them.
     let factory = factory
@@ -584,6 +585,8 @@ pub(super) fn run(
                 encode.into(),
                 decode.into(),
                 scoped.into(),
+                undefined.into(),
+                delegates,
             ],
         )
         .context("JavaScript facade initialization failed")?;

@@ -7,6 +7,29 @@ use cellar::{engine_api::RpcData, native::clone};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
+/// Routed native result for a session-aware language adapter. The caller must
+/// retain any returned lease and impose its own capability/graph quotas.
+pub async fn call_raw(
+    context: &cellar::sdk::Context,
+    input: Value,
+    maximum: usize,
+) -> Result<(cellar::sdk::cells::Stub, RpcData)> {
+    super::namespace::raw_call(
+        context,
+        input,
+        &crate::Limits {
+            max_body_bytes: maximum,
+            max_batch_operations: 0,
+        },
+    )
+    .await
+}
+
+/// Validate a finite value-only reply, preserving the remote thrown value.
+pub fn reply(data: &RpcData, maximum: usize) -> Result<Value> {
+    super::namespace::reply(data, maximum)
+}
+
 pub(super) fn limits(bytes: usize) -> clone::Limits {
     clone::Limits {
         bytes,

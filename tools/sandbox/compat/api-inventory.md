@@ -37,10 +37,10 @@ ownership, epoch, operation/byte budgets and durability/output gates.
 | Container `/container/<name>` and `/singleton` | `getContainer`, class construction, `onStart` / `onStop` / `onError`, port 8080 fetch | Node native module test passes against an engine protocol peer; image execution remains pending |
 | Container `/lb` | `getRandom` namespace routing to three named objects | Node native module test passes against an engine protocol peer; image execution remains pending |
 | Container `sleepAfter = "2m"` | SQL schedule table, activity renewal, alarm delivery, stop and wake | Constructor/scheduling and explicit start/stop peer tests pass; two-minute sleep/wake qualification remains pending |
-| Sandbox `/exec` | `getSandbox`, direct RPC, control-server startup, shell command result | Inputs bundle; no package/image command run yet |
-| Sandbox `/write` | Real SDK `writeFile` / `readFile` and image filesystem | Inputs bundle; no package/image file round trip yet |
-| Sandbox `/serve` | Real `startProcess` with a persistent Node HTTP process | Inputs bundle; no background process lifetime qualification yet |
-| Sandbox `/processes` | Real `listProcesses`, durable process/runtime identity and response conversion | Inputs bundle; no later-event/recovery qualification yet |
+| Sandbox `/exec` | `getSandbox`, direct RPC, control-server startup, shell command result | Pinned SDK/image passes stdout, stderr and nonzero child exit assertions |
+| Sandbox `/write` | Real SDK `writeFile` / `readFile` and image filesystem | Exact contents survive a later request, including the trailing newline |
+| Sandbox `/serve` | Real `startProcess` with a persistent Node HTTP process | Pinned SDK/image starts the process and returns its function-bearing object through native RPC |
+| Sandbox `/processes` | Real `listProcesses`, durable process/runtime identity and response conversion | A later request discovers the same live process; restart/fencing qualification remains pending |
 
 The baseline additionally needs streamed command output, preview routing, HTTP
 and RPC failure paths, shutdown and teardown tests required by SP-04. Tunnels,

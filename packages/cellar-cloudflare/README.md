@@ -48,6 +48,9 @@ export const { cells, fetch } = app;
 import { DurableObject } from "cloudflare:workers";
 
 export class Counter extends DurableObject {
+  controls() {
+    return { read: () => this.ctx.storage.get("count") };
+  }
   async fetch() {
     const count = (await this.ctx.storage.get("count") ?? 0) + 1;
     await this.ctx.storage.put("count", count);
@@ -98,10 +101,10 @@ const app = workersApplication(worker, {
 | Streams | Byte-only `IdentityTransformStream`, BYOB reads, backpressure and cancellation; ordinary responses expose `webSocket: null` | Full Workers stream/upgrade conformance |
 | SQL | Real lazy SQLite cursors, iteration/raw iteration, `toArray`, `one`, column names, counters and database size | Broader SQLite/runtime profile qualification |
 | KV | Sync `storage.kv`, async KV, batches, lists, alarm access and `sync` | PITR and full profile limits |
-| Values | Native structured clone: cycles, binary, maps/sets, dates, bigint, undefined and errors | Transfer/delegate capabilities and persisted RPC targets |
+| Values | Native structured clone: cycles, binary, maps/sets, dates, bigint, undefined and errors; returned functions preserve graph identity through native leases | Callback arguments, transfers and returned `RpcTarget` |
 | Constructor admission | `blockConcurrencyWhile`, real native input gate, activation reset on failure | Full abort/reconstruction qualification |
 | Transactions | Native sync/async savepoints, nesting, rollback and callback return/throw identity | Full lifetime/deadline profile qualification |
-| Object RPC | Native IDs/routing; inherited public prototype methods; clone values and remote error properties | Property RPC, pipelining, returned `RpcTarget` capabilities and cross-event failure state |
+| Object RPC | Native IDs/routing; inherited public prototype methods; clone values/errors; root-event returned function calls, nested functions, `dup()` and disposal | Property RPC, pipelining, returned `RpcTarget`, callback arguments, scoped callback imports and cross-event failure state |
 | Event lifetime | Retained native drivers for `waitUntil`, transaction callbacks, outstanding SDK work and complete container monitors | Complete compatibility eviction/deadline policy |
 
 Alarm callbacks serialize per object, including when a running handler rearms
@@ -111,6 +114,41 @@ This follows the [single running alarm contract](https://developers.cloudflare.c
 `WorkerEntrypoint` and `RpcTarget` base classes are importable. Defining these
 classes does not implement remote target transport. The tracing export used by
 the pinned Sandbox fallback is explicitly disabled.
+
+### Returned functions
+
+With `workers_lifetimes()` enabled, a cell method can return ordinary objects
+containing functions. Calls execute in the exporting event's native driver.
+They keep its epoch, deadline and SDK authority, and await its storage output
+proof before returning a delegated result.
+
+```js
+// In the caller's event:
+async function readCounter(env) {
+  const controls = await env.COUNTERS.getByName("alice").controls();
+  try {
+    return await controls.read();
+  } finally {
+    controls[Symbol.dispose]();
+  }
+}
+```
+
+| Operation | Lifetime |
+| --- | --- |
+| `await fn(...)` | Routed native call; only value arguments are supported |
+| `fn.dup()` | A separate native alias within the caller's event |
+| `fn[Symbol.dispose]()` | Releases that alias; repeated disposal is harmless |
+| `result[Symbol.dispose]()` | Releases the function stubs in that returned object |
+| Caller completion/cancellation | Drops native imports, even if JS still retains them |
+| Producer retirement | Revokes the exported group and its retained aliases |
+
+This follows the [RPC ownership model](https://developers.cloudflare.com/workers/runtime-apis/rpc/lifecycle/)
+for these returned-function operations. Export/import uses root events; existing
+value RPC remains available in native transaction/block callbacks. Function
+arguments, `RpcTarget`, property access, pipelining and complete disconnect/fault
+semantics remain unqualified. Capability markers cannot be persisted as callable
+values: only a live native session grants authority.
 
 The stream extension follows the documented byte-forwarding and BYOB contract
 for [IdentityTransformStream](https://developers.cloudflare.com/workers/runtime-apis/streams/transformstream/).
@@ -186,16 +224,16 @@ quotas and unknown-outcome reporting still apply.
 
 | Test boundary | What it proves |
 | --- | --- |
-| Node and V8 native Workers fixtures | Real SQLite/clone storage, native input gates, sync/async transactions, constructor refusal, value RPC, retained events and restart recovery |
+| Node and V8 native Workers fixtures | Real SQLite/clone storage, native input gates, sync/async transactions, constructor refusal, value/function RPC, disposal, retained events and restart recovery |
 | Node module fixture | HTTP object routing by named/opaque ID, activation-owned env, binary/cookie preservation, cross-object refusal and effects surviving an oversized response |
 | Unchanged celld Container module + Containers 0.3.7 | Named, singleton and random routing through native cells and an engine protocol peer; separate container ownership and explicit joined cleanup |
 | Published constructor fixtures | Containers 0.3.7 construction/scheduling in both engines; Sandbox 0.12.9 configuration/metadata recovery in Node |
-| Pinned Sandbox image through Cellar | Actual SDK exec/file route assertions pass; process creation loses a function-bearing RPC result, so the full opt-in test still fails |
+| Pinned Sandbox image through Cellar | Unchanged SDK/application exec, file, background startup and later process-list assertions pass, followed by explicit destroy and joined shutdown |
 
 The engine peer is a test server, not a running container image. The complete
 published SDK/image baseline retains `conformance: not_run` in the input manifest.
-Sleep/wake, complete hooks/timeouts, streaming/upgrades, Sandbox process
-function delegates/previews and the remaining SDK/image fault qualification
+Sleep/wake, complete hooks/timeouts, streaming/upgrades, Sandbox previews and
+the remaining SDK/image fault qualification
 remain required, along with hosted providers.
 
 ```sh

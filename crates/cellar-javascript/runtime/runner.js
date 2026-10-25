@@ -11,8 +11,10 @@
   decodeClone,
   scopedHost,
   addAbortListener,
+  makeDelegates,
 ) => {
   "use strict";
+  const delegates = makeDelegates();
 
   // Capture these builtins before importing/evaluating application code.
   const parse = JSON.parse;
@@ -322,6 +324,29 @@
   // Each facade closes over one invocation ID. The backend independently checks
   // continuation identity and liveness whenever that facade calls into Rust.
   function context(id, identity, activation, contracts = {}) {
+    const retain = (make) => {
+      if (
+        (activation === null ? currentHost() : currentHost(activation)) !== id
+      )
+        throw rpcFailure("ContextMismatch", "not_committed");
+      const state = lifetimes.get(id);
+      if (!state) throw rpcFailure("UnsupportedOperation", "not_committed");
+      if (state.reported + state.retained >= state.limit)
+        throw rpcFailure("OperationLimit", "not_committed");
+      state.retained++;
+      let pending;
+      try {
+        pending = resolve(make());
+      } catch (error) {
+        state.retained--;
+        throw error;
+      }
+      const release = () => {
+        state.retained--;
+      };
+      pending.then(release, release);
+      return track(id, pending);
+    };
     const invoke = (name, value, synchronous) => {
       let encoded, pending;
 
@@ -932,6 +957,11 @@
       },
       _serialize: (value) => encode(encodeClone(value)),
       _deserialize: (value) => decodeClone(decode(value)),
+      _rpcResult: (value) =>
+        delegates.result(value, context(id, identity, activation, contracts)),
+      _rpcDecode: (reply) =>
+        delegates.reply(reply, context(id, identity, activation, contracts)),
+      _rpcRetain: retain,
       _decode: decode,
       _encode: (data) => encode(bytes(data)),
 
@@ -1172,7 +1202,7 @@
         }
         // Encoding can fail after the handler committed writes. Such a
         // failure is a lost result, not a business exception from the method.
-        return stringify({ value: ctx._serialize(value), error: false });
+        return stringify(await ctx._rpcResult(value));
       }
 
       let result = await target[invocation.kind](event, ctx);

@@ -14,9 +14,9 @@ does not narrow that objective or turn fixture passes into full compatibility.
 | Slice | Current evidence | Remaining work / completion evidence |
 | --- | --- | --- |
 | SP-01 | Exact celld reference commit/files/license, npm packages/lock/integrities, imported runtime bytes and immutable Sandbox image manifest are in `tools/sandbox/compat`; drift/refusal tests pass; API/fixture inventory lists native mappings and explicit gaps | Input inventory implemented; runtime conformance remains in SP-02–SP-04 and later profiles |
-| SP-02 | Native-backed DO SQL/KV/clone facade, activation-bound authority, object identity, value-only namespace/cell RPC, constructor admission, native input gates/reset, sync/async transactions and retained event/background drivers execute in Node/V8; actual published constructors are exercised; Node module HTTP dispatch, namespace bindings and activation-owned env execute against native cells | Complete loader/bootstrap, embedded web globals, other binding kinds, property/target RPC and lifetimes, full versioned lifetime/deadline qualification and profile/version admission; retain native-only dependency boundary |
+| SP-02 | Native-backed DO SQL/KV/clone facade, activation-bound authority, object identity, value/returned-function namespace RPC, constructor admission, native input gates/reset, sync/async transactions and retained event/background drivers execute in Node/V8; actual published constructors are exercised; Node module HTTP dispatch, namespace bindings and activation-owned env execute against native cells | Complete loader/bootstrap, embedded web globals, other binding kinds, property/target RPC and lifetimes, full versioned lifetime/deadline qualification and profile/version admission; retain native-only dependency boundary |
 | SP-03 | Actual published `@cloudflare/containers@0.3.7` constructor, state and SQL scheduling run in both engines; root-event queued lifecycle and run-bound monitors; Node runs published readiness with native HTTP ports, healthy state and start/stop hooks; unchanged pinned module named/singleton/random routes execute against the engine peer | Embedded web globals, callback-owned queue drainage, sleep/wake, complete hooks, streamed/upgrade port behavior and real-image cleanup |
-| SP-04 | Actual `@cloudflare/sandbox@0.12.9` constructor/configuration and metadata recovery run in Node; matching upstream app/Dockerfile and `linux/amd64` image digest are pinned; unchanged application exec/file assertions now execute against the real image, while the full live target fails at function-bearing process results | Run the unchanged app and SDK/image end to end over HTTP and RPC; files, streamed exec, background records, previews, teardown and failure cases |
+| SP-04 | Actual `@cloudflare/sandbox@0.12.9` constructor/configuration and metadata recovery run in Node; matching upstream app/Dockerfile and `linux/amd64` image digest are pinned; unchanged application exec/file/background-process assertions pass against the real image, including later process discovery, SDK destroy and drained shutdown | Complete SDK HTTP/RPC/helper coverage, streamed exec, process helper invocations, previews, persistence/restart/fencing and failure cases |
 | SP-05 | Provider environment/operation/limit discovery is implemented in Rust, Python, JS and TS; native and restricted provider dispatch tests cover it | Portable files and richer operations, named configuration, durable remote bindings, fencing, expiry/reconnect, loss/unknown outcomes and orphan reconciliation |
 | SP-06 | No Vercel/E2B implementation yet | Real shared provider implementations, fixtures and real-account conformance, explicit Cloudflare profile compatibility/gaps |
 | SP-07 | Separate 1.x contract identified in the design; it is not the 0.12.9 baseline | Pin and run exact current package/helper/image, extended container API, errors, streams, cancellation and supported persistence |
@@ -565,3 +565,64 @@ Final Node/V8 regressions pass all 16 Workers integrations and both typed RPC
 integrations with existing deadlines and assertions unchanged. The new native
 lease API documentation example also compiles. No new live SDK/image or
 cloud-account acceptance result is claimed for this transport-only change.
+
+### Returned functions and live Sandbox processes
+
+The optional Workers adapter now materializes returned functions over native
+leased results. The native registry binds each export group to its original
+cell object, scope, epoch and event; a fresh routed CellRpc only brokers a call
+to that event's existing driver. It never supplies SDK authority to the function.
+
+| Boundary | Behavior |
+| --- | --- |
+| Value graph | Preserve cycles, aliases, sparse arrays, maps and shared buffers; fresh marker identities carry no authority without a native lease |
+| Callable result | Support plain-object functions, nested returned functions and native value arguments; errors retain existing clone/error behavior |
+| Ownership | Native handles for each imported function, separate `dup` aliases, explicit/object disposal, automatic caller-end cleanup and producer revocation |
+| Resource admission | Enforce native handle/group quotas, pending-call semaphores, bounded mailboxes and shared bridge-byte reservations |
+| Output proof | Flush the original producer's storage before sending a delegated reply; the broker event's output gate cannot establish that proof |
+| Failed publication | Close unpublished groups so an unrepresentable result does not strand its producer |
+| Scope | Export/import uses root events; ordinary value RPC retains its existing transaction/block callback path |
+
+The first actual SDK/image run passes all unchanged route assertions: stdout,
+stderr and exit 7; exact file contents across requests; `/serve` process startup;
+and `/processes` discovering the same live process in a later request. Explicit
+SDK destroy removes its containers, and both cell/application work drain without
+timeout. A rebuilt run after adding shared-budget reservations also passes.
+Methods stay on process objects; no DTO stripping or SDK/application rewriting
+was used. The test remains the existing basic-route acceptance, not full SP-04.
+
+Initial Node/V8 native RPC checks pass invocation-owned calls, cyclic callable
+graphs, nested functions, duplication, explicit disposal and refusal of saved
+functions in a later event/restart. Node initially stalled because its local
+mutation classifier counted a mailbox poll as a mutation; matching the Rust
+independent-operation classifier fixes it without extending any deadline.
+
+Still required: returned `RpcTarget` and property RPC, function properties,
+callback arguments/reverse transport, scoped callback imports, pipelining,
+multi-node fault/output-proof qualification, complete disconnect/deadline
+semantics, streamed SDK output and previews. Hosted providers, portable files
+and durable remote bindings, newer Sandbox profiles and Dynamic Workers remain
+open. The complete published baseline continues to report `conformance: not_run`.
+
+The publication-failure regression now checks an oversized function-bearing
+reply after a storage write: the caller receives an unknown outcome, the write
+remains visible, and the unpublished export closes without stranding its event.
+Codec tests also check object prototypes, no-op value disposal, stale disposal
+and job admission before native export registration. TypeScript maps returned
+functions to asynchronous, disposable stubs with separately owned `dup` aliases.
+
+Repeated live runs exposed an isolated-daemon resource limit: 29 empty test
+bridges exhausted Docker's default address pools, confirmed by a direct engine
+probe. Only inactive, host-labelled bridges in this task's daemon were removed.
+The image harness now removes its own verified empty bridges after shutdown;
+two consecutive runs pass and leave only the three default networks. Container
+and network ownership assertions remain strict, and all deadlines are unchanged.
+
+Final-source checks pass 36 runtime unit tests, 16 Workers integrations, both
+typed RPC integrations, 16 shared guest unit tests, 25 JS/tool/type checks and
+four pinned-input checks. Strict affected-crate all-target Clippy passes with
+Node, embedded V8 and CPython enabled. The final image run after the declared-RPC
+admission guard passes with joined shutdown and removal of owned containers and
+networks. Rust layout/format covers 1,056 files; JS format covers 51 sources.
+Documentation and whitespace checks and the native-only 466-package engine guard
+pass. This remains local evidence, not hosted CI or live-cloud qualification.

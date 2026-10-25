@@ -170,9 +170,10 @@ fn run(
     // The factory is captured before importing application modules. The channel
     // secret is delivered only over inherited stdin, never argv or the environment.
     let script = format!(
-        "const makeBudgets = ({});\nconst makeRunner = ({});\nconst ioSource = {};\n{}",
+        "const makeBudgets = ({});\nconst makeRunner = ({});\nconst makeDelegates = ({});\nconst ioSource = {};\n{}",
         include_str!("budget.js"),
         include_str!("../runner.js"),
+        include_str!("../delegates.js"),
         serde_json::to_string(include_str!("io.mjs"))?,
         include_str!("worker.mjs")
     );

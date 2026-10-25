@@ -16,6 +16,9 @@ class Counter extends DurableObject {
   background(): void {
     this.ctx.waitUntil(Promise.resolve(3));
   }
+  tools() {
+    return { add: (by: bigint) => by + 1n };
+  }
 }
 declare const context: Context;
 const container = durableObjectContainer(context);
@@ -40,6 +43,19 @@ container.running = false;
 const namespace = durableObjectNamespace<Counter>(context, "COUNTERS");
 const stub = namespace.getByName("alice");
 const result: Promise<bigint> = stub.increment(3n);
+const tools = stub.tools().then((tools) => {
+  const value: Promise<bigint> = tools.add(1n);
+  const duplicate = tools.add.dup();
+  const other: Promise<bigint> = duplicate(2n);
+  // @ts-expect-error: delegated calls return promises
+  const immediate: bigint = tools.add(1n);
+  // @ts-expect-error: delegated argument types remain intact
+  tools.add("1");
+  tools[Symbol.dispose]();
+  duplicate[Symbol.dispose]();
+  return [value, other, immediate];
+});
+void tools;
 // @ts-expect-error: instance fields are not RPC methods
 stub.env();
 // @ts-expect-error: argument types remain intact

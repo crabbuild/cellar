@@ -20,6 +20,7 @@ struct Inner {
 pub struct LeaseControl(Weak<Inner>);
 
 /// Observes closure without retaining an ownership alias.
+#[derive(Clone)]
 pub struct LeaseClosed(watch::Receiver<bool>);
 
 /// Closes a lease when an event or transport owner drops, without retaining

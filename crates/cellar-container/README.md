@@ -51,9 +51,10 @@ adapter does not move SDK effects onto the Python, Node or V8 runtime thread.
 | Hosted Cloudflare, Vercel, E2B, Daytona and Modal | Planned; no remote provider ships in this crate | [Delivery plan](../../plans/sandbox-provider-compatibility.md) |
 | Dynamic Worker isolates, PTY and snapshots | Planned features; the current operation set does not implement them | [Implementation ledger](../../plans/sandbox-provider-progress.md) |
 
-The pinned Sandbox 0.12.9 SDK/image has exercised exec and file round trips on
-Cellar. Full acceptance still fails when background processes return callable
-RPC handles; see the [live qualification evidence](../../plans/sandbox-provider-progress.md#real-sdkimage-qualification-and-independent-workers-io).
+The pinned Sandbox 0.12.9 SDK/image passes the unchanged application's exec,
+file and background-process route tests, including later process discovery and
+explicit teardown. Streaming, previews and fault qualification remain open;
+see the [live qualification evidence](../../plans/sandbox-provider-progress.md#returned-functions-and-live-sandbox-processes).
 
 ## Quick start
 

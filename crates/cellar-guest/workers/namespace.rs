@@ -89,7 +89,11 @@ pub(super) async fn fetch(
     }
 }
 
-pub(super) async fn call(context: &Context, input: Value, options: &Limits) -> Result<Value> {
+pub(super) async fn raw_call(
+    context: &Context,
+    input: Value,
+    options: &Limits,
+) -> Result<(cellar::sdk::cells::Stub, cellar::engine_api::RpcData)> {
     #[derive(Deserialize)]
     #[serde(deny_unknown_fields)]
     struct Input {
@@ -112,18 +116,33 @@ pub(super) async fn call(context: &Context, input: Value, options: &Limits) -> R
     .context(crate::failure::Validation)?;
     // This is the original native invocation's routed RPC future. It retains
     // the host's output/durability gates, cancellation and failure provenance.
-    match stub
-        .call_with_limits(context, method, &args, rpc::limits(options.max_body_bytes))
-        .await
-    {
-        Ok(value) => {
-            Ok(json!({"value":rpc::encoded(&value, options.max_body_bytes)?, "error":false}))
-        }
+    let args = clone_arguments(&args, options.max_body_bytes)?;
+    let result = stub.rpc(context, method, args).await?;
+    Ok((stub, result))
+}
+
+fn clone_arguments(
+    args: &cellar::native::clone::StructuredValue,
+    maximum: usize,
+) -> Result<cellar::engine_api::RpcData> {
+    Ok(cellar::engine_api::RpcData::Structured(
+        cellar::native::clone::encode_with_limits(args, rpc::limits(maximum))?.into(),
+    ))
+}
+
+pub(super) fn reply(data: &cellar::engine_api::RpcData, maximum: usize) -> Result<Value> {
+    match cellar::sdk::decode_rpc_result_with_limits(data, rpc::limits(maximum)) {
+        Ok(value) => Ok(json!({"value":rpc::encoded(&value, maximum)?, "error":false})),
         Err(error) => match error.downcast_ref::<RemoteError>() {
-            Some(remote) => Ok(
-                json!({"value":rpc::encoded(&remote.value, options.max_body_bytes)?, "error":true}),
-            ),
+            Some(remote) => {
+                Ok(json!({"value":rpc::encoded(&remote.value, maximum)?, "error":true}))
+            }
             None => Err(error),
         },
     }
+}
+
+pub(super) async fn call(context: &Context, input: Value, options: &Limits) -> Result<Value> {
+    let (_, data) = raw_call(context, input, options).await?;
+    reply(&data, options.max_body_bytes)
 }

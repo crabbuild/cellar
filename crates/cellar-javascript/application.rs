@@ -225,6 +225,7 @@ impl Source {
 pub struct JavaScriptApplication {
     pub(crate) runtime: Arc<Runtime>,
     source: Arc<Source>,
+    rpc_sessions: Arc<crate::rpc_sessions::Registry>,
 }
 
 impl JavaScriptApplication {
@@ -232,6 +233,7 @@ impl JavaScriptApplication {
         Self {
             runtime,
             source: Arc::new(source),
+            rpc_sessions: Default::default(),
         }
     }
 
@@ -260,6 +262,30 @@ impl JavaScriptApplication {
         cell: Option<(u64, String, Life)>,
         mut state: State,
     ) -> Result<Output> {
+        if matches!(&event, Invocation::CellRpc { method, .. } if method == crate::rpc_sessions::METHOD)
+        {
+            let Invocation::CellRpc { args, .. } = event else {
+                anyhow::bail!("invalid delegate event")
+            };
+            ensure!(
+                self.source.workers_lifetimes,
+                "Workers result sessions are not enabled"
+            );
+            let object = cell
+                .as_ref()
+                .map(|cell| cell.0)
+                .context("delegate requires an activation")?;
+            ensure!(
+                self.source
+                    .supports(cell.as_ref().map(|cell| cell.1.as_str()), "cell_rpc"),
+                "delegate requires a declared cell RPC handler"
+            );
+            return self
+                .rpc_sessions
+                .dispatch(&context, object, args, &self.runtime)
+                .await
+                .map(Output::Rpc);
+        }
         let retained = self.source.workers_lifetimes
             && !matches!(&event, Invocation::CellRpc { .. }
             if context.identity().is_some_and(|identity| self.source.rpc.classes().any(|class| class == identity.class)));
@@ -402,6 +428,13 @@ impl JavaScriptApplication {
         let (object, class, owner) = cell
             .map(|(object, class, life)| (Some(object), Some(class), life))
             .unwrap_or((None, None, Arc::new(AtomicBool::new(true))));
+        let rpc_session = Arc::new(crate::rpc_sessions::Session::new(
+            self.rpc_sessions.clone(),
+            &context,
+            object,
+            owner.clone(),
+            self.runtime.options.clone(),
+        )?);
         ensure!(
             self.source.supports(class.as_deref(), kind),
             "undeclared JavaScript event {kind}"
@@ -499,8 +532,9 @@ impl JavaScriptApplication {
                         let output = if failed {
                             Err(anyhow::anyhow!("JavaScript handler failed"))
                         } else {
-                            self.output(&context, kind, &state, value)
+                            self.output(&context, kind, &state, &rpc_session, value)
                         };
+                        rpc_session.discard_unpublished();
                         if let Some(reply) = &reply {
                             crate::lifetime::publish(reply, output);
                         } else {
@@ -574,6 +608,8 @@ impl JavaScriptApplication {
                     let callbacks = callbacks.clone();
                     let runtime = self.runtime.clone();
                     let catalog = self.source.rpc.clone();
+                    let rpc_session = rpc_session.clone();
+                    let rpc_enabled = self.source.workers_lifetimes;
                     let mut operation = Box::pin(async move {
                         // The reservation is retained by the native future even
                         // if the awaiting JavaScript task has already been cancelled.
@@ -627,7 +663,22 @@ impl JavaScriptApplication {
                                                 body.is_none(),
                                                 cellar_guest::failure::Validation
                                             );
-                                            if operation_name.starts_with("workers.callback.") {
+                                            if rpc_enabled
+                                                && callback_scope.is_none()
+                                                && (operation_name == "workers.rpc"
+                                                    || operation_name.starts_with("workers.rpc."))
+                                            {
+                                                rpc_session
+                                                    .execute(
+                                                        &scoped_context,
+                                                        &operation_name,
+                                                        payload,
+                                                    )
+                                                    .await
+                                                    .map(|value| (value, None))
+                                            } else if operation_name
+                                                .starts_with("workers.callback.")
+                                            {
                                                 callbacks
                                                     .execute(
                                                         &scoped_context,
@@ -712,7 +763,7 @@ impl JavaScriptApplication {
                     return if published {
                         Ok(Output::Done)
                     } else {
-                        self.output(&context, kind, &state, value)
+                        self.output(&context, kind, &state, &rpc_session, value)
                     };
                 }
             }
@@ -720,7 +771,14 @@ impl JavaScriptApplication {
         anyhow::bail!("JavaScript invocation channel closed before completion")
     }
 
-    fn output(&self, context: &Context, kind: &str, state: &State, value: Value) -> Result<Output> {
+    fn output(
+        &self,
+        context: &Context,
+        kind: &str,
+        state: &State,
+        rpc_session: &crate::rpc_sessions::Session,
+        value: Value,
+    ) -> Result<Output> {
         if kind == "fetch" {
             if let Some(output) = state
                 .transport
@@ -736,7 +794,8 @@ impl JavaScriptApplication {
                 .map(Output::Http)
                 .map_err(|_| anyhow::anyhow!("JavaScript response conversion failed"))
         } else if kind == "cell_rpc" {
-            cellar_guest::workers::rpc::output(value, self.runtime.options.max_body_bytes)
+            rpc_session
+                .output(value)
                 .map(Output::Rpc)
                 .map_err(|_| anyhow::anyhow!("JavaScript RPC response conversion failed"))
         } else {
@@ -838,6 +897,7 @@ impl Application for JavaScriptApplication {
             application: Arc::new(Self {
                 runtime: self.runtime.clone(),
                 source: self.source.clone(),
+                rpc_sessions: self.rpc_sessions.clone(),
             }),
             object: self.runtime.id()?,
             class: identity.class.clone(),

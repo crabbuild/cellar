@@ -1,5 +1,7 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
+/// <reference lib="esnext.disposable" />
+
 /** The implemented partial profile. This is not the full Cloudflare API. */
 declare const durableObjectId: unique symbol;
 export interface DurableObjectId {
@@ -124,6 +126,31 @@ type Reserved =
   | "webSocketMessage"
   | "webSocketClose"
   | "webSocketError";
+/** An event-owned returned function, with asynchronous calls and disposal. */
+export type RpcFunction<A extends unknown[], R> = ((
+  ...args: A
+) => Promise<RpcResult<Awaited<R>>>) & {
+  dup(): RpcFunction<A, R>;
+  [Symbol.dispose](): void;
+};
+
+type RpcValue<T> = T extends (...args: infer A) => infer R
+  ? RpcFunction<A, R>
+  : T extends Date | RegExp | ArrayBuffer | ArrayBufferView | Error
+    ? T
+    : T extends Map<infer K, infer V>
+      ? Map<RpcValue<K>, RpcValue<V>>
+      : T extends Set<infer V>
+        ? Set<RpcValue<V>>
+        : T extends object
+          ? { [K in keyof T]: RpcValue<T[K]> }
+          : T;
+
+/** Returned functions are native event-owned stubs; callback arguments and
+ * RpcTarget/property transport remain outside this partial profile. */
+export type RpcResult<T> = RpcValue<T> &
+  (T extends object ? { [Symbol.dispose](): void } : unknown);
+
 /** Runtime additionally enforces prototype-only visibility and clone limits. */
 export type DurableObjectStub<T extends object> = {
   readonly id: DurableObjectId;
@@ -137,7 +164,7 @@ export type DurableObjectStub<T extends object> = {
         ? K
         : never
   ]: T[K] extends (...args: infer A) => infer R
-    ? (...args: A) => Promise<Awaited<R>>
+    ? (...args: A) => Promise<RpcResult<Awaited<R>>>
     : never;
 };
 export interface DurableObjectNamespace<T extends object> {

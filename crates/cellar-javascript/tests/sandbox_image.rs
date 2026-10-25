@@ -153,6 +153,7 @@ async fn run(path: &Path, application: Arc<dyn Application>, images: &Images) ->
     // Always shut down this host, including after a failed application assertion.
     let shutdown = node.shutdown(ShutdownMode::Preserve).await;
     let cleanup = assert_no_owned_containers(&docker, &host).await;
+    let networks = remove_owned_networks(&docker, &host).await;
     let drained = shutdown.and_then(|outcome| {
         match outcome {
             NodeOutcome::Stopped(report) => {
@@ -175,6 +176,7 @@ async fn run(path: &Path, application: Arc<dyn Application>, images: &Images) ->
         ("application", result),
         ("shutdown", drained),
         ("cleanup", cleanup),
+        ("networks", networks),
     ]
     .into_iter()
     .filter_map(|(stage, result)| result.err().map(|error| format!("{stage}: {error:#}")))
@@ -291,5 +293,61 @@ async fn assert_no_owned_containers(docker: &cellar::docker::Docker, host: &str)
         containers.as_array().context("container list")?.is_empty(),
         "Sandbox host leaked containers: {containers}"
     );
+    Ok(())
+}
+
+// Every run deliberately has a fresh host namespace. Remove only its empty,
+// labelled bridges, or repeated qualification exhausts Docker's subnet pool.
+async fn remove_owned_networks(docker: &cellar::docker::Docker, host: &str) -> Result<()> {
+    let filters = serde_json::to_string(&json!({"label": [format!("cellar.host={host}")]}))?;
+    let query = url::form_urlencoded::Serializer::new(String::new())
+        .append_pair("filters", &filters)
+        .finish();
+    let reply = docker
+        .call("GET", &format!("/networks?{query}"), None)
+        .await?;
+    ensure!(
+        reply.status.is_success(),
+        "list owned networks: {}",
+        reply.message()
+    );
+    let networks = reply.json()?;
+    let prefix = host.get(..24).context("invalid test host identity")?;
+    for network in networks.as_array().context("network list")? {
+        let id = network["Id"].as_str().context("network ID")?;
+        ensure!(
+            id.len() == 64 && id.bytes().all(|b| b.is_ascii_hexdigit()),
+            "invalid network ID"
+        );
+        let inspected = docker.call("GET", &format!("/networks/{id}"), None).await?;
+        ensure!(
+            inspected.status.is_success(),
+            "inspect owned network: {}",
+            inspected.message()
+        );
+        let inspected = inspected.json()?;
+        let name = inspected["Name"].as_str().context("network name")?;
+        ensure!(
+            inspected["Labels"]["cellar.host"] == host
+                && inspected["Driver"] == "bridge"
+                && (name == format!("cellar-{prefix}")
+                    || name == format!("cellar-{prefix}-internal")),
+            "network ownership mismatch"
+        );
+        ensure!(
+            inspected["Containers"]
+                .as_object()
+                .is_some_and(|entries| entries.is_empty()),
+            "owned bridge still has attached containers"
+        );
+        let removed = docker
+            .call("DELETE", &format!("/networks/{id}"), None)
+            .await?;
+        ensure!(
+            removed.status.is_success(),
+            "remove owned network: {}",
+            removed.message()
+        );
+    }
     Ok(())
 }
