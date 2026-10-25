@@ -112,10 +112,30 @@ with `open_with_scratch` and archive/receive callers can share the same pool.
 Standalone generation stores use a separate default 2 GiB snapshot scratch pool;
 configure a shared larger pool explicitly for larger standalone snapshots.
 
+Snapshot encoder body/index files and receive spools request the injected
+`HostFileIo::advise_streaming` policy when the **logical image** is at least
+256 MiB. Compression and configured maximum quotas do not select this policy.
+The direct macOS provider uses `F_NOCACHE` for these anonymous sequential files;
+other direct providers currently return `Unsupported` and retain ordinary
+bounded I/O. Injected providers may also decline the hint with `Unsupported`.
+Other I/O failures abort preparation and close files before releasing scratch
+admission. The hint does not change encoded bytes, physical verification, syncs,
+ownership or admission, and supplies no memory bound or recovery-time guarantee.
+Small snapshots and hot immutable-generation files retain their normal policy.
+
 `Db::committed_image_digest` independently observes the committed main-file/WAL
 overlay without SQLite serialization. Writers must remain exclusively quiescent
 during that scan. Main-file reads use SQLite's VFS, including demand-loaded
-images; complete WAL transactions supply the page overlay. This still scans the
+images; complete WAL transactions supply the page overlay. The live WAL index's
+two matching, checksum-verified headers fix the committed frame boundary,
+geometry, salts and last-frame checksum. Corrupt or missing committed bytes
+refuse observation instead of selecting an older transaction with the same
+database length. Uncommitted spilled frames remain outside that boundary.
+The metadata sample borrows the WAL write lock for its 96-byte copy and refuses
+contention; it does not checkpoint. Unsupported WAL-index formats also refuse
+observation.
+All writers and checkpoints must remain quiescent throughout inspection.
+This still scans the
 full image and is not an incremental identity or fast-takeover qualification.
 
 Image preparation also removes up to eight eligible retired files before its

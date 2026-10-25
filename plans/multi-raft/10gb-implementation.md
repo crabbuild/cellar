@@ -193,6 +193,204 @@ command without another callback. Both small peer/S3-route drills pass with thes
 assertions (24.38 seconds total). The strengthened full-size runs remain pending;
 this small-fixture result does not qualify 10 GB restart serving or fast recovery.
 
+The strengthened native RustFS run at `f18f1c11` failed on the first linearizable
+read with `VersionUnavailable`. It reached a 9,999,998,976-byte image and native
+readiness at 508.43 seconds, but did not reach a successful first read/write,
+owner erasure or empty-worker recovery. Total elapsed time was 990.79 seconds;
+maximum process RSS was 44,417,024 bytes. All simulated workers used the workspace
+volume and RustFS used the main volume. The runner stopped on this failure, so
+the peer drill did not run. Logs, executable/source identities, a unique retained
+object prefix and resource samples are preserved privately.
+
+Investigation found full snapshot encoding inside the serialized SQL worker's
+checkpoint/source capture. A blocked capture can therefore delay reads; this
+needs a deterministic gated regression and a separate bounded encoding owner,
+without relaxing read deadlines or checkpoint/publication proofs. This is a
+working diagnosis, not a qualified fix. The extent-root contract is being built
+in an isolated checkout while the existing native path is repaired.
+
+The small gated regression reproduced `VersionUnavailable` while a checkpoint
+encoder held the SQL worker (5.61 seconds). Snapshot metadata capture now freezes
+the exact durable cut and retains its image pin, then a separately admitted
+execution-domain blocking job performs encoding. Source, scratch and application
+work ownership persist through completion and shutdown; encoding completion does
+not release a newer SQL operation's busy flag. The snapshot descriptor, physical
+verification and runtime checkpoint/install proofs are unchanged. Three gated
+tests pass (2.33 seconds): reads/new writes during held encoding, joined close
+with retained reservations, and a late encoding completion during a newer private
+callback. `snapshot_encode` records this work separately from SQL. Broader owning
+suites and the full-size peer/RustFS reruns remain required; these focused tests
+do not establish that the earlier 10 GB failure has been eliminated.
+
+At runtime revision `1a387317`, serial qualification passes 600 host library,
+32 native host, 44 snapshot, 54 archive, 21 execution and four ordinary large-image
+tests. The operations suite initially passed 22 cases and rejected its old
+26-operation metrics inventory. Its updated fixed inventory explicitly includes
+`snapshot_encode` (27 operations and 657 Prometheus performance samples), and all
+23 operations tests then pass. This totals 778 passing cases; seven ignored
+fixture entries remain outside the default parent invocations. Native all-target
+Clippy with Rust 1.98.1 and warnings denied, the native-only/no-Python library
+feature check, formatting, layout, dependency and documentation checks pass.
+These suites retain the existing small-fixture crash,
+corruption, exact-cut and shutdown coverage; they do not replace the still-required
+full-size RustFS and peer reruns after the encoding separation.
+
+The fresh full-size RustFS rerun at `552b3979` also failed on its first read with
+`VersionUnavailable`. The exact 9,999,998,976-byte image reached readiness at
+391.22 seconds; total elapsed time was 657.37 seconds and maximum process RSS
+was 61,292,544 bytes. The peer drill did not start. Before unwinding, diagnostics
+recorded one running leader SQL query, idle follower SQL workers, no snapshot
+encoder starts, and incoherent reported images on all three replicas. Their
+image-view positions remained at index 2/term 2 while durable application had
+advanced to index 3/term 3. This disproves snapshot encoding as the complete
+explanation for this failure. Query/VFS work and protocol-only image-position
+reporting now require independent investigation; deadlines and assertions remain
+unchanged. The failed log, frozen executable identity and unique RustFS prefix
+remain preserved privately.
+
+At `552b3979`, all-target JavaScript Clippy passes with Rust 1.98.1, both
+`embed,node` features and warnings denied. All 16 focused V8 termination cases
+and the complete 96-case local lifecycle matrix pass. The corresponding
+[Linux lifecycle job](https://github.com/crabbuild/cellar/actions/runs/40181416781/job/121133098989)
+also passes qualifier checks and the owned Node/V8/Python matrices. This is
+language lifecycle evidence, not full-size recovery qualification.
+
+The diagnostic work also reproduced an independent readiness-reporting defect:
+a healthy protocol-only apply retained its verified image but made query
+readiness false because its original publication position was older. Readiness
+now shares query admission's complete-marker and monotonic applied-position
+checks. The public three-node leadership-transfer regression fails against the
+original `552b3979` release components (6.12 seconds), and passes with the
+correction. Negative cases retain full marker binding, term/index coherence,
+committed boundaries and the sampled runtime position. No read deadline, source
+freshness policy or per-query quorum proof changes.
+
+Owning behavior checks pass 603 host library, 32 native host, 21 execution,
+23 operations and 22 read tests: 701 cases, with two ignored execution fixtures
+outside their default invocation. The read suite includes the new leadership
+transfer case without another application write. This reporting correction does
+not establish a fix for the separately observed full-size physical I/O stall.
+
+At `9946d022`, the JavaScript/Node, Python examples and typed-RPC lifecycle
+workflows pass. The SDK's free-threaded Python job instead fails the native
+`automatic_plan_recovers_controller_and_leader_loss` test while waiting for a
+command-ready leader after repair. This is distinct from the originally
+reported event-owner outage. The same membership case passes in 20 additional
+fresh local processes, and the complete membership suite passes 27 cases with
+one ignored process fixture. Its leader wait now retains the existing status
+samples for failure output, without additional probes or a longer deadline.
+The Linux timeout remains unresolved; local repetitions do not establish its
+cause or a fix. Membership-target Rust 1.98.1 Clippy and formatting pass.
+
+## Committed-image integrity and full-size diagnostic
+
+Committed-image observation now binds its full main/WAL scan to SQLite's live
+committed WAL-index cut. Both matching native-endian header copies, their
+checksums, geometry, salts and final-frame checksum are required. A borrowed
+write lock protects the 96-byte metadata copy; contention refuses immediately,
+and the lock is released before image I/O. Rechecking the cut after inspection
+retains the quiescent-owner boundary. A new regression failed before this change:
+corrupting or truncating a newer committed frame could previously select an older
+transaction when the database length stayed unchanged. Corrupt checksums, salts
+and incomplete committed frames now refuse; active writers refuse and rolled-back
+spilled frames remain excluded. No bad source bytes become a publication proof.
+
+The final ordinary scope passes 603 host library, 21 native execution, 32 native
+host, 27 native LTX, 44 snapshot, four LTX library and three committed-image cases:
+734 cases with six ignored native process/fixture entry points. Rust 1.98.1
+all-target Clippy for `cellar` and `cellar-ltx`, formatting, module layout,
+native dependencies and documentation checks pass. This correctness evidence
+does not replace full-size recovery qualification.
+
+The private cache-pressure experiment against frozen `552b3979` runtime
+components completed with a failure after 2,598.74 seconds and 82,837,504-byte
+maximum RSS. Only snapshot-scratch files used macOS `F_NOCACHE`; application
+code, timeouts and proof gates were unchanged. First read took 2.494 seconds and
+first write 87.091 seconds. The joined former owner's local state was erased;
+warm first read took 4.586 seconds and warm first write 78.888 seconds.
+Takeover/retry completed at 559.222 seconds and quota/cleanup/page reuse at
+778.372 seconds. It then exceeded the unchanged 1,800-second wait for an archive
+head covering the newly admitted repair. Empty-worker activation, local cold
+read, promotion and restart were never reached. The retained prefix is
+`full-capacity-qualification/b74a73f6b84724a79e4f90e7eafe5a64`.
+The query-time improvement is diagnostic evidence; this isolated filesystem
+variant is not a production fix or a successful full-size recovery run.
+
+## Archive publication work reduction
+
+Direct inspection of that retained RustFS prefix found 4,812 objects, including
+4,797 snapshot parts totaling 20,115,602,176 bytes and two full snapshot indexes.
+The selected head stayed at index/term 2/2; a newer manifest for 9/5 was present
+before the deadline, but its physical publication had not confirmed. The worker
+sample was encoding a full snapshot. This is evidence of substantial pending
+archive work, not an object-store outage or a successful cold activation.
+
+Fresh publication now retains a private confirmed-source proof after every
+part/index is conditionally created and exactly read back. The actual uploaded
+stream must match the source's encoded SHA-256. Full physical validation and
+independent destination replay/sync still run before head CAS, using that same
+confirmed source instead of downloading its parts again. Dependencies still come
+from their exact stored references. Tail extension and covering-head verification
+retain their prior closure checks.
+
+A protocol/configuration-only checkpoint can rebind a fully validated prior
+snapshot index when its complete image state is identical to the new durable cut.
+The new manifest captures the current exact position and configuration/member
+bindings; no image parts are uploaded. Missing/corrupt prior material refuses
+instead of being repaired. Wire markers, object layout, timeouts and publication
+barriers are unchanged.
+
+The fresh three-part regression fails before this change (six part GETs for
+three read-back confirmations) and passes afterward with three. Configuration
+rebinding previously uploaded three unchanged parts and now uploads zero.
+Independent recovery still fetches all three parts. Six new tests also cover
+transient source-read corruption, missing confirmations, source scratch lifetime,
+independent destination sync refusal and missing prior parts during rebind.
+
+The final ordinary scope passes 764 cases: 603 host library, 60 archive, 21
+execution, 32 host, four ordinary large-image and 44 snapshot tests. Seven
+child/opt-in fixture entries remain ignored by those parent invocations.
+Rust 1.98.1 all-target native Clippy, the native-only/no-Python library check,
+formatting/layout (1,037 Rust files), native dependencies and documentation pass.
+The release diagnostic's 12 MiB end-to-end preflight passes through restart and
+receipt reconciliation in 9.33 seconds (46,170,112-byte maximum RSS). It retains
+the diagnostic9 cache policy for comparison; this is not production 10 GB or RTO
+qualification. The fresh full-size archive/recovery rerun remains required.
+
+## Large snapshot cache policy
+
+The controlled macOS experiment showed that sequential snapshot spools can
+interfere with first-query I/O even though codec buffers remain bounded. The
+production codec now requests the injected file provider's optional streaming
+cache policy for encoder body/index and receive files when logical image size
+is at least 256 MiB. This selection also covers highly compressed large images;
+configured maximum quotas do not select the policy for small snapshots. The
+direct macOS provider uses `F_NOCACHE`. Other direct providers explicitly return
+`Unsupported` and retain the ordinary path. Real advice I/O errors abort and
+close files before refunding scratch admission. No path-name heuristic, global
+OS setting, sync omission, integrity shortcut or deadline increase is used.
+
+The selection regression fails before the codec requests advice. Five new cases
+cover threshold geometry, invalid declarations, failure on either encoder file,
+receive failures and actual native file I/O. Real SQLite round trips above
+256 MiB and at small size compare the complete encoded identity across accepted,
+unsupported and native-provider advice. They independently hash restored bytes,
+check SQL values and run SQLite integrity checking. The large image compresses
+below the policy threshold, and all instrumented reads/writes stay within 64 KiB.
+Cloned receive owners retain their exact file/byte charge until the last close.
+The synthetic 10 GB metadata case deliberately refuses incomplete receive;
+it does not qualify a 10 GB physical snapshot.
+
+The current ordinary scope passes 794 cases: the preceding 764 native cases
+and all 30 LTX integration cases, including the five cache-policy cases. Eight
+child/opt-in entries are ignored by these parent invocations. Rust 1.98.1 native
+all-target Clippy, the final cache-test Clippy target, native-only/no-Python
+libraries, formatting/layout (1,038 files), native dependency and documentation
+checks pass. The release libraries also build. These checks do not establish a
+bounded OS cache footprint or qualify production 10 GB recovery. The unchanged
+full-size archive diagnostic remains live under its separate filesystem variant;
+the checked-in production filesystem still needs its own full-size run.
+
 ## Remaining work
 
 The completion checklist remains open. Full native 10 GB warm takeover, exact

@@ -209,6 +209,7 @@ pub enum ModuleSource {
 
 /// A Workflow binding keeps the three names distinct across deployment
 /// loading, environment construction, and runtime class injection.
+#[derive(Clone)]
 pub struct WorkflowBinding {
     pub environment: String,
     pub workflow: String,
@@ -224,6 +225,7 @@ pub struct QueueBinding {
     pub delivery_delay: u32,
 }
 
+#[derive(Clone)]
 pub struct WorkerConfigOptions {
     pub src: String,
     pub script_name: String,

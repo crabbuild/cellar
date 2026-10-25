@@ -1,0 +1,5 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {"noEmit": true},
+  "include": ["codec-types.ts", "service-types.ts", "fixtures/profile-generated/typescript/**/*.ts", "fixtures/profile-generated/javascript/**/*.d.ts"]
+}

@@ -7,11 +7,16 @@
     ".": {
       "types": "./index.d.ts",
       "default": "./index.js"
+    },
+    "./rpc": {
+      "types": "./rpc/index.d.ts",
+      "default": "./rpc/index.js"
     }
   },
   "files": [
     "index.js",
     "index.d.ts",
+    "rpc",
     "README.md",
     "LICENSE"
   ]

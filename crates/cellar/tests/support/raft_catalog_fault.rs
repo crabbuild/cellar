@@ -37,6 +37,9 @@ pub struct Store {
     pub archive_heads_waiting: AtomicUsize,
     pub archive_heads_resume: tokio::sync::Notify,
     pub archive_payload_reads: AtomicUsize,
+    pub snapshot_part_reads: AtomicUsize,
+    pub snapshot_part_puts: AtomicUsize,
+    pub corrupt_scratch_after_part_read: std::sync::Mutex<Option<std::sync::Arc<AtomicBool>>>,
     pub hold_archive_payloads: AtomicBool,
     pub active_payload_reads: AtomicUsize,
     pub peak_payload_reads: AtomicUsize,
@@ -111,6 +114,9 @@ impl ObjectStore for Store {
         payload: PutPayload,
         options: PutOptions,
     ) -> object_store::Result<PutResult> {
+        if path.as_ref().contains("/snapshot-parts/") {
+            self.snapshot_part_puts.fetch_add(1, Ordering::AcqRel);
+        }
         if path.as_ref().contains("/dependencies/")
             && self.dependency_unavailable.load(Ordering::Acquire)
         {
@@ -246,6 +252,17 @@ impl ObjectStore for Store {
             }
         }
         self.archive_fault(path).await?;
+        if !options.head && path.as_ref().contains("/snapshot-parts/") {
+            self.snapshot_part_reads.fetch_add(1, Ordering::AcqRel);
+            let corrupt = self
+                .corrupt_scratch_after_part_read
+                .lock()
+                .map_err(|_| failure())?
+                .take();
+            if let Some(corrupt) = corrupt {
+                corrupt.store(true, Ordering::Release);
+            }
+        }
         let payload = path.as_ref().contains("/archives/")
             && ["/snapshots/", "/tails/", "/dependencies/", "/bundles/"]
                 .iter()

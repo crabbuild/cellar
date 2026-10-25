@@ -19,6 +19,10 @@ use protobuf::Message as _;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+#[path = "snapshot_capture.rs"]
+mod capture;
+pub(crate) use capture::SnapshotCapture;
+
 #[derive(Debug)]
 pub enum SnapshotError {
     Invalid(&'static str),
@@ -242,8 +246,9 @@ impl Descriptor {
 }
 
 /// A source transfer pins the image until its owner finishes or cancels it.
-/// Capture/encoding runs on the cell's blocking owner. Network scheduling must
-/// separately admit the bounded encoded bytes and transfer lifetime.
+/// Metadata capture runs on the cell's SQL owner. Physical encoding may run on
+/// a separately admitted blocking owner while the immutable pin retains bytes.
+/// Network scheduling separately admits transfer memory and lifetime.
 pub struct SnapshotPackage {
     group: GroupLog,
     snapshot: Snapshot,
@@ -264,39 +269,7 @@ impl SnapshotPackage {
         expected: &Snapshot,
         limits: SnapshotLimits,
     ) -> Result<Self, SnapshotError> {
-        let snapshot = group.read()?.snapshot.clone();
-        if snapshot != *expected {
-            return Err(SnapshotError::Invalid("requested checkpoint replaced"));
-        }
-        let descriptor = Descriptor::decode(group, schema, &snapshot, limits)?;
-        let pin = descriptor
-            .image
-            .as_ref()
-            .map(|image| {
-                images
-                    .adopt(marker_id(image)?, marker_state(image))
-                    .map_err(SnapshotError::Images)
-            })
-            .transpose()?;
-        let bytes = match &pin {
-            Some(pin) => Some(encode_image(pin, limits)?),
-            None => None,
-        };
-        if payload_identity(bytes.as_ref())
-            != (descriptor.encoded_length, descriptor.encoded_digest)
-        {
-            return Err(SnapshotError::Invalid(
-                "retained checkpoint payload binding",
-            ));
-        }
-        Ok(Self {
-            group: group.clone(),
-            snapshot,
-            bytes,
-            pin,
-            limits,
-            membership: descriptor.membership,
-        })
+        SnapshotCapture::retained(group, images, schema, expected, limits)?.encode()
     }
 
     pub fn capture(
@@ -304,8 +277,7 @@ impl SnapshotPackage {
         image: PublishedImage,
         limits: SnapshotLimits,
     ) -> Result<Self, SnapshotError> {
-        let schema = image.application_digest();
-        Self::capture_at(group, Some(image), schema, limits)
+        SnapshotCapture::capture(group, image, limits)?.encode()
     }
 
     pub fn capture_empty(
@@ -313,64 +285,7 @@ impl SnapshotPackage {
         schema: [u8; 32],
         limits: SnapshotLimits,
     ) -> Result<Self, SnapshotError> {
-        Self::capture_at(group, None, schema, limits)
-    }
-
-    fn capture_at(
-        group: &GroupLog,
-        image: Option<PublishedImage>,
-        schema: [u8; 32],
-        limits: SnapshotLimits,
-    ) -> Result<Self, SnapshotError> {
-        limits.validate()?;
-        let pin = image.as_ref().map(PublishedImage::pin);
-        let (position, conf, membership) = {
-            let cache = group.read()?;
-            if cache.applied.image != pin.as_ref().map(marker)
-                || image.as_ref().is_some_and(|image| {
-                    image.scope() != &group.identity().scope
-                        || image.position().index > cache.applied.position.index
-                        || cache.term(image.position().index.get())
-                            != Some(image.position().term.get())
-                })
-                || cache.applied.position.index.get() > cache.hard_state.commit
-            {
-                return Err(SnapshotError::Invalid("source durable cut"));
-            }
-            (
-                cache.applied.position,
-                manifest::encode_conf(&cache.conf_state)
-                    .map_err(|_| SnapshotError::Invalid("source configuration"))?,
-                cache.membership.clone(),
-            )
-        };
-        let bytes = match &pin {
-            Some(pin) => Some(encode_image(pin, limits)?),
-            None => None,
-        };
-        let descriptor = Descriptor {
-            format: 1,
-            scope: WireScope::from(&group.identity().scope),
-            birth: group.birth_digest,
-            schema,
-            index: position.index.get(),
-            term: position.term.get(),
-            conf,
-            membership,
-            image: pin.as_ref().map(marker),
-            encoded_length: payload_identity(bytes.as_ref()).0,
-            encoded_digest: payload_identity(bytes.as_ref()).1,
-        };
-        let snapshot = descriptor.snapshot()?;
-        Descriptor::decode(group, schema, &snapshot, limits)?;
-        Ok(Self {
-            group: group.clone(),
-            snapshot,
-            bytes,
-            pin,
-            limits,
-            membership: descriptor.membership,
-        })
+        SnapshotCapture::capture_empty(group, schema, limits)?.encode()
     }
 
     pub fn snapshot(&self) -> Snapshot {

@@ -46,6 +46,16 @@ pub type HostFileLock = Box<dyn Send + Sync>;
 
 /// The operations on one open injected file.
 pub trait HostFileIo: Send {
+    /// Request reduced OS cache retention for a large sequential scratch file.
+    /// This supplies no memory, persistence or integrity proof. Providers may
+    /// return Unsupported; callers retain their ordinary bounded I/O path.
+    fn advise_streaming(&mut self) -> io::Result<()> {
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "streaming cache advice is unsupported",
+        ))
+    }
+
     fn write_all(&mut self, bytes: &[u8]) -> io::Result<()>;
 
     fn read_exact_at(&mut self, offset: u64, len: usize) -> io::Result<Vec<u8>>;
@@ -77,6 +87,12 @@ pub struct HostFile {
 }
 
 impl HostFile {
+    /// Request the provider's optional streaming-cache policy. Unsupported
+    /// providers retain normal I/O; a successful hint proves no data property.
+    pub fn advise_streaming(&mut self) -> io::Result<()> {
+        self.inner.advise_streaming()
+    }
+
     pub fn write_all_at(&mut self, offset: u64, bytes: &[u8]) -> io::Result<()> {
         self.inner.write_all_at(offset, bytes)
     }
@@ -301,6 +317,29 @@ struct DirectFile {
 
 #[allow(clippy::disallowed_methods)]
 impl HostFileIo for DirectFile {
+    fn advise_streaming(&mut self) -> io::Result<()> {
+        #[cfg(target_os = "macos")]
+        {
+            use std::os::fd::AsRawFd as _;
+            // SAFETY: this live file owns the descriptor for the synchronous
+            // call. F_NOCACHE takes an integer flag and no borrowed pointer.
+            // It does not change the file's data, alignment or sync contract.
+            let result = unsafe { libc::fcntl(self.file.as_raw_fd(), libc::F_NOCACHE, 1) };
+            if result == -1 {
+                Err(io::Error::last_os_error())
+            } else {
+                Ok(())
+            }
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "native streaming cache advice is unsupported",
+            ))
+        }
+    }
+
     fn write_all_at(&mut self, offset: u64, bytes: &[u8]) -> io::Result<()> {
         use std::io::{Seek as _, SeekFrom, Write as _};
         self.file.seek(SeekFrom::Start(offset))?;

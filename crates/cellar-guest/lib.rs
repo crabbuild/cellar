@@ -5,6 +5,7 @@
 //! from a language runtime thread. Applications should use their typed facade.
 pub mod failure;
 pub mod operations;
+pub mod rpc_failure;
 mod storage;
 pub mod transport;
 pub mod values;

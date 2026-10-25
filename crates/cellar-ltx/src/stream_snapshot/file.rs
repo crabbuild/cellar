@@ -4,6 +4,26 @@ use super::*;
 use sha2::{Digest, Sha256};
 use std::sync::{Arc, Mutex};
 
+/// Large sequential spools should not compete with hot SQLite pages for cache
+/// residency. Logical size, rather than compression, selects this policy.
+const STREAMING_IMAGE_BYTES: u64 = 256 * 1024 * 1024;
+
+pub(super) fn open_spool(
+    filesystem: &dyn FileSystem,
+    directory: Option<&std::path::Path>,
+    image_length: u64,
+) -> Result<HostFile, Error> {
+    let mut file = filesystem.temporary_file(directory)?;
+    if image_length >= STREAMING_IMAGE_BYTES {
+        if let Err(error) = file.advise_streaming() {
+            if error.kind() != io::ErrorKind::Unsupported {
+                return Err(error.into());
+            }
+        }
+    }
+    Ok(file)
+}
+
 /// Immutable encoded bytes, owned by an anonymous file and shared through a
 /// bounded reader. This is transport material, never a synced generation pin.
 #[derive(Clone)]
@@ -143,7 +163,7 @@ impl Download {
             .map(|s| s.acquire(metadata.encoded_length, 1))
             .transpose()?;
         Ok(Self {
-            file: filesystem.temporary_file(directory)?,
+            file: open_spool(filesystem, directory, metadata.image.length)?,
             reservation,
             metadata,
             limits,

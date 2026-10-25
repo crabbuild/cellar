@@ -368,6 +368,11 @@ struct Head {
     position: Position,
 }
 
+struct PreparedManifest {
+    manifest: Manifest,
+    confirmed_snapshot: Option<physical::ConfirmedSnapshot>,
+}
+
 /// An immutable manifest address. This names recovery data only; it is neither
 /// live-quorum authorization nor permission to initialize or attach a member.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -685,7 +690,10 @@ impl CellArchive {
                 .map_or(PutMode::Create, |(_, _, version)| {
                     PutMode::Update(version.clone())
                 });
-            let mut manifest = match (tail, previous) {
+            let PreparedManifest {
+                mut manifest,
+                confirmed_snapshot,
+            } = match (tail, previous) {
                 (Some((entries, true)), Some((metadata, _, _))) => {
                     // A cost-based checkpoint replaces an otherwise valid
                     // extension. Verify every intermediate transition before
@@ -730,16 +738,34 @@ impl CellArchive {
                     });
                     manifest.position = cut.position.into();
                     manifest.image = cut.image.pin().state().into();
-                    manifest
+                    PreparedManifest {
+                        manifest,
+                        confirmed_snapshot: None,
+                    }
                 }
                 (_, previous) => {
                     // A new base omits the old payloads from final verification.
                     // Preserve refusal of missing/corrupt prior material rather
                     // than silently repairing an invalid selected head here.
-                    if let Some((metadata, _, _)) = previous {
-                        self.load_material(metadata).await?;
+                    let previous = if let Some((metadata, _, _)) = previous {
+                        Some(self.load_material(metadata).await?)
+                    } else {
+                        None
+                    };
+                    if let Some(previous) = previous.filter(|previous| {
+                        previous.manifest.snapshot.image == Image::from(cut.image.pin().state())
+                            && previous.manifest.image == Image::from(cut.image.pin().state())
+                    }) {
+                        let snapshot = self
+                            .rebind_snapshot(previous, cut.image.pin().state(), cut.position.into())
+                            .await?;
+                        PreparedManifest {
+                            manifest: self.full_manifest(&cut, snapshot.reference().clone()),
+                            confirmed_snapshot: Some(snapshot),
+                        }
+                    } else {
+                        self.snapshot_manifest(&cut).await?
                     }
-                    self.snapshot_manifest(&cut).await?
                 }
             };
             let mut dependencies: BTreeMap<_, _> = manifest
@@ -786,9 +812,12 @@ impl CellArchive {
                 .await?;
             // Do not expose a head with a missing dependency, broken coverage
             // or an invalid LTX mapping, even if all PUTs reported success.
-            let set = self
-                .verify_set(self.load_manifest(&object).await?, verifier)
-                .await?;
+            let metadata = self.load_metadata(&object).await?;
+            let set = match confirmed_snapshot {
+                Some(snapshot) => self.load_confirmed_material(metadata, snapshot).await?,
+                None => self.load_material(metadata).await?,
+            };
+            let set = self.verify_set(set, verifier).await?;
             let desired = manifest::encode(
                 2,
                 &Head {
@@ -821,7 +850,10 @@ impl CellArchive {
         Err(ArchiveError::Unconfirmed)
     }
 
-    async fn snapshot_manifest(&self, cut: &CommittedArchiveCut) -> Result<Manifest, ArchiveError> {
+    async fn snapshot_manifest(
+        &self,
+        cut: &CommittedArchiveCut,
+    ) -> Result<PreparedManifest, ArchiveError> {
         let input = cut.clone();
         let limits = self.limits;
         let (body, inline) = self
@@ -843,8 +875,15 @@ impl CellArchive {
             .await
             .map_err(ArchiveError::Worker)??;
         let position = cut.position.into();
-        let object = self.put_snapshot(body, inline, position).await?;
-        Ok(Manifest {
+        let snapshot = self.put_snapshot(body, inline, position).await?;
+        Ok(PreparedManifest {
+            manifest: self.full_manifest(cut, snapshot.reference().clone()),
+            confirmed_snapshot: Some(snapshot),
+        })
+    }
+
+    fn full_manifest(&self, cut: &CommittedArchiveCut, object: ObjectRef) -> Manifest {
+        Manifest {
             scope: (&self.scope).into(),
             root_digest: self.root,
             birth_digest: self.birth,
@@ -860,7 +899,7 @@ impl CellArchive {
             position: cut.position.into(),
             image: cut.image.pin().state().into(),
             dependencies: Vec::new(),
-        })
+        }
     }
 
     async fn verify_extension(
@@ -996,16 +1035,9 @@ impl CellArchive {
         &self,
         metadata: ArchiveMetadata,
     ) -> Result<ArchiveRecoverySet, ArchiveError> {
-        let ArchiveMetadata {
-            reference,
-            manifest,
-            _retention,
-            ..
-        } = metadata;
-        // The validated manifest bounds the sum of these exact object lengths.
-        // Reads enforce each declared length before allocating its body. A
-        // small ordered window overlaps I/O. The read reservation also includes
-        // one full containing bundle per slot until physical extraction ends.
+        let manifest = &metadata.manifest;
+        // Metadata bounds the retained bodies; physical image parts have
+        // independent bounded read windows and disk admission.
         let objects = std::iter::once(&manifest.snapshot.object)
             .chain(manifest.tails.iter().map(|tail| &tail.object))
             .chain(manifest.dependencies.iter());
@@ -1021,6 +1053,56 @@ impl CellArchive {
             .next()
             .ok_or(ArchiveError::Corrupt("missing snapshot index"))?;
         let snapshot = self.get_snapshot(&manifest.snapshot, index).await?;
+        self.finish_material(metadata, snapshot, bodies.collect())
+            .await
+    }
+
+    async fn load_confirmed_material(
+        &self,
+        metadata: ArchiveMetadata,
+        confirmed: physical::ConfirmedSnapshot,
+    ) -> Result<ArchiveRecoverySet, ArchiveError> {
+        let manifest = &metadata.manifest;
+        if !manifest.tails.is_empty()
+            || manifest.position != manifest.snapshot.position
+            || manifest.image != manifest.snapshot.image
+        {
+            return Err(ArchiveError::Corrupt(
+                "confirmed snapshot requires a complete base",
+            ));
+        }
+        let snapshot = confirmed.bind(&manifest.snapshot)?;
+        // Dependencies still come from their exact stored references. The
+        // source proof replaces only the redundant snapshot-part download;
+        // physical validation and independent replay remain mandatory below.
+        let reads = manifest
+            .dependencies
+            .iter()
+            .map(|object| self.get_object(object))
+            .collect::<Vec<_>>();
+        let bodies = futures_util::stream::iter(reads)
+            .buffered(READ_WINDOW)
+            .try_collect::<Vec<_>>()
+            .await?;
+        self.finish_material(metadata, snapshot, bodies).await
+    }
+
+    async fn finish_material(
+        &self,
+        metadata: ArchiveMetadata,
+        snapshot: stream_snapshot::SnapshotFile,
+        bodies: Vec<Vec<u8>>,
+    ) -> Result<ArchiveRecoverySet, ArchiveError> {
+        let ArchiveMetadata {
+            reference,
+            manifest,
+            _retention,
+            ..
+        } = metadata;
+        if bodies.len() != manifest.tails.len() + manifest.dependencies.len() {
+            return Err(ArchiveError::Corrupt("archive material coverage"));
+        }
+        let mut bodies = bodies.into_iter();
         let tails = bodies
             .by_ref()
             .take(manifest.tails.len())

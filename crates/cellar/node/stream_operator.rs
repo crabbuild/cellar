@@ -84,6 +84,9 @@ where
     };
     let (reply, receiver) = oneshot::channel();
     let call = RpcCallReq {
+        parent_cancellation: None,
+        signal: None,
+        deadline_ms: None,
         authority: Some(crate::runtime::RpcAuthority::Event(authority)),
         request_id: Some(crate::engine_api::next_request_id()),
         cancel: None,

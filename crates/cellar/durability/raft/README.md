@@ -50,6 +50,10 @@ records authentication, bounds, ambiguous outcomes and remaining retention work.
 `RaftCellHandle.status()` reports a sampled replica role and local query
 readiness, including coherent image, registered callbacks and exact RecentSource
 age. These observations do not reserve capacity or prove a current quorum.
+Protocol-only applied entries can advance the sampled position while retaining
+the same verified image. Readiness uses the same complete marker and monotonic
+position checks as query admission; changed markers, regressing positions and
+uncommitted cuts remain ineligible.
 `RaftHostOptions.max_query_pins` bounds physical SDK query-reader reservations;
 the blocking owner retains its permit through callback/connection exit after
 waiter cancellation. `RaftCells.resource_usage()` reads actual fixed-size host
@@ -380,6 +384,16 @@ domain. `host.rs` owns serial command producers and effect dispatch;
 status and joined local closure. Admission is synchronous, including when a
 returned future is not polled. Attempt deadlines are checked by the dispatcher
 and SQL owner; cancellation cannot release a slot while its callback still runs.
+
+Checkpoint and source metadata capture freezes an exact durable cut on that SQL
+owner, then releases it before physical snapshot encoding. A separate registered
+blocking task retains the immutable image pin, source reservation, scratch owners
+and any application work until encoding exits. The same source admission bounds
+checkpoints and transfers. Queries and commands can continue while a snapshot is
+encoded; an encoding completion cannot clear a newer SQL operation's busy flag.
+The `snapshot_encode` performance timer records this work separately from SQL.
+Physical verification and runtime checkpoint/install authorization still precede
+publication, and shutdown joins the encoder before releasing its owners.
 
 Each SQL owner prioritizes queued publication, retirement, submission, discard
 and archive capture over unrelated ordinary work. It never passes an earlier
@@ -762,6 +776,26 @@ retained payloads once during complete final verification. Reusing a covering
 head still downloads and physically verifies its material. Snapshot rotation
 also checks the prior payloads before replacing them, preserving refusal of
 missing or corrupt prior history.
+
+Fresh snapshot uploads retain their anonymous source after exact conditional
+read-back confirmation of every part and index. The SHA-256 of the actual
+uploaded stream must equal that source's encoded digest. This private proof can
+supply the same bytes to full physical validation and independent destination
+replay without downloading the producer's own parts again. It remains bound to
+the exact snapshot reference and complete image state. Source scratch admission
+stays charged until the recovery set's last physical owner drops; failed
+confirmation or replay returns no new head proof.
+
+A newer protocol/configuration cut may rebind an existing full snapshot index
+when its complete image state, including epoch, TXID, checksum, geometry and
+digest, is unchanged. The producer first downloads and validates the prior
+recovery closure, then conditionally writes and reads back an index reference
+for the new exact position. The manifest uses the newly captured durable
+configuration/member bindings. No image parts are uploaded on this path.
+Missing or corrupt prior material remains a refusal. Full physical validation,
+independent destination sealing and head CAS still gate publication; ordinary
+recovery continues to download and verify every selected part.
+
 `archive/replay.rs` materializes bounded batches into a private image and seals
 only each batch's final generation. Every intermediate image still passes its
 full SHA-256 and checksum proof. Batches retain at most 64 decoded envelopes or

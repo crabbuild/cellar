@@ -13,6 +13,29 @@ const MAX_PARTS: usize = 4096;
 const MAX_INDEX_BYTES: usize = 1024 * 1024;
 pub(super) const READ_BYTES: usize = READ_WINDOW * PART_BYTES + 2 * 64 * 1024;
 
+/// Exact read-back confirmations bind every stored part/index to this local
+/// encoded stream. Retaining it avoids another download of the same bytes;
+/// ordinary physical decoding and independent destination replay still run.
+pub(super) struct ConfirmedSnapshot {
+    object: ObjectRef,
+    source: stream_snapshot::SnapshotFile,
+}
+
+impl ConfirmedSnapshot {
+    pub fn reference(&self) -> &ObjectRef {
+        &self.object
+    }
+
+    pub fn bind(self, expected: &Snapshot) -> Result<stream_snapshot::SnapshotFile, ArchiveError> {
+        if self.object != expected.object
+            || self.source.metadata().image != expected.image.decode()?
+        {
+            return Err(ArchiveError::Corrupt("confirmed snapshot binding"));
+        }
+        Ok(self.source)
+    }
+}
+
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Index {
@@ -47,7 +70,7 @@ impl CellArchive {
         snapshot: stream_snapshot::SnapshotFile,
         inline: Option<Vec<u8>>,
         position: Position,
-    ) -> Result<ObjectRef, ArchiveError> {
+    ) -> Result<ConfirmedSnapshot, ArchiveError> {
         let metadata = snapshot.metadata();
         let part_bytes = PART_BYTES.min(self.limits.max_object_bytes);
         if metadata.encoded_length > self.limits.max_snapshot_bytes
@@ -70,7 +93,7 @@ impl CellArchive {
             }
             index.inline = STANDARD.encode(bytes);
             let body = manifest::encode(4, &index, MAX_INDEX_BYTES)?;
-            return self
+            let object = self
                 .put_object(
                     ObjectKind::Snapshot,
                     &body,
@@ -79,13 +102,18 @@ impl CellArchive {
                         last: position,
                     }),
                 )
-                .await;
+                .await?;
+            return Ok(ConfirmedSnapshot {
+                object,
+                source: snapshot,
+            });
         }
         let mut offset = 0;
+        let mut uploaded_hash = Sha256::new();
         while offset < metadata.encoded_length {
             let source = snapshot.clone();
             let length = (metadata.encoded_length - offset).min(part_bytes as u64) as usize;
-            let bytes = self
+            let (bytes, next_hash) = self
                 .host
                 .run_blocking(move || {
                     let mut bytes = Vec::with_capacity(length);
@@ -93,11 +121,13 @@ impl CellArchive {
                         let n = (length - bytes.len()).min(64 * 1024);
                         bytes.extend_from_slice(&source.chunk(offset + bytes.len() as u64, n)?);
                     }
-                    Ok::<_, stream_snapshot::Error>(bytes)
+                    uploaded_hash.update(&bytes);
+                    Ok::<_, stream_snapshot::Error>((bytes, uploaded_hash))
                 })
                 .await
                 .map_err(ArchiveError::Worker)?
                 .map_err(ArchiveError::Physical)?;
+            uploaded_hash = next_hash;
             let object = self
                 .put_object(ObjectKind::SnapshotPart, &bytes, None)
                 .await?;
@@ -107,16 +137,66 @@ impl CellArchive {
             });
             offset += length as u64;
         }
+        // The actual uploaded stream must match the verified local source.
+        // Per-part confirmations alone cannot detect a transient source read
+        // fault that would otherwise make a different, valid part identity.
+        if <[u8; 32]>::from(uploaded_hash.finalize()) != metadata.encoded_digest {
+            return Err(ArchiveError::Corrupt("uploaded snapshot stream digest"));
+        }
         let body = manifest::encode(4, &index, MAX_INDEX_BYTES)?;
-        self.put_object(
-            ObjectKind::Snapshot,
-            &body,
-            Some(PositionRange {
-                first: position,
-                last: position,
-            }),
-        )
-        .await
+        let object = self
+            .put_object(
+                ObjectKind::Snapshot,
+                &body,
+                Some(PositionRange {
+                    first: position,
+                    last: position,
+                }),
+            )
+            .await?;
+        Ok(ConfirmedSnapshot {
+            object,
+            source: snapshot,
+        })
+    }
+
+    /// A protocol-only cut can name the same complete image under a new exact
+    /// position/configuration. Reuse only a fully downloaded/validated prior
+    /// snapshot whose complete image state equals the new durable cut.
+    pub(super) async fn rebind_snapshot(
+        &self,
+        previous: ArchiveRecoverySet,
+        image: ImageState,
+        position: Position,
+    ) -> Result<ConfirmedSnapshot, ArchiveError> {
+        if previous.manifest.snapshot.image != Image::from(image)
+            || previous.manifest.image != Image::from(image)
+            || previous.snapshot.metadata().image != image
+            || previous.position.index.get() >= position.index
+            || previous.position.term.get() > position.term
+        {
+            return Err(ArchiveError::Invalid("snapshot rebind image/position"));
+        }
+        let bytes = self.get_object(&previous.manifest.snapshot.object).await?;
+        let index: Index = manifest::decode(4, &bytes, MAX_INDEX_BYTES)?;
+        let metadata = previous.snapshot.metadata();
+        if index.length != metadata.encoded_length || index.digest != metadata.encoded_digest {
+            return Err(ArchiveError::Corrupt("snapshot rebind stream binding"));
+        }
+        let object = self
+            .put_object(
+                ObjectKind::Snapshot,
+                &bytes,
+                Some(PositionRange {
+                    first: position,
+                    last: position,
+                }),
+            )
+            .await?;
+        Ok(ConfirmedSnapshot {
+            object,
+            source: previous.snapshot,
+        })
     }
 
     pub(super) async fn get_snapshot(

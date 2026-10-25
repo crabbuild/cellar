@@ -134,7 +134,7 @@ def validate_python_shutdown(proof, native):
         zero += [value["work"][key] for key in ("active_tasks", "active_invocations",
                                               "resident_objects", "pending_retirements")]
         bridge, outcomes = value["bridge"], value["native_outcomes"]
-        zero += [bridge["queued_bytes"], bridge["pending_reservations"]]
+        zero += [bridge["native_invocations"], bridge["queued_bytes"], bridge["pending_reservations"]]
         operations = bridge["operations"]
         zero += [operations[key] for key in ("pending", "queued", "running", "replies_pending")]
         native_fields = ("outcome", "mode", "ingress_drained", "application_work_drained",

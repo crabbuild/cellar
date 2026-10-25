@@ -8,6 +8,9 @@ use std::sync::{
 
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct BridgeReport {
+    /// Native invocations still holding admission permits. Sampled independently
+    /// from payload/operation counters; this excludes retained Python tasks.
+    pub native_invocations: usize,
     /// Outstanding native payload charges. Raw HTTP bodies retain their
     /// base64-equivalent charge, which is at least their owned byte length.
     pub queued_bytes: usize,
@@ -84,6 +87,7 @@ impl Budget {
 
     pub fn report(&self) -> BridgeReport {
         BridgeReport {
+            native_invocations: 0,
             queued_bytes: self.used.load(Ordering::Acquire),
             peak_queued_bytes: self.peak.load(Ordering::Relaxed),
             reserved_bytes_total: self.reserved_total.load(Ordering::Relaxed),

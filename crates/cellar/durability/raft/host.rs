@@ -1151,6 +1151,12 @@ enum Job {
         scope: GroupScope,
         purpose: SqlPurpose,
         result: Box<Result<sql::Output, ExecutionError>>,
+        work: Option<Arc<client::Work>>,
+    },
+    SnapshotEncoded {
+        scope: GroupScope,
+        purpose: SqlPurpose,
+        result: Box<Result<sql::Output, ExecutionError>>,
     },
     Proposed {
         scope: GroupScope,
@@ -1569,6 +1575,7 @@ impl Driver {
                 .map(|pending| pending.request.control.clone()),
             _ => None,
         };
+        let encoding_work = work.clone();
         let job = self
             .pool
             .call(cell.worker, scope.clone(), action, work, cancel);
@@ -1578,6 +1585,7 @@ impl Driver {
                 scope,
                 purpose,
                 result: Box::new(job.await),
+                work: encoding_work,
             }
         }));
     }
@@ -2382,7 +2390,33 @@ impl Driver {
         scope: GroupScope,
         purpose: SqlPurpose,
         result: Result<sql::Output, ExecutionError>,
+        work: Option<Arc<client::Work>>,
     ) {
+        let result = match result {
+            Ok(sql::Output {
+                value:
+                    Value::SnapshotCapture {
+                        capture,
+                        reservation,
+                    },
+                _bytes,
+            }) => {
+                let Some(cell) = self.cells.get_mut(&scope) else {
+                    return;
+                };
+                cell.sql_busy = false;
+                if !matches!(
+                    &purpose,
+                    SqlPurpose::Seed(_) | SqlPurpose::Checkpoint | SqlPurpose::SnapshotSource(_)
+                ) {
+                    self.fail(&scope);
+                    return;
+                }
+                self.encode_snapshot(scope, purpose, capture, reservation, work, _bytes);
+                return;
+            }
+            result => result,
+        };
         if let SqlPurpose::EffectScan(sequence) = purpose {
             self.finish_effect_scan(scope, sequence, result);
             return;
@@ -3161,7 +3195,19 @@ impl Driver {
                 scope,
                 purpose,
                 result,
-            } => self.on_sql(scope, purpose, *result),
+                work,
+            } => self.on_sql(scope, purpose, *result, work),
+            Job::SnapshotEncoded {
+                scope,
+                purpose,
+                result,
+            } => match purpose {
+                SqlPurpose::Seed(id) => self.seed_encoded(scope, id, *result),
+                SqlPurpose::Checkpoint | SqlPurpose::SnapshotSource(_) => {
+                    self.on_snapshot_encoded(scope, purpose, *result)
+                }
+                _ => self.fail(&scope),
+            },
             Job::Installed { scope, result } => {
                 if let Err(error) = result {
                     tracing::error!(group = ?scope.group, ?error, "Raft durable apply completion failed");

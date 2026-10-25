@@ -88,6 +88,17 @@ impl Driver {
         if let Some(cell) = self.cells.get_mut(&scope) {
             cell.sql_busy = false;
         }
+        self.seed_encoded(scope, id, result);
+    }
+
+    // Encoding completion does not own the SQL busy flag: another query or
+    // command may have started since the metadata cut released that worker.
+    pub(super) fn seed_encoded(
+        &mut self,
+        scope: GroupScope,
+        id: ReadId,
+        result: Result<sql::Output, ExecutionError>,
+    ) {
         let Some(mut read) = self.reads.remove(&id) else {
             return;
         };

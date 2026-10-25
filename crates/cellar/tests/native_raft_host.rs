@@ -14,6 +14,8 @@ mod inspection;
 mod preview_reuse;
 #[path = "support/raft_node.rs"]
 mod public_node;
+#[path = "support/raft_snapshot_progress.rs"]
+mod snapshot_progress;
 #[path = "support/raft_catalog_fault.rs"]
 mod store;
 

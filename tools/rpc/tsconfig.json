@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "lib": ["ES2023"],
+    "strict": true,
+    "allowJs": true,
+    "checkJs": true,
+    "rootDir": ".",
+    "outDir": "dist/node",
+    "skipLibCheck": false
+  },
+  "include": ["app.ts", "v8.ts", "worker-v8.ts", "stale.ts", "node.mjs", "worker.mjs", "stale-node.mjs", "fixtures/generated/typescript/**/*.ts", "fixtures/generated/javascript/**/*.d.ts"]
+}
