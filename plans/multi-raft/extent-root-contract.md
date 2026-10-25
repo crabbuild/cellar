@@ -97,9 +97,49 @@ Formatting and module layout cover 925 Rust files; native dependency and local
 documentation checks also pass. Run `cargo test --locked -p cellar-ltx --test
 extent_file --test extent_tree --test stream_snapshot` for this ordinary scope.
 
-The next boundary is an independent committed SQLite/WAL observer, followed by
-resident extent admission/eviction, authenticated object-store extent placement
-and demand reads. Execution, envelopes, generation markers, snapshots and
+## Independent committed-image observations
+
+`internal::db::observe_extents` constructs a manifest from the actual committed
+main-file/WAL overlay. It consumes no proposed LTX bytes or caller-provided
+dirty-page list. Initial observation reads the image with 64 KiB buffers.
+Subsequent observations reuse immutable subtrees only for the same live database
+owner, history/schema/epoch and page geometry, after matching the complete
+previous committed WAL prefix with SHA-256. WAL resets or replaced prefixes
+force full observation. Reopening or rebuilding a writer invalidates its token.
+New/changed partial extent boundaries and truncated suffixes remain explicit.
+
+The live SQLite WAL index fixes the committed frame count, database geometry,
+salts and last-frame checksum. Both native-endian header copies and their
+checksums must match; unsupported formats fail. A short, nonwaiting VFS write
+lock protects the 96-byte metadata copy from concurrent header mutation, and is
+released before decoding or image I/O. Active writer transactions refuse this
+sample. Callers must still keep all writers and checkpoints quiescent throughout
+observation. The implementation reads no private SQLite struct through a Rust
+layout cast and does not checkpoint or extend the shared region.
+
+This closes a reproduced corruption gap: a damaged/truncated latest committed
+WAL frame must not silently select an older transaction with the same logical
+length. The regression fails before the committed-boundary check and passes
+afterward. Rolled-back spilled frames beyond that boundary remain excluded.
+Every committed WAL frame is checksum verified. The WAL byte budget still bounds
+the per-page overlay index; it is not a per-page index for the complete image.
+Prefix verification currently reads the complete bounded WAL on each call.
+
+Five real SQLite tests compare roots and canonical manifests with SQLite's own
+serialized pager view across 512/4,096/65,536-byte pages, small updates, unchanged
+observations, growth/shrink, capture/checkpoint/reset, rollback, different/reopened
+owners, invalid history/bounds and committed corruption. Small counter updates
+rehash one 4 MiB extent; unchanged observations hash zero image bytes. These are
+small ordinary fixtures, not native 10 GB first-write measurements. Three WAL
+index tests exercise both copies, corruption of every byte, unsupported layouts,
+page geometry, salts, byte order and final-frame checksum.
+
+Observation is neither destination sealing nor publication authority. A future
+native generation owner must provide an authenticated initial base for demand
+reads without rescanning a new cold writer. Its checkpoint protocol must preserve
+incremental continuity; the conservative reset fallback above still scans the
+image. Resident extent admission/eviction, authenticated object-store extent
+placement and demand reads remain required. Execution, envelopes, generation markers, snapshots and
 archives must switch together. The current anonymous file owner is disposable
 data material, not a persistent cell generation or admission proof. A Merkle root
 must never be relabeled as the existing flat SHA-256 to avoid that coordinated

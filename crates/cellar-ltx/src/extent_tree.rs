@@ -42,11 +42,25 @@ pub struct ExtentId {
 
 impl ExtentId {
     pub(crate) fn stream_hasher(self) -> Sha256 {
+        Self::new_hasher(self.length)
+    }
+
+    pub(crate) fn new_hasher(length: u32) -> Sha256 {
         let mut hash = hash_prefix(b"extent");
         hash.update(4u64.to_be_bytes());
-        hash.update(self.length.to_be_bytes());
-        hash.update(u64::from(self.length).to_be_bytes());
+        hash.update(length.to_be_bytes());
+        hash.update(u64::from(length).to_be_bytes());
         hash
+    }
+
+    pub(crate) fn from_stream(length: u32, hash: Sha256) -> Result<Self, RootError> {
+        if length == 0 || u64::from(length) > EXTENT_BYTES {
+            return Err(RootError::Geometry);
+        }
+        Ok(Self {
+            digest: hash.finalize().into(),
+            length,
+        })
     }
 
     pub fn of(bytes: &[u8]) -> Result<Self, RootError> {
@@ -147,7 +161,7 @@ pub struct ImageBinding {
 }
 
 impl ImageBinding {
-    fn validate(self, geometry: Geometry) -> Result<(), RootError> {
+    pub(crate) fn validate(self, geometry: Geometry) -> Result<(), RootError> {
         if self.epoch == 0
             || self.checksum != 0 && self.checksum & crate::CHECKSUM_FLAG == 0
             || (self.txid == 0) != (geometry.length == 0)

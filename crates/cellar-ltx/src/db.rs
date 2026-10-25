@@ -64,8 +64,14 @@ use std::ffi::c_int;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+#[path = "db_extents.rs"]
+mod extents;
 #[path = "db_image.rs"]
 mod image;
+#[path = "db_overlay.rs"]
+mod overlay;
+#[path = "db_wal_index.rs"]
+mod wal_index;
 
 /// Maps a `rusqlite::Error` into the crate error type.
 fn sql_err(e: rusqlite::Error) -> Error {
@@ -312,6 +318,9 @@ pub struct Db {
     /// So the read lock gets its own connection, mirroring the pool's separation.
     rtx_conn: Connection,
     page_size: u32,
+    /// Distinguishes observations of this physical writer residency from a
+    /// reopened or rebuilt workspace, even when its path is reused.
+    extent_observer: std::cell::OnceCell<std::sync::Arc<()>>,
 
     /// `true` while the long-running read transaction is open (db.go:70 `rtx`).
     /// We track a flag rather than holding a borrowing `rusqlite::Transaction`.
@@ -559,6 +568,7 @@ impl Db {
             conn,
             rtx_conn,
             page_size: 0,
+            extent_observer: std::cell::OnceCell::new(),
             read_lock_held: false,
             last_sync_timing: SyncTiming::default(),
             min_checkpoint_page_n: Self::DEFAULT_MIN_CHECKPOINT_PAGE_N,
@@ -2653,6 +2663,8 @@ fn be_u32(b: &[u8]) -> u32 {
 
 #[doc(hidden)]
 pub mod internal {
+    pub use super::extents::{observe_extents, ExtentObservation, ObservationWork};
+
     /// Returns active lookaside slots while SQLite compiles a statement on
     /// each connection owned by the managed database.
     pub fn lookaside_used_while_preparing(db: &super::Db) -> super::Result<(i32, i32)> {
