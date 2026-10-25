@@ -17,8 +17,8 @@ does not close schema, resource, packaging or performance requirements.
 
 | Priority | Remaining gap | Deliverable / completion evidence |
 | --- | --- | --- |
-| P0 — hosted verification | Remaining broad SDK gates | On `2f4d7ae5`, lifecycle CI passes. JS/Node and both SDK jobs remain in progress; the SDK jobs reach embedded Python packaging. The JSON-name follow-up requires fresh hosted verification. The earlier 696-case report is historical evidence, not a rerun of the changed validator. |
-| P0 | Python deadline and regression timing | Direct queue admission has a controlled reporting-delay regression. The codec decoder probe now has a separate read-only activation and a slow-constructor regression under unchanged budgets. A fresh full SDK run still reproduces the streaming 250 ms failure; live counters point to the native cold-cell path. Passing traced retries do not close that intermittent failure or establish the historical CI cause. |
+| P0 — hosted verification | Remaining broad SDK gates | On `38bfbb96`, lifecycle CI and the free-threaded FastAPI deployment pass. JS/Node remains queued; the GIL SDK job reaches embedded Python packaging while other jobs remain running/queued. The earlier 696-case report is historical evidence, not a rerun of the changed validator or native Node frame accounting. |
+| P0 | Cross-adapter deadline and regression timing | Direct Python queue admission and the decoder's separate read-only activation have controlled regressions under unchanged budgets. Broader V8 HTTP and V8/Node streaming commands still fail; the V8 HTTP failure retains a 250 ms handler timeout and clean host drain. Earlier Python counters point to the native cold-cell path. Passing retries do not close these failures or establish one shared cause. |
 | P0 | Remaining lifecycle and peer/admission provenance | Preserve whole-call budgets, 55 deadline cases, 128 proof-wait cases, 80 cycle cases, 96 provenance cases and 96 Node/V8 lifecycle cases. The Python follow-up covers cooperative cancellation suppression, forced host cutoff and persistent suppression with process supervision. Next close forced guest peer retries and broader call-local peer/admission evidence. Retain incomplete-shutdown failures while guest work remains, expired authority, zero native reservations and receipt-safe recovery. |
 | P0 | Resource bounds and parser correctness | Raw descriptor admission now bounds allocations/work before decoding, rejects unresolved/unknown attributes and enforces the pinned declaration depth. Message definitions borrow the decoded tree instead of cloning nested subtrees. Canonical artifacts and real runtime checks pass. Close remaining semantic conformance; audit effective method/runtime/host/peer minima, retained binary copies and decoder allocations; demonstrate bounded queues, reservations and memory under saturation, flood and disconnect. |
 | P1 | Language/profile coverage | Exercise the portable Protobuf profile as real business calls across all local/remote pairs; qualify supported Python interpreter modes and remaining lifecycle/regression boundaries. |
@@ -36,7 +36,7 @@ Counter fixture alone is not the highest-priority deliverable now.
 | --- | --- | --- |
 | RPC-01: Contracts/toolchain | In progress | Counter and portable-profile outputs reproduce byte-for-byte in all four authoring modes; global symbols/import visibility and expanded inventory budgets are validated before output/compiler work; generated APIs pass TS/Python static checks; remaining options/schema/conformance qualification stays open |
 | RPC-02: Native typed path | In progress | Native RPC/transport, generated-profile/vector and restart tests pass; codec limits precede allocation; 55 deadline, 128 proof-wait and 80 dependency-cycle cases cover caller/provider pairs, signals/deadlines, local/peer routes and bounded cleanup; 96 provenance cases preserve committed parent writes and fixed categories; broader peer/admission/lifecycle/resource qualification remains |
-| RPC-03: Binary bridges | In progress | Shared `cell.call`, Python raw bytes, owned V8 attachments and binary Node framing implemented; runtime attachment/cleanup tests pass; aggregate copy accounting and full cancellation/flood qualification remain |
+| RPC-03: Binary bridges | In progress | Shared `cell.call`, Python raw bytes, owned V8 attachments and binary Node framing implemented; native Node framing now shares payload reservations with partial-input/output and decoded-frame lifetimes under test; worker/control/decoder allocations, other adapters' retained copies and full cancellation/flood qualification remain |
 | RPC-04: JS/TS services | In progress | Generated clients/handlers, binary dispatch and live descriptor checks work in V8/Node; real startup refuses stale codecs; typed AbortSignal options and native-owned whole-call codec budgets work with bounded cleanup; full schema/resource/deadline qualification remains |
 | RPC-05: Python services | In progress | Generated async APIs, live codec checks and dispatch work with receipts/restart; stale providers/clients are refused; task cancellation reaches native/peer calls and joins cleanup; native-owned budgets cover validation, encoding, transport and decoding; packaging and free-threaded qualification remain |
 | RPC-06: Fleet/durability | In progress | Local/remote/handoff, 32 failed-recovery admission, 48 SIGKILL and 64 proof cases pass together; further interpreter modes and broader qualification remain |
@@ -74,6 +74,90 @@ pairs. Preserve the full test matrix, failures and remaining work across turns.
 
 ## Current evidence
 
+- **Native Node framing now uses the runtime's payload byte pool.** Three
+  controlled transport regressions fail against the old implementation:
+  incoming input bypasses aggregate admission, input coexists with queued
+  output beyond the aggregate limit, and decoding creates an uncharged
+  overlapping copy. The new implementation reserves before frame allocation
+  or decoding copies, retains the full allocation across partial writes,
+  transfers decoded-frame reservations through native admission, and frees
+  completed input capacity. It counts metadata serialization without a
+  temporary encoded buffer. Delivered invocation buffers are dropped while
+  their native authority remains live. Startup refuses a configuration that
+  cannot fit one maximum value and its conservatively framed copies.
+- All **12 transport tests**, including real socket partial writes, shared
+  native owners, partial inputs and disconnect cleanup, pass. Two real Node
+  tests verify release of a delivered 64 KiB request while nested native work
+  remains held, exact reply slices and zero final reservations, plus refusal
+  before process start for insufficient capacity. The combined-feature
+  library passes **41 tests**; the Node-only command passes **27 library and
+  two HTTP/restart/streaming integration tests**. Its typed-RPC target has no
+  enabled tests in that feature mode; the separate combined-feature command
+  passes both real typed-RPC/codec-readiness tests. All-target combined-feature
+  JavaScript Clippy and formatting pass.
+- This accounting change does **not** establish allocator/RSS bounds. Control
+  JSON layout and parser scratch, Node worker JavaScript buffers, codec/guest
+  objects and other adapters' retained copies require further audit. Effective
+  method/runtime/host/peer minima, saturation and control progress under full
+  byte admission remain open. No default value, body, heap, deadline or lease
+  budget was increased.
+- The initial broader combined-feature command fails both streaming tests:
+  V8 reports a 250 ms handler budget failure plus engine-turn termination;
+  Node reports a `/reset` HTTP 500 without a retained body. A subsequent
+  diagnostic command passes the 41 library tests, then fails the V8 HTTP
+  fixture's first increment with a **250 ms handler timeout**, startup 1,405 ms,
+  client construction 127 ms and a fully drained `Stopped` outcome. Later
+  targets in that command are not run. The focused typed-RPC and Node-only
+  passes do not close those failures. Streaming diagnostics now retain reset
+  phase/status/body/timing and JavaScript native reservation/shutdown state.
+  Logs use `/tmp/cellar-rpc-node-frame-budget-`; stage results are in ignored
+  `.cellar/rpc/node-frame-budget-validation-status.json` and
+  `.cellar/rpc/node-frame-budget-diagnostic-status.json`. The fresh full
+  qualifier's first full run fails its first Rust-to-Rust private-method
+  preflight with the same 250 ms handler timeout, before the guest matrix.
+  Three unchanged standalone local runs pass all 16 pairs in 1.6–1.9 seconds.
+  Those passes establish neither a timing fix nor the failing path's cause.
+- The unchanged full executable then passes **all 696 cases** in **1,788.685
+  seconds**. A source-hash audit confirms its tracked inputs stay unchanged.
+  The independent raw-report audit verifies every suite count, all **96
+  Node/V8 lifecycle cases**, live nonzero reservations, zero drained native
+  reservations, exact receipt recovery and all **32 forced retirements before
+  original expiry**. Three negative audit mutations (missing backend pair,
+  missing live charge and retirement at expiry) are refused. The report is
+  `.cellar/rpc/node-frame-budget-full-recheck.json`: **2,744,037 bytes**, SHA-256
+  `ec8764dd469840a69ac96dec41f5ffc9e8aa6be9880dc4578fedbf032ae85442`.
+  Its binary hash is
+  `5b959011ec8d1ba4243575f0b2192c29b7c1c78d414103ada305a5627cb47089`.
+  All broader qualification flags remain false; this passing recheck does not
+  erase the initial timeout or the V8 turn-watchdog/streaming failures.
+- The corrected embedded-Python streaming and Clippy commands pass, as do
+  format/layout, docs and native dependency checks. The initial Python commands
+  omitted required `--features embed` and did not run; their errors remain in
+  the diagnostic status. The final JavaScript streaming command passes Node
+  but fails V8 with watchdog termination and an unexpected response EOF. Its
+  snapshot has zero native reservations and a fully drained host. Final stage
+  results are in `.cellar/rpc/node-frame-budget-final-status.json`.
+- An offline packed-consumer smoke passes outside the checkout's module tree.
+  The `@cellar/sdk@0.1.0` tarball contains **16 files** and is **28,707 bytes**.
+  A fresh directory installs it and pinned Protobuf-ES 2.16.0 from local cache,
+  imports Counter/Profile code, verifies all eight registered methods against
+  their artifacts, preserves tested 64-bit/bytes/presence/empty values, refuses
+  the wrong contract and passes strict TypeScript checks with negative cases.
+  `.cellar/rpc/node-frame-budget/package-smoke-status.json` records the commands.
+  This is package-content/static-API evidence, not a clean-machine CI run,
+  live profile RPC matrix or frozen host/package identity qualification.
+- **A separate allocator probe proves the next native control-decoder gap.**
+  Under a valid 256 KiB value / 4 MiB bridge configuration, a 400,049-byte
+  array-valued control frame is accepted while retaining **8,389,330 bytes**
+  above baseline and reaching **8,789,387 bytes** of peak Rust allocations.
+  Its returned reservation is only 400,049 bytes. A scalar-control comparison
+  stays below the bridge budget; both release their reservations on drop.
+  The probe counts Rust allocator sizes and excludes allocator-internal
+  realloc overlap and OS/RSS overhead. This demonstrates structured metadata
+  amplification, not a framing-buffer leak. The reproducer intentionally
+  fails its refusal assertion; source, linked artifact hashes and results are
+  in `.cellar/rpc/node-frame-budget/control-allocation-probe-result.json`.
+  Bound control shape and parser scratch before decoding next.
 - **Shared descriptor admission now validates Protobuf JSON field names.**
   A 116-case comparison against pinned `protoc` 34.0 finds 23 invalid schemas
   accepted by the previous native validator. The new validator agrees on all

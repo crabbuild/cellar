@@ -131,6 +131,111 @@ fn node_owns_exact_attachment_slices_and_empty_completions() -> Result<()> {
     )
 }
 
+#[cfg(feature = "node")]
+#[test]
+fn node_releases_delivered_invocation_buffers_while_native_work_remains() -> Result<()> {
+    const LENGTH: usize = 65_536;
+    let directory = tempfile::tempdir()?;
+    let entry = directory.path().join("app.mjs");
+    let mut source = source()?;
+    source.code = source
+        .code
+        .replace("input.length !== 0", &format!("input.length !== {LENGTH}"));
+    std::fs::write(&entry, format!("{}\nexport {{cells, rpc}};", source.code))?;
+    node::NodeRuntime::run(
+        Options::default(),
+        node::NodeOptions::new(entry),
+        source,
+        |app| {
+            let id = app.runtime.id()?;
+            let (sender, mut receiver) =
+                channel::channel(app.runtime.options.max_pending_operations + 1);
+            let payload = json!({"kind":"rpc", "event":{"method":"example.counter.v1.Counter/GetCount"}, "identity":null, "object":1,"class":"Counter"}).to_string();
+            let bytes = app.runtime.reserve(payload.len() + LENGTH)?;
+            app.runtime.start(Start {
+                budget_source: None,
+                id,
+                payload,
+                body: Some(vec![0; LENGTH]),
+                active: Arc::new(AtomicBool::new(true)),
+                owner: Arc::new(AtomicBool::new(true)),
+                sender,
+                _bytes: bytes,
+            })?;
+            let Event::Operation {
+                id: operation,
+                body,
+                _bytes: held,
+                ..
+            } = event(&mut receiver)?
+            else {
+                anyhow::bail!("delivered invocation did not start its native operation");
+            };
+            ensure!(body.as_deref() == Some(&[0, 255, 128][..]));
+            // The original native operation remains held. Only the already-delivered
+            // 64 KiB invocation buffer may disappear from the native bridge charge.
+            let until = Instant::now() + Duration::from_secs(2);
+            while app.runtime.usage().retained_bytes >= LENGTH {
+                ensure!(
+                    Instant::now() < until,
+                    "Node retained the delivered request allocation"
+                );
+                std::thread::sleep(Duration::from_millis(1));
+            }
+            ensure!(app.runtime.usage().retained_bytes >= held.num_permits());
+            drop(held);
+            app.runtime.reply_parts(
+                id,
+                operation,
+                (
+                    json!({"ok":true,"value":null}).to_string(),
+                    Some(vec![42, 7, 8, 43]),
+                ),
+            )?;
+            let Event::Complete { body, failed, .. } = event(&mut receiver)? else {
+                anyhow::bail!("delivered invocation did not complete");
+            };
+            ensure!(!failed && body.as_deref() == Some(&[7, 8][..]));
+            let until = Instant::now() + Duration::from_secs(2);
+            while app.runtime.usage().retained_bytes != 0 {
+                ensure!(
+                    Instant::now() < until,
+                    "Node frame reservations did not drain"
+                );
+                std::thread::sleep(Duration::from_millis(1));
+            }
+            Ok(())
+        },
+    )
+}
+
+#[cfg(all(feature = "node", unix))]
+#[test]
+fn node_refuses_insufficient_framing_capacity_before_process_start() -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    let mut node = node::NodeOptions::new(directory.path().join("app.mjs"));
+    node.executable = directory.path().join("missing-node");
+    let options = Options {
+        max_value_bytes: 128,
+        max_bridge_bytes: 128,
+        ..Options::default()
+    };
+    let mut entered = false;
+    let error = node::NodeRuntime::run(options, node, Source::new("", "byte-budget.js"), |_| {
+        entered = true;
+        Ok(())
+    })
+    .unwrap_err();
+    ensure!(!entered);
+    ensure!(
+        error
+            .to_string()
+            .contains("Node bridge byte budget cannot fit one maximum framed value"),
+        "unexpected startup refusal: {error:#}"
+    );
+    Ok(())
+}
+
 #[cfg(feature = "embed")]
 #[test]
 fn v8_owns_exact_attachment_slices_and_empty_completions() -> Result<()> {

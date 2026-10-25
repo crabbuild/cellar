@@ -2,20 +2,35 @@
 
 //! Network assertions shared by the optional language adapters.
 #![allow(clippy::disallowed_methods)]
-use anyhow::{ensure, Result};
+use anyhow::{ensure, Context as _, Result};
 use fastwebsockets::{Frame, OpCode, Role, WebSocket};
-use std::time::Duration;
+use std::time::{Duration, Instant};
+
+async fn reset(client: &reqwest::Client, address: &str, phase: &str) -> Result<()> {
+    let started = Instant::now();
+    let response = client
+        .get(format!("{address}/reset"))
+        .send()
+        .await
+        .with_context(|| format!("reset before {phase} failed after {:?}", started.elapsed()))?;
+    let status = response.status();
+    if !status.is_success() {
+        // Keep the host's failure category: error_for_status discards this body.
+        let body = response.text().await?;
+        anyhow::bail!(
+            "reset before {phase} returned {status} after {:?}: {body}",
+            started.elapsed()
+        );
+    }
+    Ok(())
+}
 
 pub async fn check(address: &str) -> Result<()> {
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(10))
         .build()?;
     for path in ["/sse", "/cell/sse", "/consume/sse", "/outbound/sse"] {
-        client
-            .get(format!("{address}/reset"))
-            .send()
-            .await?
-            .error_for_status()?;
+        reset(&client, address, path).await?;
         let mut response = client.get(format!("{address}{path}")).send().await?;
         ensure!(
             response.status().is_success(),
@@ -91,11 +106,7 @@ pub async fn check(address: &str) -> Result<()> {
     for (index, chunk) in large.as_chunks::<2048>().0.iter().enumerate() {
         ensure!(chunk.iter().all(|byte| *byte == index as u8));
     }
-    client
-        .get(format!("{address}/reset"))
-        .send()
-        .await?
-        .error_for_status()?;
+    reset(&client, address, "cancel-read").await?;
     let cancelled_read = client
         .get(format!("{address}/cancel-read"))
         .send()
@@ -118,11 +129,7 @@ pub async fn check(address: &str) -> Result<()> {
         "producer failure became clean EOF"
     );
 
-    client
-        .get(format!("{address}/reset"))
-        .send()
-        .await?
-        .error_for_status()?;
+    reset(&client, address, "cancel producer / WebSocket upgrades").await?;
     let mut cancelled = client
         .get(format!("{address}/sse"))
         .send()

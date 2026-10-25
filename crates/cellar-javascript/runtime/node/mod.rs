@@ -86,6 +86,7 @@ impl NodeRuntime {
                 .is_none_or(|path| path.is_absolute()),
             "Node working directory must be absolute"
         );
+        transport::validate_budget(options.max_value_bytes, options.max_bridge_bytes)?;
         run_with(
             options,
             registrations,
@@ -263,17 +264,11 @@ fn run(
     };
     drop(listener);
 
-    // JSON string escaping can expand an encoded payload by up to 6x.
-    let maximum = runtime
-        .options
-        .max_value_bytes
-        .checked_mul(6)
-        .and_then(|n| n.checked_add(4096))
-        .context("Node frame limit overflow")?;
+    let maximum = transport::frame_limit(runtime.options.max_value_bytes)?;
     let mut transport = Transport::new(
         socket,
         maximum.min(runtime.options.max_bridge_bytes),
-        runtime.options.max_bridge_bytes,
+        runtime.bytes.clone(),
     )?;
 
     let mut authenticated = false;
@@ -346,15 +341,13 @@ fn run(
                     if operation.mutation {
                         state.mutation = false;
                     }
-                    transport.send_parts(
-                        json!({
-                            "type": "reply",
-                            "invocation": reply.invocation,
-                            "id": reply.id,
-                            "payload": reply.payload
-                        }),
-                        reply.body.as_deref(),
-                    )?;
+                    let mut control = json!({
+                        "type": "reply",
+                        "invocation": reply.invocation,
+                        "id": reply.id
+                    });
+                    control["payload"] = Value::String(reply.payload);
+                    transport.send_parts(control, reply.body.as_deref())?;
                 }
             }
         }
@@ -362,12 +355,16 @@ fn run(
         // Hold new guest starts until an overdue heartbeat has been observed.
         // Native invocation deadlines and authority are checked independently.
         if initialized && heartbeat_gap < node.heartbeat_timeout {
-            for start in starts.try_iter().take(runtime.options.max_invocations) {
+            for mut start in starts.try_iter().take(runtime.options.max_invocations) {
                 if !start.active.load(Ordering::Acquire) || !start.owner.load(Ordering::Acquire) {
                     continue;
                 }
-                let payload: Value = serde_json::from_str(&start.payload)?;
-                if let Some(object) = payload["object"].as_u64() {
+                let object = {
+                    let _payload_bytes = runtime.reserve(start.payload.len())?;
+                    let payload: Value = serde_json::from_str(&start.payload)?;
+                    payload["object"].as_u64()
+                };
+                if let Some(object) = object {
                     if !objects.contains_key(&object)
                         && objects.len() >= runtime.options.max_objects
                     {
@@ -385,14 +382,16 @@ fn run(
                     invocations.len() < runtime.options.max_invocations,
                     "Node invocation capacity exhausted"
                 );
-                transport.send_parts(
-                    json!({
-                        "type": "start",
-                        "id": start.id,
-                        "payload": start.payload
-                    }),
-                    start.body.as_deref(),
-                )?;
+                let mut control = json!({
+                    "type": "start",
+                    "id": start.id
+                });
+                control["payload"] = Value::String(std::mem::take(&mut start.payload));
+                transport.send_parts(control, start.body.as_deref())?;
+                // The queued frame now owns the transmitted copy. Keep only
+                // invocation authority/identity, not another full request body.
+                start.body = None;
+                start._bytes = runtime.reserve(0)?;
                 invocations.insert(
                     start.id,
                     InvocationState {
@@ -411,6 +410,7 @@ fn run(
             let Some(frame) = transport.receive()? else {
                 break;
             };
+            let _frame_bytes = frame._bytes;
             let message = frame.metadata;
             let mut body = frame.body;
             ensure!(
