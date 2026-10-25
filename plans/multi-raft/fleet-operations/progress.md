@@ -2,7 +2,7 @@
 
 The full fleet operations goal is active. FO-01 implements the catalog adapter
 and FO-02 implements the durable membership guard, with local native verification.
-FO-03 is in progress; FO-04 through FO-10 remain pending. The operator commands,
+FO-03 and FO-04 are in progress; FO-05 through FO-10 remain pending. The operator commands,
 automatic redistribution, managed maintenance and resize workflows are not yet
 available. The task manifest is authoritative for package status and retained
 completion records.
@@ -1658,6 +1658,36 @@ unqualified. No raw evidence is tracked under `plans/multi-raft/evidence/`.
 The current experimental protocol ends in
 `/fleet-stop-rpc-1/capacity-readiness-1`. Use fresh coordination/data prefixes,
 namespaces, engine directories and matching binaries; numeric markers remain 1.
+
+## FO-04 progress: conservative resource ledger
+
+Source `c79245d1c7308071e0d29e1964ad33a7c872be8c` begins FO-04 with the dependency-free `raft_fleet` component.
+Its resource ledger charges complete physical high water, unresolved incremental
+peak growth and explicit policy reserve independently for engine slots, durable
+bytes and memory. It bounds the reservation inventory and active movement count.
+Attribution is cumulative and exact-boot/process/profile scoped; older-scope debt
+keeps its full charge. Stale, incomplete, conflicting, overflowing or partially
+invalid inputs refuse without mutating the accepted ledger. Lower physical
+readings do not free retained state, and no resource-release API is exposed.
+
+All 51 ordinary decision-core integration cases pass, including 17 new accounting
+cases and 34 existing cases. Crate/test Clippy passes with warnings denied;
+formatting, layout and native dependency checks pass. The runner freezes source
+and Cargo inputs, copies the actual executed binaries and records their hashes.
+Logs and the partial `fo04/ledger-boundary.json` record remain under ignored
+`.cellar/raft-perf/fleet-operations/implementation/`. No files were added under
+`plans/multi-raft/evidence/`.
+
+This is a pure accounting boundary, not an atomic catalog reservation, an
+authenticated physical sample or executed fleet movement. The local last-slot
+case is not the required two-catalog-writer race. All twelve native FO-04 cases
+remain required, and none is claimed complete by these pure tests. Next integrate
+current typed capacity, complete fresh physical observations and rooted movement
+reservations in one admission CAS, then implement complete staged placement and
+one-node-loss simulation. FO-03 terminal removal remains open and gates lifecycle
+operations; it does not block this dependency-free accounting component.
+FO-04 is `IN_PROGRESS`; FO-05 through FO-10 remain `TODO`. The fleet remains
+default-off, with no new throughput, latency or deployed-capacity qualification.
 
 ## Prioritized remaining delivery
 

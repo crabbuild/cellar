@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "revision": "489a47cdc2f175e0ad874449b3cb552da2805524",
+  "revision": "c79245d1c7308071e0d29e1964ad33a7c872be8c",
   "files": [
     {
       "path": ".github/workflows/native-sdk.yml",
@@ -35,8 +35,12 @@
       "sha256": "5bfbe5af276aa08293332314be3b8aa986a5d0ec6d49e74c215243bb9da8434b"
     },
     {
+      "path": "crates/cellar-logic/README.md",
+      "sha256": "a2fea6fbac781eaae60ccb32b271d268917d776d8cb8a2d1267bd9ea21e0381c"
+    },
+    {
       "path": "crates/cellar-logic/lib.rs",
-      "sha256": "8127cf30003407e44a1517f2453125db6c5f1cf0d10d1dd78eab0fcaedf27d84"
+      "sha256": "4a6eb22d968a951972c569abb67abaeb1c76686d3f81858430133e7f55653c10"
     },
     {
       "path": "crates/cellar-logic/raft_leadership.rs",

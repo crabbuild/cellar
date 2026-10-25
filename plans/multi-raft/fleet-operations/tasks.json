@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "baseline_revision": "489a47cdc2f175e0ad874449b3cb552da2805524",
+  "baseline_revision": "c79245d1c7308071e0d29e1964ad33a7c872be8c",
   "invariants": {
     "F01": "Quorum authority",
     "F02": "Stable identities",
@@ -2133,19 +2133,21 @@
     {
       "id": "FO-04",
       "title": "Plan healthy replica redistribution with reservations",
-      "status": "TODO",
+      "status": "IN_PROGRESS",
       "depends_on": [
         "FO-03"
       ],
       "modifies": [
         "crates/cellar-logic/lib.rs",
         "crates/cellar-logic/raft_placement.rs",
-        "crates/cellar/durability/raft/fleet_catalog/mod.rs"
+        "crates/cellar/durability/raft/fleet_catalog/mod.rs",
+        "crates/cellar-logic/README.md"
       ],
       "creates": [
-        "crates/cellar-logic/raft_fleet.rs",
-        "crates/cellar-logic/raft_fleet_tests.rs",
-        "crates/cellar/tests/native_raft_fleet_placement.rs"
+        "crates/cellar/tests/native_raft_fleet_placement.rs",
+        "crates/cellar-logic/raft_fleet/mod.rs",
+        "crates/cellar-logic/raft_fleet/ledger.rs",
+        "crates/cellar-logic/tests/raft_fleet_ledger.rs"
       ],
       "steps": [
         "Implement dependency-free FleetView, FleetPolicy, projected-capacity scoring and typed refusal reasons.",
@@ -2153,7 +2155,8 @@
         "Atomically reserve target capacity and per-node movement slots; revalidate host capacity before initialization.",
         "Implement complete bounded assignment and final-fleet single-failure simulation; distinguish search exhaustion from infeasibility.",
         "Use source-target gap and lexicographic pressure improvement for performance-triggered moves; explicit topology requests reduce feasible live-assignment distance while retained physical state remains charged.",
-        "Produce a complete final assignment and a legal bounded move DAG; reconcile materialization without double-crediting physical resources."
+        "Produce a complete final assignment and a legal bounded move DAG; reconcile materialization without double-crediting physical resources.",
+        "Implement boot/process/profile-scoped conservative resource accounting, monotonic attributed materialization and bounded unresolved movement debt. Preserve physical high water until a separate terminal-proof release boundary; a pure ledger grants no catalog admission authority."
       ],
       "acceptance": [
         "Projected destination utilization includes every unresolved permit.",
@@ -2285,6 +2288,28 @@
           "--locked",
           "--",
           "--test-threads=1"
+        ],
+        [
+          "cargo",
+          "test",
+          "-p",
+          "cellar-logic",
+          "--test",
+          "raft_fleet_ledger",
+          "--locked",
+          "--",
+          "--test-threads=1"
+        ],
+        [
+          "cargo",
+          "clippy",
+          "-p",
+          "cellar-logic",
+          "--tests",
+          "--locked",
+          "--",
+          "-D",
+          "warnings"
         ]
       ],
       "evidence": []
@@ -2867,7 +2892,7 @@
       "modifies": [
         "crates/cellar/durability/raft/fleet_catalog/mod.rs",
         "crates/cellar/durability/raft/fleet_operation.rs",
-        "crates/cellar-logic/raft_fleet.rs",
+        "crates/cellar-logic/raft_fleet/mod.rs",
         "crates/cellar/fleet/management/raft_fleet.rs",
         "crates/cellar/durability/raft/member_state.rs",
         "crates/cellar/durability/raft/host.rs",
