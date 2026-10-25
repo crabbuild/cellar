@@ -100,6 +100,8 @@ export interface ContainerCapabilities {
   readonly max_resources: number | null;
   /** Provider offers an authoritative snapshot without backend I/O. */
   readonly synchronous_running: boolean;
+  /** Synchronous admission and event-owned startup/signal/destroy controls. */
+  readonly queued_lifecycle: boolean;
 }
 
 export interface ContainerStartOptions {

@@ -199,6 +199,7 @@ impl Pump<'_> {
                 let result = (|| -> Result<Value> {
                     ensure!(
                         crate::runtime::supports_synchronous(&call.name)
+                            && call.name != "workers.container.admit"
                             && !call.name.starts_with("workers.callback."),
                         failure::Validation
                     );

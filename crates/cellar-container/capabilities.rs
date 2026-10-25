@@ -26,6 +26,7 @@ pub struct Capabilities {
     pub max_body_bytes: usize,
     pub max_resources: Option<usize>,
     pub synchronous_running: bool,
+    pub queued_lifecycle: bool,
 }
 
 impl Capabilities {
@@ -44,6 +45,7 @@ impl Capabilities {
             max_resources: provider.max_resources(),
             synchronous_running: provider.synchronous_running()
                 && provider.operations().contains(&Operation::Running),
+            queued_lifecycle: crate::queued::supported(provider),
         }
     }
 }
@@ -63,6 +65,7 @@ mod tests {
         assert_eq!(capabilities.max_body_bytes, 42);
         assert_eq!(capabilities.max_resources, Some(64));
         assert!(capabilities.synchronous_running);
+        assert!(capabilities.queued_lifecycle);
         assert_eq!(capabilities.operations.len(), Operation::ALL.len());
         assert!(capabilities
             .operations

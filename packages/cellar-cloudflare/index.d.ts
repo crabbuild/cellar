@@ -94,9 +94,18 @@ export interface DurableObjectState {
   waitUntil(promise: Promise<unknown>): void;
   abort(): never;
 }
-/** Implemented state slice; lifecycle/ports require further profile support. */
+/** Experimental root-event controls; ports and full callback lifetimes are pending. */
 export interface DurableObjectContainer {
   readonly running: boolean;
+  start(options?: {
+    entrypoint?: string[];
+    env?: Record<string, string>;
+    enableInternet?: boolean;
+    labels?: Record<string, string>;
+  }): void;
+  signal(signal: number): void;
+  monitor(): Promise<void>;
+  destroy(error?: unknown): Promise<void>;
 }
 /** Activation-bound, authoritative provider state; never performs backend I/O. */
 export function durableObjectContainer(

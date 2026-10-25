@@ -23,6 +23,9 @@ use tokio::{
 
 #[derive(Default)]
 pub struct Engine {
+    pub startup_gate: Mutex<Option<watch::Receiver<bool>>>,
+    pub start_entered: AtomicBool,
+    pub fail_next_start: AtomicBool,
     pub refuse_remove: AtomicBool,
     pub app_image_loaded: AtomicBool,
     pub containers: Mutex<HashMap<String, watch::Sender<Option<i64>>>>,
@@ -130,6 +133,23 @@ impl Engine {
                     .unwrap()
                     .insert(name.clone(), watch::channel(None).0);
                 json!({"Id":name})
+            }
+        } else if path.starts_with("/containers/")
+            && path.ends_with("/start")
+            && path != "/containers/fence/start"
+        {
+            if self.fail_next_start.swap(false, Ordering::SeqCst) {
+                status = 500;
+                json!({"message":"startup failed after submission"})
+            } else {
+                let gate = self.startup_gate.lock().unwrap().clone();
+                if let Some(mut gate) = gate {
+                    self.start_entered.store(true, Ordering::SeqCst);
+                    while !*gate.borrow_and_update() {
+                        gate.changed().await?;
+                    }
+                }
+                json!({})
             }
         } else if path == "/containers/fence/wait" {
             json!({"StatusCode":0})

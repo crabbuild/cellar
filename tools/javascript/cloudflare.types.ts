@@ -20,6 +20,18 @@ declare const context: Context;
 const container = durableObjectContainer(context);
 const running: boolean = container.running;
 void running;
+const queued: void = container.start({
+  env: { MODE: "worker" },
+  enableInternet: false,
+});
+const monitored: Promise<void> = container.monitor();
+const stopped: Promise<void> = container.destroy(new Error("reason"));
+container.signal(15);
+void queued;
+void monitored;
+void stopped;
+// @ts-expect-error: image selection requires a separate versioned profile
+container.start({ image: "unconfigured" });
 // @ts-expect-error: Workers running is a property, not a Promise or method
 container.running();
 // @ts-expect-error: Native state is read-only

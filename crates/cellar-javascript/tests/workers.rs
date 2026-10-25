@@ -289,6 +289,42 @@ fn exercise(
                     ensure!(before["configuration"].is_null() != restart);
                     ensure!(request(&client, &address, "alice/schedule").await?["configuration"]["tested"] == true);
                     ensure!(request(&client, &address, "alice/running").await?["state"] == "stopped");
+                    let (release_start, startup) = tokio::sync::watch::channel(false);
+                    *peer.engine.startup_gate.lock().unwrap() = Some(startup);
+                    let queued_client = client.clone();
+                    let queued_address = address.clone();
+                    let mut queued = tokio::spawn(async move { request(&queued_client, &queued_address, "alice/queued").await });
+                    // The fixture first exercises native callback input gates.
+                    // Observe engine entry out of band before sending another
+                    // synchronous bridge request into that same activation.
+                    let entered = tokio::time::timeout(Duration::from_secs(3), async {
+                        while !peer.engine.start_entered.load(std::sync::atomic::Ordering::SeqCst) {
+                            tokio::task::yield_now().await;
+                        }
+                    });
+                    cellar::asyncrt::select! {
+                        outcome = &mut queued => anyhow::bail!("queued request finished before startup: {:?}", outcome?),
+                        outcome = entered => outcome.context("queued startup did not reach engine")?,
+                    }
+                    let mut last_progress = Value::Null;
+                    let progress = tokio::time::timeout(Duration::from_secs(3), async {
+                        loop {
+                            let progress = request(&client, &address, "alice/queued-progress").await?;
+                            last_progress = progress.clone();
+                            if peer.engine.start_entered.load(std::sync::atomic::Ordering::SeqCst) && progress["queuedProgress"] == true { break; }
+                            tokio::task::yield_now().await;
+                        }
+                        Ok::<_, anyhow::Error>(())
+                    });
+                    cellar::asyncrt::select! {
+                        outcome = &mut queued => anyhow::bail!("queued request finished before barrier: {:?}", outcome?),
+                        outcome = progress => outcome.with_context(|| format!("queued progress timeout; entered={}, last={last_progress}", peer.engine.start_entered.load(std::sync::atomic::Ordering::SeqCst)))??,
+                    }
+                    ensure!(!queued.is_finished(), "queued lifecycle completed before startup barrier release");
+                    release_start.send_replace(true);
+                    ensure!(queued.await??["queued"] == true);
+                    peer.engine.fail_next_start.store(true, std::sync::atomic::Ordering::SeqCst);
+                    ensure!(request(&client, &address, "alice/queued-failure").await?["failure"] == true);
                     ensure!(request(&client, &address, "bob/read").await?["configuration"].is_null());
                 }
                 "sandbox" => {

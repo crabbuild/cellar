@@ -22,6 +22,8 @@ pub fn is_read(name: &str) -> bool {
         name,
         "workers.lifetime.response"
             | "workers.container.running"
+            | "workers.container.admit"
+            | "workers.container.discard"
             | "workers.crypto.random"
             | "workers.crypto.uuid"
             | "workers.identity"
@@ -38,6 +40,8 @@ pub fn supports_synchronous(name: &str) -> bool {
         name,
         "workers.callback.rollback"
             | "workers.container.running"
+            | "workers.container.admit"
+            | "workers.container.discard"
             | "workers.crypto.random"
             | "workers.crypto.uuid"
             | "workers.identity"

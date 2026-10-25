@@ -37,6 +37,7 @@ class Counter:
         assert capabilities.provider == "audited-native" and capabilities.environment == "linux"
         assert capabilities.max_resources == 64 and "container.exec" in capabilities.operations
         assert capabilities.synchronous_running
+        assert capabilities.queued_lifecycle
         assert isinstance(capabilities.operations, tuple)
         if not await container.running():
             await container.start(env=[("HELLO", "world")], labels=[("app", "adapter")])

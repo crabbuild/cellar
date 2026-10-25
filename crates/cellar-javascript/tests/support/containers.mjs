@@ -38,6 +38,7 @@ export class Counter {
     const c = ctx.container;
     const capabilities = await c.capabilities();
     check(capabilities.synchronous_running, "declared synchronous observation");
+    check(capabilities.queued_lifecycle, "declared queued lifecycle");
     check(
       capabilities.provider === "audited-native" &&
         capabilities.environment === "linux",

@@ -207,6 +207,10 @@ pub struct AuditedProvider {
 }
 
 impl cellar_guest::containers::Provider for AuditedProvider {
+    fn queued_lifecycle(&self) -> bool {
+        true
+    }
+
     fn synchronous_running(&self) -> bool {
         true
     }
@@ -243,6 +247,15 @@ struct AuditedSession {
 }
 
 impl cellar_guest::containers::ProviderSession for AuditedSession {
+    fn preflight(
+        &self,
+        context: &cellar::sdk::Context,
+        operation: cellar_guest::containers::Operation,
+        input: &serde_json::Value,
+    ) -> Result<()> {
+        self.inner.preflight(context, operation, input)
+    }
+
     fn running_snapshot(&self, context: &cellar::sdk::Context) -> Result<bool> {
         self.calls.fetch_add(1, Ordering::SeqCst);
         self.inner.running_snapshot(context)

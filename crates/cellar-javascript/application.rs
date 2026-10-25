@@ -263,6 +263,7 @@ impl JavaScriptApplication {
         let retained = self.source.workers_lifetimes
             && !matches!(&event, Invocation::CellRpc { .. }
             if context.identity().is_some_and(|identity| self.source.rpc.classes().any(|class| class == identity.class)));
+        state.workers_lifetimes = retained;
         if matches!(event, Invocation::Fetch(_)) && state.queue.is_none() {
             let app = self.clone();
             let producer = context.clone();
@@ -546,6 +547,26 @@ impl JavaScriptApplication {
                     _bytes,
                 } => {
                     if !active.load(Ordering::Acquire) {
+                        continue;
+                    }
+                    if callback_scope.is_some()
+                        && matches!(
+                            name.as_str(),
+                            "workers.container.admit" | "workers.container.perform"
+                        )
+                    {
+                        // A closed callback cannot own a queued effect; transaction
+                        // output proof also cannot precede the callback's commit.
+                        self.runtime.respond_parts(
+                            invocation,
+                            id,
+                            cellar_guest::failure::result_parts(
+                                &name,
+                                Err(anyhow::Error::new(cellar_guest::failure::Validation)),
+                                self.runtime.options.max_value_bytes,
+                            )?,
+                            synchronous,
+                        )?;
                         continue;
                     }
                     let context = context.clone();

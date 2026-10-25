@@ -131,6 +131,8 @@ function operation(
       "workers.identity",
       "workers.namespace",
       "workers.container.running",
+      "workers.container.admit",
+      "workers.container.discard",
       "workers.sql.exec",
       "workers.sql.next",
       "workers.sql.close",
@@ -163,38 +165,43 @@ function operation(
     reject("OperationLimit");
   }
 
-  // Only known reads may overlap a mutation. SQL and nested cell fetches are
-  // conservatively treated as mutations, even when a caller expects a read.
-  const mutation = ![
-    "clock.now",
-    "workers.crypto.random",
-    "workers.crypto.uuid",
-    "workers.identity",
-    "workers.namespace",
-    "workers.container.running",
-    "workers.lifetime.response",
-    "workers.callback.begin",
-    "workers.callback.finish",
-    "workers.callback.finish_sync",
-    "workers.sql.size",
-    "workers.kv.get",
-    "workers.kv.list",
-    "storage.read",
-    "alarm.get",
-    "var",
-    "kv.get",
-    "kv.list",
-    "websocket.next",
-    "response.read",
-    "container.capabilities",
-    "container.running",
-    "container.monitor",
-    "container.exec.read_stdout",
-    "container.exec.read_stderr",
-    "container.exec.wait",
-    "container.socket.read",
-    "container.websocket.receive",
-  ].includes(name);
+  // Queued controls serialize in the native provider, and must not occupy the
+  // storage mutation slot while startup awaits I/O. All retain effect provenance.
+  // SQL and nested fetches remain conservative mutations.
+  const mutation =
+    name !== "workers.container.perform" &&
+    ![
+      "clock.now",
+      "workers.crypto.random",
+      "workers.crypto.uuid",
+      "workers.identity",
+      "workers.namespace",
+      "workers.container.running",
+      "workers.container.admit",
+      "workers.container.discard",
+      "workers.lifetime.response",
+      "workers.callback.begin",
+      "workers.callback.finish",
+      "workers.callback.finish_sync",
+      "workers.sql.size",
+      "workers.kv.get",
+      "workers.kv.list",
+      "storage.read",
+      "alarm.get",
+      "var",
+      "kv.get",
+      "kv.list",
+      "websocket.next",
+      "response.read",
+      "container.capabilities",
+      "container.running",
+      "container.monitor",
+      "container.exec.read_stdout",
+      "container.exec.read_stderr",
+      "container.exec.wait",
+      "container.socket.read",
+      "container.websocket.receive",
+    ].includes(name);
 
   if (mutation && state.mutation) {
     reject("ConcurrentMutation");

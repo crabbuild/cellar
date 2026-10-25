@@ -6,6 +6,7 @@
 
 mod capabilities;
 mod native;
+mod queued;
 mod results;
 mod values;
 
@@ -211,6 +212,12 @@ pub trait Provider: Send + Sync {
         false
     }
 
+    /// Support bounded, synchronous admission followed by native-owned control.
+    /// Sessions must implement `preflight` without provider I/O or effects.
+    fn queued_lifecycle(&self) -> bool {
+        false
+    }
+
     fn operations(&self) -> &[Operation];
 
     fn open(&self) -> Box<dyn ProviderSession>;
@@ -219,6 +226,12 @@ pub trait Provider: Send + Sync {
 /// Invocation-local backend resources. Drop must cancel work and release streams.
 /// See the README for authority, isolation, response and retry requirements.
 pub trait ProviderSession: Send + Sync {
+    /// Validate configured backend prerequisites without I/O or effects.
+    /// Shared shape, operation and invocation checks precede this hook.
+    fn preflight(&self, _context: &Context, _operation: Operation, _input: &Value) -> Result<()> {
+        anyhow::bail!(Validation)
+    }
+
     /// Observe authoritative state without I/O, blocking or starting work.
     /// Providers must opt in through `Provider::synchronous_running`.
     fn running_snapshot(&self, _context: &Context) -> Result<bool> {
@@ -239,6 +252,10 @@ pub trait ProviderSession: Send + Sync {
 pub struct Native;
 
 impl Provider for Native {
+    fn queued_lifecycle(&self) -> bool {
+        true
+    }
+
     fn synchronous_running(&self) -> bool {
         true
     }
@@ -265,6 +282,14 @@ impl Provider for Native {
 }
 
 impl ProviderSession for native::Resources {
+    fn preflight(&self, context: &Context, operation: Operation, _input: &Value) -> Result<()> {
+        let container = context.container()?;
+        if operation == Operation::Start {
+            ensure!(!container.running(context)?, "container is already running");
+        }
+        Ok(())
+    }
+
     fn running_snapshot(&self, context: &Context) -> Result<bool> {
         context.container()?.running(context)
     }
@@ -317,6 +342,7 @@ impl Adapter {
             provider: self.0.clone(),
             authority: OnceLock::new(),
             control: tokio::sync::Mutex::new(()),
+            queued: Default::default(),
         }
     }
 }
@@ -328,6 +354,7 @@ pub struct Session {
     provider: Arc<dyn Provider>,
     authority: OnceLock<ProviderAuthority>,
     control: tokio::sync::Mutex<()>,
+    queued: queued::Queue,
 }
 
 impl Default for Session {
@@ -337,6 +364,68 @@ impl Default for Session {
 }
 
 impl Session {
+    /// Accept immutable lifecycle inputs without starting provider work.
+    /// The returned event-owned ticket can be consumed exactly once.
+    pub fn admit_queued(
+        &self,
+        context: &Context,
+        operation: Operation,
+        input: Value,
+        limits: &Limits,
+    ) -> Result<String> {
+        (|| -> Result<()> {
+            ensure!(
+                queued::supported(self.provider.as_ref()),
+                "provider does not support queued lifecycle"
+            );
+            ensure!(
+                matches!(
+                    operation,
+                    Operation::Start | Operation::Signal | Operation::Destroy
+                ),
+                "not a queued container control"
+            );
+            values::check_depth(&input)?;
+            ensure!(input.is_object(), "container input must be an object");
+            native::validate(operation.name(), &input, limits)?;
+            queued::validate(operation, &input)
+        })()
+        .context(Validation)?;
+        let candidate = context.container_provider_authority()?;
+        let authority = self.authority.get_or_init(|| candidate);
+        authority.check(context)?;
+        self.backend
+            .preflight(context, operation, &input)
+            .context(Validation)?;
+        authority.check(context)?;
+        self.queued
+            .admit(operation, input, limits.max_body_bytes)
+            .context(Validation)
+    }
+
+    /// Run an accepted command under the same event, output gate and provider
+    /// control serialization as ordinary operations. Dropping releases quota.
+    pub async fn execute_queued(
+        &self,
+        context: &Context,
+        ticket: &str,
+        limits: &Limits,
+    ) -> Result<Value> {
+        let candidate = context.container_provider_authority()?;
+        self.authority.get_or_init(|| candidate).check(context)?;
+        let command = self.queued.take(ticket)?;
+        command.run(self, context, limits).await
+    }
+
+    /// Release an unconsumed admission. This cannot cancel or roll back a
+    /// command already claimed for execution.
+    pub fn discard_queued(&self, context: &Context, ticket: &str) -> Result<()> {
+        let candidate = context.container_provider_authority()?;
+        self.authority.get_or_init(|| candidate).check(context)?;
+        drop(self.queued.take(ticket)?);
+        Ok(())
+    }
+
     /// Read the provider's immediate snapshot under this event's authority.
     /// This is separate from `execute(Running)`, which may perform backend I/O.
     pub fn running_snapshot(&self, context: &Context) -> Result<bool> {

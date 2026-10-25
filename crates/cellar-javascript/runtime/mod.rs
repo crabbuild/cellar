@@ -263,7 +263,7 @@ pub(crate) fn supports_synchronous(name: &str) -> bool {
 pub(crate) fn requires_mutation_slot(name: &str) -> bool {
     !matches!(
         name,
-        "workers.callback.finish" | "workers.callback.finish_sync"
+        "workers.callback.finish" | "workers.callback.finish_sync" | "workers.container.perform"
     ) && !cellar_guest::operations::is_read(name)
 }
 

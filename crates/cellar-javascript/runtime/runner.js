@@ -21,6 +21,7 @@
   const entries = Object.entries;
   const isArray = Array.isArray;
   const MapClass = Map;
+  const WeakMapClass = WeakMap;
   const SetClass = Set;
   const PromiseClass = Promise;
   const resolve = Promise.resolve.bind(Promise);
@@ -372,6 +373,8 @@
           "workers.identity",
           "workers.namespace",
           "workers.container.running",
+          "workers.container.admit",
+          "workers.container.discard",
           "workers.callback.begin",
           "workers.sql.size",
           "workers.kv.get",
@@ -492,6 +495,8 @@
                 "workers.identity",
                 "workers.namespace",
                 "workers.container.running",
+                "workers.container.admit",
+                "workers.container.discard",
                 "workers.callback.begin",
                 "workers.sql.size",
                 "workers.kv.get",
@@ -757,6 +762,38 @@
       // Private hooks used by dispatch while retaining this invocation.
       _crypto: crypto,
       _call: call,
+      _containerState(owner) {
+        const lifetime = lifetimes.get(id);
+        if (!lifetime) {
+          const error = new ErrorClass(
+            "Queued containers require Workers lifetimes",
+          );
+          error.code = "UnsupportedOperation";
+          error.outcome = "not_committed";
+          throw error;
+        }
+        // Activation getters may create a new context facade after interleaved
+        // events. Store queue ordering on the actual invocation lifetime rather
+        // than using a facade object's identity as the invocation identity.
+        const states = (lifetime.containerStates ??= new WeakMapClass());
+        let state = states.get(owner);
+        if (!state) {
+          state = { tail: undefined, failure: undefined };
+          states.set(owner, state);
+        }
+        return state;
+      },
+      _containerAdmit(operation, input) {
+        if (!lifetimes.has(id)) {
+          const error = new ErrorClass(
+            "Queued containers require Workers lifetimes",
+          );
+          error.code = "UnsupportedOperation";
+          error.outcome = "not_committed";
+          throw error;
+        }
+        return synchronous("workers.container.admit", { operation, input });
+      },
       _waitUntil(promise) {
         try {
           if (

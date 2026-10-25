@@ -210,12 +210,9 @@ impl Container {
         }
         let owner = self.clone();
         let context = context.clone();
+        let waiting = owner.engine.monitor(&owner.cell, run);
         Box::pin(async move {
-            let result = owner
-                .engine
-                .monitor(&owner.cell, run)
-                .await
-                .map_err(anyhow::Error::msg);
+            let result = waiting.await.map_err(anyhow::Error::msg);
             owner.check(&context)?;
             result
         })

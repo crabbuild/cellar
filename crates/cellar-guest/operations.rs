@@ -69,6 +69,8 @@ pub async fn call_bytes_in_budget(
 
 #[derive(Default)]
 pub struct State {
+    /// This event has a native-owned Workers background driver.
+    pub workers_lifetimes: bool,
     pub workers: crate::workers::State,
     pub containers: crate::containers::Session,
     pub transport: std::sync::Arc<crate::transport::Session>,
@@ -132,12 +134,8 @@ pub async fn execute(
     value: Value,
     options: &Limits,
 ) -> Result<Value> {
-    if name == "workers.container.running" {
-        ensure!(
-            value.as_object().is_some_and(serde_json::Map::is_empty),
-            crate::failure::Validation
-        );
-        return state.containers.running_snapshot(context).map(Value::Bool);
+    if name.starts_with("workers.container.") {
+        return crate::containers::workers(context, state, name, value, options).await;
     }
     if name.starts_with("workers.") {
         return state.workers.execute(context, name, value, options).await;

@@ -5,7 +5,7 @@
 #![allow(clippy::disallowed_methods)]
 #[path = "support/html.rs"]
 mod fixture;
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context as _, Result};
 use cellar::{
     application::{
         containers::*, http, sockets, Cell, Context, HandlerFuture, Invocation, Output, Registry,
@@ -200,6 +200,16 @@ impl Cell for Root {
                 "/destroy-refused" => json!(container.destroy(&context).await.is_err()),
                 "/running" => json!(container.running(&context)?),
                 "/monitor" => json!(container.monitor(&context).await?),
+                "/monitor-restart" => {
+                    let previous = container.monitor(&context);
+                    container.destroy(&context).await?;
+                    container.start(&context, Default::default()).await?;
+                    let code = tokio::time::timeout(Duration::from_secs(1), previous)
+                        .await
+                        .context("previous run's monitor was replaced by the new run")??;
+                    container.destroy(&context).await?;
+                    json!(code == 137)
+                }
                 "/monitor-empty" => json!(container.monitor(&context).await.is_err()),
                 _ => return Err(anyhow!("unknown scenario {path}")),
             };
@@ -523,6 +533,7 @@ async fn run() -> Result<()> {
         assert_eq!(updated_create.2["Image"], updated_image);
         assert_eq!(updated_create.2["HostConfig"]["Runtime"], "updated-runtime");
     }
+    assert_eq!(call(&host, "Sandbox:test", "/monitor-restart").await?, true);
     engine
         .release("Sandbox:test", cellar::container::Release::Destroy)
         .await?;

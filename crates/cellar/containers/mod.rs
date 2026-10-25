@@ -258,6 +258,37 @@ enum Address {
     Published(HashMap<u16, u16>),
 }
 
+type RunExit = watch::Sender<Option<Result<i64, String>>>;
+
+/// Keep the current outcome and only weak references to older observed runs.
+/// Producers and outstanding monitors retain the precise run they belong to.
+#[derive(Default)]
+struct RunExits {
+    current: Option<(u64, Arc<RunExit>)>,
+    previous: HashMap<u64, Weak<RunExit>>,
+}
+
+impl RunExits {
+    fn begin(&mut self, run: u64) {
+        self.previous.retain(|_, exit| exit.strong_count() != 0);
+        if let Some((old, exit)) = self.current.take() {
+            if Arc::strong_count(&exit) > 1 {
+                self.previous.insert(old, Arc::downgrade(&exit));
+            }
+        }
+        self.current = Some((run, Arc::new(watch::channel(None).0)));
+    }
+
+    fn get(&self, run: u64) -> Option<Arc<RunExit>> {
+        if let Some((current, exit)) = &self.current {
+            if *current == run {
+                return Some(exit.clone());
+            }
+        }
+        self.previous.get(&run).and_then(Weak::upgrade)
+    }
+}
+
 pub struct CellContainer {
     pub(crate) sdk_control: tokio::sync::Mutex<()>,
     scope: String,
@@ -268,22 +299,22 @@ pub struct CellContainer {
     /// after `output()`; the rest go with the container.
     processes: Mutex<Vec<u64>>,
     process_registry: Weak<ProcessRegistry>,
-    /// The exit of the current run, `None` while it runs. `Some(Err)` is
-    /// an engine failure the wait could not attribute to the process.
-    /// Written with `send_replace`: a plain `send` discards the value
-    /// while nobody subscribes, and `monitor()` usually subscribes late.
-    exit: watch::Sender<Option<(u64, Result<i64, String>)>>,
+    exits: Mutex<RunExits>,
 }
 
 impl CellContainer {
     fn publish_exit(&self, run: u64, result: Result<i64, String>) {
-        self.exit.send_if_modified(|current| {
-            if current.as_ref().is_some_and(|(newer, _)| *newer > run) {
-                return false;
-            }
-            *current = Some((run, result));
-            true
-        });
+        if let Ok(exit) = self.exit_for(run) {
+            exit.send_replace(Some(result));
+        }
+    }
+
+    fn exit_for(&self, run: u64) -> Result<Arc<RunExit>, String> {
+        self.exits
+            .lock()
+            .unwrap()
+            .get(run)
+            .ok_or_else(|| "container run is no longer available".into())
     }
 
     pub(crate) fn forget_process(&self, id: u64) {
@@ -336,8 +367,8 @@ impl CellContainer {
         state.running = true;
         state.address = Address::None;
         let run = state.run;
+        self.exits.lock().unwrap().begin(run);
         drop(state);
-        self.exit.send_replace(None);
         run
     }
 
@@ -1186,7 +1217,7 @@ impl ContainerEngine {
                     state: Mutex::new(CellState::default()),
                     processes: Mutex::new(Vec::new()),
                     process_registry: Arc::downgrade(&service.processes),
-                    exit: watch::channel(None).0,
+                    exits: Default::default(),
                 })
             });
             // A returning cell cancels the destroy its eviction armed.
@@ -1209,7 +1240,7 @@ impl ContainerEngine {
         let adopted = running.is_some() && !cell.running();
         if adopted {
             let run = cell.begin_run();
-            self.watch_exit(&cell, run);
+            self.watch_exit(&cell, run)?;
         }
         let mut state = cell.state.lock().unwrap();
         state.running = running.is_some();
@@ -1353,15 +1384,16 @@ impl ContainerEngine {
             state.running = true;
             state.address = address;
         }
-        self.watch_exit(cell, run);
+        self.watch_exit(cell, run)?;
         Ok(())
     }
 
     /// Wait for the container's root process to end and publish the exit
     /// for `run`; a later run's start has already replaced the state.
-    fn watch_exit(&self, cell: &Arc<CellContainer>, run: u64) {
+    fn watch_exit(&self, cell: &Arc<CellContainer>, run: u64) -> anyhow::Result<()> {
         let docker = self.docker.clone();
         let cell_ = cell.clone();
+        let exit = cell.exit_for(run).map_err(anyhow::Error::msg)?;
         asyncrt::spawn(async move {
             let result = docker
                 .call("POST", &format!("/containers/{}/wait", cell_.name), None)
@@ -1387,9 +1419,10 @@ impl ContainerEngine {
                 state.address = Address::None;
             }
             drop(state);
-            cell_.publish_exit(run, result);
+            exit.send_replace(Some(result));
         })
         .detach();
+        Ok(())
     }
 
     async fn create_and_start(
@@ -1572,17 +1605,27 @@ impl ContainerEngine {
 
     /// Wait for the current run to end. `Ok(code)` is the root process's
     /// exit code; a destroyed container reports 137.
-    pub async fn monitor(&self, cell: &Arc<CellContainer>, run: u64) -> Result<i64, String> {
-        self.check_cell(cell).map_err(|error| error.to_string())?;
-        let mut receiver = cell.exit.subscribe();
-        loop {
-            if let Some((ended, result)) = receiver.borrow_and_update().clone() {
-                if ended >= run {
+    pub fn monitor(
+        &self,
+        cell: &Arc<CellContainer>,
+        run: u64,
+    ) -> impl std::future::Future<Output = Result<i64, String>> + Send + 'static {
+        // Capture before returning the future: callers may not poll it until a
+        // subsequent run has already started and replaced the current outcome.
+        let exit = self
+            .check_cell(cell)
+            .map_err(|error| error.to_string())
+            .and_then(|_| cell.exit_for(run));
+        async move {
+            let exit = exit?;
+            let mut receiver = exit.subscribe();
+            loop {
+                if let Some(result) = receiver.borrow_and_update().clone() {
                     return result;
                 }
-            }
-            if receiver.changed().await.is_err() {
-                return Err("the container engine went away".to_string());
+                if receiver.changed().await.is_err() {
+                    return Err("the container engine went away".to_string());
+                }
             }
         }
     }
@@ -2203,6 +2246,22 @@ mod exit_tests {
     use super::*;
 
     #[test]
+    fn old_run_records_are_retained_only_by_outstanding_observers() {
+        let mut exits = RunExits::default();
+        exits.begin(1);
+        let observed = exits.get(1).unwrap();
+        for run in 2..100 {
+            exits.begin(run);
+            assert!(exits.get(1).is_some());
+            assert!(exits.previous.len() <= 1);
+        }
+        drop(observed);
+        exits.begin(100);
+        assert!(exits.get(1).is_none());
+        assert!(exits.previous.is_empty());
+    }
+
+    #[test]
     fn delayed_old_exit_cannot_hide_the_latest_run_completion() {
         let cell = CellContainer {
             sdk_control: tokio::sync::Mutex::new(()),
@@ -2218,12 +2277,14 @@ mod exit_tests {
             state: Mutex::new(CellState::default()),
             processes: Mutex::new(Vec::new()),
             process_registry: Weak::new(),
-            exit: watch::channel(None).0,
+            exits: Default::default(),
         };
         let old = cell.begin_run();
+        let old_exit = cell.exit_for(old).unwrap();
         let current = cell.begin_run();
         cell.publish_exit(current, Ok(0));
         cell.publish_exit(old, Err("late engine wait".into()));
-        assert_eq!(*cell.exit.borrow(), Some((current, Ok(0))));
+        assert_eq!(*cell.exit_for(current).unwrap().borrow(), Some(Ok(0)));
+        assert_eq!(*old_exit.borrow(), Some(Err("late engine wait".into())));
     }
 }
