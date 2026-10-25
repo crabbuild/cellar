@@ -16,3 +16,4 @@ if (result.error || result.status !== 0) throw Error("RPC fixture typecheck/buil
 await cp(new URL("fixtures/generated/javascript/", import.meta.url), new URL("dist/node/fixtures/generated/javascript/", import.meta.url), {recursive:true});
 await bundle(fileURLToPath(new URL("javascript.json", import.meta.url)));
 await bundle(fileURLToPath(new URL("javascript-stale.json", import.meta.url)));
+await bundle(fileURLToPath(new URL("javascript-worker.json", import.meta.url)));

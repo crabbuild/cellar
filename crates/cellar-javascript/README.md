@@ -477,8 +477,10 @@ diagnostics. It reads native reservation counters and requires no guest call:
 The fields are sampled independently. They do not measure heap, RSS or cached
 cell objects, and `stopped` alone does not prove cleanup. Join callers and the
 host before checking that native reservations returned to zero. The
-[owned-worker qualification](../../tools/rpc/README.md#owned-node-worker-loss-and-active-call-shutdown)
-uses these counters during real typed calls, process loss and shutdown.
+[owned Node qualification](../../tools/rpc/README.md#owned-node-worker-loss-and-active-call-shutdown)
+and [V8 qualification](../../tools/rpc/README.md#owned-v8-termination-and-active-call-shutdown)
+use these counters during real typed calls, process loss, watchdog termination
+and shutdown.
 
 JSON values must use finite numbers, safe integers, and nesting depth at most
 64. Encode larger integers as strings. A missing storage key and a stored JSON

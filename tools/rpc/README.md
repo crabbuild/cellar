@@ -751,8 +751,83 @@ before injection, then zero native invocation and byte reservations. The native
 child must physically retire. A fresh runtime and owner read the prior state
 before two explicit same-ID retries, preserving `9_007_199_254_740_993` exactly.
 No mutation is automatically replayed. The aggregate `all` run includes both
-suites and publishes only after all runtime joins. These fixtures do not close
-V8 termination, Python cancellation suppression, saturation/RSS or all T17 work.
+suites and publishes only after all runtime joins. V8 lifecycle has separate
+suites below; Python cancellation suppression, saturation/RSS and broader T17
+qualification remain open.
+
+## Owned V8 termination and active-call shutdown
+
+The V8 provider owns a different isolate from every caller, including V8
+callers. It uses the same native storage checkpoints, signed routes, weak
+authority probes and fresh-owner receipt recovery as the Node suites.
+
+```sh
+cargo run --locked -p cellar-rpc-qualification --features full -- \
+  --suite v8-termination --report .cellar/rpc/v8-termination.json
+cargo run --locked -p cellar-rpc-qualification --features full -- \
+  --suite v8-shutdown --report .cellar/rpc/v8-shutdown.json
+```
+
+For a Rust/local/post-sync diagnostic, use `v8-termination-smoke` or
+`v8-shutdown-smoke`. The shutdown smoke keeps native work held until the owner
+cuts its drain.
+
+```text
+surviving Rust / Python / V8 / Node caller
+                    |
+         disposable V8 Counter
+         before write OR after synced receipt
+                    |
+         typed native child stays held
+                    |
+separate trigger -> typed native read -> CPU loop
+                                        |
+                              production V8 watchdog
+                                        |
+                 isolate terminates; native frames retire
+                 weak budgets expire; reservations reach zero
+                                        |
+                 engine + watchdog join -> fresh isolate + owner
+                                        |
+                      read state -> two explicit receipt retries
+```
+
+| Trigger | Cases | Required evidence |
+| --- | ---: | --- |
+| Execution watchdog | 16 | Trigger reaches a distinct real native child before its CPU loop. The engine reports its execution-budget failure; the original call returns `Unavailable/unknown`; native owner and caller still serve fresh methods. |
+| Graceful owner shutdown | 16 | Fresh-root admission closes before a factory runs; accepted work finishes after gate release and the normal drain proof succeeds. |
+| Forced owner cutoff | 16 | The held business child gets no test release before cleanup is proven. The shutdown proof remains unclean; a surviving peer receives a typed unknown failure. |
+
+Each trigger covers four caller backends, local/signed-peer routing and both
+write checkpoints. The watchdog uses the existing two-second pump budget, which
+includes microtasks. It is not an RPC I/O deadline. The CPU loop runs in a
+separate invocation while the original typed provider still awaits native work;
+no test API closes the engine. Native observation freezes before injection.
+
+Termination requires retirement and exact `ContextExpired` refusal for all
+three captured native frames: provider, held child and trigger child. Shutdown
+cases capture the first two. Bootstrap return establishes joined engine and
+watchdog threads; the retained application must report zero native invocation
+and byte reservations. V8 has no worker process-group exit claim. A fresh
+isolate and native owner verify the exact prior state and receipt-safe explicit
+retries. `all` includes these suites and publishes after runtime joins.
+
+These checks do not qualify process-fatal heap exhaustion, Python cancellation
+suppression, saturation/RSS, packaging or all T17 requirements.
+
+Use the focused `lifecycle` suite to run all four Node/V8 suites together:
+
+```sh
+cargo run --locked -p cellar-rpc-qualification --features full -- \
+  --suite lifecycle --report .cellar/rpc/lifecycle.json
+```
+
+Its 96 cases reuse the same four caller runtimes across provider backends and
+publish only after those runtimes join. This focused report does not replace
+the earlier deadline, proof, recovery, cycle and provenance suites in `all`.
+The [lifecycle CI job](../../.github/workflows/typed-rpc.yml) builds the locked
+fixtures, checks the Rust qualifier and runs this matrix on Linux with Node 24
+and GIL CPython 3.14. It retains the report and execution log as artifacts.
 
 ## Abrupt owner process loss
 

@@ -11,6 +11,7 @@ pub(super) struct Fixture {
     pub base: Arc<Composite>,
     pub worker: Arc<JavaScriptApplication>,
     pub trace: Arc<Trace>,
+    pub provider_class: &'static str,
 }
 
 struct Observed {
@@ -18,6 +19,7 @@ struct Observed {
     trace: Arc<Trace>,
     control: bool,
     provider: bool,
+    trigger: bool,
 }
 
 impl Cell for Observed {
@@ -26,6 +28,16 @@ impl Cell for Observed {
             let method = match &event {
                 Invocation::CellRpc { method, .. } => method.as_str(),
                 _ => "",
+            };
+            let _trigger = if self.trigger
+                && method.ends_with("/GetCount")
+                && self.trace.terminating.load(Ordering::Acquire)
+            {
+                let frame = self.trace.enter(Role::Trigger, &context)?;
+                self.trace.termination_ready.notify_one();
+                Some(frame)
+            } else {
+                None
             };
             let _frame = if self.provider
                 && method.ends_with("/Increment")
@@ -74,14 +86,18 @@ impl Application for Fixture {
     ) -> Result<()> {
         self.base.validate_configuration(options)?;
         let mut selected = options.clone();
-        selected.do_classes.retain(|class| class == "NodeCounter");
+        selected
+            .do_classes
+            .retain(|class| class == self.provider_class);
         self.worker.validate_configuration(&selected)
     }
 
     fn create_cell(&self, context: Context, identity: &CellIdentity) -> Result<Arc<dyn Cell>> {
-        let provider = identity.class == "NodeCounter";
+        let provider = identity.class == self.provider_class;
         let control =
             identity.class == "RustCounter" && identity.name.as_deref() == Some("worker-control");
+        let trigger = identity.class == "RustCounter"
+            && identity.name.as_deref() == Some("worker-termination");
         let inner = if provider {
             self.worker.create_cell(context, identity)?
         } else {
@@ -92,11 +108,25 @@ impl Application for Fixture {
             trace: self.trace.clone(),
             control,
             provider,
+            trigger,
         }))
     }
 
     fn invoke(self: Arc<Self>, context: Context, event: Invocation) -> HandlerFuture<Output> {
         let event = match event {
+            Invocation::Fetch(mut request)
+                if request
+                    .url
+                    .split('?')
+                    .next()
+                    .is_some_and(|path| path.ends_with("/worker-terminate")) =>
+            {
+                request.url = "http://worker/lifecycle/terminate".into();
+                return self
+                    .worker
+                    .clone()
+                    .invoke(context, Invocation::Fetch(request));
+            }
             Invocation::Fetch(mut request)
                 if request
                     .url

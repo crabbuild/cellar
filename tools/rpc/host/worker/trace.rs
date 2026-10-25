@@ -16,6 +16,7 @@ use tokio::sync::Notify;
 pub(super) enum Role {
     Provider,
     Child,
+    Trigger,
 }
 
 struct Entry {
@@ -31,6 +32,8 @@ pub(super) struct Trace {
     pub armed: AtomicBool,
     pub ready: Notify,
     pub release: Notify,
+    pub terminating: AtomicBool,
+    pub termination_ready: Notify,
     entries: Mutex<BTreeMap<Role, Entry>>,
     caller_node: Mutex<Option<String>>,
     observation_error: Mutex<Option<String>>,
@@ -141,7 +144,7 @@ impl Trace {
         checkpoint_matches(snapshot, after, delta)
     }
 
-    pub fn live(&self, owner: &str, caller: &str) -> Result<Value> {
+    pub fn live(&self, owner: &str, caller: &str, provider_class: &str) -> Result<Value> {
         self.check_observation()?;
         let entries = self.entries.lock().unwrap();
         ensure!(
@@ -159,7 +162,7 @@ impl Trace {
             "worker frames ran outside the owner"
         );
         ensure!(
-            parent.view["class"] == "NodeCounter" && child.view["class"] == "RustCounter",
+            parent.view["class"] == provider_class && child.view["class"] == "RustCounter",
             "worker frame classes differ"
         );
         ensure!(
@@ -186,15 +189,42 @@ impl Trace {
         )
     }
 
-    pub fn retired(&self) -> bool {
+    pub fn termination(&self, owner: &str) -> Result<Value> {
         let entries = self.entries.lock().unwrap();
-        entries.len() == 2 && entries.values().all(|entry| entry.retired)
+        let trigger = entries
+            .get(&Role::Trigger)
+            .context("V8 trigger never reached native code")?;
+        ensure!(
+            entries.len() == 3
+                && trigger.view["node"] == owner
+                && trigger.view["class"] == "RustCounter"
+                && trigger.view["epoch"]
+                    .as_u64()
+                    .is_some_and(|epoch| epoch > 0),
+            "V8 trigger has no original native authority"
+        );
+        for role in [Role::Provider, Role::Child] {
+            let original = entries
+                .get(&role)
+                .context("V8 trigger has no held provider/child pair")?;
+            ensure!(
+                original.view["scope"] != trigger.view["scope"]
+                    && !original.source.owns(&trigger.budget),
+                "V8 trigger reused held authority"
+            );
+        }
+        Ok(trigger.view.clone())
     }
 
-    pub fn assert_revoked(&self) -> Result<()> {
+    pub fn retired(&self, frames: usize) -> bool {
+        let entries = self.entries.lock().unwrap();
+        entries.len() == frames && entries.values().all(|entry| entry.retired)
+    }
+
+    pub fn assert_revoked(&self, frames: usize) -> Result<()> {
         let entries = self.entries.lock().unwrap();
         ensure!(
-            entries.len() == 2 && entries.values().all(|entry| entry.retired),
+            entries.len() == frames && entries.values().all(|entry| entry.retired),
             "worker native frames are still live"
         );
         for entry in entries.values() {

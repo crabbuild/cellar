@@ -1,15 +1,13 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
-use super::{application::Fixture, trace::Trace};
+use super::{application::Fixture, backend::Backend, trace::Trace};
 use crate::{application::Composite, crash::process::wait_groups_gone, fleet};
 use anyhow::{ensure, Context as _, Result};
 use cellar::{
     bucket::Bucket,
     sdk::{NodeOutcome, ShutdownMode},
 };
-use cellar_javascript::{
-    BridgeUsage, EventKind, JavaScriptApplication, NodeOptions, NodeRuntime, Options, Source,
-};
+use cellar_javascript::{BridgeUsage, JavaScriptApplication, Options};
 use serde_json::{json, Value};
 use std::{
     path::PathBuf,
@@ -24,21 +22,38 @@ const DELTA: i64 = 9_007_199_254_740_993;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum End {
     Kill,
+    Terminate,
     GracefulShutdown,
     ForcedShutdown,
 }
 
+#[derive(Clone, Copy, Debug)]
+struct Scenario {
+    backend: Backend,
+    caller: &'static str,
+    peer: bool,
+    after: bool,
+    end: End,
+}
+
 impl End {
-    fn suite(self) -> &'static str {
+    fn suite(self, backend: Backend) -> &'static str {
         match self {
             Self::Kill => "worker-failure",
+            Self::Terminate => "v8-termination",
+            _ if backend == Backend::V8 => "v8-shutdown",
             _ => "worker-shutdown",
         }
+    }
+
+    fn is_failure(self) -> bool {
+        matches!(self, Self::Kill | Self::Terminate)
     }
 
     fn label(self) -> &'static str {
         match self {
             Self::Kill => "kill",
+            Self::Terminate => "terminate",
             Self::GracefulShutdown => "graceful",
             Self::ForcedShutdown => "forced",
         }
@@ -177,16 +192,21 @@ async fn live_case(
     base: Arc<Composite>,
     worker: Arc<JavaScriptApplication>,
     path: &std::path::Path,
-    caller: &'static str,
-    peer: bool,
-    after: bool,
-    end: End,
+    scenario: Scenario,
 ) -> Result<Value> {
+    let Scenario {
+        backend,
+        caller,
+        peer,
+        after,
+        end,
+    } = scenario;
     let trace = Arc::new(Trace::default());
     let fixture = Arc::new(Fixture {
         base,
         worker: worker.clone(),
         trace: trace.clone(),
+        provider_class: backend.class(),
     });
     let bucket = Bucket::open_dev(&path.join("fleet.sqlite"))?;
     let client = reqwest::Client::builder()
@@ -197,14 +217,19 @@ async fn live_case(
     let mut owner = Some(owner);
     let mut source = None;
     let result = async {
-        ensure!(request(&client, &owner_url, "rust", "read", &[("target","node")]).await? == json!({"value":"0"}), "worker warmup count differs");
+        ensure!(request(&client, &owner_url, "rust", "read", &[("target",backend.label())]).await? == json!({"value":"0"}), "worker warmup count differs");
         request(&client, &owner_url, "rust", "read", &[("target","rust"),("cell","worker-control")]).await?;
-        let pid = request(&client, &owner_url, "rust", "worker-pid", &[]).await?["pid"].as_i64().context("worker did not report its process identity")?;
-        let pid = libc::pid_t::try_from(pid)?;
-        ensure!(pid > 1 && pid != std::process::id() as i32, "unsafe worker process identity");
-        // SAFETY: the PID is returned by the authenticated, fixed disposable
-        // worker module. Observation verifies its separately owned group.
-        ensure!(unsafe { libc::getpgid(pid) } == pid, "worker does not own its process group");
+        let pid = if backend == Backend::Node {
+            let pid = request(&client, &owner_url, "rust", "worker-pid", &[]).await?["pid"].as_i64().context("worker did not report its process identity")?;
+            let pid = libc::pid_t::try_from(pid)?;
+            ensure!(pid > 1 && pid != std::process::id() as i32, "unsafe worker process identity");
+            // SAFETY: the fixed worker reports its authenticated process identity.
+            ensure!(unsafe { libc::getpgid(pid) } == pid, "worker does not own its process group");
+            Some(pid)
+        } else {
+            request(&client, &owner_url, "rust", "read", &[("target","rust"),("cell","worker-termination")]).await?;
+            None
+        };
         let source_url = if peer {
             let (node, url) = fleet::start(&path.join("source"), fixture.clone(), SOURCE, bucket).await?;
             source = Some(node);
@@ -214,7 +239,7 @@ async fn live_case(
         trace.armed.store(true, Ordering::Release);
         let operation = if after { "worker-after" } else { "worker-before" };
         let delta = DELTA.to_string();
-        let query = [("target","node"),("id",operation),("delta",delta.as_str())];
+        let query = [("target",backend.label()),("id",operation),("delta",delta.as_str())];
         let call = request(&client, &source_url, caller, "increment", &query);
         tokio::pin!(call);
         tokio::select! {
@@ -229,21 +254,47 @@ async fn live_case(
                 tokio::time::sleep(Duration::from_millis(5)).await;
             }
         }).await.context("worker native count/receipt checkpoint was not observed")??;
-        let authority = trace.live(OWNER, if peer { SOURCE } else { OWNER })?;
+        let authority = trace.live(OWNER, if peer { SOURCE } else { OWNER }, backend.class())?;
         let held = worker.bridge_usage();
         ensure!(!held.stopped && held.active_invocations == 1 && held.retained_bytes > 0, "worker active reservations differ at failure: {held:?}");
         // Freeze observations before termination starts. No audit operation
         // may alter cleanup, and the saved checkpoint precedes this trigger.
         trace.disarm();
         let mut shutdown_proof = Value::Null;
+        let mut termination_authority = Value::Null;
+        let mut termination_result = Value::Null;
         let reply = match end {
             End::Kill => {
+                let pid = pid.context("Node failure has no owned process")?;
                 // SAFETY: this is the independently owned child group verified
                 // above. The native host and callers use different runtimes.
                 ensure!(unsafe { libc::kill(-pid, libc::SIGKILL) } == 0, "could not signal the owned worker group");
                 let reply = tokio::time::timeout(Duration::from_secs(5), &mut call).await.context("worker failure did not release its RPC caller")??;
                 ensure!(reply == json!({"code":"Unavailable","outcome":"unknown"}), "worker failure lost typed ambiguity: {reply}");
                 tokio::time::timeout(Duration::from_secs(4), worker.stopped()).await.context("worker failure did not revoke admission")?;
+                reply
+            }
+            End::Terminate => {
+                trace.terminating.store(true, Ordering::Release);
+                let trigger = request(&client, &owner_url, "rust", "worker-terminate", &[]);
+                tokio::pin!(trigger);
+                tokio::select! {
+                    _ = trace.termination_ready.notified() => {},
+                    reply = &mut call => anyhow::bail!("V8 call retired before the CPU trigger entered native code: {reply:?}"),
+                    reply = &mut trigger => anyhow::bail!("V8 CPU trigger returned before native entry: {reply:?}"),
+                    _ = tokio::time::sleep(Duration::from_secs(5)) => anyhow::bail!("V8 CPU trigger never reached its native child"),
+                }
+                termination_authority = trace.termination(OWNER)?;
+                let (reply, trigger) = tokio::join!(
+                    tokio::time::timeout(Duration::from_secs(8), &mut call),
+                    tokio::time::timeout(Duration::from_secs(8), &mut trigger)
+                );
+                let reply = reply.context("V8 termination did not release its typed caller")??;
+                ensure!(reply == json!({"code":"Unavailable","outcome":"unknown"}), "V8 termination lost typed ambiguity: {reply}");
+                let failure = trigger.context("V8 termination did not release its CPU trigger")?
+                    .err().context("V8 CPU loop returned a successful response")?;
+                termination_result = shutdown_reply(Err(failure), false)?;
+                tokio::time::timeout(Duration::from_secs(4), worker.stopped()).await.context("V8 termination did not revoke admission")?;
                 reply
             }
             End::GracefulShutdown => {
@@ -258,7 +309,7 @@ async fn live_case(
                 let probe = client.get(format!("{owner_url}/rust/read?target=rust&cell=shutdown-must-not-create")).send().await?;
                 ensure!(probe.status() == reqwest::StatusCode::SERVICE_UNAVAILABLE, "draining owner admitted a fresh root request");
                 ensure!(fixture.base.audit.factories().len() == factories, "draining refusal entered a fresh cell factory");
-                trace.live(OWNER, if peer { SOURCE } else { OWNER })?;
+                trace.live(OWNER, if peer { SOURCE } else { OWNER }, backend.class())?;
                 trace.release.notify_one();
                 let (stopped, reply) = tokio::join!(stopping, tokio::time::timeout(Duration::from_secs(12), &mut call));
                 stopped?;
@@ -285,23 +336,27 @@ async fn live_case(
             }
         };
         tokio::time::timeout(Duration::from_secs(4), async {
-            while !trace.retired() { tokio::time::sleep(Duration::from_millis(5)).await; }
+            while !trace.retired(if end == End::Terminate { 3 } else { 2 }) { tokio::time::sleep(Duration::from_millis(5)).await; }
         }).await.context("worker failure left a native typed child running")?;
-        trace.assert_revoked()?;
-        let drained = idle(&worker, end == End::Kill).await?;
+        trace.assert_revoked(if end == End::Terminate { 3 } else { 2 })?;
+        let drained = idle(&worker, end.is_failure()).await?;
         trace.disarm();
+        let mut caller_survived = false;
         if let Some(owner) = &owner {
             ensure!(owner.is_ready().await?, "worker failure stopped the native owner");
             ensure!(request(&client, &owner_url, "rust", "read", &[("target","rust")]).await? == json!({"value":"0"}), "native owner could not serve a fresh business method");
+            ensure!(request(&client, &source_url, caller, "read", &[("target","rust")]).await? == json!({"value":"0"}), "provider loss stopped a surviving caller");
+            caller_survived = true;
         }
-        Ok::<_, anyhow::Error>(json!({"caller":caller,"peer":peer,"after_sync":after,
+        Ok::<_, anyhow::Error>(json!({"provider_backend":backend.label(),"caller":caller,"peer":peer,"after_sync":after,
             "trigger":end.label(),"operation_id":operation,"pid":pid,"authority":authority,"result":reply,
-            "baseline":baseline,"held":held,"drained":drained,"native_owner_survived":end == End::Kill,
-            "shutdown_proof":shutdown_proof,
+            "baseline":baseline,"held":held,"drained":drained,"native_owner_survived":end.is_failure(),"caller_survived":caller_survived,
+            "shutdown_proof":shutdown_proof,"termination_authority":termination_authority,"termination_result":termination_result,
             "native_frames_retired":true,"late_budget_refused":true}))
     }.await;
     // Every failure path releases the test gate before joining real nodes.
     trace.disarm();
+    trace.terminating.store(false, Ordering::Release);
     trace.release.notify_one();
     let source_stop = if let Some(node) = source {
         fleet::stop(node, ShutdownMode::Preserve).await
@@ -320,14 +375,6 @@ async fn live_case(
     Ok(result)
 }
 
-fn source(base: &Composite) -> Result<Source> {
-    Source::module().events([EventKind::Fetch]).cell_rpc(
-        "NodeCounter",
-        "example.counter.v1.Counter",
-        base.contract.clone(),
-    )
-}
-
 fn options() -> Options {
     Options {
         max_invocations: 4,
@@ -341,6 +388,7 @@ async fn recovered(
     base: Arc<Composite>,
     worker: Arc<JavaScriptApplication>,
     path: &std::path::Path,
+    backend: Backend,
     after: bool,
     committed: bool,
 ) -> Result<Value> {
@@ -349,6 +397,7 @@ async fn recovered(
         base,
         worker: worker.clone(),
         trace,
+        provider_class: backend.class(),
     });
     let bucket = Bucket::open_dev(&path.join("fleet.sqlite"))?;
     let (node, url) = fleet::start(&path.join("owner"), fixture, OWNER, bucket).await?;
@@ -358,7 +407,14 @@ async fn recovered(
     let result = async {
         let before = if committed { DELTA } else { 0 }.to_string();
         ensure!(
-            request(&client, &url, "rust", "read", &[("target", "node")]).await?
+            request(
+                &client,
+                &url,
+                "rust",
+                "read",
+                &[("target", backend.label())]
+            )
+            .await?
                 == json!({"value":before}),
             "worker recovery fabricated or lost a committed count"
         );
@@ -375,7 +431,11 @@ async fn recovered(
                     &url,
                     "rust",
                     "increment",
-                    &[("target", "node"), ("id", operation), ("delta", &delta)]
+                    &[
+                        ("target", backend.label()),
+                        ("id", operation),
+                        ("delta", &delta)
+                    ]
                 )
                 .await?
                     == json!({"value":delta}),
@@ -383,7 +443,14 @@ async fn recovered(
             );
         }
         ensure!(
-            request(&client, &url, "rust", "read", &[("target", "node")]).await?
+            request(
+                &client,
+                &url,
+                "rust",
+                "read",
+                &[("target", backend.label())]
+            )
+            .await?
                 == json!({"value":delta}),
             "worker receipt recovery count changed"
         );
@@ -400,46 +467,51 @@ async fn recovered(
     Ok(result)
 }
 
-async fn case(
-    base: Arc<Composite>,
-    caller: &'static str,
-    peer: bool,
-    after: bool,
-    end: End,
-) -> Result<Value> {
+async fn case(base: Arc<Composite>, scenario: Scenario) -> Result<Value> {
     tokio::task::spawn_blocking(move || {
+        let Scenario {
+            backend,
+            end,
+            after,
+            ..
+        } = scenario;
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../..");
         let directory = tempfile::tempdir()?;
-        let entry = root.join("tools/rpc/dist/node/worker.mjs").canonicalize()?;
         let mut evidence = None;
         let mut retained = None;
-        let failed = NodeRuntime::run(
-            options(),
-            NodeOptions::new(entry),
-            source(&base)?,
-            |worker| {
-                retained = Some(worker.clone());
-                let runtime = tokio::runtime::Builder::new_multi_thread()
-                    .enable_all()
-                    .build()?;
-                evidence = Some(runtime.block_on(live_case(
-                    base.clone(),
-                    worker,
-                    directory.path(),
-                    caller,
-                    peer,
-                    after,
-                    end,
-                )));
-                Ok(())
-            },
-        );
+        let failed = backend.run(&root, &base, options(), false, |worker| {
+            retained = Some(worker.clone());
+            let runtime = tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()?;
+            evidence =
+                Some(runtime.block_on(live_case(base.clone(), worker, directory.path(), scenario)));
+            Ok(())
+        });
         let mut evidence =
-            evidence.context("disposable Node worker did not reach host readiness")??;
+            evidence.context("disposable provider did not reach host readiness")??;
         ensure!(
-            failed.is_err() == (end == End::Kill),
+            failed.is_err() == end.is_failure(),
             "worker runtime result differs from {end:?}: {failed:?}"
         );
+        if end == End::Terminate {
+            let error = failed
+                .as_ref()
+                .err()
+                .context("V8 watchdog did not terminate its engine")?;
+            ensure!(
+                error
+                    .chain()
+                    .any(|cause| cause.to_string()
+                        == "JavaScript engine turn exceeded execution budget"),
+                "V8 failed without its execution-budget proof: {error:#}"
+            );
+            evidence["watchdog_termination_observed"] = json!(true);
+        }
+        evidence["owned_runtime_joined"] = json!(true);
+        if backend == Backend::V8 {
+            evidence["watchdog_joined"] = json!(true);
+        }
         let usage = retained
             .context("missing failed worker handle")?
             .bridge_usage();
@@ -447,42 +519,44 @@ async fn case(
             usage.stopped && usage.active_invocations == 0 && usage.retained_bytes == 0,
             "joined failed worker retained reservations: {usage:?}"
         );
-        let pid = libc::pid_t::try_from(evidence["pid"].as_i64().context("missing worker PID")?)?;
         let runtime = tokio::runtime::Builder::new_multi_thread()
             .enable_all()
             .build()?;
-        runtime.block_on(wait_groups_gone(&[("worker", pid)]))?;
-        evidence["owned_group_gone_after_join"] = json!(true);
-        let entry = root.join("tools/rpc/dist/node/node.mjs").canonicalize()?;
-        let recovery = NodeRuntime::run(
-            options(),
-            NodeOptions::new(entry),
-            source(&base)?,
-            |worker| {
-                runtime.block_on(recovered(
-                    base,
-                    worker,
-                    directory.path(),
-                    after,
-                    after || end == End::GracefulShutdown,
-                ))
-            },
-        )?;
+        if backend == Backend::Node {
+            let pid =
+                libc::pid_t::try_from(evidence["pid"].as_i64().context("missing worker PID")?)?;
+            runtime.block_on(wait_groups_gone(&[("worker", pid)]))?;
+            evidence["owned_group_gone_after_join"] = json!(true);
+        }
+        let recovery = backend.run(&root, &base, options(), true, |worker| {
+            runtime.block_on(recovered(
+                base.clone(),
+                worker,
+                directory.path(),
+                backend,
+                after,
+                after || end == End::GracefulShutdown,
+            ))
+        })?;
         evidence["recovery"] = recovery;
         Ok::<_, anyhow::Error>(evidence)
     })
     .await
-    .context("Node worker lifecycle bootstrap panicked")?
+    .context("owned engine lifecycle bootstrap panicked")?
 }
 
-async fn matrix(base: Arc<Composite>, ends: &[End]) -> Result<Value> {
+async fn matrix(base: Arc<Composite>, backend: Backend, ends: &[End]) -> Result<Value> {
     let suite = ends
         .first()
         .context("worker matrix has no trigger")?
-        .suite();
+        .suite(backend);
     ensure!(
-        ends.iter().all(|end| end.suite() == suite),
-        "worker matrix mixes different suites"
+        ends.iter().all(|end| end.suite(backend) == suite
+            && !matches!(
+                (backend, end),
+                (Backend::Node, End::Terminate) | (Backend::V8, End::Kill)
+            )),
+        "worker matrix mixes different suites or incompatible backends"
     );
     let mut cases = Vec::new();
     for &end in ends {
@@ -490,39 +564,126 @@ async fn matrix(base: Arc<Composite>, ends: &[End]) -> Result<Value> {
             for peer in [false, true] {
                 for after in [false, true] {
                     base.audit.reset_after_node_drain();
-                    eprintln!("worker {end:?}: {caller}->node peer={peer} after_sync={after}");
-                    cases.push(case(base.clone(), caller, peer, after, end).await.with_context(|| format!("owned worker {end:?} {caller}->node peer={peer} after_sync={after}"))?);
+                    eprintln!(
+                        "worker {end:?}: {caller}->{} peer={peer} after_sync={after}",
+                        backend.label()
+                    );
+                    cases.push(
+                        case(
+                            base.clone(),
+                            Scenario {
+                                backend,
+                                caller,
+                                peer,
+                                after,
+                                end,
+                            },
+                        )
+                        .await
+                        .with_context(|| {
+                            format!(
+                                "owned {backend:?} {end:?} {caller} peer={peer} after_sync={after}"
+                            )
+                        })?,
+                    );
                 }
             }
         }
     }
     Ok(
         json!({"format":1,"suite":suite,"case_count":cases.len(),"cases":cases,
-        "max_pending_operations":1,"isolated_provider_worker":true,"remote_fleet_qualified":false}),
+        "provider_backend":backend.label(),"max_pending_operations":1,
+        "isolated_provider_worker":backend == Backend::Node,
+        "isolated_provider_runtime":true,"remote_fleet_qualified":false}),
+    )
+}
+
+async fn smoke_case(base: Arc<Composite>, backend: Backend, end: End) -> Result<Value> {
+    let case = case(
+        base,
+        Scenario {
+            backend,
+            caller: "rust",
+            peer: false,
+            after: true,
+            end,
+        },
+    )
+    .await?;
+    Ok(
+        json!({"format":1,"suite":format!("{}-smoke", end.suite(backend)),
+        "provider_backend":backend.label(),"case_count":1,"cases":[case],"remote_fleet_qualified":false}),
     )
 }
 
 pub async fn smoke(base: Arc<Composite>) -> Result<Value> {
-    let case = case(base, "rust", false, true, End::Kill).await?;
-    Ok(
-        json!({"format":1,"suite":"worker-failure-smoke","case_count":1,"cases":[case],
-        "remote_fleet_qualified":false}),
-    )
+    smoke_case(base, Backend::Node, End::Kill).await
 }
 
 pub async fn run(base: Arc<Composite>) -> Result<Value> {
-    matrix(base, &[End::Kill]).await
+    matrix(base, Backend::Node, &[End::Kill]).await
 }
 
 pub async fn shutdown(base: Arc<Composite>) -> Result<Value> {
-    matrix(base, &[End::GracefulShutdown, End::ForcedShutdown]).await
+    matrix(
+        base,
+        Backend::Node,
+        &[End::GracefulShutdown, End::ForcedShutdown],
+    )
+    .await
 }
 
 pub async fn shutdown_smoke(base: Arc<Composite>) -> Result<Value> {
-    let case = case(base, "rust", false, true, End::ForcedShutdown).await?;
-    Ok(
-        json!({"format":1,"suite":"worker-shutdown-smoke","case_count":1,"cases":[case],"remote_fleet_qualified":false}),
+    smoke_case(base, Backend::Node, End::ForcedShutdown).await
+}
+
+pub async fn v8_termination(base: Arc<Composite>) -> Result<Value> {
+    matrix(base, Backend::V8, &[End::Terminate]).await
+}
+
+pub async fn v8_termination_smoke(base: Arc<Composite>) -> Result<Value> {
+    smoke_case(base, Backend::V8, End::Terminate).await
+}
+
+pub async fn v8_shutdown(base: Arc<Composite>) -> Result<Value> {
+    matrix(
+        base,
+        Backend::V8,
+        &[End::GracefulShutdown, End::ForcedShutdown],
     )
+    .await
+}
+
+pub async fn v8_shutdown_smoke(base: Arc<Composite>) -> Result<Value> {
+    smoke_case(base, Backend::V8, End::ForcedShutdown).await
+}
+
+/// Preserve the same caller runtimes across both disposable-provider backends.
+/// The CLI publishes this report only after those caller runtimes also join.
+pub async fn lifecycle(base: Arc<Composite>) -> Result<Value> {
+    let suites = [
+        ("worker_failure", run(base.clone()).await?),
+        ("worker_shutdown", shutdown(base.clone()).await?),
+        ("v8_termination", v8_termination(base.clone()).await?),
+        ("v8_shutdown", v8_shutdown(base).await?),
+    ];
+    let case_count = suites
+        .iter()
+        .try_fold(0u64, |total, (_, suite)| -> Result<u64> {
+            total
+                .checked_add(
+                    suite["case_count"]
+                        .as_u64()
+                        .context("lifecycle suite has no case count")?,
+                )
+                .context("lifecycle case count overflow")
+        })?;
+    let mut report = json!({"format":1,"suite":"lifecycle","case_count":case_count,
+        "remote_fleet_qualified":false});
+    for (name, suite) in suites {
+        report[name] = suite;
+    }
+    Ok(report)
 }
 
 #[cfg(test)]

@@ -11,5 +11,5 @@
     "outDir": "dist/node",
     "skipLibCheck": false
   },
-  "include": ["app.ts", "v8.ts", "stale.ts", "node.mjs", "worker.mjs", "stale-node.mjs", "fixtures/generated/typescript/**/*.ts", "fixtures/generated/javascript/**/*.d.ts"]
+  "include": ["app.ts", "v8.ts", "worker-v8.ts", "stale.ts", "node.mjs", "worker.mjs", "stale-node.mjs", "fixtures/generated/typescript/**/*.ts", "fixtures/generated/javascript/**/*.d.ts"]
 }
