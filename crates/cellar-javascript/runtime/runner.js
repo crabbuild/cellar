@@ -13,6 +13,32 @@
   const entries = Object.entries;
   const isArray = Array.isArray;
   const MapClass = Map;
+  const SetClass = Set;
+  const PromiseClass = Promise;
+  const resolve = Promise.resolve.bind(Promise);
+  const race = Promise.race.bind(Promise);
+  const allSettled = Promise.allSettled.bind(Promise);
+  const lifetimes = new MapClass();
+  function track(id, promise, report = false) {
+    const state = lifetimes.get(id);
+    if (!state) return promise;
+    if (report && state.reported >= state.limit) {
+      const error = new ErrorClass("waitUntil job quota exceeded"); error.name = "QuotaExceededError"; throw error;
+    }
+    if (report) state.reported++;
+    const settled = resolve(promise);
+    state.jobs.add(settled);
+    const release = () => { state.jobs.delete(settled); if (report) state.reported--; };
+    settled.then(release, () => { release(); if (report) state.failed = true; });
+    return promise;
+  }
+  async function drain(id) {
+    const state = lifetimes.get(id);
+    if (!state) return;
+    while (state.jobs.size && lifetimes.get(id) === state) {
+      await race([allSettled([...state.jobs]), state.cancelled]);
+    }
+  }
   const ErrorClass = Error;
   const apply = Reflect.apply;
   const typedArrayPrototype = Object.getPrototypeOf(Uint8Array.prototype);
@@ -200,7 +226,7 @@
         throw error;
       }
 
-      return synchronous ? finish(name, pending) : pending.then(reply => finish(name, reply));
+      return synchronous ? finish(name, pending) : track(id, pending.then(reply => finish(name, reply)));
     };
 
     const finish = (name, reply) => {
@@ -406,6 +432,17 @@
       // Private hooks used by dispatch while retaining this invocation.
       _crypto: crypto,
       _call: call,
+      _waitUntil(promise) {
+        try {
+          if ((activation === null ? currentHost() : currentHost(activation)) !== id) throw new ErrorClass("ContextMismatch");
+        } catch (error) {
+          error.code = error.message;
+          error.outcome = "not_committed";
+          throw error;
+        }
+        if (!lifetimes.has(id)) throw new ErrorClass("Workers lifetimes are not enabled");
+        track(id, promise, true);
+      },
       // Optional Workers state has activation lifetime. This getter deliberately
       // grants no authority to a foreign cell, retired activation, cancelled
       // event, or ambient code outside an admitted native continuation.
@@ -441,21 +478,23 @@
           synchronous("workers.callback.finish_sync", { id: token.id, success });
         }
       },
-      async _callback(kind, callback) {
+      _callback(kind, callback) {
         if (typeof callback !== "function") throw new TypeError("Expected a callback");
-        const token = await call("workers.callback.begin", { kind });
-        let result, success = false;
-        try {
-          const current = () => {
-            if (currentHost(activation, token.id) !== id) throw new ErrorClass("ContextMismatch");
-            return context(id, identity, activation);
-          };
-          result = await scopedHost(id, token.id, () => callback(current));
-          success = true;
-        } finally {
-          await call("workers.callback.finish", { id: token.id, success });
-        }
-        return result;
+        return track(id, (async () => {
+          const token = await call("workers.callback.begin", { kind });
+          let result, success = false;
+          try {
+            const current = () => {
+              if (currentHost(activation, token.id) !== id) throw new ErrorClass("ContextMismatch");
+              return context(id, identity, activation);
+            };
+            result = await scopedHost(id, token.id, () => callback(current));
+            success = true;
+          } finally {
+            await call("workers.callback.finish", { id: token.id, success });
+          }
+          return result;
+        })());
       },
       _serialize: value => encode(encodeClone(value)),
       _deserialize: value => decodeClone(decode(value)),
@@ -531,7 +570,7 @@
   // Validate only the explicitly declared handlers before signaling readiness.
   // Objects are cached by activation ID; retirement discards activation-local
   // JavaScript state without changing the cell's durable Rust-owned storage.
-  return (app, descriptor, maximum) => {
+  return (app, descriptor, maximum, lifetimeLimit) => {
     const declared = parse(descriptor);
     const objects = new MapClass();
 
@@ -553,105 +592,138 @@
       }
     }
 
+    async function dispatch(id, payload) {
+      const invocation = parse(payload);
+      const ctx = context(id, invocation.identity, invocation.object);
+      let target = app;
+
+      if (invocation.object !== null) {
+        target = objects.get(invocation.object);
+
+        if (!target) {
+          if (objects.size >= maximum) {
+            throw new ErrorClass("ObjectLimit");
+          }
+
+          target = new app.cells[invocation.class]();
+          objects.set(invocation.object, target);
+        }
+      }
+
+      let event =
+        invocation.kind === "fetch"
+          ? request(invocation.event)
+          : json(invocation.event);
+
+      if (invocation.kind === "websocket_message") {
+        event = freeze({
+          ...event,
+          data: event.body === undefined ? event.text : decode(event.body),
+        });
+      }
+
+      if (invocation.kind === "cell_rpc") {
+        const args = ctx._deserialize(event.args);
+        if (!isArray(args)) throw new ErrorClass("Invalid RPC arguments");
+        let value;
+        try {
+          value = await target.cell_rpc(freeze({ method: event.method, args }), ctx);
+        } catch (error) {
+          // Remote throws are successful native RPC responses. Preserve the
+          // thrown value and own data properties, without leaking its stack.
+          const properties = Object.create(null);
+          if (error instanceof ErrorClass) {
+            properties.name = error.name;
+            for (const [key, value] of entries(error)) {
+              if (key !== "stack") properties[key] = value;
+            }
+          }
+          return stringify({ value: ctx._serialize([error, properties]), error: true });
+        }
+        // Encoding can fail after the handler committed writes. Such a
+        // failure is a lost result, not a business exception from the method.
+        return stringify({ value: ctx._serialize(value), error: false });
+      }
+
+      let result = await target[invocation.kind](event, ctx);
+
+      // Forward the native capability without consuming its body or upgrade.
+      if (invocation.kind === "fetch" && result?.forward !== undefined) {
+        return stringify({ forward: result.forward });
+      }
+
+      if (invocation.kind === "fetch" && result?.chunks !== undefined) {
+        // Publish headers before pulling the producer. Each awaited write
+        // preserves native backpressure and keeps invocation authority alive.
+        await ctx._call("response.start", {
+          status: result.status,
+          headers: result.headers,
+          body: "",
+        });
+
+        for await (const chunk of result.chunks) {
+          await ctx._call("response.write", { body: ctx._encode(chunk) });
+        }
+
+        result = { streamed: true };
+      } else if (
+        invocation.kind === "fetch" &&
+        result?.websocket !== undefined
+      ) {
+        const response = {
+          websocket: result.websocket,
+          headers: result.headers ?? [],
+        };
+
+        if (result.run) {
+          // Workers consume events in this retained invocation. Hibernating
+          // cells omit run and receive separate native WebSocket callbacks.
+          await ctx._call("response.upgrade", response);
+          await result.run(ctx.websocket(result.websocket), ctx);
+          result = { streamed: true };
+        } else {
+          result = response;
+        }
+      }
+
+      // Non-HTTP handlers complete without an application return value.
+      return stringify(json(invocation.kind === "fetch" ? result : null));
+    }
+
     return freeze({
       async dispatch(id, payload) {
-        const invocation = parse(payload);
-        const ctx = context(id, invocation.identity, invocation.object);
-        let target = app;
-
-        if (invocation.object !== null) {
-          target = objects.get(invocation.object);
-
-          if (!target) {
-            if (objects.size >= maximum) {
-              throw new ErrorClass("ObjectLimit");
-            }
-
-            target = new app.cells[invocation.class]();
-            objects.set(invocation.object, target);
-          }
+        if (!declared.workers_lifetimes) return dispatch(id, payload);
+        let cancel;
+        const cancelled = new PromiseClass(done => { cancel = done; });
+        const state = { jobs: new SetClass(), reported: 0, limit: lifetimeLimit, failed: false, cancel, cancelled };
+        lifetimes.set(id, state);
+        let encoded = "null", failed = false;
+        try { encoded = await dispatch(id, payload); }
+        catch { failed = true; }
+        const publish = value => context(id, null, null)._call("workers.lifetime.response", value);
+        try { await publish({ value: encoded, failed }); }
+        catch {
+          failed = true;
+          // A refused oversized result must not abandon accepted background
+          // work. A compact error can use publication capacity if the first
+          // attempt was refused before admission. Both hosts admit it once.
+          try { await publish({ value: "null", failed: true }); } catch {}
         }
-
-        let event =
-          invocation.kind === "fetch"
-            ? request(invocation.event)
-            : json(invocation.event);
-
-        if (invocation.kind === "websocket_message") {
-          event = freeze({
-            ...event,
-            data: event.body === undefined ? event.text : decode(event.body),
-          });
-        }
-
-        if (invocation.kind === "cell_rpc") {
-          const args = ctx._deserialize(event.args);
-          if (!isArray(args)) throw new ErrorClass("Invalid RPC arguments");
-          let value;
-          try {
-            value = await target.cell_rpc(freeze({ method: event.method, args }), ctx);
-          } catch (error) {
-            // Remote throws are successful native RPC responses. Preserve the
-            // thrown value and own data properties, without leaking its stack.
-            const properties = Object.create(null);
-            if (error instanceof ErrorClass) {
-              properties.name = error.name;
-              for (const [key, value] of entries(error)) {
-                if (key !== "stack") properties[key] = value;
-              }
-            }
-            return stringify({ value: ctx._serialize([error, properties]), error: true });
-          }
-          // Encoding can fail after the handler committed writes. Such a
-          // failure is a lost result, not a business exception from the method.
-          return stringify({ value: ctx._serialize(value), error: false });
-        }
-
-        let result = await target[invocation.kind](event, ctx);
-
-        // Forward the native capability without consuming its body or upgrade.
-        if (invocation.kind === "fetch" && result?.forward !== undefined) {
-          return stringify({ forward: result.forward });
-        }
-
-        if (invocation.kind === "fetch" && result?.chunks !== undefined) {
-          // Publish headers before pulling the producer. Each awaited write
-          // preserves native backpressure and keeps invocation authority alive.
-          await ctx._call("response.start", {
-            status: result.status,
-            headers: result.headers,
-            body: "",
-          });
-
-          for await (const chunk of result.chunks) {
-            await ctx._call("response.write", { body: ctx._encode(chunk) });
-          }
-
-          result = { streamed: true };
-        } else if (
-          invocation.kind === "fetch" &&
-          result?.websocket !== undefined
-        ) {
-          const response = {
-            websocket: result.websocket,
-            headers: result.headers ?? [],
-          };
-
-          if (result.run) {
-            // Workers consume events in this retained invocation. Hibernating
-            // cells omit run and receive separate native WebSocket callbacks.
-            await ctx._call("response.upgrade", response);
-            await result.run(ctx.websocket(result.websocket), ctx);
-            result = { streamed: true };
-          } else {
-            result = response;
-          }
-        }
-
-        // Non-HTTP handlers complete without an application return value.
-        return stringify(json(invocation.kind === "fetch" ? result : null));
+        await drain(id);
+        if (failed || state.failed) throw new ErrorClass("Workers event/background work failed");
+        // The backend owns final cleanup after a full microtask checkpoint.
+        // Derived continuations may register more SDK work after this resolves.
+        return "null";
       },
-
+      drain,
+      background(id) {
+        const state = lifetimes.get(id);
+        return !state ? 1 : state.jobs.size ? 0 : state.failed ? 2 : 1;
+      },
+      cancel(id) {
+        const state = lifetimes.get(id);
+        if (state) { lifetimes.delete(id); state.cancel(); }
+      },
       retire(id) {
         objects.delete(id);
       },

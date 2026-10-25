@@ -19,10 +19,13 @@ struct InvocationState {
     promise: Option<v8::Global<v8::Promise>>,
     operations: usize,
     pending: usize,
+    response: bool,
+    response_pending: bool,
     mutation: bool,
 }
 
 struct Operation {
+    completion: bool,
     invocation: u64,
     mutation: bool,
     resolver: v8::Global<v8::PromiseResolver>,
@@ -237,8 +240,14 @@ fn dispatch_operation(
     }
 
     let mutation = requires_mutation_slot(&name);
-    if active.pending >= runtime.options.max_pending_operations
-        || active.operations >= runtime.options.max_operations
+    let completion = name == "workers.lifetime.response";
+    // Exactly one publication can use the reserved completion slot even when
+    // ordinary SDK work has exhausted its pending or total-operation budget.
+    if (completion && active.response)
+        || (!completion
+            && (active.pending - usize::from(active.response_pending)
+                >= runtime.options.max_pending_operations
+                || active.operations >= runtime.options.max_operations))
     {
         return refuse(scope, "OperationLimit");
     }
@@ -278,7 +287,12 @@ fn dispatch_operation(
         return refuse(scope, "OperationLimit");
     }
 
-    active.operations += 1;
+    if completion {
+        active.response = true;
+        active.response_pending = true;
+    } else {
+        active.operations += 1;
+    }
     active.pending += 1;
     active.mutation |= mutation;
     if let Some(receive) = synchronous_reply {
@@ -334,6 +348,7 @@ fn dispatch_operation(
     state.operations.insert(
         id,
         Operation {
+            completion,
             invocation,
             mutation,
             resolver: v8::Global::new(scope, resolver),
@@ -458,16 +473,24 @@ pub(super) fn run(
     let descriptor = v8::String::new(scope, &source.descriptor().to_string())
         .context("JavaScript descriptor failed")?;
     let maximum = v8::Number::new(scope, runtime.options.max_objects as f64);
+    let lifetime_limit = v8::Number::new(scope, runtime.options.max_batch_operations as f64);
     let runner = factory
         .call(
             scope,
             undefined.into(),
-            &[app, descriptor.into(), maximum.into()],
+            &[
+                app,
+                descriptor.into(),
+                maximum.into(),
+                lifetime_limit.into(),
+            ],
         )
         .context("JavaScript registrations are invalid")?;
     let runner = v8::Local::<v8::Object>::try_from(runner)?;
     let dispatch = v8::Global::new(scope, function(scope, runner, "dispatch")?);
     let retire = v8::Global::new(scope, function(scope, runner, "retire")?);
+    let cancel = v8::Global::new(scope, function(scope, runner, "cancel")?);
+    let background = v8::Global::new(scope, function(scope, runner, "background")?);
     *deadline.lock().unwrap() = None;
     let _ = ready.send(Ok(()));
     loop {
@@ -497,6 +520,9 @@ pub(super) fn run(
                         .get_mut(&reply.invocation)
                         .is_some_and(|inv| {
                             inv.pending -= 1;
+                            if operation.completion {
+                                inv.response_pending = false;
+                            }
                             if operation.mutation {
                                 inv.mutation = false;
                             }
@@ -546,6 +572,8 @@ pub(super) fn run(
                     promise: None,
                     operations: 0,
                     pending: 0,
+                    response: false,
+                    response_pending: false,
                     mutation: false,
                 },
             );
@@ -568,6 +596,26 @@ pub(super) fn run(
             "JavaScript engine turn exceeded execution budget"
         );
 
+        let mut backgrounds = HashMap::new();
+        if source.workers_lifetimes {
+            // Drop the RefCell borrow before calling JS, including its private
+            // query: user-modified builtins must never reenter borrowed state.
+            let ids: Vec<_> = state.borrow().invocations.keys().copied().collect();
+            turn.set_continuation_preserved_embedder_data(undefined.into());
+            for id in ids {
+                let background = v8::Local::new(turn, &background);
+                let token = v8::Number::new(turn, id as f64);
+                let result = background
+                    .call(turn, undefined.into(), &[token.into()])
+                    .context("JavaScript background state query failed")?;
+                let status = v8::Local::<v8::Number>::try_from(result)?.value();
+                ensure!(
+                    matches!(status, 0.0 | 1.0 | 2.0),
+                    "invalid JavaScript background state"
+                );
+                backgrounds.insert(id, status);
+            }
+        }
         let mut finished = Vec::new();
         for (&id, invocation) in &state.borrow().invocations {
             if !invocation.start.active.load(Ordering::Acquire)
@@ -586,8 +634,17 @@ pub(super) fn run(
             if promise.state() == v8::PromiseState::Pending {
                 continue;
             }
-            // A handler must await its SDK operations before reporting completion.
-            let failed = promise.state() == v8::PromiseState::Rejected || invocation.pending != 0;
+            // A Workers dispatcher can resolve before a derived continuation
+            // registers more native I/O. Complete only after this full V8
+            // checkpoint has no owned jobs or unresolved operations.
+            if source.workers_lifetimes
+                && (invocation.pending != 0 || backgrounds.get(&id) == Some(&0.0))
+            {
+                continue;
+            }
+            let failed = promise.state() == v8::PromiseState::Rejected
+                || invocation.pending != 0
+                || backgrounds.get(&id) == Some(&2.0);
             invocation.start.active.store(false, Ordering::Release);
             let result = promise.result(turn);
             let payload = if failed {
@@ -609,6 +666,13 @@ pub(super) fn run(
                 _bytes: bytes,
             });
             finished.push(id);
+        }
+        for id in &finished {
+            let cancel = v8::Local::new(turn, &cancel);
+            let id = v8::Number::new(turn, *id as f64);
+            cancel
+                .call(turn, undefined.into(), &[id.into()])
+                .context("JavaScript lifetime cancellation failed")?;
         }
         {
             let mut state = state.borrow_mut();

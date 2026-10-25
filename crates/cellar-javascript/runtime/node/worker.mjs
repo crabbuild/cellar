@@ -6,6 +6,7 @@ import { readFileSync } from "node:fs";
 import { Worker } from "node:worker_threads";
 import { Serializer, Deserializer } from "node:v8";
 import { types } from "node:util";
+import { setImmediate as checkpoint } from "node:timers/promises";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { pathToFileURL } from "node:url";
 
@@ -20,6 +21,7 @@ const parse = JSON.parse;
 const stringify = JSON.stringify;
 const isPromise = types.isPromise;
 const scope = new AsyncLocalStorage();
+const workersLifetimes = parse(config.descriptor).workers_lifetimes;
 // Track invocation authority separately from operations waiting for Rust replies.
 const active = new Map();
 const pending = new Map();
@@ -80,10 +82,11 @@ function operation(invocation, name, payload, synchronous = false) {
     reject("ValueLimit");
   }
 
-  if (
-    state.count >= config.operationLimit ||
-    state.pending >= config.pendingLimit
-  ) {
+  const completion = name === "workers.lifetime.response";
+  const ordinaryPending = state.pending - Number(pending.has(state.response));
+  if ((completion && state.response !== undefined) || (!completion && (
+    state.count >= config.operationLimit || ordinaryPending >= config.pendingLimit
+  ))) {
     reject("OperationLimit");
   }
 
@@ -95,6 +98,7 @@ function operation(invocation, name, payload, synchronous = false) {
     "workers.crypto.uuid",
     "workers.identity",
     "workers.namespace",
+    "workers.lifetime.response",
     "workers.callback.begin",
     "workers.callback.finish",
     "workers.callback.finish_sync",
@@ -128,7 +132,8 @@ function operation(invocation, name, payload, synchronous = false) {
     reject("OperationLimit");
   }
 
-  state.count++;
+  if (completion) state.response = id;
+  else state.count++;
   state.pending++;
   state.mutation ||= mutation;
 
@@ -186,6 +191,7 @@ const factory = makeRunner(operation, (invocation, name, payload) => operation(i
 // to Rust, or stop arbitrary application work using Node's own OS capabilities.
 function revoke(id) {
   active.delete(id);
+  runner?.cancel(id);
 
   for (const [key, operation] of pending) {
     if (operation.invocation === id) {
@@ -222,6 +228,14 @@ function receive(message) {
             failed = true;
           }
 
+          if (workersLifetimes) {
+            // A dispatcher result is not the end of its microtask queue. Wait
+            // through a complete Node checkpoint, then re-drain any derived
+            // native I/O or callback work registered by that queue.
+            do { await runner.drain(message.id); await checkpoint(); }
+            while (active.get(message.id) === state && (state.pending !== 0 || runner.background(message.id) === 0));
+            failed ||= runner.background(message.id) === 2;
+          }
           // Cancellation may already have removed this invocation while it awaited.
           if (active.get(message.id) !== state) {
             return;
@@ -301,6 +315,7 @@ runner = factory(
   typeof app.fetch === "function" || app.cells ? app : (app.default ?? app),
   config.descriptor,
   config.maximum,
+  config.lifetimeLimit,
 );
 send({ type: "ready" });
 

@@ -46,7 +46,7 @@ export function activateDurableObject(Target, nativeContext, { env = {}, contain
       promise.then(() => blocks.delete(promise), error => { blocks.delete(promise); if (!failed) { failed = true; failure = error; } });
       return promise;
     },
-    waitUntil() { return unsupported("waitUntil"); },
+    waitUntil(promise) { current()._waitUntil(promise); },
     abort() { return unsupported("abort"); },
   });
   let target;

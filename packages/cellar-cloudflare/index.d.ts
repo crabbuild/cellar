@@ -62,8 +62,8 @@ export interface DurableObjectState {
   readonly container: unknown;
   readonly exports: never;
   blockConcurrencyWhile<T>(callback: () => T | Promise<T>): Promise<T>;
-  /** Unsupported in the current profile. */
-  waitUntil(): never;
+  /** Requires Source.workers_lifetimes() in the native host. */
+  waitUntil(promise: Promise<unknown>): void;
   abort(): never;
 }
 type Reserved = "constructor" | "dup" | "fetch" | "connect" | "alarm" | "webSocketMessage" | "webSocketClose" | "webSocketError";

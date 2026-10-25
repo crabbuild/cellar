@@ -46,6 +46,25 @@ where
     F: FnOnce(Arc<Session>) -> Fut + Send + 'static,
     Fut: Future<Output = Result<Output>> + Send + 'static,
 {
+    serve_with_lifetime(context, make, false).await
+}
+
+/// Retain a Workers-compatible producer through native background work even if
+/// its request or response consumer disconnects. Response writes still observe
+/// their own backpressure/cancellation; independent background jobs may finish.
+pub async fn serve_retained<F, Fut>(context: &Context, make: F) -> Result<Output>
+where
+    F: FnOnce(Arc<Session>) -> Fut + Send + 'static,
+    Fut: Future<Output = Result<Output>> + Send + 'static,
+{
+    serve_with_lifetime(context, make, true).await
+}
+
+async fn serve_with_lifetime<F, Fut>(context: &Context, make: F, retained: bool) -> Result<Output>
+where
+    F: FnOnce(Arc<Session>) -> Fut + Send + 'static,
+    Fut: Future<Output = Result<Output>> + Send + 'static,
+{
     let pipe = IdentityTransformStream::new();
     let writer = pipe.writable.get_writer()?;
     let (head, mut receive) = oneshot::channel();
@@ -56,9 +75,13 @@ where
     });
     let mut driver = Box::pin(async move {
         let writer = &owned.pipe.as_ref().unwrap().1;
-        let result = cellar::asyncrt::select_biased! { "disconnect revokes streaming invocation authority";
-            _ = writer.closed() => bail!("guest response consumer closed"),
-            result = make(owned.clone()) => result,
+        let result = if retained {
+            make(owned.clone()).await
+        } else {
+            cellar::asyncrt::select_biased! { "disconnect revokes streaming invocation authority";
+                _ = writer.closed() => bail!("guest response consumer closed"),
+                result = make(owned.clone()) => result,
+            }
         };
         let head = owned.head.lock().unwrap().take();
         if let Some(head) = head {
@@ -80,6 +103,11 @@ where
         }
     }
     let mut cancel = Cancel(pipe.readable.clone(), true);
+    if retained {
+        context.wait_until(driver)?;
+        cancel.1 = false;
+        return receive.await.context("guest response producer stopped")?;
+    }
     // Before the response head, poll SDK operations through the actual handler
     // future. Wrappers that pause/cancel that future must retain control. Only
     // a streaming response or upgrade transfers the remaining driver to the
@@ -99,6 +127,20 @@ where
 }
 
 impl Session {
+    /// Publish a completed response while the original driver drains background
+    /// work. A disconnected consumer does not revoke unrelated native jobs.
+    pub fn publish(&self, output: Result<Output>) -> Result<()> {
+        if let Some(head) = self.head.lock().unwrap().take() {
+            let _ = head.send(output);
+        } else {
+            ensure!(
+                matches!(output, Ok(Output::Done) | Err(_)),
+                "response already published"
+            );
+        }
+        Ok(())
+    }
+
     pub fn streaming(&self) -> bool {
         *self.streaming.lock().unwrap()
     }

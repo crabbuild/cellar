@@ -496,6 +496,8 @@ production multi-node fault or performance qualification.
 | Source | Responsibility |
 | --- | --- |
 | [application.rs](application.rs) | `Source` registration, native `Application`/`Cell` proxies, and SDK execution within each invocation. |
+| [lifetime.rs](lifetime.rs) | Native-owned non-HTTP result publication and retained background drivers. |
+| [callbacks/mod.rs](callbacks/mod.rs) | Native block/transaction callback scopes and bounded synchronous callback servicing. |
 | [runtime/mod.rs](runtime/mod.rs) | Options, bounded channels, byte reservations, and joined bootstrap. |
 | [runtime/runner.js](runtime/runner.js) | Shared SDK facade, export validation, and activation-local objects. |
 | [runtime/engine/mod.rs](runtime/engine/mod.rs) | V8 isolate, continuation/activation identity, promises, and watchdog. |
@@ -516,3 +518,12 @@ A Rust host can select another container or sandbox backend with
 `Source::container_provider(Arc<dyn Provider>)`; see
 [`cellar-container`](../cellar-container/README.md) for the provider contract.
 The default provider preserves the native Docker/Podman behavior.
+
+
+For the optional Cloudflare runtime, `Source::workers_lifetimes()` selects retained
+native event/background behavior. A response may precede the completion of
+`ctx.waitUntil`, transaction callbacks and outstanding SDK calls. The native
+turn driver owns the remaining bridge, including after a client disconnect;
+ownership retirement, resource limits, event deadlines and shutdown still apply.
+The default Cellar handler contract continues to require awaited SDK work. This
+switch alone does not select a complete versioned Workers compatibility profile.

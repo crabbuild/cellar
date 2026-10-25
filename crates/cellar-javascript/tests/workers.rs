@@ -11,6 +11,8 @@ use std::{
     sync::{Arc, OnceLock},
     time::Duration,
 };
+#[path = "support/lifetimes.rs"]
+mod lifetimes;
 #[allow(dead_code)]
 #[path = "support/native.rs"]
 mod native;
@@ -105,12 +107,26 @@ fn run_with_budget(
     budget: Duration,
     host: impl FnOnce(Arc<dyn Application>) -> Result<()>,
 ) -> Result<()> {
+    run_with_options(
+        backend,
+        fixture,
+        Options {
+            turn_timeout: budget,
+            ..Default::default()
+        },
+        host,
+    )
+}
+
+fn run_with_options(
+    backend: Backend,
+    fixture: &str,
+    options: Options,
+    host: impl FnOnce(Arc<dyn Application>) -> Result<()>,
+) -> Result<()> {
     let root = fixtures()?;
     let source = source(&root, fixture)?;
-    let options = Options {
-        turn_timeout: budget,
-        ..Default::default()
-    };
+    let budget = options.turn_timeout;
     match backend {
         #[cfg(feature = "embed")]
         Backend::Embedded => {
@@ -135,10 +151,13 @@ fn source(root: &Path, fixture: &str) -> Result<Source> {
     };
     let events = if fixture == "rpc" {
         vec![EventKind::CellRpc]
+    } else if fixture == "lifetimes" {
+        vec![EventKind::Fetch, EventKind::Alarm, EventKind::CellRpc]
     } else {
         vec![EventKind::Fetch, EventKind::Alarm]
     };
     let source = Source::new(code, fixture)
+        .workers_lifetimes()
         .events([EventKind::Fetch])
         .cell_events("Counter", events);
     Ok(if fixture == "rpc" {
@@ -154,6 +173,32 @@ async fn request(client: &reqwest::Client, address: &str, path: &str) -> Result<
     let text = reply.text().await?;
     ensure!(status.is_success(), "{path}: {status}: {text}");
     serde_json::from_str(&text).context("fixture response JSON")
+}
+
+// Releasing a JS barrier acknowledges the signal, not completion of the
+// background callback. Observe its real native write before asserting it.
+async fn background_value(
+    client: &reqwest::Client,
+    address: &str,
+    path: &str,
+    key: &str,
+    expected: &str,
+) -> Result<Value> {
+    tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            let observed = request(client, address, path).await?;
+            ensure!(
+                observed.get("deepFailure").is_none(),
+                "derived SDK continuation failed: {observed}"
+            );
+            if observed[key] == expected {
+                return Ok(observed);
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .with_context(|| format!("background write {path} {key}={expected} did not finish"))?
 }
 
 fn exercise(
@@ -376,4 +421,146 @@ fn embedded_sync_callback_timeout_rolls_back_and_joins() -> Result<()> {
 #[test]
 fn node_sync_callback_timeout_rolls_back_and_joins() -> Result<()> {
     synchronous_timeout(Backend::Node)
+}
+
+fn background_lifetimes(backend: Backend) -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    run_with_options(
+        backend,
+        "lifetimes",
+        Options {
+            max_value_bytes: 16 * 1024,
+            max_body_bytes: 8 * 1024,
+            turn_timeout: Duration::from_secs(10),
+            ..Default::default()
+        },
+        |app| {
+            let signals = Arc::new(lifetimes::Signals::default());
+            let app = Arc::new(lifetimes::RetainedApplication(app, signals.clone()));
+            tokio::runtime::Builder::new_multi_thread().enable_all().build()?.block_on(async {
+            let (node, address) = native::start_configured(directory.path(), app, |config, _, _| {
+                config.runtime.handler_budget = Duration::from_secs(5);
+            }).await?;
+            let client = reqwest::Client::builder().timeout(Duration::from_secs(5)).build()?;
+            ensure!(request(&client, &address, "alice/wait").await?["ok"] == true);
+            ensure!(request(&client, &address, "bob/foreign").await?["ok"] == true);
+            ensure!(request(&client, &address, "release/alice").await?["ok"] == true);
+            for (command, key, expected) in [("transaction", "transaction", "3"), ("rollback", "rollback", ""), ("reject", "wait", "1"), ("quota", "wait", "1")] {
+                ensure!(request(&client, &address, &format!("alice/{command}")).await?["ok"] == true);
+                ensure!(request(&client, &address, "release/alice").await?["ok"] == true);
+                let observed = request(&client, &address, "alice/read").await?;
+                if expected.is_empty() { ensure!(observed.get(key).is_none(), "dropped transaction did not roll back"); }
+                else { ensure!(observed[key] == expected, "{command}: {observed}"); }
+            }
+            let observed = request(&client, &address, "alice/read").await?;
+            ensure!(observed["wait"] == "1" && observed["child"] == "2");
+            ensure!(request(&client, &address, "rpc/alice").await?["value"] == "101");
+            ensure!(request(&client, &address, "release/rpc").await?["ok"] == true);
+            background_value(&client, &address, "alice/read", "rpc", "6").await?;
+            let disconnected_client = client.clone();
+            let disconnected_address = address.clone();
+            let disconnected = tokio::spawn(async move { disconnected_client.get(format!("{disconnected_address}/alice/disconnect-before-head")).send().await });
+            tokio::time::timeout(Duration::from_secs(2), async {
+                loop {
+                    if request(&client, &address, "pending/alice-before-response").await?["pending"] == true { break; }
+                    tokio::task::yield_now().await;
+                }
+                Ok::<(), anyhow::Error>(())
+            }).await??;
+            disconnected.abort();
+            ensure!(disconnected.await.unwrap_err().is_cancelled());
+            ensure!(request(&client, &address, "release/alice-before-background").await?["ok"] == true);
+            background_value(&client, &address, "alice/read", "before", "7").await?;
+            ensure!(request(&client, &address, "release/alice-before-response").await?["ok"] == true);
+            let mut response = client.get(format!("{address}/alice/stream")).send().await?;
+            ensure!(response.status().is_success());
+            ensure!(response.chunk().await?.as_deref() == Some(b"head".as_slice()));
+            drop(response);
+            ensure!(request(&client, &address, "release/alice-stream").await?["ok"] == true);
+            ensure!(request(&client, &address, "release/alice-background").await?["ok"] == true);
+            background_value(&client, &address, "alice/read", "disconnected", "5").await?;
+            ensure!(request(&client, &address, "alice/deep").await?["ok"] == true);
+            background_value(&client, &address, "deep-target/read", "deep", "10").await?;
+            let refused = client.get(format!("{address}/oversized/result")).send().await?;
+            ensure!(!refused.status().is_success(), "oversized result was accepted");
+            let _ = refused.bytes().await?;
+            tokio::time::timeout(Duration::from_secs(2), signals.entered.notified()).await?;
+            signals.release.notify_one();
+            background_value(&client, &address, "alice/read", "oversized", "9").await?;
+            ensure!(request(&client, &address, "alice/shutdown").await?["ok"] == true);
+            tokio::time::timeout(Duration::from_secs(2), signals.entered.notified()).await?;
+            let mut stopping = Box::pin(node.shutdown(ShutdownMode::Preserve));
+            cellar::asyncrt::select_biased! { "shutdown must remain pending while accepted native work is held";
+                outcome = &mut stopping => anyhow::bail!("shutdown abandoned retained SDK work: {outcome:?}"),
+                _ = tokio::time::sleep(Duration::from_millis(25)) => {},
+            }
+            signals.release.notify_one();
+            let outcome = stopping.await?;
+            ensure!(matches!(outcome, NodeOutcome::Stopped(report) if report.cells_drained && report.application_work_drained && !report.drain_timed_out));
+            Ok(())
+        })
+        },
+    )?;
+    run(backend, "lifetimes", |app| {
+        tokio::runtime::Builder::new_multi_thread().enable_all().build()?.block_on(async {
+            let (node, address) = native::start_configured(directory.path(), app, |config, _, _| { config.runtime.handler_budget = Duration::from_secs(5); }).await?;
+            ensure!(request(&reqwest::Client::new(), &address, "alice/read").await?["shutdown"] == "8", "native shutdown lost the background write");
+            let outcome = node.shutdown(ShutdownMode::Preserve).await?;
+            ensure!(matches!(outcome, NodeOutcome::Stopped(report) if report.cells_drained && report.application_work_drained && !report.drain_timed_out));
+            Ok(())
+        })
+    })
+}
+
+#[cfg(feature = "embed")]
+#[test]
+fn embedded_workers_native_background_lifetimes() -> Result<()> {
+    background_lifetimes(Backend::Embedded)
+}
+
+#[cfg(feature = "node")]
+#[test]
+fn node_workers_native_background_lifetimes() -> Result<()> {
+    background_lifetimes(Backend::Node)
+}
+
+fn response_capacity(backend: Backend) -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    run_with_options(
+        backend,
+        "lifetimes",
+        Options {
+            max_operations: 3,
+            max_pending_operations: 1,
+            turn_timeout: Duration::from_secs(10),
+            ..Default::default()
+        },
+        |app| {
+            let signals = Arc::new(lifetimes::Signals::default());
+            let app = Arc::new(lifetimes::RetainedApplication(app, signals.clone()));
+            tokio::runtime::Builder::new_multi_thread().enable_all().build()?.block_on(async {
+            let (node, address) = native::start_configured(directory.path(), app, |config, _, _| { config.runtime.handler_budget = Duration::from_secs(5); }).await?;
+            let client = reqwest::Client::builder().timeout(Duration::from_secs(5)).build()?;
+            ensure!(request(&client, &address, "budget/total").await?["ok"] == true, "response consumed the exhausted total-operation budget");
+            ensure!(request(&client, &address, "budget/pending").await?["ok"] == true, "response could not use its reserved pending slot");
+            tokio::time::timeout(Duration::from_secs(2), signals.entered.notified()).await?;
+            signals.release.notify_one();
+            let outcome = node.shutdown(ShutdownMode::Preserve).await?;
+            ensure!(matches!(outcome, NodeOutcome::Stopped(report) if report.cells_drained && report.application_work_drained && !report.drain_timed_out));
+            Ok(())
+        })
+        },
+    )
+}
+
+#[cfg(feature = "embed")]
+#[test]
+fn embedded_workers_response_has_reserved_capacity() -> Result<()> {
+    response_capacity(Backend::Embedded)
+}
+
+#[cfg(feature = "node")]
+#[test]
+fn node_workers_response_has_reserved_capacity() -> Result<()> {
+    response_capacity(Backend::Node)
 }

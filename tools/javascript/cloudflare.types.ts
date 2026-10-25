@@ -5,6 +5,7 @@ import { DurableObject } from "../../packages/cellar-cloudflare/workers.js";
 import type { Cell, Context } from "../../packages/cellar-sdk/index.js";
 class Counter extends DurableObject {
   increment(by: bigint): bigint { return by + 1n; }
+  background(): void { this.ctx.waitUntil(Promise.resolve(3)); }
 }
 declare const context: Context;
 const namespace = durableObjectNamespace<Counter>(context, "COUNTERS");

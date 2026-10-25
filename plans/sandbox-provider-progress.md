@@ -14,7 +14,7 @@ does not narrow that objective or turn fixture passes into full compatibility.
 | Slice | Current evidence | Remaining work / completion evidence |
 | --- | --- | --- |
 | SP-01 | Exact celld reference commit/files/license, npm packages/lock/integrities, imported runtime bytes and immutable Sandbox image manifest are in `tools/sandbox/compat`; drift/refusal tests pass; API/fixture inventory lists native mappings and explicit gaps | Input inventory implemented; runtime conformance remains in SP-02–SP-04 and later profiles |
-| SP-02 | Native-backed DO SQL/KV/clone facade, activation-bound authority, object identity, value-only namespace/cell RPC, constructor admission, native input gates/reset and sync/async transactions execute in Node/V8; actual published constructors are exercised | Complete module/bootstrap/web globals, automatic activation-owned environment bindings, property/target RPC and lifetimes, full background/response/disconnect behavior and profile/version admission; retain native-only dependency boundary |
+| SP-02 | Native-backed DO SQL/KV/clone facade, activation-bound authority, object identity, value-only namespace/cell RPC, constructor admission, native input gates/reset, sync/async transactions and retained event/background drivers execute in Node/V8; actual published constructors are exercised | Complete module/bootstrap/web globals, automatic activation-owned environment bindings, property/target RPC and lifetimes, full versioned lifetime/deadline qualification and profile/version admission; retain native-only dependency boundary |
 | SP-03 | Actual published `@cloudflare/containers@0.3.7` constructor, state and SQL scheduling run in both engines with native storage and a stopped-provider view; unchanged upstream example is pinned | Execute the unchanged app, class hooks, routing, sleep/wake, process/port behavior and cleanup against the native engine |
 | SP-04 | Actual `@cloudflare/sandbox@0.12.9` constructor/configuration and metadata recovery run in Node; matching upstream app/Dockerfile and `linux/amd64` image digest are pinned | Run the unchanged app and SDK/image end to end over HTTP and RPC; files, streamed exec, background records, previews, teardown and failure cases |
 | SP-05 | Provider environment/operation/limit discovery is implemented in Rust, Python, JS and TS; native and restricted provider dispatch tests cover it | Portable files and richer operations, named configuration, durable remote bindings, fencing, expiry/reconnect, loss/unknown outcomes and orphan reconciliation |
@@ -105,8 +105,8 @@ alarm and fetch cannot construct duplicate objects for one activation.
 Constructor callbacks remain attached to their original event and admission
 refuses failed initialization, including rejection with `undefined`. The
 follow-up below now uses the actual native gate/reset and async transaction
-paths. Complete response/background/disconnect lifetimes remain required. Do not
-replace native contracts with detached JS work, guessed rollback or an HTTP-only
+paths. The retained-driver follow-up below adds response/background/disconnect
+behavior; full profile qualification remains required. Do not replace native contracts with detached JS work, guessed rollback or an HTTP-only
 RPC substitute. Module/bootstrap globals,
 automatic environment bindings, RPC objects and full container lifecycle remain
 SP-02/SP-03 work.
@@ -138,10 +138,10 @@ the real input gate. Fixtures observe the Rust callback boundary while a second
 request is queued, then verify actual activation reconstruction after failure
 and zero application method invocations after failed constructor admission.
 
-This is still partial SP-02 delivery: the bridge closes on event completion or
-cancellation. Full Workers response/background retention, unawaited transaction
-work and ordinary client-disconnect survival remain required. `waitUntil`, abort/reconstruction and
-full profile/deadline qualification are unfinished. Native SDK lifetime tests do not prove those JS
+This is still partial SP-02 delivery. Default handlers close their bridge on
+event completion/cancellation. The retained-driver follow-up below connects
+Workers response/background work and dropped transactions to native ownership.
+Full profile/deadline qualification and abort/reconstruction remain unfinished. Native SDK lifetime tests do not prove those JS
 profile guarantees. The complete delivery objective is unchanged.
 
 ### Native synchronous transactions
@@ -303,3 +303,52 @@ JS/build/type checks, four pinned-input checks and the native-only all-feature
 dependency guard (455 packages, no engine) pass. This is focused qualification
 of the new boundary and transports, not a repeat of all 627 earlier harness
 cases or completion of the remaining SP-01–SP-10 acceptance scope.
+
+
+### Retained Workers event drivers
+
+`Source::workers_lifetimes()` selects native-owned background drivers rather than
+transferring effects to a language task. HTTP and native value-only RPC results
+can publish before the original driver finishes draining JS jobs. Explicit
+`waitUntil` promises, whole async transaction callbacks and outstanding native SDK
+operations retain that invocation's exact authority. Repeated registration by
+completing jobs is drained; rejected explicit background work reports a native
+background failure without changing an already published response. Live explicit
+registrations are bounded by the host's batch limit. A once-only response
+publication uses reserved completion capacity even when ordinary SDK pending/total
+budgets are exhausted; ordinary operations still refuse at their original limits.
+The original default Cellar
+handler/stream cancellation behavior remains available.
+
+The new fixture exercises response ordering, foreign saved-context refusal,
+dropped transaction commit/rollback, nested and rejected background work, quota
+refusal, native RPC result ordering and disconnects before and after response
+headers. It also rejects oversized responses while finishing accepted background
+work, saturates total/pending SDK budgets without blocking response publication,
+and proves native shutdown waits for a held RPC, resumes the JS callback and
+persists its write across a fresh runtime. Both engines pass these cases. A follow-up regression exposed premature V8
+completion when an I/O-derived continuation crossed eight promise awaits before
+starting another native call. Both backends now retain the private job registry
+until their full microtask checkpoint reports no owned jobs or native operations;
+backend cancellation performs final cleanup. The regression now passes in both
+engines, including a subsequent real SQLite write from the derived native call.
+Full compatibility-date/flag deadline/eviction behavior,
+container monitors, timers and the remaining delivery scope stay open.
+
+
+The retained-driver checkpoint passes 23 JavaScript runtime library cases, 15
+real-node Workers fixtures and five Node/V8 transport/restart integrations. All
+compatibility fixtures now enable retained lifetimes, including the actual
+published Container/Sandbox constructors. Shared guest tests pass 13 cases;
+CPython passes 25 library cases plus its standalone live-streaming program.
+Node-only qualification passes 14 library cases and eight Workers fixtures.
+These focused checks do not repeat or replace the earlier broad harness audit.
+
+Strict affected-crate all-target and Node-only Clippy, Rust formatting/layout
+(934 files), documentation/fixture links, whitespace, nine JS/build/type checks,
+four pinned-input checks and the native-only dependency guard (455 packages, no
+engine) pass. An initial combined V8 streaming check exceeded its existing 100 ms
+budget under host build load. It passed an isolated rerun and the later complete
+transport rerun with all deadlines and assertions unchanged. These are local
+results. Full Workers/SDK/image/provider and hosted CI qualification remain open;
+the complete SP-01–SP-10 objective stays active.

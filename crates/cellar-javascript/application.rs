@@ -3,7 +3,7 @@
 //! Translate native application calls into bounded engine messages, then execute
 //! each requested SDK operation inside the original native invocation.
 use crate::runtime::{Event, Life, Runtime, Start};
-use anyhow::{ensure, Result};
+use anyhow::{ensure, Context as _, Result};
 use cellar::sdk::{
     queue, Application, Cell, CellIdentity, Context, HandlerFuture, Invocation, Output,
 };
@@ -61,6 +61,7 @@ impl EventKind {
 /// `Source::module` describes registrations for an external Node module.
 #[derive(Clone)]
 pub struct Source {
+    pub(crate) workers_lifetimes: bool,
     containers: cellar_guest::containers::Adapter,
     pub(crate) code: String,
     pub(crate) filename: String,
@@ -80,6 +81,7 @@ impl Source {
     /// `code` must define `CellarApp`, as emitted by the Cellar npm build tool.
     pub fn new(code: impl Into<String>, filename: impl Into<String>) -> Self {
         Self {
+            workers_lifetimes: false,
             containers: Default::default(),
             code: code.into(),
             filename: filename.into(),
@@ -126,8 +128,16 @@ impl Source {
         self
     }
 
+    /// Enable native-owned Workers event/background lifetimes. This selects
+    /// lifetime semantics only, not a complete Workers API compatibility profile.
+    pub fn workers_lifetimes(mut self) -> Self {
+        self.workers_lifetimes = true;
+        self
+    }
+
     pub(crate) fn descriptor(&self) -> Value {
         json!({
+            "workers_lifetimes": self.workers_lifetimes,
             "events": self.events,
             "cells": self.cell_events
         })
@@ -203,13 +213,27 @@ impl JavaScriptApplication {
         if matches!(event, Invocation::Fetch(_)) && state.queue.is_none() {
             let app = self.clone();
             let producer = context.clone();
-            return cellar_guest::transport::serve(&context, move |session| async move {
+            let retained = self.source.workers_lifetimes;
+            let make = move |session| async move {
                 state.transport = session;
-                app.run_inner(producer, event, cell, state).await
+                app.run_inner(producer, event, cell, state, None).await
+            };
+            return if retained {
+                cellar_guest::transport::serve_retained(&context, make).await
+            } else {
+                cellar_guest::transport::serve(&context, make).await
+            };
+        }
+        if self.source.workers_lifetimes {
+            let app = self.clone();
+            let producer = context.clone();
+            return crate::lifetime::serve(&context, move |reply| async move {
+                app.run_inner(producer, event, cell, state, Some(reply))
+                    .await
             })
             .await;
         }
-        self.run_inner(context, event, cell, state).await
+        self.run_inner(context, event, cell, state, None).await
     }
 
     async fn run_inner(
@@ -218,6 +242,7 @@ impl JavaScriptApplication {
         event: Invocation,
         cell: Option<(u64, String, Life)>,
         state: State,
+        reply: Option<crate::lifetime::Reply>,
     ) -> Result<Output> {
         let mut state = state;
         state.containers = self.source.containers.session();
@@ -322,6 +347,7 @@ impl JavaScriptApplication {
 
         let mut stopped = self.runtime.stopped.subscribe();
         let mut pending = FuturesUnordered::new();
+        let mut published = false;
         loop {
             ensure!(!*stopped.borrow(), "JavaScript runtime stopped");
             // All futures stay inside this invocation and its original native
@@ -341,6 +367,61 @@ impl JavaScriptApplication {
                 "JavaScript runtime is closed"
             );
             match event {
+                Event::Operation {
+                    id,
+                    name,
+                    payload,
+                    callback_scope,
+                    blocking,
+                    synchronous,
+                    _bytes,
+                } if name == "workers.lifetime.response" => {
+                    let result = (|| -> Result<Value> {
+                        ensure!(
+                            self.source.workers_lifetimes
+                                && !published
+                                && !blocking
+                                && callback_scope.is_none(),
+                            cellar_guest::failure::Validation
+                        );
+                        let input: Value = serde_json::from_str(&payload)
+                            .context(cellar_guest::failure::Validation)?;
+                        ensure!(
+                            input.as_object().is_some_and(|value| value.len() == 2),
+                            cellar_guest::failure::Validation
+                        );
+                        let encoded = input["value"]
+                            .as_str()
+                            .context(cellar_guest::failure::Validation)?;
+                        let value: Value = serde_json::from_str(encoded)
+                            .context(cellar_guest::failure::Validation)?;
+                        let failed = input["failed"]
+                            .as_bool()
+                            .context(cellar_guest::failure::Validation)?;
+                        let output = if failed {
+                            Err(anyhow::anyhow!("JavaScript handler failed"))
+                        } else {
+                            self.output(&context, kind, &state, value)
+                        };
+                        if let Some(reply) = &reply {
+                            crate::lifetime::publish(reply, output);
+                        } else {
+                            state.transport.publish(output)?;
+                        }
+                        published = true;
+                        Ok(Value::Null)
+                    })();
+                    self.runtime.respond(
+                        invocation,
+                        id,
+                        cellar_guest::failure::result(
+                            &name,
+                            result,
+                            self.runtime.options.max_value_bytes,
+                        )?,
+                        synchronous,
+                    )?;
+                }
                 event if matches!(&event, Event::Operation { name, .. } if name == "workers.callback.start_sync") =>
                 {
                     crate::callbacks::Pump {
@@ -462,34 +543,39 @@ impl JavaScriptApplication {
                     let value: Value = serde_json::from_str(&payload).map_err(|_| {
                         anyhow::anyhow!("JavaScript handler completion decoding failed")
                     })?;
-                    return if kind == "fetch" {
-                        if let Some(output) = state
-                            .transport
-                            .output(&context, &value)
-                            .map_err(|_| anyhow::anyhow!("invalid guest transport response"))?
-                        {
-                            return Ok(output);
-                        }
-                        // Serde and HTTP conversion errors may quote malformed
-                        // application values. Native ingress formats the full
-                        // handler error chain, so replace it at this boundary.
-                        values::output(&context, &value, self.runtime.options.max_body_bytes)
-                            .map(Output::Http)
-                            .map_err(|_| anyhow::anyhow!("JavaScript response conversion failed"))
-                    } else if kind == "cell_rpc" {
-                        cellar_guest::workers::rpc::output(
-                            value,
-                            self.runtime.options.max_body_bytes,
-                        )
-                        .map(Output::Rpc)
-                        .map_err(|_| anyhow::anyhow!("JavaScript RPC response conversion failed"))
-                    } else {
+                    return if published {
                         Ok(Output::Done)
+                    } else {
+                        self.output(&context, kind, &state, value)
                     };
                 }
             }
         }
         anyhow::bail!("JavaScript invocation channel closed before completion")
+    }
+
+    fn output(&self, context: &Context, kind: &str, state: &State, value: Value) -> Result<Output> {
+        if kind == "fetch" {
+            if let Some(output) = state
+                .transport
+                .output(context, &value)
+                .map_err(|_| anyhow::anyhow!("invalid guest transport response"))?
+            {
+                return Ok(output);
+            }
+            // Serde and HTTP conversion errors may quote malformed
+            // application values. Native ingress formats the full
+            // handler error chain, so replace it at this boundary.
+            values::output(context, &value, self.runtime.options.max_body_bytes)
+                .map(Output::Http)
+                .map_err(|_| anyhow::anyhow!("JavaScript response conversion failed"))
+        } else if kind == "cell_rpc" {
+            cellar_guest::workers::rpc::output(value, self.runtime.options.max_body_bytes)
+                .map(Output::Rpc)
+                .map_err(|_| anyhow::anyhow!("JavaScript RPC response conversion failed"))
+        } else {
+            Ok(Output::Done)
+        }
     }
 }
 

@@ -20,7 +20,8 @@ pub struct State {
 pub fn is_read(name: &str) -> bool {
     matches!(
         name,
-        "workers.crypto.random"
+        "workers.lifetime.response"
+            | "workers.crypto.random"
             | "workers.crypto.uuid"
             | "workers.identity"
             | "workers.namespace"

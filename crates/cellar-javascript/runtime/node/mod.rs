@@ -114,6 +114,7 @@ struct InvocationState {
     operations: usize,
     // Operation ID -> whether its unresolved outcome is a mutation.
     pending: HashMap<u64, bool>,
+    response: Option<u64>,
     mutation: bool,
 }
 
@@ -203,6 +204,7 @@ fn run(
         "entry": node.entry,
         "descriptor": source.descriptor().to_string(),
         "maximum": runtime.options.max_objects,
+        "lifetimeLimit": runtime.options.max_batch_operations,
         "valueLimit": runtime.options.max_value_bytes,
         "cloneLimit": runtime.options.max_body_bytes.min(runtime.options.max_value_bytes),
         "bridgeLimit": runtime.options.max_bridge_bytes,
@@ -365,6 +367,7 @@ fn run(
                         start,
                         operations: 0,
                         pending: HashMap::new(),
+                        response: None,
                         mutation: false,
                     },
                 );
@@ -417,6 +420,13 @@ fn run(
                     // Recheck authority and limits in Rust even though the worker
                     // also enforces them before sending an operation.
                     let mutation = requires_mutation_slot(name);
+                    let completion = name == "workers.lifetime.response";
+                    let ordinary_pending = state.pending.len()
+                        - usize::from(
+                            state
+                                .response
+                                .is_some_and(|id| state.pending.contains_key(&id)),
+                        );
                     let refusal = if !state.start.active.load(Ordering::Acquire)
                         || !state.start.owner.load(Ordering::Acquire)
                     {
@@ -425,8 +435,10 @@ fn run(
                         Some("UnsupportedOperation")
                     } else if name.len() > 64 || payload.len() > runtime.options.max_value_bytes {
                         Some("ValueLimit")
-                    } else if state.operations >= runtime.options.max_operations
-                        || state.pending.len() >= runtime.options.max_pending_operations
+                    } else if (completion && state.response.is_some())
+                        || (!completion
+                            && (state.operations >= runtime.options.max_operations
+                                || ordinary_pending >= runtime.options.max_pending_operations))
                     {
                         Some("OperationLimit")
                     } else if mutation && state.mutation {
@@ -459,7 +471,11 @@ fn run(
                         reject(&mut transport, invocation, id, "OperationLimit")?;
                         continue;
                     }
-                    state.operations += 1;
+                    if completion {
+                        state.response = Some(id);
+                    } else {
+                        state.operations += 1;
+                    }
                     state.pending.insert(id, mutation);
                     state.mutation |= mutation;
                 }

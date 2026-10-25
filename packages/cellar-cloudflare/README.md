@@ -43,6 +43,15 @@ constructor admission above the original native Cellar invocation:
   only synchronous calls from the current callback, refusing async SDK effects
   and native Promise results. The SQLite transaction stays on the original
   native host thread until commit/rollback; no writes are replayed from JS.
+- `Source::workers_lifetimes()` opts the native host into retained event drivers.
+  `ctx.waitUntil(promise)`, async transaction callbacks and outstanding SDK calls
+  retain their original invocation after a response or client disconnect. HTTP
+  and value-only RPC results publish before background drainage; native deadlines,
+  retirement and joined shutdown still govern that work. Explicit `waitUntil`
+  registrations are bounded by the host's batch limit. This switch
+  selects lifetime behavior, not a complete versioned Workers API profile.
+  A once-only response publication has a reserved slot and does not consume the
+  ordinary SDK operation/pending budgets; ordinary effects remain bounded.
 - Native namespace ID derivation/validation and event-owned stubs for value-only
   cell RPC. Actual native `Invocation::CellRpc` / `Output::Rpc` carry clone graphs;
   calls retain native routing, ownership, durability and cancellation behavior.
@@ -61,7 +70,7 @@ Defining `RpcTarget` does not implement RPC transport or remote object lifetime.
 
 The complete Worker module loader, HTTP/web globals, automatic activation-owned
 namespace environment bindings, property RPC, RPC targets,
-PITR, complete callback/response/disconnect lifetime semantics, `waitUntil`, abort/reconstruction,
+PITR, full lifetime/profile deadline qualification, abort/reconstruction,
 container lifecycle and Sandbox control-server integration remain required.
 Unavailable APIs throw; they must not silently succeed or lose transaction,
 network policy or cancellation guarantees. Current storage list/batch operations
@@ -102,11 +111,19 @@ native tokens hold weak block references, so retaining one cannot retain the
 input gate. Callback completion control does not occupy a JS mutation slot;
 native transaction queues/guards serialize effects and result loss stays unknown.
 
-The adapter still closes its bridge on event completion/cancellation. Full
-Workers response/background retention, dropped transaction results and ordinary
-client-disconnect survival remain required. Native SDK lifetime/deadline tests
-do not establish those JS profile guarantees. `waitUntil` and the complete
-published package/image paths are not qualified here.
+Ordinary Cellar handlers still close the bridge on completion/cancellation and
+require awaited SDK work. Compatibility hosts opt into `Source::workers_lifetimes()`
+to retain a native-owned driver. It tracks explicit background promises, whole
+transaction callbacks and outstanding SDK calls, including repeated registrations
+by completing jobs. Before final revocation, each backend observes a full
+microtask checkpoint and rechecks owned jobs/native operations, so derived I/O
+continuations can register further work. Background rejection is reported through native work without
+replacing an already published response. Cancelled/retired drivers remove private
+JS job registries and revoke effects; they cannot extend native authority.
+
+Full Cloudflare compatibility dates/flags, eviction/deadline profiles, timers,
+RPC targets, container monitoring and the complete published package/image paths
+still require qualification. Native-only hosts remain engine-free.
 
 ## Native value-only RPC integration
 
