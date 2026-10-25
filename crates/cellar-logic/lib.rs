@@ -32,6 +32,7 @@ pub mod peer;
 pub mod pressure;
 pub mod queue;
 pub mod raft_command;
+pub mod raft_fleet;
 pub mod raft_leadership;
 pub mod raft_placement;
 pub mod rebalance;

@@ -40,6 +40,7 @@ reproducible from the same state and inputs.
 | Background work | Alarms, durable wakes, queues and cron | [alarm.rs](alarm.rs), [wake.rs](wake.rs), [queue.rs](queue.rs), [cron.rs](cron.rs) |
 | Event delivery | Stream and subscription lifecycle decisions | [event_stream.rs](event_stream.rs), [subscription_lifecycle.rs](subscription_lifecycle.rs) |
 | Resource pressure | Admission, residency and balancing | [pressure.rs](pressure.rs), [rebalance.rs](rebalance.rs) |
+| Fleet resource accounting | Retained physical occupancy, unresolved growth and scoped materialization credit | [raft_fleet](raft_fleet/mod.rs) |
 | Shutdown | Draining and release decisions | [drain.rs](drain.rs) |
 
 ## Preserve authority and proof
@@ -53,6 +54,16 @@ Keep policy decisions here and external mechanisms in host adapters. Read
 [architecture](../../docs/03-architecture.md) and the
 [authority decision record](../../docs/adr/002-cell-authority-and-proof.md)
 before changing ownership, recovery or output gates.
+
+`raft_fleet::ResourceLedger` requires complete reservation input and exact
+boot/process/profile-scoped physical observations. It charges physical high
+water, unmaterialized incremental growth and an explicit node reserve separately
+for engine slots, durable bytes and memory. Materialization replaces only the
+attributed part of outstanding growth. Older-boot debt remains fully charged.
+Lower measurements do not establish physical release; no release API is exposed.
+The pure ledger grants no membership or catalog authority. Authenticated resource
+sampling, atomic catalog reservation admission and planner/controller integration
+remain separate fleet implementation work.
 
 Startup inventory confirmation is node work, independent of callers joining
 its owner reads. Cancelling a caller leaves a queued confirmation in place.
