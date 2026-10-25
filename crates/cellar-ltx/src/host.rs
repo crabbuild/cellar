@@ -186,6 +186,15 @@ pub trait FileSystem: Send + Sync {
 
     fn metadata(&self, path: &Path) -> io::Result<HostMetadata>;
 
+    /// Inspect the leaf itself, rather than following a symbolic link. Durable
+    /// inventories require this contract; unsupported providers must refuse.
+    fn symlink_metadata(&self, _path: &Path) -> io::Result<HostMetadata> {
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "link-aware metadata is unsupported",
+        ))
+    }
+
     fn create(&self, path: &Path) -> io::Result<HostFile>;
 
     /// Create a file without replacing an existing path. Cache publication
@@ -496,6 +505,21 @@ fn clone_read_write_direct(_source: &Path, _destination: &Path) -> io::Result<Op
     Ok(None)
 }
 
+fn file_metadata(metadata: std::fs::Metadata) -> HostMetadata {
+    let modified_unix_millis = metadata
+        .modified()
+        .ok()
+        .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+        .map(|duration| duration.as_millis() as i64)
+        .unwrap_or(0);
+    HostMetadata {
+        len: metadata.len(),
+        is_dir: metadata.is_dir(),
+        is_file: metadata.is_file(),
+        modified_unix_millis,
+    }
+}
+
 #[allow(clippy::disallowed_methods)]
 impl FileSystem for DirectFileSystem {
     fn create_read_write(&self, path: &Path) -> io::Result<HostFile> {
@@ -561,19 +585,11 @@ impl FileSystem for DirectFileSystem {
     }
 
     fn metadata(&self, path: &Path) -> io::Result<HostMetadata> {
-        let metadata = std::fs::metadata(path)?;
-        let modified_unix_millis = metadata
-            .modified()
-            .ok()
-            .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
-            .map(|duration| duration.as_millis() as i64)
-            .unwrap_or(0);
-        Ok(HostMetadata {
-            len: metadata.len(),
-            is_dir: metadata.is_dir(),
-            is_file: metadata.is_file(),
-            modified_unix_millis,
-        })
+        Ok(file_metadata(std::fs::metadata(path)?))
+    }
+
+    fn symlink_metadata(&self, path: &Path) -> io::Result<HostMetadata> {
+        Ok(file_metadata(std::fs::symlink_metadata(path)?))
     }
 
     fn create(&self, path: &Path) -> io::Result<HostFile> {

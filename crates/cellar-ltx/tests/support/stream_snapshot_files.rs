@@ -24,6 +24,10 @@ pub struct Metrics {
     pub corrupt_output: AtomicBool,
     pub short_read: AtomicBool,
     pub corrupt_read_countdown: AtomicUsize,
+    pub create_mode: AtomicUsize,
+    pub fail_dir_sync: AtomicBool,
+    pub fail_remove: AtomicBool,
+    pub exit_after_root_sync: AtomicBool,
     pub clone_mode: AtomicUsize,
     pub clone_calls: AtomicUsize,
     /// 0: unsupported; 1: accepted; 2: I/O failure; 3: second file fails;
@@ -35,6 +39,7 @@ pub struct Metrics {
 struct File {
     inner: HostFile,
     metrics: Arc<Metrics>,
+    root_metadata: bool,
 }
 
 impl Drop for File {
@@ -128,7 +133,11 @@ impl HostFileIo for File {
         if self.metrics.fail_sync.swap(false, Ordering::AcqRel) {
             return Err(io::Error::other("uncertain file sync"));
         }
-        self.inner.sync_all()
+        self.inner.sync_all()?;
+        if self.root_metadata && self.metrics.exit_after_root_sync.load(Ordering::Acquire) {
+            std::process::exit(77);
+        }
+        Ok(())
     }
 
     fn file_len(&mut self) -> io::Result<u64> {
@@ -151,6 +160,7 @@ impl BoundedFiles {
         HostFile::from_io(File {
             inner: file,
             metrics: self.metrics.clone(),
+            root_metadata: false,
         })
     }
 }
@@ -190,7 +200,26 @@ impl FileSystem for BoundedFiles {
     }
 
     fn create_read_write(&self, path: &Path) -> io::Result<HostFile> {
-        Ok(self.wrap(DirectFileSystem.create_read_write(path)?))
+        let mode = self.metrics.create_mode.load(Ordering::Acquire);
+        if mode == 1 {
+            return Err(io::Error::other("injected create failure"));
+        }
+        let inner = DirectFileSystem.create_read_write(path)?;
+        self.metrics.active_handles.fetch_add(1, Ordering::AcqRel);
+        let file = HostFile::from_io(File {
+            inner,
+            metrics: self.metrics.clone(),
+            root_metadata: path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.starts_with("r-")),
+        });
+        if mode == 2 {
+            return Err(io::Error::other(
+                "uncertain create after exclusive creation",
+            ));
+        }
+        Ok(file)
     }
 
     fn open(&self, path: &Path) -> io::Result<HostFile> {
@@ -213,11 +242,20 @@ impl FileSystem for BoundedFiles {
         DirectFileSystem.metadata(path)
     }
 
+    fn symlink_metadata(&self, path: &Path) -> io::Result<HostMetadata> {
+        DirectFileSystem.symlink_metadata(path)
+    }
+
     fn write(&self, _: &Path, _: &[u8]) -> io::Result<()> {
         Err(io::Error::other("whole-file writes forbidden"))
     }
 
     fn sync_all(&self, path: &Path) -> io::Result<()> {
+        if DirectFileSystem.metadata(path)?.is_dir
+            && self.metrics.fail_dir_sync.swap(false, Ordering::AcqRel)
+        {
+            return Err(io::Error::other("injected directory sync failure"));
+        }
         DirectFileSystem.sync_all(path)
     }
 
@@ -226,6 +264,9 @@ impl FileSystem for BoundedFiles {
     }
 
     fn remove_file(&self, path: &Path) -> io::Result<()> {
+        if self.metrics.fail_remove.swap(false, Ordering::AcqRel) {
+            return Err(io::Error::other("injected removal failure"));
+        }
         DirectFileSystem.remove_file(path)
     }
 

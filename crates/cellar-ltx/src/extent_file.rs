@@ -162,7 +162,7 @@ impl ExtentFile {
     }
 }
 
-fn verify_file(file: &mut HostFile, id: ExtentId) -> Result<Vec<[u8; 32]>, Error> {
+pub(crate) fn verify_file(file: &mut HostFile, id: ExtentId) -> Result<Vec<[u8; 32]>, Error> {
     if file.file_len()? != u64::from(id.length()) {
         return Err(Error::Integrity);
     }

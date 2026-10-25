@@ -192,9 +192,9 @@ I/O, and held/cancelled source work through joined destruction. Separate
 synthetic cases cover lock-page geometry and content deduplication; they do not
 claim a physical GiB-scale image or full-size recovery qualification.
 
-Durable root inventory, archive/peer placement and retention, authenticated cold
-writer bases, incremental checkpoint continuity and native installation gates
-still require integration. Anonymous cache files must never become the only
+Native root inventory selection, archive/peer placement and retention,
+authenticated cold writer bases, incremental checkpoint continuity and native
+installation gates still require integration. Anonymous cache files must never become the only
 copy of committed state. This component does not close R7 by itself.
 
 At `eb459388`, the owning scope passes all 60 ordinary LTX integration cases and the
@@ -227,3 +227,60 @@ All 62 current LTX integration cases pass (one full-size qualification entry
 ignored), including eight extent-file and eleven extent-image cases. LTX
 all-target Rust 1.98.1 Clippy passes with warnings denied. This follow-up does
 not claim a rerun of the 813 native cases or a full-size native extent restore.
+
+## Persistent node extent owner
+
+`NodeExtentStore` owns one flat, exclusively locked directory and one budget
+across all groups on a node. Its default independent limits are 64 GiB of stored
+bytes, 16,384 data objects, 4,096 root files, 262,144 manifest extent slots and
+16,384 reference keys. These are inventory admission bounds, not a change to the
+10,000,000,000-byte per-cell logical quota. Every data import reserves its full
+length before file creation or source I/O. Existing objects are verified rather
+than overwritten. Source identity, independent destination verification, file
+sync and directory sync precede reuse. All body I/O is at most 64 KiB.
+
+Startup inventories only canonical names and actual file lengths. Known partial
+files remain charged; unrecognized entries, symlinks and exceeded limits refuse
+opening. No filename or newest-root rule selects serving authority. The caller
+supplies an exact root identity and metadata length. Root metadata is bounded
+and checked against that identity before constructing a view. Recovered data
+objects start unverified: a metadata-only `RootView` can fetch and verify a hot
+extent for actual SQLite queries, but cannot become a `SealedRoot` until every
+object in its closure is independently verified and synced locally. The seal
+still grants no Raft vote, native admission or output acknowledgement.
+
+View and SQLite lifetimes retain the node lock and their root pins. Closing a
+cell does not refund named data. Retained closed-root metadata also participates
+in shared-object reachability. The host reconstructs scope-derived monotonic
+reference keys from authenticated native markers and supplies the complete root
+set before enabling reclamation. Stale/equal revisions cannot resurrect released
+keys. Reclamation deletes unpinned, unreferenced root metadata and syncs those
+deletions before deleting unreachable data. A successful deletion barrier
+precedes each accounting refund. Failed cleanup or uncertain creation retains
+conservative charges and quarantines mutation; recovery inventories actual files
+again. Existing exact-root reads remain available when their data is intact.
+
+The owner serializes mutations without holding its state mutex across source or
+filesystem I/O. Entered work retains its owner, capacity and exclusive lock until
+it returns or the owning execution domain joins it. It is synchronous library
+code; the native adapter must schedule it on its owning blocking domain.
+
+Fifteen owning cases cover reopen without body scans, real SQLite demand reads,
+metadata-only roots, independent local seals, capacity refusal before source I/O,
+ambiguous creation, independent destination corruption, failed file/directory
+sync, failed deletion, retained/shared roots, monotonic references and joined
+work and source panic with conservative accounting/quarantine. A parent launches
+an abrupt-exit child at root-file sync before directory
+sync; reopening keeps the explicitly selected old root and reclaims the orphan
+candidate only after reference reconciliation. This is one small component
+process-exit cut, not native marker atomicity, power-loss or full-size recovery
+qualification. Native COW writes, marker/archive selection and policy-specific
+local/remote durability closure still need implementation.
+
+The combined component scope passes 77 ordinary LTX cases (the final owner
+invocation adds the panic case to the preceding all-integration pass), with two
+child/full-size entries ignored by parent invocations. All 49 native LTX/read
+regressions also pass after the filesystem-interface addition. LTX/native
+all-target Rust 1.98.1 Clippy with warnings denied, formatting/layout (1,052 Rust
+files), the native dependency graph and documentation checks pass. The remaining
+764 native baseline cases above are prior-revision evidence, not a fresh rerun.

@@ -12,6 +12,7 @@ const DEPTH: u8 = 12;
 const MAGIC: &[u8; 8] = b"CLEXT001";
 const HEADER_BYTES: usize = 112;
 const MAX_EXTENTS: u32 = crate::stream_snapshot::MAX_IMAGE_BYTES.div_ceil(EXTENT_BYTES) as u32;
+pub(crate) const MAX_MANIFEST_BYTES: usize = HEADER_BYTES + MAX_EXTENTS as usize * 32;
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum RootError {
@@ -41,6 +42,13 @@ pub struct ExtentId {
 }
 
 impl ExtentId {
+    pub(crate) fn from_parts(digest: [u8; 32], length: u32) -> Result<Self, RootError> {
+        if length == 0 || u64::from(length) > EXTENT_BYTES {
+            return Err(RootError::Geometry);
+        }
+        Ok(Self { digest, length })
+    }
+
     pub(crate) fn stream_hasher(self) -> Sha256 {
         Self::new_hasher(self.length)
     }
@@ -92,7 +100,7 @@ impl ExtentId {
 }
 
 /// A domain-separated extent-tree commitment, never a full-file SHA-256.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ImageRoot([u8; 32]);
 
 impl ImageRoot {

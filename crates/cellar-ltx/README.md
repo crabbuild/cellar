@@ -220,8 +220,25 @@ Verified extent files retain at most 2 KiB of local block digests and check each
 later read against them before exposing bytes, including after cache insertion.
 An unaligned read needs at most two 64 KiB reads, with no complete extent rescan.
 The caller must authenticate the manifest and retain its dependency closure.
-This is a data-access component, not native recovery or publication authority;
-durable inventory and native command/archive integration remain open. See the
+`NodeExtentStore` supplies a persistent, exclusively locked inventory shared by
+all groups on one node. It inventories bounded names and lengths without scanning
+extent bodies, charges files even when cell handles close, and opens only the
+exact `ExtentRootReference` supplied by its caller. A `RootView` supports verified
+demand reads after restart; a `SealedRoot` additionally requires the complete
+locally verified, synced extent closure. Reopening filenames grants neither
+that seal nor native admission authority. The host must reconstruct its complete
+authoritative references before reclamation. Live views, monotonic references
+and closed retained roots protect shared objects; synced deletion precedes every
+capacity refund. Ambiguous creation, failed cleanup or an interrupted mutation
+quarantines further mutation until the owner is closed and recovered.
+
+Run `cargo test --locked -p cellar-ltx --test extent_store` for owning-boundary
+restart, actual SQLite demand-read, quota, publication, cleanup and retention
+checks, including an abrupt child-process exit after root-file sync. Sources and
+inventory work belong to the owning blocking domain. Keep the separate anonymous
+read cache outside the inventory directory and give it its own scratch admission.
+This remains a data-access component; native command/archive integration and
+authenticated recovery selection remain open. See the
 [extent image contract](../../plans/multi-raft/extent-root-contract.md).
 
 Run `cargo test -p cellar --test native_raft_ltx --locked -- --test-threads=1`

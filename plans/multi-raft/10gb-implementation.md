@@ -417,6 +417,25 @@ metadata requests and retains the same checks, polling interval and deadlines.
 The ordinary peer/S3 preflights pass with these observations; the new full-size
 production run must distinguish admission delay from archive publication delay.
 
+## Production full-size archive observation
+
+The frozen `3573f8e3` fixture (runtime code `ce65404e`) completed its checked-in
+`DirectFileSystem` run against RustFS with the independently hashed
+9,999,998,976-byte input. It returned 101 after 2,990.24 seconds with
+77,807,616-byte maximum RSS. No debugger, private filesystem substitution or
+deadline increase was used. First read/write took 4.549/174.868 seconds; warm
+first read/write took 7.818/179.113 seconds. Owner-state erasure, retained-receipt
+retry and quota cleanup/reuse completed before repair.
+
+Repair admission reached required index 9 in 0.127 seconds. The unchanged
+1,800-second archive wait then expired: the selected head appeared at index/term
+2/2 and never covered index 9. No archive-ready, cold read, replacement promotion/
+write or restart was reached. This isolates the pending phase to archive
+coverage rather than repair admission; it does not establish a more specific
+archive root cause. The run predates the later extent components and does not
+qualify their integration. Repeating the unchanged runtime is not qualification
+progress; native incremental publication remains necessary work.
+
 ## Incremental image data path
 
 The [extent image contract](extent-root-contract.md) now includes typed,
@@ -446,6 +465,20 @@ cases and LTX all-target Clippy pass afterward. Actual SQLite also refuses a
 faulty read from an already verified cache entry. This changes the extent data
 path only; the 813 materialized native cases above remain prior-revision
 evidence, and full native extent installation remains unimplemented.
+
+The persistent `NodeExtentStore` now adds one shared node inventory, independently
+verified imports, exact metadata views and local closure seals, monotonic
+references, retained closed-root reachability and synced reclamation. Fifteen
+owning cases pass, including actual SQLite reopen/demand reads and an abrupt
+child-process exit during root publication and source-panic quarantine. The
+combined scope passes 77 ordinary LTX cases; two child/full-size entries remain
+ignored by parent invocations. All 49 native LTX/read regressions and LTX/native
+all-target Rust 1.98.1 Clippy also pass; the other native baseline results above
+remain prior-revision evidence.
+The owner distinguishes recovered metadata from independently verified local
+data and never treats inventory names as native authority. See the
+[persistent owner contract](extent-root-contract.md#persistent-node-extent-owner).
+Native selection, COW writes and archive/peer placement remain open.
 
 ## Remaining work
 
