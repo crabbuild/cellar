@@ -417,6 +417,27 @@ metadata requests and retains the same checks, polling interval and deadlines.
 The ordinary peer/S3 preflights pass with these observations; the new full-size
 production run must distinguish admission delay from archive publication delay.
 
+## Incremental image data path
+
+The [extent image contract](extent-root-contract.md) now includes typed,
+domain-separated roots, verified private extent files, independent committed
+SQLite/WAL observations and actual SQLite demand reads. A bounded file cache
+fetches and verifies only requested extents through admitted downloads. It
+shares the existing immutable VFS boundary with materialized generation pins;
+the ordinary native read path retains its existing authority and semantics.
+Real small/larger SQLite hot-set tests fetch one 4 MiB extent, while broad reads,
+cache eviction/refetch and injected failures preserve the exact root and
+physical file charges.
+
+The combined owning scope passes 873 ordinary cases, including 60 LTX and 813
+native cases. Ten child/qualification entries are ignored by their parent
+invocations. Native/LTX all-target Rust 1.98.1 Clippy with warnings denied,
+native-only/no-Python libraries, formatting/layout and dependency/docs checks
+pass. These components still do not supply durable native root inventory,
+archive/peer placement, an authenticated cold writer base, incremental checkpoint
+continuity or native installation authority. They do not close R7 or establish
+a fast-recovery claim.
+
 ## Remaining work
 
 The completion checklist remains open. Full native 10 GB warm takeover, exact

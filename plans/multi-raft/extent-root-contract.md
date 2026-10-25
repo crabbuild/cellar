@@ -197,3 +197,11 @@ The current owning scope passes all 60 ordinary LTX integration cases and the
 qualification entries remain ignored by these invocations. Rust 1.98.1 LTX
 all-target Clippy with warnings denied, formatting/layout (1,047 Rust files),
 the 465-package native dependency graph and local documentation checks pass.
+
+The broader native pass adds 603 host library, 60 archive, 21 execution, 32
+host, four ordinary large-image and 44 snapshot cases: **873 passing cases**
+in the combined scope, with ten child/qualification entries ignored by their
+parent invocations. Native/LTX all-target Clippy and native-only/no-Python
+libraries also pass. The full-size production experiment is a separate frozen
+materialized-runtime build; these ordinary results do not qualify native
+extent-based installation or full-size recovery.
