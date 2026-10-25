@@ -161,6 +161,16 @@ export interface ContainerSocket {
   release(): Promise<null>;
 }
 
+/** Portable filesystem metadata; nullable fields are explicitly unknown. */
+export interface ContainerFileMetadata {
+  readonly name: string;
+  readonly kind: "file" | "directory" | "symlink" | "other";
+  readonly size: number;
+  readonly mode: number;
+  readonly modified_ms: number | null;
+  readonly link_target: string | null;
+}
+
 /** Root-cell provider control. Native execution requires a declared image. */
 export interface Container {
   capabilities(): Promise<Readonly<ContainerCapabilities>>;
@@ -175,6 +185,22 @@ export interface Container {
   exec(options: ContainerExecOptions): Promise<ContainerExec>;
   /** Combined stdout/stderr limit cannot exceed the host body limit. */
   execOutput(options: ContainerExecOptions, max_bytes?: number): Promise<ContainerExecOutput>;
+  /** Canonical absolute UTF-8 container path; bounded regular-file content. */
+  readFile(path: string, max_bytes?: number): Promise<Uint8Array>;
+  /** Existing parent directory; permissions only (0o000–0o777). A lost reply
+   * does not establish whether this non-transactional write was applied. */
+  writeFile(
+    path: string,
+    data: Uint8Array,
+    options?: { mode?: number },
+  ): Promise<null>;
+  statFile(path: string): Promise<Readonly<ContainerFileMetadata>>;
+  /** Direct children; refuses a listing that exceeds either budget. Native
+   * scans a bounded archive of the directory tree, including descendant data. */
+  listFiles(
+    path: string,
+    options?: { max_bytes?: number; max_entries?: number },
+  ): Promise<readonly Readonly<ContainerFileMetadata>[]>;
   port(port: number): {
     waitReady(timeout_ms?: number): Promise<null>;
     /** Abort stops waiting; submitted HTTP effects may already have occurred. */

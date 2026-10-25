@@ -149,12 +149,67 @@ export class Counter {
       return ok();
     }
     this.old = c;
+    const filePath = "/tmp/cellar-?é.bin";
+    let refusedText = false;
+    try {
+      await c.writeFile(filePath, "text");
+    } catch (error) {
+      refusedText = error instanceof TypeError;
+    }
+    check(refusedText, "file bytes require explicit encoding");
+    await rejects(() => c.readFile("../outside", 3), "not_committed");
+    await rejects(
+      () => c.writeFile(filePath, new Uint8Array(), { mode: 0o4755 }),
+      "not_committed",
+    );
+    await c.writeFile(filePath, new Uint8Array([0, 255, 42]), { mode: 0o640 });
+    check(
+      JSON.stringify(Array.from(await c.readFile(filePath, 3))) ===
+        "[0,255,42]",
+      "file binary round trip",
+    );
+    await rejects(() => c.readFile(filePath, 2), "unknown");
+    const metadata = await c.statFile(filePath);
+    check(
+      metadata.name === "cellar-?é.bin" &&
+        metadata.kind === "file" &&
+        metadata.size === 3 &&
+        metadata.mode === 0o640 &&
+        Object.isFrozen(metadata),
+      "portable file metadata",
+    );
+    await c.writeFile("/tmp/empty", new Uint8Array());
+    check(
+      (await c.readFile("/tmp/empty", 0)).length === 0,
+      "empty file with zero budget",
+    );
+    const files = await c.listFiles("/tmp", {
+      max_bytes: 4096,
+      max_entries: 2,
+    });
+    check(
+      Object.isFrozen(files) &&
+        files.length === 2 &&
+        files[0].name === metadata.name &&
+        files.every(Object.isFrozen),
+      "immutable direct listing",
+    );
+    await rejects(
+      () => c.listFiles("/tmp", { max_bytes: 4096, max_entries: 1 }),
+      "unknown",
+    );
     await rejects(() => c.signal(0), "not_committed");
     await rejects(() => c.exec({ cmd: [] }), "not_committed");
     await rejects(() => c.port(0).connect(), "not_committed");
     await rejects(
       () => c.execOutput({ cmd: ["echo-stdin"] }, -1),
       "not_committed",
+    );
+    await c.writeFile("/tmp/large", new Uint8Array(25000));
+    await rejects(() => c.readFile("/tmp/large", 3), "unknown");
+    await rejects(
+      () => c.listFiles("/tmp", { max_bytes: 4096, max_entries: 128 }),
+      "unknown",
     );
     await c.setInactivityTimeout(60000);
     await c.signal(15);

@@ -22,9 +22,11 @@ fn binary(value: &Value, limit: usize) -> Result<usize> {
 pub(crate) fn validate(operation: Operation, value: &Value, limit: usize) -> Result<()> {
     use Operation::*;
     match operation {
-        ReadStdout | ReadStderr | ReadSocket => {
+        ReadStdout | ReadStderr | ReadSocket | ReadFile => {
             binary(value, limit)?;
         }
+        WriteFile => ensure!(value.is_null(), "file write result must be null"),
+        StatFile => crate::files::validate_metadata(value, limit)?,
         ExecOutput => {
             let stdout = binary(&value["stdout"], limit)?;
             binary(&value["stderr"], limit - stdout)?;

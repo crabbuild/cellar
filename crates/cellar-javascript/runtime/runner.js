@@ -640,6 +640,25 @@
           stderr: decode(output.stderr),
         });
       },
+      readFile: async (path, max_bytes = 1048576) =>
+        decode(await call("container.file.read", { path, max_bytes })),
+      writeFile: (path, data, { mode = 0o644 } = {}) => {
+        if (!(data instanceof Uint8Array)) {
+          throw new TypeError("Container file data must be Uint8Array");
+        }
+        return call("container.file.write", { path, data: encode(data), mode });
+      },
+      statFile: async (path) =>
+        freeze(await call("container.file.stat", { path })),
+      listFiles: async (
+        path,
+        { max_bytes = 1048576, max_entries = 128 } = {},
+      ) =>
+        freeze(
+          (
+            await call("container.file.list", { path, max_bytes, max_entries })
+          ).map((value) => freeze(value)),
+        ),
       port: (port) =>
         freeze({
           waitReady: (timeout_ms = 10000) =>

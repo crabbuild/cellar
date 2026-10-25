@@ -6,6 +6,7 @@
 use super::{http, sockets, websocket, Context, HandlerFuture, InvocationAuthority};
 use crate::{container as host, host_gates};
 use anyhow::{anyhow, Result};
+pub use host::{FileKind, FileMetadata, FilePath, MAX_FILE_ENTRIES};
 use std::{
     future::Future,
     sync::{Arc, Weak},
@@ -119,6 +120,56 @@ impl Context {
 }
 
 impl Container {
+    /// Read one regular file. The engine resolves container symlinks; archive
+    /// links, directories and oversized/truncated data refuse. No host extraction.
+    pub fn read_file(
+        &self,
+        context: &Context,
+        path: FilePath,
+        max_bytes: usize,
+    ) -> HandlerFuture<Vec<u8>> {
+        self.effect(context, move |engine, cell| async move {
+            engine.read_file(&cell, path, max_bytes).await
+        })
+    }
+
+    /// Create/replace a regular file in an existing directory. Permissions are
+    /// limited to 0o777. This is not an atomic or transactional write; a lost
+    /// response or cancellation cannot establish whether it was applied.
+    pub fn write_file(
+        &self,
+        context: &Context,
+        path: FilePath,
+        data: Vec<u8>,
+        mode: u32,
+    ) -> HandlerFuture<()> {
+        self.effect(context, move |engine, cell| async move {
+            engine.write_file(&cell, path, data, mode).await
+        })
+    }
+
+    /// Obtain engine metadata under the current activation and output gate.
+    pub fn stat_file(&self, context: &Context, path: FilePath) -> HandlerFuture<FileMetadata> {
+        self.effect(context, move |engine, cell| async move {
+            engine.stat_file(&cell, path).await
+        })
+    }
+
+    /// List direct children, sorted by name. Native scans a bounded archive of
+    /// the directory tree and refuses oversized trees rather than returning a
+    /// partial listing. Byte and entry limits both apply.
+    pub fn list_files(
+        &self,
+        context: &Context,
+        path: FilePath,
+        max_bytes: usize,
+        max_entries: usize,
+    ) -> HandlerFuture<Vec<FileMetadata>> {
+        self.effect(context, move |engine, cell| async move {
+            engine.list_files(&cell, path, max_bytes, max_entries).await
+        })
+    }
+
     fn check(&self, context: &Context) -> Result<()> {
         context.check_turn()?;
         self.engine.check_owner()?;

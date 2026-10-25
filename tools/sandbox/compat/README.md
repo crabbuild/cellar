@@ -104,6 +104,12 @@ unrelated daemon resources; use a disposable daemon for network/fence isolation.
 Passing it qualifies these routes for the pinned baseline, not the full SP-04
 streaming, preview, restart/fencing or live-cloud requirements.
 
+The same `sandbox_image` test target also contains a **separate portable-file
+scenario**. It uses Cellar's `ctx.container` file API against the real image,
+checks bytes/permissions independently through a container process, reads during
+a later event, refuses oversized archives/listings, and drains shutdown. That
+scenario does not substitute for the unchanged published SDK route test.
+
 ### Current live qualification
 
 | Route / boundary | Evidence on 2026-10-25 |

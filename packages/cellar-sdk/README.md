@@ -634,7 +634,8 @@ embedded-runtime compatibility.
 
 `ctx.container` controls a root cell's declared Docker/Podman container on both
 embedded V8 and Node. It includes `running`, `start`, `monitor`, `destroy`,
-`signal`, `setInactivityTimeout`, interactive `exec`, bounded `execOutput`, and
+`signal`, `setInactivityTimeout`, interactive `exec`, bounded `execOutput`,
+`readFile` / `writeFile` / `statFile` / `listFiles`, and
 `port(number)` for readiness, HTTP, TCP and WebSockets. TypeScript exposes the
 `Container`, `ContainerExec`, `ContainerSocket` and `ContainerWebSocket` types.
 Byte methods use `Uint8Array`; HTTP uses the SDK's encoded `request()` builder.
@@ -644,6 +645,11 @@ concurrently with `wait`, issue mutations sequentially, and close/release handle
 when done. `execOutput` closes stdin and bounds stdout plus stderr together.
 Native ownership and durability gates apply to container commands, while
 container writable filesystems remain ephemeral.
+
+File operations use absolute container paths and byte/entry budgets. Metadata
+and listing arrays are frozen. Native file access uses engine archives without
+requiring shell tools in the image; large descendant data can exceed a listing
+budget. See the [portable file examples](../../crates/cellar-container/files.md).
 
 See the [container guide](../../docs/09-integrations.md#how-cell-owned-containers-work)
 for the declaration format, complete language examples, Docker/Podman host

@@ -112,12 +112,44 @@ fn published_sandbox_exec_files_and_processes_use_the_pinned_image() -> Result<(
             tokio::runtime::Builder::new_multi_thread()
                 .enable_all()
                 .build()?
-                .block_on(run(directory.path(), application, &images))
+                .block_on(run(directory.path(), application, &images, false))
         },
     )
 }
 
-async fn run(path: &Path, application: Arc<dyn Application>, images: &Images) -> Result<()> {
+#[test]
+#[ignore = "requires isolated CELLAR_SANDBOX_ENGINE_SOCKET and preloaded CELLAR_SANDBOX_FENCE_IMAGE"]
+fn portable_files_use_daemon_archives_across_events() -> Result<()> {
+    let images = Images::configured()?;
+    let directory = tempfile::tempdir()?;
+    let entry = directory.path().join("files.mjs");
+    std::fs::write(&entry, include_str!("support/files.mjs"))?;
+    let code = include_str!("support/files.mjs").replace("export ", "");
+    let source = Source::new(
+        format!("var CellarApp = (() => {{{code}; return {{cells,fetch}}; }})();"),
+        "files.mjs",
+    )
+    .events([EventKind::Fetch])
+    .cell("Sandbox");
+    NodeRuntime::run(
+        Options::default(),
+        NodeOptions::new(entry),
+        source,
+        |application| {
+            tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()?
+                .block_on(run(directory.path(), application, &images, true))
+        },
+    )
+}
+
+async fn run(
+    path: &Path,
+    application: Arc<dyn Application>,
+    images: &Images,
+    portable: bool,
+) -> Result<()> {
     images.verify().await?;
     let namespace = format!(
         "sandbox-image-{}",
@@ -149,7 +181,26 @@ async fn run(path: &Path, application: Arc<dyn Application>, images: &Images) ->
         graph.primary.fence_image = Some(images.fence.clone());
     })
     .await?;
-    let result = exercise(&address).await;
+    let result = if portable {
+        async {
+            let client = reqwest::Client::builder()
+                .timeout(Duration::from_secs(125))
+                .build()?;
+            for route in ["write", "read"] {
+                let response = client.get(format!("{address}/{route}")).send().await?;
+                let status = response.status();
+                let body = response.text().await?;
+                ensure!(
+                    status.is_success() && body == "ok",
+                    "portable {route}: {status} {body}"
+                );
+            }
+            Ok(())
+        }
+        .await
+    } else {
+        exercise(&address).await
+    };
     // Always shut down this host, including after a failed application assertion.
     let shutdown = node.shutdown(ShutdownMode::Preserve).await;
     let cleanup = assert_no_owned_containers(&docker, &host).await;

@@ -189,6 +189,24 @@ Receive events are `open`, `text`, `binary`, or `close`; binary payloads are byt
 The socket belongs to the opening event and closes when it ends. It does not
 register hibernating cell WebSocket event handlers.
 
+### Portable files
+
+All language adapters share provider-selected binary read/write and metadata
+operations. Native Rust also exposes typed `read_file`, `write_file`,
+`stat_file` and `list_files` methods on its container control.
+
+| API | Content / metadata |
+| --- | --- |
+| Python | `bytes`, frozen metadata and tuple listings |
+| JavaScript / TypeScript | `Uint8Array`, frozen metadata and arrays |
+| Native Rust | `Vec<u8>`, typed `FilePath` and `FileMetadata` |
+
+Use absolute container paths and explicit byte/entry budgets. Native uses the
+engine archive API and does not need image-side shell tools. Directory scans
+include descendant data; oversized results refuse in full. File writes are
+non-transactional and container disk has different durability from cell state.
+See the [file guide and examples](../crates/cellar-container/files.md).
+
 ### Docker, Podman and hosting requirements
 
 The optional [cellar-container adapter](../crates/cellar-container/README.md)

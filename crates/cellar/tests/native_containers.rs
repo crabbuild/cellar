@@ -89,6 +89,39 @@ impl Cell for Root {
                     let retained = self.0.container.lock().unwrap().clone().unwrap();
                     json!(retained.running(&context).is_err())
                 }
+                "/files" => {
+                    let path = FilePath::new("/tmp/cellar-?é.bin")?;
+                    container
+                        .write_file(&context, path.clone(), vec![0, 255, 42], 0o640)
+                        .await?;
+                    assert_eq!(
+                        container.read_file(&context, path.clone(), 3).await?,
+                        [0, 255, 42]
+                    );
+                    assert!(container
+                        .read_file(&context, path.clone(), 2)
+                        .await
+                        .is_err());
+                    let metadata = container.stat_file(&context, path).await?;
+                    assert_eq!(
+                        (
+                            metadata.name.as_str(),
+                            metadata.kind,
+                            metadata.mode,
+                            metadata.size
+                        ),
+                        ("cellar-?é.bin", FileKind::File, 0o640, 3)
+                    );
+                    let listing = container
+                        .list_files(&context, FilePath::new("/tmp")?, 4096, 1)
+                        .await?;
+                    assert_eq!(listing.len(), 1);
+                    assert!(container
+                        .list_files(&context, FilePath::new("/tmp")?, 2, 1)
+                        .await
+                        .is_err());
+                    json!(true)
+                }
                 "/exec" => {
                     let process = container
                         .exec(
@@ -435,6 +468,7 @@ async fn run() -> Result<()> {
     probe.hold.store(false, Ordering::SeqCst);
     assert_eq!(call(&host, "Sandbox:test", "/start").await?["run"], 1);
     assert_eq!(call(&host, "Sandbox:test", "/retained").await?, true);
+    assert_eq!(call(&host, "Sandbox:test", "/files").await?, true);
     let context = probe.context.lock().unwrap().clone().unwrap();
     assert!(probe
         .container

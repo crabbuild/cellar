@@ -21,8 +21,12 @@ use tokio::{
     sync::watch,
 };
 
+#[path = "container_files.rs"]
+mod files;
+
 #[derive(Default)]
 pub struct Engine {
+    pub(super) files: files::Files,
     pub startup_gate: Mutex<Option<watch::Receiver<bool>>>,
     pub start_entered: AtomicBool,
     pub destroy_gate: Mutex<Option<watch::Receiver<bool>>>,
@@ -52,18 +56,23 @@ impl Engine {
             .to_string();
         let query = request.uri().query().unwrap_or("").to_string();
         let method = request.method().as_str().to_string();
-        let body = request.body_mut().collect().await?.to_bytes();
-        let body: Value = if path == "/images/load" {
+        let raw_body = request.body_mut().collect().await?.to_bytes();
+        let body = &raw_body;
+        let archive = path.starts_with("/containers/") && path.ends_with("/archive");
+        let body: Value = if path == "/images/load" || archive {
             json!({"bytes":body.len()})
         } else if body.is_empty() {
             Value::Null
         } else {
-            serde_json::from_slice(&body)?
+            serde_json::from_slice(body)?
         };
         self.calls
             .lock()
             .unwrap()
             .push((method.clone(), format!("{path}?{query}"), body.clone()));
+        if archive {
+            return self.files.answer(&method, &path, &query, &raw_body);
+        }
         let mut status = 200;
         let value = if path == "/containers/json" {
             let filters = url::form_urlencoded::parse(query.as_bytes())
@@ -214,6 +223,7 @@ impl Engine {
                 } else {
                     self.labels.lock().unwrap().remove(name);
                     self.containers.lock().unwrap().remove(name);
+                    self.files.remove(name);
                 }
                 let gate = self.destroy_gate.lock().unwrap().clone();
                 if let Some(mut gate) = gate {

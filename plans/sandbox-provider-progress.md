@@ -17,7 +17,7 @@ does not narrow that objective or turn fixture passes into full compatibility.
 | SP-02 | Native-backed DO SQL/KV/clone facade, activation-bound authority, object identity, value/returned-function namespace RPC, constructor admission, native input gates/reset, sync/async transactions and retained event/background drivers execute in Node/V8; actual published constructors are exercised; Node module HTTP dispatch, namespace bindings and activation-owned env execute against native cells | Complete loader/bootstrap, embedded web globals, other binding kinds, property/target RPC and lifetimes, full versioned lifetime/deadline qualification and profile/version admission; retain native-only dependency boundary |
 | SP-03 | Actual published `@cloudflare/containers@0.3.7` constructor, state and SQL scheduling run in both engines; root-event queued lifecycle and run-bound monitors; Node runs published readiness with native HTTP ports, healthy state and start/stop hooks; unchanged pinned module named/singleton/random routes execute against the engine peer | Embedded web globals, callback-owned queue drainage, sleep/wake, complete hooks, streamed/upgrade port behavior and real-image cleanup |
 | SP-04 | Actual `@cloudflare/sandbox@0.12.9` constructor/configuration and metadata recovery run in Node; matching upstream app/Dockerfile and `linux/amd64` image digest are pinned; unchanged application exec/file/background-process assertions pass against the real image, including later process discovery, SDK destroy and drained shutdown | Complete SDK HTTP/RPC/helper coverage, streamed exec, process helper invocations, previews, persistence/restart/fencing and failure cases |
-| SP-05 | Provider environment/operation/limit discovery is implemented in Rust, Python, JS and TS; native and restricted provider dispatch tests cover it | Portable files and richer operations, named configuration, durable remote bindings, fencing, expiry/reconnect, loss/unknown outcomes and orphan reconciliation |
+| SP-05 | Four-language provider environment/operation/limit discovery; portable binary file read/write/stat/list; Native engine archive implementation, shared input/result bounds and unknown-outcome tests; direct file scenario passes against the real image across events | Richer operations, named configuration, durable remote bindings, fencing, expiry/reconnect, provider loss/takeover qualification and orphan reconciliation |
 | SP-06 | No Vercel/E2B implementation yet | Real shared provider implementations, fixtures and real-account conformance, explicit Cloudflare profile compatibility/gaps |
 | SP-07 | Separate 1.x contract identified in the design; it is not the 0.12.9 baseline | Pin and run exact current package/helper/image, extended container API, errors, streams, cancellation and supported persistence |
 | SP-08 | No Daytona/Modal implementation yet | Provider implementations and individual process/files/storage/PTY/GPU/snapshot qualification |
@@ -626,3 +626,38 @@ admission guard passes with joined shutdown and removal of owned containers and
 networks. Rust layout/format covers 1,056 files; JS format covers 51 sources.
 Documentation and whitespace checks and the native-only 466-package engine guard
 pass. This remains local evidence, not hosted CI or live-cloud qualification.
+
+
+### Portable provider files
+
+`container.file.read`, `.write`, `.stat` and `.list` extend the shared provider
+vocabulary and Rust/Python/JS/TS facades. Native uses Docker/Podman archive
+endpoints; it does not shell out or extract archives on the host. Every file
+operation retains native invocation/owner/run checks and the mutation output
+gate, including reads which issue external I/O.
+
+| Boundary | Delivered behavior |
+| --- | --- |
+| Input | Canonical absolute UTF-8 container paths; host byte limits, permission-only modes and entry budgets; no implicit directory creation |
+| Data | Binary bytes, zero-byte files, UTF-8/query punctuation in names and portable metadata |
+| Native archives | Bound downloads including overhead, check raw entry offsets/sizes before GNU/PAX processing, reject sparse/truncated/multi-file reads and never extract on the host |
+| Listings | Direct-child metadata, duplicate-name refusal and complete-result byte/entry limits; native archive scans include descendant contents |
+| Provider failures | Pre-dispatch validation refuses before provider calls; lost write replies preserve the observable effect and are not replayed; oversized/invalid provider replies remain unknown outcomes |
+| Live image | Independent portable-file fixture preserves exact bytes and permissions across requests, validates them through a real container process, rejects oversized archive/list results, destroys the instance and joins shutdown |
+
+The real-image target also reruns the unchanged published Sandbox application;
+both tests pass. This is local Docker/amd64-image evidence, not Podman or live
+cloud qualification. Native-only dependency inspection remains engine-free
+(466 reachable packages). Durable remote bindings, fencing/reconciliation and
+the remaining SP-05 work are still required; no remote provider is claimed.
+
+Validation for this slice passes four archive unit tests, both native container
+integrations, 11 provider unit tests, the custom-provider integration and three
+adapter doctests. Node and embedded V8 container integrations and the CPython
+container harness pass; all 25 JS/tool/type tests pass. Final regressions pass
+36 runtime unit tests, 16 Workers integrations and both typed RPC integrations.
+Strict all-target Clippy passes for the host, provider and both language crates
+with Node/V8/CPython enabled. Format/layout covers 1,061 Rust files and JS format
+covers 52 owned sources; documentation and whitespace checks pass. Both real
+image tests pass again after the strict JS byte-input guard, with owned container
+and network cleanup. No existing assertion or deadline was weakened.

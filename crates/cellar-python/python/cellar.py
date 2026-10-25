@@ -460,6 +460,21 @@ class ContainerPort:
         return ContainerSocket(self._context, resource_id)
 
 
+@dataclass(frozen=True)
+class ContainerFileMetadata:
+    name: str
+    kind: str
+    size: int
+    mode: int
+    modified_ms: int | None
+    link_target: str | None
+
+    @classmethod
+    def _from_wire(cls, value: dict) -> ContainerFileMetadata:
+        return cls(value["name"], value["kind"], value["size"], value["mode"],
+                   value.get("modified_ms"), value.get("link_target"))
+
+
 class Container:
     """Control a root cell's configured provider through native ownership gates."""
     def __init__(self, context: Context) -> None:
@@ -506,6 +521,27 @@ class Container:
 
     def port(self, port: int) -> ContainerPort:
         return ContainerPort(self._context, port)
+
+    async def read_file(self, path: str, *, max_bytes: int = 1048576) -> bytes:
+        """Read a bounded regular file from an absolute container path."""
+        value = await self._context._call("container.file.read", path=path, max_bytes=max_bytes)
+        return base64.b64decode(value)
+
+    async def write_file(self, path: str, data: bytes, *, mode: int = 0o644) -> None:
+        """Create/replace a file in an existing directory; not transactional."""
+        await self._context._call("container.file.write", path=path,
+            data=base64.b64encode(data).decode("ascii"), mode=mode)
+
+    async def stat_file(self, path: str) -> ContainerFileMetadata:
+        value = await self._context._call("container.file.stat", path=path)
+        return ContainerFileMetadata._from_wire(value)
+
+    async def list_files(self, path: str, *, max_bytes: int = 1048576,
+                         max_entries: int = 128) -> tuple[ContainerFileMetadata, ...]:
+        """List direct children; oversized archives/listings refuse in full."""
+        value = await self._context._call("container.file.list", path=path,
+                                         max_bytes=max_bytes, max_entries=max_entries)
+        return tuple(ContainerFileMetadata._from_wire(entry) for entry in value)
 
 
 class _Cell:

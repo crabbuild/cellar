@@ -36,6 +36,8 @@ use std::sync::{Arc, Mutex, OnceLock, RwLock, Weak};
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::{mpsc, watch};
+mod files;
+pub use files::{FileKind, FileMetadata, FilePath, MAX_FILE_ENTRIES};
 
 /// One `containers[]` entry of a deployment, as the node sees it.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]

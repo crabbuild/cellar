@@ -50,10 +50,26 @@ class Counter:
                     await socket.receive()
             return Response("ok")
         self.old = container
+        path = "/tmp/cellar-?é.bin"
+        await rejects(lambda: container.read_file("../outside", max_bytes=3), "not_committed")
+        await rejects(lambda: container.write_file(path, b"", mode=0o4755), "not_committed")
+        await container.write_file(path, b"\x00\xff*", mode=0o640)
+        assert await container.read_file(path, max_bytes=3) == b"\x00\xff*"
+        await rejects(lambda: container.read_file(path, max_bytes=2), "unknown")
+        metadata = await container.stat_file(path)
+        assert (metadata.name, metadata.kind, metadata.size, metadata.mode) == ("cellar-?é.bin", "file", 3, 0o640)
+        await container.write_file("/tmp/empty", b"")
+        assert await container.read_file("/tmp/empty", max_bytes=0) == b""
+        files = await container.list_files("/tmp", max_bytes=4096, max_entries=2)
+        assert isinstance(files, tuple) and [f.name for f in files] == ["cellar-?é.bin", "empty"]
+        await rejects(lambda: container.list_files("/tmp", max_bytes=4096, max_entries=1), "unknown")
         await rejects(lambda: container.signal(0), "not_committed")
         await rejects(lambda: container.exec([]), "not_committed")
         await rejects(lambda: container.port(0).connect(), "not_committed")
         await rejects(lambda: container.exec_output(["echo-stdin"], max_bytes=-1), "not_committed")
+        await container.write_file("/tmp/large", bytes(25000))
+        await rejects(lambda: container.read_file("/tmp/large", max_bytes=3), "unknown")
+        await rejects(lambda: container.list_files("/tmp", max_bytes=4096), "unknown")
         await container.set_inactivity_timeout(60000)
         await container.signal(15)
         process = await container.exec(["echo-stdin"], env=[("EXEC", "yes")], cwd="/tmp", user="1000")

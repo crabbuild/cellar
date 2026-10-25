@@ -4,6 +4,7 @@ import {
   request,
   type Context,
   type Container,
+  type ContainerFileMetadata,
   type ContainerExecOutput,
 } from "../../packages/cellar-sdk/index.js";
 
@@ -30,6 +31,21 @@ async function control(ctx: Context) {
     4096,
   );
   const bytes: Uint8Array = output.stdout;
+  await container.writeFile("/tmp/input.bin", bytes, { mode: 0o640 });
+  const content: Uint8Array = await container.readFile("/tmp/input.bin", 4096);
+  const metadata: ContainerFileMetadata =
+    await container.statFile("/tmp/input.bin");
+  const files: readonly ContainerFileMetadata[] = await container.listFiles(
+    "/tmp",
+    { max_bytes: 4096, max_entries: 128 },
+  );
+  void content;
+  void metadata;
+  void files;
+  // @ts-expect-error Files preserve binary bytes; strings require explicit encoding.
+  await container.writeFile("/tmp/input.bin", "text");
+  // @ts-expect-error Portable metadata cannot be mutated.
+  metadata.size = 0;
   const process = await container.exec({
     cmd: ["/app/tool"],
     cwd: "/app",

@@ -50,6 +50,7 @@ pyo3-build-config = { workspace = true, optional = true }
 serde_json.workspace = true
 
 [dev-dependencies]
+tar.workspace = true
 http-body-util.workspace = true
 hyper.workspace = true
 hyper-util.workspace = true

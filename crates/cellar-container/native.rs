@@ -164,6 +164,9 @@ fn bytes(value: &Value, limit: usize) -> Result<Vec<u8>> {
 }
 
 pub(crate) fn validate(name: &str, value: &Value, limits: &Limits) -> Result<()> {
+    if name.starts_with("container.file.") {
+        return crate::files::validate(crate::Operation::parse(name)?, value, limits);
+    }
     match name {
         "container.capabilities"
         | "container.running"
@@ -250,6 +253,9 @@ pub(crate) async fn execute(
     limits: &Limits,
 ) -> Result<Value> {
     validate(name, &value, limits).context(Validation)?;
+    if name.starts_with("container.file.") {
+        return crate::files::execute(context, crate::Operation::parse(name)?, value).await;
+    }
     // Root-cell, class declaration, current turn and activation authority are
     // resolved afresh on every call, including reads of invocation resources.
     let container = context.container()?;

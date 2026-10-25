@@ -44,6 +44,24 @@ interactive exec, write input, close stdin as appropriate, and drain both stream
 while awaiting `wait`. Issue control operations sequentially; observations and
 stream reads can overlap a control operation.
 
+## Files
+
+| Operations | Input | Result |
+| --- | --- | --- |
+| `container.file.read` | `{path,max_bytes}` | Base64 regular-file bytes |
+| `container.file.write` | `{path,data,mode}` | `null` |
+| `container.file.stat` | `{path}` | File metadata |
+| `container.file.list` | `{path,max_bytes,max_entries}` | Direct-child metadata array |
+
+Metadata is `{name,kind,size,mode,modified_ms,link_target}`. The last two fields
+are nullable; kind is `file`, `directory`, `symlink` or `other`. Paths are
+canonical absolute UTF-8 container paths. Mode contains permission bits only.
+File operations are serialized controls and retain the mutation output gate.
+
+See [file semantics and archive bounds](files.md). Native listings download a
+bounded directory archive including descendant contents; result byte and entry
+limits refuse the entire listing. File writes are non-transactional.
+
 ## Ports and sockets
 
 | Operations | Input | Result |

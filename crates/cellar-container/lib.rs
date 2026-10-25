@@ -5,6 +5,7 @@
 #![warn(clippy::disallowed_methods, clippy::disallowed_types)]
 
 mod capabilities;
+mod files;
 mod native;
 mod queued;
 mod results;
@@ -70,6 +71,10 @@ pub enum Operation {
     SetInactivityTimeout,
     Exec,
     ExecOutput,
+    ReadFile,
+    WriteFile,
+    StatFile,
+    ListFiles,
     ReadStdout,
     ReadStderr,
     WriteStdin,
@@ -102,6 +107,10 @@ impl Operation {
         Self::SetInactivityTimeout,
         Self::Exec,
         Self::ExecOutput,
+        Self::ReadFile,
+        Self::WriteFile,
+        Self::StatFile,
+        Self::ListFiles,
         Self::ReadStdout,
         Self::ReadStderr,
         Self::WriteStdin,
@@ -134,6 +143,10 @@ impl Operation {
             "container.set_inactivity_timeout" => Ok(Self::SetInactivityTimeout),
             "container.exec" => Ok(Self::Exec),
             "container.exec_output" => Ok(Self::ExecOutput),
+            "container.file.read" => Ok(Self::ReadFile),
+            "container.file.write" => Ok(Self::WriteFile),
+            "container.file.stat" => Ok(Self::StatFile),
+            "container.file.list" => Ok(Self::ListFiles),
             "container.exec.read_stdout" => Ok(Self::ReadStdout),
             "container.exec.read_stderr" => Ok(Self::ReadStderr),
             "container.exec.write" => Ok(Self::WriteStdin),
@@ -168,6 +181,10 @@ impl Operation {
             Self::SetInactivityTimeout => "container.set_inactivity_timeout",
             Self::Exec => "container.exec",
             Self::ExecOutput => "container.exec_output",
+            Self::ReadFile => "container.file.read",
+            Self::WriteFile => "container.file.write",
+            Self::StatFile => "container.file.stat",
+            Self::ListFiles => "container.file.list",
             Self::ReadStdout => "container.exec.read_stdout",
             Self::ReadStderr => "container.exec.read_stderr",
             Self::WriteStdin => "container.exec.write",
@@ -524,10 +541,18 @@ impl Session {
         if !operation.is_read() {
             authority.before_effect(context).await?;
         }
-        let result_limit = if operation == Operation::ExecOutput {
+        let result_limit = if matches!(
+            operation,
+            Operation::ExecOutput | Operation::ReadFile | Operation::ListFiles
+        ) {
             input["max_bytes"].as_u64().unwrap() as usize // validated before dispatch
         } else {
             limits.max_body_bytes
+        };
+        let entry_limit = if operation == Operation::ListFiles {
+            Some(input["max_entries"].as_u64().unwrap() as usize)
+        } else {
+            None
         };
         let result = self
             .backend
@@ -538,6 +563,9 @@ impl Session {
         if let Ok(value) = &result {
             values::check_depth(value)?;
             results::validate(operation, value, result_limit)?;
+            if operation == Operation::ListFiles {
+                files::validate_listing(value, result_limit, entry_limit.unwrap())?;
+            }
         }
         result
     }

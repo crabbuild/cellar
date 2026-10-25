@@ -3,6 +3,7 @@
 //! Provider dispatch without a local container declaration or Docker daemon.
 #![allow(clippy::disallowed_methods)]
 use anyhow::{ensure, Result};
+use base64::{engine::general_purpose::STANDARD, Engine as _};
 use cellar::sdk::*;
 use cellar_container::{
     Adapter, Limits, Operation, Provider, ProviderFuture, ProviderSession, Session, Validation,
@@ -18,6 +19,7 @@ mod native;
 #[derive(Default)]
 struct Probe {
     calls: AtomicUsize,
+    remote_files: Mutex<std::collections::HashMap<String, Value>>,
     dropped: AtomicUsize,
     retained: Mutex<Option<Arc<Session>>>,
     cancel: Mutex<Option<web::AbortController>>,
@@ -40,7 +42,14 @@ impl Provider for Backend {
     }
 
     fn operations(&self) -> &[Operation] {
-        &[Operation::Running, Operation::Start]
+        &[
+            Operation::Running,
+            Operation::Start,
+            Operation::ReadFile,
+            Operation::WriteFile,
+            Operation::StatFile,
+            Operation::ListFiles,
+        ]
     }
 
     fn open(&self) -> Box<dyn ProviderSession> {
@@ -67,6 +76,37 @@ impl ProviderSession for Backend {
             self.0.calls.fetch_add(1, Ordering::SeqCst);
             if operation == Operation::Running {
                 return Ok(json!(true));
+            }
+            if operation == Operation::ReadFile {
+                return Ok(if input["path"] == "/oversize" {
+                    json!(STANDARD.encode([0, 255, 42, 1]))
+                } else {
+                    self.0
+                        .remote_files
+                        .lock()
+                        .unwrap()
+                        .get(input["path"].as_str().unwrap())
+                        .cloned()
+                        .unwrap()
+                });
+            }
+            if operation == Operation::WriteFile {
+                self.0.remote_files.lock().unwrap().insert(
+                    input["path"].as_str().unwrap().into(),
+                    input["data"].clone(),
+                );
+                anyhow::bail!("lost response after file write");
+            }
+            let metadata = json!({"name":"file","kind":"file","size":3,"mode":420,"modified_ms":null,"link_target":null});
+            if operation == Operation::StatFile {
+                let mut invalid = metadata;
+                invalid["size"] = json!(9_007_199_254_740_992_u64);
+                return Ok(invalid);
+            }
+            if operation == Operation::ListFiles {
+                return Ok(
+                    json!([metadata, {"name":"other","kind":"file","size":0,"mode":420,"modified_ms":null,"link_target":null}]),
+                );
             }
             ensure!(context.storage()?.get_json("before-provider")? == Some(json!(true)));
             match input["options"]["entrypoint"][0].as_str() {
@@ -132,12 +172,73 @@ impl Cell for Root {
                         == json!([
                             "container.capabilities",
                             "container.running",
-                            "container.start"
+                            "container.start",
+                            "container.file.read",
+                            "container.file.write",
+                            "container.file.stat",
+                            "container.file.list"
                         ])
                 );
                 ensure!(value["max_body_bytes"] == 1024 && value["max_resources"].is_null());
                 ensure!(value["synchronous_running"] == false);
                 ensure!(value["queued_lifecycle"] == false);
+                true
+            } else if request.url.ends_with("/files") {
+                let before = self.probe.calls.load(Ordering::SeqCst);
+                let refused = session
+                    .execute(
+                        &context,
+                        Operation::ReadFile,
+                        json!({"path":"../outside","max_bytes":3}),
+                        &limits,
+                    )
+                    .await
+                    .unwrap_err();
+                ensure!(
+                    refused.is::<Validation>() && self.probe.calls.load(Ordering::SeqCst) == before
+                );
+                let uncertain = session
+                    .execute(
+                        &context,
+                        Operation::WriteFile,
+                        json!({"path":"/value","data":"AP8q","mode":420}),
+                        &limits,
+                    )
+                    .await
+                    .unwrap_err();
+                ensure!(!uncertain.is::<Validation>());
+                ensure!(
+                    session
+                        .execute(
+                            &context,
+                            Operation::ReadFile,
+                            json!({"path":"/value","max_bytes":3}),
+                            &limits
+                        )
+                        .await?
+                        == json!("AP8q")
+                );
+                for (operation, input) in [
+                    (
+                        Operation::ReadFile,
+                        json!({"path":"/oversize","max_bytes":3}),
+                    ),
+                    (Operation::StatFile, json!({"path":"/bad-stat"})),
+                    (
+                        Operation::ListFiles,
+                        json!({"path":"/","max_bytes":1024,"max_entries":1}),
+                    ),
+                ] {
+                    ensure!(!session
+                        .execute(&context, operation, input, &limits)
+                        .await
+                        .unwrap_err()
+                        .is::<Validation>());
+                }
+                ensure!(
+                    self.probe.calls.load(Ordering::SeqCst) == before + 5,
+                    "unknown write must not be replayed"
+                );
                 true
             } else if request.url.ends_with("/queued") {
                 session
@@ -283,7 +384,7 @@ fn custom_provider_preserves_authority_capabilities_and_failure_provenance() -> 
         let root = Arc::new(Root { adapter: Adapter::new(Arc::new(Backend(probe.clone()))), probe: probe.clone() });
         let (node, address) = native::start(directory.path(), Arc::new(App(root))).await?;
         let client = reqwest::Client::builder().timeout(std::time::Duration::from_secs(5)).build()?;
-        for (path, calls) in [("snapshot",0), ("queued",0), ("open",2), ("retained",2), ("unsupported",2), ("invalid",2), ("uncertain",3), ("deep",4), ("pre-cancel",4), ("cancel-pending",5), ("cancel-completed",6)] {
+        for (path, calls) in [("snapshot",0), ("queued",0), ("open",2), ("retained",2), ("unsupported",2), ("invalid",2), ("uncertain",3), ("deep",4), ("pre-cancel",4), ("cancel-pending",5), ("cancel-completed",6), ("capabilities",6), ("files",11)] {
             let response = client.get(format!("{address}/{path}")).send().await?;
             ensure!(response.status().is_success());
             ensure!(response.text().await? == "true", "{path}");

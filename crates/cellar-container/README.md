@@ -7,7 +7,7 @@ The default `Native` provider uses Cellar's existing Docker/Podman integration;
 Rust hosts can supply another backend without changing the guest API.
 
 [Quick start](#quick-start) · [Capabilities](#discover-capabilities) ·
-[Lifecycle](#two-lifecycle-interfaces) · [Add a provider](#add-a-provider) ·
+[Lifecycle](#two-lifecycle-interfaces) · [Files](files.md) · [Add a provider](#add-a-provider) ·
 [Wire reference](#bridge-protocol-version-1)
 
 ## Native containers, this adapter, or Workers?
@@ -143,6 +143,7 @@ flowchart TD
 | Check / start / wait for exit | `running`, `start`, `monitor` | Same async names |
 | Stop or signal | `destroy`, `signal` | Same async names |
 | Set idle timeout | `set_inactivity_timeout(ms)` | `setInactivityTimeout(ms)` |
+| Binary files / metadata | `read_file`, `write_file`, `stat_file`, `list_files` | `readFile`, `writeFile`, `statFile`, `listFiles` |
 | Interactive process I/O | `exec(cmd)` | `exec({ cmd })` |
 | Bounded stdout + stderr | `exec_output(cmd, max_bytes=n)` | `execOutput({ cmd }, n)` |
 | Port readiness / buffered HTTP | `port(n).wait_ready` / `.fetch` | `port(n).waitReady` / `.fetch` |

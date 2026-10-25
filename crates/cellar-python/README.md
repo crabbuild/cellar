@@ -47,7 +47,8 @@ and application-authored `wait_until` are outside its current SDK contract.
 ## Cell-owned Docker and Podman containers
 
 Root cells with a declared container image can use `ctx.container` for lifecycle,
-exec, port readiness, buffered HTTP, TCP and event-owned WebSockets. The methods
+exec, binary files/metadata, port readiness, buffered HTTP, TCP and event-owned
+WebSockets. The methods
 call the same Rust SDK as native applications, retaining ownership checks,
 durability gates, cancellation and byte limits. The host needs a configured
 Docker-compatible engine; CPython itself still runs in the native host.
@@ -57,6 +58,11 @@ for configuration, Python examples, interactive exec, lifetime rules and the
 comparison with celld. `ContainerExecOutput.stdout` and `.stderr` are bytes;
 `ContainerWebSocket.receive()` returns typed-by-tag dictionaries with binary
 `data` as bytes. Reacquire container facades for every invocation.
+
+`read_file` / `write_file` preserve binary content; `stat_file` returns frozen
+`ContainerFileMetadata` and `list_files` returns a tuple. See the
+[file guide](../cellar-container/files.md) for path rules, bounds and the
+container filesystem's durability limits.
 
 ## Write a Python application
 
