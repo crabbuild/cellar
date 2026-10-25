@@ -126,6 +126,23 @@ These limits bound descriptor inventory work and do not establish an aggregate
 runtime RSS limit.
 The Counter and portable-profile fixtures retain their exact artifact identity.
 
+### Protobuf field JSON names
+
+The shared validator checks two field-name namespaces in each message, following
+the [pinned compiler's checks](https://github.com/protocolbuffers/protobuf/blob/v34.0/src/google/protobuf/descriptor.cc#L6422):
+
+| Namespace | Rule | Refused example |
+| --- | --- | --- |
+| Default JSON spelling | Remove underscores and capitalize the next character; preserve existing capitals | `foo_bar` and `fooBar` both become `fooBar` |
+| Effective JSON spelling | Use explicit `json_name` when present, otherwise the default spelling | `first [json_name = "second"]` and `second` collide |
+
+Distinct custom overrides cannot rescue conflicting default names: field masks
+still use the defaults. Names are case-sensitive and scoped to their message.
+Custom names may be empty or contain Unicode and spaces; embedded NUL characters
+and names enclosed in `[...]` are refused. Valid metadata stays in the artifact
+unchanged. These descriptor checks also apply to binary RPC contracts and run
+before output creation or language compiler invocation.
+
 ## Generated language APIs
 
 JavaScript output includes `.js` and `.d.ts`; TypeScript output includes message

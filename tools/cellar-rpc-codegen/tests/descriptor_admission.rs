@@ -223,6 +223,37 @@ fn invalid_contracts_never_create_or_overwrite_generated_output() {
     future.extend(future_file);
     inputs.push((future, "unsupported RPC descriptor field"));
 
+    for (fields, expected) in [
+        (
+            vec![("foo_bar", None), ("fooBar", None)],
+            "duplicate default RPC JSON field name",
+        ),
+        (
+            vec![("first", Some("same")), ("second", Some("same"))],
+            "duplicate effective RPC JSON field name",
+        ),
+        (vec![("first", Some("a\0b"))], "invalid RPC JSON field name"),
+        (
+            vec![("first", Some("[test.field]"))],
+            "invalid RPC JSON field name",
+        ),
+    ] {
+        let mut set = descriptor();
+        set.file[0].message_type[0].field = fields
+            .into_iter()
+            .enumerate()
+            .map(|(index, (name, json_name))| FieldDescriptorProto {
+                name: Some(name.into()),
+                number: Some(i32::try_from(index + 1).unwrap()),
+                label: Some(Label::Optional as i32),
+                r#type: Some(Type::String as i32),
+                json_name: json_name.map(str::to_owned),
+                ..Default::default()
+            })
+            .collect();
+        inputs.push((set.encode_to_vec(), expected));
+    }
+
     for (descriptor, expected) in inputs {
         let scratch = Scratch::new();
         let input = scratch.0.join("input.binpb");

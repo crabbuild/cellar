@@ -6,7 +6,10 @@ use prost_types::{
     field_descriptor_proto::{Label, Type},
     DescriptorProto, EnumDescriptorProto, FieldDescriptorProto,
 };
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    borrow::Cow,
+    collections::{BTreeMap, BTreeSet},
+};
 
 use super::contract::valid_identifier;
 
@@ -20,6 +23,7 @@ pub(super) fn messages(messages: &BTreeMap<String, &DescriptorProto>) -> Result<
                 .is_some_and(|options| options.message_set_wire_format()),
             "RPC MessageSet wire format is unsupported in proto3"
         );
+        json_names(message).with_context(|| format!("invalid RPC JSON names in {name}"))?;
         oneofs(message).with_context(|| format!("invalid RPC oneofs in {name}"))?;
         reserved_fields(message).with_context(|| format!("invalid RPC reservations in {name}"))?;
         for field in &message.field {
@@ -51,6 +55,60 @@ pub(super) fn is_map(message: &DescriptorProto) -> bool {
         .options
         .as_ref()
         .is_some_and(|options| options.map_entry())
+}
+
+fn json_names(message: &DescriptorProto) -> Result<()> {
+    for name in message
+        .field
+        .iter()
+        .filter_map(|field| field.json_name.as_deref())
+    {
+        ensure!(
+            !name.contains('\0') && !(name.starts_with('[') && name.ends_with(']')),
+            "invalid RPC JSON field name"
+        );
+    }
+    // Protobuf checks both namespaces. Custom names cannot hide a collision
+    // between the default spellings used by field masks. Each pass retains at
+    // most one name per field; explicit names borrow the decoded descriptor.
+    for custom in [false, true] {
+        let mut names = BTreeSet::new();
+        for field in &message.field {
+            let field_name = field.name.as_deref().context("unnamed RPC field")?;
+            let name = field
+                .json_name
+                .as_deref()
+                .filter(|_| custom)
+                .map(Cow::Borrowed)
+                .unwrap_or_else(|| Cow::Owned(default_json_name(field_name)));
+            ensure!(
+                names.insert(name),
+                "duplicate {} RPC JSON field name",
+                if custom { "effective" } else { "default" }
+            );
+        }
+    }
+    Ok(())
+}
+
+fn default_json_name(name: &str) -> String {
+    let mut result = String::with_capacity(name.len());
+    let mut uppercase = false;
+    // This is Protobuf's JSON spelling, not a general camel-case conversion:
+    // preserve existing capitals and capitalize after every underscore.
+    for character in name.chars() {
+        if character == '_' {
+            uppercase = true;
+        } else {
+            result.push(if uppercase {
+                character.to_ascii_uppercase()
+            } else {
+                character
+            });
+            uppercase = false;
+        }
+    }
+    result
 }
 
 fn oneofs(message: &DescriptorProto) -> Result<()> {

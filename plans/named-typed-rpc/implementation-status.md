@@ -17,7 +17,7 @@ does not close schema, resource, packaging or performance requirements.
 
 | Priority | Remaining gap | Deliverable / completion evidence |
 | --- | --- | --- |
-| P0 — hosted verification | Remaining broad SDK gates | On `cca43191`, Linux lifecycle and JS/Node CI pass. Both GIL/free-threaded durable-agent examples and the GIL FastAPI job pass; free-threaded FastAPI remains in progress. Both SDK jobs pass embedded-adapter, baseline and loaded-ABI checks; packaging and broad checks remain in progress. The descriptor admission follow-up requires fresh hosted verification. The earlier 696-case report is historical evidence, not a rerun of the changed validator. |
+| P0 — hosted verification | Remaining broad SDK gates | On `2f4d7ae5`, lifecycle CI passes. JS/Node and both SDK jobs remain in progress; the SDK jobs reach embedded Python packaging. The JSON-name follow-up requires fresh hosted verification. The earlier 696-case report is historical evidence, not a rerun of the changed validator. |
 | P0 | Python deadline and regression timing | Direct queue admission has a controlled reporting-delay regression. The codec decoder probe now has a separate read-only activation and a slow-constructor regression under unchanged budgets. A fresh full SDK run still reproduces the streaming 250 ms failure; live counters point to the native cold-cell path. Passing traced retries do not close that intermittent failure or establish the historical CI cause. |
 | P0 | Remaining lifecycle and peer/admission provenance | Preserve whole-call budgets, 55 deadline cases, 128 proof-wait cases, 80 cycle cases, 96 provenance cases and 96 Node/V8 lifecycle cases. The Python follow-up covers cooperative cancellation suppression, forced host cutoff and persistent suppression with process supervision. Next close forced guest peer retries and broader call-local peer/admission evidence. Retain incomplete-shutdown failures while guest work remains, expired authority, zero native reservations and receipt-safe recovery. |
 | P0 | Resource bounds and parser correctness | Raw descriptor admission now bounds allocations/work before decoding, rejects unresolved/unknown attributes and enforces the pinned declaration depth. Message definitions borrow the decoded tree instead of cloning nested subtrees. Canonical artifacts and real runtime checks pass. Close remaining semantic conformance; audit effective method/runtime/host/peer minima, retained binary copies and decoder allocations; demonstrate bounded queues, reservations and memory under saturation, flood and disconnect. |
@@ -48,7 +48,7 @@ Counter fixture alone is not the highest-priority deliverable now.
 | --- | --- |
 | Typed APIs and runnable examples in Rust, JS, TS and Python | Generated APIs and runnable qualification fixtures implemented; strict TS/Python API checks pass; published example packaging remains |
 | Descriptor/profile validation and exact artifact identity | Implementation under test |
-| Complete malformed-descriptor semantic checks before invoking message generators | Partial; global symbols, import graph/visibility/indexes, expanded-name budgets, map ownership/shape/key types, synthetic oneofs, enum aliases/reservations and field reservations/packing have adversarial tests; remaining option/schema semantics stay open |
+| Complete malformed-descriptor semantic checks before invoking message generators | Partial; global symbols, import graph/visibility/indexes, expanded-name budgets, map ownership/shape/key types, synthetic oneofs, enum aliases/reservations, field reservations/packing and both JSON-name namespaces have adversarial tests; remaining option/schema semantics stay open |
 | Explicit registration, full method validation and RPC-only cells | Implementation under test |
 | Live language codec identity against the native artifact | JS/Python provider readiness and client pre-encode checks implemented and tested, including recursive/map/well-known types; static binding/package verification remains |
 | Bounded request/response codec and binary bridge accounting | Native wire checks and raw attachments implemented; exact retained-copy accounting and saturation qualification remain |
@@ -65,7 +65,7 @@ Counter fixture alone is not the highest-priority deliverable now.
 | Atomic Counter receipts, exact 64-bit state and retry window | All 16 pairs pass local/remote/handoff, receipt races, owner fences and separate-process kills before handlers, inside count/receipt transactions and after synced handlers; broader recovery and interpreter modes remain |
 | Existing HTTP/lifecycle/untyped RPC regressions | V8/Node real-host HTTP restart and runtime lifecycle tests pass; full T19 remains open |
 | T01-T19 from plan 009 | All remain open until their actual boundary is verified |
-| Standard format/layout/dependency/docs checks and affected tests/Clippy | The current storage change passes its public Cargo regression, targeted Clippy, format/layout, docs and engine-free dependency checks. All 696 combined cases and 32 concurrent diagnostic rounds pass; hosted and broader regression qualification remain open |
+| Standard format/layout/dependency/docs checks and affected tests/Clippy | The JSON-name follow-up passes core/codegen, selected native and V8/Node/Python typed-RPC tests, affected Clippy and standard checks. The earlier 696-case report and concurrent diagnostic rounds remain historical evidence; hosted and broader regression qualification remain open |
 | Generated output reproducibility and frozen dependency inventories | Counter/profile reproduce 24 artifacts; tool versions locked; clean-machine/CI inventory verification remains |
 | Throughput, latency, durable TPS, memory and recovery report | Pending |
 
@@ -73,6 +73,37 @@ Do not mark the goal complete from native unit tests or a subset of backend
 pairs. Preserve the full test matrix, failures and remaining work across turns.
 
 ## Current evidence
+
+- **Shared descriptor admission now validates Protobuf JSON field names.**
+  A 116-case comparison against pinned `protoc` 34.0 finds 23 invalid schemas
+  accepted by the previous native validator. The new validator agrees on all
+  116 cases: 93 accepted, 23 refused, zero mismatches. It checks default names
+  and effective custom names independently within each message; custom
+  overrides cannot conceal a default-name conflict. Embedded NUL characters
+  and extension-like bracketed names are refused. Case-sensitive, empty,
+  Unicode and space-containing custom names remain valid metadata. Native
+  wire behavior and canonical artifact identity remain intact.
+- The corrected controlled baseline passes the legal-name test and fails all
+  three refusal tests; all four pass after the implementation. The initial
+  positive identity fixture compared raw dependency-first file ordering with
+  canonical sorted ordering; the fixture now starts in canonical order and
+  retains strict byte equality. Both red logs are preserved. Six old-generator
+  absent/existing-output probes create or overwrite output before compiler
+  failure; all six now refuse without changing output. The public generator
+  suite additionally covers four JSON-name refusal variants across absent
+  and existing output with no compilers on PATH.
+- All **57 core RPC unit tests**, nine codegen unit tests, three generator
+  integration tests, 14 selected native integration tests, both V8/Node typed
+  tests and Python typed-RPC normal/slow-constructor profiles pass. Core
+  library/test Clippy, codegen all-target Clippy and standard format/layout,
+  documentation and engine-free dependency checks pass. All 24 Counter/profile
+  artifacts reproduce byte-for-byte. Exact compiler/input/binary hashes,
+  differential and output-preservation results and validation-log hashes are
+  retained under ignored `.cellar/rpc/json-name-baseline/`; stage commands and
+  results are in `.cellar/rpc/json-names-validation-status.json`. This finite
+  naming corpus does not close other descriptor semantics, full-profile
+  business calls across all pairs, effective limit/copy accounting, saturation,
+  packaging or the historical intermittent startup/connection failures.
 
 - **Descriptor admission now precedes allocating decoder collections.**
   Six new tests fail on the old implementation: file/field/source-metadata
