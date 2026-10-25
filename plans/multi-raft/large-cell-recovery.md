@@ -79,8 +79,13 @@ cargo test --locked --release -p cellar --test native_raft_large_images full_cap
 These runs use separate random `full-capacity-qualification/` bucket prefixes,
 preserve their objects for inspection, and report stage times. Both use the real
 S3 store for background archives; an in-process store would retain large object
-payloads in memory. They currently stop the owner service and restart workers;
-full-size abrupt process/power-loss qualification remains separate.
+payloads in memory. They cancel and join the owner execution domain before
+erasing its complete local data directory. The empty replacement must restore,
+promote through quorum-authorized repair, accept leadership and execute a new
+command. It restarts before its peers for a local historical read; after quorum
+returns it must reconcile an old receipt, execute a new command locally and
+return that new receipt without another callback. Full-size abrupt OS-process
+and power-loss qualification remains separate.
 
 ## Cloudflare storage parity target
 

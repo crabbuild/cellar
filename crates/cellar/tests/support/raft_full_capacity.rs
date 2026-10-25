@@ -797,7 +797,7 @@ async fn drill(
         .command(
             definitions[3].increment.clone(),
             0_u64.to_be_bytes().to_vec(),
-            second_options,
+            second_options.clone(),
         )
         .await?;
     // A reconstructed receipt retains its original result while its token may
@@ -822,6 +822,8 @@ async fn drill(
     let contract = definitions[3].get.clone();
     let namespace_id = namespace.namespace;
     let cell = registration.birth.scope.cell.clone();
+    let restart_cell = cell.clone();
+    let restart_samples = samples.clone();
     let verify_contract = definitions[3].get.clone();
     cluster = cluster
         .restart(
@@ -835,7 +837,7 @@ async fn drill(
             ],
             Box::new(move |service| {
                 Box::pin(async move {
-                    let handle = service.cell(namespace_id, &cell)?;
+                    let handle = service.cell(namespace_id, &restart_cell)?;
                     let local = read(
                         &handle,
                         contract,
@@ -850,7 +852,7 @@ async fn drill(
                         verify_contract,
                         12,
                         payload_bytes,
-                        &samples,
+                        &restart_samples,
                         QueryConsistency::Stale,
                         MemberId::new(4)?,
                     )
@@ -860,6 +862,90 @@ async fn drill(
             }),
         )
         .await?;
+    let restarted_handles = cluster
+        .services
+        .iter()
+        .map(|service| service.cell(namespace_id, &cell))
+        .collect::<Result<Vec<_>, _>>()?;
+    let restored = restarted_handles.last().context("restarted replacement")?;
+    let elected = ready(&restarted_handles, None).await?;
+    if elected + 1 != restarted_handles.len() {
+        let status = restarted_handles[elected].status().await?;
+        restarted_handles[elected]
+            .transfer_leadership(
+                LeadershipTransfer {
+                    target: target.member,
+                    expected_term: status.term,
+                    expected_revision: status.membership_revision,
+                },
+                Duration::from_secs(60),
+            )
+            .await?;
+    }
+    ready(std::slice::from_ref(restored), None).await?;
+    // A successful historical read alone does not prove that restarted receipt
+    // lookup and private-writer reconstruction preserve native serving behavior.
+    let retained = restored
+        .command(
+            definitions[3].increment.clone(),
+            0_u64.to_be_bytes().to_vec(),
+            second_options,
+        )
+        .await?;
+    ensure!(retained.result == second.result && retained.id == second.id);
+    ensure!(retained.durability == second.durability);
+    ensure!(retained
+        .version
+        .covers(&second.version)
+        .is_ok_and(|covers| covers));
+    ensure!(
+        calls
+            .iter()
+            .map(|c| c.load(Ordering::SeqCst))
+            .sum::<usize>()
+            == 6
+    );
+    let restart_write = std::time::Instant::now();
+    let restarted_options = command_options(2, 4)?;
+    let written = restored
+        .command(
+            definitions[3].increment.clone(),
+            0_u64.to_be_bytes().to_vec(),
+            restarted_options.clone(),
+        )
+        .await?;
+    ensure!(written.result == 13_u64.to_be_bytes());
+    eprintln!(
+        "full-native stage=restart-first-write duration_s={:.3}",
+        restart_write.elapsed().as_secs_f64()
+    );
+    verify_payloads(
+        restored,
+        definitions[3].get.clone(),
+        13,
+        payload_bytes,
+        &samples,
+        QueryConsistency::AtLeast(written.version_token),
+        target.member,
+    )
+    .await?;
+    let retried = restored
+        .command(
+            definitions[3].increment.clone(),
+            0_u64.to_be_bytes().to_vec(),
+            restarted_options,
+        )
+        .await?;
+    ensure!(retried.result == written.result && retried.version == written.version);
+    ensure!(retried.id == written.id && retried.durability == written.durability);
+    ensure!(calls[3].load(Ordering::SeqCst) == 2);
+    ensure!(
+        calls
+            .iter()
+            .map(|c| c.load(Ordering::SeqCst))
+            .sum::<usize>()
+            == 7
+    );
     eprintln!(
         "full-native stage=restart-verified elapsed_s={:.3}",
         started.elapsed().as_secs_f64()

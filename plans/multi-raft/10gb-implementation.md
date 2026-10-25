@@ -183,6 +183,16 @@ work. The architecture and product policy are in
   identified read-side I/O stall does not establish that every intermittent
   lease expiry has the same cause; Linux CI qualification remains pending.
 
+## Restart serving qualification
+
+The full-capacity fixture now checks serving after restart as well as historical
+reads. Once quorum returns, it transfers leadership to the restored replacement,
+reconciles a pre-restart receipt without another callback, executes a new command
+locally, verifies payload hashes at the resulting version and retries that new
+command without another callback. Both small peer/S3-route drills pass with these
+assertions (24.38 seconds total). The strengthened full-size runs remain pending;
+this small-fixture result does not qualify 10 GB restart serving or fast recovery.
+
 ## Remaining work
 
 The completion checklist remains open. Full native 10 GB warm takeover, exact
