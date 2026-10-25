@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "revision": "f130ed3ef58f05d3423a00d88d850af9c3d47fe7",
+  "revision": "f06b286edbeb6285001bc75b5ecc32edd68ba779",
   "files": [
     {
       "path": ".github/workflows/native-sdk.yml",
@@ -48,11 +48,11 @@
     },
     {
       "path": "crates/cellar/application/consensus/mod.rs",
-      "sha256": "d4d4874667e8c9456d67a67ddb85003498547125d42267e6f42398cb43af3b8b"
+      "sha256": "a124343f1e21856ed8ecb90066f67463afe4d6963609d96506f61a120cf08f0e"
     },
     {
       "path": "crates/cellar/application/consensus/protocol.rs",
-      "sha256": "77c73f6173577e2a2b028940564467c58c3fd152b1b244fdc31530b903756cc1"
+      "sha256": "d6ec76ca73681aa1f4b44a77eaba8dd07570e344bf844ac038662582132b8624"
     },
     {
       "path": "crates/cellar/application/consensus/resources.rs",
@@ -64,7 +64,7 @@
     },
     {
       "path": "crates/cellar/durability/raft/README.md",
-      "sha256": "740a3e4a7f2dc31c01d85d740327cbcd0891f18e275f1de9c3fa760243fc5fa8"
+      "sha256": "25809daf0c88a13c3f4cbd4541c87327ccad341bbe5a16ab5d00ed7b873ee9d0"
     },
     {
       "path": "crates/cellar/durability/raft/archive/mod.rs",
@@ -84,7 +84,7 @@
     },
     {
       "path": "crates/cellar/durability/raft/catalog_wire.rs",
-      "sha256": "3132e0a754ce87e291a7c2d36c158239575c61868c5c8853a7d2bdd4ede39bfb"
+      "sha256": "2962fd1105353740dacd3af30c79b4d1bb1be3493c41acee589f7b4be43e8bff"
     },
     {
       "path": "crates/cellar/durability/raft/controller_action.rs",
@@ -108,7 +108,7 @@
     },
     {
       "path": "crates/cellar/durability/raft/host_directory.rs",
-      "sha256": "875c3842aed913831cc61d0c4a8a1d199356f5802351abdb063244e6e515d952"
+      "sha256": "d4f422c3f2871814b907c3f11aa0cce0cfea11587e188e742fbf6a604ff21c0f"
     },
     {
       "path": "crates/cellar/durability/raft/host_drain.rs",
@@ -220,7 +220,7 @@
     },
     {
       "path": "crates/cellar/durability/raft/transport_directory.rs",
-      "sha256": "d04de2a1e628feb8170b6e59e00d9432177b163084908783b23704a7fe322dc7"
+      "sha256": "e9c4c3934057a9be1f605989d94fd994a79c19fde929a5e05a6299766f8a1605"
     },
     {
       "path": "crates/cellar/durability/raft/transport_directory_tests.rs",

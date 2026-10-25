@@ -1399,6 +1399,83 @@ FO-04 through FO-10 are pending. This increment changes no existing protocol
 suffix and claims no startup fix, RustFS deployment, enforced resource tier,
 automation, TPS/latency gain or soak qualification.
 
+## FO-03 progress: rooted boots and Finalizing fence
+
+Source `f06b286edbeb6285001bc75b5ecc32edd68ba779` orders every managed boot, including intact restart,
+against Finalizing through a root CAS before endpoint publication. A boot claim
+binds its nonce, process, permanent engine pin and original node epoch to the
+canonical request and permanent journal. Ordinary state changes retain that
+claim; a newer admitted boot invalidates older candidates and running-host
+credentials. Concurrent startup CAS conflicts fail cleanly; owned controller
+reconciliation remains pending.
+
+`FleetEvacuationCandidate::begin_finalization` rechecks complete inventory and
+the active disruption, owns an authenticated probe of the exact departing
+process, then atomically roots its canonical Finalizing projection and higher
+node epoch. The original deadline is checked immediately before head CAS.
+Exact committed retries reconcile without live inputs, including after adapter
+recreation. Reusing an identity with different inputs refuses. The disruption
+slot remains held and the process remains owned; this observation grants no
+physical stop, terminal removal, capacity release or volume deletion authority.
+
+Five new native cases cover retained boot identity across state changes, fresh
+inventory/probe admission, lost replies and exact retries, actual intact-engine
+boot refusal after Finalizing, invalidation by an admitted restart, and a held
+finalization CAS losing to a real concurrent restart through a separate adapter.
+The original owner joins before each retained engine is reopened. Survivor S3
+writes and scratch/owner cleanup remain asserted.
+
+Broader qualification exposed a restart liveness bug: a rooted boot refresh
+removed old physical pools, while directory discovery recreated only pools still
+present. The corrected path recreates pools for retained group/query obligations
+and refreshes the same logical grants after verified discovery. It rejects old
+views, preserves membership/grant revisions, avoids pools for empty discovery
+and retains final Removed revocation. A new transport regression covers that
+boundary. Controlled TLS sinks now obtain a real rooted boot and retain its exact
+published view; attempting a second publication under one process correctly
+refuses. Intact restart now asserts exactly one additional root revision and
+node epoch, while retaining engine identity. No assertion or deadline was weakened.
+
+Frozen-source verification passed **396 native Raft cases across 13 targets**,
+**153 Raft unit cases**, **12 RPC cases** and **four startup-confirmation cases**.
+The managed enrollment target passed all 88 cases. Five helper cases remain
+ignored in direct listings and are not included in those passed-case totals.
+Clippy for the library and selected targets passed with warnings denied, as did
+formatting/layout over 1,101 Rust files, native dependencies (465 packages, no
+JavaScript engine), documentation, plan validation and its ten validator tests.
+The plan retains **204 required cases and 74 reviewed source anchors**.
+
+A final test-import scope correction required rerunning enrollment. Rebuilding
+all selected targets confirmed that every other executable was byte-identical
+to the passing broad run. The qualification record retains 35 actual executables
+(18 test executables), their hashes, both source manifests and the linked result
+ledgers. All 1,173 Rust files and 21 Cargo/configuration inputs match the committed
+Git blobs. The combined audit contains 46 passing stages and still identifies
+only `fleet_enrollment_incomplete_import` as missing at the actual terminal
+removal boundary. This is functional qualification against conditional in-memory
+storage, native TLS and actual filesystem/SQLite, not deployed capacity proof.
+
+Initial fixture/codec failures and the failed broad qualification attempts remain
+retained. The first broad run stopped after its current native target joined;
+the next run passed 86 enrollment cases but refused two reused-process fixture
+publications. Those failures are not counted as passes. The final run uses the
+corrected frozen source and independently retained actual executables.
+
+The partial record is `implementation/fo03/finalization-fence-boundary.json`
+under ignored `.cellar/raft-perf/fleet-operations/`. No raw evidence is tracked
+under `plans/multi-raft/evidence/`. Node records require explicit nullable `boot`,
+and the experimental protocol now ends in `/archive-cuts-1/fleet-finalization-1`.
+The immediately preceding protocol is explicitly refused. Numeric markers remain
+1; use fresh prefixes/namespaces and matching binaries, without a migration or
+compatibility reader.
+
+FO-03 remains **IN_PROGRESS**. Physical stop/join fencing, restart-safe resumption
+while Finalizing, fresh terminal survivor checks, atomic terminal receipt/slot
+release and capacity readiness remain required. The terminal
+`fleet_enrollment_incomplete_import` case is still absent. FO-04 through FO-10
+remain pending; this increment establishes no deployed RustFS/Colima capacity,
+TPS/latency improvement, automation or soak qualification.
+
 ## Prioritized remaining delivery
 
 The append-only namespace registry, complete inventory read, native retired-binding
