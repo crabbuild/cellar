@@ -25,6 +25,7 @@ pub mod compactor;
 pub mod db;
 pub mod error;
 mod extent_file;
+mod extent_image;
 mod extent_tree;
 pub mod generation;
 mod generation_accounting;
@@ -48,6 +49,9 @@ pub mod wal;
 pub mod internal {
     pub use crate::db::internal as db;
     pub use crate::extent_file::{ExtentDownload, ExtentFile};
+    pub use crate::extent_image::{
+        open_extent_image, CacheLimits, CacheUsage, ExtentImage, ExtentSource,
+    };
     pub use crate::extent_tree::{
         ExtentId, ExtentManifest, Geometry, ImageBinding, ImageRoot, RootError, EXTENT_BYTES,
     };

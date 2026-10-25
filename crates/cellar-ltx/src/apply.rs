@@ -476,17 +476,25 @@ pub(crate) fn inspect(
 }
 
 pub(crate) fn validate_sqlite_header(bytes: &[u8], state: &ImageState) -> Result<(), ApplyError> {
+    validate_sqlite_geometry(bytes, state.page_size, state.length)
+}
+
+pub(crate) fn validate_sqlite_geometry(
+    bytes: &[u8],
+    page_size: u32,
+    length: u64,
+) -> Result<(), ApplyError> {
     if bytes.len() < 100 || &bytes[..16] != b"SQLite format 3\0" {
         return Err(ApplyError::Geometry);
     }
     let encoded = u16::from_be_bytes([bytes[16], bytes[17]]);
     let size = if encoded == 1 { 65_536 } else { encoded as u32 };
-    if size != state.page_size {
+    if size != page_size {
         return Err(ApplyError::Geometry);
     }
     if bytes[24..28] == bytes[92..96] {
         let pages = u32::from_be_bytes(bytes[28..32].try_into().map_err(|_| ApplyError::Geometry)?);
-        if pages as u64 * state.page_size as u64 != state.length {
+        if pages as u64 * page_size as u64 != length {
             return Err(ApplyError::Geometry);
         }
     }

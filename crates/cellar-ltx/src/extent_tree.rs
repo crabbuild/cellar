@@ -34,7 +34,7 @@ pub enum RootError {
 }
 
 /// Content identity of one nonempty extent. Its length is included in the hash.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ExtentId {
     digest: [u8; 32],
     length: u32,

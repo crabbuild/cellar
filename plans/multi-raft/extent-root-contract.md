@@ -4,9 +4,10 @@
 
 This is an implementation building block for
 [large-cell recovery](large-cell-recovery.md), exposed through the unstable LTX
-verification API. It is not connected to native command execution, generation
-publication, archive storage or demand loading yet. Existing full-image digest
-checks remain unchanged. Passing these tests does not qualify fast recovery.
+verification API. It now provides verified demand reads for actual SQLite.
+Native command execution, generation publication and archive recovery are not
+connected to this path yet. Existing full-image digest checks remain unchanged.
+Passing these component tests does not qualify fast native recovery.
 
 ## Identities and bounds
 
@@ -138,9 +139,61 @@ Observation is neither destination sealing nor publication authority. A future
 native generation owner must provide an authenticated initial base for demand
 reads without rescanning a new cold writer. Its checkpoint protocol must preserve
 incremental continuity; the conservative reset fallback above still scans the
-image. Resident extent admission/eviction, authenticated object-store extent
-placement and demand reads remain required. Execution, envelopes, generation markers, snapshots and
+image. Persistent extent inventory and authenticated object-store extent
+placement remain required. Execution, envelopes, generation markers, snapshots and
 archives must switch together. The current anonymous file owner is disposable
 data material, not a persistent cell generation or admission proof. A Merkle root
 must never be relabeled as the existing flat SHA-256 to avoid that coordinated
 change. None of this prototype is connected to native recovery yet.
+
+## Verified demand reads through SQLite
+
+`internal::ExtentImage` combines one immutable authenticated manifest with a
+blocking extent source and a bounded, replaceable cache. The source retains the
+selected root's dependency closure. It receives an already admitted
+`ExtentDownload`, so source code cannot omit shared scratch reservation,
+independent destination verification or sync. All append/read/hash buffers stay
+within 64 KiB. Only a complete verified extent becomes a cached reader.
+
+Cache byte/file limits are separate from the shared pool's physical bounds.
+Eviction drops physical owners outside the cache mutex before trying to spend
+their capacity on a new miss. Concurrent reads/downloads retain their actual
+file charges until the last owner closes; logical eviction cannot refund those
+charges. No cache lock crosses source I/O, verification or sync. Duplicate
+concurrent misses may temporarily consume separate admitted files; the pool
+refuses excess work instead of exceeding its physical bound. Content identities
+deduplicate repeated extents without changing their manifest positions.
+
+The first extent must match SQLite's page geometry. A fetched extent containing
+the reserved lock page must carry canonical zeros, even when the requested range
+does not overlap that page. Missing, corrupt, incomplete or failed data produces
+an error rather than zero-filled database pages. Eviction leaves the selected
+root unchanged and a later miss fetches the same identities.
+
+`internal::open_extent_image` uses the same bounded read-only SQLite VFS as
+materialized generation pins. Both paths retain their physical owners through
+the connection and all open files; the existing slot, filename, sidecar and
+read-only gates remain in place. The new source must run on the owning SQL/
+blocking domain. It is not a global asynchronous network adapter or a native
+serving/admission decision.
+
+Ten component tests use real SQLite files and a one-extent cache. Opening and
+reading the same counter from 8 and 40 MiB of payload fetches just one 4 MiB
+extent. Cross-extent reads, broad SQLite integrity checking, cache loss/refetch,
+read-only enforcement and owner lifetimes work across 512/4,096/65,536-byte
+pages. Faults cover missing, truncated, corrupt and partially failed source I/O,
+independent destination corruption, source panics, quota refusal before source
+I/O, and held/cancelled source work through joined destruction. Separate
+synthetic cases cover lock-page geometry and content deduplication; they do not
+claim a physical GiB-scale image or full-size recovery qualification.
+
+Durable root inventory, archive/peer placement and retention, authenticated cold
+writer bases, incremental checkpoint continuity and native installation gates
+still require integration. Anonymous cache files must never become the only
+copy of committed state. This component does not close R7 by itself.
+
+The current owning scope passes all 60 ordinary LTX integration cases and the
+49 native LTX/read regressions after sharing the VFS boundary. Three child/
+qualification entries remain ignored by these invocations. Rust 1.98.1 LTX
+all-target Clippy with warnings denied, formatting/layout (1,047 Rust files),
+the 465-package native dependency graph and local documentation checks pass.

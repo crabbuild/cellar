@@ -209,6 +209,18 @@ The host's `cellar::storage::open_immutable_generation` adds its SQL limits and
 read authorizer without initializing framework tables. Query registration and
 Raft publication authority remain the host's responsibility.
 
+The unstable verification API also provides `ExtentImage` and
+`open_extent_image` for actual SQLite reads over an authenticated extent root.
+It shares this read-only VFS, fetching, independently verifying and caching only
+the extents needed by each read. Cache byte/file limits and a shared scratch
+pool bound retained and in-flight files separately. Eviction keeps the root
+fixed; live reads retain their physical files and charges. Sources execute on
+the owning blocking domain and append through an already admitted download.
+The caller must authenticate the manifest and retain its dependency closure.
+This is a data-access component, not native recovery or publication authority;
+durable inventory and native command/archive integration remain open. See the
+[extent image contract](../../plans/multi-raft/extent-root-contract.md).
+
 Run `cargo test -p cellar --test native_raft_ltx --locked -- --test-threads=1`
 for real SQLite images, checksum/chain corruption, retained readers, injected
 I/O failures and process-kill publication cuts. Those cuts use a fixture marker;
