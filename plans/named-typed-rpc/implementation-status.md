@@ -72,6 +72,18 @@ pairs. Preserve the full test matrix, failures and remaining work across turns.
 
 ## Current evidence
 
+- Main's streaming-example commit `9f8de83e` (#118) is integrated at `7f6d66ed`.
+  It adds examples, documentation and binary registrations; RPC source, SDK code
+  and lockfile inputs are unchanged from the 600-case implementation below.
+  On the merged tree, combined adapter/qualifier all-target Clippy, all 29
+  qualifier unit tests, the rebuilt executable and streaming JS/TS builds pass.
+  Fresh `worker-failure-smoke` and `worker-shutdown-smoke` runs pass, including
+  physical cleanup, unknown effects and cold receipt recovery. Reports are
+  `.cellar/rpc/worker-main-failure-smoke.json` and
+  `.cellar/rpc/worker-main-shutdown-smoke.json`. Format/layout check 1,005 Rust
+  files, docs validate 746 local references and the native-only graph remains
+  engine-free at 465 packages. The full 600-case run is tied to `e27ba6dd` below;
+  it was not repeated for this examples-only merge.
 - Owned Node lifecycle qualification adds 16 worker-SIGKILL cases and 32 active
   host-shutdown cases: four real caller backends, local/signed-peer routing,
   before/after sync, and graceful/forced shutdown. A disposable provider uses a
